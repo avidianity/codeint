@@ -51,6 +51,7 @@ pub enum FindingsShown {
 pub enum ReportFormat {
     Toon,
     Json,
+    Markdown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

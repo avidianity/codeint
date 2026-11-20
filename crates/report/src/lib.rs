@@ -11,6 +11,7 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+mod markdown;
 #[cfg(test)]
 mod tests;
 
@@ -507,6 +508,7 @@ impl Report {
         match format {
             ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
             ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            ReportFormat::Markdown => Ok(markdown::render(self)),
         }
     }
 }
