@@ -30,7 +30,11 @@ pub enum GitError {
     #[error("cannot list the files of the working tree")]
     Walk(#[source] gix::Error),
     #[error("a working tree path is not valid UTF-8: {path}")]
-    NonUtf8Path { path: String },
+    NonUtf8Path {
+        path: String,
+        #[source]
+        source: std::string::FromUtf8Error,
+    },
     #[error(transparent)]
     InvalidPath(#[from] InvalidRepoPath),
     #[error("cannot read {path}")]
@@ -326,8 +330,9 @@ fn list_commit(
 }
 
 fn repo_path(rela_path: gix::bstr::BString) -> Result<RepoPath, GitError> {
-    let path = String::from_utf8(rela_path.into()).map_err(|error| GitError::NonUtf8Path {
-        path: String::from_utf8_lossy(error.as_bytes()).into_owned(),
+    let path = String::from_utf8(rela_path.into()).map_err(|source| GitError::NonUtf8Path {
+        path: String::from_utf8_lossy(source.as_bytes()).into_owned(),
+        source,
     })?;
     Ok(RepoPath::new(path)?)
 }
