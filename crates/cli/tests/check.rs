@@ -678,6 +678,102 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
 }
 
 #[test]
+fn a_file_under_a_vendor_or_third_party_folder_at_any_depth_is_vendored() {
+    let repository = Repository::new();
+    for path in [
+        "vendor/left-pad.js",
+        "vendor/lodash/lib/chunk.ts",
+        "packages/app/vendor/deep/a/b/c/d.ts",
+        "third_party/parser.ts",
+        "packages/app/third_party/zlib/inflate.mjs",
+        "vendor/lodash/chunk.test.ts",
+        "vendor/__tests__/setup.ts",
+    ] {
+        repository.write(path, "export const vendored = 1;\n");
+    }
+    for path in [
+        "src/vendor.ts",
+        "src/third_party.ts",
+        "vendors/lib.ts",
+        "src/my_vendor/lib.ts",
+        "src/third-party/lib.ts",
+        "src/Vendor/lib.ts",
+    ] {
+        repository.write(path, "export const own = 1;\nexport const code = 2;\n");
+    }
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 6 source_lines: 12",
+            "vendored: files: 7 source_lines: 7",
+        ]
+    );
+}
+
+fn source_set_report(output: &Output, source_set: &str) -> String {
+    let heading = format!("  {source_set}:");
+    stdout(output)
+        .lines()
+        .skip_while(|line| *line != heading)
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || indent(line) > 2)
+        .map(|(_, line)| format!("{line}\n"))
+        .collect()
+}
+
+#[test]
+fn vendored_files_do_not_change_production_metrics() {
+    let sign = "export function sign(value: number): string {
+  if (value < 0) {
+    return 'negative';
+  } else {
+    return 'positive';
+  }
+}
+";
+    let repository = Repository::new();
+    repository.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    repository.write("src/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write("src/sign.ts", sign);
+    repository.commit_all();
+    let without_vendored = repository.codeint(&["check"]);
+    assert_success(&without_vendored);
+
+    repository.write("vendor/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write(
+        "third_party/eleven.ts",
+        &function_with_if_statements("eleven", 11),
+    );
+    repository.write("vendor/lib/sign.ts", sign);
+    repository.commit_all();
+    let with_vendored = repository.codeint(&["check"]);
+
+    assert_success(&with_vendored);
+    let production = source_set_report(&with_vendored, "production");
+    assert!(
+        production.contains("src/ten.ts"),
+        "unexpected report: {}",
+        stdout(&with_vendored)
+    );
+    assert_eq!(
+        production,
+        source_set_report(&without_vendored, "production")
+    );
+    assert_eq!(
+        source_set_sizes(&with_vendored),
+        [
+            "production: files: 3 source_lines: 32",
+            "vendored: files: 3 source_lines: 34",
+        ]
+    );
+}
+
+#[test]
 fn a_source_set_without_files_is_left_out_of_the_report() {
     let repository = Repository::new();
     repository.write(

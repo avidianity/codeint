@@ -198,6 +198,135 @@ export function shadow(empty: boolean) {
         ],
     },
     RuleFixtures {
+        rule: "catch-only-rethrows",
+        flagged: &[
+            Flagged {
+                text: "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  }
+}
+",
+                lines: &[4, 5, 6],
+            },
+            Flagged {
+                text: "export async function fetchUser(id: string) {
+  try { return await get(id); } catch (e) { throw e; }
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export class Store {
+  save(record: object) {
+    try {
+      this.write(record);
+    }
+    catch (failure: unknown) {
+      throw (failure);
+    }
+  }
+  write(record: object) {
+    console.log(record);
+  }
+}
+",
+                lines: &[6, 7, 8],
+            },
+            Flagged {
+                text: "export const parse = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    // let the caller decide
+    throw error;
+  }
+};
+",
+                lines: &[4, 6, 7],
+            },
+            Flagged {
+                text: "export function outer() {
+  try {
+    try {
+      inner();
+    } catch (first) {
+      throw first;
+    }
+  } catch (second) {
+    throw second;
+  }
+}
+",
+                lines: &[5, 6, 7, 8, 9, 10],
+            },
+        ],
+        passing: &[
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw new Error(`cannot load ${path}`, { cause: error });
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  } finally {
+    close(path);
+  }
+}
+",
+            "export function load(path: string, fallback: Error) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw fallback;
+  }
+}
+",
+            "const failure = new Error('unavailable');
+export function load(path: string) {
+  try {
+    return read(path);
+  } catch {
+    throw failure;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch ({ message }) {
+    throw message;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error.cause;
+  }
+}
+",
+        ],
+    },
+    RuleFixtures {
         rule: "if-else-returns-boolean",
         flagged: &[
             Flagged {
