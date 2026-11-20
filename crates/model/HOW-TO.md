@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, ImportRequest, LowerError, Resolution};
 
 pub struct Plain;
 
@@ -14,7 +14,11 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
-        Ok(FileModel { source_lines })
+        Ok(FileModel { source_lines, runtime_imports: Vec::new() })
+    }
+
+    fn resolve_imports(_repository_paths: Vec<String>, requests: Vec<ImportRequest>) -> Vec<Resolution> {
+        requests.iter().map(|_| Resolution::External).collect()
     }
 }
 ```
@@ -26,6 +30,9 @@ impl Guest for Plain {
 - `extensions` returns each file extension without its leading dot.
 - `lower` receives a repository-relative path with forward slashes and the whole file as text.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.
+- `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
+- `resolve_imports` receives every file path of the repository snapshot, because a Plugin cannot read the file system.
+  Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` for a package or built-in module, or `Unresolved` with the reason.
 
 ## Lower files in the core
 
@@ -41,4 +48,6 @@ assert_eq!(model.source_lines, 2);
 - The core holds Language plugins as `&dyn LanguagePlugin`.
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
+- After lowering, call `resolve_runtime_imports(plugin, repository_paths, &importers)` once per Language plugin with the files it lowered.
+  It returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.

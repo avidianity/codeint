@@ -76,6 +76,18 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn acyclic_report(files: usize, source_lines: usize) -> String {
+    format!(
+        "files: {files}\n\
+         source_lines: {source_lines}\n\
+         import_cycles:\n\
+         \x20 ratio: 0\n\
+         \x20 modules_in_import_cycles: 0\n\
+         \x20 modules: {files}\n\
+         \x20 findings: []\n"
+    )
+}
+
 #[test]
 fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files() {
     let repository = Repository::new();
@@ -92,7 +104,7 @@ fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files(
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 5\n");
+    assert_eq!(stdout(&output), acyclic_report(2, 5));
 }
 
 #[test]
@@ -122,7 +134,7 @@ fn blank_lines_and_comment_only_lines_are_not_source_lines() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 1\nsource_lines: 5\n");
+    assert_eq!(stdout(&output), acyclic_report(1, 5));
 }
 
 #[test]
@@ -139,7 +151,7 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 8\nsource_lines: 8\n");
+    assert_eq!(stdout(&output), acyclic_report(8, 8));
 }
 
 #[test]
@@ -161,7 +173,7 @@ fn files_git_ignores_are_not_measured_and_untracked_files_are() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(stdout(&output), acyclic_report(2, 3));
 }
 
 #[test]
@@ -269,7 +281,7 @@ fn check_of_a_subfolder_measures_the_whole_working_tree() {
     let output = repository.codeint(&["check", "src"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(stdout(&output), acyclic_report(2, 3));
 }
 
 #[test]
@@ -339,5 +351,173 @@ fn a_closed_standard_output_is_an_operational_error_and_not_a_panic() {
         message.starts_with("codeint: cannot write the report to standard output: ")
             && message.ends_with("\nKeep standard output open until codeint exits.\n"),
         "unexpected message: {message}"
+    );
+}
+
+#[test]
+fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nexport const a = () => b();\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { c } from './c.ts';\nexport const b = () => c();\n",
+    );
+    repository.write(
+        "src/c.ts",
+        "import { a } from './a.js';\nexport const c = () => a();\n",
+    );
+    repository.write("src/main.ts", "import { a } from './a';\na();\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 4\n",
+            "source_lines: 8\n",
+            "import_cycles:\n",
+            "  ratio: 0.75\n",
+            "  modules_in_import_cycles: 3\n",
+            "  modules: 4\n",
+            "  findings[1]:\n",
+            "    - modules[3]: src/a.ts,src/b.ts,src/c.ts\n",
+        )
+    );
+}
+
+#[test]
+fn a_diamond_of_imports_without_a_cycle_reports_no_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/main.ts",
+        "import { left } from './left';\nimport { right } from './right';\nleft(right());\n",
+    );
+    repository.write(
+        "src/left.ts",
+        "import { shared } from './shared';\nexport const left = (value: number) => shared(value);\n",
+    );
+    repository.write(
+        "src/right.ts",
+        "import { shared } from './shared';\nexport const right = () => shared(1);\n",
+    );
+    repository.write(
+        "src/shared.ts",
+        "export const shared = (value: number) => value;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), acyclic_report(4, 8));
+}
+
+#[test]
+fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "lib/loader.js",
+        "export const load = () => import(`./plugin.js`);\n",
+    );
+    repository.write(
+        "lib/plugin.js",
+        "const helpers = require('./helpers');\nexport default helpers;\n",
+    );
+    repository.write(
+        "lib/helpers.js",
+        "const { load } = require('./loader');\nmodule.exports = { load };\n",
+    );
+    repository.write(
+        "lib/standalone.js",
+        "const path = require('node:path');\nexport const join = path.join;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 4\n",
+            "source_lines: 7\n",
+            "import_cycles:\n",
+            "  ratio: 0.75\n",
+            "  modules_in_import_cycles: 3\n",
+            "  modules: 4\n",
+            "  findings[1]:\n",
+            "    - modules[3]: lib/helpers.js,lib/loader.js,lib/plugin.js\n",
+        )
+    );
+}
+
+#[test]
+fn type_only_imports_and_exports_do_not_form_an_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/user.ts",
+        "import type { Order } from './order';\nexport interface User { orders: Order[] }\n",
+    );
+    repository.write(
+        "src/order.ts",
+        "import { type User } from './user';\nexport interface Order { owner: User }\n",
+    );
+    repository.write(
+        "src/index.ts",
+        "export type { User } from './user';\nexport type * from './order';\n",
+    );
+    repository.write(
+        "src/barrel.ts",
+        "import { type Order } from './order';\nexport * from './index';\nexport const none: Order[] = [];\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), acyclic_report(4, 9));
+}
+
+#[test]
+fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
+    let repository = Repository::new();
+    repository.write("src/a.ts", "export * from './b';\n");
+    repository.write(
+        "src/b.ts",
+        "export { a } from './a';\nexport const b = 1;\n",
+    );
+    repository.write("src/x/index.ts", "import '../y';\n");
+    repository.write("src/y.ts", "import './x';\nimport './z';\n");
+    repository.write("src/z.ts", "import 'lodash';\nimport './missing';\n");
+    repository.write("src/self.ts", "import './self';\n");
+    repository.write("src/data.json", "{}\n");
+    repository.write(
+        "src/reader.ts",
+        "import data from './data.json';\nexport { data };\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 7\n",
+            "source_lines: 11\n",
+            "import_cycles:\n",
+            "  ratio: 0.7142857142857143\n",
+            "  modules_in_import_cycles: 5\n",
+            "  modules: 7\n",
+            "  findings[3]:\n",
+            "    - modules[2]: src/a.ts,src/b.ts\n",
+            "    - modules[1]: src/self.ts\n",
+            "    - modules[2]: src/x/index.ts,src/y.ts\n",
+        )
     );
 }

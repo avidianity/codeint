@@ -1,4 +1,9 @@
-use codeint_model::{CodeModel, RepoPath};
+use std::collections::HashMap;
+
+use codeint_model::{CodeModel, ImportResolution, RepoPath};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportCycle {
@@ -18,8 +23,42 @@ impl ImportCycle {
 }
 
 impl ImportCycles {
-    pub fn measure(_model: &CodeModel) -> ImportCycles {
-        todo!()
+    pub fn measure(model: &CodeModel) -> ImportCycles {
+        let modules: Vec<&RepoPath> = model.files.iter().map(|file| &file.path).collect();
+        let index_of: HashMap<&RepoPath, usize> = modules
+            .iter()
+            .enumerate()
+            .map(|(index, path)| (*path, index))
+            .collect();
+        let mut imports = vec![Vec::new(); modules.len()];
+        for runtime_import in &model.runtime_imports {
+            if let ImportResolution::Resolved(target) = &runtime_import.resolution
+                && let (Some(&from), Some(&to)) =
+                    (index_of.get(&runtime_import.importer), index_of.get(target))
+            {
+                imports[from].push(to);
+            }
+        }
+        let mut cycles: Vec<ImportCycle> = strongly_connected_components(&imports)
+            .into_iter()
+            .filter(|component| match component.as_slice() {
+                [single] => imports[*single].contains(single),
+                _ => true,
+            })
+            .map(|component| {
+                let mut members: Vec<RepoPath> = component
+                    .into_iter()
+                    .map(|index| modules[index].clone())
+                    .collect();
+                members.sort();
+                ImportCycle { modules: members }
+            })
+            .collect();
+        cycles.sort_by(|left, right| left.modules.cmp(&right.modules));
+        ImportCycles {
+            modules: modules.len(),
+            cycles,
+        }
     }
 
     pub fn modules(&self) -> usize {
@@ -27,10 +66,88 @@ impl ImportCycles {
     }
 
     pub fn modules_in_import_cycles(&self) -> usize {
-        todo!()
+        self.cycles.iter().map(|cycle| cycle.modules.len()).sum()
     }
 
     pub fn cycles(&self) -> &[ImportCycle] {
         &self.cycles
+    }
+}
+
+struct Tarjan<'graph> {
+    imports: &'graph [Vec<usize>],
+    order: Vec<Option<usize>>,
+    low_link: Vec<usize>,
+    on_stack: Vec<bool>,
+    stack: Vec<usize>,
+    next_order: usize,
+    components: Vec<Vec<usize>>,
+}
+
+fn strongly_connected_components(imports: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    let mut tarjan = Tarjan {
+        imports,
+        order: vec![None; imports.len()],
+        low_link: vec![0; imports.len()],
+        on_stack: vec![false; imports.len()],
+        stack: Vec::new(),
+        next_order: 0,
+        components: Vec::new(),
+    };
+    for module in 0..imports.len() {
+        if tarjan.order[module].is_none() {
+            tarjan.visit_from(module);
+        }
+    }
+    tarjan.components
+}
+
+impl Tarjan<'_> {
+    fn enter(&mut self, module: usize) {
+        self.order[module] = Some(self.next_order);
+        self.low_link[module] = self.next_order;
+        self.next_order += 1;
+        self.stack.push(module);
+        self.on_stack[module] = true;
+    }
+
+    fn visit_from(&mut self, root: usize) {
+        self.enter(root);
+        let mut path: Vec<(usize, usize)> = vec![(root, 0)];
+        while let Some(&mut (module, ref mut next_import)) = path.last_mut() {
+            if let Some(&target) = self.imports[module].get(*next_import) {
+                *next_import += 1;
+                match self.order[target] {
+                    None => {
+                        self.enter(target);
+                        path.push((target, 0));
+                    }
+                    Some(target_order) if self.on_stack[target] => {
+                        self.low_link[module] = self.low_link[module].min(target_order);
+                    }
+                    Some(_) => {}
+                }
+                continue;
+            }
+            path.pop();
+            if let Some(&(parent, _)) = path.last() {
+                self.low_link[parent] = self.low_link[parent].min(self.low_link[module]);
+            }
+            if Some(self.low_link[module]) == self.order[module] {
+                self.pop_component(module);
+            }
+        }
+    }
+
+    fn pop_component(&mut self, root: usize) {
+        let mut component = Vec::new();
+        while let Some(member) = self.stack.pop() {
+            self.on_stack[member] = false;
+            component.push(member);
+            if member == root {
+                break;
+            }
+        }
+        self.components.push(component);
     }
 }

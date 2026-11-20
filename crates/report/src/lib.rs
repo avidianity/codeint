@@ -47,7 +47,28 @@ impl Report {
 }
 
 impl ImportCyclesSection {
-    fn from_metric(_import_cycles: &ImportCycles) -> ImportCyclesSection {
-        todo!()
+    fn from_metric(import_cycles: &ImportCycles) -> ImportCyclesSection {
+        let modules_in_import_cycles = import_cycles.modules_in_import_cycles();
+        let modules = import_cycles.modules();
+        ImportCyclesSection {
+            ratio: ratio(modules_in_import_cycles, modules),
+            modules_in_import_cycles,
+            modules,
+            findings: import_cycles
+                .cycles()
+                .iter()
+                .map(|cycle| ImportCycleFinding {
+                    modules: cycle.modules().iter().map(ToString::to_string).collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+fn ratio(numerator: usize, denominator: usize) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 / denominator as f64
     }
 }
