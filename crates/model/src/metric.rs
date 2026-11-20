@@ -10,12 +10,22 @@ pub enum Metric {
 
 impl Metric {
     pub fn key(self) -> &'static str {
-        todo!()
+        match self {
+            Metric::Erosion => "erosion",
+            Metric::Duplication => "duplication",
+            Metric::Verbosity => "verbosity",
+            Metric::ImportCycles => "import_cycles",
+        }
     }
 }
 
 impl SourceSet {
     pub fn key(self) -> &'static str {
-        todo!()
+        match self {
+            SourceSet::Production => "production",
+            SourceSet::Test => "test",
+            SourceSet::Generated => "generated",
+            SourceSet::Vendored => "vendored",
+        }
     }
 }

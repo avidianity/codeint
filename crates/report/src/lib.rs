@@ -6,7 +6,8 @@ use codeint_metrics::{
     ImportCycles, MinimumCloneTokens, Verbosity,
 };
 use codeint_model::{
-    CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
+    CodeModel, Metric, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet,
+    SourceSets,
 };
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -172,8 +173,12 @@ struct SkippedEntry {
 }
 
 impl std::fmt::Display for BudgetFailure {
-    fn fmt(&self, _formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the {} {} ratio {} is over its Budget {}",
+            self.source_set, self.metric, self.ratio.0, self.budget
+        )
     }
 }
 
@@ -266,8 +271,34 @@ impl SourceSetSections {
         sections
     }
 
-    fn over_budget(&self, _budgets: &Budgets) -> Vec<BudgetFailure> {
-        todo!()
+    fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
+        [
+            (SourceSet::Production, &self.production),
+            (SourceSet::Test, &self.test),
+            (SourceSet::Generated, &self.generated),
+            (SourceSet::Vendored, &self.vendored),
+        ]
+        .into_iter()
+        .filter_map(|(source_set, section)| Some((source_set, section.as_ref()?)))
+        .flat_map(|(source_set, section)| {
+            [
+                (Metric::Erosion, &section.erosion.ratio),
+                (Metric::Duplication, &section.duplication.ratio),
+                (Metric::Verbosity, &section.verbosity.ratio),
+                (Metric::ImportCycles, &section.import_cycles.ratio),
+            ]
+            .into_iter()
+            .filter_map(move |(metric, ratio)| {
+                let budget = budgets.budget(source_set, metric)?;
+                (!budget.admits(ratio.0)).then(|| BudgetFailure {
+                    source_set: source_set.key(),
+                    metric: metric.key(),
+                    ratio: Decimal(ratio.0),
+                    budget: budget.ratio(),
+                })
+            })
+        })
+        .collect()
     }
 
     fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {

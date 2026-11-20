@@ -1938,7 +1938,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -1977,5 +1977,192 @@ fn codeint_json_that_is_not_json_names_the_line_and_column_and_exits_2() {
         "{\n  \"source_sets\": {},\n}\n",
         "codeint.json is not valid JSON: trailing comma at line 3 column 1",
         "Fix the JSON syntax of codeint.json at that line and column.",
+    );
+}
+
+fn repository_with_budgets(budgets: &str) -> Repository {
+    let repository = Repository::new();
+    repository.write("codeint.json", &format!("{{ \"budgets\": {budgets} }}\n"));
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.commit_all();
+    repository
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8(output.stderr.clone()).expect("standard error is UTF-8")
+}
+
+fn assert_over_budget(output: &Output, report: &str, failures: &[&str]) {
+    assert_eq!(output.status.code(), Some(1));
+    let named: String = failures
+        .iter()
+        .map(|failure| format!("codeint: {failure}\n"))
+        .collect();
+    assert_eq!(stderr(output), named);
+    assert!(
+        report.ends_with(&over_budget_rows(failures.len())),
+        "unexpected report:\n{report}"
+    );
+}
+
+fn over_budget_rows(count: usize) -> String {
+    format!("over_budget[{count}]{{source_set,metric,ratio,budget}}:\n")
+}
+
+fn check_with_a_production_erosion_budget_of_half(args: &[&str]) -> (Repository, Output) {
+    let repository = repository_with_budgets(r#"{ "production": { "erosion": 0.5 } }"#);
+    let output = repository.codeint(args);
+    (repository, output)
+}
+
+const PRODUCTION_EROSION_OVER_HALF: &str = "  production,erosion,1,0.5\n";
+
+fn assert_production_erosion_over_its_budget_of_half(output: &Output, report: &str) {
+    assert!(
+        report.ends_with(PRODUCTION_EROSION_OVER_HALF),
+        "unexpected report:\n{report}"
+    );
+    assert_over_budget(
+        output,
+        report.trim_end_matches(PRODUCTION_EROSION_OVER_HALF),
+        &["the production erosion ratio 1 is over its Budget 0.5"],
+    );
+}
+
+fn assert_within_budget(output: &Output) {
+    assert_success(output);
+    assert_eq!(stderr(output), "");
+    assert!(!stdout(output).contains("over_budget"));
+}
+
+#[test]
+fn a_production_erosion_over_its_budget_is_listed_named_on_standard_error_and_exits_1() {
+    let (_repository, output) = check_with_a_production_erosion_budget_of_half(&["check"]);
+
+    let report = stdout(&output);
+    assert_production_erosion_over_its_budget_of_half(&output, &report);
+}
+
+#[test]
+fn a_ratio_equal_to_its_budget_as_the_report_shows_it_passes_though_its_unrounded_value_is_higher()
+{
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{ "budgets": { "production": { "erosion": 0.9667 } } }"#,
+    );
+    repository.write("src/twelve.ts", &function_with_if_statements("twelve", 12));
+    repository.write(
+        "src/small.ts",
+        "export function small(): number {\n  return 1;\n}\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_within_budget(&output);
+    assert!(
+        production_section(&output, "erosion").contains("  ratio: 0.9667\n"),
+        "the report shows the ratio rounded down to the Budget"
+    );
+}
+
+#[test]
+fn a_test_budget_does_not_apply_to_the_production_source_set() {
+    let repository = repository_with_budgets(r#"{ "test": { "erosion": 0 } }"#);
+
+    let output = repository.codeint(&["check"]);
+
+    assert_within_budget(&output);
+}
+
+#[test]
+fn every_metric_over_its_budget_is_named_in_source_set_and_metric_order() {
+    let repository = repository_with_budgets(
+        r#"{
+  "test": { "erosion": 0.5 },
+  "production": { "import_cycles": 0, "erosion": 0.25, "duplication": 1 }
+}"#,
+    );
+    repository.write(
+        "src/eleven.test.ts",
+        &function_with_if_statements("eleven", 11),
+    );
+    repository.write("src/ring.ts", "import './ring';\nexport const ring = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    let report = stdout(&output);
+    let rows = concat!(
+        "  production,erosion,1,0.25\n",
+        "  production,import_cycles,0.5,0\n",
+        "  test,erosion,1,0.5\n",
+    );
+    assert!(report.ends_with(rows), "unexpected report:\n{report}");
+    assert_over_budget(
+        &output,
+        report.trim_end_matches(rows),
+        &[
+            "the production erosion ratio 1 is over its Budget 0.25",
+            "the production import_cycles ratio 0.5 is over its Budget 0",
+            "the test erosion ratio 1 is over its Budget 0.5",
+        ],
+    );
+}
+
+#[test]
+fn a_metric_over_its_budget_exits_1_after_it_writes_the_report_to_the_output_file() {
+    let (repository, output) =
+        check_with_a_production_erosion_budget_of_half(&["check", "--output", "report.toon"]);
+
+    assert_eq!(stdout(&output), "");
+    let report =
+        fs::read_to_string(repository.path().join("report.toon")).expect("read the report");
+    assert_production_erosion_over_its_budget_of_half(&output, &report);
+}
+
+fn assert_budget_out_of_range(budgets: &str, key: &str, found: &str) {
+    assert_codeint_json_is_rejected(
+        &format!(r#"{{ "budgets": {budgets} }}"#),
+        &format!("codeint.json: {key} must be between 0 and 1, not {found}"),
+        "Set the Budget to a ratio from 0 to 1, as the report shows the Metric.",
+    );
+}
+
+#[test]
+fn a_budget_above_1_names_the_key_and_the_allowed_range_and_exits_2() {
+    assert_budget_out_of_range(
+        r#"{ "production": { "erosion": 1.5 } }"#,
+        "budgets.production.erosion",
+        "1.5",
+    );
+}
+
+#[test]
+fn a_negative_budget_names_the_key_and_the_allowed_range_and_exits_2() {
+    assert_budget_out_of_range(
+        r#"{ "test": { "duplication": -1 } }"#,
+        "budgets.test.duplication",
+        "-1",
+    );
+}
+
+#[test]
+fn a_budget_for_an_unknown_metric_names_the_metrics_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "budgets": { "production": { "complexity": 0.1 } } }"#,
+        "codeint.json has an unknown key budgets.production.complexity; \
+         the keys allowed there are erosion, duplication, verbosity, import_cycles",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn a_budget_that_is_not_a_number_names_the_key_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "budgets": { "production": { "erosion": "10%" } } }"#,
+        "codeint.json: budgets.production.erosion must be a number, not a string",
+        WRONG_TYPE_REMEDY,
     );
 }
