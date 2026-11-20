@@ -165,14 +165,15 @@ Ticket #76 builds the filter in two places:
 - Duplication drops a Clone group whose fragment uses fewer than 14 distinct normalized tokens.
   The count treats all identifiers as one token, all literals as one, and every other token by its text hash.
 
-On the private workspace, the build of Ticket #76 at 75 tokens gives these figures, best of three runs, on the same machine:
+On the private workspace, the build of Ticket #76 at 75 tokens gives these figures on the same machine:
 
 | Source set | Clone groups | clone lines | Duplication |
 | ---------- | ------------ | ----------- | ----------- |
 | Production | 799 | 17,473 | 4.2% |
 | Test | 4,074 | 74,226 | 14.9% |
 
-The whole `codeint check --all` takes 0.93 s and 369 MB of peak resident memory.
+The whole `codeint check --all` takes 0.93 s at best, and 334 MB of peak resident memory at best over six runs.
+The same run without the filter, at commit `96b22f5`, takes 350 MB at best; it finds 2,826 Production Clone groups (11.0%) and 6,505 Test Clone groups (20.7%).
 
 ## Decision
 
