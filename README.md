@@ -120,6 +120,56 @@ It lists at most 20 new and 20 resolved Findings per Metric, and counts the rest
 `--format sarif` lists only the new Findings, so code scanning annotates what the change added.
 A base ref that names no commit stops the run with exit code 2 and names the ref.
 
+### Compare two refs
+
+`--head {ref}` measures a second ref instead of the working tree, so you can compare two commits or two branches:
+
+```sh
+codeint diff main --head feature
+```
+
+codeint reads the head ref from Git objects too, so neither the working tree nor HEAD takes part.
+The merge-base is the merge-base of the base ref and the head ref.
+Both sides still use the `codeint.json` of the working tree, never the one in a commit.
+So the classification matches running `codeint check` on a checkout of each side, when each checkout has that same `codeint.json`.
+The report names the head ref and its commit:
+
+```text
+head:
+  ref: feature
+  commit: 8369109f265f4391e4419e8b7c29d33a75ebc59b
+```
+
+A head ref that names no commit, or that shares no history with the base ref, stops the run with exit code 2.
+
+### Regressions
+
+A Regression is a Metric that got worse from the merge-base to the head side by more than its limit.
+`codeint diff` checks each Metric of each Source set against three default rules:
+
+- Any new Import cycle is a Regression.
+- A ratio rise over 0.01 is a Regression.
+  codeint compares the ratios as the report shows them, rounded to four decimal places, so a rise of exactly 0.01 passes.
+- A numerator rise that adds new Findings is a Regression.
+  The numerator is `eroded_function_mass`, `clone_lines`, `verbose_lines`, or `modules_in_import_cycles`.
+  A Finding that only moves, so the numerator stays the same, is not a Regression.
+
+`codeint diff` also applies the Budgets of `codeint.json` to the head side, the working tree or the `--head` ref, as `codeint check` does.
+
+When a Budget or a Regression fails, codeint still writes the whole report, lists each failure under `over_budget` or `regressions`, names it on standard error, and exits with code 1.
+Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, and the numerators for `numerator_rise_with_new_findings`:
+
+```text
+regressions[1]{source_set,metric,rule,base,head,new_findings}:
+  production,import_cycles,ratio_rise,0.01,0.0204,0
+```
+
+```text
+codeint: the production import_cycles ratio rose from 0.01 to 0.0204, more than its Regression limit 0.01
+```
+
+With no failure, the report has no `over_budget` or `regressions` key, and codeint exits with code 0.
+
 ## Report formats
 
 `codeint check` prints the report in TOON by default.

@@ -1,8 +1,8 @@
 use crate::{
-    BudgetFailure, CloneGroupFinding, CloneLocation, DuplicationSection, ErodedFunctionFinding,
-    ErosionSection, Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection,
-    MeasuredSection, PackageSection, ReferenceRangeEntry, Report, SourceSetSection,
-    SourceSetSections, UnresolvedImportRow, VerbositySection,
+    CloneGroupFinding, CloneLocation, DuplicationSection, ErodedFunctionFinding, ErosionSection,
+    Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection, MeasuredSection,
+    PackageSection, ReferenceRangeEntry, Report, SourceSetSection, SourceSetSections,
+    UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -98,7 +98,7 @@ pub(crate) fn render(report: &Report) -> String {
     blocks.extend(metric_table(&sections));
     if !report.over_budget.is_empty() {
         blocks.push("## Over Budget".to_string());
-        blocks.push(list(report.over_budget.iter().map(budget_failure_item)));
+        blocks.push(list(report.over_budget.iter().map(sentence_item)));
     }
     if let Some(packages) = package_table(&sections) {
         blocks.push("## Workspace packages".to_string());
@@ -155,7 +155,7 @@ fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
     Some(table(&PACKAGE_COLUMNS, package_rows))
 }
 
-fn budget_failure_item(failure: &BudgetFailure) -> String {
+pub(crate) fn sentence_item(failure: &impl std::fmt::Display) -> String {
     let sentence = failure.to_string();
     let mut characters = sentence.chars();
     let capitalized: String = characters

@@ -38,13 +38,23 @@ const OPERATIONAL_ERROR: u8 = 2;
 
 enum Outcome {
     Passed,
-    OverBudget(Vec<String>),
+    Failed(Vec<String>),
+}
+
+impl Outcome {
+    fn from_failures(failures: Vec<String>) -> Outcome {
+        if failures.is_empty() {
+            Outcome::Passed
+        } else {
+            Outcome::Failed(failures)
+        }
+    }
 }
 
 fn main() -> ExitCode {
     match run() {
         Ok(Outcome::Passed) => ExitCode::SUCCESS,
-        Ok(Outcome::OverBudget(failures)) => {
+        Ok(Outcome::Failed(failures)) => {
             for failure in failures {
                 eprintln!("codeint: {failure}");
             }
@@ -67,27 +77,29 @@ fn run() -> Result<Outcome, CliError> {
         } => {
             let report = check::check(&folder, findings)?;
             write_report(&report.render(format)?, &destination)?;
-            let over_budget: Vec<String> = report
-                .over_budget()
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            Ok(if over_budget.is_empty() {
-                Outcome::Passed
-            } else {
-                Outcome::OverBudget(over_budget)
-            })
+            Ok(Outcome::from_failures(
+                report
+                    .over_budget()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            ))
         }
         Command::Diff {
             folder,
             base_ref,
+            head_ref,
             destination,
             findings,
             format,
         } => {
-            let report = diff::diff(&folder, &base_ref, findings)?;
+            let refs = diff::Refs {
+                base: &base_ref,
+                head: head_ref.as_deref(),
+            };
+            let report = diff::diff(&folder, refs, findings)?;
             write_report(&report.render(format)?, &destination)?;
-            Ok(Outcome::Passed)
+            Ok(Outcome::from_failures(report.failure_messages()))
         }
         Command::Init { folder } => {
             let written = init::init(&folder)?;
