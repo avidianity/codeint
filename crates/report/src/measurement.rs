@@ -25,6 +25,7 @@ pub(crate) struct SourceSetMeasurement {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MetricMeasurement<T> {
     pub(crate) ratio: f64,
+    pub(crate) numerator: f64,
     pub(crate) findings_worst_first: Vec<T>,
 }
 
@@ -66,6 +67,7 @@ impl SourceSetMeasurement {
 fn erosion(measured: &Measured) -> MetricMeasurement<ErodedFunctionFinding> {
     MetricMeasurement {
         ratio: measured.erosion.ratio(),
+        numerator: measured.erosion.eroded_function_mass(),
         findings_worst_first: measured
             .erosion
             .eroded_functions()
@@ -78,6 +80,7 @@ fn erosion(measured: &Measured) -> MetricMeasurement<ErodedFunctionFinding> {
 fn duplication(measured: &Measured) -> MetricMeasurement<CloneGroupFinding> {
     MetricMeasurement {
         ratio: measured.duplication.ratio(),
+        numerator: measured.duplication.clone_lines.count() as f64,
         findings_worst_first: measured
             .duplication
             .clone_groups
@@ -90,6 +93,7 @@ fn duplication(measured: &Measured) -> MetricMeasurement<CloneGroupFinding> {
 fn verbosity(measured: &Measured) -> MetricMeasurement<FlaggedLineRow> {
     MetricMeasurement {
         ratio: measured.verbosity.ratio(),
+        numerator: measured.verbosity.verbose_lines() as f64,
         findings_worst_first: measured
             .verbosity
             .flagged_lines()
@@ -102,6 +106,7 @@ fn verbosity(measured: &Measured) -> MetricMeasurement<FlaggedLineRow> {
 fn import_cycles(measured: &Measured) -> MetricMeasurement<ImportCycleFinding> {
     MetricMeasurement {
         ratio: measured.import_cycles.ratio(),
+        numerator: measured.import_cycles.modules_in_import_cycles() as f64,
         findings_worst_first: measured
             .import_cycles
             .cycles()
