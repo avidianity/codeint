@@ -565,6 +565,72 @@ fn the_token_stream_covers_jsx_and_regular_expressions() {
 }
 
 #[test]
+fn a_keyword_used_as_a_name_is_an_identifier_and_a_keyword_used_as_a_keyword_is_not() {
+    assert_token_kinds(
+        "src/names.ts",
+        "type of = number;\nconst type = item.true ?? #seen in this;\n",
+        &[
+            ("type", Other),
+            ("of", Identifier),
+            ("=", Other),
+            ("number", Other),
+            (";", Other),
+            ("const", Other),
+            ("type", Identifier),
+            ("=", Other),
+            ("item", Identifier),
+            (".", Other),
+            ("true", Identifier),
+            ("??", Other),
+            ("#seen", Identifier),
+            ("in", Other),
+            ("this", Other),
+            (";", Other),
+        ],
+    );
+}
+
+#[test]
+fn every_kind_of_literal_value_is_a_literal() {
+    assert_token_kinds(
+        "src/values.tsx",
+        "f(true, false, null, 0x1f, 10n, 1e3, 'a', `b`, /c/g);\n<p>text</p>;\n",
+        &[
+            ("f", Identifier),
+            ("(", Other),
+            ("true", Literal),
+            (",", Other),
+            ("false", Literal),
+            (",", Other),
+            ("null", Literal),
+            (",", Other),
+            ("0x1f", Literal),
+            (",", Other),
+            ("10n", Literal),
+            (",", Other),
+            ("1e3", Literal),
+            (",", Other),
+            ("'a'", Literal),
+            (",", Other),
+            ("`b`", Literal),
+            (",", Other),
+            ("/c/g", Literal),
+            (")", Other),
+            (";", Other),
+            ("<", Other),
+            ("p", Identifier),
+            (">", Other),
+            ("text", Literal),
+            ("<", Other),
+            ("/", Other),
+            ("p", Identifier),
+            (">", Other),
+            (";", Other),
+        ],
+    );
+}
+
+#[test]
 fn an_empty_file_has_no_tokens() {
     assert_eq!(tokens("src/empty.ts", "", &[]), []);
 }

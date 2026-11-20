@@ -17,8 +17,11 @@ pub use bindings::exports::codeint::plugin::language;
 pub use language::{FileModel, Token, TokenKind};
 
 pub fn token_text_hash(text: &str) -> u64 {
-    let _ = text;
-    todo!()
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0100_0000_01b3;
+    text.bytes().fold(FNV_OFFSET_BASIS, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
