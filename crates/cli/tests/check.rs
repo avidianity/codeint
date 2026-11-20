@@ -556,6 +556,51 @@ fn eroded_functions_of_equal_function_mass_are_listed_by_path_then_line_and_the_
     assert_eq!(erosion_findings_lines(&output), expected);
 }
 
+#[test]
+fn every_kind_of_decision_point_counts_toward_erosion() {
+    let repository = Repository::new();
+    repository.write(
+        "src/route.ts",
+        concat!(
+            "export function route(input?: { kind?: string; size?: number }, fallback = 'none'): string {\n",
+            "  const kind = input?.kind ?? fallback;\n",
+            "  const size = input?.size || 0;\n",
+            "  try {\n",
+            "    switch (kind) {\n",
+            "      case 'small':\n",
+            "        return size > 0 && size < 10 ? 'tiny' : 'small';\n",
+            "      case 'large':\n",
+            "        return 'large';\n",
+            "      default:\n",
+            "        return fallback;\n",
+            "    }\n",
+            "  } catch {\n",
+            "    return 'error';\n",
+            "  } finally {\n",
+            "    console.log(kind);\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 18\n");
+    assert_eq!(
+        section(&output, "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 1\n",
+            "  eroded_function_mass: 46.669\n",
+            "  total_function_mass: 46.669\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/route.ts,1,11,18,46.669\n",
+        )
+    );
+}
+
 fn not_in_a_repository_message(folder: &Path) -> String {
     format!(
         "codeint: {} is not inside a Git repository\n\

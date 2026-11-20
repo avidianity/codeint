@@ -447,6 +447,192 @@ fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
     assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
 }
 
+fn cyclomatic_complexity(path: &str, text: &str) -> u32 {
+    match functions(path, text).as_slice() {
+        [only] => 1 + only.decision_points,
+        other => panic!("{path} lowered to {} functions, not 1", other.len()),
+    }
+}
+
+fn assert_cyclomatic_complexities(cases: &[(&str, &str, u32)]) {
+    for (construct, body, expected) in cases {
+        let text = format!(
+            "export function measured(a: any, b: any, c: any): any {{\n  {body}\n  return a;\n}}\n"
+        );
+        assert_eq!(
+            cyclomatic_complexity("src/measured.ts", &text),
+            *expected,
+            "{construct}: {body}"
+        );
+    }
+}
+
+#[test]
+fn each_branch_and_loop_statement_adds_one_to_cyclomatic_complexity() {
+    assert_cyclomatic_complexities(&[
+        ("if", "if (a) { b(); }", 2),
+        ("if with else", "if (a) { b(); } else { c(); }", 2),
+        ("else if", "if (a) { b(); } else if (c) { c(); }", 3),
+        ("for", "for (let i = 0; i < a; i++) { b(); }", 2),
+        ("for in", "for (const key in a) { b(key); }", 2),
+        ("for of", "for (const item of a) { b(item); }", 2),
+        ("while", "while (a) { a = b(); }", 2),
+        ("do while", "do { a = b(); } while (a);", 2),
+    ]);
+}
+
+#[test]
+fn each_non_default_case_adds_one_and_a_default_case_adds_nothing() {
+    assert_cyclomatic_complexities(&[
+        ("one case", "switch (a) { case 1: b(); }", 2),
+        (
+            "two cases",
+            "switch (a) { case 1: b(); break; case 2: c(); }",
+            3,
+        ),
+        (
+            "fallthrough cases",
+            "switch (a) { case 1: case 2: b(); }",
+            3,
+        ),
+        ("only a default case", "switch (a) { default: b(); }", 1),
+        (
+            "a case and a default case",
+            "switch (a) { case 1: b(); break; default: c(); }",
+            2,
+        ),
+    ]);
+}
+
+#[test]
+fn a_catch_clause_adds_one_and_a_finally_block_adds_nothing() {
+    assert_cyclomatic_complexities(&[
+        ("catch", "try { b(); } catch (error) { c(error); }", 2),
+        ("catch without a binding", "try { b(); } catch { c(); }", 2),
+        ("finally", "try { b(); } finally { c(); }", 1),
+        (
+            "catch and finally",
+            "try { b(); } catch { c(); } finally { c(); }",
+            2,
+        ),
+    ]);
+}
+
+#[test]
+fn each_conditional_operator_adds_one() {
+    assert_cyclomatic_complexities(&[
+        ("conditional", "a = b ? 1 : 2;", 2),
+        ("nested conditional", "a = b ? 1 : c ? 2 : 3;", 3),
+    ]);
+}
+
+#[test]
+fn each_logical_operator_and_its_assignment_form_adds_one() {
+    assert_cyclomatic_complexities(&[
+        ("and", "a = b && c;", 2),
+        ("or", "a = b || c;", 2),
+        ("nullish coalescing", "a = b ?? c;", 2),
+        ("a chain of three operators", "a = (a && b || c) ?? 1;", 4),
+        ("and assignment", "a &&= b;", 2),
+        ("or assignment", "a ||= b;", 2),
+        ("nullish assignment", "a ??= b;", 2),
+        ("plain assignment", "a = b;", 1),
+        ("compound assignment", "a += b;", 1),
+        ("bitwise operators", "a = b & c | 1;", 1),
+    ]);
+}
+
+#[test]
+fn each_optional_chain_link_adds_one() {
+    assert_cyclomatic_complexities(&[
+        ("optional property", "b(a?.name);", 2),
+        ("optional element", "b(a?.[0]);", 2),
+        ("optional call", "a?.();", 2),
+        ("optional method call", "a.run?.();", 2),
+        (
+            "one optional link before plain links",
+            "b(a?.first.second[0]());",
+            2,
+        ),
+        ("two optional links", "b(a?.first?.second);", 3),
+        ("three optional links", "a?.first?.[0]?.();", 4),
+        (
+            "plain member access and calls",
+            "b(a.first[0].second());",
+            1,
+        ),
+    ]);
+}
+
+#[test]
+fn an_optional_private_field_link_adds_one() {
+    let text = concat!(
+        "export class Vault {\n",
+        "  #secret = 1;\n",
+        "  read(other?: Vault) {\n",
+        "    return other?.#secret;\n",
+        "  }\n",
+        "}\n",
+    );
+
+    assert_eq!(cyclomatic_complexity("src/vault.ts", text), 2);
+}
+
+#[test]
+fn each_default_parameter_adds_one_to_its_own_function() {
+    let cases = [
+        (
+            "one default",
+            "export function f(a = 1) {\n  return a;\n}\n",
+            2,
+        ),
+        (
+            "two defaults and a plain parameter",
+            "export function f(a: number, b = 1, c: string = 'c') {\n  return a + b + c;\n}\n",
+            3,
+        ),
+        ("arrow function", "export const f = (a = 1) => a;\n", 2),
+        (
+            "method",
+            "export class Greeter {\n  greet(name = 'you') {\n    return name;\n  }\n}\n",
+            2,
+        ),
+        (
+            "optional parameter without a default",
+            "export function f(a?: number) {\n  return a;\n}\n",
+            1,
+        ),
+        (
+            "rest parameter",
+            "export function f(...rest: number[]) {\n  return rest;\n}\n",
+            1,
+        ),
+    ];
+
+    for (construct, text, expected) in cases {
+        assert_eq!(
+            cyclomatic_complexity("src/defaults.ts", text),
+            expected,
+            "{construct}"
+        );
+    }
+}
+
+#[test]
+fn a_default_parameter_of_a_nested_function_counts_only_toward_the_nested_function() {
+    let text = concat!(
+        "export function outer() {\n",
+        "  const inner = (limit = 10) => limit;\n",
+        "  return inner();\n",
+        "}\n",
+    );
+
+    assert_eq!(
+        functions("src/outer.ts", text),
+        [function(1, 0, 3), function(2, 1, 1)]
+    );
+}
+
 fn tokens(path: &str, text: &str) -> Vec<(String, u32)> {
     match lower(path, text) {
         Ok(model) => model
@@ -499,6 +685,23 @@ fn the_token_stream_holds_each_token_with_its_line_and_no_whitespace_or_comments
             (";", 9),
         ])
     );
+}
+
+#[test]
+fn decision_points_in_a_javascript_file_count_the_same_way() {
+    let text = concat!(
+        "export function pick(options = {}) {\n",
+        "  const name = options?.name ?? 'none';\n",
+        "  switch (name) {\n",
+        "    case 'a':\n",
+        "      return options.a || 1;\n",
+        "    default:\n",
+        "      return name ? 2 : 3;\n",
+        "  }\n",
+        "}\n",
+    );
+
+    assert_eq!(cyclomatic_complexity("src/pick.js", text), 7);
 }
 
 #[test]
