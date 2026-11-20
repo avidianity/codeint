@@ -2,13 +2,13 @@
 
 use std::collections::BTreeMap;
 
-use codeint_config::{FindingsShown, ReportFormat};
+use codeint_config::{Budgets, FindingsShown, ReportFormat};
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
     ImportCycles, MinimumCloneTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
-    CodeModel, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet,
+    CodeModel, Metric, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet,
     SourceSets,
 };
 use serde::ser::SerializeMap;
@@ -41,6 +41,16 @@ pub struct Report {
     declaration_only: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     submodules: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    over_budget: Vec<BudgetFailure>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BudgetFailure {
+    source_set: &'static str,
+    metric: &'static str,
+    ratio: Decimal,
+    budget: f64,
 }
 
 pub enum ReferenceRangeScope {
@@ -229,6 +239,16 @@ struct SkippedEntry {
     reason: String,
 }
 
+impl std::fmt::Display for BudgetFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the {} {} ratio {} is over its Budget {}",
+            self.source_set, self.metric, self.ratio.0, self.budget
+        )
+    }
+}
+
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
         let rounded = (value * DECIMAL_SCALE).round() / DECIMAL_SCALE;
@@ -323,6 +343,36 @@ impl SourceSetSections {
             }
         }
         sections
+    }
+
+    fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
+        [
+            (SourceSet::Production, &self.production),
+            (SourceSet::Test, &self.test),
+            (SourceSet::Generated, &self.generated),
+            (SourceSet::Vendored, &self.vendored),
+        ]
+        .into_iter()
+        .filter_map(|(source_set, section)| Some((source_set, section.as_ref()?)))
+        .flat_map(|(source_set, section)| {
+            [
+                (Metric::Erosion, &section.erosion.ratio),
+                (Metric::Duplication, &section.duplication.ratio),
+                (Metric::Verbosity, &section.verbosity.ratio),
+                (Metric::ImportCycles, &section.import_cycles.ratio),
+            ]
+            .into_iter()
+            .filter_map(move |(metric, ratio)| {
+                let budget = budgets.budget(source_set, metric)?;
+                (!budget.admits(ratio.0)).then(|| BudgetFailure {
+                    source_set: source_set.key(),
+                    metric: metric.key(),
+                    ratio: Decimal(ratio.0),
+                    budget: budget.ratio(),
+                })
+            })
+        })
+        .collect()
     }
 
     fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {
@@ -585,19 +635,31 @@ impl Report {
         model: CodeModel,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
+        budgets: &Budgets,
     ) -> Report {
+        let files = model.files.len();
+        let source_lines = source_lines(&model);
+        let skipped = model.skipped.iter().map(SkippedEntry::from).collect();
+        let declaration_only = model
+            .declaration_only
+            .iter()
+            .map(RepoPath::to_string)
+            .collect();
+        let submodules = model.submodules.iter().map(RepoPath::to_string).collect();
+        let source_sets = SourceSetSections::new(&model.into_source_sets(), ranges, findings);
         Report {
-            files: model.files.len(),
-            source_lines: source_lines(&model),
-            skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
-            declaration_only: model
-                .declaration_only
-                .iter()
-                .map(RepoPath::to_string)
-                .collect(),
-            submodules: model.submodules.iter().map(RepoPath::to_string).collect(),
-            source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
+            over_budget: source_sets.over_budget(budgets),
+            files,
+            source_lines,
+            skipped,
+            declaration_only,
+            submodules,
+            source_sets,
         }
+    }
+
+    pub fn over_budget(&self) -> &[BudgetFailure] {
+        &self.over_budget
     }
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {

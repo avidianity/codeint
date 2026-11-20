@@ -13,6 +13,10 @@
     "source_sets": {
       "$ref": "#/$defs/SourceSetGlobs",
       "description": "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins."
+    },
+    "budgets": {
+      "$ref": "#/$defs/SourceSetBudgets",
+      "description": "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
     }
   },
   "title": "codeint.json",
@@ -54,6 +58,62 @@
           },
           "description": "Globs of files that belong to the Vendored Source set.",
           "default": []
+        }
+      }
+    },
+    "SourceSetBudgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "production": {
+          "$ref": "#/$defs/MetricBudgets",
+          "description": "The Budgets of the Production Source set."
+        },
+        "test": {
+          "$ref": "#/$defs/MetricBudgets",
+          "description": "The Budgets of the Test Source set."
+        },
+        "generated": {
+          "$ref": "#/$defs/MetricBudgets",
+          "description": "The Budgets of the Generated Source set."
+        },
+        "vendored": {
+          "$ref": "#/$defs/MetricBudgets",
+          "description": "The Budgets of the Vendored Source set."
+        }
+      }
+    },
+    "MetricBudgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "erosion": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Erosion ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "duplication": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Duplication ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "verbosity": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Verbosity ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "import_cycles": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Import cycles ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     }

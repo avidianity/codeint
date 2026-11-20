@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
+mod metric;
 mod runtime_imports;
 mod source_set;
 #[cfg(test)]
@@ -22,6 +23,7 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind};
+pub use metric::Metric;
 pub use runtime_imports::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
 pub use source_set::settle_source_set;
 pub use workspace::{Package, Workspace, WorkspaceError};

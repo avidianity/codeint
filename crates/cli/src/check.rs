@@ -48,7 +48,12 @@ fn check_with(
     let configuration = read_configuration(tree.root())?;
     let Measurement { model, ranges } =
         measure(&tree, plugins, &configuration.source_set_overrides)?;
-    Ok(Report::summarize(model, &ranges, findings))
+    Ok(Report::summarize(
+        model,
+        &ranges,
+        findings,
+        &configuration.budgets,
+    ))
 }
 
 fn reference_range_scope(

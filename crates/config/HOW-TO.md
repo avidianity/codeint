@@ -32,6 +32,21 @@ model.source_set = configuration
 - Globs match the repository-relative path with forward slashes: `*` matches within one folder, `**` matches across folders.
 - When globs of several Source sets match one file, the first of Vendored, Generated, Test, and Production wins.
 
+## Read Budgets
+
+```rust
+use codeint_model::{Metric, SourceSet};
+
+if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric::Erosion) {
+    let passes = budget.admits(displayed_ratio);
+}
+```
+
+- `budget` returns `None` when `codeint.json` sets no Budget for that Metric in that Source set; that Metric then never fails.
+- A Budget is a ratio from 0 to 1; the shape check rejects any other number with exit code 2.
+- `admits` passes a ratio equal to the Budget.
+  Pass the ratio rounded as the report shows it, so that a ratio the user sees as equal to its Budget passes.
+
 ## Add a setting
 
 - Add a field to `ConfigurationFile` in `src/codeint_json.rs`, with `#[serde(default)]` and a `#[schemars(description = ...)]` that tells the user what it does.
