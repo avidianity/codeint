@@ -8,9 +8,6 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(CheckError::Git(error)) => git_remedy(error),
-        CliError::Check(CheckError::NotUtf8 { .. }) => {
-            "Save the file as UTF-8, then run codeint again."
-        }
         CliError::Check(CheckError::Resolve(_)) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }

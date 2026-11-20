@@ -90,10 +90,6 @@ struct Listing {
 }
 
 fn list_working_tree(repository: &gix::Repository) -> Result<Listing, GitError> {
-    todo!("{}", list_measurable_files(repository).is_ok())
-}
-
-fn list_measurable_files(repository: &gix::Repository) -> Result<Vec<RepoPath>, GitError> {
     let index = repository.index_or_empty().map_err(GitError::Walk)?;
     let options = repository
         .dirwalk_options()
@@ -112,21 +108,26 @@ fn list_measurable_files(repository: &gix::Repository) -> Result<Vec<RepoPath>, 
             &mut collect,
         )
         .map_err(GitError::Walk)?;
-    collect
-        .into_entries_by_path()
-        .into_iter()
-        .map(|(entry, _)| entry)
-        .filter(|entry| {
-            matches!(entry.status, Status::Tracked | Status::Untracked)
-                && entry.disk_kind == Some(Kind::File)
-        })
-        .map(|entry| {
-            let path = String::from_utf8(entry.rela_path.into()).map_err(|error| {
-                GitError::NonUtf8Path {
-                    path: String::from_utf8_lossy(error.as_bytes()).into_owned(),
-                }
-            })?;
-            Ok(RepoPath::new(path)?)
-        })
-        .collect()
+    let mut listing = Listing {
+        files: Vec::new(),
+        submodules: Vec::new(),
+    };
+    for (entry, _) in collect.into_entries_by_path() {
+        let is_submodule = entry.index_kind == Some(Kind::Repository);
+        let is_measurable_file = matches!(entry.status, Status::Tracked | Status::Untracked)
+            && entry.disk_kind == Some(Kind::File);
+        if is_submodule {
+            listing.submodules.push(repo_path(entry.rela_path)?);
+        } else if is_measurable_file {
+            listing.files.push(repo_path(entry.rela_path)?);
+        }
+    }
+    Ok(listing)
+}
+
+fn repo_path(rela_path: gix::bstr::BString) -> Result<RepoPath, GitError> {
+    let path = String::from_utf8(rela_path.into()).map_err(|error| GitError::NonUtf8Path {
+        path: String::from_utf8_lossy(error.as_bytes()).into_owned(),
+    })?;
+    Ok(RepoPath::new(path)?)
 }

@@ -29,6 +29,10 @@ impl Repository {
         fs::write(full, text).expect("write the file");
     }
 
+    fn write_bytes(&self, relative: &str, bytes: &[u8]) {
+        fs::write(self.path().join(relative), bytes).expect("write the file");
+    }
+
     fn git(&self, args: &[&str]) {
         let status = Command::new("git")
             .args(args)
@@ -1826,4 +1830,208 @@ fn generated_files_do_not_change_production_metrics() {
         metric_section(&output, "generated", "erosion").contains("public/app.min.js,1,13,1,13"),
         "the eroded function of the bundle counts toward the Generated Source set"
     );
+}
+
+#[test]
+fn a_latin_1_file_is_skipped_and_listed_with_the_reason() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write_bytes("src/latin1.ts", b"export const name = 'caf\xe9';\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        report_without_findings(1, 1)
+            + "skipped[1]{path,reason}:\n  \
+             src/latin1.ts,\"not valid UTF-8: invalid utf-8 sequence of 1 bytes from index 24\"\n"
+    );
+}
+
+const PRICE_LABEL: &str = concat!(
+    "/**\n",
+    " * Formats a price for the receipt.\n",
+    " */\n",
+    "export function priceLabel(items: { price: number; quantity: number }[]): string {\n",
+    "  let sum = 0;\n",
+    "  for (const item of items) {\n",
+    "    sum += item.price * item.quantity;\n",
+    "  }\n",
+    "  return `total:\n",
+    "${sum}\n",
+    "end`;\n",
+    "}\n",
+);
+
+const SIGN_WITH_ELSE_AFTER_RETURN: &str = concat!(
+    "import { label } from './label';\n",
+    "export function sign(value: number): string {\n",
+    "  if (value < 0) {\n",
+    "    return label('negative \\\n",
+    "minus');\n",
+    "  } else {\n",
+    "    return label('positive');\n",
+    "  }\n",
+    "}\n",
+);
+
+const LABEL_IN_A_CYCLE: &str = concat!(
+    "import { sign } from './sign';\n",
+    "export const label = (text: string) => text + sign.name;\n",
+);
+
+fn with_crlf(text: &str) -> String {
+    text.replace('\n', "\r\n")
+}
+
+fn write_every_metric_fixture(repository: &Repository, line_ending: fn(&str) -> String) {
+    repository.write("src/cart.ts", &line_ending(PRICE_LABEL));
+    repository.write(
+        "src/invoice.ts",
+        &line_ending(&format!("const currency = 'EUR';\n{PRICE_LABEL}")),
+    );
+    repository.write(
+        "src/eleven.ts",
+        &line_ending(&function_with_if_statements("eleven", 11)),
+    );
+    repository.write("src/sign.ts", &line_ending(SIGN_WITH_ELSE_AFTER_RETURN));
+    repository.write("src/label.ts", &line_ending(LABEL_IN_A_CYCLE));
+    repository.write(
+        "src/broken.ts",
+        &line_ending("export const ok = 1;\nexport const = ;\n"),
+    );
+    repository.commit_all();
+}
+
+#[test]
+fn the_same_files_with_crlf_and_with_lf_line_endings_give_the_same_report() {
+    let lf = Repository::new();
+    write_every_metric_fixture(&lf, str::to_owned);
+    let crlf = Repository::new();
+    write_every_metric_fixture(&crlf, with_crlf);
+
+    let expected = lf.codeint(&["check"]);
+    let output = crlf.codeint(&["check"]);
+
+    assert_success(&expected);
+    assert_success(&output);
+    for (metric, numerator) in [
+        ("erosion", "eroded_function_mass: 0\n"),
+        ("duplication", "clone_lines: 0\n"),
+        ("verbosity", "verbose_lines: 0\n"),
+        ("import_cycles", "modules_in_import_cycles: 0\n"),
+    ] {
+        assert!(
+            !production_section(&expected, metric).contains(numerator),
+            "the fixture has a {metric} Finding"
+        );
+    }
+    assert!(
+        stdout(&expected)
+            .contains("src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\""),
+        "the fixture has a parse failure"
+    );
+    assert_eq!(stdout(&output), stdout(&expected));
+}
+
+#[test]
+fn a_copy_with_crlf_line_endings_and_a_copy_with_lf_line_endings_form_one_clone_group() {
+    let lf = Repository::new();
+    lf.write("src/cart.ts", PRICE_LABEL);
+    lf.write("src/invoice.ts", PRICE_LABEL);
+    lf.commit_all();
+    let mixed = Repository::new();
+    mixed.write("src/cart.ts", PRICE_LABEL);
+    mixed.write("src/invoice.ts", &with_crlf(PRICE_LABEL));
+    mixed.commit_all();
+
+    let expected = lf.codeint(&["check"]);
+    let output = mixed.codeint(&["check"]);
+
+    assert_success(&expected);
+    assert_success(&output);
+    assert_ne!(production_section(&expected, "duplication"), NO_DUPLICATION);
+    assert_eq!(stdout(&output), stdout(&expected));
+}
+
+#[cfg(unix)]
+#[test]
+fn symbolic_links_to_a_measured_file_to_a_folder_and_outside_the_repository_add_nothing() {
+    let outside = tempfile::tempdir().expect("create a temporary folder");
+    fs::write(outside.path().join("outside.ts"), CART_TOTAL).expect("write the file");
+    let plain = Repository::new();
+    plain.write("src/cart.ts", CART_TOTAL);
+    plain.commit_all();
+    let linked = Repository::new();
+    linked.write("src/cart.ts", CART_TOTAL);
+    let link = |target: &Path, relative: &str| {
+        std::os::unix::fs::symlink(target, linked.path().join(relative))
+            .expect("create the symbolic link");
+    };
+    link(Path::new("cart.ts"), "src/alias.ts");
+    link(Path::new("src"), "mirror");
+    link(&outside.path().join("outside.ts"), "src/outside.ts");
+    linked.commit_all();
+
+    let expected = plain.codeint(&["check"]);
+    let output = linked.codeint(&["check"]);
+
+    assert_success(&expected);
+    assert_success(&output);
+    assert_eq!(stdout(&output), stdout(&expected));
+}
+
+fn repository_with_a_submodule() -> (Repository, Repository) {
+    let library = Repository::new();
+    library.write("src/library.ts", CART_TOTAL);
+    library.commit_all();
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "--quiet",
+        library
+            .path()
+            .to_str()
+            .expect("the temporary path is UTF-8"),
+        "modules/library",
+    ]);
+    repository.commit_all();
+    (repository, library)
+}
+
+fn report_with_one_submodule() -> String {
+    report_without_findings(1, 1) + "submodules[1]: modules/library\n"
+}
+
+#[test]
+fn a_git_submodule_is_listed_and_adds_nothing() {
+    let (repository, _library) = repository_with_a_submodule();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), report_with_one_submodule());
+}
+
+#[test]
+fn a_git_submodule_that_is_not_checked_out_is_listed_and_adds_nothing() {
+    let (repository, _library) = repository_with_a_submodule();
+    repository.git(&[
+        "submodule",
+        "deinit",
+        "--quiet",
+        "--force",
+        "modules/library",
+    ]);
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), report_with_one_submodule());
 }
