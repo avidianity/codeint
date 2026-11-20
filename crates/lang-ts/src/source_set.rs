@@ -38,6 +38,8 @@ fn is_test_file_name(file_name: &str) -> bool {
 }
 
 fn has_generated_marker(comment: &str) -> bool {
-    let _ = (comment, GENERATED_MARKERS);
-    false
+    let comment = comment.to_lowercase();
+    GENERATED_MARKERS
+        .iter()
+        .any(|marker| comment.contains(marker))
 }
