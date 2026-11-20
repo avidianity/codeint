@@ -17,7 +17,7 @@ pub(crate) enum CheckError {
         #[source]
         source: FromUtf8Error,
     },
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Lower {
         path: RepoPath,
         #[source]

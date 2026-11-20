@@ -14,11 +14,18 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn summarize(_model: &CodeModel) -> Report {
-        todo!()
+    pub fn summarize(model: &CodeModel) -> Report {
+        Report {
+            files: model.files.len(),
+            source_lines: model
+                .files
+                .iter()
+                .map(|file| u64::from(file.model.source_lines))
+                .sum(),
+        }
     }
 
     pub fn to_toon(&self) -> Result<String, ReportError> {
-        todo!()
+        toon_format::encode_default(self).map_err(ReportError)
     }
 }

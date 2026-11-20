@@ -15,8 +15,17 @@ pub struct InvalidRepoPath {
 }
 
 impl RepoPath {
-    pub fn new(_path: impl Into<String>) -> Result<RepoPath, InvalidRepoPath> {
-        todo!()
+    pub fn new(path: impl Into<String>) -> Result<RepoPath, InvalidRepoPath> {
+        let path = path.into();
+        let is_relative_with_forward_slashes = !path.contains('\\')
+            && path
+                .split('/')
+                .all(|segment| !matches!(segment, "" | "." | ".."));
+        if is_relative_with_forward_slashes {
+            Ok(RepoPath(path))
+        } else {
+            Err(InvalidRepoPath { path })
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -24,7 +33,11 @@ impl RepoPath {
     }
 
     pub fn extension(&self) -> Option<&str> {
-        todo!()
+        let file_name = self.0.rsplit('/').next().unwrap_or(&self.0);
+        match file_name.rsplit_once('.') {
+            Some((stem, extension)) if !stem.is_empty() => Some(extension),
+            _ => None,
+        }
     }
 }
 
@@ -54,6 +67,10 @@ pub struct CodeModel {
 pub enum LowerError {
     #[error("cannot parse: {message}")]
     Unparsable { message: String },
+    #[error("no Language plugin rule covers this file: {message}")]
+    UnsupportedFile { message: String },
+    #[error("the file has more source lines than the Code model can hold")]
+    TooLarge,
 }
 
 pub trait LanguagePlugin {

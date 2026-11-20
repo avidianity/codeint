@@ -1,8 +1,12 @@
 #![forbid(unsafe_code)]
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
 use codeint_model::{InvalidRepoPath, RepoPath};
+use gix::dir::entry::{Kind, Status};
+use gix::dir::walk::EmissionMode;
+use gix::dir::walk::delegate::Collect;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
@@ -32,8 +36,18 @@ pub struct WorkingTree {
 }
 
 impl WorkingTree {
-    pub fn discover(_start: &Path) -> Result<WorkingTree, GitError> {
-        todo!()
+    pub fn discover(start: &Path) -> Result<WorkingTree, GitError> {
+        let no_working_tree = |source| GitError::NoWorkingTree {
+            start: start.to_path_buf(),
+            source,
+        };
+        let repository = gix::discover(start).map_err(|error| no_working_tree(Some(error)))?;
+        let root = repository
+            .workdir()
+            .ok_or_else(|| no_working_tree(None))?
+            .to_path_buf();
+        let files = list_measurable_files(&repository)?;
+        Ok(WorkingTree { root, files })
     }
 
     pub fn files(&self) -> &[RepoPath] {
@@ -46,4 +60,42 @@ impl WorkingTree {
             source,
         })
     }
+}
+
+fn list_measurable_files(repository: &gix::Repository) -> Result<Vec<RepoPath>, GitError> {
+    let index = repository.index_or_empty().map_err(GitError::Walk)?;
+    let options = repository
+        .dirwalk_options()
+        .map_err(GitError::Walk)?
+        .emit_tracked(true)
+        .emit_untracked(EmissionMode::Matching)
+        .emit_ignored(None)
+        .recurse_repositories(false);
+    let mut collect = Collect::default();
+    repository
+        .dirwalk(
+            &index,
+            None::<&str>,
+            &AtomicBool::new(false),
+            options,
+            &mut collect,
+        )
+        .map_err(GitError::Walk)?;
+    collect
+        .into_entries_by_path()
+        .into_iter()
+        .map(|(entry, _)| entry)
+        .filter(|entry| {
+            matches!(entry.status, Status::Tracked | Status::Untracked)
+                && entry.disk_kind == Some(Kind::File)
+        })
+        .map(|entry| {
+            let path = String::from_utf8(entry.rela_path.into()).map_err(|error| {
+                GitError::NonUtf8Path {
+                    path: String::from_utf8_lossy(error.as_bytes()).into_owned(),
+                }
+            })?;
+            Ok(RepoPath::new(path)?)
+        })
+        .collect()
 }
