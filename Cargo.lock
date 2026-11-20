@@ -202,8 +202,10 @@ dependencies = [
  "codeint-lang-ts",
  "codeint-model",
  "codeint-report",
+ "serde_json",
  "tempfile",
  "thiserror",
+ "toon-format",
 ]
 
 [[package]]
@@ -266,6 +268,7 @@ dependencies = [
  "codeint-metrics",
  "codeint-model",
  "serde",
+ "serde_json",
  "thiserror",
  "toon-format",
 ]

@@ -11,7 +11,7 @@ use codeint_model::{
     ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError, resolve_runtime_imports,
     settle_source_set,
 };
-use codeint_report::{ReferenceRangeScope, Report, ReportError};
+use codeint_report::{ReferenceRangeScope, Report};
 
 #[cfg(test)]
 mod tests;
@@ -28,8 +28,6 @@ pub(crate) enum CheckError {
     ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
-    #[error(transparent)]
-    Report(#[from] ReportError),
 }
 
 struct Measurement {
@@ -37,7 +35,7 @@ struct Measurement {
     ranges: ReferenceRangeScope,
 }
 
-pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
     check_with(folder, &[&TypeScriptAndJavaScript], findings)
 }
 
@@ -45,12 +43,12 @@ fn check_with(
     folder: &Path,
     plugins: &[&dyn LanguagePlugin],
     findings: FindingsShown,
-) -> Result<String, CheckError> {
+) -> Result<Report, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let configuration = read_configuration(tree.root())?;
     let Measurement { model, ranges } =
         measure(&tree, plugins, &configuration.source_set_overrides)?;
-    Ok(Report::summarize(model, &ranges, findings).to_toon()?)
+    Ok(Report::summarize(model, &ranges, findings))
 }
 
 fn reference_range_scope(

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use codeint_config::FindingsShown;
+use codeint_config::{FindingsShown, ReportFormat};
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
     ImportCycles, MinimumCloneTokens, UnresolvedImport, Verbosity,
@@ -14,14 +14,21 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+#[cfg(test)]
+mod tests;
+
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
 
 #[derive(Debug, thiserror::Error)]
-#[error("cannot render the report")]
-pub struct ReportError(#[source] toon_format::ToonError);
+pub enum ReportError {
+    #[error("cannot render the report as TOON")]
+    Toon(#[source] toon_format::ToonError),
+    #[error("cannot render the report as JSON")]
+    Json(#[source] serde_json::Error),
+}
 
 #[derive(Debug, Serialize)]
 pub struct Report {
@@ -224,7 +231,9 @@ struct SkippedEntry {
 
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
-        Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
+        let rounded = (value * DECIMAL_SCALE).round() / DECIMAL_SCALE;
+        let without_negative_zero = if rounded == 0.0 { 0.0 } else { rounded };
+        Decimal(without_negative_zero)
     }
 }
 
@@ -591,7 +600,10 @@ impl Report {
         }
     }
 
-    pub fn to_toon(&self) -> Result<String, ReportError> {
-        toon_format::encode_default(self).map_err(ReportError)
+    pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
+        match format {
+            ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
+            ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+        }
     }
 }
