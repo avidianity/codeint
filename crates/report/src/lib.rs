@@ -11,6 +11,9 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+#[cfg(test)]
+mod tests;
+
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
@@ -167,7 +170,9 @@ struct SkippedEntry {
 
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
-        Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
+        let rounded = (value * DECIMAL_SCALE).round() / DECIMAL_SCALE;
+        let without_negative_zero = if rounded == 0.0 { 0.0 } else { rounded };
+        Decimal(without_negative_zero)
     }
 }
 
