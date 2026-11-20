@@ -664,6 +664,176 @@ function audit(age: number) {
 ",
         ],
     },
+    RuleFixtures {
+        rule: "constructor-only-forwards",
+        flagged: &[
+            Flagged {
+                text: "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(name, role);
+  }
+}
+",
+                lines: &[2, 3, 4],
+            },
+            Flagged {
+                text: "export class Empty extends Base {
+  constructor() { super(); }
+  describe() {
+    return 'empty';
+  }
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export class Logger extends Sink {
+  public constructor(target: string, ...options: string[]) {
+    super(target, ...options);
+  }
+}
+",
+                lines: &[2, 3, 4],
+            },
+            Flagged {
+                text: "export const Child = class extends Parent {
+  constructor(value?: number) {
+    // the parent does the work
+    (super(value));
+  }
+};
+",
+                lines: &[2, 4, 5],
+            },
+            Flagged {
+                text: "export function make() {
+  return class Outer extends Base {
+    build() {
+      return class Inner extends Base {
+        constructor(...parts) {
+          super(...parts);
+        }
+      };
+    }
+  };
+}
+",
+                lines: &[5, 6, 7],
+            },
+        ],
+        passing: &[
+            "export class Admin extends User {
+  constructor(private name: string, role: string) {
+    super(name, role);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(readonly name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(role, name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name, 'admin');
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name.trim());
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name = 'root') {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor({ name }: { name: string }) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name);
+    this.audit();
+  }
+  audit() {
+    console.log('created');
+  }
+}
+",
+            "export class Admin extends User {
+  private constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  protected constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string);
+  constructor(name: string, role?: string);
+  constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(@Inject(NAME) name: string) {
+    super(name);
+  }
+}
+",
+            "@Injectable()
+export class Admin extends User {
+  constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, roles: string[]) {
+    super(name, ...roles);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, ...roles: string[]) {
+    super(name, roles);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    'use strict';
+    super(name);
+  }
+}
+",
+        ],
+    },
 ];
 
 fn flagged_lines(rule: &str, text: &str) -> Vec<u32> {

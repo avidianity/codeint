@@ -1155,6 +1155,69 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
     );
 }
 
+const ORDER_TOTAL_RENAMED: &str = concat!(
+    "export function amount(lines: { cost: number; count: number }[]): number {\n",
+    "  let result = 100;\n",
+    "  for (const line of lines) {\n",
+    "    if (line.count > 5) {\n",
+    "      result += line.cost * line.count;\n",
+    "    }\n",
+    "  }\n",
+    "  return result;\n",
+    "}\n",
+);
+
+const CART_TOTAL_RESTRUCTURED: &str = concat!(
+    "export function total(items: { price: number; quantity: number }[]): number {\n",
+    "  let sum = 0;\n",
+    "  for (const item of items) {\n",
+    "    while (item.quantity > 0) {\n",
+    "      sum += item.price * item.quantity;\n",
+    "    }\n",
+    "  }\n",
+    "  return sum + 1;\n",
+    "}\n",
+);
+
+#[test]
+fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write("src/order.ts", ORDER_TOTAL_RENAMED);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "duplication"),
+        concat!(
+            "duplication:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  clone_lines: 18\n",
+            "  clone_groups[1]:\n",
+            "    - tokens: 59\n",
+            "      locations[2]{path,start_line,end_line}:\n",
+            "        src/cart.ts,1,9\n",
+            "        src/order.ts,1,9\n",
+        )
+    );
+}
+
+#[test]
+fn copies_with_a_different_structure_do_not_form_a_clone_group() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write("src/restructured.ts", CART_TOTAL_RESTRUCTURED);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
+}
+
 #[test]
 fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
     let small = "export function double(value: number): number {\n  return value * 2;\n}\n";
@@ -1171,11 +1234,24 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
 }
 
 fn write_21_clone_groups_of_equal_size(repository: &Repository) {
+    let one_token_swaps = [
+        ("let sum", "var sum"),
+        ("const item", "let item"),
+        (" > ", " < "),
+        (" += ", " -= "),
+        (" * ", " / "),
+    ];
     for index in 1..=21 {
-        let total = CART_TOTAL
-            .replace("total", &format!("total{index:02}"))
-            .replace("sum", &format!("sum{index:02}"))
-            .replace("item", &format!("item{index:02}"));
+        let total = one_token_swaps.iter().enumerate().fold(
+            CART_TOTAL.to_owned(),
+            |total, (bit, (from, to))| {
+                if index & (1 << bit) == 0 {
+                    total
+                } else {
+                    total.replace(from, to)
+                }
+            },
+        );
         repository.write(&format!("src/a{index:02}.ts"), &total);
         repository.write(&format!("src/b{index:02}.ts"), &total);
     }
@@ -1373,6 +1449,40 @@ fn type_only_imports_and_exports_do_not_form_an_import_cycle() {
     assert_eq!(
         production_section(&output, "import_cycles"),
         no_import_cycles(4)
+    );
+}
+
+#[test]
+fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/shape.ts",
+        "import { type Unit, scale } from './unit';\nexport interface Shape { unit: Unit }\nconst area = (side: number) => scale(side * side);\nexport default area;\n",
+    );
+    repository.write(
+        "src/unit.ts",
+        "export { type Ratio, ratio } from './ratio';\nexport type Unit = 'cm';\nexport const scale = (value: number) => value;\n",
+    );
+    repository.write(
+        "src/ratio.ts",
+        "import area, { type Shape } from './shape';\nexport type Ratio = number;\nexport const ratio = (shape: Shape) => area(1) / shape.unit.length;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 3\n",
+            "  modules: 3\n",
+            "  findings[1]:\n",
+            "    - modules[3]: src/ratio.ts,src/shape.ts,src/unit.ts\n",
+        )
     );
 }
 
@@ -1668,5 +1778,387 @@ fn an_unresolved_import_of_a_test_file_is_reported_in_the_test_source_set_only()
             "    imports[1]{importer,specifier,reason}:\n",
             "      src/greet.test.ts,./fixtures/greeting,\"no file of the repository matches \\\"./fixtures/greeting\\\"\"\n",
         )
+    );
+}
+
+#[test]
+fn files_under_a_build_output_folder_at_any_depth_are_in_the_generated_source_set() {
+    let repository = Repository::new();
+    repository.write("dist/index.js", "export const a = 1;\n");
+    repository.write("packages/web/build/main.js", "export const b = 2;\n");
+    repository.write("out/server.mjs", "export const c = 3;\n");
+    repository.write("coverage/lcov-report/sorter.js", "export const d = 4;\n");
+    repository.write("dist/greet.test.ts", "export const e = 5;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["generated: files: 5 source_lines: 5"]
+    );
+}
+
+#[test]
+fn a_file_or_folder_that_only_looks_like_a_build_output_folder_stays_in_production() {
+    let repository = Repository::new();
+    repository.write("src/dist.ts", "export const a = 1;\n");
+    repository.write("src/distance/metres.ts", "export const b = 2;\n");
+    repository.write("src/outbox/send.ts", "export const c = 3;\n");
+    repository.write("src/builder.ts", "export const d = 4;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["production: files: 4 source_lines: 4"]
+    );
+}
+
+fn line_of_length(name: &str, length: usize) -> String {
+    let prefix = format!("export const {name} = \"");
+    let padding = length - prefix.len() - "\";".len();
+    format!("{prefix}{}\";", "x".repeat(padding))
+}
+
+#[test]
+fn a_file_whose_lines_average_over_250_characters_is_generated_and_one_of_250_is_not() {
+    let repository = Repository::new();
+    repository.write(
+        "src/long.js",
+        &format!(
+            "{}\n{}\n",
+            line_of_length("a", 250),
+            line_of_length("b", 252)
+        ),
+    );
+    repository.write(
+        "src/typical.js",
+        &format!(
+            "{}\n{}\n",
+            line_of_length("c", 249),
+            line_of_length("d", 251)
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 1 source_lines: 2",
+            "generated: files: 1 source_lines: 2",
+        ]
+    );
+}
+
+#[test]
+fn blank_lines_do_not_lower_the_average_line_length() {
+    let repository = Repository::new();
+    repository.write(
+        "src/spaced.js",
+        &format!("{}\n\n\n  \n\r\n", line_of_length("a", 300)),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["generated: files: 1 source_lines: 1"]
+    );
+}
+
+#[test]
+fn line_length_counts_characters_and_not_bytes() {
+    let repository = Repository::new();
+    let wide_line = format!("export const a = \"{}\";", "é".repeat(230));
+    repository.write("src/accents.js", &format!("{wide_line}\n"));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["production: files: 1 source_lines: 1"]
+    );
+}
+
+fn minified_bundle_with_an_eroded_function() -> String {
+    let branches: String = (1..=12)
+        .map(|value| format!("if(v==={value})return {value};"))
+        .collect();
+    format!(
+        "export function render(v){{{branches}return 0}}export function size(v){{return v.length}}\n"
+    )
+}
+
+#[test]
+fn a_minified_bundle_is_generated() {
+    let repository = Repository::new();
+    repository.write(
+        "public/app.min.js",
+        &minified_bundle_with_an_eroded_function(),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["generated: files: 1 source_lines: 1"]
+    );
+}
+
+#[test]
+fn a_file_with_a_generated_marker_comment_is_generated_and_one_without_stays_in_production() {
+    let repository = Repository::new();
+    repository.write(
+        "src/api/client.ts",
+        "// Code generated by openapi-tool. DO NOT EDIT.\nexport const client = 1;\n",
+    );
+    repository.write(
+        "src/api/handwritten.ts",
+        "// Wraps the client.\nexport const wrapper = 2;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 1 source_lines: 1",
+            "generated: files: 1 source_lines: 1",
+        ]
+    );
+}
+
+#[test]
+fn a_vendored_file_stays_vendored_even_when_a_generated_rule_matches_it() {
+    let repository = Repository::new();
+    repository.write("vendor/chart/dist/chart.js", "export const a = 1;\n");
+    repository.write("build/third_party/zlib.js", "export const b = 2;\n");
+    repository.write(
+        "vendor/app.min.js",
+        &minified_bundle_with_an_eroded_function(),
+    );
+    repository.write(
+        "third_party/schema.ts",
+        "// @generated by schema-tool\nexport const c = 3;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["vendored: files: 4 source_lines: 4"]
+    );
+}
+
+#[test]
+fn generated_files_do_not_change_production_metrics() {
+    let production_only = Repository::new();
+    production_only.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    production_only.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    production_only.commit_all();
+    let with_generated = Repository::new();
+    with_generated.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    with_generated.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    with_generated.write(
+        "public/app.min.js",
+        &minified_bundle_with_an_eroded_function(),
+    );
+    with_generated.write("dist/eleven.ts", &function_with_if_statements("eleven", 11));
+    with_generated.write("dist/nine.ts", &function_with_if_statements("nine", 9));
+    with_generated.commit_all();
+
+    let expected = production_only.codeint(&["check"]);
+    let output = with_generated.codeint(&["check"]);
+
+    assert_success(&expected);
+    assert_success(&output);
+    for metric in ["erosion", "verbosity", "duplication"] {
+        let production = production_section(&output, metric);
+        assert!(!production.is_empty(), "the report shows {metric}");
+        assert_eq!(
+            production,
+            production_section(&expected, metric),
+            "{metric}"
+        );
+    }
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 2 source_lines: 26",
+            "generated: files: 3 source_lines: 27",
+        ]
+    );
+    assert!(
+        metric_section(&output, "generated", "erosion").contains("public/app.min.js,1,13,1,13"),
+        "the eroded function of the bundle counts toward the Generated Source set"
+    );
+}
+
+#[test]
+fn a_source_set_override_in_codeint_json_moves_each_matching_file_into_the_named_source_set() {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
+  "source_sets": {
+    "production": ["src/fixtures.test.ts", "dist/handwritten.ts"],
+    "test": ["e2e/**"],
+    "generated": ["src/proto/*.ts"],
+    "vendored": ["lib/legacy/**/*.js"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "src/fixtures.test.ts",
+        "export const fixture = 1;\nexport const other = 2;\n",
+    );
+    repository.write(
+        "e2e/login.ts",
+        "export const login = 1;\nexport const user = 2;\nexport const page = 3;\n",
+    );
+    repository.write("src/proto/user.ts", "export const user = 1;\n");
+    repository.write("src/proto/nested/kept.ts", "export const kept = 1;\n");
+    repository.write("dist/handwritten.ts", "export const handwritten = 1;\n");
+    repository.write("lib/legacy/a/b.js", "export const legacy = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "src"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 4 source_lines: 5",
+            "test: files: 1 source_lines: 3",
+            "generated: files: 1 source_lines: 1",
+            "vendored: files: 1 source_lines: 1",
+        ]
+    );
+}
+
+#[test]
+fn a_file_that_matches_overrides_of_several_source_sets_goes_to_the_first_of_vendored_generated_test_production()
+ {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "source_sets": {
+    "production": ["src/**"],
+    "test": ["src/**"],
+    "generated": ["src/api/**"],
+    "vendored": ["src/api/external/**"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write("src/api/client.ts", "export const client = 1;\n");
+    repository.write("src/api/external/sdk.ts", "export const sdk = 1;\n");
+    repository.write("lib/vendor/kept.ts", "export const kept = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "test: files: 1 source_lines: 1",
+            "generated: files: 1 source_lines: 1",
+            "vendored: files: 2 source_lines: 2",
+        ]
+    );
+}
+
+const UNKNOWN_KEY_REMEDY: &str =
+    "Remove the key, or correct its spelling to one of the allowed keys.";
+
+const WRONG_TYPE_REMEDY: &str = "Change the value to the expected type; the JSON schema that $schema links to describes every key.";
+
+fn assert_codeint_json_is_rejected(codeint_json: &str, message: &str, remedy: &str) {
+    let repository = Repository::new();
+    repository.write("codeint.json", codeint_json);
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "src"]);
+
+    assert_operational_error(&output, &format!("codeint: {message}\n{remedy}\n"));
+}
+
+#[test]
+fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "generatd": ["dist/**"] } }"#,
+        "codeint.json has an unknown key source_sets.generatd; \
+         the keys allowed there are production, test, generated, vendored",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "budget": {} }"#,
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn a_value_of_the_wrong_type_in_codeint_json_names_the_key_and_the_expected_type_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "generated": "dist/**" } }"#,
+        "codeint.json: source_sets.generated must be an array, not a string",
+        WRONG_TYPE_REMEDY,
+    );
+}
+
+#[test]
+fn an_item_of_the_wrong_type_in_codeint_json_names_its_index_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "test": ["e2e/**", 42] } }"#,
+        "codeint.json: source_sets.test[1] must be a string, not an integer",
+        WRONG_TYPE_REMEDY,
+    );
+}
+
+#[test]
+fn an_invalid_glob_in_codeint_json_names_the_key_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "vendored": ["lib/[abc"] } }"#,
+        "codeint.json: source_sets.vendored[0] is not a valid glob: \
+         error parsing glob 'lib/[abc': unclosed character class; missing ']'",
+        "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b.",
+    );
+}
+
+#[test]
+fn codeint_json_that_is_not_json_names_the_line_and_column_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        "{\n  \"source_sets\": {},\n}\n",
+        "codeint.json is not valid JSON: trailing comma at line 3 column 1",
+        "Fix the JSON syntax of codeint.json at that line and column.",
     );
 }

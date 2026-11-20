@@ -1,6 +1,10 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{Function, ImportRequest, Resolution};
-use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath, SourceSet};
+use codeint_model::{
+    FileModel, LanguagePlugin, LowerError, RepoPath, SourceSet, TokenKind, token_text_hash,
+};
+
+use TokenKind::{Identifier, Literal, Other};
 
 fn plugin() -> &'static dyn LanguagePlugin {
     &TypeScriptAndJavaScript
@@ -642,22 +646,46 @@ fn a_default_parameter_of_a_nested_function_counts_only_toward_the_nested_functi
     );
 }
 
-fn tokens(path: &str, text: &str) -> Vec<(String, u32)> {
+fn tokens(path: &str, text: &str, texts: &[&str]) -> Vec<(TokenKind, String, u32)> {
+    let text_of = |hash: u64| {
+        texts
+            .iter()
+            .find(|text| token_text_hash(text) == hash)
+            .map_or_else(
+                || format!("unknown text {hash:#x}"),
+                |text| (*text).to_owned(),
+            )
+    };
     match lower(path, text) {
         Ok(model) => model
             .tokens
             .into_iter()
-            .map(|token| (token.text, token.line))
+            .map(|token| (token.kind, text_of(token.text_hash), token.line))
             .collect(),
         Err(error) => panic!("{path} did not lower: {error}"),
     }
 }
 
-fn expected_tokens(tokens: &[(&str, u32)]) -> Vec<(String, u32)> {
-    tokens
+fn assert_tokens(path: &str, text: &str, expected: &[(TokenKind, &str, u32)]) {
+    let texts: Vec<&str> = expected.iter().map(|(_, text, _)| *text).collect();
+    let expected: Vec<(TokenKind, String, u32)> = expected
         .iter()
-        .map(|(text, line)| ((*text).to_owned(), *line))
-        .collect()
+        .map(|(kind, text, line)| (*kind, (*text).to_owned(), *line))
+        .collect();
+    assert_eq!(tokens(path, text, &texts), expected);
+}
+
+fn assert_token_kinds(path: &str, text: &str, expected: &[(&str, TokenKind)]) {
+    let texts: Vec<&str> = expected.iter().map(|(text, _)| *text).collect();
+    let actual: Vec<(String, TokenKind)> = tokens(path, text, &texts)
+        .into_iter()
+        .map(|(kind, text, _)| (text, kind))
+        .collect();
+    let expected: Vec<(String, TokenKind)> = expected
+        .iter()
+        .map(|(text, kind)| ((*text).to_owned(), *kind))
+        .collect();
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -674,25 +702,26 @@ fn the_token_stream_holds_each_token_with_its_line_and_no_whitespace_or_comments
         "${total} last`;\n",
     );
 
-    assert_eq!(
-        tokens("src/tokens.ts", text),
-        expected_tokens(&[
-            ("const", 3),
-            ("total", 3),
-            ("=", 3),
-            ("1", 3),
-            ("+", 3),
-            ("2", 3),
-            (";", 3),
-            ("export", 8),
-            ("const", 8),
-            ("text", 8),
-            ("=", 8),
-            ("`first\n${", 8),
-            ("total", 9),
-            ("} last`", 9),
-            (";", 9),
-        ])
+    assert_tokens(
+        "src/tokens.ts",
+        text,
+        &[
+            (Other, "const", 3),
+            (Identifier, "total", 3),
+            (Other, "=", 3),
+            (Literal, "1", 3),
+            (Other, "+", 3),
+            (Literal, "2", 3),
+            (Other, ";", 3),
+            (Other, "export", 8),
+            (Other, "const", 8),
+            (Identifier, "text", 8),
+            (Other, "=", 8),
+            (Literal, "`first\n${", 8),
+            (Identifier, "total", 9),
+            (Literal, "} last`", 9),
+            (Other, ";", 9),
+        ],
     );
 }
 
@@ -715,23 +744,109 @@ fn decision_points_in_a_javascript_file_count_the_same_way() {
 
 #[test]
 fn the_token_stream_covers_jsx_and_regular_expressions() {
-    let text = "export const Hit = () => <b title=\"x\">{/a+/.test('aa')}</b>;\n";
+    assert_token_kinds(
+        "src/hit.tsx",
+        "export const Hit = () => <b title=\"x\">{/a+/.test('aa')}</b>;\n",
+        &[
+            ("export", Other),
+            ("const", Other),
+            ("Hit", Identifier),
+            ("=", Other),
+            ("(", Other),
+            (")", Other),
+            ("=>", Other),
+            ("<", Other),
+            ("b", Identifier),
+            ("title", Identifier),
+            ("=", Other),
+            ("\"x\"", Literal),
+            (">", Other),
+            ("{", Other),
+            ("/a+/", Literal),
+            (".", Other),
+            ("test", Identifier),
+            ("(", Other),
+            ("'aa'", Literal),
+            (")", Other),
+            ("}", Other),
+            ("<", Other),
+            ("/", Other),
+            ("b", Identifier),
+            (">", Other),
+            (";", Other),
+        ],
+    );
+}
 
-    assert_eq!(
-        tokens("src/hit.tsx", text)
-            .into_iter()
-            .map(|(text, _)| text)
-            .collect::<Vec<_>>(),
-        [
-            "export", "const", "Hit", "=", "(", ")", "=>", "<", "b", "title", "=", "\"x\"", ">",
-            "{", "/a+/", ".", "test", "(", "'aa'", ")", "}", "<", "/", "b", ">", ";",
-        ]
+#[test]
+fn a_keyword_used_as_a_name_is_an_identifier_and_a_keyword_used_as_a_keyword_is_not() {
+    assert_token_kinds(
+        "src/names.ts",
+        "type of = number;\nconst type = item.true ?? #seen in this;\n",
+        &[
+            ("type", Other),
+            ("of", Identifier),
+            ("=", Other),
+            ("number", Other),
+            (";", Other),
+            ("const", Other),
+            ("type", Identifier),
+            ("=", Other),
+            ("item", Identifier),
+            (".", Other),
+            ("true", Identifier),
+            ("??", Other),
+            ("#seen", Identifier),
+            ("in", Other),
+            ("this", Other),
+            (";", Other),
+        ],
+    );
+}
+
+#[test]
+fn every_kind_of_literal_value_is_a_literal() {
+    assert_token_kinds(
+        "src/values.tsx",
+        "f(true, false, null, 0x1f, 10n, 1e3, 'a', `b`, /c/g);\n<p>text</p>;\n",
+        &[
+            ("f", Identifier),
+            ("(", Other),
+            ("true", Literal),
+            (",", Other),
+            ("false", Literal),
+            (",", Other),
+            ("null", Literal),
+            (",", Other),
+            ("0x1f", Literal),
+            (",", Other),
+            ("10n", Literal),
+            (",", Other),
+            ("1e3", Literal),
+            (",", Other),
+            ("'a'", Literal),
+            (",", Other),
+            ("`b`", Literal),
+            (",", Other),
+            ("/c/g", Literal),
+            (")", Other),
+            (";", Other),
+            ("<", Other),
+            ("p", Identifier),
+            (">", Other),
+            ("text", Literal),
+            ("<", Other),
+            ("/", Other),
+            ("p", Identifier),
+            (">", Other),
+            (";", Other),
+        ],
     );
 }
 
 #[test]
 fn an_empty_file_has_no_tokens() {
-    assert_eq!(tokens("src/empty.ts", ""), []);
+    assert_eq!(tokens("src/empty.ts", "", &[]), []);
 }
 
 fn runtime_imports(path: &str, text: &str) -> Vec<String> {
@@ -968,5 +1083,63 @@ fn a_file_that_no_test_rule_matches_is_in_the_production_source_set() {
         "src/greet.test.helpers.ts",
     ] {
         assert_eq!(source_set(path), SourceSet::Production, "{path}");
+    }
+}
+
+fn source_set_of_text(path: &str, text: &str) -> SourceSet {
+    match lower(path, text) {
+        Ok(model) => model.source_set,
+        Err(error) => panic!("{path} did not lower: {error}"),
+    }
+}
+
+#[test]
+fn a_file_with_a_generated_marker_in_a_comment_before_its_code_is_in_the_generated_source_set() {
+    for text in [
+        "// @generated\nexport const one = 1;\n",
+        "/* @generated SignedSource<<0123abcd>> */\nexport const one = 1;\n",
+        "/**\n * This file was automatically generated by json-schema-to-typescript.\n */\nexport type One = 1;\n",
+        "// Code generated by protoc-gen-ts. DO NOT EDIT.\nexport const one = 1;\n",
+        "/* eslint-disable */\n// This file is auto-generated.\nexport const one = 1;\n",
+        "/* !!! This is code generated by Prisma. Do not edit directly. !!! */\nexport const one = 1;\n",
+        "/* NOTE: This class is auto generated by OpenAPI Generator. */\nexport class One {}\n",
+        "// AUTOGENERATED FILE\nexport const one = 1;\n",
+        "// Generated by CoffeeScript 1.12.7\nexport const one = 1;\n",
+        "#!/usr/bin/env node\n// @generated\nexport const one = 1;\n",
+        "// @generated\n",
+    ] {
+        assert_eq!(
+            source_set_of_text("src/one.ts", text),
+            SourceSet::Generated,
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_generated_marker_wins_over_a_test_rule() {
+    assert_eq!(
+        source_set_of_text(
+            "src/__tests__/fixtures.ts",
+            "// @generated\nexport const one = 1;\n"
+        ),
+        SourceSet::Generated
+    );
+}
+
+#[test]
+fn a_generated_marker_after_the_first_code_or_outside_a_comment_does_not_make_a_file_generated() {
+    for text in [
+        "export const one = 1;\n// @generated\n",
+        "import { two } from './two';\n/* DO NOT EDIT below this line */\nexport const one = two;\n",
+        "const banner = '// @generated';\nexport { banner };\n",
+        "// The generator of this report reads the config.\nexport const one = 1;\n",
+        "// Generates the next id, so edit with care.\nexport const one = 1;\n",
+    ] {
+        assert_eq!(
+            source_set_of_text("src/one.ts", text),
+            SourceSet::Production,
+            "{text}"
+        );
     }
 }
