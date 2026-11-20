@@ -2425,3 +2425,78 @@ fn a_git_submodule_that_is_not_checked_out_is_listed_and_adds_nothing() {
     assert_success(&output);
     assert_eq!(stdout(&output), report_with_one_submodule());
 }
+
+fn repository_with_a_nested_path_in_every_report_section() -> Repository {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{ "source_sets": { "test": ["packages/app/checks/**"] } }"#,
+    );
+    repository.write(
+        "packages/app/src/deep/eroded.ts",
+        &function_with_if_statements("route", 11),
+    );
+    repository.write("packages/app/src/cart.ts", CART_TOTAL);
+    repository.write("packages/lib/src/invoice.ts", CART_TOTAL);
+    repository.write(
+        "packages/app/src/ring/a.ts",
+        "import { b } from '../../../lib/src/ring/b';\nexport const a = () => b();\n",
+    );
+    repository.write(
+        "packages/lib/src/ring/b.ts",
+        "import { a } from '../../../app/src/ring/a';\nexport const b = () => a();\n",
+    );
+    repository.write("packages/app/checks/smoke.ts", "export const smoke = 1;\n");
+    repository.write(
+        "packages/lib/src/broken.ts",
+        "export const ok = 1;\nexport const = ;\n",
+    );
+    repository.write(
+        "packages/lib/types/index.d.ts",
+        "declare const version: string;\n",
+    );
+    repository.commit_all();
+    repository
+}
+
+#[test]
+fn repository_root_check_from_a_nested_subfolder_prints_the_same_report_as_from_the_root() {
+    let repository = repository_with_a_nested_path_in_every_report_section();
+
+    let from_root = repository.codeint(&["check", "--all"]);
+    let from_subfolder = run_codeint(
+        &repository.path().join("packages/lib/src/ring"),
+        &["check", "--all"],
+    );
+
+    assert_success(&from_root);
+    assert_success(&from_subfolder);
+    assert_eq!(stdout(&from_subfolder), stdout(&from_root));
+}
+
+#[test]
+fn repository_root_relative_paths_with_forward_slashes_appear_in_every_report_section() {
+    let repository = repository_with_a_nested_path_in_every_report_section();
+
+    let output = run_codeint(&repository.path().join("packages/app"), &["check"]);
+
+    assert_success(&output);
+    let report = stdout(&output);
+    assert!(!report.contains('\\'), "unexpected backslash: {report}");
+    let path_lines: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains(".ts"))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        path_lines,
+        [
+            "packages/app/src/deep/eroded.ts,1,12,14,44.8999",
+            "packages/app/src/cart.ts,1,9",
+            "packages/lib/src/invoice.ts,1,9",
+            "- modules[2]: packages/app/src/ring/a.ts,packages/lib/src/ring/b.ts",
+            "packages/lib/src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"",
+            "declaration_only[1]: packages/lib/types/index.d.ts",
+        ]
+    );
+}
