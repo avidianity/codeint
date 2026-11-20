@@ -452,8 +452,7 @@ fn format_sarif_lists_only_the_new_findings_so_a_pull_request_annotates_what_it_
 }
 
 #[test]
-fn format_markdown_shows_each_metric_on_both_sides_the_regressions_then_the_new_and_resolved_findings()
- {
+fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_findings() {
     let fixture = Fixture::on_main();
     fixture.put("src/a.ts", &function_with_if_statements("a", 11));
     fixture.commit("base");
