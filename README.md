@@ -34,6 +34,7 @@ Pass `--format` to choose another format:
 ```sh
 codeint check --format toon
 codeint check --format json
+codeint check --format markdown
 ```
 
 `--output {file}` writes the report in the chosen format to a file instead of standard output.
@@ -136,6 +137,39 @@ Later versions of codeint change the JSON report only in ways that keep existing
 - They may add a Source set key, a Metric object, or a kind of Finding.
 
 Readers ignore fields they do not know, and treat a missing optional field as empty.
+
+### Markdown report
+
+`--format markdown` prints a report to paste into a pull request comment.
+It starts with one table: each Metric's value per Source set, the counts behind the value, and the Reference range.
+Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
+It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
+
+```markdown
+# codeint report
+
+codeint measured 1 file with 7 source lines.
+
+| Source set | Metric | Value | Behind the value | Reference range |
+| ---------- | ------ | ----- | ---------------- | --------------- |
+| Production | Erosion | 0 | 0 of 5.2915 Function mass in eroded functions | no published Reference range for this language |
+| Production | Duplication | 0 | 0 clone lines of 7 source lines | no published Reference range for this language |
+| Production | Verbosity | 0.1429 | 1 verbose line of 7 source lines: 1 Flagged line, 0 clone lines | no published Reference range for this language |
+| Production | Import cycles | 0 | 0 of 1 module in an Import cycle | no published Reference range for this language |
+
+## Production Findings
+
+### Verbosity
+
+| Flagged line | Rule |
+| ------------ | ---- |
+| `src/sign.ts:4` | else-after-return |
+
+## Files not measured
+
+- `src/broken.ts`: cannot parse: Unexpected token at line 1, column 14
+- `src/types.d.ts`: declaration only
+```
 
 ## Development
 

@@ -1027,7 +1027,7 @@ fn an_unknown_format_names_the_formats_codeint_prints_and_exits_2() {
     assert_operational_error(
         &output,
         "error: invalid value 'yaml' for '--format <FORMAT>'\n\
-         \x20 [possible values: toon, json]\n\
+         \x20 [possible values: toon, json, markdown]\n\
          \n\
          For more information, try '--help'.\n",
     );
@@ -2537,21 +2537,7 @@ fn with_every_number_as_f64(value: serde_json::Value) -> serde_json::Value {
 
 #[test]
 fn format_json_carries_every_field_and_value_of_the_toon_report() {
-    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
-    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 21);
-    repository.write(
-        "src/a.ts",
-        "import { b } from './b';\nexport const a = b;\n",
-    );
-    repository.write(
-        "src/b.ts",
-        "import { a } from './a';\nexport const b = a;\n",
-    );
-    repository.write(
-        "src/sign.test.ts",
-        "import { sign } from './sign';\nsign(1);\n",
-    );
-    repository.commit_all();
+    let repository = repository_with_every_optional_part_of_the_report();
 
     let toon = repository.codeint(&["check"]);
     let json = repository.codeint(&["check", "--format", "json"]);
@@ -2575,5 +2561,71 @@ fn format_json_carries_every_field_and_value_of_the_toon_report() {
     assert_eq!(
         with_every_number_as_f64(from_json),
         with_every_number_as_f64(from_toon)
+    );
+}
+
+fn repository_with_every_optional_part_of_the_report() -> Repository {
+    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 21);
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nexport const a = b;\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { a } from './a';\nexport const b = a;\n",
+    );
+    repository.write(
+        "src/sign.test.ts",
+        "import { sign } from './sign';\nsign(1);\n",
+    );
+    repository.commit_all();
+    repository
+}
+
+#[test]
+fn format_markdown_prints_each_metric_then_the_findings_then_the_files_not_measured() {
+    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        include_str!("snapshots/markdown-report.md")
+    );
+}
+
+#[test]
+fn format_markdown_lists_every_optional_part_of_the_report_and_escapes_markdown_in_paths_and_text()
+{
+    let repository = repository_with_every_optional_part_of_the_report();
+    repository.write(
+        "src/pipe.ts",
+        "import { x } from './a|b`c';\nexport const y = x;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        include_str!("snapshots/markdown-report-every-part.md")
+    );
+}
+
+#[test]
+fn format_markdown_lists_a_git_submodule_under_files_not_measured() {
+    let (repository, _library) = repository_with_a_submodule();
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output)
+            .ends_with("\n\n## Files not measured\n\n- `modules/library`: Git submodule\n"),
+        "unexpected report: {}",
+        stdout(&output)
     );
 }
