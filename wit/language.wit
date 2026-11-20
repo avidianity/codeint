@@ -13,7 +13,7 @@ interface language {
         end-line: u32,
         /// The decision points of the function, not counting those of nested functions.
         decision-points: u32,
-        /// The source lines from the first to the last line of the function, nested functions included.
+        /// The source lines of the function, not counting lines of nested functions.
         source-lines: u32,
     }
 
