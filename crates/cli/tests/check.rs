@@ -92,7 +92,10 @@ fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files(
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 5\n");
+    assert_eq!(
+        stdout(&output),
+        format!("files: 2\nsource_lines: 5\n{NO_DUPLICATION}")
+    );
 }
 
 #[test]
@@ -122,7 +125,10 @@ fn blank_lines_and_comment_only_lines_are_not_source_lines() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 1\nsource_lines: 5\n");
+    assert_eq!(
+        stdout(&output),
+        format!("files: 1\nsource_lines: 5\n{NO_DUPLICATION}")
+    );
 }
 
 #[test]
@@ -139,7 +145,10 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 8\nsource_lines: 8\n");
+    assert_eq!(
+        stdout(&output),
+        format!("files: 8\nsource_lines: 8\n{NO_DUPLICATION}")
+    );
 }
 
 #[test]
@@ -161,7 +170,10 @@ fn files_git_ignores_are_not_measured_and_untracked_files_are() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(
+        stdout(&output),
+        format!("files: 2\nsource_lines: 3\n{NO_DUPLICATION}")
+    );
 }
 
 #[test]
@@ -269,7 +281,10 @@ fn check_of_a_subfolder_measures_the_whole_working_tree() {
     let output = repository.codeint(&["check", "src"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(
+        stdout(&output),
+        format!("files: 2\nsource_lines: 3\n{NO_DUPLICATION}")
+    );
 }
 
 #[test]
@@ -339,5 +354,66 @@ fn a_closed_standard_output_is_an_operational_error_and_not_a_panic() {
         message.starts_with("codeint: cannot write the report to standard output: ")
             && message.ends_with("\nKeep standard output open until codeint exits.\n"),
         "unexpected message: {message}"
+    );
+}
+
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  clone_lines: 0\n  clone_groups: []\n";
+
+const CART_TOTAL: &str = concat!(
+    "export function total(items: { price: number; quantity: number }[]): number {\n",
+    "  let sum = 0;\n",
+    "  for (const item of items) {\n",
+    "    if (item.quantity > 0) {\n",
+    "      sum += item.price * item.quantity;\n",
+    "    }\n",
+    "  }\n",
+    "  return sum;\n",
+    "}\n",
+);
+
+#[test]
+fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locations() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write(
+        "src/invoice.ts",
+        &format!("const currency = 'EUR';\n{CART_TOTAL}export const label = currency;\n"),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 2\n",
+            "source_lines: 20\n",
+            "duplication:\n",
+            "  ratio: 0.9\n",
+            "  clone_lines: 18\n",
+            "  clone_groups[1]:\n",
+            "    - tokens: 59\n",
+            "      locations[2]{path,start_line,end_line}:\n",
+            "        src/cart.ts,1,9\n",
+            "        src/invoice.ts,2,10\n",
+        )
+    );
+}
+
+#[test]
+fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
+    let small = "export function double(value: number): number {\n  return value * 2;\n}\n";
+    let repository = Repository::new();
+    repository.write("src/first.ts", small);
+    repository.write("src/second.ts", small);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        format!("files: 2\nsource_lines: 6\n{NO_DUPLICATION}")
     );
 }

@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, Token};
 
 pub struct Plain;
 
@@ -14,7 +14,17 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
-        Ok(FileModel { source_lines })
+        let tokens = text
+            .lines()
+            .zip(1..)
+            .flat_map(|(line, number)| {
+                line.split_whitespace().map(move |word| Token {
+                    text: word.to_owned(),
+                    line: number,
+                })
+            })
+            .collect();
+        Ok(FileModel { source_lines, tokens })
     }
 }
 ```
@@ -26,6 +36,8 @@ impl Guest for Plain {
 - `extensions` returns each file extension without its leading dot.
 - `lower` receives a repository-relative path with forward slashes and the whole file as text.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.
+- `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
+  Leave out whitespace and comments; the core finds Clone groups from this stream.
 
 ## Lower files in the core
 

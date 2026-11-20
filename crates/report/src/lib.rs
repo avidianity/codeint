@@ -35,8 +35,26 @@ struct LocationReport {
 
 impl DuplicationReport {
     fn summarize(duplication: &Duplication) -> DuplicationReport {
-        let _ = duplication;
-        todo!()
+        DuplicationReport {
+            ratio: duplication.ratio(),
+            clone_lines: duplication.clone_lines,
+            clone_groups: duplication
+                .clone_groups
+                .iter()
+                .map(|group| CloneGroupReport {
+                    tokens: group.tokens,
+                    locations: group
+                        .fragments
+                        .iter()
+                        .map(|fragment| LocationReport {
+                            path: fragment.path.to_string(),
+                            start_line: fragment.start_line,
+                            end_line: fragment.end_line,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
     }
 }
 
