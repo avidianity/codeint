@@ -157,6 +157,12 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          ratio: 0\n      \
          reference_range: no published Reference range for this language\n      \
          verbose_lines: 0\n      \
+         findings: []\n    \
+         import_cycles:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         modules_in_import_cycles: 0\n      \
+         modules: {files}\n      \
          findings: []\n"
     )
 }
@@ -626,6 +632,52 @@ fn eroded_functions_of_equal_function_mass_are_listed_by_path_then_line_and_the_
     expected.extend((1..=18).map(|index| format!("    src/t{index:02}.ts,1")));
     expected.push("  findings_left_out: 2".to_string());
     assert_eq!(erosion_findings_lines(&output), expected);
+}
+
+#[test]
+fn every_kind_of_decision_point_counts_toward_erosion() {
+    let repository = Repository::new();
+    repository.write(
+        "src/route.ts",
+        concat!(
+            "export function route(input?: { kind?: string; size?: number }, fallback = 'none'): string {\n",
+            "  const kind = input?.kind ?? fallback;\n",
+            "  const size = input?.size || 0;\n",
+            "  try {\n",
+            "    switch (kind) {\n",
+            "      case 'small':\n",
+            "        return size > 0 && size < 10 ? 'tiny' : 'small';\n",
+            "      case 'large':\n",
+            "        return 'large';\n",
+            "      default:\n",
+            "        return fallback;\n",
+            "    }\n",
+            "  } catch {\n",
+            "    return 'error';\n",
+            "  } finally {\n",
+            "    console.log(kind);\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 18\n");
+    assert_eq!(
+        production_section(&output, "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  eroded_function_mass: 46.669\n",
+            "  total_function_mass: 46.669\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/route.ts,1,11,18,46.669\n",
+        )
+    );
 }
 
 #[test]
@@ -1166,6 +1218,274 @@ fn all_lists_every_clone_group() {
     let mut expected = vec!["clone_groups[21]:".to_string()];
     expected.extend((1..=21).map(|index| format!("src/a{index:02}.ts,1,9")));
     assert_eq!(clone_groups_by_first_location(&output), expected);
+}
+
+fn no_import_cycles(modules: usize) -> String {
+    format!(
+        "import_cycles:\n\
+         \x20 ratio: 0\n\
+         \x20 reference_range: no published Reference range for this language\n\
+         \x20 modules_in_import_cycles: 0\n\
+         \x20 modules: {modules}\n\
+         \x20 findings: []\n"
+    )
+}
+
+#[test]
+fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nexport const a = () => b();\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { c } from './c.ts';\nexport const b = () => c();\n",
+    );
+    repository.write(
+        "src/c.ts",
+        "import { a } from './a.js';\nexport const c = () => a();\n",
+    );
+    repository.write("src/main.ts", "import { a } from './a';\na();\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0.75\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 3\n",
+            "  modules: 4\n",
+            "  findings[1]:\n",
+            "    - modules[3]: src/a.ts,src/b.ts,src/c.ts\n",
+        )
+    );
+}
+
+#[test]
+fn a_diamond_of_imports_without_a_cycle_reports_no_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/main.ts",
+        "import { left } from './left';\nimport { right } from './right';\nleft(right());\n",
+    );
+    repository.write(
+        "src/left.ts",
+        "import { shared } from './shared';\nexport const left = (value: number) => shared(value);\n",
+    );
+    repository.write(
+        "src/right.ts",
+        "import { shared } from './shared';\nexport const right = () => shared(1);\n",
+    );
+    repository.write(
+        "src/shared.ts",
+        "export const shared = (value: number) => value;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        no_import_cycles(4)
+    );
+}
+
+#[test]
+fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "lib/loader.js",
+        "export const load = () => import(`./plugin.js`);\n",
+    );
+    repository.write(
+        "lib/plugin.js",
+        "const helpers = require('./helpers');\nexport default helpers;\n",
+    );
+    repository.write(
+        "lib/helpers.js",
+        "const { load } = require('./loader');\nmodule.exports = { load };\n",
+    );
+    repository.write(
+        "lib/standalone.js",
+        "const path = require('node:path');\nexport const join = path.join;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0.75\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 3\n",
+            "  modules: 4\n",
+            "  findings[1]:\n",
+            "    - modules[3]: lib/helpers.js,lib/loader.js,lib/plugin.js\n",
+        )
+    );
+}
+
+#[test]
+fn type_only_imports_and_exports_do_not_form_an_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/user.ts",
+        "import type { Order } from './order';\nexport interface User { orders: Order[] }\n",
+    );
+    repository.write(
+        "src/order.ts",
+        "import { type User } from './user';\nexport interface Order { owner: User }\n",
+    );
+    repository.write(
+        "src/index.ts",
+        "export type { User } from './user';\nexport type * from './order';\n",
+    );
+    repository.write(
+        "src/barrel.ts",
+        "import { type Order } from './order';\nexport * from './index';\nexport const none: Order[] = [];\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        no_import_cycles(4)
+    );
+}
+
+#[test]
+fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
+    let repository = Repository::new();
+    repository.write("src/a.ts", "export * from './b';\n");
+    repository.write(
+        "src/b.ts",
+        "export { a } from './a';\nexport const b = 1;\n",
+    );
+    repository.write("src/x/index.ts", "import '../y';\n");
+    repository.write("src/y.ts", "import './x';\nimport './z';\n");
+    repository.write("src/z.ts", "import 'lodash';\nimport './missing';\n");
+    repository.write("src/self.ts", "import './self';\n");
+    repository.write("src/data.json", "{}\n");
+    repository.write(
+        "src/reader.ts",
+        "import data from './data.json';\nexport { data };\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 7\nsource_lines: 11\n");
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0.7143\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 5\n",
+            "  modules: 7\n",
+            "  findings[3]:\n",
+            "    - modules[2]: src/a.ts,src/b.ts\n",
+            "    - modules[1]: src/self.ts\n",
+            "    - modules[2]: src/x/index.ts,src/y.ts\n",
+        )
+    );
+}
+
+fn write_21_self_importing_modules(repository: &Repository) {
+    for index in 1..=21 {
+        repository.write(
+            &format!("src/self{index:02}.ts"),
+            &format!("import './self{index:02}';\n"),
+        );
+    }
+}
+
+fn import_cycle_findings(output: &Output) -> Vec<String> {
+    production_section(output, "import_cycles")
+        .lines()
+        .map(str::trim_start)
+        .skip_while(|line| !line.starts_with("findings"))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn the_report_lists_20_import_cycles_and_says_how_many_it_left_out() {
+    let repository = Repository::new();
+    write_21_self_importing_modules(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec!["findings[20]:".to_string()];
+    expected.extend((1..=20).map(|index| format!("- modules[1]: src/self{index:02}.ts")));
+    expected.push("findings_left_out: 1".to_string());
+    assert_eq!(import_cycle_findings(&output), expected);
+}
+
+#[test]
+fn all_lists_every_import_cycle() {
+    let repository = Repository::new();
+    write_21_self_importing_modules(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--all"]);
+
+    assert_success(&output);
+    let mut expected = vec!["findings[21]:".to_string()];
+    expected.extend((1..=21).map(|index| format!("- modules[1]: src/self{index:02}.ts")));
+    assert_eq!(import_cycle_findings(&output), expected);
+}
+
+#[test]
+fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
+    let repository = Repository::new();
+    repository.write(
+        "src/greet.ts",
+        "import { check } from './greet.test';\nexport const greet = () => check;\n",
+    );
+    repository.write(
+        "src/greet.test.ts",
+        "import { greet } from './greet';\nimport { helper } from './helper.test';\nexport const check = greet;\nexport const used = helper;\n",
+    );
+    repository.write(
+        "src/helper.test.ts",
+        "import { used } from './greet.test';\nexport const helper = () => used;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        metric_section(&output, "production", "import_cycles"),
+        no_import_cycles(1)
+    );
+    assert_eq!(
+        metric_section(&output, "test", "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 2\n",
+            "  modules: 2\n",
+            "  findings[1]:\n",
+            "    - modules[2]: src/greet.test.ts,src/helper.test.ts\n",
+        )
+    );
 }
 
 #[test]

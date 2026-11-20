@@ -2,8 +2,8 @@
 
 use codeint_config::FindingsShown;
 use codeint_metrics::{
-    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
-    MinimumCloneTokens, Verbosity,
+    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
+    ImportCycles, MinimumCloneTokens, Verbosity,
 };
 use codeint_model::{
     CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
@@ -66,6 +66,7 @@ struct SourceSetSection {
     erosion: ErosionSection,
     duplication: DuplicationSection,
     verbosity: VerbositySection,
+    import_cycles: ImportCyclesSection,
 }
 
 #[derive(Debug, Serialize)]
@@ -133,6 +134,21 @@ struct FlaggedLineRow {
     path: String,
     line: u32,
     rule: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ImportCyclesSection {
+    ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
+    modules_in_import_cycles: usize,
+    modules: usize,
+    #[serde(flatten)]
+    findings: Findings<ImportCycleFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct ImportCycleFinding {
+    modules: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -215,6 +231,10 @@ impl FindingKind for FlaggedLineRow {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl FindingKind for ImportCycleFinding {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
@@ -256,6 +276,11 @@ impl SourceSetSection {
                 findings,
             ),
             verbosity: VerbositySection::new(&Verbosity::measure(model), ranges, findings),
+            import_cycles: ImportCyclesSection::new(
+                &ImportCycles::measure(model),
+                ranges,
+                findings,
+            ),
         }
     }
 }
@@ -363,6 +388,33 @@ impl From<&FlaggedLineFinding> for FlaggedLineRow {
             path: finding.path.to_string(),
             line: finding.line,
             rule: finding.rule.clone(),
+        }
+    }
+}
+
+impl ImportCyclesSection {
+    fn new(
+        import_cycles: &ImportCycles,
+        ranges: &ReferenceRangeScope,
+        shown: FindingsShown,
+    ) -> ImportCyclesSection {
+        ImportCyclesSection {
+            ratio: Decimal::rounded(import_cycles.ratio()),
+            reference_range: ranges.entry("import_cycles"),
+            modules_in_import_cycles: import_cycles.modules_in_import_cycles(),
+            modules: import_cycles.modules(),
+            findings: Findings::worst_first(
+                import_cycles.cycles().iter().map(ImportCycleFinding::new),
+                shown,
+            ),
+        }
+    }
+}
+
+impl ImportCycleFinding {
+    fn new(cycle: &ImportCycle) -> ImportCycleFinding {
+        ImportCycleFinding {
+            modules: cycle.modules().iter().map(RepoPath::to_string).collect(),
         }
     }
 }
