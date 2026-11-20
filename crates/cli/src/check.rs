@@ -5,7 +5,10 @@ use std::string::FromUtf8Error;
 use codeint_config::FindingsShown;
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_model::{CodeModel, LanguagePlugin, LowerError, RepoPath, SkippedFile, SourceFile};
+use codeint_model::{
+    CodeModel, LanguagePlugin, LowerError, RepoPath, ResolveError, SkippedFile, SourceFile,
+    resolve_runtime_imports,
+};
 use codeint_report::{Report, ReportError};
 
 #[derive(Debug, thiserror::Error)]
@@ -18,6 +21,8 @@ pub(crate) enum CheckError {
         #[source]
         source: FromUtf8Error,
     },
+    #[error("cannot resolve runtime imports")]
+    Resolve(#[source] ResolveError),
     #[error(transparent)]
     Report(#[from] ReportError),
 }
@@ -29,20 +34,22 @@ pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, Ch
 }
 
 fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeModel, CheckError> {
-    let plugins_by_extension: HashMap<String, &dyn LanguagePlugin> = plugins
+    let plugin_by_extension: HashMap<String, usize> = plugins
         .iter()
-        .flat_map(|plugin| {
+        .enumerate()
+        .flat_map(|(index, plugin)| {
             plugin
                 .extensions()
                 .into_iter()
-                .map(move |extension| (extension, *plugin))
+                .map(move |extension| (extension, index))
         })
         .collect();
     let mut model = CodeModel::default();
+    let mut plugin_of_file = Vec::new();
     for path in tree.files() {
-        let Some(plugin) = path
+        let Some(&plugin_index) = path
             .extension()
-            .and_then(|extension| plugins_by_extension.get(extension))
+            .and_then(|extension| plugin_by_extension.get(extension))
         else {
             continue;
         };
@@ -51,17 +58,32 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
             path: path.clone(),
             source,
         })?;
-        match plugin.lower(path, &text) {
-            Ok(file) => model.files.push(SourceFile {
-                path: path.clone(),
-                model: file,
-            }),
+        match plugins[plugin_index].lower(path, &text) {
+            Ok(file) => {
+                model.files.push(SourceFile {
+                    path: path.clone(),
+                    model: file,
+                });
+                plugin_of_file.push(plugin_index);
+            }
             Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
             Err(reason) => model.skipped.push(SkippedFile {
                 path: path.clone(),
                 reason: reason.to_string(),
             }),
         }
+    }
+    for (plugin_index, plugin) in plugins.iter().enumerate() {
+        let importers: Vec<&SourceFile> = model
+            .files
+            .iter()
+            .zip(&plugin_of_file)
+            .filter(|(_, file_plugin)| **file_plugin == plugin_index)
+            .map(|(file, _)| file)
+            .collect();
+        let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), &importers)
+            .map_err(CheckError::Resolve)?;
+        model.runtime_imports.extend(runtime_imports);
     }
     Ok(model)
 }

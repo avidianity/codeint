@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError, Token};
+use codeint_model::language::{FileModel, Guest, ImportRequest, LowerError, Resolution, Token};
 
 pub struct Plain;
 
@@ -29,7 +29,12 @@ impl Guest for Plain {
             functions: Vec::new(),
             tokens,
             flagged_lines: Vec::new(),
+            runtime_imports: Vec::new(),
         })
+    }
+
+    fn resolve_imports(_repository_paths: Vec<String>, requests: Vec<ImportRequest>) -> Vec<Resolution> {
+        requests.iter().map(|_| Resolution::External).collect()
     }
 }
 ```
@@ -49,6 +54,9 @@ impl Guest for Plain {
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
+- `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
+- `resolve_imports` receives every file path of the repository snapshot, because a Plugin cannot read the file system.
+  Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` for a package or built-in module, or `Unresolved` with the reason.
 
 ## Lower files in the core
 
@@ -64,6 +72,8 @@ assert_eq!(model.source_lines, 2);
 - The core holds Language plugins as `&dyn LanguagePlugin`.
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
+- After lowering, call `resolve_runtime_imports(plugin, repository_paths, &importers)` once per Language plugin with the files it lowered.
+  It returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.

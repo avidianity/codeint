@@ -55,3 +55,23 @@ for finding in verbosity.flagged_lines() {
 - `verbose_lines` counts each flagged source line once, even when two rules match it.
 - `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
 - `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.
+
+## Measure Import cycles
+
+```rust
+use codeint_metrics::ImportCycles;
+
+let import_cycles = ImportCycles::measure(&model);
+println!("{} of {}", import_cycles.modules_in_import_cycles(), import_cycles.modules());
+println!("ratio {}", import_cycles.ratio());
+for cycle in import_cycles.cycles() {
+    println!("{:?}", cycle.modules());
+}
+```
+
+- `ImportCycles::measure` reads only the `CodeModel`; it never knows the source language.
+- Every file of `CodeModel::files` is a module.
+- An edge is a `RuntimeImport` whose resolution is `Resolved` to another module; external, unresolved, and non-module targets add no edge.
+- An Import cycle is a strongly connected component of more than one module, or one module that imports itself.
+- `ratio` is the modules in at least one Import cycle divided by all modules, and 0 when there are no modules.
+- `cycles` lists the Findings, each with its modules sorted by path, ordered by their sorted module lists.

@@ -1,15 +1,19 @@
 #![forbid(unsafe_code)]
 
 mod functions;
+mod resolution;
 mod rules;
+mod runtime_imports;
 
-use codeint_model::language::{FileModel, Guest, LowerError, Token};
+use codeint_model::language::{FileModel, Guest, ImportRequest, LowerError, Resolution, Token};
 use oxc_allocator::Allocator;
 use oxc_parser::config::TokensParserConfig;
 use oxc_parser::{Kind, Parser};
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
+use crate::resolution::RelativeResolver;
+use crate::runtime_imports::runtime_import_specifiers;
 
 pub use rules::flagged_line_rules;
 
@@ -54,7 +58,19 @@ impl Guest for TypeScriptAndJavaScript {
             functions: functions(&parsed.program, &code_lines),
             tokens: tokens(&text, &parsed.tokens)?,
             flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
+            runtime_imports: runtime_import_specifiers(&parsed.program),
         })
+    }
+
+    fn resolve_imports(
+        repository_paths: Vec<String>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        let resolver = RelativeResolver::new(&repository_paths);
+        requests
+            .iter()
+            .map(|request| resolver.resolve(request))
+            .collect()
     }
 }
 

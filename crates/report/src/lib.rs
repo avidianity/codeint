@@ -2,8 +2,8 @@
 
 use codeint_config::FindingsShown;
 use codeint_metrics::{
-    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
-    MinimumCloneTokens, Verbosity,
+    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
+    ImportCycles, MinimumCloneTokens, Verbosity,
 };
 use codeint_model::{CodeModel, RepoPath, SkippedFile};
 use serde::ser::SerializeMap;
@@ -22,6 +22,7 @@ pub struct Report {
     erosion: ErosionSection,
     duplication: DuplicationSection,
     verbosity: VerbositySection,
+    import_cycles: ImportCyclesSection,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -93,6 +94,20 @@ struct FlaggedLineRow {
 }
 
 #[derive(Debug, Serialize)]
+struct ImportCyclesSection {
+    ratio: Decimal,
+    modules_in_import_cycles: usize,
+    modules: usize,
+    #[serde(flatten)]
+    findings: Findings<ImportCycleFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct ImportCycleFinding {
+    modules: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(transparent)]
 struct Decimal(f64);
 
@@ -148,6 +163,10 @@ impl FindingKind for FlaggedLineRow {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl FindingKind for ImportCycleFinding {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl ErosionSection {
     fn new(erosion: &Erosion, shown: FindingsShown) -> ErosionSection {
         ErosionSection {
@@ -161,6 +180,28 @@ impl ErosionSection {
                     .map(ErodedFunctionFinding::new),
                 shown,
             ),
+        }
+    }
+}
+
+impl ImportCyclesSection {
+    fn new(import_cycles: &ImportCycles, shown: FindingsShown) -> ImportCyclesSection {
+        ImportCyclesSection {
+            ratio: Decimal::rounded(import_cycles.ratio()),
+            modules_in_import_cycles: import_cycles.modules_in_import_cycles(),
+            modules: import_cycles.modules(),
+            findings: Findings::worst_first(
+                import_cycles.cycles().iter().map(ImportCycleFinding::new),
+                shown,
+            ),
+        }
+    }
+}
+
+impl ImportCycleFinding {
+    fn new(cycle: &ImportCycle) -> ImportCycleFinding {
+        ImportCycleFinding {
+            modules: cycle.modules().iter().map(RepoPath::to_string).collect(),
         }
     }
 }
@@ -256,6 +297,7 @@ impl Report {
                 findings,
             ),
             verbosity: VerbositySection::new(&Verbosity::measure(model), findings),
+            import_cycles: ImportCyclesSection::new(&ImportCycles::measure(model), findings),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only
