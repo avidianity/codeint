@@ -379,3 +379,78 @@ fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
 
     assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
 }
+
+fn tokens(path: &str, text: &str) -> Vec<(String, u32)> {
+    match lower(path, text) {
+        Ok(model) => model
+            .tokens
+            .into_iter()
+            .map(|token| (token.text, token.line))
+            .collect(),
+        Err(error) => panic!("{path} did not lower: {error}"),
+    }
+}
+
+fn expected_tokens(tokens: &[(&str, u32)]) -> Vec<(String, u32)> {
+    tokens
+        .iter()
+        .map(|(text, line)| ((*text).to_owned(), *line))
+        .collect()
+}
+
+#[test]
+fn the_token_stream_holds_each_token_with_its_line_and_no_whitespace_or_comments() {
+    let text = concat!(
+        "#!/usr/bin/env node\n",
+        "// a line comment\n",
+        "const total = 1 +   2; /* inline */\r\n",
+        "\n",
+        "/**\n",
+        " * A block comment.\n",
+        " */\n",
+        "export const text = `first\n",
+        "${total} last`;\n",
+    );
+
+    assert_eq!(
+        tokens("src/tokens.ts", text),
+        expected_tokens(&[
+            ("const", 3),
+            ("total", 3),
+            ("=", 3),
+            ("1", 3),
+            ("+", 3),
+            ("2", 3),
+            (";", 3),
+            ("export", 8),
+            ("const", 8),
+            ("text", 8),
+            ("=", 8),
+            ("`first\n${", 8),
+            ("total", 9),
+            ("} last`", 9),
+            (";", 9),
+        ])
+    );
+}
+
+#[test]
+fn the_token_stream_covers_jsx_and_regular_expressions() {
+    let text = "export const Hit = () => <b title=\"x\">{/a+/.test('aa')}</b>;\n";
+
+    assert_eq!(
+        tokens("src/hit.tsx", text)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>(),
+        [
+            "export", "const", "Hit", "=", "(", ")", "=>", "<", "b", "title", "=", "\"x\"", ">",
+            "{", "/a+/", ".", "test", "(", "'aa'", ")", "}", "<", "/", "b", ">", ";",
+        ]
+    );
+}
+
+#[test]
+fn an_empty_file_has_no_tokens() {
+    assert_eq!(tokens("src/empty.ts", ""), []);
+}

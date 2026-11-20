@@ -1,9 +1,12 @@
 #![forbid(unsafe_code)]
 
 use codeint_config::FindingsShown;
-use codeint_metrics::{ErodedFunction, Erosion};
+use codeint_metrics::{
+    CloneGroup, Duplication, ErodedFunction, Erosion, Fragment, MinimumCloneTokens,
+};
 use codeint_model::{CodeModel, RepoPath, SkippedFile};
-use serde::Serialize;
+use serde::ser::SerializeMap;
+use serde::{Serialize, Serializer};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 
@@ -16,6 +19,7 @@ pub struct Report {
     files: usize,
     source_lines: u64,
     erosion: ErosionSection,
+    duplication: DuplicationSection,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -31,11 +35,14 @@ struct ErosionSection {
     findings: Findings<ErodedFunctionFinding>,
 }
 
-#[derive(Debug, Serialize)]
+trait FindingKind: Serialize {
+    const LIST_KEY: &'static str;
+}
+
+#[derive(Debug)]
 struct Findings<T> {
-    findings: Vec<T>,
-    #[serde(skip_serializing_if = "is_zero")]
-    findings_left_out: usize,
+    listed: Vec<T>,
+    left_out: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,6 +52,27 @@ struct ErodedFunctionFinding {
     cyclomatic_complexity: u32,
     source_lines: u32,
     function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct DuplicationSection {
+    ratio: Decimal,
+    clone_lines: u64,
+    #[serde(flatten)]
+    clone_groups: Findings<CloneGroupFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct CloneGroupFinding {
+    tokens: usize,
+    locations: Vec<CloneLocation>,
+}
+
+#[derive(Debug, Serialize)]
+struct CloneLocation {
+    path: String,
+    start_line: u32,
+    end_line: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,25 +91,40 @@ impl Decimal {
     }
 }
 
-fn is_zero(count: &usize) -> bool {
-    *count == 0
-}
-
 impl<T> Findings<T> {
     fn worst_first(
         worst_first: impl ExactSizeIterator<Item = T>,
         shown: FindingsShown,
     ) -> Findings<T> {
         let total = worst_first.len();
-        let findings: Vec<T> = match shown {
+        let listed: Vec<T> = match shown {
             FindingsShown::WorstPerMetric(limit) => worst_first.take(limit).collect(),
             FindingsShown::All => worst_first.collect(),
         };
         Findings {
-            findings_left_out: total - findings.len(),
-            findings,
+            left_out: total - listed.len(),
+            listed,
         }
     }
+}
+
+impl<T: FindingKind> Serialize for Findings<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry(T::LIST_KEY, &self.listed)?;
+        if self.left_out > 0 {
+            map.serialize_entry("findings_left_out", &self.left_out)?;
+        }
+        map.end()
+    }
+}
+
+impl FindingKind for ErodedFunctionFinding {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for CloneGroupFinding {
+    const LIST_KEY: &'static str = "clone_groups";
 }
 
 impl ErosionSection {
@@ -113,6 +156,38 @@ impl ErodedFunctionFinding {
     }
 }
 
+impl DuplicationSection {
+    fn new(duplication: &Duplication, shown: FindingsShown) -> DuplicationSection {
+        DuplicationSection {
+            ratio: Decimal::rounded(duplication.ratio()),
+            clone_lines: duplication.clone_lines,
+            clone_groups: Findings::worst_first(
+                duplication.clone_groups.iter().map(CloneGroupFinding::new),
+                shown,
+            ),
+        }
+    }
+}
+
+impl CloneGroupFinding {
+    fn new(group: &CloneGroup) -> CloneGroupFinding {
+        CloneGroupFinding {
+            tokens: group.tokens,
+            locations: group.fragments.iter().map(CloneLocation::new).collect(),
+        }
+    }
+}
+
+impl CloneLocation {
+    fn new(fragment: &Fragment) -> CloneLocation {
+        CloneLocation {
+            path: fragment.path.to_string(),
+            start_line: fragment.start_line,
+            end_line: fragment.end_line,
+        }
+    }
+}
+
 impl From<&SkippedFile> for SkippedEntry {
     fn from(file: &SkippedFile) -> SkippedEntry {
         SkippedEntry {
@@ -132,6 +207,10 @@ impl Report {
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
             erosion: ErosionSection::new(&Erosion::measure(model), findings),
+            duplication: DuplicationSection::new(
+                &Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
+                findings,
+            ),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

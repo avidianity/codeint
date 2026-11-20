@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, Token};
 
 pub struct Plain;
 
@@ -14,9 +14,20 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
+        let tokens = text
+            .lines()
+            .zip(1..)
+            .flat_map(|(line, number)| {
+                line.split_whitespace().map(move |word| Token {
+                    text: word.to_owned(),
+                    line: number,
+                })
+            })
+            .collect();
         Ok(FileModel {
             source_lines,
             functions: Vec::new(),
+            tokens,
         })
     }
 }
@@ -32,6 +43,8 @@ impl Guest for Plain {
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
   Which files are declaration-only is a rule of the Language plugin, never of the core.
+- `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
+  Leave out whitespace and comments; the core finds Clone groups from this stream.
 
 ## Lower files in the core
 
