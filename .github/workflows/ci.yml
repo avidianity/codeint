@@ -12,6 +12,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 env:
   CARGO_TERM_COLOR: never
 
@@ -42,50 +46,62 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/gitleaks
       - run: cargo xtask merged-result
-      - if: github.event_name == 'pull_request'
-        run: cargo xtask no-comments --base "origin/${{ github.base_ref }}"
-      - if: github.event_name == 'pull_request'
-        run: cargo xtask commit-message --range "origin/${{ github.base_ref }}"
+      - name: Choose the base of the change
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            echo "BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            echo "BASE=$BEFORE" >> "$GITHUB_ENV"
+          else
+            echo "BASE=$(git rev-list --max-parents=0 HEAD | tail -n 1)" >> "$GITHUB_ENV"
+          fi
+      - run: cargo xtask no-comments --base "$BASE"
+      - run: cargo xtask commit-message --range "$BASE"
       - run: npm run --silent duplicates
       - run: npx --no-install markdownlint-cli2
       - uses: ./.github/actions/lychee
-      - run: lychee --config lychee.toml './**/*.md' .rules
+      - run: git ls-files -z '*.md' .rules ':!:.agents/skills/**' | xargs -0 lychee --config lychee.toml
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f
         with:
           tool: cargo-shear@1.14.1
       - run: cargo shear
+      - uses: ./.github/actions/actionlint
+      - run: actionlint
       - run: gitleaks git --redact --no-banner
 
   risk-tier:
     name: risk-tier
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - id: tier
-        run: cargo xtask risk-tier --base "origin/${{ github.base_ref }}" | tee "$RUNNER_TEMP/tier.txt"
-      - name: Apply the tier label
         env:
-          GH_TOKEN: ${{ github.token }}
-          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: cargo xtask risk-tier --base "origin/$BASE_REF" | tee "$RUNNER_TEMP/tier.txt"
+      - name: Record the Tier for the label workflow
+        env:
           TIER: ${{ steps.tier.outputs.tier }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
         run: |
-          set -euo pipefail
-          gh label create "tier-$TIER" --color 5319e7 --description "Tier $TIER from the tier check" --force
-          for label in $(gh pr view "$PULL_REQUEST" --json labels --jq '.labels[].name | select(startswith("tier-"))'); do
-            if [ "$label" != "tier-$TIER" ]; then
-              gh pr edit "$PULL_REQUEST" --remove-label "$label"
-            fi
-          done
-          gh pr edit "$PULL_REQUEST" --add-label "tier-$TIER"
+          [[ "$TIER" =~ ^[0-4]$ ]]
+          mkdir -p "$RUNNER_TEMP/tier"
+          printf '%s\n' "$TIER" > "$RUNNER_TEMP/tier/tier"
+          printf '%s\n' "$PULL_REQUEST" > "$RUNNER_TEMP/tier/pull-request"
           cat "$RUNNER_TEMP/tier.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: tier
+          path: ${{ runner.temp }}/tier
+          if-no-files-found: error
+          retention-days: 7
 
   budget:
     name: budget
@@ -99,6 +115,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       BASE: origin/${{ github.base_ref }}
+      SAME_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -116,12 +133,21 @@ jobs:
           start=$(date +%s.%N)
           npx --no-install lefthook run pre-commit --force --no-auto-install "${files[@]}"
           seconds=$(echo "$(date +%s.%N) - $start" | bc)
-          cargo xtask feedback-budget --loop hook --seconds "$seconds" --report
+          report=()
+          if [ "$SAME_REPOSITORY" = true ]; then report=(--report); fi
+          cargo xtask feedback-budget --loop hook --seconds "$seconds" "${report[@]}"
       - name: Relevant tier loop
         run: |
           start=$(date +%s.%N)
           cargo xtask affected-tests --base "$BASE"
           seconds=$(echo "$(date +%s.%N) - $start" | bc)
-          cargo xtask feedback-budget --loop relevant --seconds "$seconds" --report
+          report=()
+          if [ "$SAME_REPOSITORY" = true ]; then report=(--report); fi
+          cargo xtask feedback-budget --loop relevant --seconds "$seconds" "${report[@]}"
       - name: CI gate loop
-        run: cargo xtask feedback-budget --loop ci-gate --run-id "${{ github.run_id }}" --exclude-job budget --report
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          report=()
+          if [ "$SAME_REPOSITORY" = true ]; then report=(--report); fi
+          cargo xtask feedback-budget --loop ci-gate --run-id "$RUN_ID" --exclude-job budget "${report[@]}"

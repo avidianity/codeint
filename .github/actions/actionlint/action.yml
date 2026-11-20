@@ -1,0 +1,19 @@
+name: Install actionlint
+description: Download the pinned actionlint release and verify its checksum.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ACTIONLINT_VERSION: 1.7.12
+      run: |
+        set -euo pipefail
+        cd "$RUNNER_TEMP"
+        base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+        archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+        curl -fsSLO "$base/$archive"
+        curl -fsSLO "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+        grep " $archive\$" "actionlint_${ACTIONLINT_VERSION}_checksums.txt" | sha256sum --check --strict
+        tar -xzf "$archive" actionlint
+        sudo install -m 0755 actionlint /usr/local/bin/actionlint
+        actionlint --version

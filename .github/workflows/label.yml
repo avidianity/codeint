@@ -1,0 +1,49 @@
+name: label
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tier:
+    name: tier
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Apply the tier label
+        run: |
+          gh run download "$RUN_ID" --name tier --dir "$RUNNER_TEMP/tier"
+          tier="$(head -c 8 "$RUNNER_TEMP/tier/tier" | tr -d '[:space:]')"
+          pull_request="$(head -c 16 "$RUNNER_TEMP/tier/pull-request" | tr -d '[:space:]')"
+          if ! [[ "$tier" =~ ^[0-4]$ && "$pull_request" =~ ^[0-9]+$ ]]; then
+            echo "The tier artifact is malformed." >&2
+            exit 1
+          fi
+          head="$(gh pr view "$pull_request" --json headRefOid --jq .headRefOid)"
+          if [ "$head" != "$HEAD_SHA" ]; then
+            echo "Pull request #$pull_request moved past $HEAD_SHA; the newer run labels it."
+            exit 0
+          fi
+          gh label create "tier-$tier" --color 5319e7 --description "Tier $tier from the tier check" --force
+          for label in $(gh pr view "$pull_request" --json labels --jq '.labels[].name | select(startswith("tier-"))'); do
+            if [ "$label" != "tier-$tier" ]; then
+              gh pr edit "$pull_request" --remove-label "$label"
+            fi
+          done
+          gh pr edit "$pull_request" --add-label "tier-$tier"
