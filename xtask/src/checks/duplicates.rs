@@ -25,7 +25,7 @@ pub(crate) fn no_duplicate_code(root: &Path, settings: &Settings) -> Result<Viol
 fn run_jscpd(root: &Path, pass: &DuplicatePass) -> Result<String, String> {
     let output_folder = report_folder(pass);
     let _ = fs::remove_dir_all(&output_folder);
-    let status = Command::new(root.join(JSCPD))
+    let output = Command::new(root.join(JSCPD))
         .args([
             "--config",
             ".jscpd.json",
@@ -35,6 +35,8 @@ fn run_jscpd(root: &Path, pass: &DuplicatePass) -> Result<String, String> {
             &pass.min_tokens.to_string(),
             "--reporters",
             "json",
+            "--exit-code",
+            "0",
             "--output",
         ])
         .arg(&output_folder)
@@ -42,12 +44,19 @@ fn run_jscpd(root: &Path, pass: &DuplicatePass) -> Result<String, String> {
         .current_dir(root)
         .output()
         .map_err(|error| format!("cannot run {JSCPD}: {error}. Run npm ci first."))?;
+    if !output.status.success() {
+        return Err(format!(
+            "jscpd failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
     let report_path = output_folder.join(REPORT_FILE);
     let report = fs::read_to_string(&report_path).map_err(|error| {
         format!(
             "jscpd wrote no report at {} ({error}); its output was: {}",
             report_path.display(),
-            String::from_utf8_lossy(&status.stderr).trim()
+            String::from_utf8_lossy(&output.stderr).trim()
         )
     })?;
     let _ = fs::remove_dir_all(&output_folder);
