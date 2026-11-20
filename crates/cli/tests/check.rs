@@ -1267,6 +1267,106 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
 }
 
 #[test]
+fn a_cycle_through_a_tsconfig_path_alias_is_an_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "tsconfig.base.json",
+        "{\n  \"compilerOptions\": {\n    \"baseUrl\": \".\",\n    \"paths\": { \"@app/*\": [\"src/app/*\"] }\n  }\n}\n",
+    );
+    repository.write(
+        "tsconfig.json",
+        "{ \"extends\": \"./tsconfig.base.json\", \"include\": [\"src\"] }\n",
+    );
+    repository.write(
+        "src/app/orders.ts",
+        "import { users } from '@app/users';\nexport const orders = () => users();\n",
+    );
+    repository.write(
+        "src/app/users.ts",
+        "import { orders } from 'src/app/orders';\nexport const users = () => orders();\n",
+    );
+    repository.write(
+        "src/main.ts",
+        "import { orders } from '@app/orders';\norders();\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0.6667\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 2\n",
+            "  modules: 3\n",
+            "  findings[1]:\n",
+            "    - modules[2]: src/app/orders.ts,src/app/users.ts\n",
+        )
+    );
+}
+
+#[test]
+fn a_cycle_through_the_exports_of_a_workspace_package_is_an_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "package.json",
+        "{ \"name\": \"shop\", \"private\": true, \"workspaces\": [\"packages/*\"] }\n",
+    );
+    repository.write(
+        "packages/billing/package.json",
+        concat!(
+            "{\n",
+            "  \"name\": \"@shop/billing\",\n",
+            "  \"exports\": {\n",
+            "    \".\": { \"types\": \"./src/index.ts\", \"import\": \"./dist/index.js\" },\n",
+            "    \"./invoices\": \"./src/invoices/public.ts\"\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    repository.write(
+        "packages/billing/src/index.ts",
+        "import { customer } from '@shop/accounts';\nexport const bill = () => customer();\n",
+    );
+    repository.write(
+        "packages/billing/src/invoices/public.ts",
+        "export const invoice = () => 1;\n",
+    );
+    repository.write(
+        "packages/accounts/package.json",
+        "{ \"name\": \"@shop/accounts\", \"exports\": \"./lib/accounts.ts\" }\n",
+    );
+    repository.write(
+        "packages/accounts/lib/accounts.ts",
+        concat!(
+            "import { bill } from '@shop/billing';\n",
+            "import { invoice } from '@shop/billing/invoices';\n",
+            "export const customer = () => bill() + invoice();\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0.6667\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 2\n",
+            "  modules: 3\n",
+            "  findings[1]:\n",
+            "    - modules[2]: packages/accounts/lib/accounts.ts,packages/billing/src/index.ts\n",
+        )
+    );
+}
+
+#[test]
 fn a_diamond_of_imports_without_a_cycle_reports_no_import_cycle() {
     let repository = Repository::new();
     repository.write(

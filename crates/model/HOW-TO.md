@@ -4,7 +4,8 @@
 
 ```rust
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, SourceSet, Token,
+    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
+    Token,
 };
 
 pub struct Plain;
@@ -41,7 +42,18 @@ impl Guest for Plain {
         })
     }
 
-    fn resolve_imports(_repository_paths: Vec<String>, requests: Vec<ImportRequest>) -> Vec<Resolution> {
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        repository_paths
+            .into_iter()
+            .filter(|path| path.ends_with("/plain.toml") || path == "plain.toml")
+            .collect()
+    }
+
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        _manifests: Vec<Manifest>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
         requests.iter().map(|_| Resolution::External).collect()
     }
 
@@ -81,7 +93,9 @@ impl Guest for Plain {
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
 - `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
-- `resolve_imports` receives every file path of the repository snapshot, because a Plugin cannot read the file system.
+- `manifest_paths` receives every file path of the repository snapshot and returns the paths of the files that import resolution needs to read, such as each `package.json` and `tsconfig.json` file.
+  Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
+- `resolve_imports` receives every file path of the repository snapshot and each file that `manifest_paths` chose as a `Manifest` with its text, because a Plugin cannot read the file system.
   Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` for a package or built-in module, or `Unresolved` with the reason.
 
 ## Lower files in the core
@@ -98,8 +112,9 @@ assert_eq!(model.source_lines, 2);
 - The core holds Language plugins as `&dyn LanguagePlugin`.
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
-- After lowering, call `resolve_runtime_imports(plugin, repository_paths, &importers)` once per Language plugin with the files it lowered.
-  It returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
+- After lowering, call `choose_manifests(plugin, repository_paths)` once per Language plugin, read each path it returns, and pass the files as `Manifest { path, text }` to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers)` with the files the plugin lowered.
+  `choose_manifests` fails with `ResolveError::UnknownManifest` when the plugin names a path outside the snapshot.
+  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.

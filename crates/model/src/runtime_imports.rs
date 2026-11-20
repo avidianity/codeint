@@ -39,7 +39,18 @@ pub fn choose_manifests(
     plugin: &dyn LanguagePlugin,
     repository_paths: &[RepoPath],
 ) -> Result<Vec<RepoPath>, ResolveError> {
-    todo!("{:?} {:?}", plugin.extensions(), repository_paths)
+    let known_paths: HashSet<&str> = repository_paths.iter().map(RepoPath::as_str).collect();
+    plugin
+        .manifest_paths(repository_paths)
+        .into_iter()
+        .map(|path| {
+            if known_paths.contains(path.as_str()) {
+                Ok(RepoPath(path))
+            } else {
+                Err(ResolveError::UnknownManifest { path })
+            }
+        })
+        .collect()
 }
 
 pub fn resolve_runtime_imports(

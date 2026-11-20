@@ -47,3 +47,16 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
   Every other file is Production.
 - A file named only `test.ts` or `spec.ts` has an empty stem, so it stays Production.
 - Prove a change with `tests/conformance.rs`: list each path that must be Test and each look-alike path that must stay Production.
+
+## Change how imports resolve
+
+- `src/resolution.rs` resolves each import with `oxc_resolver`, the way TypeScript resolves it: relative paths, tsconfig `paths` and `baseUrl`, and the `exports`, `main`, and `index` entries of packages.
+- `manifest_paths` asks the host for every `package.json` file and every file whose name starts with `tsconfig` and ends with `.json`.
+  A tsconfig `extends` entry that names any other file, or a package outside the repository, cannot be read; the importer then resolves without that tsconfig.
+- `src/resolution/snapshot.rs` is the virtual file system that `oxc_resolver` reads: the repository paths, the manifest texts, and a `node_modules` link for each package of the repository.
+  It reads no real file, so a tsconfig never reaches outside the snapshot.
+- `src/resolution/packages.rs` links each `package.json` below the root that has a valid `name`, outside `node_modules`, so an import of a workspace package follows its `exports` field.
+  Two packages with the same name are both left unlinked.
+- The `exports` conditions are `types`, `import`, `require`, `node`, and `default`, so an export whose `types` entry names a source file resolves to that file.
+- A bare specifier that fails to resolve is `External`, unless it names a linked package or matches a tsconfig `paths` key of the importer; then it is `Unresolved`.
+- Prove a change with `tests/conformance.rs` through `manifest_paths` and `resolve_imports`, and with a cycle test in `crates/cli/tests/check.rs`.

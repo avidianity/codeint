@@ -4,7 +4,9 @@ use crate::{
     SourceFile,
 };
 
-use super::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
+use super::{
+    ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,
+};
 
 struct Answering(Vec<Resolution>);
 
@@ -18,7 +20,7 @@ impl LanguagePlugin for Answering {
     }
 
     fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        Vec::new()
+        vec!["package.json".to_owned()]
     }
 
     fn resolve_imports(
@@ -124,5 +126,22 @@ fn a_plugin_that_resolves_to_a_file_outside_the_snapshot_is_an_error() {
     assert!(
         matches!(&result, Err(ResolveError::UnknownTarget { target, .. }) if target == "../etc/passwd"),
         "unexpected result: {result:?}"
+    );
+}
+
+#[test]
+fn the_manifests_a_plugin_chooses_must_be_files_of_the_snapshot() {
+    let plugin = Answering(Vec::new());
+
+    let chosen = choose_manifests(&plugin, &[path("a.ts"), path("package.json")]);
+    let missing = choose_manifests(&plugin, &[path("a.ts")]);
+
+    assert!(
+        matches!(&chosen, Ok(paths) if paths == &[path("package.json")]),
+        "unexpected result: {chosen:?}"
+    );
+    assert!(
+        matches!(&missing, Err(ResolveError::UnknownManifest { path }) if path == "package.json"),
+        "unexpected result: {missing:?}"
     );
 }
