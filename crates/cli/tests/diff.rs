@@ -17,14 +17,24 @@ const FIXTURE_GIT_ENVIRONMENT: [(&str, &str); 6] = [
 
 struct Fixture {
     folder: TempDir,
+    result_cache: TempDir,
 }
 
 impl Fixture {
     fn on_main() -> Fixture {
         let fixture = Fixture {
             folder: tempfile::tempdir().expect("create a temporary folder"),
+            result_cache: tempfile::tempdir().expect("create a temporary result cache folder"),
         };
         fixture.run_git(&["init", "--quiet", "--initial-branch", "main"]);
+        fixture
+    }
+
+    fn with_an_eroded_file_removed_since_main() -> Fixture {
+        let fixture = Fixture::on_main();
+        fixture.put("src/removed.ts", &eroded_function("removed"));
+        fixture.commit("base");
+        fixture.remove("src/removed.ts");
         fixture
     }
 
@@ -68,12 +78,48 @@ impl Fixture {
     }
 
     fn codeint_diff(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_codeint"))
-            .arg("diff")
-            .args(args)
-            .current_dir(self.root())
-            .output()
-            .expect("run codeint")
+        self.codeint_diff_with_result_cache(self.result_cache.path(), args)
+    }
+
+    fn codeint_diff_with_result_cache(&self, result_cache: &Path, args: &[&str]) -> Output {
+        let mut command = self.codeint_diff_command(args);
+        command.env("CODEINT_CACHE_DIR", result_cache);
+        command.output().expect("run codeint")
+    }
+
+    fn codeint_diff_command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_codeint"));
+        command.arg("diff").args(args).current_dir(self.root());
+        command
+    }
+
+    fn corrupt_every_result_cache_entry(&self, bytes: &[u8]) -> usize {
+        let entries: Vec<_> = fs::read_dir(self.result_cache.path())
+            .expect("list the result cache folder")
+            .map(|entry| entry.expect("read a result cache entry").path())
+            .collect();
+        for entry in &entries {
+            fs::write(entry, bytes).expect("overwrite the result cache entry");
+        }
+        entries.len()
+    }
+
+    fn successful_diff(&self, args: &[&str]) -> String {
+        let output = self.codeint_diff(args);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "codeint diff failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("the report is UTF-8")
+    }
+
+    fn forget_committed_file(&self, spec: &str) {
+        let object = self.run_git(&["rev-parse", spec]);
+        let (folder, file) = object.trim().split_at(2);
+        fs::remove_file(self.root().join(".git/objects").join(folder).join(file))
+            .expect("remove the loose object of the committed file");
     }
 
     fn diff_json(&self, base_ref: &str) -> Value {
@@ -123,6 +169,28 @@ impl Fixture {
         fixture.put("src/a.ts", &function_with_conditions_on_one_line("a", 11));
         fixture.commit("base");
         fixture
+    }
+
+    fn with_import_cycle_replaced_by_another() -> Fixture {
+        let fixture = Fixture::with_committed_import_cycle_and_modules(8);
+        fixture.remove("src/a.ts");
+        fixture.remove("src/b.ts");
+        fixture.put_import_cycle("c", "d");
+        fixture
+    }
+
+    fn with_erosion_finding_moved_to_another_file() -> Fixture {
+        let fixture = Fixture::with_committed_function_of_11_conditions();
+        fixture.remove("src/a.ts");
+        fixture.put("src/b.ts", &function_with_conditions_on_one_line("a", 11));
+        fixture
+    }
+
+    fn put_regression_limits(&self, regression_limits: &str) {
+        self.put(
+            "codeint.json",
+            &format!(r#"{{ "regression_limits": {regression_limits} }}"#),
+        );
     }
 
     fn with_committed_import_cycle_and_modules(modules: usize) -> Fixture {
@@ -188,7 +256,8 @@ fn regression(metric: &str, rule: &str, base: f64, head: f64, new_findings: usiz
         "rule": rule,
         "base": base,
         "head": head,
-        "new_findings": new_findings
+        "new_findings": new_findings,
+        "ratio_rise_limit": 0.01
     })
 }
 
@@ -248,6 +317,12 @@ const MEDIAN: &str = concat!(
     "  return sorted[middle];\n",
     "}\n",
 );
+
+fn assert_only_vendored_with_one_unchanged_eroded_function(report: &Value) {
+    let source_sets = report["source_sets"].as_object().expect("Source sets");
+    assert_eq!(source_sets.keys().collect::<Vec<_>>(), ["vendored"]);
+    assert_eq!(source_sets["vendored"]["erosion"]["unchanged"], 1);
+}
 
 fn paths_of(findings: &Value) -> Vec<String> {
     findings
@@ -376,9 +451,7 @@ fn codeint_json_of_the_working_tree_sorts_the_files_of_both_sides() {
 
     let report = fixture.diff_json("main");
 
-    let source_sets = report["source_sets"].as_object().expect("Source sets");
-    assert_eq!(source_sets.keys().collect::<Vec<_>>(), ["vendored"]);
-    assert_eq!(source_sets["vendored"]["erosion"]["unchanged"], 1);
+    assert_only_vendored_with_one_unchanged_eroded_function(&report);
 }
 
 #[test]
@@ -524,11 +597,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
 fn a_ratio_rise_of_exactly_0_01_is_not_a_regression() {
     let report = Fixture::import_cycle_with_modules_cut_from_198_to(98).diff_passing();
 
-    let import_cycles = &report["source_sets"]["production"]["import_cycles"];
-    assert_eq!(
-        (&import_cycles["base_ratio"], &import_cycles["head_ratio"]),
-        (&json!(0.01), &json!(0.02))
-    );
+    assert_import_cycles_ratios(&report, 0.01, 0.02);
 }
 
 #[test]
@@ -541,12 +610,7 @@ fn a_ratio_rise_over_0_01_is_a_regression_named_with_its_base_and_head_ratio() {
 
 #[test]
 fn a_new_import_cycle_is_a_regression_even_when_neither_the_ratio_nor_the_numerator_rises() {
-    let fixture = Fixture::with_committed_import_cycle_and_modules(8);
-    fixture.remove("src/a.ts");
-    fixture.remove("src/b.ts");
-    fixture.put_import_cycle("c", "d");
-
-    fixture.diff_failing_with(
+    Fixture::with_import_cycle_replaced_by_another().diff_failing_with(
         &[regression("import_cycles", "new_findings", 0.2, 0.2, 1)],
         "the production import_cycles Metric has 1 new Finding, and its Regression limit allows none",
     );
@@ -591,16 +655,148 @@ fn a_numerator_rise_that_adds_new_findings_is_a_regression_named_with_its_base_a
 
 #[test]
 fn a_finding_that_moves_to_another_file_without_a_numerator_rise_is_not_a_regression() {
-    let fixture = Fixture::with_committed_function_of_11_conditions();
-    fixture.remove("src/a.ts");
-    fixture.put("src/b.ts", &function_with_conditions_on_one_line("a", 11));
-
-    let report = fixture.diff_passing();
+    let report = Fixture::with_erosion_finding_moved_to_another_file().diff_passing();
 
     let erosion = &report["source_sets"]["production"]["erosion"];
     assert_eq!(
         (paths_of(&erosion["new"]), paths_of(&erosion["resolved"])),
         (vec!["src/b.ts".to_owned()], vec!["src/a.ts".to_owned()])
+    );
+}
+
+fn import_cycles_ratio_from_0_02_to_0_04_under(regression_limits: &str) -> Fixture {
+    let fixture = Fixture::with_committed_import_cycle_and_modules(98);
+    fixture.remove_modules(49..=98);
+    fixture.put_regression_limits(regression_limits);
+    fixture
+}
+
+fn assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails(regression_limits: &str, limit: f64) {
+    let mut expected = regression("import_cycles", "ratio_rise", 0.02, 0.04, 0);
+    expected["ratio_rise_limit"] = json!(limit);
+
+    import_cycles_ratio_from_0_02_to_0_04_under(regression_limits).diff_failing_with(
+        &[expected],
+        &format!(
+            "the production import_cycles ratio rose from 0.02 to 0.04, more than its Regression limit {limit}"
+        ),
+    );
+}
+
+fn assert_import_cycles_ratio_rise_from_0_02_to_0_04_passes(regression_limits: &str) {
+    let report = import_cycles_ratio_from_0_02_to_0_04_under(regression_limits).diff_passing();
+
+    assert_import_cycles_ratios(&report, 0.02, 0.04);
+}
+
+fn assert_import_cycles_ratio_rise_passes_with_production_and_metric_settings(
+    production_setting: &str,
+    metric_setting: &str,
+) {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_passes(&format!(
+        r#"{{ "production": {{ "import_cycles": {production_setting} }}, "import_cycles": {metric_setting} }}"#
+    ));
+}
+
+fn assert_import_cycles_ratios(report: &Value, base: f64, head: f64) {
+    let import_cycles = &report["source_sets"]["production"]["import_cycles"];
+    assert_eq!(
+        (&import_cycles["base_ratio"], &import_cycles["head_ratio"]),
+        (&json!(base), &json!(head))
+    );
+}
+
+fn assert_regression_limits_rejected(regression_limits: &str, message: &str, remedy: &str) {
+    let fixture = Fixture::with_committed_function_of_11_conditions();
+    fixture.put_regression_limits(regression_limits);
+
+    assert_stops_with(
+        &fixture.codeint_diff(&["main"]),
+        &format!("codeint.json: {message}\n{remedy}\n"),
+    );
+}
+
+#[test]
+fn a_ratio_limit_raised_to_0_02_lets_a_0_02_rise_pass() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_passes(
+        r#"{ "import_cycles": { "ratio_rise": 0.02 } }"#,
+    );
+}
+
+#[test]
+fn a_0_02_rise_is_a_regression_under_the_default_limit() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails("{}", 0.01);
+}
+
+#[test]
+fn a_ratio_regression_names_the_ratio_limit_its_source_set_sets() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails(
+        r#"{ "production": { "import_cycles": { "ratio_rise": 0.015 } } }"#,
+        0.015,
+    );
+}
+
+#[test]
+fn a_regression_limit_of_another_source_set_does_not_apply() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails(
+        r#"{ "test": { "import_cycles": { "ratio_rise": 0.02 } } }"#,
+        0.01,
+    );
+}
+
+#[test]
+fn a_ratio_limit_of_the_source_set_wins_over_the_ratio_limit_of_the_metric() {
+    assert_import_cycles_ratio_rise_passes_with_production_and_metric_settings(
+        r#"{ "ratio_rise": 0.02 }"#,
+        r#"{ "ratio_rise": 0.005 }"#,
+    );
+}
+
+#[test]
+fn a_source_set_setting_keeps_the_ratio_limit_that_the_metric_setting_raised() {
+    assert_import_cycles_ratio_rise_passes_with_production_and_metric_settings(
+        r#"{ "new_findings": "any_new_finding" }"#,
+        r#"{ "ratio_rise": 0.02 }"#,
+    );
+}
+
+#[test]
+fn new_findings_set_to_any_new_finding_makes_a_moved_erosion_finding_a_regression() {
+    let fixture = Fixture::with_erosion_finding_moved_to_another_file();
+    fixture.put_regression_limits(r#"{ "erosion": { "new_findings": "any_new_finding" } }"#);
+
+    fixture.diff_failing_with(
+        &[regression("erosion", "new_findings", 1.0, 1.0, 1)],
+        "the production erosion Metric has 1 new Finding, and its Regression limit allows none",
+    );
+}
+
+#[test]
+fn new_findings_set_to_numerator_rise_with_new_findings_lets_a_new_import_cycle_without_a_rise_pass()
+ {
+    let fixture = Fixture::with_import_cycle_replaced_by_another();
+    fixture.put_regression_limits(
+        r#"{ "import_cycles": { "new_findings": "numerator_rise_with_new_findings" } }"#,
+    );
+
+    fixture.diff_passing();
+}
+
+#[test]
+fn a_ratio_limit_over_1_stops_diff_with_exit_code_2_and_names_the_key() {
+    assert_regression_limits_rejected(
+        r#"{ "production": { "erosion": { "ratio_rise": 1.5 } } }"#,
+        "regression_limits.production.erosion.ratio_rise must be between 0 and 1, not 1.5",
+        "Set the value to a ratio from 0 to 1, as the report shows ratios.",
+    );
+}
+
+#[test]
+fn an_unknown_new_findings_rule_stops_diff_with_exit_code_2_and_names_the_key_and_the_rules() {
+    assert_regression_limits_rejected(
+        r#"{ "erosion": { "new_findings": "sometimes" } }"#,
+        "regression_limits.erosion.new_findings must be one of any_new_finding, numerator_rise_with_new_findings, not \"sometimes\"",
+        "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one.",
     );
 }
 
@@ -868,4 +1064,198 @@ fn format_markdown_with_head_names_the_head_ref_and_its_commit() {
         "codeint compared `feature` at `{feature}` with `{merge_base}`, the merge-base of `main` and `feature`."
     );
     assert_eq!(markdown.lines().nth(2), Some(expected.as_str()));
+}
+
+#[test]
+fn a_second_diff_against_the_same_base_reads_the_merge_base_from_the_cache_and_gives_the_same_report()
+ {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    fixture.put("src/added.ts", &eroded_function("added"));
+    let first = fixture.successful_diff(&["main", "--all"]);
+    fixture.forget_committed_file("main:src/removed.ts");
+
+    let second = fixture.successful_diff(&["main", "--all"]);
+
+    assert_eq!(second, first);
+    assert!(
+        first.contains("src/removed.ts"),
+        "unexpected report: {first}"
+    );
+}
+
+#[test]
+fn without_a_cached_result_diff_reads_the_files_of_the_merge_base() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    fixture.forget_committed_file("main:src/removed.ts");
+
+    let output = fixture.codeint_diff(&["main"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with("codeint: cannot read src/removed.ts from commit"),
+        "unexpected error: {stderr}"
+    );
+}
+
+#[test]
+fn a_configuration_change_measures_the_merge_base_again_instead_of_reading_the_cache() {
+    let fixture = Fixture::on_main();
+    fixture.put("src/legacy/old.ts", &eroded_function("old"));
+    fixture.commit("base");
+    let before = fixture.diff_json("main");
+    fixture.put(
+        "codeint.json",
+        r#"{ "source_sets": { "vendored": ["src/legacy/**"] } }"#,
+    );
+
+    let after = fixture.diff_json("main");
+
+    assert_eq!(
+        before["source_sets"]["production"]["erosion"]["unchanged"],
+        1
+    );
+    assert_only_vendored_with_one_unchanged_eroded_function(&after);
+}
+
+#[test]
+fn the_schema_address_of_codeint_json_is_not_part_of_the_configuration_that_keys_the_cache() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    fixture.put(
+        "codeint.json",
+        r#"{ "$schema": "https://example.invalid/old.json" }"#,
+    );
+    let first = fixture.successful_diff(&["main"]);
+    fixture.forget_committed_file("main:src/removed.ts");
+    fixture.put(
+        "codeint.json",
+        r#"{ "$schema": "https://example.invalid/new.json", "source_sets": {} }"#,
+    );
+
+    let second = fixture.successful_diff(&["main"]);
+
+    assert_eq!(second, first);
+}
+
+#[test]
+fn a_corrupt_cache_entry_is_ignored_and_rebuilt() {
+    for corruption in [&b"{\"commit\": "[..], b"[]", b"\xff\xfe not JSON"] {
+        let fixture = Fixture::with_an_eroded_file_removed_since_main();
+        let first = fixture.successful_diff(&["main"]);
+        assert!(fixture.corrupt_every_result_cache_entry(corruption) > 0);
+
+        let rebuilt = fixture.successful_diff(&["main"]);
+        fixture.forget_committed_file("main:src/removed.ts");
+        let read_back = fixture.successful_diff(&["main"]);
+
+        assert_eq!(rebuilt, first, "{corruption:?}");
+        assert_eq!(read_back, first, "{corruption:?}");
+    }
+}
+
+#[test]
+fn a_cache_folder_that_cannot_be_written_warns_and_the_diff_still_succeeds() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    let not_a_folder = fixture.result_cache.path().join("a-file");
+    fs::write(&not_a_folder, "").expect("write a file where the cache folder should be");
+
+    let output =
+        fixture.codeint_diff_with_result_cache(&not_a_folder, &["main", "--format", "json"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("the report is JSON");
+    assert_eq!(
+        paths_of(&report["source_sets"]["production"]["erosion"]["resolved"]),
+        ["src/removed.ts"]
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with(&format!(
+            "codeint: cannot write the cache entry {}",
+            not_a_folder.display()
+        )),
+        "unexpected warning: {stderr}"
+    );
+    assert!(
+        stderr.contains("; the next run measures commit "),
+        "unexpected warning: {stderr}"
+    );
+}
+
+#[test]
+fn without_codeint_cache_dir_the_cache_is_the_codeint_folder_of_the_user_cache_folder() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    let user_cache = fixture.result_cache.path();
+
+    let output = fixture
+        .codeint_diff_command(&["main"])
+        .env_remove("CODEINT_CACHE_DIR")
+        .env("XDG_CACHE_HOME", user_cache)
+        .env("LOCALAPPDATA", user_cache)
+        .env("HOME", user_cache)
+        .output()
+        .expect("run codeint");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let entries = fs::read_dir(user_cache.join("codeint"))
+        .expect("the codeint folder of the user cache folder exists")
+        .count();
+    assert_eq!(entries, 1);
+}
+
+#[test]
+fn diff_runs_that_race_on_one_cache_entry_all_succeed_and_leave_a_readable_entry() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    let runs: Vec<_> = (0..8)
+        .map(|_| {
+            fixture
+                .codeint_diff_command(&["main"])
+                .env("CODEINT_CACHE_DIR", fixture.result_cache.path())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("start codeint")
+        })
+        .collect();
+    let reports: Vec<Output> = runs
+        .into_iter()
+        .map(|run| run.wait_with_output().expect("wait for codeint"))
+        .collect();
+    fixture.forget_committed_file("main:src/removed.ts");
+
+    let read_back = fixture.successful_diff(&["main"]);
+
+    for report in &reports {
+        assert_eq!(report.status.code(), Some(0));
+        assert!(
+            report.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&report.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&report.stdout), read_back);
+    }
+    let entries = fs::read_dir(fixture.result_cache.path())
+        .expect("list the result cache folder")
+        .count();
+    assert_eq!(entries, 1);
+}
+
+#[test]
+fn a_second_diff_with_head_reads_both_commits_from_the_cache() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    fixture.run_git(&["switch", "--quiet", "--create", "feature"]);
+    fixture.put("src/added.ts", &eroded_function("added"));
+    fixture.commit("feature work");
+    let first = fixture.successful_diff(&["main", "--head", "feature"]);
+    fixture.forget_committed_file("main:src/removed.ts");
+    fixture.forget_committed_file("feature:src/added.ts");
+
+    let second = fixture.successful_diff(&["main", "--head", "feature"]);
+
+    assert_eq!(second, first);
 }

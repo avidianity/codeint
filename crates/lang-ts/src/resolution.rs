@@ -8,7 +8,7 @@ use oxc_resolver::{ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscov
 
 use crate::resolution::packages::PackageLink;
 use crate::resolution::snapshot::Snapshot;
-use crate::workspaces::PACKAGE_MANIFEST;
+use crate::workspaces::{PACKAGE_MANIFEST, PNPM_WORKSPACE_MANIFEST};
 
 const EXTENSIONS: [&str; 8] = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
 
@@ -24,7 +24,7 @@ const CONDITIONS: [&str; 5] = ["types", "import", "require", "node", "default"];
 pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
     repository_paths
         .iter()
-        .filter(|path| is_manifest(file_name(path)))
+        .filter(|path| *path == PNPM_WORKSPACE_MANIFEST || is_manifest(file_name(path)))
         .cloned()
         .collect()
 }

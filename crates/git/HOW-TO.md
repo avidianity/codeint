@@ -44,3 +44,28 @@ let head = repository.commit(repository.resolve("feature")?)?;
   It fails with `GitError::UnknownRef` that names the ref when the ref names no commit.
 - `merge_base` resolves both refs and returns their best merge-base; HEAD plays no part.
 - Both `merge_base` and `merge_base_with_head` fail with `GitError::NoMergeBase` when the two sides share no commit; the error names both refs, and the head ref is `HEAD` for `merge_base_with_head`.
+
+## Cache a result per commit
+
+```rust
+use codeint_git::ResultCache;
+
+let cache = ResultCache::in_folder(result_cache_folder);
+let measurement = match cache.read(merge_base, &settings) {
+    Some(cached) => cached,
+    None => {
+        let measured = measure(&repository.commit(merge_base)?);
+        cache.write(merge_base, &settings, &measured)?;
+        measured
+    }
+};
+```
+
+- Take the folder from `Command::Diff::result_cache`; `None` means codeint runs without a cache.
+- `settings` is any `Serialize` value that holds everything, other than the commit, that changes the result: the codeint version, each Plugin and its version, and the effective `Configuration`.
+  A different value names a different entry.
+- An entry is a JSON file named `{commit}-{SHA-1 of the settings}.json` that also stores the commit and the settings text; `read` returns the result only when both match.
+- `read` returns `None` for a missing, unreadable, or unparsable entry, so the caller measures again and `write` replaces the entry.
+- `write` writes a temporary file in the same folder and renames it over the entry, so a reader never sees half an entry, and two runs that race leave one whole entry.
+- A `write` failure must not fail the run: report it on standard error and continue.
+- The result type must read back exactly what it wrote; floating-point numbers round-trip because the git crate enables the `float_roundtrip` feature of serde_json.

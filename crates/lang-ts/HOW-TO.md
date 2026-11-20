@@ -61,15 +61,25 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 ## Change how imports resolve
 
 - `src/resolution.rs` resolves each import with `oxc_resolver`, the way TypeScript resolves it: relative paths, tsconfig `paths` and `baseUrl`, and the `exports`, `main`, and `index` entries of packages.
-- `manifest_paths` asks the host for every `package.json` file and every file whose name starts with `tsconfig` and ends with `.json`.
+- `manifest_paths` asks the host for every `package.json` file, every file whose name starts with `tsconfig` and ends with `.json`, and the `pnpm-workspace.yaml` at the repository root.
   A tsconfig `extends` entry that names any other file, or a package outside the repository, cannot be read; the importer then resolves without that tsconfig.
 - `src/resolution/snapshot.rs` is the virtual file system that `oxc_resolver` reads: the repository paths, the manifest texts, and a `node_modules` link for each package of the repository.
   It reads no real file, so a tsconfig never reaches outside the snapshot.
 - `manifest_paths` is also how the plugin asks for the `package.json` files that `workspace_packages` reads, so the host reads each manifest once.
-- `src/resolution/packages.rs` links the `package.json` of each workspace package that the root `package.json` declares, when it has a valid `name`, so an import of a workspace package follows its `exports` field.
+- `src/resolution/packages.rs` links the `package.json` of each workspace package that the workspace declares, when it has a valid `name`, so an import of a workspace package follows its `exports` field.
   It finds the workspace packages with `src/workspaces.rs`, the same rule that splits the report by package.
   A named package outside the declared workspaces, or in a repository without workspaces, is not linked, because npm, Yarn, and Bun do not install it in `node_modules`.
   Two packages with the same name are both left unlinked.
 - The `exports` conditions are `types`, `import`, `require`, `node`, and `default`, so an export whose `types` entry names a source file resolves to that file.
 - A bare specifier that fails to resolve is `External`, unless it names a linked package or matches a tsconfig `paths` key of the importer; then it is `Unresolved`.
 - Prove a change with `tests/conformance.rs` through `manifest_paths` and `resolve_imports`, and with a cycle test in `crates/cli/tests/check.rs`.
+
+## Change the workspace rules
+
+- `src/workspaces.rs` finds the workspace packages from the manifests that `manifest_paths` chose.
+- A `pnpm-workspace.yaml` at the repository root decides the packages, and the `workspaces` field of `package.json` is then ignored, because pnpm reads only `pnpm-workspace.yaml`.
+  Without it, the `workspaces` field of the root `package.json` decides, as npm, Yarn, and Bun read it.
+- `src/workspaces/pnpm.rs` matches pnpm package patterns as pnpm does: a `!` pattern excludes in any position, a wildcard skips folder names that begin with a dot unless the pattern is negated, `./`, `..`, and repeated slashes resolve first, and an absolute pattern selects nothing.
+- `pnpm_package_patterns` reads `pnpm-workspace.yaml` with `serde-saphyr` into a derived struct, so YAML that does not parse and a `packages` field of the wrong shape each give an error with the line and column.
+  A missing or empty `packages` field means the repository is one package.
+- Prove the matching in `src/workspaces/tests.rs`, each error text in `tests/conformance.rs`, and the report in `crates/cli/tests/check.rs`.

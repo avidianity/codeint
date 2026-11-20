@@ -88,7 +88,7 @@ fn git_remedy(error: &GitError) -> &'static str {
 fn workspace_remedy(error: &WorkspaceError) -> &'static str {
     match error {
         WorkspaceError::Manifest { .. } => {
-            "Fix the workspaces field of the manifest so that your package manager accepts it, then run codeint again."
+            "Fix the manifest that the message names so that your package manager accepts it, then run codeint again."
         }
         WorkspaceError::InvalidPackageRoot(_) => {
             "This is a defect in the Language plugin; report it to the Plugin's author."
@@ -111,7 +111,10 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
             "Change the value to the expected type; the JSON schema that $schema links to describes every key."
         }
         ConfigurationFileError::OutOfRange { .. } => {
-            "Set the Budget to a ratio from 0 to 1, as the report shows the Metric."
+            "Set the value to a ratio from 0 to 1, as the report shows ratios."
+        }
+        ConfigurationFileError::NotOneOf { .. } => {
+            "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one."
         }
         ConfigurationFileError::MissingKey { .. } => {
             "Add the key; the JSON schema that $schema links to describes every key."
