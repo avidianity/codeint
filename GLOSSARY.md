@@ -33,7 +33,7 @@ A source line that matches a verbose-code pattern of the source language.
 _Avoid_: lint hit, violation, smell
 
 **Duplication**:
-The set of Clone groups in a codebase and the source lines they cover.
+The share of source lines that belong to at least one Clone group.
 _Avoid_: copy-paste, redundancy
 
 **Clone group**:
@@ -41,7 +41,8 @@ Two or more code fragments with the same token sequence once identifiers and lit
 _Avoid_: duplicate, copy
 
 **Import cycle**:
-A group of modules in which every module can reach every other module through imports.
+A group of modules in which every module can reach every other module through runtime imports.
+The Import cycles Metric is the share of modules that belong to at least one Import cycle.
 _Avoid_: circular dependency, dependency loop
 
 **Finding**:
@@ -61,7 +62,7 @@ The highest value a Metric may reach in one Source set before codeint reports a 
 _Avoid_: limit, threshold, quota
 
 **Regression**:
-An increase in a Metric between a base Git ref and the code under measurement that exceeds the allowed limit.
+An increase in a Metric, from the merge-base of a base Git ref to the code under measurement, that exceeds the allowed limit.
 _Avoid_: degradation, drift
 
 ### Extension
