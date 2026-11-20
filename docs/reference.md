@@ -1,0 +1,1013 @@
+# codeint reference
+
+This page documents every command, option, exit code, report format, and `codeint.json` key of codeint.
+[GLOSSARY.md](../GLOSSARY.md) defines every term on this page.
+
+## Sample repository
+
+Every example on this page runs in the same sample repository at `/home/me/shop`.
+Branch `main` has two commits:
+
+1. `Add sign`, on 2026-11-02, adds `src/sign.ts` with a Flagged line, `src/types.d.ts` with type declarations only, and `src/broken.ts`, which does not parse.
+2. `Add parse`, on 2026-11-09, adds `src/parse.ts` with an eroded function.
+
+`origin/main` points to the same commit as `main`.
+Branch `feature` starts at `main` and is checked out.
+Its commit `Simplify parse`, on 2026-11-16, makes `src/parse.ts` simple and adds `src/total.ts`.
+The working tree adds `src/route.ts`, an eroded function that is not committed.
+
+## Commands
+
+### `codeint`
+
+| Command | Meaning |
+| ------- | ------- |
+| `check` | Measure the working tree and print the report; see [`codeint check`](#codeint-check) |
+| `diff` | Compare the working tree, or a head Git ref, with the merge-base of a base Git ref; see [`codeint diff`](#codeint-diff) |
+| `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
+| `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
+| `help` | Print the help of codeint, or of the command that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of codeint; every command also takes `-h, --help` and prints its own help |
+| `-V, --version` | Print the version of codeint |
+
+```sh exit=0
+codeint --version
+```
+
+```text stdout
+codeint 0.1.0
+```
+
+```sh exit=0
+codeint --help
+codeint -h
+codeint -V
+codeint help
+codeint help check
+```
+
+### `codeint init`
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint init` |
+
+`codeint init` writes a starter `codeint.json` at the root of the Git repository that contains the current folder:
+
+```sh exit=0
+codeint init
+```
+
+```text stdout
+Wrote /home/me/shop/codeint.json
+```
+
+The file links to the JSON schema of the running codeint version, so your editor completes and checks it.
+It sets every key to its default, and lists under `languages` each top-level folder or file that a Language plugin measures:
+
+```json file=codeint.json
+{
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
+  "source_sets": {
+    "production": [],
+    "test": [],
+    "generated": [],
+    "vendored": []
+  },
+  "budgets": {
+    "production": {},
+    "test": {},
+    "generated": {},
+    "vendored": {}
+  },
+  "regression_limits": {},
+  "languages": [
+    {
+      "plugin": "typescript-javascript",
+      "include": [
+        "src"
+      ],
+      "exclude": []
+    }
+  ]
+}
+```
+
+When no file belongs to a Language plugin, the file leaves `languages` out, so every Language plugin measures the whole repository.
+`codeint init` never replaces an existing `codeint.json`.
+With this `codeint.json` in place:
+
+```json codeint.json
+{}
+```
+
+`codeint init` stops with exit code 2:
+
+```sh exit=2
+codeint init
+```
+
+```text stderr
+codeint: /home/me/shop/codeint.json already exists, and codeint init never replaces it
+Edit the existing codeint.json, or delete it and run codeint init again.
+```
+
+### `codeint check`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]` | A folder inside the Git repository to measure; the current folder by default |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--all` | List every Finding instead of the 20 worst per Metric |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
+| `-h, --help` | Print the help of `codeint check` |
+
+`codeint check` measures the working tree, including uncommitted and untracked files, and prints the report:
+
+```sh exit=0
+codeint check
+```
+
+```text stdout
+files: 4
+source_lines: 39
+source_sets:
+  production:
+    files: 4
+    source_lines: 39
+    erosion:
+      ratio: 0.7986
+      reference_range: no published Reference range for this language
+      eroded_function_mass: 67.8823
+      total_function_mass: 85.0032
+      findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
+        f0740d06c0975d68,src/route.ts,1,16,18,67.8823
+    duplication:
+      ratio: 0
+      reference_range: no published Reference range for this language
+      clone_lines: 0
+      clone_groups: []
+    verbosity:
+      ratio: 0.0256
+      reference_range: no published Reference range for this language
+      verbose_lines: 1
+      flagged_lines: 1
+      clone_lines: 0
+      findings[1]{id,path,line,rule}:
+        2a57800b29941394,src/sign.ts,4,else-after-return
+    import_cycles:
+      ratio: 0
+      reference_range: no published Reference range for this language
+      modules_in_import_cycles: 0
+      modules: 4
+      findings: []
+      unresolved_imports:
+        count: 0
+        imports: []
+skipped[1]{path,reason}:
+  src/broken.ts,"cannot parse: Unexpected token at line 1, column 23"
+declaration_only[1]: src/types.d.ts
+```
+
+codeint measures the files that Git does not ignore.
+It does not follow symbolic links, does not measure Git submodules, and skips files that are not valid UTF-8.
+It lists each file it cannot parse under `skipped`, and each file that holds only type declarations under `declaration_only`.
+
+These commands measure the same repository with other options:
+
+```sh exit=0
+codeint check src
+codeint check --all
+codeint check --format markdown --output report.md
+```
+
+A `PATH` that does not exist stops the run with exit code 2:
+
+```sh exit=2
+codeint check missing
+```
+
+```text stderr
+codeint: missing does not exist
+Pass a folder that exists, or leave the path out to measure the current folder.
+```
+
+### `codeint diff`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<BASE_REF>` | The base Git ref, such as `main` or `origin/main`; codeint measures its merge-base with the head |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--head <REF>` | Measure this Git ref from Git objects instead of the working tree; the merge-base is then taken with this ref instead of HEAD |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--all` | List every Finding instead of the 20 worst per Metric |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown` |
+| `-h, --help` | Print the help of `codeint diff` |
+
+`codeint diff {base-ref}` compares the working tree with the merge-base of the base ref and HEAD.
+In the sample repository, the working tree adds the eroded function of `src/route.ts`, so the comparison finds a [Regression](#regressions) and exits with code 1:
+
+```sh exit=1
+codeint diff main
+```
+
+```text stdout
+base:
+  ref: main
+  merge_base: 2ef203655bd71559d3e54d1ab60a2390fb90674c
+head: working tree
+source_sets:
+  production:
+    erosion:
+      base_ratio: 0.8946
+      head_ratio: 0.7986
+      new[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
+        f0740d06c0975d68,src/route.ts,1,16,18,67.8823
+      resolved[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
+        1b3d7d358ce8632e,src/parse.ts,1,12,14,44.8999
+      unchanged: 0
+    duplication:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
+      unchanged: 0
+    verbosity:
+      base_ratio: 0.0476
+      head_ratio: 0.0256
+      new: []
+      resolved: []
+      unchanged: 1
+    import_cycles:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
+      unchanged: 0
+regressions[1]{source_set,metric,rule,base,head,new_findings,ratio_rise_limit}:
+  production,erosion,numerator_rise_with_new_findings,44.8999,67.8823,1,0.01
+```
+
+```text stderr
+codeint: the production erosion numerator eroded_function_mass rose from 44.8999 to 67.8823 with 1 new Finding
+```
+
+codeint reads the merge-base straight from Git objects, so it never checks out a commit and leaves the working tree and the index as they are.
+The working tree side includes uncommitted and untracked changes, and leaves out the files that Git ignores, as `codeint check` does.
+Commits added to the base branch after your branch started are not part of the comparison, because the merge-base comes before them.
+
+Both sides use the `codeint.json` of the working tree, so the comparison shows changes in the code, not in the configuration.
+Both sides follow the same file rules as `codeint check`.
+
+The report classifies each Finding by its `id`: new when only the head side has it, resolved when only the merge-base has it, and unchanged when both have it.
+For each Metric of each Source set, it shows the ratio on both sides, the new and the resolved Findings, worst first, and the number of unchanged Findings.
+It lists at most 20 new and 20 resolved Findings per Metric, and counts the rest in `new_left_out` and `resolved_left_out`; `--all` lists every one.
+`--format json` and `--format markdown` print the same comparison.
+`--format sarif` lists only the new Findings, so code scanning annotates what the change added.
+
+```sh exit=1
+codeint diff origin/main --all
+codeint diff main --format json
+codeint diff main --format markdown
+codeint diff main --format sarif --output diff.sarif
+```
+
+A base ref that names no commit stops the run with exit code 2 and names the ref:
+
+```sh exit=2
+codeint diff no-such-branch
+```
+
+```text stderr
+codeint: the Git ref "no-such-branch" does not name a commit in this repository: couldn't parse revision, input="no-such-branch": Reference "no-such-branch" could not be found: NotFound
+Pass a branch, tag, or commit that exists in this repository; fetch it first when it lives on a remote: git fetch origin main
+```
+
+#### Compare two refs
+
+`--head {ref}` measures a second ref instead of the working tree, so you can compare two commits or two branches.
+The commit of `feature` only makes `src/parse.ts` simpler, so this comparison passes:
+
+```sh exit=0
+codeint diff main --head feature
+```
+
+```text stdout
+base:
+  ref: main
+  merge_base: 2ef203655bd71559d3e54d1ab60a2390fb90674c
+head:
+  ref: feature
+  commit: e3bc223e22791aa541f8104438ce1606515231ce
+source_sets:
+  production:
+    erosion:
+      base_ratio: 0.8946
+      head_ratio: 0
+      new: []
+      resolved[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
+        1b3d7d358ce8632e,src/parse.ts,1,12,14,44.8999
+      unchanged: 0
+    duplication:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
+      unchanged: 0
+    verbosity:
+      base_ratio: 0.0476
+      head_ratio: 0.0476
+      new: []
+      resolved: []
+      unchanged: 1
+    import_cycles:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
+      unchanged: 0
+```
+
+codeint reads the head ref from Git objects too, so neither the working tree nor HEAD takes part.
+The merge-base is the merge-base of the base ref and the head ref.
+Both sides still use the `codeint.json` of the working tree, never the one in a commit.
+So the classification matches running `codeint check` on a checkout of each side, when each checkout has that same `codeint.json`.
+
+A head ref that names no commit, or that shares no history with the base ref, stops the run with exit code 2:
+
+```sh exit=2
+codeint diff main --head no-such-branch
+```
+
+```text stderr
+codeint: the Git ref "no-such-branch" does not name a commit in this repository: couldn't parse revision, input="no-such-branch": Reference "no-such-branch" could not be found: NotFound
+Pass a branch, tag, or commit that exists in this repository; fetch it first when it lives on a remote: git fetch origin main
+```
+
+#### Regressions
+
+A Regression is a Metric that got worse from the merge-base to the head side by more than its limit.
+`codeint diff` checks each Metric of each Source set against three default rules:
+
+- Any new Import cycle is a Regression.
+- A ratio rise over 0.01 is a Regression.
+  codeint compares the ratios as the report shows them, rounded to four decimal places, so a rise of exactly 0.01 passes.
+- A numerator rise that adds new Findings is a Regression.
+  The numerator is `eroded_function_mass`, `clone_lines`, `verbose_lines`, or `modules_in_import_cycles`.
+  A Finding that only moves, so the numerator stays the same, is not a Regression.
+
+[`regression_limits`](#regression-limits) in `codeint.json` changes these limits.
+`codeint diff` also applies the [Budgets](#budgets) of `codeint.json` to the head side, as `codeint check` does.
+
+When a Budget or a Regression fails, codeint still writes the whole report, lists each failure under `over_budget` or `regressions`, names it on standard error, and exits with code 1.
+Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, and the numerators for `numerator_rise_with_new_findings`.
+`ratio_rise_limit` is the ratio rise limit of the Metric in that Source set.
+The output of `codeint diff main` [above](#codeint-diff) shows a Regression.
+With no failure, the report has no `over_budget` or `regressions` key, and codeint exits with code 0.
+
+### `codeint trend`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--since <YYYY-MM-DD>` | Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20 |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `markdown` |
+| `-h, --help` | Print the help of `codeint trend` |
+
+`codeint trend` measures each commit of the main line of the current branch and prints each Metric over time, oldest commit first:
+
+```sh exit=0
+codeint trend
+```
+
+```text stdout
+commits: 3
+source_sets:
+  production[3]{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}:
+    2864291867e0e3a3ef91cd050c1893d5ae9eb809,2026-11-02,1,0,0,0.1429,0
+    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0.0476,0
+    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0.0476,0
+```
+
+The main line is the first-parent history of HEAD: a merge commit is a row, and the commits of the branch it merged are not.
+Without `--since`, codeint measures the latest 20 commits of the main line.
+`--since {YYYY-MM-DD}` measures every main-line commit committed on or after the start of that day in UTC, with no limit on the count:
+
+```sh exit=0
+codeint trend --since 2026-11-05
+```
+
+```text stdout
+commits: 2
+source_sets:
+  production[2]{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}:
+    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0.0476,0
+    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0.0476,0
+```
+
+codeint compares the committer date, the date that `git log --since` uses, and stops at the first main-line commit committed before that day.
+In a shallow clone, the trend stops at the oldest commit the clone has.
+
+The report has one table per Source set, with one row per commit.
+Each row shows the commit, the day it was committed in UTC, the number of measured files, and the ratio of each Metric.
+A Source set appears only when at least one commit of the trend has a file in it.
+`--format json` and `--format markdown` print the same rows:
+
+```sh exit=0
+codeint trend --format markdown
+codeint trend --format json --output trend.json
+```
+
+A trend lists no Findings, so it has no SARIF format; run `codeint diff` for the Findings of a change.
+A trend applies no Budget and no Regression limit, and exits with code 0 when it measures every commit.
+A day that is not a real day stops the run with exit code 2:
+
+```sh exit=2
+codeint trend --since 2026-02-30
+```
+
+```text stderr
+error: invalid value '2026-02-30' for '--since <YYYY-MM-DD>': "2026-02-30" is not a real day written as YYYY-MM-DD, such as 2026-01-31
+
+For more information, try '--help'.
+```
+
+codeint reads each commit from Git objects, so it never checks out a commit and never touches the working tree; uncommitted changes are not part of a trend.
+Every commit uses the `codeint.json` of the working tree, as `codeint diff` does.
+Each commit goes through the [result cache](#result-cache), so a repeated trend measures only the commits that are new since the last run.
+
+## Exit codes
+
+| Exit code | Meaning |
+| --------- | ------- |
+| `0` | The run succeeded, and no Budget or Regression failed |
+| `1` | The run succeeded, and at least one Budget or Regression failed; codeint still writes the whole report and names each failure on standard error |
+| `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, or an invalid `codeint.json`; codeint names the error on standard error |
+
+## `codeint.json`
+
+codeint reads `codeint.json` at the root of the Git repository.
+Without the file, codeint uses the default of every key.
+[`codeint init`](#codeint-init) writes a starter file, and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
+
+In the key paths below, `[]` stands for each item of a list, and a name in braces stands for each of its values:
+
+| Placeholder | Values |
+| ----------- | ------ |
+| `{source_set}` | `production`, `test`, `generated`, `vendored` |
+| `{metric}` | `erosion`, `duplication`, `verbosity`, `import_cycles` |
+
+| Key | Type | Meaning |
+| --- | ---- | ------- |
+| `$schema` | string | The address of the JSON schema, for editors; codeint does not read it |
+| `source_sets` | object | Globs that put files into a Source set; see [Source sets](#source-sets) |
+| `source_sets.{source_set}` | list of strings | Globs of repository-relative paths that belong to this Source set; empty by default |
+| `budgets` | object | The Budgets of each Source set; see [Budgets](#budgets) |
+| `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
+| `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
+| `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
+| `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
+| `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
+| `regression_limits.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding` or `numerator_rise_with_new_findings` |
+| `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
+| `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
+| `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
+| `regression_limits.{source_set}.{metric}.new_findings` | string | When new Findings are a Regression |
+| `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
+| `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
+| `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
+| `languages[].exclude` | list of strings | Globs inside the included folders that the Language plugin leaves out; empty by default |
+
+A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
+With this `codeint.json`:
+
+```json codeint.json
+{ "budget": { "production": { "erosion": 0.2 } } }
+```
+
+`codeint check` names the unknown key:
+
+```sh exit=2
+codeint check
+```
+
+```text stderr
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages
+Remove the key, or correct its spelling to one of the allowed keys.
+```
+
+### Source sets
+
+Each file belongs to one Source set: `production`, `test`, `generated`, or `vendored`.
+The Language plugin and the core rules settle the Source set of each file.
+Globs under `source_sets` win over every rule.
+Globs match the repository-relative path with forward slashes: `*` matches within one folder, and `**` matches across folders.
+When globs of several Source sets match one file, the first of `vendored`, `generated`, `test`, and `production` wins.
+
+```json codeint.json
+{
+  "source_sets": {
+    "test": ["src/route.ts"],
+    "generated": ["src/**/*.generated.ts"],
+    "vendored": ["vendor/**"],
+    "production": []
+  }
+}
+```
+
+```sh exit=0
+codeint check --format json
+```
+
+### Budgets
+
+A Budget is the highest ratio a Metric may reach in one Source set.
+Each Budget is a number from 0 to 1.
+A Budget applies only to its own Source set, and a Metric without a Budget never fails.
+A Budget applies to the total of every language, never to the section of one Language plugin under `languages`.
+codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
+
+```json codeint.json
+{
+  "budgets": {
+    "production": { "erosion": 0.2, "duplication": 0.05, "verbosity": 0.1, "import_cycles": 0 },
+    "test": { "duplication": 0.2 }
+  }
+}
+```
+
+When a Metric is over its Budget, codeint still writes the whole report, lists the Metric under `over_budget`, names it on standard error, and exits with code 1:
+
+```sh exit=1
+codeint check
+```
+
+```text stderr
+codeint: the production erosion ratio 0.7986 is over its Budget 0.2
+```
+
+### Regression limits
+
+A key of `regression_limits` named after a Metric sets its limit in every Source set.
+A key named after a Source set holds limits for that Source set only:
+
+```json codeint.json
+{
+  "regression_limits": {
+    "erosion": { "ratio_rise": 0.02 },
+    "import_cycles": { "new_findings": "numerator_rise_with_new_findings" },
+    "generated": { "duplication": { "ratio_rise": 1 } },
+    "production": { "erosion": { "new_findings": "any_new_finding" } }
+  }
+}
+```
+
+```sh exit=1
+codeint diff main
+```
+
+Each limit has two settings, and you may set either one or both:
+
+- `ratio_rise` is the highest ratio rise that passes, a number from 0 to 1; the default is 0.01.
+- `new_findings` says when new Findings are a Regression.
+  `any_new_finding` fails on any new Finding, the default for Import cycles.
+  `numerator_rise_with_new_findings` fails only when the numerator rises too, the default for the other Metrics.
+
+codeint settles each setting on its own: the Source set limit wins, then the Metric limit, then the default.
+So the example above gives production Erosion a ratio rise limit of 0.02 and fails it on any new Finding.
+
+An invalid limit stops the run with exit code 2 and names the key:
+
+```json codeint.json
+{ "regression_limits": { "production": { "erosion": { "ratio_rise": 1.5 } } } }
+```
+
+```sh exit=2
+codeint diff main
+```
+
+```text stderr
+codeint: codeint.json: regression_limits.production.erosion.ratio_rise must be between 0 and 1, not 1.5
+Set the value to a ratio from 0 to 1, as the report shows ratios.
+```
+
+### Languages
+
+Each entry of `languages` names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out.
+Several entries may name one Language plugin; it measures what any of them includes.
+Without `languages`, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include.
+v1 ships one Language plugin, `typescript-javascript`.
+
+```json codeint.json
+{
+  "languages": [
+    { "plugin": "typescript-javascript", "include": ["src"], "exclude": ["src/broken.ts"] }
+  ]
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+## Result cache
+
+codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
+That covers the merge-base, the head ref of `--head`, and each commit of `codeint trend`.
+An entry belongs to one commit and to the settings that shape a measurement: the codeint version, each Language plugin and its version, and the effective `codeint.json`.
+Any change to `codeint.json` other than its `$schema` address measures the commit again.
+The working tree is never cached, because it has no commit.
+
+The cache lives in the `codeint` folder of your user cache folder:
+
+| Platform | Folder |
+| -------- | ------ |
+| Linux and macOS | `$XDG_CACHE_HOME/codeint`, or `~/.cache/codeint` when `XDG_CACHE_HOME` is unset, empty, or relative |
+| Windows | `%LOCALAPPDATA%\codeint` |
+
+Set `CODEINT_CACHE_DIR` to use another folder; a relative path starts at the current folder:
+
+```sh exit=0
+CODEINT_CACHE_DIR=.cache/codeint codeint trend
+```
+
+Without any of these variables, codeint runs without a cache.
+
+Deleting the folder is always safe.
+codeint ignores an entry it cannot read or parse and writes it again.
+When it cannot write an entry, it prints a warning to standard error and the run still succeeds:
+
+```text illustration
+codeint: cannot write the cache entry /home/me/.cache/codeint: File exists (os error 17); the next run measures commit b4e728dff30ac8b8e4967849530b9322716748c4 again
+```
+
+## Report formats
+
+Every command that prints a report takes `--format` and `--output {file}`.
+`--output` writes the report in the chosen format to a file instead of standard output.
+`codeint check` and `codeint diff` print TOON by default, and also print JSON, SARIF, and Markdown.
+`codeint trend` prints TOON by default, and also prints JSON and Markdown.
+
+### TOON report
+
+`--format toon` prints [TOON](https://github.com/toon-format/toon), a compact text form of the JSON report with the same fields and values.
+It is the default, so these commands print the same reports as they print without `--format`:
+
+```sh exit=0
+codeint check --format toon
+codeint diff main --head feature --format toon
+codeint trend --format toon
+```
+
+The output of `codeint check` [above](#codeint-check) is a TOON report.
+
+### JSON report
+
+`--format json` prints one JSON object with the same fields and values as the TOON report.
+Tools can build on this shape: the [compatibility rule](#compatibility-rule) says how it may change.
+
+```sh exit=0
+codeint check --format json
+```
+
+```json stdout
+{
+  "files": 4,
+  "source_lines": 39,
+  "source_sets": {
+    "production": {
+      "files": 4,
+      "source_lines": 39,
+      "erosion": {
+        "ratio": 0.7986,
+        "reference_range": "no published Reference range for this language",
+        "eroded_function_mass": 67.8823,
+        "total_function_mass": 85.0032,
+        "findings": [
+          {
+            "id": "f0740d06c0975d68",
+            "path": "src/route.ts",
+            "line": 1,
+            "cyclomatic_complexity": 16,
+            "source_lines": 18,
+            "function_mass": 67.8823
+          }
+        ]
+      },
+      "duplication": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "clone_lines": 0,
+        "clone_groups": []
+      },
+      "verbosity": {
+        "ratio": 0.0256,
+        "reference_range": "no published Reference range for this language",
+        "verbose_lines": 1,
+        "flagged_lines": 1,
+        "clone_lines": 0,
+        "findings": [
+          {
+            "id": "2a57800b29941394",
+            "path": "src/sign.ts",
+            "line": 4,
+            "rule": "else-after-return"
+          }
+        ]
+      },
+      "import_cycles": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "modules_in_import_cycles": 0,
+        "modules": 4,
+        "findings": [],
+        "unresolved_imports": {
+          "count": 0,
+          "imports": []
+        }
+      }
+    }
+  },
+  "skipped": [
+    {
+      "path": "src/broken.ts",
+      "reason": "cannot parse: Unexpected token at line 1, column 23"
+    }
+  ],
+  "declaration_only": [
+    "src/types.d.ts"
+  ]
+}
+```
+
+The top-level object has these fields:
+
+| Field | Type | Meaning |
+| ----- | ---- | ------- |
+| `files` | integer | Number of measured source files, in every Source set |
+| `source_lines` | integer | Source lines of the measured files; blank and comment-only lines do not count |
+| `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
+| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, and `source_sets` for that plugin's files |
+| `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
+| `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
+| `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
+
+A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `duplication`, `verbosity`, and `import_cycles`.
+Each Metric object has these fields:
+
+- `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
+- `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
+  The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
+- The counts behind the ratio:
+  `eroded_function_mass` and `total_function_mass` for Erosion, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
+  Duplication and Verbosity divide by the `source_lines` of the Source set.
+  Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
+- The Findings, worst first:
+  `clone_groups` for Duplication, and `findings` for every other Metric.
+- `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
+
+`import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
+It has `count`, the list `imports`, and the optional `imports_left_out`.
+Each import has `importer`, the path of the importing file, `specifier`, the text of the import, and `reason`.
+
+Each Finding is an object with an `id`, followed by fields that depend on its kind:
+
+- An eroded function has `path`, `line`, `cyclomatic_complexity`, `source_lines`, and `function_mass`.
+- A Clone group has `tokens` and `locations`; each location has `path`, `start_line`, and `end_line`.
+- A Flagged line has `path`, `line`, and `rule`.
+- An Import cycle has `modules`, the paths of the modules in the cycle.
+
+The `id` of a Finding is a string of 16 lowercase hexadecimal digits.
+It comes from the Metric, the file or files of the Finding, and their content, never from a line number, so it stays the same when a Finding moves within its file.
+It is the same in every run and on every operating system, and CRLF line endings do not change it.
+Two Findings with the same content in one file get different ids, numbered in the order they appear.
+The content behind the `id` of each kind:
+
+- An eroded function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
+- A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
+- A Flagged line: the rule and the tokens of the line.
+- An Import cycle: the paths of its modules.
+
+Every `path` is relative to the root of the Git repository and uses `/` as the separator.
+Line numbers start at 1.
+
+An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `declaration_only`, or `over_budget` list, and `findings_left_out` when no Finding is left out.
+
+#### Compatibility rule
+
+Later versions of codeint change the JSON report only in ways that keep existing readers working:
+
+- They only add fields, and never rename or remove a field.
+- A field keeps its type and its meaning, including its unit and its scale.
+- A field that is always present stays always present.
+- They may add a Source set key, a Metric object, or a kind of Finding.
+
+Readers ignore fields they do not know, and treat a missing optional field as empty.
+
+### SARIF report
+
+`--format sarif` prints a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html) log, so code scanning tools such as GitHub code scanning show each Finding as an annotation.
+The log has one run, and the run has one result per Finding of the report.
+It takes the Findings from the total, never from the sections under `languages`, so a Finding appears once.
+`--all` and `--output` work as they do for every other format: without `--all`, the log holds the 20 worst Findings per Metric and Source set.
+
+```sh exit=0
+codeint check --format sarif
+```
+
+```json stdout
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "codeint",
+          "version": "0.1.0",
+          "informationUri": "https://github.com/avidianity/codeint",
+          "rules": [
+            {
+              "id": "erosion",
+              "name": "Erosion",
+              "shortDescription": {
+                "text": "A function with cyclomatic complexity over 10"
+              },
+              "fullDescription": {
+                "text": "Erosion is the share of total Function mass held by functions whose cyclomatic complexity is greater than 10. Function mass is cyclomatic complexity times the square root of source lines."
+              },
+              "help": {
+                "text": "Split the function into smaller functions, each with a cyclomatic complexity of 10 or less."
+              }
+            },
+            {
+              "id": "duplication",
+              "name": "Duplication",
+              "shortDescription": {
+                "text": "A Clone group: code fragments with the same token sequence"
+              },
+              "fullDescription": {
+                "text": "Duplication is the share of source lines that belong to at least one Clone group. A Clone group is two or more code fragments with the same token sequence once identifiers and literals are normalized."
+              },
+              "help": {
+                "text": "Extract the fragments of the Clone group into one shared function or module."
+              }
+            },
+            {
+              "id": "verbosity",
+              "name": "Verbosity",
+              "shortDescription": {
+                "text": "A Flagged line: code that can be deleted or collapsed"
+              },
+              "fullDescription": {
+                "text": "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches."
+              },
+              "help": {
+                "text": "Delete or collapse the line as its rule describes; the behavior stays the same."
+              }
+            },
+            {
+              "id": "import_cycles",
+              "name": "Import cycles",
+              "shortDescription": {
+                "text": "An Import cycle among runtime imports"
+              },
+              "fullDescription": {
+                "text": "Import cycles is the share of modules that belong to at least one Import cycle. An Import cycle is a group of modules in which every module can reach every other module through runtime imports."
+              },
+              "help": {
+                "text": "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them."
+              }
+            }
+          ]
+        }
+      },
+      "originalUriBaseIds": {
+        "SRCROOT": {
+          "description": {
+            "text": "The root of the Git repository"
+          }
+        }
+      },
+      "results": [
+        {
+          "ruleId": "erosion",
+          "ruleIndex": 0,
+          "level": "note",
+          "message": {
+            "text": "Eroded function: cyclomatic complexity 16, over 10; 18 source lines; Function mass 67.8823."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/route.ts",
+                  "uriBaseId": "SRCROOT"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "sourceSet": "production"
+          }
+        },
+        {
+          "ruleId": "verbosity",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "Flagged line: rule else-after-return."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/sign.ts",
+                  "uriBaseId": "SRCROOT"
+                },
+                "region": {
+                  "startLine": 4
+                }
+              }
+            }
+          ],
+          "properties": {
+            "sourceSet": "production"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The tool lists one rule per Metric, and each result names its Metric in `ruleId`:
+
+| `ruleId` | Finding | Location |
+| -------- | ------- | -------- |
+| `erosion` | An eroded function | The line where the function starts |
+| `duplication` | A Clone group | The first fragment, from its start line to its end line; the other fragments are related locations |
+| `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
+| `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
+
+Each result has the level `note`, and its `properties.sourceSet` names its Source set: `production`, `test`, `generated`, or `vendored`.
+
+Each `uri` is the path that the other formats print, relative to the root of the Git repository, with `/` as the separator.
+A character that a URI cannot hold, such as a space, is percent-encoded: `src/my sign.ts` becomes `src/my%20sign.ts`.
+`uriBaseId` is `SRCROOT`, the root of the Git repository; the log does not print its absolute path, so the log is the same on every machine.
+
+### Markdown report
+
+`--format markdown` prints a report to paste into a pull request comment.
+It starts with one table: each Metric's value per Source set, the counts behind the value, and the Reference range.
+Next come each Metric over its Budget and a table of the ratios of each workspace package, when there are any.
+When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
+Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
+It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
+
+```sh exit=0
+codeint check --format markdown
+```
+
+```markdown stdout
+# codeint report
+
+codeint measured 4 files with 39 source lines.
+
+| Source set | Metric | Value | Behind the value | Reference range |
+| ---------- | ------ | ----- | ---------------- | --------------- |
+| Production | Erosion | 0.7986 | 67.8823 of 85.0032 Function mass in eroded functions | no published Reference range for this language |
+| Production | Duplication | 0 | 0 clone lines of 39 source lines | no published Reference range for this language |
+| Production | Verbosity | 0.0256 | 1 verbose line of 39 source lines: 1 Flagged line, 0 clone lines | no published Reference range for this language |
+| Production | Import cycles | 0 | 0 of 4 modules in an Import cycle | no published Reference range for this language |
+
+## Production Findings
+
+### Erosion
+
+| Function | Cyclomatic complexity | Source lines | Function mass |
+| -------- | --------------------- | ------------ | ------------- |
+| `src/route.ts:1` | 16 | 18 | 67.8823 |
+
+### Verbosity
+
+| Flagged line | Rule |
+| ------------ | ---- |
+| `src/sign.ts:4` | else-after-return |
+
+## Files not measured
+
+- `src/broken.ts`: cannot parse: Unexpected token at line 1, column 23
+- `src/types.d.ts`: declaration only
+```
