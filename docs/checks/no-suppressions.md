@@ -5,7 +5,8 @@ No source file holds an inline directive that turns off a lint or type rule, exc
 
 **Implemented by**:
 `cargo xtask no-suppressions`, plus the Clippy lints `allow_attributes` and `allow_attributes_without_reason`, set to deny in [Cargo.toml](../../Cargo.toml).
-It rejects Rust `allow` and `expect` attributes, script directives such as `eslint-disable` and `@ts-ignore`, `shellcheck disable`, `yamllint disable`, `gitleaks:allow`, and Markdown `markdownlint-disable` comments.
+It rejects Rust `allow` and `expect` attributes, script directives such as `eslint-disable` and `@ts-ignore`, `shellcheck disable`, `yamllint disable`, `gitleaks:allow`, and Markdown comments that disable or configure markdownlint, in any letter case.
+It reads files that are not valid UTF-8 too, and skips only binary files.
 The approved exceptions are `suppressions.approved` in [checks.toml](../../checks.toml), empty at Bootstrap.
 
 **Runs in**:

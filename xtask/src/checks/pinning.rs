@@ -17,12 +17,32 @@ pub(crate) fn is_exact_cargo_requirement(requirement: &str) -> bool {
 }
 
 pub(crate) fn is_exact_version(version: &str) -> bool {
-    let core = version.split(['-', '+']).next().unwrap_or("");
+    let (rest, build) = match version.split_once('+') {
+        Some((rest, build)) => (rest, Some(build)),
+        None => (version, None),
+    };
+    let (core, prerelease) = match rest.split_once('-') {
+        Some((core, prerelease)) => (core, Some(prerelease)),
+        None => (rest, None),
+    };
     let parts: Vec<&str> = core.split('.').collect();
     parts.len() == 3
-        && parts.iter().all(|part| {
-            !part.is_empty() && part.chars().all(|character| character.is_ascii_digit())
-        })
+        && parts.iter().all(|part| is_numeric_identifier(part))
+        && prerelease.is_none_or(is_dotted_identifier)
+        && build.is_none_or(is_dotted_identifier)
+}
+
+fn is_numeric_identifier(part: &str) -> bool {
+    !part.is_empty() && part.chars().all(|character| character.is_ascii_digit())
+}
+
+fn is_dotted_identifier(text: &str) -> bool {
+    text.split('.').all(|identifier| {
+        !identifier.is_empty()
+            && identifier
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    })
 }
 
 fn cargo_dependency_problem(spec: &Value) -> Option<String> {

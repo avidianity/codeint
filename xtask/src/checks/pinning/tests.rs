@@ -42,3 +42,11 @@ fn prerelease_and_build_metadata_are_exact() {
     assert!(is_exact_version("0.1.0-beta.2"));
     assert!(!is_exact_version("1.2"));
 }
+
+#[test]
+fn a_range_that_starts_like_an_exact_version_fails() {
+    assert!(!is_exact_version("1.0.0-0 || >=0"));
+    assert!(!is_exact_version("1.0.0 - 2.0.0"));
+    assert!(is_exact_version("1.0.0-rc.1+build.5"));
+    assert!(is_exact_version("0.24.2"));
+}

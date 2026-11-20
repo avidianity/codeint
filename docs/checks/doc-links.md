@@ -7,7 +7,7 @@ Every relative link in a Markdown file resolves to an existing file, and every h
 lychee 0.24.2 with [lychee.toml](../../lychee.toml), offline, for relative links and heading anchors.
 
 **Runs in**:
-Hook (`links` in [lefthook.yml](../../lefthook.yml), on staged Markdown files) and CI (`repository` job, with the release that [the lychee action](../../.github/actions/lychee/action.yml) installs and verifies).
+Hook (`links` in [lefthook.yml](../../lefthook.yml), on staged Markdown files) and CI (`repository` job, over every tracked Markdown file and `.rules`, with the release that [the lychee action](../../.github/actions/lychee/action.yml) installs and verifies).
 
 **Error text**:
 

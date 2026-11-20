@@ -22,9 +22,11 @@ const DIRECTIVE_SUPPRESSIONS: [&str; 11] = [
     "nosec",
 ];
 
-const MARKDOWN_SUPPRESSION: &str = "<!-- markdownlint-disable";
+const MARKDOWN_SUPPRESSIONS: [&str; 2] = ["markdownlint-disable", "markdownlint-configure-file"];
 
-const CONFIG_READS: [&str; 3] = ["env::var", "env::args", "env::{"];
+const CONFIG_READS: [&str; 5] = ["env::var", "env::args", "env::{", "env::*", "env as "];
+
+const SHEBANG_LANGUAGES: [Language; 3] = [Language::Shell, Language::PowerShell, Language::Script];
 
 pub(crate) fn comment_is_allowed(
     language: Language,
@@ -33,7 +35,8 @@ pub(crate) fn comment_is_allowed(
     doc: bool,
 ) -> bool {
     let trimmed = raw_line.trim_start();
-    let shebang = line_number == 1 && trimmed.starts_with("#!");
+    let shebang =
+        line_number == 1 && SHEBANG_LANGUAGES.contains(&language) && raw_line.starts_with("#!/");
     let wit_doc = language == Language::Wit && doc;
     let directive = HASH_DIRECTIVES
         .iter()
@@ -89,7 +92,7 @@ pub(crate) fn suppressions_in(path: &str, text: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     if path.ends_with(".md") || path == ".rules" {
         for (index, line) in text.lines().enumerate() {
-            if line.contains(MARKDOWN_SUPPRESSION) {
+            if markdown_suppression(line) {
                 found.push((index + 1, "markdownlint".to_string()));
             }
         }
@@ -118,6 +121,25 @@ pub(crate) fn suppressions_in(path: &str, text: &str) -> Vec<(usize, String)> {
     found
 }
 
+fn markdown_suppression(line: &str) -> bool {
+    let lowered = line.to_lowercase();
+    lowered.match_indices("<!--").any(|(position, _)| {
+        let directive = lowered[position + 4..].trim_start();
+        MARKDOWN_SUPPRESSIONS
+            .iter()
+            .any(|suppression| directive.starts_with(suppression))
+    })
+}
+
+fn read_text(path: &Path) -> Result<Option<String>, String> {
+    let bytes =
+        fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    if bytes.contains(&0) {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+}
+
 fn rust_attribute_suppression(code: &str) -> Option<String> {
     let attribute_start = code.find("#[").or_else(|| code.find("#!["))?;
     let attribute = &code[attribute_start..];
@@ -142,7 +164,7 @@ pub(crate) fn no_suppressions(root: &Path, settings: &Settings) -> Result<Violat
         if !fs::symlink_metadata(&full).is_ok_and(|metadata| metadata.is_file()) {
             continue;
         }
-        let Ok(text) = fs::read_to_string(&full) else {
+        let Some(text) = read_text(&full)? else {
             continue;
         };
         for (line, rule) in suppressions_in(&path, &text) {
@@ -178,7 +200,11 @@ pub(crate) fn config_access(root: &Path, settings: &Settings) -> Result<Violatio
         if !path.ends_with(".rs") || modules.is_match(&path) {
             continue;
         }
-        let Ok(text) = fs::read_to_string(root.join(&path)) else {
+        let full = root.join(&path);
+        if !fs::symlink_metadata(&full).is_ok_and(|metadata| metadata.is_file()) {
+            continue;
+        }
+        let Some(text) = read_text(&full)? else {
             continue;
         };
         for line in config_reads_in(&text) {

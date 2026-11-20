@@ -6,7 +6,10 @@ Agent sessions refuse commands that skip hooks, such as a no-verify flag or a ho
 
 **Implemented by**:
 Parity: every hook command in [lefthook.yml](../../lefthook.yml) also runs in the `ci` workflow.
-Refusal: the Claude Code `PreToolUse` guard [no-hook-bypass.sh](../../.claude/hooks/no-hook-bypass.sh) blocks a Git command with the no-verify flag, the short `-n` flag of a commit, a hooks-path override, and the lefthook skip variables.
+Refusal: the Claude Code `PreToolUse` guard [no-hook-bypass.sh](../../.claude/hooks/no-hook-bypass.sh) runs before every shell command and file write.
+It blocks any prefix of the no-verify flag, a short `-n` flag in a commit's option cluster, a hooks-path override in any letter case, Git configuration from environment variables, every lefthook variable except the verbose and quiet ones, the lefthook uninstall command, a local lefthook override file, and any change under `.git/hooks`.
+[hook_guard.rs](../../xtask/tests/hook_guard.rs) proves each case both ways.
+CI also runs on every push to `main`, so a commit that reached `main` without its hooks is still checked.
 Codex and OpenCode have no guard yet; CI parity is the first line for them.
 
 **Runs in**:

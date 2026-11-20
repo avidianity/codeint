@@ -14,11 +14,12 @@ A suppression directive is not on the allow-list; [no-suppressions](./no-suppres
 
 **Implemented by**:
 `cargo xtask no-comments --staged` in the hook, and `cargo xtask no-comments --base origin/main` in CI.
-It scans the added lines of Rust, WIT, JavaScript, TypeScript, TOML, YAML, and shell files.
+It scans the added lines of Rust, WIT, JavaScript, JSX, TypeScript, TSX, TOML, YAML, shell, and PowerShell files.
+It reads the diff as text even when `.gitattributes` marks a file as binary.
 
 The allow-list:
 
-- a shebang on line 1;
+- a shebang (`#!/`) on line 1 of a shell, PowerShell, JavaScript, or TypeScript file;
 - a doc comment (`///` or `/** */`) in a `.wit` file, because the WIT interface is the published Plugin API;
 - the tool directives `# yaml-language-server:` and `# shellcheck shell=`.
 

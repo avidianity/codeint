@@ -84,3 +84,18 @@ fn shell_hash_in_parameter_expansion_is_not_a_comment() {
     assert!(!result.is_comment(1));
     assert!(result.is_comment(2));
 }
+
+#[test]
+fn jsx_and_tsx_files_are_scripts() {
+    assert_eq!(Language::of_path("npm/a.tsx"), Some(Language::Script));
+    assert_eq!(Language::of_path("npm/a.jsx"), Some(Language::Script));
+    assert_eq!(Language::of_path("install.ps1"), Some(Language::PowerShell));
+}
+
+#[test]
+fn a_yaml_quote_inside_a_double_quoted_scalar_spans_lines() {
+    let text = "key: \"first\n  second # not a comment\"\nnext: 1 # comment\n";
+    let result = scan(Language::Yaml, text);
+    assert!(!result.is_comment(2));
+    assert!(result.is_comment(3));
+}

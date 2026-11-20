@@ -1,6 +1,6 @@
 {
   "threshold": 0,
-  "format": ["rust", "javascript", "typescript"],
+  "format": ["rust", "javascript", "jsx", "typescript", "tsx"],
   "ignore": ["**/target/**", "**/node_modules/**", ".agents/**", ".claude/**"],
   "gitignore": true,
   "reporters": ["console"],

@@ -37,7 +37,7 @@ impl FileChange {
 #[derive(Default)]
 pub(crate) struct LineDiff {
     pub(crate) added: Vec<(usize, String)>,
-    pub(crate) removed: Vec<String>,
+    pub(crate) removed: Vec<(usize, String)>,
 }
 
 pub(crate) fn repository_root() -> Result<PathBuf, String> {
@@ -99,6 +99,9 @@ pub(crate) fn line_diff(root: &Path, source: &DiffSource, path: &str) -> Result<
         "diff".to_string(),
         "-U0".to_string(),
         "--no-color".to_string(),
+        "--text".to_string(),
+        "--no-ext-diff".to_string(),
+        "--no-textconv".to_string(),
     ];
     args.extend(source.diff_args());
     args.push("--".to_string());
@@ -108,26 +111,33 @@ pub(crate) fn line_diff(root: &Path, source: &DiffSource, path: &str) -> Result<
 
 pub(crate) fn parse_unified_diff(diff: &str) -> LineDiff {
     let mut result = LineDiff::default();
+    let mut in_hunk = false;
+    let mut next_old_line = 0usize;
     let mut next_new_line = 0usize;
     for line in diff.lines() {
-        if let Some(header) = line.strip_prefix("@@ ") {
-            next_new_line = new_start_of(header).unwrap_or(0);
-        } else if line.starts_with("+++") || line.starts_with("---") {
+        if line.starts_with("diff --git ") {
+            in_hunk = false;
+        } else if let Some(header) = line.strip_prefix("@@ ") {
+            in_hunk = true;
+            next_old_line = range_start(header, '-').unwrap_or(0);
+            next_new_line = range_start(header, '+').unwrap_or(0);
+        } else if !in_hunk {
             continue;
         } else if let Some(text) = line.strip_prefix('+') {
             result.added.push((next_new_line, text.to_string()));
             next_new_line += 1;
         } else if let Some(text) = line.strip_prefix('-') {
-            result.removed.push(text.to_string());
+            result.removed.push((next_old_line, text.to_string()));
+            next_old_line += 1;
         }
     }
     result
 }
 
-fn new_start_of(header: &str) -> Option<usize> {
-    let new_range = header.split(' ').find(|part| part.starts_with('+'))?;
-    new_range
-        .trim_start_matches('+')
+fn range_start(header: &str, sign: char) -> Option<usize> {
+    let range = header.split(' ').find(|part| part.starts_with(sign))?;
+    range
+        .trim_start_matches(sign)
         .split(',')
         .next()?
         .parse()
@@ -155,3 +165,6 @@ pub(crate) fn base_content(root: &Path, source: &DiffSource, path: &str) -> Opti
 pub(crate) fn as_strs(args: &[String]) -> Vec<&str> {
     args.iter().map(String::as_str).collect()
 }
+
+#[cfg(test)]
+mod tests;

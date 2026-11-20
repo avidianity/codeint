@@ -1,6 +1,6 @@
 use super::{
     EVIDENCE_SECTIONS, commit_message_problems, declares_no_behavior_change,
-    evidence_bundle_problems,
+    evidence_bundle_problems, without_git_comments,
 };
 
 fn types() -> Vec<String> {
@@ -98,4 +98,38 @@ fn no_behavior_change_needs_a_reason() {
         "No behavior change: rename only."
     ));
     assert!(!declares_no_behavior_change("No behavior change:"));
+}
+
+#[test]
+fn a_stored_commit_keeps_its_comment_lines() {
+    let stored =
+        "#wip whatever I like\n\nfeat: looks fine\n\n#Generated with Claude Code\n#[skip ci]\n";
+    let problems = commit_message_problems(stored, &types(), &scopes());
+    assert_eq!(problems.len(), 3, "{problems:?}");
+}
+
+#[test]
+fn the_hook_message_drops_comment_lines_and_everything_after_the_scissors() {
+    let edited = "fix(checks): refuse an empty path\n# Please enter the commit message\n# ------------------------ >8 ------------------------\nCo-Authored-By: Bot <bot@example.invalid>\n";
+    let cleaned = without_git_comments(edited);
+    assert!(commit_message_problems(&cleaned, &types(), &scopes()).is_empty());
+}
+
+#[test]
+fn not_applicable_without_a_reason_fails() {
+    let sections: String = EVIDENCE_SECTIONS
+        .iter()
+        .map(|section| format!("## {section}\n\nNot applicable\n\n"))
+        .collect();
+    assert_eq!(
+        evidence_bundle_problems(&sections).len(),
+        EVIDENCE_SECTIONS.len()
+    );
+}
+
+#[test]
+fn a_no_behavior_change_line_inside_an_html_comment_does_not_count() {
+    assert!(!declares_no_behavior_change(
+        "<!-- No behavior change: hidden from the rendered body -->"
+    ));
 }

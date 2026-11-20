@@ -8,6 +8,7 @@ pub(crate) enum Language {
     Toml,
     Yaml,
     Shell,
+    PowerShell,
 }
 
 impl Language {
@@ -17,10 +18,11 @@ impl Language {
         match extension {
             "rs" => Some(Language::Rust),
             "wit" => Some(Language::Wit),
-            "js" | "mjs" | "cjs" | "ts" | "mts" | "cts" => Some(Language::Script),
+            "js" | "mjs" | "cjs" | "jsx" | "ts" | "mts" | "cts" | "tsx" => Some(Language::Script),
             "toml" => Some(Language::Toml),
             "yml" | "yaml" => Some(Language::Yaml),
-            "sh" | "bash" | "ps1" => Some(Language::Shell),
+            "sh" | "bash" => Some(Language::Shell),
+            "ps1" | "psm1" => Some(Language::PowerShell),
             _ => None,
         }
     }
@@ -47,7 +49,9 @@ pub(crate) fn scan(language: Language, text: &str) -> Scan {
         Language::Rust | Language::Wit | Language::Script => {
             CLikeScanner::new(language, text).run()
         }
-        Language::Toml | Language::Yaml | Language::Shell => scan_hash(language, text),
+        Language::Toml | Language::Yaml | Language::Shell | Language::PowerShell => {
+            scan_hash(language, text)
+        }
     }
 }
 
@@ -87,7 +91,7 @@ impl Builder {
     fn comment(&mut self, character: char, doc: bool) {
         let line = self.line_number();
         let entry = self.scan.comment_lines.entry(line).or_insert(doc);
-        *entry = *entry || doc;
+        *entry = *entry && doc;
         self.hidden(character);
     }
 
@@ -217,11 +221,17 @@ impl CLikeScanner {
                 self.out.code(quote);
                 self.index += 1;
                 return;
+            } else if character == '\n' && self.string_ends_at_line_end(quote) {
+                return;
             } else {
                 self.out.hidden(character);
                 self.index += 1;
             }
         }
+    }
+
+    fn string_ends_at_line_end(&self, quote: char) -> bool {
+        self.language == Language::Script && quote != '`'
     }
 
     fn rust_quote(&mut self) {
@@ -306,14 +316,29 @@ impl CLikeScanner {
 fn scan_hash(language: Language, text: &str) -> Scan {
     let mut out = Builder::new();
     let mut open_quote: Option<&str> = None;
+    let mut in_block_comment = false;
     for line in text.split_inclusive('\n') {
         let chars: Vec<char> = line.chars().collect();
         let mut position = 0;
         while position < chars.len() {
             let character = chars[position];
             let rest: String = chars[position..].iter().take(3).collect();
+            if in_block_comment {
+                if rest.starts_with("#>") {
+                    out.comment('#', false);
+                    out.comment('>', false);
+                    position += 2;
+                    in_block_comment = false;
+                } else {
+                    out.comment(character, false);
+                    position += 1;
+                }
+                continue;
+            }
             if let Some(quote) = open_quote {
-                if language == Language::Toml && character == '\\' && quote.starts_with('"') {
+                if let Some(escape) = escape_character(language, quote)
+                    && character == escape
+                {
                     out.hidden(character);
                     if let Some(next) = chars.get(position + 1) {
                         out.hidden(*next);
@@ -322,15 +347,23 @@ fn scan_hash(language: Language, text: &str) -> Scan {
                     continue;
                 }
                 if rest.starts_with(quote) {
-                    for quote_char in quote.chars() {
-                        out.code(quote_char);
+                    let length = closing_length(language, quote, &chars[position..]);
+                    for closing in &chars[position..position + length] {
+                        out.code(*closing);
                     }
-                    position += quote.chars().count();
+                    position += length;
                     open_quote = None;
                 } else {
                     out.hidden(character);
                     position += 1;
                 }
+                continue;
+            }
+            if language == Language::PowerShell && rest.starts_with("<#") {
+                out.comment('<', false);
+                out.comment('#', false);
+                position += 2;
+                in_block_comment = true;
                 continue;
             }
             if character == '#' && starts_comment(language, &chars, position) {
@@ -339,16 +372,18 @@ fn scan_hash(language: Language, text: &str) -> Scan {
                 }
                 break;
             }
-            let quote = match (language, character) {
-                (Language::Toml, '"') if rest == "\"\"\"" => Some("\"\"\""),
-                (Language::Toml, '\'') if rest == "'''" => Some("'''"),
-                (_, '"') => Some("\""),
-                (_, '\'') if language == Language::Toml || quote_can_open(&chars, position) => {
-                    Some("'")
+            if let Some(escape) = escape_character(language, "")
+                && character == escape
+            {
+                out.code(character);
+                if let Some(next) = chars.get(position + 1).filter(|next| **next != '\n') {
+                    out.code(*next);
+                    position += 1;
                 }
-                _ => None,
-            };
-            if let Some(quote) = quote {
+                position += 1;
+                continue;
+            }
+            if let Some(quote) = opening_quote(language, &chars, position, &rest) {
                 for quote_char in quote.chars() {
                     out.code(quote_char);
                 }
@@ -359,11 +394,76 @@ fn scan_hash(language: Language, text: &str) -> Scan {
             out.code(character);
             position += 1;
         }
-        if language == Language::Yaml && open_quote.is_some() {
+        if matches!((language, open_quote), (Language::Toml, Some("\"" | "'"))) {
             open_quote = None;
         }
     }
     out.finish()
+}
+
+fn escape_character(language: Language, quote: &str) -> Option<char> {
+    match (language, quote) {
+        (Language::Toml, "\"" | "\"\"\"") => Some('\\'),
+        (Language::Yaml, "\"") => Some('\\'),
+        (Language::Shell, "" | "\"") => Some('\\'),
+        (Language::PowerShell, "" | "\"") => Some('`'),
+        _ => None,
+    }
+}
+
+fn closing_length(language: Language, quote: &str, rest: &[char]) -> usize {
+    let quote_length = quote.chars().count();
+    if language != Language::Toml || quote_length != 3 {
+        return quote_length;
+    }
+    let delimiter = quote.chars().next().unwrap_or('"');
+    let run = rest
+        .iter()
+        .take_while(|character| **character == delimiter)
+        .count();
+    run.min(5)
+}
+
+fn opening_quote(
+    language: Language,
+    chars: &[char],
+    position: usize,
+    rest: &str,
+) -> Option<&'static str> {
+    let character = chars[position];
+    match language {
+        Language::Toml => match character {
+            '"' if rest == "\"\"\"" => Some("\"\"\""),
+            '\'' if rest == "'''" => Some("'''"),
+            '"' => Some("\""),
+            '\'' => Some("'"),
+            _ => None,
+        },
+        Language::Yaml => match character {
+            '"' if yaml_scalar_starts(chars, position) => Some("\""),
+            '\'' if yaml_scalar_starts(chars, position) => Some("'"),
+            _ => None,
+        },
+        _ => match character {
+            '"' => Some("\""),
+            '\'' if quote_can_open(chars, position) => Some("'"),
+            _ => None,
+        },
+    }
+}
+
+fn yaml_scalar_starts(chars: &[char], position: usize) -> bool {
+    let before = &chars[..position];
+    let previous = before
+        .iter()
+        .rev()
+        .find(|character| !character.is_whitespace());
+    match previous {
+        None => true,
+        Some('[' | '{' | ',') => true,
+        Some(':' | '-' | '?') => before.last().is_some_and(|last| last.is_whitespace()),
+        Some(_) => false,
+    }
 }
 
 fn starts_comment(language: Language, chars: &[char], position: usize) -> bool {

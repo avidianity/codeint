@@ -26,10 +26,7 @@ pub(crate) fn commit_message_problems(
     types: &[String],
     scopes: &[String],
 ) -> Vec<String> {
-    let lines: Vec<&str> = message
-        .lines()
-        .filter(|line| !line.starts_with('#'))
-        .collect();
+    let lines: Vec<&str> = message.lines().collect();
     let mut problems = Vec::new();
     match lines.iter().find(|line| !line.trim().is_empty()) {
         None => problems.push("the message is empty".to_string()),
@@ -55,6 +52,17 @@ pub(crate) fn commit_message_problems(
         .map(|problem| {
             format!("Commit message: {problem}. Use \"{{type}}({{scope}}): {{summary}}\" with no co-author or attribution lines.")
         })
+        .collect()
+}
+
+const SCISSORS: &str = "# ------------------------ >8 ------------------------";
+
+pub(crate) fn without_git_comments(message: &str) -> String {
+    message
+        .lines()
+        .take_while(|line| *line != SCISSORS)
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| format!("{line}\n"))
         .collect()
 }
 
@@ -127,7 +135,7 @@ pub(crate) fn evidence_bundle_problems(body: &str) -> Violations {
             continue;
         };
         let content = without_html_comments(content);
-        if content.trim().is_empty() {
+        if content.trim().is_empty() || lacks_reason(&content) {
             violations.push(format!(
                 "The pull request body has an empty {required} section. Fill it in, or write \"Not applicable\" with a reason."
             ));
@@ -141,8 +149,17 @@ pub(crate) fn evidence_bundle_problems(body: &str) -> Violations {
     violations
 }
 
+fn lacks_reason(content: &str) -> bool {
+    let words: String = content
+        .chars()
+        .filter(|character| character.is_alphanumeric() || character.is_whitespace())
+        .collect::<String>()
+        .to_lowercase();
+    words.split_whitespace().collect::<Vec<_>>() == ["not", "applicable"]
+}
+
 pub(crate) fn declares_no_behavior_change(body: &str) -> bool {
-    body.lines().any(|line| {
+    without_html_comments(body).lines().any(|line| {
         line.split_once("No behavior change:")
             .is_some_and(|(_, reason)| !reason.trim().is_empty())
     })

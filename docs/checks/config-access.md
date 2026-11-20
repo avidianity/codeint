@@ -5,7 +5,7 @@ Only the Project's configuration modules read environment variables or other pro
 
 **Implemented by**:
 `cargo xtask config-access`.
-It rejects `env::var`, `env::args`, and `env::{` reads in Rust code outside the `config_access.modules` globs in [checks.toml](../../checks.toml).
+It rejects `env::var`, `env::args`, `env::{`, `env::*`, and `env as` in Rust code outside the `config_access.modules` globs in [checks.toml](../../checks.toml), so an aliased import is caught too.
 
 **Runs in**:
 Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).

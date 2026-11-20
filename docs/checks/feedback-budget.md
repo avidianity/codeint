@@ -14,6 +14,7 @@ At 80% of a budget it opens or updates one issue labelled `budget`; over the bud
 **Runs in**:
 CI, `budget` job of the `ci` workflow, on every pull request.
 It times the Git hook on the changed files, `cargo xtask affected-tests`, and the wall clock of the other jobs in the run.
+It opens or updates the `budget` issue only for pull requests from this repository, because a fork's token cannot write issues.
 
 **Error text**:
 

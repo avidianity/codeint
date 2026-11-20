@@ -72,7 +72,10 @@ fn read_file(path: &str) -> Result<String, String> {
 
 fn commit_message(root: &Path, settings: &Settings, args: &[String]) -> Result<Violations, String> {
     let messages = if let Ok(path) = flag(args, "--file") {
-        vec![("message".to_string(), read_file(&path)?)]
+        vec![(
+            "message".to_string(),
+            pull_request::without_git_comments(&read_file(&path)?),
+        )]
     } else {
         let base = flag(args, "--range")?;
         git::run(root, &["rev-list", "--reverse", &format!("{base}..HEAD")])?

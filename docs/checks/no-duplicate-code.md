@@ -10,7 +10,7 @@ The thresholds are Defaults.
 The Project keeps them in the check's configuration, changes them only by an ADR, and a change to them is Tier 3; see [test-oracle-guard](./test-oracle-guard.md).
 
 **Implemented by**:
-jscpd 5.4.3 with [.jscpd.json](../../.jscpd.json), run as `npm run duplicates`.
+jscpd 5.4.3 with [.jscpd.json](../../.jscpd.json), run as `npm run duplicates`, over Rust, JavaScript, JSX, TypeScript, and TSX files.
 The script runs two passes, so a duplicate fails when it has 10 or more lines or 100 or more tokens.
 The thresholds live in the `duplicates` script of [package.json](../../package.json); a change to them is Tier 3.
 
