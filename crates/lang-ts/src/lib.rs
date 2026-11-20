@@ -5,6 +5,10 @@ use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
+mod rules;
+
+pub use rules::flagged_line_rules;
+
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
 pub struct TypeScriptAndJavaScript;
@@ -34,6 +38,7 @@ impl Guest for TypeScriptAndJavaScript {
             .count();
         Ok(FileModel {
             source_lines: u32::try_from(source_lines).map_err(|_| LowerError::TooLarge)?,
+            flagged_lines: rules::flag(&parsed.program, &code)?,
         })
     }
 }

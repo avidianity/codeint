@@ -1,5 +1,4 @@
-#![forbid(unsafe_code)]
-
+use codeint_metrics::verbosity::{FlaggedLineFinding, Verbosity};
 use codeint_model::CodeModel;
 use serde::Serialize;
 
@@ -11,6 +10,21 @@ pub struct ReportError(#[source] toon_format::ToonError);
 pub struct Report {
     files: usize,
     source_lines: u64,
+    verbosity: VerbosityReport,
+}
+
+#[derive(Debug, Serialize)]
+struct VerbosityReport {
+    ratio: f64,
+    verbose_lines: u64,
+    flagged_lines: Vec<FlaggedLineRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct FlaggedLineRow {
+    path: String,
+    line: u32,
+    rule: String,
 }
 
 impl Report {
@@ -22,10 +36,23 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
+            verbosity: VerbosityReport::from(Verbosity::measure(model)),
         }
     }
 
     pub fn to_toon(&self) -> Result<String, ReportError> {
         toon_format::encode_default(self).map_err(ReportError)
+    }
+}
+
+impl From<Verbosity> for VerbosityReport {
+    fn from(verbosity: Verbosity) -> VerbosityReport {
+        todo!("{verbosity:?}")
+    }
+}
+
+impl From<FlaggedLineFinding> for FlaggedLineRow {
+    fn from(finding: FlaggedLineFinding) -> FlaggedLineRow {
+        todo!("{finding:?}")
     }
 }
