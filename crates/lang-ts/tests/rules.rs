@@ -198,6 +198,135 @@ export function shadow(empty: boolean) {
         ],
     },
     RuleFixtures {
+        rule: "catch-only-rethrows",
+        flagged: &[
+            Flagged {
+                text: "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  }
+}
+",
+                lines: &[4, 5, 6],
+            },
+            Flagged {
+                text: "export async function fetchUser(id: string) {
+  try { return await get(id); } catch (e) { throw e; }
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export class Store {
+  save(record: object) {
+    try {
+      this.write(record);
+    }
+    catch (failure: unknown) {
+      throw (failure);
+    }
+  }
+  write(record: object) {
+    console.log(record);
+  }
+}
+",
+                lines: &[6, 7, 8],
+            },
+            Flagged {
+                text: "export const parse = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    // let the caller decide
+    throw error;
+  }
+};
+",
+                lines: &[4, 6, 7],
+            },
+            Flagged {
+                text: "export function outer() {
+  try {
+    try {
+      inner();
+    } catch (first) {
+      throw first;
+    }
+  } catch (second) {
+    throw second;
+  }
+}
+",
+                lines: &[5, 6, 7, 8, 9, 10],
+            },
+        ],
+        passing: &[
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw new Error(`cannot load ${path}`, { cause: error });
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  } finally {
+    close(path);
+  }
+}
+",
+            "export function load(path: string, fallback: Error) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw fallback;
+  }
+}
+",
+            "const failure = new Error('unavailable');
+export function load(path: string) {
+  try {
+    return read(path);
+  } catch {
+    throw failure;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch ({ message }) {
+    throw message;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error.cause;
+  }
+}
+",
+        ],
+    },
+    RuleFixtures {
         rule: "if-else-returns-boolean",
         flagged: &[
             Flagged {
@@ -303,6 +432,71 @@ function audit(age: number) {
   else if (!flag) return false;
   return false;
 }
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "conditional-yields-boolean",
+        flagged: &[
+            Flagged {
+                text: "export const isAdult = (age: number) => age >= 18 ? true : false;
+",
+                lines: &[1],
+            },
+            Flagged {
+                text: "export function isEmpty(items: string[]) {
+  const empty = items.length > 0 ? false : true;
+  return empty;
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export function visible(user, page) {
+  return user.signedIn && page.public
+    // a signed-in user on a public page
+    ? true
+    : false;
+}
+",
+                lines: &[2, 4, 5],
+            },
+            Flagged {
+                text: "export const access = (admin, owner) =>
+  admin
+    ? 'all'
+    : owner
+      ? true
+      : false;
+",
+                lines: &[4, 5, 6],
+            },
+            Flagged {
+                text: "export function show(flag) {
+  if (flag ? true : false) {
+    console.log('shown');
+  }
+}
+",
+                lines: &[2],
+            },
+        ],
+        passing: &[
+            "export const label = (done: boolean) => done ? 'done' : 'open';
+",
+            "export const always = (flag: boolean) => flag ? true : true;
+",
+            "export const never = (flag: boolean) => flag ? false : false;
+",
+            "export const bit = (flag: boolean) => flag ? 1 : 0;
+",
+            "export const text = (flag: boolean) => flag ? 'true' : 'false';
+",
+            "export const either = (flag: boolean, other: boolean) => flag ? true : other;
+",
+            "export const both = (flag: boolean, other: boolean) => flag ? other : false;
+",
+            "export const unset = (flag: boolean) => flag ? undefined : null;
 ",
         ],
     },

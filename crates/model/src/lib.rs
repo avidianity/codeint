@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
+mod source_set;
 #[cfg(test)]
 mod tests;
 
@@ -18,6 +19,7 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{FileModel, ReferenceRange, SourceSet, Token, TokenKind};
+pub use source_set::settle_source_set;
 
 pub fn token_text_hash(text: &str) -> u64 {
     const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
