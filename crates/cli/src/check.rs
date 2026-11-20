@@ -17,12 +17,6 @@ pub(crate) enum CheckError {
         #[source]
         source: FromUtf8Error,
     },
-    #[error("{path}")]
-    Lower {
-        path: RepoPath,
-        #[source]
-        source: LowerError,
-    },
     #[error(transparent)]
     Report(#[from] ReportError),
 }
@@ -56,16 +50,14 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
             path: path.clone(),
             source,
         })?;
-        let file = plugin
-            .lower(path, &text)
-            .map_err(|source| CheckError::Lower {
+        match plugin.lower(path, &text) {
+            Ok(file) => model.files.push(SourceFile {
                 path: path.clone(),
-                source,
-            })?;
-        model.files.push(SourceFile {
-            path: path.clone(),
-            model: file,
-        });
+                model: file,
+            }),
+            Err(LowerError::DeclarationOnly) => todo!(),
+            Err(_reason) => todo!(),
+        }
     }
     Ok(model)
 }

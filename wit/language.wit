@@ -18,6 +18,8 @@ interface language {
         unsupported-file(string),
         /// The file has more source lines than a `u32` holds.
         too-large,
+        /// The file only declares types and holds no code to measure, such as a TypeScript `.d.ts` file.
+        declaration-only,
     }
 
     /// The file extensions the Language plugin reads, each without its leading dot, such as `ts`.
