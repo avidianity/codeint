@@ -8,6 +8,12 @@ use serde::Deserialize;
 use serde_json::Value;
 
 mod shape;
+mod starter;
+
+pub use starter::{
+    DetectedLanguage, StarterConfigurationError, published_schema_address,
+    write_starter_configuration,
+};
 
 pub const CONFIGURATION_FILE_NAME: &str = "codeint.json";
 

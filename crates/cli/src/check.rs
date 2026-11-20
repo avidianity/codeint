@@ -36,10 +36,11 @@ pub(crate) struct NamedLanguagePlugin<'plugin> {
     pub(crate) plugin: &'plugin dyn LanguagePlugin,
 }
 
-const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] = [NamedLanguagePlugin {
-    name: "typescript-javascript",
-    plugin: &TypeScriptAndJavaScript,
-}];
+pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] =
+    [NamedLanguagePlugin {
+        name: "typescript-javascript",
+        plugin: &TypeScriptAndJavaScript,
+    }];
 
 pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
     check_with(folder, &BUILT_IN_LANGUAGE_PLUGINS, findings)

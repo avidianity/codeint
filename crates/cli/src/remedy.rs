@@ -1,9 +1,10 @@
-use codeint_config::{ConfigError, ConfigurationFileError};
+use codeint_config::{ConfigError, ConfigurationFileError, StarterConfigurationError};
 use codeint_git::GitError;
 use codeint_model::WorkspaceError;
 
 use crate::CliError;
 use crate::check::CheckError;
+use crate::init::InitError;
 
 pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
@@ -16,6 +17,13 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         }
         CliError::Check(CheckError::ReferenceRange(_)) => {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
+        }
+        CliError::Init(InitError::Git(GitError::NotInRepository { .. })) => {
+            "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
+        }
+        CliError::Init(InitError::Git(error)) => git_remedy(error),
+        CliError::Init(InitError::StarterConfiguration(error)) => {
+            starter_configuration_remedy(error)
         }
         CliError::Report(_) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
@@ -101,6 +109,17 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         }
         ConfigurationFileError::InvalidGlob { .. } => {
             "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
+        }
+    }
+}
+
+fn starter_configuration_remedy(error: &StarterConfigurationError) -> &'static str {
+    match error {
+        StarterConfigurationError::AlreadyExists { .. } => {
+            "Edit the existing codeint.json, or delete it and run codeint init again."
+        }
+        StarterConfigurationError::Unwritable { .. } => {
+            "Check that you have permission to write to the root of the repository, then run codeint init again."
         }
     }
 }

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod check;
+mod init;
 mod remedy;
 
 use std::error::Error;
@@ -17,6 +18,8 @@ enum CliError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error(transparent)]
+    Init(#[from] init::InitError),
     #[error(transparent)]
     Report(#[from] ReportError),
     #[error("cannot write the report to standard output")]
@@ -73,6 +76,11 @@ fn run() -> Result<Outcome, CliError> {
             } else {
                 Outcome::OverBudget(over_budget)
             })
+        }
+        Command::Init { folder } => {
+            let written = init::init(&folder)?;
+            print_report(&format!("Wrote {}\n", written.display()))?;
+            Ok(Outcome::Passed)
         }
     }
 }
