@@ -67,6 +67,21 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).expect("standard output is UTF-8")
 }
 
+fn summary(output: &Output) -> String {
+    stdout(output)
+        .lines()
+        .take_while(|line| !line.ends_with(':'))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+fn function_with_if_statements(name: &str, if_statements: usize) -> String {
+    let branches: String = (1..=if_statements)
+        .map(|value| format!("  if (value === {value}) return {value};\n"))
+        .collect();
+    format!("export function {name}(value: number): number {{\n{branches}  return 0;\n}}\n")
+}
+
 fn assert_success(output: &Output) {
     assert_eq!(
         output.status.code(),
@@ -92,7 +107,7 @@ fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files(
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 5\n");
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 5\n");
 }
 
 #[test]
@@ -122,7 +137,7 @@ fn blank_lines_and_comment_only_lines_are_not_source_lines() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 1\nsource_lines: 5\n");
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 5\n");
 }
 
 #[test]
@@ -139,7 +154,7 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 8\nsource_lines: 8\n");
+    assert_eq!(summary(&output), "files: 8\nsource_lines: 8\n");
 }
 
 #[test]
@@ -161,7 +176,7 @@ fn files_git_ignores_are_not_measured_and_untracked_files_are() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 3\n");
 }
 
 #[test]
@@ -205,6 +220,142 @@ fn check_stops_with_an_operational_error_on_a_file_that_does_not_parse() {
             )
             && message.lines().count() == 2,
         "unexpected message: {message}"
+    );
+}
+
+#[test]
+fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
+    let repository = Repository::new();
+    repository.write(
+        "src/mixed.ts",
+        concat!(
+            "export function eroded(value: number): number {\n",
+            "  const doubled = value * 2;\n",
+            "  if (doubled === 2) return 1;\n",
+            "  if (doubled === 4) return 2;\n",
+            "  if (doubled === 6) return 3;\n",
+            "  if (doubled === 8) return 4;\n",
+            "  if (doubled === 10) return 5;\n",
+            "  for (const step of [1, 2]) value += step;\n",
+            "  for (const key in { a: 1 }) value += key.length;\n",
+            "  for (let index = 0; index < 2; index++) value += index;\n",
+            "  while (value > 100) value -= 100;\n",
+            "  do value += 1; while (value < 0);\n",
+            "  if (doubled === 12) return 6;\n",
+            "  const tripled = value * 3;\n",
+            "  return tripled;\n",
+            "}\n",
+            "\n",
+            "export function small(values: number[]): number {\n",
+            "  let total = 0;\n",
+            "  const count = values.length;\n",
+            "  for (const value of values) {\n",
+            "    total += value;\n",
+            "  }\n",
+            "  total += count;\n",
+            "  return total;\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 1\n",
+            "source_lines: 25\n",
+            "erosion:\n",
+            "  ratio: 0.8889\n",
+            "  eroded_function_mass: 48\n",
+            "  total_function_mass: 54\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/mixed.ts,1,12,16,48\n",
+        )
+    );
+}
+
+#[test]
+fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
+    let repository = Repository::new();
+    repository.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    repository.write("src/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 3\n",
+            "source_lines: 39\n",
+            "erosion:\n",
+            "  ratio: 0.7094\n",
+            "  eroded_function_mass: 84.561\n",
+            "  total_function_mass: 119.202\n",
+            "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/eleven.ts,1,12,14,44.8999\n",
+            "    src/ten.ts,1,11,13,39.6611\n",
+        )
+    );
+}
+
+#[test]
+fn a_repository_without_functions_reports_erosion_0() {
+    let repository = Repository::new();
+    repository.write("src/constants.ts", "export const one = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 1\n",
+            "source_lines: 1\n",
+            "erosion:\n",
+            "  ratio: 0\n",
+            "  eroded_function_mass: 0\n",
+            "  total_function_mass: 0\n",
+            "  findings: []\n",
+        )
+    );
+}
+
+#[test]
+fn decision_points_of_a_callback_count_only_toward_the_callback() {
+    let repository = Repository::new();
+    let branches: String = (1..=10)
+        .map(|value| format!("    if (row === {value}) return;\n"))
+        .collect();
+    repository.write(
+        "src/outer.ts",
+        &format!(
+            "export function outer(rows: number[]): void {{\n  rows.forEach((row) => {{\n{branches}  }});\n}}\n"
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 1\n",
+            "source_lines: 14\n",
+            "erosion:\n",
+            "  ratio: 0.9106\n",
+            "  eroded_function_mass: 38.1051\n",
+            "  total_function_mass: 41.8468\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/outer.ts,2,11,12,38.1051\n",
+        )
     );
 }
 
@@ -269,7 +420,7 @@ fn check_of_a_subfolder_measures_the_whole_working_tree() {
     let output = repository.codeint(&["check", "src"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 3\n");
 }
 
 #[test]

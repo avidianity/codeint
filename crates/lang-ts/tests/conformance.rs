@@ -1,4 +1,5 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
+use codeint_model::language::Function;
 use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath};
 
 fn plugin() -> &'static dyn LanguagePlugin {
@@ -152,4 +153,206 @@ fn a_file_with_an_undeclared_extension_is_unsupported() {
         matches!(result, Err(LowerError::UnsupportedFile { .. })),
         "unexpected result: {result:?}"
     );
+}
+
+fn functions(path: &str, text: &str) -> Vec<Function> {
+    match lower(path, text) {
+        Ok(model) => model.functions,
+        Err(error) => panic!("{path} did not lower: {error}"),
+    }
+}
+
+fn function(line: u32, decision_points: u32, source_lines: u32) -> Function {
+    Function {
+        line,
+        decision_points,
+        source_lines,
+    }
+}
+
+#[test]
+fn each_if_statement_and_loop_is_a_decision_point_of_its_function() {
+    let text = concat!(
+        "export function walk(items: number[], limit: number): number {\n",
+        "  let total = 0;\n",
+        "\n",
+        "  for (let index = 0; index < limit; index++) {\n",
+        "    if (items[index] > 0) {\n",
+        "      total += items[index];\n",
+        "    } else if (items[index] < -10) {\n",
+        "      total -= 1;\n",
+        "    }\n",
+        "  }\n",
+        "  for (const key in items) {\n",
+        "    total += key.length;\n",
+        "  }\n",
+        "  for (const item of items) {\n",
+        "    total += item;\n",
+        "  }\n",
+        "  while (total > 100) {\n",
+        "    total -= 100;\n",
+        "  }\n",
+        "  do {\n",
+        "    total += 1;\n",
+        "  } while (total < 0);\n",
+        "  return total;\n",
+        "}\n",
+    );
+
+    assert_eq!(functions("src/walk.ts", text), [function(1, 7, 23)]);
+}
+
+#[test]
+fn a_function_without_branches_or_loops_has_no_decision_points() {
+    let text = "export function one(): number {\n  return 1;\n}\n";
+
+    assert_eq!(functions("src/one.ts", text), [function(1, 0, 3)]);
+}
+
+#[test]
+fn a_file_without_functions_has_none() {
+    assert_eq!(functions("src/constants.ts", "export const one = 1;\n"), []);
+}
+
+#[test]
+fn every_kind_of_function_is_lowered_in_the_order_of_its_first_line() {
+    let text = concat!(
+        "export function declared(flag: boolean) {\n",
+        "  if (flag) {\n",
+        "    return 1;\n",
+        "  }\n",
+        "  return 0;\n",
+        "}\n",
+        "export const expressed = function (flag: boolean) {\n",
+        "  return flag;\n",
+        "};\n",
+        "export const arrow = (flag: boolean) => {\n",
+        "  while (flag) {\n",
+        "    flag = false;\n",
+        "  }\n",
+        "};\n",
+        "export const concise = (value: number) => value + 1;\n",
+        "export class Counter {\n",
+        "  count = 0;\n",
+        "  constructor(start: number) {\n",
+        "    this.count = start;\n",
+        "  }\n",
+        "  get doubled(): number {\n",
+        "    return this.count * 2;\n",
+        "  }\n",
+        "  increment(): void {\n",
+        "    if (this.count < 10) {\n",
+        "      this.count++;\n",
+        "    }\n",
+        "  }\n",
+        "}\n",
+        "export const literal = {\n",
+        "  method() {\n",
+        "    return 1;\n",
+        "  },\n",
+        "};\n",
+    );
+
+    assert_eq!(
+        functions("src/kinds.ts", text),
+        [
+            function(1, 1, 6),
+            function(7, 0, 3),
+            function(10, 1, 5),
+            function(15, 0, 1),
+            function(18, 0, 3),
+            function(21, 0, 3),
+            function(24, 1, 5),
+            function(31, 0, 3),
+        ]
+    );
+}
+
+#[test]
+fn a_nested_function_adds_no_decision_points_to_the_function_around_it() {
+    let text = concat!(
+        "export function outer(rows: number[][]) {\n",
+        "  if (rows.length === 0) {\n",
+        "    return;\n",
+        "  }\n",
+        "  rows.forEach((row) => {\n",
+        "    for (const cell of row) {\n",
+        "      if (cell > 0) {\n",
+        "        console.log(cell);\n",
+        "      }\n",
+        "    }\n",
+        "  });\n",
+        "}\n",
+    );
+
+    assert_eq!(
+        functions("src/nested.ts", text),
+        [function(1, 1, 12), function(5, 2, 7)]
+    );
+}
+
+#[test]
+fn blank_and_comment_only_lines_of_a_function_are_not_its_source_lines() {
+    let text = concat!(
+        "export function documented(flag: boolean) {\n",
+        "  // a comment that explains nothing\n",
+        "\n",
+        "  /* a block\n",
+        "     comment */\n",
+        "  if (flag) {\n",
+        "    return 1;\n",
+        "  }\n",
+        "  return 0;\n",
+        "}\n",
+    );
+
+    assert_eq!(functions("src/documented.ts", text), [function(1, 1, 6)]);
+}
+
+#[test]
+fn a_function_signature_without_a_body_is_not_a_function() {
+    let text = concat!(
+        "export function pick(value: string): string;\n",
+        "export function pick(value: number): number;\n",
+        "export function pick(value: string | number) {\n",
+        "  return value;\n",
+        "}\n",
+        "declare function external(): void;\n",
+        "export abstract class Shape {\n",
+        "  abstract area(): number;\n",
+        "}\n",
+    );
+
+    assert_eq!(functions("src/overloads.ts", text), [function(3, 0, 3)]);
+}
+
+#[test]
+fn a_function_in_a_javascript_file_is_lowered_too() {
+    let text = concat!(
+        "export function sign(value) {\n",
+        "  if (value < 0) {\n",
+        "    return -1;\n",
+        "  }\n",
+        "  return 1;\n",
+        "}\n",
+    );
+
+    assert_eq!(functions("src/sign.js", text), [function(1, 1, 6)]);
+}
+
+#[test]
+fn a_function_after_a_comment_with_multibyte_characters_starts_on_the_right_line() {
+    let text = format!(
+        "/* {} */\nconst a = 1;\nfunction later() {{\n  return a;\n}}\n",
+        "\u{2713}".repeat(20)
+    );
+
+    assert_eq!(functions("src/marks.ts", &text), [function(3, 0, 3)]);
+}
+
+#[test]
+fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
+    let text = "const first = 1;\r\n\r\nfunction later() {\r\n  return first;\r\n}\r\n";
+
+    assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
 }

@@ -44,11 +44,13 @@ fn blank_out(text: &str, spans: impl Iterator<Item = std::ops::Range<usize>>) ->
     let mut cursor = 0;
     for span in spans {
         code.push_str(&text[cursor..span.start]);
-        code.extend(
-            text[span.clone()]
-                .chars()
-                .map(|character| if character == '\n' { '\n' } else { ' ' }),
-        );
+        for character in text[span.clone()].chars() {
+            if character == '\n' {
+                code.push('\n');
+            } else {
+                code.extend(std::iter::repeat_n(' ', character.len_utf8()));
+            }
+        }
         cursor = span.end;
     }
     code.push_str(&text[cursor..]);

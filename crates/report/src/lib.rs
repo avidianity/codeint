@@ -4,6 +4,8 @@ use codeint_metrics::{ErodedFunction, Erosion};
 use codeint_model::CodeModel;
 use serde::Serialize;
 
+const DECIMAL_SCALE: f64 = 10_000.0;
+
 #[derive(Debug, thiserror::Error)]
 #[error("cannot render the report")]
 pub struct ReportError(#[source] toon_format::ToonError);
@@ -38,7 +40,7 @@ struct Decimal(f64);
 
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
-        todo!("{value}")
+        Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
     }
 }
 
@@ -59,7 +61,13 @@ impl ErosionSection {
 
 impl ErodedFunctionFinding {
     fn new(function: &ErodedFunction) -> ErodedFunctionFinding {
-        todo!("{function:?}")
+        ErodedFunctionFinding {
+            path: function.path.to_string(),
+            line: function.line,
+            cyclomatic_complexity: function.cyclomatic_complexity,
+            source_lines: function.source_lines,
+            function_mass: Decimal::rounded(function.function_mass),
+        }
     }
 }
 
