@@ -396,6 +396,100 @@ fn decision_points_of_a_callback_count_only_toward_the_callback() {
     );
 }
 
+fn write_eroded_functions_with_more_if_statements_in_later_files(
+    repository: &Repository,
+    count: usize,
+) {
+    for index in 1..=count {
+        repository.write(
+            &format!("src/f{index:02}.ts"),
+            &function_with_if_statements(&format!("f{index:02}"), 9 + index),
+        );
+    }
+}
+
+fn erosion_findings_header(count: usize) -> String {
+    format!("  findings[{count}]{{path,line,cyclomatic_complexity,source_lines,function_mass}}:")
+}
+
+fn erosion_findings_lines(output: &Output) -> Vec<String> {
+    stdout(output)
+        .lines()
+        .skip_while(|line| !line.starts_with("  findings"))
+        .map(|line| match line.strip_prefix("    ") {
+            Some(row) => format!(
+                "    {}",
+                row.splitn(3, ',').take(2).collect::<Vec<_>>().join(",")
+            ),
+            None => line.to_string(),
+        })
+        .collect()
+}
+
+#[test]
+fn the_report_lists_the_20_eroded_functions_of_most_function_mass_and_says_how_many_it_left_out() {
+    let repository = Repository::new();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 25);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec![erosion_findings_header(20)];
+    expected.extend(
+        (6..=25)
+            .rev()
+            .map(|index| format!("    src/f{index:02}.ts,1")),
+    );
+    expected.push("  findings_left_out: 5".to_string());
+    assert_eq!(erosion_findings_lines(&output), expected);
+}
+
+#[test]
+fn all_lists_every_eroded_function_and_leaves_none_out() {
+    let repository = Repository::new();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 25);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--all"]);
+
+    assert_success(&output);
+    let mut expected = vec![erosion_findings_header(25)];
+    expected.extend(
+        (1..=25)
+            .rev()
+            .map(|index| format!("    src/f{index:02}.ts,1")),
+    );
+    assert_eq!(erosion_findings_lines(&output), expected);
+}
+
+#[test]
+fn eroded_functions_of_equal_function_mass_are_listed_by_path_then_line_and_the_last_are_left_out()
+{
+    let repository = Repository::new();
+    let eroded = function_with_if_statements("eroded", 10);
+    for index in (1..=20).rev() {
+        repository.write(&format!("src/t{index:02}.ts"), &eroded);
+    }
+    repository.write(
+        "src/t00.ts",
+        &format!("{eroded}{}", function_with_if_statements("twin", 10)),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec![
+        erosion_findings_header(20),
+        "    src/t00.ts,1".to_string(),
+        "    src/t00.ts,14".to_string(),
+    ];
+    expected.extend((1..=18).map(|index| format!("    src/t{index:02}.ts,1")));
+    expected.push("  findings_left_out: 2".to_string());
+    assert_eq!(erosion_findings_lines(&output), expected);
+}
+
 fn not_in_a_repository_message(folder: &Path) -> String {
     format!(
         "codeint: {} is not inside a Git repository\n\

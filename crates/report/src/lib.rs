@@ -72,7 +72,15 @@ impl<T> Findings<T> {
         worst_first: impl ExactSizeIterator<Item = T>,
         shown: FindingsShown,
     ) -> Findings<T> {
-        todo!("{} {shown:?}", worst_first.len())
+        let total = worst_first.len();
+        let findings: Vec<T> = match shown {
+            FindingsShown::WorstPerMetric(limit) => worst_first.take(limit).collect(),
+            FindingsShown::All => worst_first.collect(),
+        };
+        Findings {
+            findings_left_out: total - findings.len(),
+            findings,
+        }
     }
 }
 

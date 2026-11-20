@@ -140,5 +140,9 @@ fn report_destination(
 }
 
 fn findings_shown(all: bool) -> FindingsShown {
-    todo!("{all} {WORST_FINDINGS_PER_METRIC}")
+    if all {
+        FindingsShown::All
+    } else {
+        FindingsShown::WorstPerMetric(WORST_FINDINGS_PER_METRIC)
+    }
 }
