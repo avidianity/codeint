@@ -3,7 +3,7 @@
 use codeint_config::FindingsShown;
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
-    ImportCycles, MinimumCloneTokens, Verbosity,
+    ImportCycles, MinimumCloneTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
@@ -81,6 +81,7 @@ struct ErosionSection {
 
 trait FindingKind: Serialize {
     const LIST_KEY: &'static str;
+    const LEFT_OUT_KEY: &'static str = "findings_left_out";
 }
 
 #[derive(Debug)]
@@ -144,6 +145,21 @@ struct ImportCyclesSection {
     modules: usize,
     #[serde(flatten)]
     findings: Findings<ImportCycleFinding>,
+    unresolved_imports: UnresolvedImportsSection,
+}
+
+#[derive(Debug, Serialize)]
+struct UnresolvedImportsSection {
+    count: usize,
+    #[serde(flatten)]
+    imports: Findings<UnresolvedImportRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct UnresolvedImportRow {
+    importer: String,
+    specifier: String,
+    reason: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -213,7 +229,7 @@ impl<T: FindingKind> Serialize for Findings<T> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry(T::LIST_KEY, &self.listed)?;
         if self.left_out > 0 {
-            map.serialize_entry("findings_left_out", &self.left_out)?;
+            map.serialize_entry(T::LEFT_OUT_KEY, &self.left_out)?;
         }
         map.end()
     }
@@ -233,6 +249,11 @@ impl FindingKind for FlaggedLineRow {
 
 impl FindingKind for ImportCycleFinding {
     const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for UnresolvedImportRow {
+    const LIST_KEY: &'static str = "imports";
+    const LEFT_OUT_KEY: &'static str = "imports_left_out";
 }
 
 impl SourceSetSections {
@@ -407,6 +428,7 @@ impl ImportCyclesSection {
                 import_cycles.cycles().iter().map(ImportCycleFinding::new),
                 shown,
             ),
+            unresolved_imports: UnresolvedImportsSection::new(import_cycles, shown),
         }
     }
 }
@@ -416,6 +438,18 @@ impl ImportCycleFinding {
         ImportCycleFinding {
             modules: cycle.modules().iter().map(RepoPath::to_string).collect(),
         }
+    }
+}
+
+impl UnresolvedImportsSection {
+    fn new(_import_cycles: &ImportCycles, _shown: FindingsShown) -> UnresolvedImportsSection {
+        todo!()
+    }
+}
+
+impl From<&UnresolvedImport> for UnresolvedImportRow {
+    fn from(_import: &UnresolvedImport) -> UnresolvedImportRow {
+        todo!()
     }
 }
 

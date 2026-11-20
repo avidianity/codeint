@@ -11,9 +11,17 @@ pub struct ImportCycle {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnresolvedImport {
+    pub importer: RepoPath,
+    pub specifier: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportCycles {
     modules: usize,
     cycles: Vec<ImportCycle>,
+    unresolved_imports: Vec<UnresolvedImport>,
 }
 
 impl ImportCycle {
@@ -58,6 +66,7 @@ impl ImportCycles {
         ImportCycles {
             modules: modules.len(),
             cycles,
+            unresolved_imports: unresolved_imports(model),
         }
     }
 
@@ -80,6 +89,14 @@ impl ImportCycles {
     pub fn cycles(&self) -> &[ImportCycle] {
         &self.cycles
     }
+
+    pub fn unresolved_imports(&self) -> &[UnresolvedImport] {
+        &self.unresolved_imports
+    }
+}
+
+fn unresolved_imports(_model: &CodeModel) -> Vec<UnresolvedImport> {
+    todo!()
 }
 
 struct Tarjan<'graph> {
