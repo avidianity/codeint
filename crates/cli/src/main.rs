@@ -46,24 +46,26 @@ fn run() -> Result<(), CliError> {
 }
 
 fn write_report(report: &str, destination: &ReportDestination) -> Result<(), CliError> {
+    let text = format!("{report}\n");
     match destination {
-        ReportDestination::StandardOutput => print_report(report),
-        ReportDestination::File(path) => save_report(report, path),
+        ReportDestination::StandardOutput => print_report(&text),
+        ReportDestination::File(path) => save_report(&text, path),
     }
 }
 
-fn save_report(report: &str, path: &Path) -> Result<(), CliError> {
-    std::fs::write(path, report).map_err(|source| CliError::OutputFile {
+fn print_report(text: &str) -> Result<(), CliError> {
+    let mut output = std::io::stdout().lock();
+    output
+        .write_all(text.as_bytes())
+        .and_then(|()| output.flush())
+        .map_err(CliError::Output)
+}
+
+fn save_report(text: &str, path: &Path) -> Result<(), CliError> {
+    std::fs::write(path, text).map_err(|source| CliError::OutputFile {
         path: path.to_path_buf(),
         source,
     })
-}
-
-fn print_report(report: &str) -> Result<(), CliError> {
-    let mut output = std::io::stdout().lock();
-    writeln!(output, "{report}")
-        .and_then(|()| output.flush())
-        .map_err(CliError::Output)
 }
 
 fn describe(error: &dyn Error) -> String {
