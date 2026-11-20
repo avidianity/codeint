@@ -1441,6 +1441,40 @@ fn type_only_imports_and_exports_do_not_form_an_import_cycle() {
 }
 
 #[test]
+fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() {
+    let repository = Repository::new();
+    repository.write(
+        "src/shape.ts",
+        "import { type Unit, scale } from './unit';\nexport interface Shape { unit: Unit }\nconst area = (side: number) => scale(side * side);\nexport default area;\n",
+    );
+    repository.write(
+        "src/unit.ts",
+        "export { type Ratio, ratio } from './ratio';\nexport type Unit = 'cm';\nexport const scale = (value: number) => value;\n",
+    );
+    repository.write(
+        "src/ratio.ts",
+        "import area, { type Shape } from './shape';\nexport type Ratio = number;\nexport const ratio = (shape: Shape) => area(1) / shape.unit.length;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 3\n",
+            "  modules: 3\n",
+            "  findings[1]:\n",
+            "    - modules[3]: src/ratio.ts,src/shape.ts,src/unit.ts\n",
+        )
+    );
+}
+
+#[test]
 fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
     let repository = Repository::new();
     repository.write("src/a.ts", "export * from './b';\n");
