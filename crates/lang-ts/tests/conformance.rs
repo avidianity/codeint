@@ -1365,11 +1365,18 @@ fn a_test_or_spec_file_of_every_extension_is_in_the_test_source_set() {
 }
 
 #[test]
-fn a_file_under_a_tests_folder_at_any_depth_is_in_the_test_source_set() {
+fn a_file_under_a_test_or_tests_folder_at_any_depth_is_in_the_test_source_set() {
     for path in [
         "__tests__/greet.ts",
         "src/__tests__/greet.tsx",
         "src/__tests__/helpers/fixtures.js",
+        "test/greet.ts",
+        "tests/greet.mjs",
+        "src/test/greet.ts",
+        "src/tests/greet.ts",
+        "packages/app/test/fixtures/deep/user.js",
+        "packages/app/tests/helpers/setup.tsx",
+        "test/test.ts",
     ] {
         assert_eq!(source_set(path), SourceSet::Test, "{path}");
     }
@@ -1384,8 +1391,13 @@ fn a_file_that_no_test_rule_matches_is_in_the_production_source_set() {
         "src/.test.ts",
         "src/greet.testing.ts",
         "src/latest.ts",
-        "src/test/greet.ts",
-        "src/tests/greet.ts",
+        "test.ts",
+        "tests.ts",
+        "src/tests.ts",
+        "src/testing/greet.ts",
+        "src/my-tests/greet.ts",
+        "src/latest/greet.ts",
+        "src/Test/greet.ts",
         "src/__tests__.ts",
         "src/my__tests__/greet.ts",
         "src/greet.test.helpers.ts",
