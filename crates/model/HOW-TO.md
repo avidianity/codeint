@@ -5,8 +5,9 @@
 ```rust
 use codeint_model::language::{
     FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
-    Token, WorkspaceError,
+    Token, TokenKind, WorkspaceError,
 };
+use codeint_model::token_text_hash;
 
 pub struct Plain;
 
@@ -27,7 +28,8 @@ impl Guest for Plain {
             .zip(1..)
             .flat_map(|(line, number)| {
                 line.split_whitespace().map(move |word| Token {
-                    text: word.to_owned(),
+                    kind: TokenKind::Other,
+                    text_hash: token_text_hash(word),
                     line: number,
                 })
             })
@@ -87,12 +89,18 @@ impl Guest for Plain {
   Return Production for a file that no rule claims.
   Which files are Test is a rule of the Language plugin, never of the core.
   Which files are Vendored is a rule of the core, because it is the same in every language.
+  A generated marker comment is a Generated rule of the Language plugin, because only the plugin knows what a comment is in its language.
+  Build output folders and very long lines are Generated rules of the core, because they read only the path and the text.
 - `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each with a `source` label that names where it was published.
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
-- `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
+- `tokens` lists every token of the file in source order, each with its kind, the hash of its text, and the 1-based line on which it starts.
   Leave out whitespace and comments; the core finds Clone groups from this stream.
+- `kind` says whether a token is an identifier, a literal, or another token.
+  Which tokens are identifiers and literals is a rule of the Language plugin, never of the core: a TypeScript keyword such as `type` is an identifier where the code uses it as a name.
+- `text_hash` is the 64-bit FNV-1a hash of the token's text as written; `codeint_model::token_text_hash` computes it.
+  An external WebAssembly Plugin computes the same hash itself.
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
@@ -153,13 +161,18 @@ let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.t
 use codeint_model::settle_source_set;
 
 let mut model = plugins[0].lower(&path, text)?;
-model.source_set = settle_source_set(&path, model.source_set);
+model.source_set = settle_source_set(&path, text, model.source_set);
 ```
 
-- Call `settle_source_set` on every file that a Language plugin lowers, before the file joins the `CodeModel`.
+- Call `settle_source_set` on every file that a Language plugin lowers, before the file joins the `CodeModel`, with the same text the plugin lowered.
 - A file with a folder named exactly `vendor` or `third_party`, at any depth, is Vendored, whatever Source set the Language plugin names.
-- The file name never counts: `src/vendor.ts` keeps the Source set that the Language plugin names.
+  Vendored wins over every Generated rule, because a vendored `dist` folder is third-party code first.
+- Otherwise a file with a folder named exactly `dist`, `build`, `out`, or `coverage`, at any depth, is Generated.
+- Otherwise a file whose non-blank lines average more than 250 characters is Generated, such as a minified bundle.
+  Line length counts characters, not bytes, and a CRLF line ending counts like LF.
+- The file name never counts: `src/vendor.ts` and `src/dist.ts` keep the Source set that the Language plugin names.
 - Every other file keeps the Source set that the Language plugin names.
+- Source set overrides from `codeint.json` apply to the result of `settle_source_set`, at its one call site, and win over every rule; [the configuration HOW-TO](../config/HOW-TO.md#apply-source-set-overrides) shows the call.
 
 ## Split the Code model by Source set
 

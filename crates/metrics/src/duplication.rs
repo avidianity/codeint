@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, Package, RepoPath, Token};
+use codeint_model::{CodeModel, Package, RepoPath, Token, TokenKind};
 
 use crate::line_share::{LineShare, line_shares_by_package};
 
@@ -31,8 +31,7 @@ pub struct Duplication {
 impl Duplication {
     pub fn measure(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
         let window = minimum.0.get();
-        let streams = interned_token_streams(model);
-        let classes = equal_window_classes(&streams, window);
+        let classes = equal_window_classes(&token_streams(model), window);
         let mut clone_lines = HashSet::new();
         let mut clone_groups = Vec::new();
         for (tokens, starts) in maximal_runs(&classes, window) {
@@ -127,31 +126,78 @@ struct WindowClasses {
     class_at: HashMap<Position, usize>,
 }
 
-fn interned_token_streams(model: &CodeModel) -> Vec<Vec<u64>> {
-    let mut ids: HashMap<&str, u64> = HashMap::new();
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum NormalizedToken {
+    Identifier,
+    Literal,
+    Other { text_hash: u64 },
+}
+
+fn normalized(token: &Token) -> NormalizedToken {
+    match token.kind {
+        TokenKind::Identifier => NormalizedToken::Identifier,
+        TokenKind::Literal => NormalizedToken::Literal,
+        TokenKind::Other => NormalizedToken::Other {
+            text_hash: token.text_hash,
+        },
+    }
+}
+
+impl NormalizedToken {
+    fn hash_input(self) -> u64 {
+        match self {
+            NormalizedToken::Identifier => 0,
+            NormalizedToken::Literal => 1,
+            NormalizedToken::Other { text_hash } => text_hash,
+        }
+    }
+}
+
+fn token_streams(model: &CodeModel) -> Vec<&[Token]> {
     model
         .files
         .iter()
-        .map(|file| {
-            file.model
-                .tokens
-                .iter()
-                .map(|token| {
-                    let next_id = ids.len() as u64;
-                    *ids.entry(token.text.as_str()).or_insert(next_id)
-                })
-                .collect()
-        })
+        .map(|file| file.model.tokens.as_slice())
         .collect()
 }
 
-fn equal_window_classes(streams: &[Vec<u64>], window: usize) -> WindowClasses {
-    let mut windows: Vec<(u64, Position)> = Vec::new();
-    for (file, stream) in streams.iter().enumerate() {
+struct FirstTokenIndexes(Vec<usize>);
+
+impl FirstTokenIndexes {
+    fn new(streams: &[&[Token]]) -> FirstTokenIndexes {
+        FirstTokenIndexes(
+            streams
+                .iter()
+                .scan(0, |next, stream| {
+                    let first = *next;
+                    *next += stream.len();
+                    Some(first)
+                })
+                .collect(),
+        )
+    }
+
+    fn position(&self, index: usize) -> Position {
+        let file = self.0.partition_point(|first| *first <= index) - 1;
+        Position {
+            file,
+            token: index - self.0[file],
+        }
+    }
+}
+
+fn equal_window_classes(streams: &[&[Token]], window: usize) -> WindowClasses {
+    let window_count = streams
+        .iter()
+        .map(|stream| (stream.len() + 1).saturating_sub(window))
+        .sum();
+    let first_token_indexes = FirstTokenIndexes::new(streams);
+    let mut windows: Vec<(u64, usize)> = Vec::with_capacity(window_count);
+    for (stream, first_token_index) in streams.iter().zip(&first_token_indexes.0) {
         windows.extend(
             rolling_window_hashes(stream, window)
                 .enumerate()
-                .map(|(token, hash)| (hash, Position { file, token })),
+                .map(|(token, hash)| (hash, first_token_index + token)),
         );
     }
     windows.sort_unstable();
@@ -163,13 +209,19 @@ fn equal_window_classes(streams: &[Vec<u64>], window: usize) -> WindowClasses {
         if same_hash.len() < 2 {
             continue;
         }
-        let text_of =
-            |position: Position| &streams[position.file][position.token..position.token + window];
+        let normalized_window = |position: Position| {
+            streams[position.file][position.token..position.token + window]
+                .iter()
+                .map(normalized)
+        };
         let mut equal_text: Vec<Vec<Position>> = Vec::new();
-        for &(_, position) in same_hash {
+        for position in same_hash
+            .iter()
+            .map(|&(_, index)| first_token_indexes.position(index))
+        {
             match equal_text
                 .iter_mut()
-                .find(|starts| text_of(starts[0]) == text_of(position))
+                .find(|starts| normalized_window(starts[0]).eq(normalized_window(position)))
             {
                 Some(starts) => starts.push(position),
                 None => equal_text.push(vec![position]),
@@ -186,20 +238,21 @@ fn equal_window_classes(streams: &[Vec<u64>], window: usize) -> WindowClasses {
     classes
 }
 
-fn rolling_window_hashes(stream: &[u64], window: usize) -> impl Iterator<Item = u64> + '_ {
+fn rolling_window_hashes(stream: &[Token], window: usize) -> impl Iterator<Item = u64> + '_ {
     const BASE: u64 = 0x100_0000_01b3;
     let leading_weight = (1..window).fold(1u64, |weight, _| weight.wrapping_mul(BASE));
-    let first = stream.iter().take(window).fold(0u64, |hash, &id| {
-        hash.wrapping_mul(BASE).wrapping_add(mixed(id))
+    let mixed_at = |index: usize| mixed(normalized(&stream[index]).hash_input());
+    let first = (0..window.min(stream.len())).fold(0u64, |hash, index| {
+        hash.wrapping_mul(BASE).wrapping_add(mixed_at(index))
     });
     let count = (stream.len() + 1).saturating_sub(window);
     (0..count).scan(first, move |hash, start| {
         let current = *hash;
-        if let Some(&incoming) = stream.get(start + window) {
+        if start + window < stream.len() {
             *hash = hash
-                .wrapping_sub(mixed(stream[start]).wrapping_mul(leading_weight))
+                .wrapping_sub(mixed_at(start).wrapping_mul(leading_weight))
                 .wrapping_mul(BASE)
-                .wrapping_add(mixed(incoming));
+                .wrapping_add(mixed_at(start + window));
         }
         Some(current)
     })

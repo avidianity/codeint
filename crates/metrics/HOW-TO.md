@@ -46,7 +46,9 @@ let ratio = duplication.ratio();
 ```
 
 - `Duplication::measure` reads only the token stream of each file in the `CodeModel`.
-- A Clone group holds two or more fragments with the same token sequence, at least the minimum number of tokens long.
+- A Clone group holds two or more fragments with the same normalized token sequence, at least the minimum number of tokens long.
+  Normalizing treats every identifier as one token and every literal as another, so copies that differ only in names and literal values form one Clone group; other tokens must have the same text hash.
+  This finds type-1 and type-2 clones in one pass.
   Each fragment is as long as the tokens that all copies share, and copies of one fragment never overlap in one file.
 - A clone line is a line on which a token of a fragment starts; `clone_lines` counts each such line once.
 - `ratio` is `clone_lines / source_lines`, and 0 when the model has no source lines.

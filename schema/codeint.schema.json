@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The address of this JSON schema, for editors; codeint does not read it.",
+      "default": null
+    },
+    "source_sets": {
+      "$ref": "#/$defs/SourceSetGlobs",
+      "description": "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins."
+    }
+  },
+  "title": "codeint.json",
+  "description": "The configuration of codeint, read from codeint.json at the root of the repository.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "SourceSetGlobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "production": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files that belong to the Production Source set.",
+          "default": []
+        },
+        "test": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files that belong to the Test Source set.",
+          "default": []
+        },
+        "generated": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files that belong to the Generated Source set.",
+          "default": []
+        },
+        "vendored": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of files that belong to the Vendored Source set.",
+          "default": []
+        }
+      }
+    }
+  }
+}
