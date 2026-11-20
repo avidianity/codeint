@@ -12,11 +12,23 @@
     },
     "source_sets": {
       "$ref": "#/$defs/SourceSetGlobs",
-      "description": "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins."
+      "description": "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins.",
+      "default": {
+        "production": [],
+        "test": [],
+        "generated": [],
+        "vendored": []
+      }
     },
     "budgets": {
       "$ref": "#/$defs/SourceSetBudgets",
-      "description": "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
+      "description": "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places.",
+      "default": {
+        "production": {},
+        "test": {},
+        "generated": {},
+        "vendored": {}
+      }
     },
     "languages": {
       "type": [
@@ -77,19 +89,23 @@
       "properties": {
         "production": {
           "$ref": "#/$defs/MetricBudgets",
-          "description": "The Budgets of the Production Source set."
+          "description": "The Budgets of the Production Source set.",
+          "default": {}
         },
         "test": {
           "$ref": "#/$defs/MetricBudgets",
-          "description": "The Budgets of the Test Source set."
+          "description": "The Budgets of the Test Source set.",
+          "default": {}
         },
         "generated": {
           "$ref": "#/$defs/MetricBudgets",
-          "description": "The Budgets of the Generated Source set."
+          "description": "The Budgets of the Generated Source set.",
+          "default": {}
         },
         "vendored": {
           "$ref": "#/$defs/MetricBudgets",
-          "description": "The Budgets of the Vendored Source set."
+          "description": "The Budgets of the Vendored Source set.",
+          "default": {}
         }
       }
     },

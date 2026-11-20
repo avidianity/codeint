@@ -3,9 +3,10 @@ use std::path::Path;
 use std::string::FromUtf8Error;
 
 use codeint_config::{
-    ConfigurationFileError, FindingsShown, LanguageCoverage, SourceSetOverrides, read_configuration,
+    Configuration, ConfigurationFileError, FindingsShown, LanguageCoverage, SourceSetOverrides,
+    read_configuration,
 };
-use codeint_git::{GitError, WorkingTree};
+use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, RepoPath, ResolveError,
@@ -36,10 +37,11 @@ pub(crate) struct NamedLanguagePlugin<'plugin> {
     pub(crate) plugin: &'plugin dyn LanguagePlugin,
 }
 
-const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] = [NamedLanguagePlugin {
-    name: "typescript-javascript",
-    plugin: &TypeScriptAndJavaScript,
-}];
+pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] =
+    [NamedLanguagePlugin {
+        name: "typescript-javascript",
+        plugin: &TypeScriptAndJavaScript,
+    }];
 
 pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
     check_with(folder, &BUILT_IN_LANGUAGE_PLUGINS, findings)
@@ -50,16 +52,10 @@ fn check_with(
     plugins: &[NamedLanguagePlugin<'_>],
     findings: FindingsShown,
 ) -> Result<Report, CheckError> {
-    let tree = WorkingTree::discover(folder)?;
-    let configuration = read_configuration(tree.root())?;
-    let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
-    let coverage = configuration.languages.coverage_of(&names)?;
-    let languages = measure(
-        &tree,
-        plugins,
-        &coverage,
-        &configuration.source_set_overrides,
-    )?;
+    let repository = Repository::discover(folder)?;
+    let configuration = read_configuration(repository.root())?;
+    let tree = repository.working_tree()?;
+    let languages = measure_with(&tree, plugins, &configuration)?;
     Ok(Report::summarize(
         languages,
         tree.submodules().to_vec(),
@@ -68,8 +64,23 @@ fn check_with(
     ))
 }
 
+pub(crate) fn measure_with(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    configuration: &Configuration,
+) -> Result<Vec<MeasuredLanguage>, CheckError> {
+    let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
+    let coverage = configuration.languages.coverage_of(&names)?;
+    measure(
+        tree,
+        plugins,
+        &coverage,
+        &configuration.source_set_overrides,
+    )
+}
+
 fn measure(
-    tree: &WorkingTree,
+    tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     coverage: &[LanguageCoverage<'_>],
     overrides: &SourceSetOverrides,
@@ -151,7 +162,7 @@ fn measure(
 }
 
 fn read_manifests(
-    tree: &WorkingTree,
+    tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
 ) -> Result<Vec<Vec<Manifest>>, CheckError> {
     plugins

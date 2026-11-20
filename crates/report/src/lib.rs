@@ -14,10 +14,13 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+mod diff;
 mod markdown;
 mod sarif;
 #[cfg(test)]
 mod tests;
+
+pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
@@ -271,6 +274,23 @@ impl std::fmt::Display for BudgetFailure {
     }
 }
 
+fn over_budget(
+    budgets: &Budgets,
+    displayed_ratios: impl Iterator<Item = (SourceSet, Metric, f64)>,
+) -> Vec<BudgetFailure> {
+    displayed_ratios
+        .filter_map(|(source_set, metric, ratio)| {
+            let budget = budgets.budget(source_set, metric)?;
+            (!budget.admits(ratio)).then(|| BudgetFailure {
+                source_set: source_set.key(),
+                metric: metric.key(),
+                ratio: Decimal(ratio),
+                budget: budget.ratio(),
+            })
+        })
+        .collect()
+}
+
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
         let rounded = (value * DECIMAL_SCALE).round() / DECIMAL_SCALE;
@@ -379,26 +399,21 @@ impl SourceSetSections {
     }
 
     fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
-        self.iter()
-            .flat_map(|(source_set, section)| {
+        over_budget(
+            budgets,
+            self.iter().flat_map(|(source_set, section)| {
                 [
-                    (Metric::Erosion, &section.erosion.ratio),
-                    (Metric::Duplication, &section.duplication.ratio),
-                    (Metric::Verbosity, &section.verbosity.ratio),
-                    (Metric::ImportCycles, &section.import_cycles.ratio),
+                    (source_set, Metric::Erosion, section.erosion.ratio.0),
+                    (source_set, Metric::Duplication, section.duplication.ratio.0),
+                    (source_set, Metric::Verbosity, section.verbosity.ratio.0),
+                    (
+                        source_set,
+                        Metric::ImportCycles,
+                        section.import_cycles.ratio.0,
+                    ),
                 ]
-                .into_iter()
-                .filter_map(move |(metric, ratio)| {
-                    let budget = budgets.budget(source_set, metric)?;
-                    (!budget.admits(ratio.0)).then(|| BudgetFailure {
-                        source_set: source_set.key(),
-                        metric: metric.key(),
-                        ratio: Decimal(ratio.0),
-                        budget: budget.ratio(),
-                    })
-                })
-            })
-            .collect()
+            }),
+        )
     }
 
     fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {
@@ -417,13 +432,7 @@ impl SourceSetSection {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
     ) -> SourceSetSection {
-        let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
-        let measured = Measured {
-            erosion: Erosion::measure(model),
-            verbosity: Verbosity::measure(model, &duplication.clone_lines),
-            duplication,
-            import_cycles: ImportCycles::measure(model),
-        };
+        let measured = Measured::new(model);
         SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
@@ -611,6 +620,18 @@ struct Measured {
     duplication: Duplication,
     verbosity: Verbosity,
     import_cycles: ImportCycles,
+}
+
+impl Measured {
+    fn new(model: &CodeModel) -> Measured {
+        let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+        Measured {
+            erosion: Erosion::measure(model),
+            verbosity: Verbosity::measure(model, &duplication.clone_lines),
+            duplication,
+            import_cycles: ImportCycles::measure(model),
+        }
+    }
 }
 
 fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSection> {

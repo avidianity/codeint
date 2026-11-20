@@ -5,12 +5,15 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 
 mod codeint_json;
+mod regression_limits;
 
 pub use codeint_json::{
-    Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError, JsonType,
-    KeyPath, KeySegment, LanguageCoverage, Languages, SourceSetOverrides, configuration_schema,
-    read_configuration,
+    Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError,
+    DetectedLanguage, JsonType, KeyPath, KeySegment, LanguageCoverage, Languages,
+    SourceSetOverrides, StarterConfigurationError, configuration_schema, published_schema_address,
+    read_configuration, write_starter_configuration,
 };
+pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -64,6 +67,17 @@ pub enum Command {
         findings: FindingsShown,
         format: ReportFormat,
     },
+    Diff {
+        folder: PathBuf,
+        base_ref: String,
+        head_ref: Option<String>,
+        destination: ReportDestination,
+        findings: FindingsShown,
+        format: ReportFormat,
+    },
+    Init {
+        folder: PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -93,6 +107,28 @@ enum CommandArguments {
         #[command(flatten)]
         report: ReportArguments,
     },
+    #[command(
+        about = "Compare the working tree, or a head Git ref, with the merge-base of a base Git ref and classify each Finding as new, resolved, or unchanged"
+    )]
+    Diff {
+        #[arg(
+            value_name = "BASE_REF",
+            help = "The base Git ref, such as main or origin/main; codeint measures its merge-base with the head"
+        )]
+        base_ref: String,
+        #[arg(
+            long = "head",
+            value_name = "REF",
+            help = "Measure this Git ref from Git objects instead of the working tree; the merge-base is then taken with this ref instead of HEAD"
+        )]
+        head_ref: Option<String>,
+        #[command(flatten)]
+        report: ReportArguments,
+    },
+    #[command(
+        about = "Write a starter codeint.json at the root of the Git repository that contains the current folder"
+    )]
+    Init,
 }
 
 #[derive(Debug, clap::Args)]
@@ -123,6 +159,21 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             destination: report_destination(&current_folder, report.output)?,
             findings: findings_shown(report.all),
             format: report.format,
+        },
+        CommandArguments::Diff {
+            base_ref,
+            head_ref,
+            report,
+        } => Command::Diff {
+            folder: current_folder.clone(),
+            base_ref,
+            head_ref,
+            destination: report_destination(&current_folder, report.output)?,
+            findings: findings_shown(report.all),
+            format: report.format,
+        },
+        CommandArguments::Init => Command::Init {
+            folder: current_folder,
         },
     };
     Ok(Invocation { command })

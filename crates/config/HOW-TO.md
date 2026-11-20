@@ -5,8 +5,8 @@
 ```rust
 use codeint_config::read_configuration;
 
-let tree = WorkingTree::discover(&folder)?;
-let configuration = read_configuration(tree.root())?;
+let repository = Repository::discover(&folder)?;
+let configuration = read_configuration(repository.root())?;
 ```
 
 - `read_configuration` reads `codeint.json` at the root of the repository, so pass the root of the working tree, never the folder the user named.
@@ -14,6 +14,8 @@ let configuration = read_configuration(tree.root())?;
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.
 - Only this crate reads `codeint.json`; every other crate receives the typed `Configuration`.
+- `codeint diff` reads `codeint.json` of the working tree once and measures both the merge-base and the working tree with it, so a comparison shows changes in the code, not in the configuration.
+  Never read `codeint.json` from a commit.
 
 ## Apply Source set overrides
 
@@ -48,6 +50,23 @@ if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric
 - `admits` passes a ratio equal to the Budget.
   Pass the ratio rounded as the report shows it, so that a ratio the user sees as equal to its Budget passes.
 
+## Read Regression limits
+
+```rust
+use codeint_config::NewFindingsRule;
+use codeint_model::Metric;
+
+let limit = configuration.regression_limits.limit(Metric::Erosion);
+let rise_passes = limit.ratio_rise.admits(displayed_head_ratio_minus_displayed_base_ratio);
+let any_new_finding_fails = limit.new_findings == NewFindingsRule::AnyNewFinding;
+```
+
+- `limit` always returns a `RegressionLimit`; without a setting it is `RegressionLimit::DEFAULT`, or `RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES` for Import cycles.
+- `RatioRise::DEFAULT` is 0.01, and `admits` passes a rise equal to the limit.
+  Round the difference of the two displayed ratios to four places before you pass it, because the plain floating-point difference of 0.0142 and 0.0042 is above 0.01.
+- `NewFindingsRule::AnyNewFinding` fails on any new Finding; `NewFindingsRule::NumeratorRiseWithNewFindings` fails only when the numerator also rises.
+- `codeint.json` does not set Regression limits yet; `read_configuration` returns the defaults.
+
 ## Limit each Language plugin to its folders
 
 ```rust
@@ -76,3 +95,21 @@ if !coverage[index].covers(&path) {
 - The shape check reads the generated schema to name the bad key and the expected type.
   It also names a key that the schema lists under `required` and the file leaves out.
   When a new type makes schemars write a keyword the shape check does not understand, `the_shape_check_understands_every_keyword_of_the_configuration_schema` fails; teach `src/codeint_json/shape.rs` that keyword first.
+
+## Write a starter codeint.json
+
+```rust
+use codeint_config::{DetectedLanguage, write_starter_configuration};
+
+let languages = vec![DetectedLanguage {
+    plugin: "typescript-javascript".to_owned(),
+    include: vec![RepoPath::new("packages")?],
+}];
+let written = write_starter_configuration(tree.root(), &languages)?;
+```
+
+- Pass the root of the working tree; the file lands at `{root}/codeint.json`.
+- It fails with `StarterConfigurationError::AlreadyExists` when the file exists, and never replaces it.
+- `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
+- An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.
+- The `$schema` value is `published_schema_address()`: the raw GitHub address of `schema/codeint.schema.json` at the tag `v{version}` of the running codeint.

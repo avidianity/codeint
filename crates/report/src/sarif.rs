@@ -2,7 +2,10 @@ use serde::Serialize;
 
 use codeint_model::{Metric, SourceSet};
 
-use crate::{CloneGroupFinding, CloneLocation, ImportCycleFinding, Report, SourceSetSection};
+use crate::{
+    CloneGroupFinding, CloneLocation, ErodedFunctionFinding, FlaggedLineRow, ImportCycleFinding,
+    Report, SourceSetSection,
+};
 
 #[cfg(test)]
 mod tests;
@@ -117,8 +120,27 @@ struct Region {
     end_line: Option<u32>,
 }
 
+pub(crate) struct ListedFindings<'findings> {
+    pub(crate) eroded_functions: &'findings [ErodedFunctionFinding],
+    pub(crate) clone_groups: &'findings [CloneGroupFinding],
+    pub(crate) flagged_lines: &'findings [FlaggedLineRow],
+    pub(crate) import_cycles: &'findings [ImportCycleFinding],
+}
+
 impl SarifLog {
     pub(crate) fn new(report: &Report) -> SarifLog {
+        SarifLog::listing(
+            report
+                .measured
+                .source_sets
+                .iter()
+                .map(|(source_set, section)| (source_set, ListedFindings::of_section(section))),
+        )
+    }
+
+    pub(crate) fn listing<'findings>(
+        findings: impl Iterator<Item = (SourceSet, ListedFindings<'findings>)>,
+    ) -> SarifLog {
         SarifLog {
             schema: SARIF_SCHEMA,
             version: SARIF_VERSION,
@@ -138,11 +160,8 @@ impl SarifLog {
                         },
                     },
                 },
-                results: report
-                    .measured
-                    .source_sets
-                    .iter()
-                    .flat_map(|(source_set, section)| results(source_set, section))
+                results: findings
+                    .flat_map(|(source_set, listed)| results(source_set, &listed))
                     .collect(),
             }],
         }
@@ -248,8 +267,19 @@ impl Location {
     }
 }
 
-fn results(source_set: SourceSet, section: &SourceSetSection) -> Vec<SarifResult> {
-    let eroded_functions = section.erosion.findings.listed.iter().map(|function| {
+impl<'findings> ListedFindings<'findings> {
+    fn of_section(section: &'findings SourceSetSection) -> ListedFindings<'findings> {
+        ListedFindings {
+            eroded_functions: &section.erosion.findings.listed,
+            clone_groups: &section.duplication.clone_groups.listed,
+            flagged_lines: &section.verbosity.findings.listed,
+            import_cycles: &section.import_cycles.findings.listed,
+        }
+    }
+}
+
+fn results(source_set: SourceSet, listed: &ListedFindings<'_>) -> Vec<SarifResult> {
+    let eroded_functions = listed.eroded_functions.iter().map(|function| {
         metric_result(
             Metric::Erosion,
             source_set,
@@ -261,13 +291,11 @@ fn results(source_set: SourceSet, section: &SourceSetSection) -> Vec<SarifResult
             Vec::new(),
         )
     });
-    let clone_groups = section
-        .duplication
+    let clone_groups = listed
         .clone_groups
-        .listed
         .iter()
         .filter_map(|group| clone_group_result(source_set, group));
-    let flagged_lines = section.verbosity.findings.listed.iter().map(|flagged| {
+    let flagged_lines = listed.flagged_lines.iter().map(|flagged| {
         metric_result(
             Metric::Verbosity,
             source_set,
@@ -276,10 +304,8 @@ fn results(source_set: SourceSet, section: &SourceSetSection) -> Vec<SarifResult
             Vec::new(),
         )
     });
-    let import_cycles = section
+    let import_cycles = listed
         .import_cycles
-        .findings
-        .listed
         .iter()
         .filter_map(|cycle| import_cycle_result(source_set, cycle));
     eroded_functions

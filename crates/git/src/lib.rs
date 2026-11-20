@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
@@ -32,16 +33,77 @@ pub enum GitError {
         #[source]
         source: std::io::Error,
     },
+    #[error("the Git ref {name:?} does not name a commit in this repository")]
+    UnknownRef {
+        name: String,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("HEAD does not name a commit yet, so it has no merge-base with {base_ref:?}")]
+    NoHeadCommit {
+        base_ref: String,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("{base_ref:?} and {head_ref:?} have no commit in common, so they have no merge-base")]
+    NoMergeBase { base_ref: String, head_ref: String },
+    #[error("cannot find the merge-base of {base_ref:?} and {head_ref:?}")]
+    MergeBase {
+        base_ref: String,
+        head_ref: String,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("cannot list the files of commit {commit}")]
+    CommitTree {
+        commit: CommitId,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("cannot read {path} from commit {commit}")]
+    ReadBlob {
+        path: RepoPath,
+        commit: CommitId,
+        #[source]
+        source: gix::Error,
+    },
 }
 
-pub struct WorkingTree {
+const HEAD: &str = "HEAD";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CommitId(gix::ObjectId);
+
+pub struct Repository {
+    repository: gix::Repository,
     root: PathBuf,
+}
+
+pub struct Snapshot {
     files: Vec<RepoPath>,
     submodules: Vec<RepoPath>,
+    contents: Contents,
 }
 
-impl WorkingTree {
-    pub fn discover(start: &Path) -> Result<WorkingTree, GitError> {
+enum Contents {
+    WorkingTree {
+        root: PathBuf,
+    },
+    Commit {
+        repository: Box<gix::Repository>,
+        commit: CommitId,
+        blobs: HashMap<RepoPath, gix::ObjectId>,
+    },
+}
+
+impl std::fmt::Display for CommitId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl Repository {
+    pub fn discover(start: &Path) -> Result<Repository, GitError> {
         let repository = gix::discover(start).map_err(|source| {
             if source.is_not_found() {
                 GitError::NotInRepository {
@@ -60,18 +122,88 @@ impl WorkingTree {
                 start: start.to_path_buf(),
             })?
             .to_path_buf();
-        let Listing { files, submodules } = list_working_tree(&repository)?;
-        Ok(WorkingTree {
-            root,
-            files,
-            submodules,
-        })
+        Ok(Repository { repository, root })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    pub fn working_tree(&self) -> Result<Snapshot, GitError> {
+        let Listing { files, submodules } = list_working_tree(&self.repository)?;
+        Ok(Snapshot {
+            files,
+            submodules,
+            contents: Contents::WorkingTree {
+                root: self.root.clone(),
+            },
+        })
+    }
+
+    pub fn resolve(&self, git_ref: &str) -> Result<CommitId, GitError> {
+        self.repository
+            .rev_parse_single(git_ref)
+            .and_then(|id| id.object()?.peel_to_commit())
+            .map(|commit| CommitId(commit.id))
+            .map_err(|source| GitError::UnknownRef {
+                name: git_ref.to_owned(),
+                source,
+            })
+    }
+
+    pub fn merge_base_with_head(&self, base_ref: &str) -> Result<CommitId, GitError> {
+        let base = self.resolve(base_ref)?;
+        let head = self
+            .repository
+            .head_id()
+            .map_err(|source| GitError::NoHeadCommit {
+                base_ref: base_ref.to_owned(),
+                source,
+            })?;
+        self.merge_base_of((base_ref, base), (HEAD, CommitId(head.detach())))
+    }
+
+    pub fn merge_base(&self, base_ref: &str, head_ref: &str) -> Result<CommitId, GitError> {
+        let base = self.resolve(base_ref)?;
+        let head = self.resolve(head_ref)?;
+        self.merge_base_of((base_ref, base), (head_ref, head))
+    }
+
+    fn merge_base_of(
+        &self,
+        (base_ref, base): (&str, CommitId),
+        (head_ref, head): (&str, CommitId),
+    ) -> Result<CommitId, GitError> {
+        let merge_base = self
+            .repository
+            .merge_base(base.0, head.0)
+            .map_err(|source| GitError::MergeBase {
+                base_ref: base_ref.to_owned(),
+                head_ref: head_ref.to_owned(),
+                source,
+            })?
+            .ok_or_else(|| GitError::NoMergeBase {
+                base_ref: base_ref.to_owned(),
+                head_ref: head_ref.to_owned(),
+            })?;
+        Ok(CommitId(merge_base.detach()))
+    }
+
+    pub fn commit(&self, commit: CommitId) -> Result<Snapshot, GitError> {
+        let (Listing { files, submodules }, blobs) = list_commit(&self.repository, commit)?;
+        Ok(Snapshot {
+            files,
+            submodules,
+            contents: Contents::Commit {
+                repository: Box::new(self.repository.clone()),
+                commit,
+                blobs,
+            },
+        })
+    }
+}
+
+impl Snapshot {
     pub fn files(&self) -> &[RepoPath] {
         &self.files
     }
@@ -81,10 +213,32 @@ impl WorkingTree {
     }
 
     pub fn read(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
-        std::fs::read(self.root.join(path.as_str())).map_err(|source| GitError::Read {
-            path: path.clone(),
-            source,
-        })
+        match &self.contents {
+            Contents::WorkingTree { root } => {
+                std::fs::read(root.join(path.as_str())).map_err(|source| GitError::Read {
+                    path: path.clone(),
+                    source,
+                })
+            }
+            Contents::Commit {
+                repository,
+                commit,
+                blobs,
+            } => {
+                let blob = blobs.get(path).ok_or_else(|| GitError::Read {
+                    path: path.clone(),
+                    source: std::io::ErrorKind::NotFound.into(),
+                })?;
+                repository
+                    .find_blob(*blob)
+                    .map(|mut blob| blob.take_data())
+                    .map_err(|source| GitError::ReadBlob {
+                        path: path.clone(),
+                        commit: *commit,
+                        source,
+                    })
+            }
+        }
     }
 }
 
@@ -127,6 +281,34 @@ fn list_working_tree(repository: &gix::Repository) -> Result<Listing, GitError> 
         }
     }
     Ok(listing)
+}
+
+fn list_commit(
+    repository: &gix::Repository,
+    commit: CommitId,
+) -> Result<(Listing, HashMap<RepoPath, gix::ObjectId>), GitError> {
+    let entries = repository
+        .find_commit(commit.0)
+        .and_then(|found| found.tree())
+        .and_then(|tree| tree.traverse().breadthfirst.files())
+        .map_err(|source| GitError::CommitTree { commit, source })?;
+    let mut listing = Listing {
+        files: Vec::new(),
+        submodules: Vec::new(),
+    };
+    let mut blobs = HashMap::new();
+    for entry in entries {
+        if entry.mode.is_commit() {
+            listing.submodules.push(repo_path(entry.filepath)?);
+        } else if entry.mode.is_blob() {
+            let path = repo_path(entry.filepath)?;
+            blobs.insert(path.clone(), entry.oid);
+            listing.files.push(path);
+        }
+    }
+    listing.files.sort();
+    listing.submodules.sort();
+    Ok((listing, blobs))
 }
 
 fn repo_path(rela_path: gix::bstr::BString) -> Result<RepoPath, GitError> {
