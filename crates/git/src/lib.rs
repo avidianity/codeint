@@ -9,8 +9,10 @@ use gix::dir::entry::{Kind, Status};
 use gix::dir::walk::EmissionMode;
 use gix::dir::walk::delegate::Collect;
 
+mod history;
 mod result_cache;
 
+pub use history::{CommitRange, HistoryCommit};
 pub use result_cache::{ResultCache, ResultCacheError};
 
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +57,14 @@ pub enum GitError {
     MergeBase {
         base_ref: String,
         head_ref: String,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("HEAD does not name a commit yet, so the current branch has no history to measure")]
+    NoHistory(#[source] gix::Error),
+    #[error("cannot read commit {commit} of the history")]
+    History {
+        commit: CommitId,
         #[source]
         source: gix::Error,
     },

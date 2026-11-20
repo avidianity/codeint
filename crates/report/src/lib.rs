@@ -20,9 +20,11 @@ mod measurement;
 mod sarif;
 #[cfg(test)]
 mod tests;
+mod trend;
 
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use measurement::CommitMeasurement;
+pub use trend::{TrendPoint, TrendReport};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";

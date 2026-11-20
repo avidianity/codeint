@@ -1,15 +1,11 @@
 use std::path::Path;
 
-use codeint_config::{Configuration, FindingsShown, read_configuration};
-use codeint_git::{CommitId, GitError, Repository, ResultCache, Snapshot};
-use codeint_model::CodeModel;
-use codeint_report::{BaseCommit, CommitMeasurement, DiffReport, Head, HeadCommit};
-use serde::Serialize;
+use codeint_config::{FindingsShown, read_configuration};
+use codeint_git::{CommitId, GitError, Repository, ResultCache};
+use codeint_report::{BaseCommit, DiffReport, Head, HeadCommit};
 
-use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, CheckError, measure_with};
-use crate::describe;
-
-const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
+use crate::check::CheckError;
+use crate::commit_measurement::{CommitMeasurer, measure_all_languages};
 
 pub(crate) struct Refs<'a> {
     pub(crate) base: &'a str,
@@ -20,26 +16,6 @@ struct Sides {
     merge_base: CommitId,
     head: Head,
     head_commit: Option<CommitId>,
-}
-
-#[derive(Serialize)]
-struct MeasurementSettings<'configuration> {
-    codeint_version: &'static str,
-    language_plugins: Vec<PluginIdentity>,
-    configuration: &'configuration Configuration,
-}
-
-#[derive(Serialize)]
-struct PluginIdentity {
-    name: &'static str,
-    version: &'static str,
-}
-
-struct CommitMeasurer<'diff> {
-    repository: &'diff Repository,
-    configuration: &'diff Configuration,
-    settings: MeasurementSettings<'diff>,
-    result_cache: Option<&'diff ResultCache>,
 }
 
 pub(crate) fn diff(
@@ -95,59 +71,4 @@ fn sides(repository: &Repository, refs: &Refs<'_>) -> Result<Sides, GitError> {
             })
         }
     }
-}
-
-impl<'diff> CommitMeasurer<'diff> {
-    fn new(
-        repository: &'diff Repository,
-        configuration: &'diff Configuration,
-        result_cache: Option<&'diff ResultCache>,
-    ) -> CommitMeasurer<'diff> {
-        CommitMeasurer {
-            repository,
-            configuration,
-            settings: MeasurementSettings {
-                codeint_version: CODEINT_VERSION,
-                language_plugins: BUILT_IN_LANGUAGE_PLUGINS
-                    .iter()
-                    .map(|named| PluginIdentity {
-                        name: named.name,
-                        version: CODEINT_VERSION,
-                    })
-                    .collect(),
-                configuration,
-            },
-            result_cache,
-        }
-    }
-
-    fn measure(&self, commit: CommitId) -> Result<CommitMeasurement, CheckError> {
-        if let Some(cached) = self
-            .result_cache
-            .and_then(|cache| cache.read(commit, &self.settings))
-        {
-            return Ok(cached);
-        }
-        let measurement =
-            measure_all_languages(&self.repository.commit(commit)?, self.configuration)?;
-        if let Some(cache) = self.result_cache
-            && let Err(error) = cache.write(commit, &self.settings, &measurement)
-        {
-            eprintln!(
-                "codeint: {}; the next run measures commit {commit} again",
-                describe(&error)
-            );
-        }
-        Ok(measurement)
-    }
-}
-
-fn measure_all_languages(
-    tree: &Snapshot,
-    configuration: &Configuration,
-) -> Result<CommitMeasurement, CheckError> {
-    let languages = measure_with(tree, &BUILT_IN_LANGUAGE_PLUGINS, configuration)?;
-    Ok(CommitMeasurement::of(CodeModel::merge(
-        languages.into_iter().map(|language| language.model),
-    )))
 }

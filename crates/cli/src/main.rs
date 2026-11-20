@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
 mod check;
+mod commit_measurement;
 mod diff;
 mod init;
 mod remedy;
+mod trend;
 
 use std::error::Error;
 use std::io::Write;
@@ -103,6 +105,18 @@ fn run() -> Result<Outcome, CliError> {
             let report = diff::diff(&folder, refs, findings, result_cache.as_ref())?;
             write_report(&report.render(format)?, &destination)?;
             Ok(Outcome::from_failures(report.failure_messages()))
+        }
+        Command::Trend {
+            folder,
+            range,
+            destination,
+            format,
+            result_cache,
+        } => {
+            let result_cache = result_cache.map(ResultCache::in_folder);
+            let report = trend::trend(&folder, range, result_cache.as_ref())?;
+            write_report(&report.render(format)?, &destination)?;
+            Ok(Outcome::Passed)
         }
         Command::Init { folder } => {
             let written = init::init(&folder)?;

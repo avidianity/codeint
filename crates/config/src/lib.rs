@@ -4,10 +4,12 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod calendar_day;
 mod codeint_json;
 mod regression_limits;
 mod result_cache_folder;
 
+pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
     Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError,
     DetectedLanguage, JsonType, KeyPath, KeySegment, LanguageCoverage, Languages,
@@ -60,6 +62,21 @@ pub enum ReportFormat {
     Markdown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TrendFormat {
+    Toon,
+    Json,
+    Markdown,
+}
+
+const LATEST_COMMITS_OF_A_TREND: usize = 20;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrendRange {
+    Latest(usize),
+    Since(CalendarDay),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Check {
@@ -75,6 +92,13 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        result_cache: Option<PathBuf>,
+    },
+    Trend {
+        folder: PathBuf,
+        range: TrendRange,
+        destination: ReportDestination,
+        format: TrendFormat,
         result_cache: Option<PathBuf>,
     },
     Init {
@@ -128,6 +152,30 @@ enum CommandArguments {
         report: ReportArguments,
     },
     #[command(
+        about = "Measure each commit of the main line of the current branch, oldest first, and print each Metric over time"
+    )]
+    Trend {
+        #[arg(
+            long,
+            value_name = "YYYY-MM-DD",
+            help = "Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20"
+        )]
+        since: Option<CalendarDay>,
+        #[arg(
+            long,
+            value_name = "FILE",
+            help = "Write the report to this file instead of standard output"
+        )]
+        output: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = TrendFormat::Toon,
+            help = "The format of the report"
+        )]
+        format: TrendFormat,
+    },
+    #[command(
         about = "Write a starter codeint.json at the root of the Git repository that contains the current folder"
     )]
     Init,
@@ -173,17 +221,35 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             destination: report_destination(&current_folder, report.output)?,
             findings: findings_shown(report.all),
             format: report.format,
-            result_cache: result_cache_folder::result_cache_folder(
-                &current_folder,
-                result_cache_folder::CacheFolderConvention::of_this_platform(),
-                |name| std::env::var_os(name),
+            result_cache: result_cache_folder_of_this_process(&current_folder),
+        },
+        CommandArguments::Trend {
+            since,
+            output,
+            format,
+        } => Command::Trend {
+            folder: current_folder.clone(),
+            range: since.map_or(
+                TrendRange::Latest(LATEST_COMMITS_OF_A_TREND),
+                TrendRange::Since,
             ),
+            destination: report_destination(&current_folder, output)?,
+            format,
+            result_cache: result_cache_folder_of_this_process(&current_folder),
         },
         CommandArguments::Init => Command::Init {
             folder: current_folder,
         },
     };
     Ok(Invocation { command })
+}
+
+fn result_cache_folder_of_this_process(current_folder: &Path) -> Option<PathBuf> {
+    result_cache_folder::result_cache_folder(
+        current_folder,
+        result_cache_folder::CacheFolderConvention::of_this_platform(),
+        |name| std::env::var_os(name),
+    )
 }
 
 fn existing_folder(current_folder: &Path, path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
