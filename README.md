@@ -59,6 +59,7 @@ Pass `--format` to choose another format:
 ```sh
 codeint check --format toon
 codeint check --format json
+codeint check --format sarif
 codeint check --format markdown
 ```
 
@@ -176,6 +177,46 @@ Later versions of codeint change the JSON report only in ways that keep existing
 - They may add a Source set key, a Metric object, or a kind of Finding.
 
 Readers ignore fields they do not know, and treat a missing optional field as empty.
+
+### SARIF report
+
+`--format sarif` prints a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html) log, so code scanning tools such as GitHub code scanning show each Finding as an annotation.
+The log has one run, and the run has one result per Finding of the report.
+It takes the Findings from the total, never from the sections under `languages`, so a Finding appears once.
+`--all` and `--output` work as they do for every other format: without `--all`, the log holds the 20 worst Findings per Metric and Source set.
+
+The tool lists one rule per Metric, and each result names its Metric in `ruleId`:
+
+| `ruleId` | Finding | Location |
+| -------- | ------- | -------- |
+| `erosion` | An eroded function | The line where the function starts |
+| `duplication` | A Clone group | The first fragment, from its start line to its end line; the other fragments are related locations |
+| `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
+| `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
+
+Each result has the level `note`, and its `properties.sourceSet` names its Source set: `production`, `test`, `generated`, or `vendored`.
+
+```json
+{
+  "ruleId": "verbosity",
+  "ruleIndex": 2,
+  "level": "note",
+  "message": { "text": "Flagged line: rule else-after-return." },
+  "locations": [
+    {
+      "physicalLocation": {
+        "artifactLocation": { "uri": "src/sign.ts", "uriBaseId": "SRCROOT" },
+        "region": { "startLine": 4 }
+      }
+    }
+  ],
+  "properties": { "sourceSet": "production" }
+}
+```
+
+Each `uri` is the path that the other formats print, relative to the root of the Git repository, with `/` as the separator.
+A character that a URI cannot hold, such as a space, is percent-encoded: `src/my sign.ts` becomes `src/my%20sign.ts`.
+`uriBaseId` is `SRCROOT`, the root of the Git repository; the log does not print its absolute path, so the log is the same on every machine.
 
 ### Markdown report
 

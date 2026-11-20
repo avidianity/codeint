@@ -619,3 +619,38 @@ fn the_markdown_report_shows_the_metrics_and_packages_of_each_language_after_the
         "unexpected report: {report}"
     );
 }
+
+#[test]
+fn the_sarif_log_lists_each_finding_once_when_the_report_has_a_section_per_language() {
+    let folder = repository(&[("main.alpha", "one\n"), ("main.flagged", "one\ntwo\n")]);
+    let report = check_with(
+        folder.path(),
+        &[ALPHA, FLAGS_EVERY_LINE_IN_ONE_PACKAGE],
+        FindingsShown::All,
+    )
+    .expect("the check succeeds");
+    let json: Value = serde_json::from_str(
+        &report
+            .render(ReportFormat::Json)
+            .expect("the report renders"),
+    )
+    .expect("the report is JSON");
+    assert!(json.get("languages").is_some(), "unexpected report: {json}");
+
+    let log: Value = serde_json::from_str(
+        &report
+            .render(ReportFormat::Sarif)
+            .expect("the SARIF log renders"),
+    )
+    .expect("the SARIF log is JSON");
+    let lines: Vec<u64> = log["runs"][0]["results"]
+        .as_array()
+        .expect("a list of results")
+        .iter()
+        .filter_map(|result| {
+            result["locations"][0]["physicalLocation"]["region"]["startLine"].as_u64()
+        })
+        .collect();
+
+    assert_eq!(lines, [1, 2], "unexpected SARIF log: {log}");
+}

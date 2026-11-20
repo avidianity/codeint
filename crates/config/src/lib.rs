@@ -52,6 +52,7 @@ pub enum FindingsShown {
 pub enum ReportFormat {
     Toon,
     Json,
+    Sarif,
     Markdown,
 }
 
