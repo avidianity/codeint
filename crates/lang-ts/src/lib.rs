@@ -5,19 +5,21 @@ mod resolution;
 mod rules;
 mod runtime_imports;
 mod source_set;
+mod tokens;
 
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, Token,
+    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution,
 };
 use oxc_allocator::Allocator;
+use oxc_parser::Parser;
 use oxc_parser::config::TokensParserConfig;
-use oxc_parser::{Kind, Parser};
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
 use crate::resolution::RelativeResolver;
 use crate::runtime_imports::runtime_import_specifiers;
 use crate::source_set::source_set;
+use crate::tokens::tokens;
 
 pub use rules::flagged_line_rules;
 
@@ -62,7 +64,7 @@ impl Guest for TypeScriptAndJavaScript {
             source_set: source_set(&path, header_comments),
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
-            tokens: tokens(&text, &parsed.tokens)?,
+            tokens: tokens(&text, &parsed.tokens, &parsed.program)?,
             flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
             runtime_imports: runtime_import_specifiers(&parsed.program),
         })
@@ -84,29 +86,6 @@ impl Guest for TypeScriptAndJavaScript {
     }
 }
 
-fn tokens(text: &str, lexed: &[oxc_parser::Token]) -> Result<Vec<Token>, LowerError> {
-    let mut tokens = Vec::with_capacity(lexed.len());
-    let mut line: u32 = 1;
-    let mut cursor = 0;
-    for token in lexed.iter().filter(|token| is_code_token(token.kind())) {
-        let start = token.start() as usize;
-        let newlines = text.as_bytes()[cursor..start]
-            .iter()
-            .filter(|byte| **byte == b'\n')
-            .count();
-        line = u32::try_from(newlines)
-            .ok()
-            .and_then(|newlines| line.checked_add(newlines))
-            .ok_or(LowerError::TooLarge)?;
-        cursor = start;
-        tokens.push(Token {
-            text: text[start..token.end() as usize].to_owned(),
-            line,
-        });
-    }
-    Ok(tokens)
-}
-
 fn header_comments<'a>(
     text: &'a str,
     comments: &'a [oxc_ast::Comment],
@@ -114,16 +93,12 @@ fn header_comments<'a>(
 ) -> impl Iterator<Item = &'a str> {
     let first_code = lexed
         .iter()
-        .find(|token| is_code_token(token.kind()))
+        .find(|token| tokens::is_code_token(token.kind()))
         .map_or(u32::MAX, oxc_parser::Token::start);
     comments
         .iter()
         .take_while(move |comment| comment.span.end <= first_code)
         .map(|comment| &text[comment.span.start as usize..comment.span.end as usize])
-}
-
-fn is_code_token(kind: Kind) -> bool {
-    !matches!(kind, Kind::Eof | Kind::Skip | Kind::HashbangComment)
 }
 
 fn position(text: &str, offset: usize) -> String {

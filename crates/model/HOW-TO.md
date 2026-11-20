@@ -5,7 +5,9 @@
 ```rust
 use codeint_model::language::{
     FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, SourceSet, Token,
+    TokenKind,
 };
+use codeint_model::token_text_hash;
 
 pub struct Plain;
 
@@ -26,7 +28,8 @@ impl Guest for Plain {
             .zip(1..)
             .flat_map(|(line, number)| {
                 line.split_whitespace().map(move |word| Token {
-                    text: word.to_owned(),
+                    kind: TokenKind::Other,
+                    text_hash: token_text_hash(word),
                     line: number,
                 })
             })
@@ -77,8 +80,12 @@ impl Guest for Plain {
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
-- `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
+- `tokens` lists every token of the file in source order, each with its kind, the hash of its text, and the 1-based line on which it starts.
   Leave out whitespace and comments; the core finds Clone groups from this stream.
+- `kind` says whether a token is an identifier, a literal, or another token.
+  Which tokens are identifiers and literals is a rule of the Language plugin, never of the core: a TypeScript keyword such as `type` is an identifier where the code uses it as a name.
+- `text_hash` is the 64-bit FNV-1a hash of the token's text as written; `codeint_model::token_text_hash` computes it.
+  An external WebAssembly Plugin computes the same hash itself.
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
