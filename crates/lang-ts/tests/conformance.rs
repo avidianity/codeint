@@ -5,7 +5,7 @@ use codeint_model::{
     token_text_hash,
 };
 
-use TokenKind::{Identifier, Literal, Other};
+use TokenKind::{Identifier, ImportOrExport, Literal, Other};
 
 fn plugin() -> &'static dyn LanguagePlugin {
     &TypeScriptAndJavaScript
@@ -844,6 +844,69 @@ fn every_kind_of_literal_value_is_a_literal() {
             ("/", Other),
             ("p", Identifier),
             (">", Other),
+            (";", Other),
+        ],
+    );
+}
+
+#[test]
+fn every_token_of_an_import_or_export_declaration_is_an_import_or_export_token() {
+    let text = concat!(
+        "import a, { b as c } from 'd';\n",
+        "import type { E } from 'f';\n",
+        "import * as g from 'h';\n",
+        "import 'i';\n",
+        "import j = require('k');\n",
+        "export * from 'l';\n",
+        "export * as m from 'n';\n",
+        "export { o, p as q } from 'r';\n",
+        "export type { S } from 't';\n",
+        "export { a, g };\n",
+    );
+    let lowered = tokens("src/barrel.ts", text, &[]);
+
+    assert_eq!(lowered.len(), 75);
+    assert!(
+        lowered.iter().all(|(kind, _, _)| *kind == ImportOrExport),
+        "{lowered:?}"
+    );
+}
+
+#[test]
+fn code_that_declares_and_exports_or_imports_at_runtime_keeps_its_token_kinds() {
+    assert_token_kinds(
+        "src/exports.ts",
+        concat!(
+            "export const one = 1;\n",
+            "export default function two() {\n",
+            "  return import('./three');\n",
+            "}\n",
+            "export = one;\n",
+        ),
+        &[
+            ("export", Other),
+            ("const", Other),
+            ("one", Identifier),
+            ("=", Other),
+            ("1", Literal),
+            (";", Other),
+            ("export", Other),
+            ("default", Other),
+            ("function", Other),
+            ("two", Identifier),
+            ("(", Other),
+            (")", Other),
+            ("{", Other),
+            ("return", Other),
+            ("import", Other),
+            ("(", Other),
+            ("'./three'", Literal),
+            (")", Other),
+            (";", Other),
+            ("}", Other),
+            ("export", Other),
+            ("=", Other),
+            ("one", Identifier),
             (";", Other),
         ],
     );

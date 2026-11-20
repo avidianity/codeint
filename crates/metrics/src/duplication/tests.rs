@@ -36,6 +36,8 @@ fn kind_of(text: &str) -> TokenKind {
         TokenKind::Identifier
     } else if text.starts_with('"') {
         TokenKind::Literal
+    } else if text.starts_with('@') {
+        TokenKind::ImportOrExport
     } else {
         TokenKind::Other
     }
@@ -211,4 +213,67 @@ fn copies_with_other_keywords_or_operators_are_not_a_clone() {
     let duplication = measure(&model, minimum(3));
 
     assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn a_fragment_of_exactly_the_minimum_distinct_tokens_is_a_clone_and_one_fewer_is_not() {
+    let fourteen = "$a = \"x\" ; $b + $c - ( $d * $e ) / $f < > ! ?";
+    let thirteen = "$a = \"x\" ; $b + $c - ( $d * $e ) / $f < > ! !";
+    let at = model(vec![
+        file("one.ts", &[fourteen]),
+        file("two.ts", &[fourteen]),
+    ]);
+    let below = model(vec![
+        file("one.ts", &[thirteen]),
+        file("two.ts", &[thirteen]),
+    ]);
+
+    let at = Duplication::measure(&at, minimum(4), MinimumDistinctTokens::DEFAULT);
+    let below = Duplication::measure(&below, minimum(4), MinimumDistinctTokens::DEFAULT);
+
+    assert_eq!(
+        groups(&at),
+        [(19, vec![fragment("one.ts", 1, 1), fragment("two.ts", 1, 1)])]
+    );
+    assert_eq!(groups(&below), []);
+    assert_eq!(below.clone_lines.count(), 0);
+}
+
+#[test]
+fn a_fragment_never_spans_an_import_or_export_token() {
+    let model = model(vec![
+        file("one.ts", &["a b c", "@import", "d e f"]),
+        file("two.ts", &["a b c", "@import", "d e f"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn import_or_export_tokens_never_form_a_clone_group() {
+    let model = model(vec![
+        file("one.ts", &["@a @b @c @d @e"]),
+        file("two.ts", &["@a @b @c @d @e"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn a_copy_after_import_or_export_tokens_keeps_its_place_in_the_file() {
+    let model = model(vec![
+        file("one.ts", &["@a @b", "a b c d"]),
+        file("two.ts", &["@a", "@b @c", "a b c d"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(
+        groups(&duplication),
+        [(4, vec![fragment("one.ts", 2, 2), fragment("two.ts", 3, 3)])]
+    );
 }

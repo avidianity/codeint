@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 
 use codeint_model::{CodeModel, Package, RepoPath, Token, TokenKind};
@@ -216,17 +216,29 @@ struct SearchedRun<'model> {
 }
 
 fn searched_runs(model: &CodeModel) -> Vec<SearchedRun<'_>> {
-    todo!(
-        "split the {} files at import and export tokens",
-        model.files.len()
-    )
+    let mut runs = Vec::new();
+    for (file, source_file) in model.files.iter().enumerate() {
+        let mut first_token = 0;
+        for searched in source_file
+            .model
+            .tokens
+            .split(|token| token.kind == TokenKind::ImportOrExport)
+        {
+            if !searched.is_empty() {
+                runs.push(SearchedRun {
+                    file,
+                    first_token,
+                    tokens: searched,
+                });
+            }
+            first_token += searched.len() + 1;
+        }
+    }
+    runs
 }
 
 fn distinct_normalized_tokens(tokens: &[Token]) -> usize {
-    todo!(
-        "count the distinct normalized tokens of {} tokens",
-        tokens.len()
-    )
+    tokens.iter().map(normalized).collect::<HashSet<_>>().len()
 }
 
 struct FirstTokenIndexes(Vec<usize>);

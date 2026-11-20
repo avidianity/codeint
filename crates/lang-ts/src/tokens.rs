@@ -1,8 +1,9 @@
 use codeint_model::language::{LowerError, Token, TokenKind};
 use codeint_model::token_text_hash;
 use oxc_ast::ast::{
-    BindingIdentifier, IdentifierName, IdentifierReference, JSXIdentifier, LabelIdentifier,
-    PrivateIdentifier, Program,
+    BindingIdentifier, ExportAllDeclaration, ExportFromDeclaration, ExportNamedDeclaration,
+    IdentifierName, IdentifierReference, ImportDeclaration, JSXIdentifier, LabelIdentifier,
+    PrivateIdentifier, Program, TSImportEqualsDeclaration,
 };
 use oxc_ast_visit::Visit;
 use oxc_parser::Kind;
@@ -60,7 +61,11 @@ fn identifier_starts(program: &Program<'_>) -> Vec<u32> {
 }
 
 fn import_or_export_spans(program: &Program<'_>) -> Vec<Span> {
-    todo!("{}", program.body.len())
+    let mut collector = ImportOrExportSpans::default();
+    collector.visit_program(program);
+    let mut spans = collector.spans;
+    spans.sort_unstable_by_key(|span| span.start);
+    spans
 }
 
 fn kind(lexed: Kind, names_an_identifier: bool, in_import_or_export: bool) -> TokenKind {
@@ -118,5 +123,32 @@ impl<'a> Visit<'a> for IdentifierStarts {
 
     fn visit_jsx_identifier(&mut self, it: &JSXIdentifier<'a>) {
         self.record(it.span);
+    }
+}
+
+#[derive(Default)]
+struct ImportOrExportSpans {
+    spans: Vec<Span>,
+}
+
+impl<'a> Visit<'a> for ImportOrExportSpans {
+    fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
+        self.spans.push(it.span);
+    }
+
+    fn visit_ts_import_equals_declaration(&mut self, it: &TSImportEqualsDeclaration<'a>) {
+        self.spans.push(it.span);
+    }
+
+    fn visit_export_all_declaration(&mut self, it: &ExportAllDeclaration<'a>) {
+        self.spans.push(it.span);
+    }
+
+    fn visit_export_from_declaration(&mut self, it: &ExportFromDeclaration<'a>) {
+        self.spans.push(it.span);
+    }
+
+    fn visit_export_named_declaration(&mut self, it: &ExportNamedDeclaration<'a>) {
+        self.spans.push(it.span);
     }
 }

@@ -238,6 +238,17 @@ fn function_with_if_statements(name: &str, if_statements: usize) -> String {
     format!("export function {name}(value: number): number {{\n{branches}  return 0;\n}}\n")
 }
 
+const MEDIAN: &str = concat!(
+    "export function median(values: number[]): number {\n",
+    "  const sorted = [...values].sort(byValue);\n",
+    "  const middle = Math.floor(sorted.length / 2);\n",
+    "  if (sorted.length % 2 === 0) {\n",
+    "    return (sorted[middle - 1] + sorted[middle]) / 2;\n",
+    "  }\n",
+    "  return sorted[middle];\n",
+    "}\n",
+);
+
 fn paths_of(findings: &Value) -> Vec<String> {
     findings
         .as_array()
@@ -459,6 +470,8 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
     let merge_base = fixture.run_git(&["rev-parse", "HEAD"]);
     fixture.remove("src/a.ts");
     fixture.put("src/b.ts", &function_with_if_statements("b", 18));
+    fixture.put("src/median.ts", MEDIAN);
+    fixture.put("src/middle.ts", MEDIAN);
 
     let output = fixture.codeint_diff(&["main", "--format", "markdown"]);
 
@@ -476,17 +489,17 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          \n\
          | Source set | Metric | Base | Head | New | Resolved | Unchanged |\n\
          | ---------- | ------ | ---- | ---- | --- | -------- | --------- |\n\
-         | Production | Erosion | 1 | 1 | 1 | 1 | 0 |\n\
-         | Production | Duplication | 0 | 0.8571 | 1 | 0 | 0 |\n\
-         | Production | Verbosity | 0 | 0.8571 | 0 | 0 | 0 |\n\
+         | Production | Erosion | 1 | 0.885 | 1 | 1 | 0 |\n\
+         | Production | Duplication | 0 | 0.4324 | 1 | 0 | 0 |\n\
+         | Production | Verbosity | 0 | 0.4324 | 0 | 0 | 0 |\n\
          | Production | Import cycles | 0 | 0 | 0 | 0 | 0 |\n\
          \n\
          ## Regressions\n\
          \n\
          - The production erosion numerator eroded\\_function\\_mass rose from 44.8999 to 87.0689 with 1 new Finding.\n\
-         - The production duplication ratio rose from 0 to 0.8571, more than its Regression limit 0.01.\n\
-         - The production duplication numerator clone\\_lines rose from 0 to 18 with 1 new Finding.\n\
-         - The production verbosity ratio rose from 0 to 0.8571, more than its Regression limit 0.01.\n\
+         - The production duplication ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
+         - The production duplication numerator clone\\_lines rose from 0 to 16 with 1 new Finding.\n\
+         - The production verbosity ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
          \n\
          ## Production changes\n\
          \n\
@@ -502,7 +515,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          \n\
          ### New Duplication Findings\n\
          \n\
-         - 81 tokens: `src/b.ts:2-10`, `src/b.ts:11-19`\n"
+         - 76 tokens: `src/median.ts:1-8`, `src/middle.ts:1-8`\n"
         )
     );
 }
@@ -742,6 +755,8 @@ fn two_branches_and_a_dirty_working_tree() -> Fixture {
     fixture.run_git(&["switch", "--quiet", "--create", "feature"]);
     fixture.remove("src/removed.ts");
     fixture.put("src/added.ts", &function_with_if_statements("added", 12));
+    fixture.put("src/median.ts", MEDIAN);
+    fixture.put("src/middle.ts", MEDIAN);
     fixture.put(
         "src/b.ts",
         "import { a } from \"./a\";\nexport const b = 2;\nexport const c = a;\n",

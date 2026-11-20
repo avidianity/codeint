@@ -2,11 +2,14 @@
 status: accepted
 ---
 
-# The default minimum clone size is 75 tokens
+# The default minimum clone size is 75 tokens, with a structural filter
 
 The Owner decided this on 2026-11-21, after Ticket #33 of Spec #10 measured candidate minimums the same day.
 `MinimumCloneTokens::DEFAULT` holds the 75 tokens.
-The structural filter that this record proposes is a separate Decision that is still pending; this record does not build it.
+
+Amendment, 2026-11-21: the Owner also approved the structural filter that this record measured, and Ticket #76 builds it.
+The filter is part of what a Clone group is.
+`MinimumDistinctTokens::DEFAULT` holds its threshold of 14 distinct normalized tokens.
 
 ## Context
 
@@ -150,6 +153,27 @@ The remaining false positives are SVG icons, generated code, fragments that span
 
 The experiment scanned spans naively, so its runtime is not representative.
 
+### The filter as built
+
+Ticket #76 builds the filter in two places:
+
+- The Language plugin gives every token of an import or export declaration the token kind `import-or-export`.
+  In TypeScript that is an `import` declaration, an `import x = require()` declaration, an `export * from` declaration, an `export { a } from` declaration, and an `export { a }` declaration, the same set the experiment left out.
+  A declaration that declares code, such as `export const`, keeps its usual token kinds.
+- Duplication never puts a token of that kind in a fragment.
+  The experiment removed these tokens and joined the code around them; the built filter splits the token stream there instead, so no fragment spans an import or export declaration.
+- Duplication drops a Clone group whose fragment uses fewer than 14 distinct normalized tokens.
+  The count treats all identifiers as one token, all literals as one, and every other token by its text hash.
+
+On the private workspace, the build of Ticket #76 at 75 tokens gives these figures, best of three runs, on the same machine:
+
+| Source set | Clone groups | clone lines | Duplication |
+| ---------- | ------------ | ----------- | ----------- |
+| Production | 799 | 17,473 | 4.2% |
+| Test | 4,074 | 74,226 | 14.9% |
+
+The whole `codeint check --all` takes 0.93 s and 369 MB of peak resident memory.
+
 ## Decision
 
 **The default minimum clone size is 75 tokens.**
@@ -158,6 +182,12 @@ The experiment scanned spans naively, so its runtime is not representative.
 - At 50 tokens and below, three in four or more reported Clone groups are false positives, and memory grows by half or more on a large workspace.
 - At 150 tokens, data-heavy code still reports mostly false positives, and moderate real clones disappear.
 - With the structural filter above, 75 tokens is the best candidate in all three repositories: 25% to 45% false positives.
+
+**A Clone group leaves out import and export declarations and needs at least 14 distinct normalized tokens.**
+
+- Import lists and same-shaped data were the two largest kinds of false positive, and a larger minimum does not remove them.
+- The threshold of 14 lies between the median of true positives (19) and of false positives (9) in the judged samples.
+- Which declarations count as imports and exports is a rule of the Language plugin, so the core never reads token text to decide it.
 
 ## Considered options
 
@@ -175,7 +205,8 @@ The experiment scanned spans naively, so its runtime is not representative.
 ## Consequences
 
 - A default of 75 tokens alone lowers private Production Duplication from 23% to 11%, but about two in three reported Clone groups are still false positives.
-- A follow-up Ticket should add the structural filter: leave import and export-from declarations out of the token stream, and require a minimum count of different normalized tokens per fragment.
-  That changes what a Clone group is, so it needs its own Decision, an update to the Clone group term in `GLOSSARY.md`, and a fresh measurement.
+- The structural filter lowers private Production Duplication from 11% to 4.2%, and the false-positive rate at 75 tokens from about 65% to 25% to 45%.
+- The Clone group term in `GLOSSARY.md` names the filter.
+- The Plugin interface gains the token kind `import-or-export`, so every Language plugin must mark these tokens.
 - Scoping can remove the rest: example projects, committed generated code, and icon modules belong in a Source set or an exclusion, not in the detector.
 - No Reference range for Duplication is shown for TypeScript; this record does not set one.
