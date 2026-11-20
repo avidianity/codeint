@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use crate::configuration_schema;
 
-const CHECKED_KEYWORDS: [&str; 8] = [
+const CHECKED_KEYWORDS: [&str; 9] = [
     "$ref",
     "$defs",
     "type",
@@ -11,6 +11,7 @@ const CHECKED_KEYWORDS: [&str; 8] = [
     "items",
     "minimum",
     "maximum",
+    "required",
 ];
 
 const ANNOTATION_KEYWORDS: [&str; 5] = ["$schema", "title", "description", "default", "format"];

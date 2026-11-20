@@ -933,7 +933,7 @@ fn resolve(repository_paths: &[&str], importer: &str, specifier: &str) -> Resolu
         importer: importer.to_owned(),
         specifier: specifier.to_owned(),
     };
-    let mut resolutions = plugin().resolve_imports(&paths, vec![request]);
+    let mut resolutions = plugin().resolve_imports(&paths, Vec::new(), vec![request]);
     assert_eq!(resolutions.len(), 1, "one resolution per request");
     resolutions.remove(0)
 }
@@ -1028,7 +1028,7 @@ fn resolutions_come_back_one_per_request_in_request_order() {
     })
     .collect();
 
-    let resolutions = plugin().resolve_imports(&paths, requests);
+    let resolutions = plugin().resolve_imports(&paths, Vec::new(), requests);
 
     assert_eq!(
         resolutions,
@@ -1039,6 +1039,246 @@ fn resolutions_come_back_one_per_request_in_request_order() {
             Resolution::Unresolved("no file of the repository matches \"./c\"".to_owned()),
         ]
     );
+}
+
+fn resolve_in_project(files: &[(&str, &str)], importer: &str, specifier: &str) -> Resolution {
+    let paths: Vec<RepoPath> = files
+        .iter()
+        .map(|(path, _)| RepoPath::new(*path).expect("a valid path"))
+        .collect();
+    let manifests = plugin()
+        .manifest_paths(&paths)
+        .into_iter()
+        .map(|path| {
+            let text = files
+                .iter()
+                .find(|(file, _)| *file == path)
+                .map(|(_, text)| (*text).to_owned())
+                .expect("the plugin chooses a file of the repository");
+            Manifest { path, text }
+        })
+        .collect();
+    let request = ImportRequest {
+        importer: importer.to_owned(),
+        specifier: specifier.to_owned(),
+    };
+    let mut resolutions = plugin().resolve_imports(&paths, manifests, vec![request]);
+    assert_eq!(resolutions.len(), 1, "one resolution per request");
+    resolutions.remove(0)
+}
+
+#[test]
+fn the_plugin_asks_the_host_to_read_every_package_manifest_and_tsconfig_file() {
+    let paths: Vec<RepoPath> = [
+        "package.json",
+        "tsconfig.json",
+        "tsconfig.base.json",
+        "packages/app/package.json",
+        "packages/app/tsconfig.build.json",
+        "packages/app/src/main.ts",
+        "packages/app/src/package.json.ts",
+        "data/settings.json",
+        "jsconfig.json",
+    ]
+    .iter()
+    .map(|path| RepoPath::new(*path).expect("a valid path"))
+    .collect();
+
+    assert_eq!(
+        plugin().manifest_paths(&paths),
+        [
+            "package.json",
+            "tsconfig.json",
+            "tsconfig.base.json",
+            "packages/app/package.json",
+            "packages/app/tsconfig.build.json",
+        ]
+    );
+}
+
+const ALIASED_PROJECT: [(&str, &str); 5] = [
+    (
+        "tsconfig.json",
+        "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"], \"config\": [\"src/settings/index.ts\"] } } }",
+    ),
+    ("src/main.ts", ""),
+    ("src/views/list.tsx", ""),
+    ("src/settings/index.ts", ""),
+    ("lib/format.ts", ""),
+];
+
+#[test]
+fn a_tsconfig_path_alias_or_base_url_resolves_to_its_file() {
+    let cases = [
+        ("@/views/list", resolved("src/views/list.tsx")),
+        ("config", resolved("src/settings/index.ts")),
+        ("lib/format", resolved("lib/format.ts")),
+        ("./views/list.js", resolved("src/views/list.tsx")),
+    ];
+
+    for (specifier, expected) in cases {
+        assert_eq!(
+            resolve_in_project(&ALIASED_PROJECT, "src/main.ts", specifier),
+            expected,
+            "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn a_path_alias_without_a_matching_file_is_unresolved_and_other_bare_specifiers_are_external() {
+    let missing = resolve_in_project(&ALIASED_PROJECT, "src/main.ts", "@/views/missing");
+    assert!(
+        matches!(&missing, Resolution::Unresolved(reason) if reason.contains("@/views/missing")),
+        "{missing:?}"
+    );
+    for specifier in ["react", "@scope/package", "node:fs"] {
+        assert_eq!(
+            resolve_in_project(&ALIASED_PROJECT, "src/main.ts", specifier),
+            Resolution::External,
+            "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn a_tsconfig_that_does_not_include_the_importer_does_not_alias_its_imports() {
+    let files = [
+        (
+            "tsconfig.json",
+            "{ \"include\": [\"src\"], \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }",
+        ),
+        ("src/util.ts", ""),
+        ("scripts/build.ts", ""),
+    ];
+
+    assert_eq!(
+        resolve_in_project(&files, "scripts/build.ts", "@/util"),
+        Resolution::External
+    );
+}
+
+#[test]
+fn imports_still_resolve_when_a_tsconfig_extends_a_config_outside_the_repository() {
+    let files = [
+        (
+            "tsconfig.json",
+            "{ \"extends\": \"@tsconfig/node22/tsconfig.json\" }",
+        ),
+        ("src/main.ts", ""),
+        ("src/util.ts", ""),
+    ];
+
+    assert_eq!(
+        resolve_in_project(&files, "src/main.ts", "./util"),
+        resolved("src/util.ts")
+    );
+    assert_eq!(
+        resolve_in_project(&files, "src/main.ts", "react"),
+        Resolution::External
+    );
+}
+
+const WORKSPACE: [(&str, &str); 7] = [
+    (
+        "package.json",
+        "{ \"name\": \"shop\", \"workspaces\": [\"packages/*\"] }",
+    ),
+    (
+        "packages/ui/package.json",
+        "{ \"name\": \"@shop/ui\", \"exports\": { \".\": \"./src/index.ts\", \"./button\": { \"import\": \"./src/button.tsx\" }, \"./internal/*\": null } }",
+    ),
+    ("packages/ui/src/index.ts", ""),
+    ("packages/ui/src/button.tsx", ""),
+    ("packages/ui/src/internal/theme.ts", ""),
+    (
+        "packages/legacy/package.json",
+        "{ \"name\": \"legacy\", \"main\": \"lib/main.js\" }",
+    ),
+    ("packages/legacy/lib/main.js", ""),
+];
+
+#[test]
+fn a_workspace_package_resolves_through_its_exports_or_main_field() {
+    let cases = [
+        ("@shop/ui", resolved("packages/ui/src/index.ts")),
+        ("@shop/ui/button", resolved("packages/ui/src/button.tsx")),
+        ("legacy", resolved("packages/legacy/lib/main.js")),
+    ];
+
+    for (specifier, expected) in cases {
+        assert_eq!(
+            resolve_in_project(&WORKSPACE, "packages/app/src/main.ts", specifier),
+            expected,
+            "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn a_named_package_outside_the_declared_workspaces_is_not_linked() {
+    let files = [
+        (
+            "package.json",
+            "{ \"name\": \"shop\", \"workspaces\": [\"packages/*\", \"!packages/retired\"] }",
+        ),
+        (
+            "packages/app/package.json",
+            "{ \"name\": \"app\", \"main\": \"src/main.ts\" }",
+        ),
+        ("packages/app/src/main.ts", ""),
+        (
+            "packages/retired/package.json",
+            "{ \"name\": \"retired\", \"main\": \"index.ts\" }",
+        ),
+        ("packages/retired/index.ts", ""),
+        (
+            "tools/scripts/package.json",
+            "{ \"name\": \"scripts\", \"main\": \"index.ts\" }",
+        ),
+        ("tools/scripts/index.ts", ""),
+    ];
+
+    assert_eq!(
+        resolve_in_project(&files, "tools/scripts/index.ts", "app"),
+        resolved("packages/app/src/main.ts")
+    );
+    for specifier in ["scripts", "retired"] {
+        assert_eq!(
+            resolve_in_project(&files, "packages/app/src/main.ts", specifier),
+            Resolution::External,
+            "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn a_named_package_in_a_repository_without_workspaces_is_not_linked() {
+    let files = [
+        ("package.json", "{ \"name\": \"single\" }"),
+        (
+            "examples/demo/package.json",
+            "{ \"name\": \"demo\", \"main\": \"index.ts\" }",
+        ),
+        ("examples/demo/index.ts", ""),
+        ("src/main.ts", ""),
+    ];
+
+    assert_eq!(
+        resolve_in_project(&files, "src/main.ts", "demo"),
+        Resolution::External
+    );
+}
+
+#[test]
+fn a_subpath_that_a_workspace_package_does_not_export_is_unresolved() {
+    for specifier in ["@shop/ui/internal/theme", "@shop/ui/missing"] {
+        let resolution = resolve_in_project(&WORKSPACE, "packages/legacy/lib/main.js", specifier);
+        assert!(
+            matches!(&resolution, Resolution::Unresolved(reason) if reason.contains(specifier)),
+            "{specifier}: {resolution:?}"
+        );
+    }
 }
 
 fn source_set(path: &str) -> SourceSet {
@@ -1172,11 +1412,59 @@ fn package_roots(root_manifest: &str, package_folders: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn the_plugin_reads_package_json_and_pnpm_workspace_yaml_manifests_to_find_workspace_packages() {
+fn the_plugin_reads_package_json_manifests_to_find_workspace_packages() {
+    let paths: Vec<RepoPath> = [
+        "package.json",
+        "packages/app/package.json",
+        "packages/app/src/main.ts",
+        "packages/group/inner/package.json",
+    ]
+    .iter()
+    .map(|path| RepoPath::new(*path).expect("a valid path"))
+    .collect();
+    let package_manifests: Vec<String> = plugin()
+        .manifest_paths(&paths)
+        .into_iter()
+        .filter(|path| path.ends_with("package.json"))
+        .collect();
+
     assert_eq!(
-        plugin().workspace_manifests(),
-        ["package.json", "pnpm-workspace.yaml"]
+        package_manifests,
+        [
+            "package.json",
+            "packages/app/package.json",
+            "packages/group/inner/package.json",
+        ]
     );
+}
+
+#[test]
+fn the_plugin_reads_the_pnpm_workspace_yaml_at_the_repository_root_and_no_other() {
+    let paths: Vec<RepoPath> = [
+        "pnpm-workspace.yaml",
+        "packages/app/pnpm-workspace.yaml",
+        "packages/app/src/main.ts",
+    ]
+    .iter()
+    .map(|path| RepoPath::new(*path).expect("a valid path"))
+    .collect();
+
+    assert_eq!(plugin().manifest_paths(&paths), ["pnpm-workspace.yaml"]);
+}
+
+#[test]
+fn a_tsconfig_manifest_beside_the_package_manifests_never_makes_a_workspace_package() {
+    let roots = plugin()
+        .workspace_packages(vec![
+            manifest("package.json", r#"{"workspaces": ["packages/*"]}"#),
+            manifest("tsconfig.json", "{}"),
+            manifest("packages/app/package.json", "{}"),
+            manifest("packages/lib/tsconfig.json", "{}"),
+        ])
+        .expect("the workspace packages");
+    let roots: Vec<String> = roots.iter().map(ToString::to_string).collect();
+
+    assert_eq!(roots, ["packages/app"]);
 }
 
 #[test]

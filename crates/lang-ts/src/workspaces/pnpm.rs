@@ -7,9 +7,9 @@ pub(crate) const PNPM_WORKSPACE_MANIFEST: &str = "pnpm-workspace.yaml";
 
 const FOLDERS_PNPM_NEVER_SEARCHES: [&str; 2] = ["node_modules", "bower_components"];
 
-pub(crate) type ReadPnpmPackagePatterns = fn(&str) -> Result<Vec<String>, String>;
+pub(super) type ReadPnpmPackagePatterns = fn(&str) -> Result<Vec<String>, String>;
 
-pub(crate) fn pnpm_package_patterns(_pnpm_workspace_manifest: &str) -> Result<Vec<String>, String> {
+pub(super) fn pnpm_package_patterns(_pnpm_workspace_manifest: &str) -> Result<Vec<String>, String> {
     todo!()
 }
 

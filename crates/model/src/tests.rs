@@ -64,8 +64,8 @@ impl Guest for MeasuredLanguage {
         })
     }
 
-    fn workspace_manifests() -> Vec<String> {
-        Vec::new()
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        repository_paths
     }
 
     fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
@@ -74,9 +74,14 @@ impl Guest for MeasuredLanguage {
 
     fn resolve_imports(
         _repository_paths: Vec<String>,
+        manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        requests.iter().map(|_| Resolution::External).collect()
+        let reason = format!("{} manifests name no module", manifests.len());
+        requests
+            .iter()
+            .map(|_| Resolution::Unresolved(reason.clone()))
+            .collect()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

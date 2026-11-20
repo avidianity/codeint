@@ -44,15 +44,22 @@ impl Guest for Plain {
         })
     }
 
-    fn workspace_manifests() -> Vec<String> {
-        Vec::new()
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        repository_paths
+            .into_iter()
+            .filter(|path| path.ends_with("/plain.toml") || path == "plain.toml")
+            .collect()
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
         Ok(Vec::new())
     }
 
-    fn resolve_imports(_repository_paths: Vec<String>, requests: Vec<ImportRequest>) -> Vec<Resolution> {
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        _manifests: Vec<Manifest>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
         requests.iter().map(|_| Resolution::External).collect()
     }
 
@@ -77,10 +84,10 @@ impl Guest for Plain {
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
   Which files are declaration-only is a rule of the Language plugin, never of the core.
-- `workspace_manifests` returns the file names, such as `package.json`, that describe workspace packages in the language's ecosystem.
-  Return an empty list when the language has no workspaces.
-- `workspace_packages` receives every file of the repository, at any depth, whose file name `workspace_manifests` lists, as a `Manifest` with its repository-relative path and its text.
+- `workspace_packages` receives each file that `manifest_paths` chose, as a `Manifest` with its repository-relative path and its text.
+  Ignore the manifests that do not describe workspace packages, such as a `tsconfig.json` file.
   Return the root folder of each workspace package, never the repository root.
+  Return an empty list when the language has no workspaces.
   An empty list means the repository is one package.
 - Return a `WorkspaceError` that names the manifest and what is wrong with it when a manifest that decides the packages is invalid.
   Which manifest decides the packages, and how its patterns match folders, is a rule of the Language plugin, never of the core.
@@ -108,7 +115,10 @@ impl Guest for Plain {
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
 - `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
-- `resolve_imports` receives every file path of the repository snapshot, because a Plugin cannot read the file system.
+- `manifest_paths` receives every file path of the repository snapshot and returns the paths of the files that finding workspace packages and resolving imports need to read, such as each `package.json` and `tsconfig.json` file.
+  Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
+  It is the one way a Language plugin asks the host for files, so the host reads each file once.
+- `resolve_imports` receives every file path of the repository snapshot and each file that `manifest_paths` chose as a `Manifest` with its text, because a Plugin cannot read the file system.
   Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` for a package or built-in module, or `Unresolved` with the reason.
 
 ## Lower files in the core
@@ -125,27 +135,32 @@ assert_eq!(model.source_lines, 2);
 - The core holds Language plugins as `&dyn LanguagePlugin`.
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
-- After lowering, call `resolve_runtime_imports(plugin, repository_paths, &importers)` once per Language plugin with the files it lowered.
-  It returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
+- Before lowering, call `choose_manifests(plugin, repository_paths)` once per Language plugin and read each path it returns, once, as `Manifest { path, text }`.
+  Pass those manifests to `workspace_packages`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers)` with the files the plugin lowered.
+  `choose_manifests` fails with `ResolveError::UnknownManifest` when the plugin names a path outside the snapshot.
+  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
 - Push a file that is not valid UTF-8 onto `CodeModel::skipped` without lowering it, with a `reason` that starts with `not valid UTF-8`.
 - Hand the text to `lower` with its line endings as written; a CRLF line ending counts like LF in every line a Language plugin reports.
-- Put each Git submodule of the working tree in `CodeModel::submodules`; codeint never measures a submodule's files.
+- Pass each Git submodule of the working tree to `Report::summarize`, beside the Code models; no Language plugin measures a submodule's files, so a submodule belongs to no Code model.
 
 ## Find workspace packages in the core
 
 ```rust
-use codeint_model::{CodeModel, Manifest, Workspace};
+use codeint_model::{CodeModel, Manifest, Workspace, choose_manifests};
 
-let manifests = vec![Manifest {
-    path: "package.json".to_owned(),
-    text: tree_text_of("package.json"),
-}];
+let manifests: Vec<Manifest> = choose_manifests(plugins[0], tree.files())?
+    .into_iter()
+    .map(|path| Manifest {
+        text: tree_text_of(&path),
+        path: path.to_string(),
+    })
+    .collect();
 let model = CodeModel {
-    workspace: Workspace::new(plugins[0].workspace_packages(manifests)?),
+    workspace: Workspace::new(plugins[0].workspace_packages(manifests.clone())?),
     ..CodeModel::default()
 };
 for package in model.workspace.packages() {
@@ -154,7 +169,8 @@ for package in model.workspace.packages() {
 let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.ts")?);
 ```
 
-- The host reads every file whose name a Language plugin lists in `workspace_manifests` and passes them to that plugin; the plugin reads no files itself.
+- The host reads each file that `choose_manifests` names for a Language plugin and passes them to that plugin; the plugin reads no files itself.
+  The same manifests go to `workspace_packages` and to `resolve_runtime_imports`, so the host reads each file once.
 - The host decodes a manifest that is not valid UTF-8 lossily, so its folder can still be a package.
 - A `WorkspaceError` stops the run with exit code 2, because the package of every file depends on it.
 - `Workspace::packages` yields `Package::Root` first, then each member package by root folder.
@@ -218,3 +234,17 @@ if let Some(erosion) = ranges.for_metric("erosion") {
   That failure stops the run with exit code 2.
 - Show a plugin's ranges only next to values that this plugin alone measured.
   When the measured files come from several Language plugins, show no Reference range.
+- Keep one `CodeModel` per Language plugin and hand each to `codeint_report::Report::summarize` as a `MeasuredLanguage` with the plugin's name and ranges.
+  The report applies this rule: the total shows a plugin's ranges only when that plugin alone measured files, and each per-language section shows its own plugin's ranges.
+
+## Merge the Code models of several Language plugins
+
+```rust
+use codeint_model::CodeModel;
+
+let total = CodeModel::merge([typescript_model, python_model]);
+```
+
+- `merge` joins the files, skipped files, declaration-only files, runtime imports, and workspace packages of every model.
+- Give each Language plugin's `CodeModel` the whole `workspace` that every plugin found, so each per-language section lists the same workspace packages as the total.
+- It orders files, skipped files, and declaration-only files by path, so the total does not depend on the order of the plugins.

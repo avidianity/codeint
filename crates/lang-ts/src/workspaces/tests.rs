@@ -1,6 +1,6 @@
 use codeint_model::language::Manifest;
 
-use super::workspace_packages;
+use super::workspace_packages_reading_pnpm_patterns_with;
 
 fn one_pattern_per_line(pnpm_workspace_manifest: &str) -> Result<Vec<String>, String> {
     match pnpm_workspace_manifest.strip_prefix("unreadable: ") {
@@ -26,10 +26,11 @@ fn pnpm_package_roots(patterns: &[&str], package_folders: &[&str]) -> Vec<String
             .iter()
             .map(|folder| manifest(&format!("{folder}/package.json"), "{}")),
     );
-    let mut roots = match workspace_packages(manifests, one_pattern_per_line) {
-        Ok(roots) => roots,
-        Err(error) => panic!("workspace packages not found: {error}"),
-    };
+    let mut roots =
+        match workspace_packages_reading_pnpm_patterns_with(&manifests, one_pattern_per_line) {
+            Ok(roots) => roots,
+            Err(error) => panic!("workspace packages not found: {error}"),
+        };
     roots.sort();
     roots
 }
@@ -86,8 +87,8 @@ fn a_negated_pnpm_package_pattern_excludes_whatever_order_it_is_written_in() {
 }
 
 fn package_roots_with_both_manifests(pnpm_workspace_manifest_path: &str) -> Vec<String> {
-    workspace_packages(
-        vec![
+    workspace_packages_reading_pnpm_patterns_with(
+        &[
             manifest("package.json", r#"{"workspaces": ["apps/*"]}"#),
             manifest(pnpm_workspace_manifest_path, "packages/*"),
             manifest("apps/web/package.json", "{}"),
@@ -181,8 +182,8 @@ fn a_package_inside_node_modules_or_bower_components_is_never_a_pnpm_workspace_p
 }
 
 fn pnpm_workspace_error(pnpm_workspace_manifest: &str) -> String {
-    match workspace_packages(
-        vec![manifest("pnpm-workspace.yaml", pnpm_workspace_manifest)],
+    match workspace_packages_reading_pnpm_patterns_with(
+        &[manifest("pnpm-workspace.yaml", pnpm_workspace_manifest)],
         one_pattern_per_line,
     ) {
         Ok(roots) => panic!("expected an error, found {roots:?}"),
