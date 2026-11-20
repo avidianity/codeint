@@ -457,6 +457,9 @@ impl Report {
     }
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
-        todo!("render {format:?}")
+        match format {
+            ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
+            ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+        }
     }
 }
