@@ -80,11 +80,14 @@ impl Guest for Plain {
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
+- Each `Function` has `line` and `end-line`, the lines where it starts and ends, counted from 1; `end-line` equals `line` for a function on one line.
+  The core reads the tokens from `line` to `end-line` as the content of the function's Finding identity.
 - `tokens` lists every token of the file in source order, each with its kind, the hash of its text, and the 1-based line on which it starts.
   Leave out whitespace and comments; the core finds Clone groups from this stream.
 - `kind` says whether a token is an identifier, a literal, or another token.
   Which tokens are identifiers and literals is a rule of the Language plugin, never of the core: a TypeScript keyword such as `type` is an identifier where the code uses it as a name.
 - `text_hash` is the 64-bit FNV-1a hash of the token's text as written; `codeint_model::token_text_hash` computes it.
+  `codeint_model::StableHasher` is the same hash over any bytes, and writes each `u64` as little-endian bytes, for values that must match on every platform.
   An external WebAssembly Plugin computes the same hash itself.
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
   A line that matches two rules appears once per rule.
