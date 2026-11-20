@@ -1457,6 +1457,106 @@ fn all_lists_every_clone_group() {
     assert_eq!(clone_groups_by_first_location(&output), expected);
 }
 
+fn import_and_export_declarations(prefix: &str) -> String {
+    format!(
+        concat!(
+            "import {p}Default, {{ {p}One, {p}Two as {p}Three }} from '{p}-alpha';\n",
+            "import * as {p}All from '{p}-beta';\n",
+            "import type {{ {p}Shape, {p}Size }} from '{p}-gamma';\n",
+            "import '{p}-side-effect';\n",
+            "import {p}Legacy = require('{p}-legacy');\n",
+            "export * from '{p}-delta';\n",
+            "export * as {p}Bundle from '{p}-epsilon';\n",
+            "export {{ {p}Four, {p}Five as {p}Six }} from '{p}-zeta';\n",
+            "export type {{ {p}Seven }} from '{p}-eta';\n",
+            "export {{ {p}Default, {p}One as {p}Eight, {p}All, {p}Legacy }};\n",
+        ),
+        p = prefix
+    )
+}
+
+#[test]
+fn files_whose_only_shared_code_is_a_long_import_list_form_no_clone_group() {
+    let repository = Repository::new();
+    repository.write(
+        "src/first.ts",
+        &format!(
+            "{}export const first = 1;\n",
+            import_and_export_declarations("first")
+        ),
+    );
+    repository.write(
+        "src/second.ts",
+        &format!(
+            "{}export function second(): string {{\n  return 'two';\n}}\n",
+            import_and_export_declarations("second")
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
+}
+
+#[test]
+fn a_copied_function_after_a_shared_import_list_forms_a_clone_group_of_the_function_alone() {
+    let repository = Repository::new();
+    repository.write(
+        "src/first.ts",
+        &format!("{}{CART_TOTAL}", import_and_export_declarations("first")),
+    );
+    repository.write(
+        "src/second.ts",
+        &format!(
+            "{}{ORDER_TOTAL_RENAMED}",
+            import_and_export_declarations("second")
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "duplication"),
+        concat!(
+            "duplication:\n",
+            "  ratio: 0.4737\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  clone_lines: 18\n",
+            "  clone_groups[1]:\n",
+            "    - id: <id>\n",
+            "      tokens: 83\n",
+            "      locations[2]{path,start_line,end_line}:\n",
+            "        src/first.ts,11,19\n",
+            "        src/second.ts,11,19\n",
+        )
+    );
+}
+
+fn data_table(name: &str, rows: usize) -> String {
+    let rows: String = (1..=rows)
+        .map(|row| format!("  {name}{row}: '{name}-value-{row}',\n"))
+        .collect();
+    format!("export const {name} = {{\n{rows}}};\n")
+}
+
+#[test]
+fn a_long_table_of_same_shaped_rows_forms_no_clone_group() {
+    let repository = Repository::new();
+    repository.write("src/colors.ts", &data_table("color", 40));
+    repository.write("src/labels.ts", &data_table("label", 40));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 84\n");
+    assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
+}
+
 fn no_import_cycles(modules: usize) -> String {
     format!(
         "import_cycles:\n\
@@ -2928,6 +3028,8 @@ fn repository_with_every_optional_part_of_the_report() -> Repository {
         "src/b.ts",
         "import { a } from './a';\nexport const b = a;\n",
     );
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write("src/order.ts", ORDER_TOTAL_RENAMED);
     repository.write(
         "src/sign.test.ts",
         "import { sign } from './sign';\nsign(1);\n",

@@ -28,6 +28,10 @@ interface language {
         /// Any other token, such as a keyword, an operator, or punctuation.
         /// Clone detection compares these by their text hash.
         other,
+        /// Any token of a declaration that only imports or exports names, such as a TypeScript `import`, `export { a } from`, or `export { a }` declaration.
+        /// Which declarations count is a rule of the Language plugin.
+        /// Clone detection never matches these tokens, because a list of names repeats only its shape.
+        import-or-export,
     }
 
     /// The group a source file belongs to.
@@ -45,7 +49,7 @@ interface language {
 
     /// One token of a source file, so never whitespace or a comment.
     record token {
-        /// Whether the token is an identifier, a literal, or another token.
+        /// Whether the token is an identifier, a literal, another token, or a token of an import or export declaration.
         kind: token-kind,
         /// The 64-bit FNV-1a hash of the token's UTF-8 text as written.
         text-hash: u64,

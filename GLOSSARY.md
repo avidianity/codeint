@@ -38,6 +38,7 @@ _Avoid_: copy-paste, redundancy
 
 **Clone group**:
 Two or more code fragments with the same token sequence once identifiers and literals are normalized.
+The fragments leave out import and export declarations, and use enough different tokens to be logic rather than a list of the same shape.
 _Avoid_: duplicate, copy
 
 **Import cycle**:

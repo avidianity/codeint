@@ -52,6 +52,12 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - Build output folders, very long lines, and vendor folders are rules of the core, in `codeint_model::settle_source_set`; never repeat them here.
 - Prove a change with `tests/conformance.rs`: list each path or text that must be Test or Generated, and each look-alike that must stay Production.
 
+## Change which tokens clone detection skips
+
+- `src/tokens.rs` gives `TokenKind::ImportOrExport` to every token of an `import` declaration, an `import x = require()` declaration, an `export * from` declaration, an `export { a } from` declaration, and an `export { a }` declaration.
+- A declaration that declares code, such as `export const` or `export default function`, keeps its usual token kinds, and so does a dynamic `import()`.
+- Prove a change with `tests/conformance.rs`: list each declaration whose tokens must be skipped, and each look-alike that must keep its kinds.
+
 ## Change how imports resolve
 
 - `src/resolution.rs` resolves each import with `oxc_resolver`, the way TypeScript resolves it: relative paths, tsconfig `paths` and `baseUrl`, and the `exports`, `main`, and `index` entries of packages.

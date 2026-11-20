@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use codeint_config::{Budgets, FindingsShown, ReportFormat};
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
-    ImportCycles, MinimumCloneTokens, UnresolvedImport, Verbosity,
+    ImportCycles, MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, Metric, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet,
@@ -628,7 +628,11 @@ struct Measured {
 
 impl Measured {
     fn new(model: &CodeModel) -> Measured {
-        let duplication = Duplication::measure(model, MinimumCloneTokens::DEFAULT);
+        let duplication = Duplication::measure(
+            model,
+            MinimumCloneTokens::DEFAULT,
+            MinimumDistinctTokens::DEFAULT,
+        );
         Measured {
             erosion: Erosion::measure(model),
             verbosity: Verbosity::measure(model, &duplication.clone_lines),

@@ -58,9 +58,13 @@ for function in erosion.eroded_functions() {
 ## Find Clone groups
 
 ```rust
-use codeint_metrics::{Duplication, MinimumCloneTokens};
+use codeint_metrics::{Duplication, MinimumCloneTokens, MinimumDistinctTokens};
 
-let duplication = Duplication::measure(&model, MinimumCloneTokens::DEFAULT);
+let duplication = Duplication::measure(
+    &model,
+    MinimumCloneTokens::DEFAULT,
+    MinimumDistinctTokens::DEFAULT,
+);
 println!("{} of {} source lines are clone lines", duplication.clone_lines.count(), duplication.source_lines);
 let ratio = duplication.ratio();
 ```
@@ -70,20 +74,31 @@ let ratio = duplication.ratio();
   Normalizing treats every identifier as one token and every literal as another, so copies that differ only in names and literal values form one Clone group; other tokens must have the same text hash.
   This finds type-1 and type-2 clones in one pass.
   Each fragment is as long as the tokens that all copies share, and copies of one fragment never overlap in one file.
+- A fragment never holds a token of kind `ImportOrExport`.
+  Such a token splits the token stream, so no fragment spans an import or export declaration.
+  The Language plugin decides which tokens have that kind; Duplication never reads token text to decide it.
+- A Clone group needs at least the minimum number of distinct normalized tokens in its fragment.
+  Count them after normalizing: all identifiers count as one token, all literals as one, and every other token by its text hash.
+  So `{ a: 'x', b: 'y' }` uses six distinct normalized tokens: `{`, identifier, `:`, literal, `,`, and `}`.
+  All fragments of a Clone group have the same normalized sequence, so the count is the same for each.
 - A clone line is a line on which a token of a fragment starts; `clone_lines` holds each such line once, by path and line.
 - `clone_lines.count()` is the number of clone lines, and `clone_lines.contains(path, line)` tells whether a line is one.
 - `ratio` is `clone_lines.count() / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
-- `MinimumCloneTokens::DEFAULT` is 75 tokens, as [ADR 0007](../../docs/adr/0007-default-minimum-clone-size.md) decides.
+- `MinimumCloneTokens::DEFAULT` is 75 tokens, and `MinimumDistinctTokens::DEFAULT` is 14 distinct normalized tokens, as [ADR 0007](../../docs/adr/0007-default-minimum-clone-size.md) decides.
 - `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its clone lines and its source lines.
   A Clone group that spans two packages adds each copy's lines to the package that holds it.
 
 ## Measure Verbosity
 
 ```rust
-use codeint_metrics::{Duplication, MinimumCloneTokens, Verbosity};
+use codeint_metrics::{Duplication, MinimumCloneTokens, MinimumDistinctTokens, Verbosity};
 
-let duplication = Duplication::measure(&model, MinimumCloneTokens::DEFAULT);
+let duplication = Duplication::measure(
+    &model,
+    MinimumCloneTokens::DEFAULT,
+    MinimumDistinctTokens::DEFAULT,
+);
 let verbosity = Verbosity::measure(&model, &duplication.clone_lines);
 println!("{} of {}", verbosity.verbose_lines(), verbosity.source_lines());
 println!("{} flagged, {} clone lines", verbosity.flagged_line_count(), verbosity.clone_line_count());
