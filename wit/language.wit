@@ -15,6 +15,19 @@ interface language {
         source-lines: u32,
     }
 
+    /// The group a source file belongs to.
+    /// Every source file belongs to exactly one Source set, and every Metric reports each Source set separately.
+    enum source-set {
+        /// Code that ships, the default for a file that no other rule claims.
+        production,
+        /// Code that only tests run, such as a TypeScript `*.test.ts` file.
+        test,
+        /// Code that a tool writes, such as build output.
+        generated,
+        /// Third-party code copied into the repository.
+        vendored,
+    }
+
     /// One token of a source file, as written, so never whitespace or a comment.
     record token {
         /// The text of the token.
@@ -33,6 +46,8 @@ interface language {
 
     /// The Code model of one source file.
     record file-model {
+        /// The Source set of the file, chosen by the rules of the Language plugin.
+        source-set: source-set,
         /// The lines that hold code, so not a blank line or a line with only comments.
         source-lines: u32,
         /// Every function of the file, in the order their first lines appear.
@@ -88,6 +103,22 @@ interface language {
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
     /// The result holds one resolution per request, in request order.
     resolve-imports: func(repository-paths: list<string>, requests: list<import-request>) -> list<resolution>;
+    /// The published typical value of one Metric for codebases in the language of the Language plugin.
+    record reference-range {
+        /// The Metric, by its key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
+        metric: string,
+        /// The lowest typical ratio, from 0 to 1.
+        low: f64,
+        /// The highest typical ratio, from `low` to 1.
+        high: f64,
+        /// Where the range was published and what it measured, shown next to the range.
+        source: string,
+    }
+
+    /// The Reference ranges measured in the language of this Language plugin, at most one per Metric.
+    /// A Metric without an entry has no published Reference range for this language.
+    /// codeint shows a range only next to values that this Language plugin measured.
+    reference-ranges: func() -> list<reference-range>;
 }
 
 /// A Language plugin exports `language` and imports nothing.

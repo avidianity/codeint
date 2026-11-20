@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::string::FromUtf8Error;
 
@@ -6,10 +6,13 @@ use codeint_config::FindingsShown;
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, LanguagePlugin, LowerError, RepoPath, ResolveError, SkippedFile, SourceFile,
-    resolve_runtime_imports,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, RepoPath,
+    ResolveError, SkippedFile, SourceFile, resolve_runtime_imports,
 };
-use codeint_report::{Report, ReportError};
+use codeint_report::{ReferenceRangeScope, Report, ReportError};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CheckError {
@@ -23,18 +26,51 @@ pub(crate) enum CheckError {
     },
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
+    #[error("a Language plugin supplies an invalid Reference range")]
+    ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
     Report(#[from] ReportError),
 }
 
-pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
-    let tree = WorkingTree::discover(folder)?;
-    let model = measure(&tree, &[&TypeScriptAndJavaScript])?;
-    Ok(Report::summarize(&model, findings).to_toon()?)
+struct Measurement {
+    model: CodeModel,
+    ranges: ReferenceRangeScope,
 }
 
-fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeModel, CheckError> {
-    let plugin_by_extension: HashMap<String, usize> = plugins
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
+    check_with(folder, &[&TypeScriptAndJavaScript], findings)
+}
+
+fn check_with(
+    folder: &Path,
+    plugins: &[&dyn LanguagePlugin],
+    findings: FindingsShown,
+) -> Result<String, CheckError> {
+    let tree = WorkingTree::discover(folder)?;
+    let Measurement { model, ranges } = measure(&tree, plugins)?;
+    Ok(Report::summarize(model, &ranges, findings).to_toon()?)
+}
+
+fn reference_range_scope(
+    plugins: &[&dyn LanguagePlugin],
+    measured: &BTreeSet<usize>,
+) -> Result<ReferenceRangeScope, CheckError> {
+    let mut ranges_by_plugin = plugins
+        .iter()
+        .map(|plugin| plugin.reference_ranges())
+        .collect::<Result<Vec<ReferenceRanges>, _>>()
+        .map_err(CheckError::ReferenceRange)?;
+    match measured.iter().collect::<Vec<_>>().as_slice() {
+        [] => Ok(ReferenceRangeScope::OneLanguage(ReferenceRanges::default())),
+        [only] => Ok(ReferenceRangeScope::OneLanguage(
+            ranges_by_plugin.swap_remove(**only),
+        )),
+        _ => Ok(ReferenceRangeScope::SeveralLanguages),
+    }
+}
+
+fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measurement, CheckError> {
+    let plugins_by_extension: HashMap<String, usize> = plugins
         .iter()
         .enumerate()
         .flat_map(|(index, plugin)| {
@@ -45,11 +81,12 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
         })
         .collect();
     let mut model = CodeModel::default();
+    let mut measured = BTreeSet::new();
     let mut plugin_of_file = Vec::new();
     for path in tree.files() {
-        let Some(&plugin_index) = path
+        let Some(&index) = path
             .extension()
-            .and_then(|extension| plugin_by_extension.get(extension))
+            .and_then(|extension| plugins_by_extension.get(extension))
         else {
             continue;
         };
@@ -58,13 +95,14 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
             path: path.clone(),
             source,
         })?;
-        match plugins[plugin_index].lower(path, &text) {
+        match plugins[index].lower(path, &text) {
             Ok(file) => {
+                measured.insert(index);
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,
                 });
-                plugin_of_file.push(plugin_index);
+                plugin_of_file.push(index);
             }
             Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
             Err(reason) => model.skipped.push(SkippedFile {
@@ -73,17 +111,18 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
             }),
         }
     }
-    for (plugin_index, plugin) in plugins.iter().enumerate() {
+    for (index, plugin) in plugins.iter().enumerate() {
         let importers: Vec<&SourceFile> = model
             .files
             .iter()
             .zip(&plugin_of_file)
-            .filter(|(_, file_plugin)| **file_plugin == plugin_index)
+            .filter(|(_, file_plugin)| **file_plugin == index)
             .map(|(file, _)| file)
             .collect();
         let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), &importers)
             .map_err(CheckError::Resolve)?;
         model.runtime_imports.extend(runtime_imports);
     }
-    Ok(model)
+    let ranges = reference_range_scope(plugins, &measured)?;
+    Ok(Measurement { model, ranges })
 }

@@ -14,6 +14,9 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Check(CheckError::Resolve(_)) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
+        CliError::Check(CheckError::ReferenceRange(_)) => {
+            "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
+        }
         CliError::Check(CheckError::Report(_)) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }

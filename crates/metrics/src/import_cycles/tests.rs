@@ -1,4 +1,6 @@
-use codeint_model::{CodeModel, FileModel, ImportResolution, RepoPath, RuntimeImport, SourceFile};
+use codeint_model::{
+    CodeModel, FileModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet,
+};
 
 use super::ImportCycles;
 
@@ -10,6 +12,7 @@ fn module(name: &str) -> SourceFile {
     SourceFile {
         path: path(name),
         model: FileModel {
+            source_set: SourceSet::Production,
             source_lines: 1,
             functions: Vec::new(),
             tokens: Vec::new(),

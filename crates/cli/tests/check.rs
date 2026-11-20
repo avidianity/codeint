@@ -91,35 +91,80 @@ fn assert_success(output: &Output) {
     );
 }
 
-fn section(output: &Output, name: &str) -> String {
-    let heading = format!("{name}:");
+const METRIC_INDENT: usize = 4;
+
+fn metric_section(output: &Output, source_set: &str, metric: &str) -> String {
+    let source_set_heading = format!("  {source_set}:");
+    let metric_heading = format!("{}{metric}:", " ".repeat(METRIC_INDENT));
     stdout(output)
         .lines()
-        .skip_while(|line| *line != heading)
+        .skip_while(|line| *line != source_set_heading)
+        .skip_while(|line| *line != metric_heading)
         .enumerate()
-        .take_while(|(index, line)| *index == 0 || line.starts_with(' '))
-        .map(|(_, line)| format!("{line}\n"))
+        .take_while(|(index, line)| *index == 0 || indent(line) > METRIC_INDENT)
+        .map(|(_, line)| format!("{}\n", &line[METRIC_INDENT..]))
         .collect()
+}
+
+fn production_section(output: &Output, metric: &str) -> String {
+    metric_section(output, "production", metric)
+}
+
+fn indent(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+fn source_set_sizes(output: &Output) -> Vec<String> {
+    let mut sizes = Vec::new();
+    for line in stdout(output).lines() {
+        match indent(line) {
+            2 => sizes.push(line.trim().to_owned()),
+            METRIC_INDENT
+                if line.trim_start().starts_with("files")
+                    || line.trim_start().starts_with("source_lines") =>
+            {
+                if let Some(last) = sizes.last_mut() {
+                    last.push(' ');
+                    last.push_str(line.trim());
+                }
+            }
+            _ => {}
+        }
+    }
+    sizes
 }
 
 fn report_without_findings(files: usize, source_lines: u64) -> String {
     format!(
         "files: {files}\n\
          source_lines: {source_lines}\n\
-         erosion:\n  \
-         ratio: 0\n  \
-         eroded_function_mass: 0\n  \
-         total_function_mass: 0\n  \
-         findings: []\n\
-         duplication:\n  \
-         ratio: 0\n  \
-         clone_lines: 0\n  \
-         clone_groups: []\n\
-         verbosity:\n  \
-         ratio: 0\n  \
-         verbose_lines: 0\n  \
+         source_sets:\n  \
+         production:\n    \
+         files: {files}\n    \
+         source_lines: {source_lines}\n    \
+         erosion:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         eroded_function_mass: 0\n      \
+         total_function_mass: 0\n      \
+         findings: []\n    \
+         duplication:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         clone_lines: 0\n      \
+         clone_groups: []\n    \
+         verbosity:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         verbose_lines: 0\n      \
+         findings: []\n    \
+         import_cycles:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         modules_in_import_cycles: 0\n      \
+         modules: {files}\n      \
          findings: []\n"
-    ) + &no_import_cycles(files)
+    )
 }
 
 #[test]
@@ -162,9 +207,10 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
     assert_success(&output);
     assert_eq!(summary(&output), "files: 3\nsource_lines: 20\n");
     assert_eq!(
-        section(&output, "verbosity"),
+        production_section(&output, "verbosity"),
         "verbosity:\n  \
          ratio: 0.15\n  \
+         reference_range: no published Reference range for this language\n  \
          verbose_lines: 3\n  \
          findings[3]{path,line,rule}:\n    \
          src/sign.ts,4,else-after-return\n    \
@@ -371,10 +417,11 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 1\nsource_lines: 25\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0.8889\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 48\n",
             "  total_function_mass: 54\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -396,10 +443,11 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 3\nsource_lines: 39\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0.7094\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 84.561\n",
             "  total_function_mass: 119.202\n",
             "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -420,15 +468,44 @@ fn a_repository_without_functions_reports_erosion_0() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 1\nsource_lines: 1\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 0\n",
             "  findings: []\n",
         )
     );
+}
+
+#[test]
+fn the_typescript_and_javascript_report_says_that_no_published_reference_range_exists_for_each_metric()
+ {
+    let repository = Repository::new();
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.write("src/sum.js", "export const sum = (a, b) => a + b;\n");
+    repository.write("src/sum.test.js", "export const one = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let report = stdout(&output);
+    let metric_sections = report
+        .lines()
+        .filter(|line| indent(line) == METRIC_INDENT && line.ends_with(':'))
+        .count();
+    let unpublished = report
+        .lines()
+        .filter(|line| {
+            *line == "      reference_range: no published Reference range for this language"
+        })
+        .count();
+    assert!(metric_sections >= 6, "unexpected report: {report}");
+    assert_eq!(unpublished, metric_sections, "unexpected report: {report}");
+    assert!(!report.contains("low:"), "unexpected report: {report}");
 }
 
 #[test]
@@ -450,10 +527,11 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 1\nsource_lines: 15\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0.9683\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 43.2666\n",
             "  total_function_mass: 44.6808\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -479,7 +557,7 @@ fn erosion_findings_header(count: usize) -> String {
 }
 
 fn erosion_findings_lines(output: &Output) -> Vec<String> {
-    section(output, "erosion")
+    production_section(output, "erosion")
         .lines()
         .skip_while(|line| !line.starts_with("  findings"))
         .map(|line| match line.strip_prefix("    ") {
@@ -589,16 +667,108 @@ fn every_kind_of_decision_point_counts_toward_erosion() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 1\nsource_lines: 18\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 46.669\n",
             "  total_function_mass: 46.669\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
             "    src/route.ts,1,11,18,46.669\n",
         )
     );
+}
+
+#[test]
+fn functions_of_test_files_count_toward_the_test_source_set_only() {
+    let repository = Repository::new();
+    repository.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    repository.write("src/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write(
+        "src/eleven.test.ts",
+        &function_with_if_statements("eleven", 11),
+    );
+    repository.write("src/__tests__/setup.ts", "export const ready = true;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 4\nsource_lines: 40\n");
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 2 source_lines: 25",
+            "test: files: 2 source_lines: 15",
+        ]
+    );
+    assert_eq!(
+        metric_section(&output, "production", "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0.5338\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  eroded_function_mass: 39.6611\n",
+            "  total_function_mass: 74.3021\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/ten.ts,1,11,13,39.6611\n",
+        )
+    );
+    assert_eq!(
+        metric_section(&output, "test", "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  eroded_function_mass: 44.8999\n",
+            "  total_function_mass: 44.8999\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/eleven.test.ts,1,12,14,44.8999\n",
+        )
+    );
+}
+
+#[test]
+fn a_source_set_without_files_is_left_out_of_the_report() {
+    let repository = Repository::new();
+    repository.write(
+        "src/greet.spec.ts",
+        "export function greet(): string {\n  return 'Hello';\n}\n",
+    );
+    repository.write("README.md", "# Fixture\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["test: files: 1 source_lines: 3"]
+    );
+    assert_eq!(
+        metric_section(&output, "test", "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  eroded_function_mass: 0\n",
+            "  total_function_mass: 1.7321\n",
+            "  findings: []\n",
+        )
+    );
+}
+
+#[test]
+fn a_repository_without_measured_files_reports_no_source_set() {
+    let repository = Repository::new();
+    repository.write("README.md", "# Fixture\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), "files: 0\nsource_lines: 0\nsource_sets:\n");
 }
 
 fn not_in_a_repository_message(folder: &Path) -> String {
@@ -842,7 +1012,7 @@ fn assert_unwritable_output(output: &Output, path: &str) {
     );
 }
 
-const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  clone_lines: 0\n  clone_groups: []\n";
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
     "export function total(items: { price: number; quantity: number }[]): number {\n",
@@ -871,10 +1041,11 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 20\n");
     assert_eq!(
-        section(&output, "duplication"),
+        production_section(&output, "duplication"),
         concat!(
             "duplication:\n",
             "  ratio: 0.9\n",
+            "  reference_range: no published Reference range for this language\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - tokens: 59\n",
@@ -897,7 +1068,7 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
 
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
-    assert_eq!(section(&output, "duplication"), NO_DUPLICATION);
+    assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
 }
 
 fn write_21_clone_groups_of_equal_size(repository: &Repository) {
@@ -912,7 +1083,7 @@ fn write_21_clone_groups_of_equal_size(repository: &Repository) {
 }
 
 fn clone_groups_by_first_location(output: &Output) -> Vec<String> {
-    section(output, "duplication")
+    production_section(output, "duplication")
         .lines()
         .map(str::trim_start)
         .filter(|line| {
@@ -957,6 +1128,7 @@ fn no_import_cycles(modules: usize) -> String {
     format!(
         "import_cycles:\n\
          \x20 ratio: 0\n\
+         \x20 reference_range: no published Reference range for this language\n\
          \x20 modules_in_import_cycles: 0\n\
          \x20 modules: {modules}\n\
          \x20 findings: []\n"
@@ -985,10 +1157,11 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
 
     assert_success(&output);
     assert_eq!(
-        section(&output, "import_cycles"),
+        production_section(&output, "import_cycles"),
         concat!(
             "import_cycles:\n",
             "  ratio: 0.75\n",
+            "  reference_range: no published Reference range for this language\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
@@ -1021,7 +1194,10 @@ fn a_diamond_of_imports_without_a_cycle_reports_no_import_cycle() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(section(&output, "import_cycles"), no_import_cycles(4));
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        no_import_cycles(4)
+    );
 }
 
 #[test]
@@ -1049,10 +1225,11 @@ fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
 
     assert_success(&output);
     assert_eq!(
-        section(&output, "import_cycles"),
+        production_section(&output, "import_cycles"),
         concat!(
             "import_cycles:\n",
             "  ratio: 0.75\n",
+            "  reference_range: no published Reference range for this language\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
@@ -1085,7 +1262,10 @@ fn type_only_imports_and_exports_do_not_form_an_import_cycle() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(section(&output, "import_cycles"), no_import_cycles(4));
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        no_import_cycles(4)
+    );
 }
 
 #[test]
@@ -1112,10 +1292,11 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 7\nsource_lines: 11\n");
     assert_eq!(
-        section(&output, "import_cycles"),
+        production_section(&output, "import_cycles"),
         concat!(
             "import_cycles:\n",
             "  ratio: 0.7143\n",
+            "  reference_range: no published Reference range for this language\n",
             "  modules_in_import_cycles: 5\n",
             "  modules: 7\n",
             "  findings[3]:\n",
@@ -1136,7 +1317,7 @@ fn write_21_self_importing_modules(repository: &Repository) {
 }
 
 fn import_cycle_findings(output: &Output) -> Vec<String> {
-    section(output, "import_cycles")
+    production_section(output, "import_cycles")
         .lines()
         .map(str::trim_start)
         .skip_while(|line| !line.starts_with("findings"))
@@ -1171,4 +1352,42 @@ fn all_lists_every_import_cycle() {
     let mut expected = vec!["findings[21]:".to_string()];
     expected.extend((1..=21).map(|index| format!("- modules[1]: src/self{index:02}.ts")));
     assert_eq!(import_cycle_findings(&output), expected);
+}
+
+#[test]
+fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
+    let repository = Repository::new();
+    repository.write(
+        "src/greet.ts",
+        "import { check } from './greet.test';\nexport const greet = () => check;\n",
+    );
+    repository.write(
+        "src/greet.test.ts",
+        "import { greet } from './greet';\nimport { helper } from './helper.test';\nexport const check = greet;\nexport const used = helper;\n",
+    );
+    repository.write(
+        "src/helper.test.ts",
+        "import { used } from './greet.test';\nexport const helper = () => used;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        metric_section(&output, "production", "import_cycles"),
+        no_import_cycles(1)
+    );
+    assert_eq!(
+        metric_section(&output, "test", "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 2\n",
+            "  modules: 2\n",
+            "  findings[1]:\n",
+            "    - modules[2]: src/greet.test.ts,src/helper.test.ts\n",
+        )
+    );
 }

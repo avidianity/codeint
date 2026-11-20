@@ -1,5 +1,8 @@
-use crate::language::{ImportRequest, Resolution};
-use crate::{FileModel, LanguagePlugin, LowerError, RepoPath, SourceFile};
+use crate::language::{ImportRequest, Resolution, SourceSet};
+use crate::{
+    FileModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, RepoPath,
+    SourceFile,
+};
 
 use super::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
 
@@ -21,6 +24,10 @@ impl LanguagePlugin for Answering {
     ) -> Vec<Resolution> {
         self.0.clone()
     }
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        ReferenceRanges::new(Vec::new())
+    }
 }
 
 fn path(text: &str) -> RepoPath {
@@ -31,6 +38,7 @@ fn importer(name: &str, specifiers: &[&str]) -> SourceFile {
     SourceFile {
         path: path(name),
         model: FileModel {
+            source_set: SourceSet::Production,
             source_lines: 1,
             functions: Vec::new(),
             tokens: Vec::new(),
