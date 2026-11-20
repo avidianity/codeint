@@ -1,6 +1,12 @@
-use codeint_metrics::duplication::Duplication;
-use codeint_model::CodeModel;
+#![forbid(unsafe_code)]
+
+use codeint_metrics::{
+    CloneGroup, Duplication, ErodedFunction, Erosion, Fragment, MinimumCloneTokens,
+};
+use codeint_model::{CodeModel, RepoPath, SkippedFile};
 use serde::Serialize;
+
+const DECIMAL_SCALE: f64 = 10_000.0;
 
 #[derive(Debug, thiserror::Error)]
 #[error("cannot render the report")]
@@ -10,56 +16,138 @@ pub struct ReportError(#[source] toon_format::ToonError);
 pub struct Report {
     files: usize,
     source_lines: u64,
-    duplication: DuplicationReport,
+    erosion: ErosionSection,
+    duplication: DuplicationSection,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    skipped: Vec<SkippedEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    declaration_only: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct DuplicationReport {
-    ratio: f64,
+struct ErosionSection {
+    ratio: Decimal,
+    eroded_function_mass: Decimal,
+    total_function_mass: Decimal,
+    findings: Vec<ErodedFunctionFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct ErodedFunctionFinding {
+    path: String,
+    line: u32,
+    cyclomatic_complexity: u32,
+    source_lines: u32,
+    function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct DuplicationSection {
+    ratio: Decimal,
     clone_lines: u64,
-    clone_groups: Vec<CloneGroupReport>,
+    clone_groups: Vec<CloneGroupFinding>,
 }
 
 #[derive(Debug, Serialize)]
-struct CloneGroupReport {
+struct CloneGroupFinding {
     tokens: usize,
-    locations: Vec<LocationReport>,
+    locations: Vec<CloneLocation>,
 }
 
 #[derive(Debug, Serialize)]
-struct LocationReport {
+struct CloneLocation {
     path: String,
     start_line: u32,
     end_line: u32,
 }
 
-impl DuplicationReport {
-    fn summarize(duplication: &Duplication) -> DuplicationReport {
-        DuplicationReport {
-            ratio: duplication.ratio(),
-            clone_lines: duplication.clone_lines,
-            clone_groups: duplication
-                .clone_groups
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+struct Decimal(f64);
+
+#[derive(Debug, Serialize)]
+struct SkippedEntry {
+    path: String,
+    reason: String,
+}
+
+impl Decimal {
+    fn rounded(value: f64) -> Decimal {
+        Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
+    }
+}
+
+impl ErosionSection {
+    fn new(erosion: &Erosion) -> ErosionSection {
+        ErosionSection {
+            ratio: Decimal::rounded(erosion.ratio()),
+            eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
+            total_function_mass: Decimal::rounded(erosion.total_function_mass()),
+            findings: erosion
+                .eroded_functions()
                 .iter()
-                .map(|group| CloneGroupReport {
-                    tokens: group.tokens,
-                    locations: group
-                        .fragments
-                        .iter()
-                        .map(|fragment| LocationReport {
-                            path: fragment.path.to_string(),
-                            start_line: fragment.start_line,
-                            end_line: fragment.end_line,
-                        })
-                        .collect(),
-                })
+                .map(ErodedFunctionFinding::new)
                 .collect(),
         }
     }
 }
 
+impl ErodedFunctionFinding {
+    fn new(function: &ErodedFunction) -> ErodedFunctionFinding {
+        ErodedFunctionFinding {
+            path: function.path.to_string(),
+            line: function.line,
+            cyclomatic_complexity: function.cyclomatic_complexity,
+            source_lines: function.source_lines,
+            function_mass: Decimal::rounded(function.function_mass),
+        }
+    }
+}
+
+impl DuplicationSection {
+    fn new(duplication: &Duplication) -> DuplicationSection {
+        DuplicationSection {
+            ratio: Decimal::rounded(duplication.ratio()),
+            clone_lines: duplication.clone_lines,
+            clone_groups: duplication
+                .clone_groups
+                .iter()
+                .map(CloneGroupFinding::new)
+                .collect(),
+        }
+    }
+}
+
+impl CloneGroupFinding {
+    fn new(group: &CloneGroup) -> CloneGroupFinding {
+        CloneGroupFinding {
+            tokens: group.tokens,
+            locations: group.fragments.iter().map(CloneLocation::new).collect(),
+        }
+    }
+}
+
+impl CloneLocation {
+    fn new(fragment: &Fragment) -> CloneLocation {
+        CloneLocation {
+            path: fragment.path.to_string(),
+            start_line: fragment.start_line,
+            end_line: fragment.end_line,
+        }
+    }
+}
+
+impl From<&SkippedFile> for SkippedEntry {
+    fn from(file: &SkippedFile) -> SkippedEntry {
+        SkippedEntry {
+            path: file.path.to_string(),
+            reason: file.reason.clone(),
+        }
+    }
+}
+
 impl Report {
-    pub fn summarize(model: &CodeModel, duplication: &Duplication) -> Report {
+    pub fn summarize(model: &CodeModel) -> Report {
         Report {
             files: model.files.len(),
             source_lines: model
@@ -67,7 +155,17 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
-            duplication: DuplicationReport::summarize(duplication),
+            erosion: ErosionSection::new(&Erosion::measure(model)),
+            duplication: DuplicationSection::new(&Duplication::measure(
+                model,
+                MinimumCloneTokens::PROVISIONAL_DEFAULT,
+            )),
+            skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
+            declaration_only: model
+                .declaration_only
+                .iter()
+                .map(RepoPath::to_string)
+                .collect(),
         }
     }
 

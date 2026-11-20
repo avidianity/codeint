@@ -200,7 +200,6 @@ dependencies = [
  "codeint-config",
  "codeint-git",
  "codeint-lang-ts",
- "codeint-metrics",
  "codeint-model",
  "codeint-report",
  "tempfile",
@@ -230,6 +229,8 @@ version = "0.1.0"
 dependencies = [
  "codeint-model",
  "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
  "oxc_parser",
  "oxc_span",
 ]
@@ -1626,6 +1627,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
+]
+
+[[package]]
+name = "oxc_ast_visit"
+version = "0.159.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a019293646229f79954cf7c5d022a13324c84e1b874e8ce030c8e7c0a56e5b0f"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_span",
+ "oxc_syntax",
 ]
 
 [[package]]

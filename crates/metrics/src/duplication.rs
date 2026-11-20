@@ -26,6 +26,43 @@ pub struct Duplication {
 }
 
 impl Duplication {
+    pub fn measure(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
+        let window = minimum.0.get();
+        let streams = interned_token_streams(model);
+        let classes = equal_window_classes(&streams, window);
+        let mut clone_lines = HashSet::new();
+        let mut clone_groups = Vec::new();
+        for (tokens, starts) in maximal_runs(&classes, window) {
+            let starts = without_overlaps(starts, tokens);
+            if starts.len() < 2 {
+                continue;
+            }
+            let mut fragments = Vec::with_capacity(starts.len());
+            for Position { file, token } in starts {
+                let covered = &model.files[file].model.tokens[token..token + tokens];
+                clone_lines.extend(covered.iter().map(|covered| (file, covered.line)));
+                fragments.push(fragment(&model.files[file].path, covered));
+            }
+            fragments.sort();
+            clone_groups.push(CloneGroup { tokens, fragments });
+        }
+        clone_groups.sort_by(|left, right| {
+            right
+                .tokens
+                .cmp(&left.tokens)
+                .then_with(|| left.fragments.cmp(&right.fragments))
+        });
+        Duplication {
+            clone_lines: clone_lines.len() as u64,
+            source_lines: model
+                .files
+                .iter()
+                .map(|file| u64::from(file.model.source_lines))
+                .sum(),
+            clone_groups,
+        }
+    }
+
     pub fn ratio(&self) -> f64 {
         if self.source_lines == 0 {
             0.0
@@ -46,43 +83,6 @@ pub struct Fragment {
     pub path: RepoPath,
     pub start_line: u32,
     pub end_line: u32,
-}
-
-pub fn find_clone_groups(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
-    let window = minimum.0.get();
-    let streams = interned_token_streams(model);
-    let classes = equal_window_classes(&streams, window);
-    let mut clone_lines = HashSet::new();
-    let mut clone_groups = Vec::new();
-    for (tokens, starts) in maximal_runs(&classes, window) {
-        let starts = without_overlaps(starts, tokens);
-        if starts.len() < 2 {
-            continue;
-        }
-        let mut fragments = Vec::with_capacity(starts.len());
-        for Position { file, token } in starts {
-            let covered = &model.files[file].model.tokens[token..token + tokens];
-            clone_lines.extend(covered.iter().map(|covered| (file, covered.line)));
-            fragments.push(fragment(&model.files[file].path, covered));
-        }
-        fragments.sort();
-        clone_groups.push(CloneGroup { tokens, fragments });
-    }
-    clone_groups.sort_by(|left, right| {
-        right
-            .tokens
-            .cmp(&left.tokens)
-            .then_with(|| left.fragments.cmp(&right.fragments))
-    });
-    Duplication {
-        clone_lines: clone_lines.len() as u64,
-        source_lines: model
-            .files
-            .iter()
-            .map(|file| u64::from(file.model.source_lines))
-            .sum(),
-        clone_groups,
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -19,6 +19,8 @@ codeint-report = { path = "crates/report" }
 gix = { version = "=0.90.0", default-features = false, features = ["dirwalk", "sha1"] }
 globset = "=0.4.21"
 oxc_allocator = "=0.159.0"
+oxc_ast = "=0.159.0"
+oxc_ast_visit = "=0.159.0"
 oxc_parser = "=0.159.0"
 oxc_span = "=0.159.0"
 serde = { version = "=1.0.229", features = ["derive"] }

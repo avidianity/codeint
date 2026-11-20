@@ -4,6 +4,17 @@ package codeint:plugin@0.1.0;
 
 /// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
 interface language {
+    /// One function of a source file.
+    /// A nested function is a function of its own and adds no decision points to the function around it.
+    record function {
+        /// The line where the function starts, counted from 1.
+        line: u32,
+        /// The decision points of the function, not counting those of nested functions.
+        decision-points: u32,
+        /// The source lines from the first to the last line of the function, nested functions included.
+        source-lines: u32,
+    }
+
     /// One token of a source file, as written, so never whitespace or a comment.
     record token {
         /// The text of the token.
@@ -16,6 +27,8 @@ interface language {
     record file-model {
         /// The lines that hold code, so not a blank line or a line with only comments.
         source-lines: u32,
+        /// Every function of the file, in the order their first lines appear.
+        functions: list<function>,
         /// Every token of the file, in source order.
         tokens: list<token>,
     }
@@ -28,6 +41,8 @@ interface language {
         unsupported-file(string),
         /// The file has more source lines than a `u32` holds.
         too-large,
+        /// The file only declares types and holds no code to measure, such as a TypeScript `.d.ts` file.
+        declaration-only,
     }
 
     /// The file extensions the Language plugin reads, each without its leading dot, such as `ts`.

@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, Token};
 
-use super::{CloneGroup, Fragment, MinimumCloneTokens, find_clone_groups};
+use super::{CloneGroup, Duplication, Fragment, MinimumCloneTokens};
 
 fn file(path: &str, lines: &[&str]) -> SourceFile {
     let tokens = lines
@@ -19,8 +19,16 @@ fn file(path: &str, lines: &[&str]) -> SourceFile {
         path: RepoPath::new(path).expect("a valid path"),
         model: FileModel {
             source_lines: u32::try_from(lines.len()).expect("few lines"),
+            functions: Vec::new(),
             tokens,
         },
+    }
+}
+
+fn model(files: Vec<SourceFile>) -> CodeModel {
+    CodeModel {
+        files,
+        ..CodeModel::default()
     }
 }
 
@@ -39,15 +47,13 @@ fn fragment(path: &str, start_line: u32, end_line: u32) -> Fragment {
 #[test]
 fn three_copies_form_one_clone_group_with_three_fragments() {
     let lines = ["a b c", "d e f"];
-    let model = CodeModel {
-        files: vec![
-            file("one.ts", &lines),
-            file("two.ts", &["x", "a b c", "d e f", "y"]),
-            file("three.ts", &lines),
-        ],
-    };
+    let model = model(vec![
+        file("one.ts", &lines),
+        file("two.ts", &["x", "a b c", "d e f", "y"]),
+        file("three.ts", &lines),
+    ]);
 
-    let duplication = find_clone_groups(&model, minimum(4));
+    let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(
         duplication.clone_groups,
@@ -67,11 +73,9 @@ fn three_copies_form_one_clone_group_with_three_fragments() {
 
 #[test]
 fn a_copy_inside_one_file_is_a_clone_group() {
-    let model = CodeModel {
-        files: vec![file("one.ts", &["a b c d", "x", "a b c d"])],
-    };
+    let model = model(vec![file("one.ts", &["a b c d", "x", "a b c d"])]);
 
-    let duplication = find_clone_groups(&model, minimum(4));
+    let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(
         duplication.clone_groups,
@@ -85,11 +89,9 @@ fn a_copy_inside_one_file_is_a_clone_group() {
 
 #[test]
 fn a_repeated_token_run_does_not_form_a_clone_group_with_itself() {
-    let model = CodeModel {
-        files: vec![file("zeros.ts", &["0 0 0 0 0"])],
-    };
+    let model = model(vec![file("zeros.ts", &["0 0 0 0 0"])]);
 
-    let duplication = find_clone_groups(&model, minimum(4));
+    let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(duplication.clone_groups, []);
     assert_eq!(duplication.clone_lines, 0);
@@ -97,22 +99,24 @@ fn a_repeated_token_run_does_not_form_a_clone_group_with_itself() {
 
 #[test]
 fn fragments_that_share_fewer_tokens_than_the_minimum_are_not_clones() {
-    let model = CodeModel {
-        files: vec![file("one.ts", &["a b c x"]), file("two.ts", &["a b c y"])],
-    };
+    let model = model(vec![
+        file("one.ts", &["a b c x"]),
+        file("two.ts", &["a b c y"]),
+    ]);
 
-    let duplication = find_clone_groups(&model, minimum(4));
+    let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(duplication.clone_groups, []);
 }
 
 #[test]
 fn a_fragment_of_exactly_the_minimum_size_is_a_clone() {
-    let model = CodeModel {
-        files: vec![file("one.ts", &["a b c d"]), file("two.ts", &["a b c d"])],
-    };
+    let model = model(vec![
+        file("one.ts", &["a b c d"]),
+        file("two.ts", &["a b c d"]),
+    ]);
 
-    let duplication = find_clone_groups(&model, minimum(4));
+    let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(duplication.clone_groups.len(), 1);
     assert_eq!(duplication.clone_groups[0].tokens, 4);
@@ -120,7 +124,7 @@ fn a_fragment_of_exactly_the_minimum_size_is_a_clone() {
 
 #[test]
 fn a_model_without_source_lines_has_a_ratio_of_zero() {
-    let duplication = find_clone_groups(&CodeModel::default(), minimum(4));
+    let duplication = Duplication::measure(&CodeModel::default(), minimum(4));
 
     assert_eq!(duplication.ratio(), 0.0);
     assert_eq!(duplication.clone_groups, []);
@@ -128,14 +132,12 @@ fn a_model_without_source_lines_has_a_ratio_of_zero() {
 
 #[test]
 fn larger_clone_groups_come_first() {
-    let model = CodeModel {
-        files: vec![
-            file("one.ts", &["a b c d", "p q r s t"]),
-            file("two.ts", &["a b c d", "x", "p q r s t"]),
-        ],
-    };
+    let model = model(vec![
+        file("one.ts", &["a b c d", "p q r s t"]),
+        file("two.ts", &["a b c d", "x", "p q r s t"]),
+    ]);
 
-    let duplication = find_clone_groups(&model, minimum(4));
+    let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(
         duplication

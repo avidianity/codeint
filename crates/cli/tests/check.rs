@@ -67,6 +67,43 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).expect("standard output is UTF-8")
 }
 
+fn summary(output: &Output) -> String {
+    stdout(output)
+        .lines()
+        .take_while(|line| !line.ends_with(':'))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+fn without_duplication(output: &Output) -> String {
+    report_lines(output, |section| section != "duplication")
+}
+
+fn duplication(output: &Output) -> String {
+    report_lines(output, |section| section == "duplication")
+}
+
+fn report_lines(output: &Output, keep_section: impl Fn(&str) -> bool) -> String {
+    let mut section = String::new();
+    stdout(output)
+        .lines()
+        .filter(|line| {
+            if !line.starts_with(' ') {
+                section = line.split([':', '[']).next().unwrap_or_default().to_owned();
+            }
+            keep_section(&section)
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+fn function_with_if_statements(name: &str, if_statements: usize) -> String {
+    let branches: String = (1..=if_statements)
+        .map(|value| format!("  if (value === {value}) return {value};\n"))
+        .collect();
+    format!("export function {name}(value: number): number {{\n{branches}  return 0;\n}}\n")
+}
+
 fn assert_success(output: &Output) {
     assert_eq!(
         output.status.code(),
@@ -92,10 +129,7 @@ fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files(
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(
-        stdout(&output),
-        format!("files: 2\nsource_lines: 5\n{NO_DUPLICATION}")
-    );
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 5\n");
 }
 
 #[test]
@@ -125,10 +159,7 @@ fn blank_lines_and_comment_only_lines_are_not_source_lines() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(
-        stdout(&output),
-        format!("files: 1\nsource_lines: 5\n{NO_DUPLICATION}")
-    );
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 5\n");
 }
 
 #[test]
@@ -145,10 +176,7 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(
-        stdout(&output),
-        format!("files: 8\nsource_lines: 8\n{NO_DUPLICATION}")
-    );
+    assert_eq!(summary(&output), "files: 8\nsource_lines: 8\n");
 }
 
 #[test]
@@ -170,10 +198,7 @@ fn files_git_ignores_are_not_measured_and_untracked_files_are() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(
-        stdout(&output),
-        format!("files: 2\nsource_lines: 3\n{NO_DUPLICATION}")
-    );
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 3\n");
 }
 
 #[test]
@@ -200,23 +225,196 @@ fn check_outside_a_git_repository_exits_with_an_operational_error() {
 }
 
 #[test]
-fn check_stops_with_an_operational_error_on_a_file_that_does_not_parse() {
+fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
     let repository = Repository::new();
-    repository.write("src/broken.ts", "export const = ;\n");
+    repository.write("src/broken.ts", "export const ok = 1;\nexport const = ;\n");
+    repository.write(
+        "src/main.ts",
+        "export const main = 1;\nexport const more = 2;\n",
+    );
     repository.commit_all();
 
     let output = repository.codeint(&["check"]);
 
-    assert_eq!(output.status.code(), Some(2));
-    assert!(stdout(&output).is_empty());
-    let message = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        message.starts_with("codeint: src/broken.ts: cannot parse")
-            && message.ends_with(
-                "\nFix the file named above so that it parses, then run codeint again.\n"
-            )
-            && message.lines().count() == 2,
-        "unexpected message: {message}"
+    assert_success(&output);
+    assert_eq!(
+        without_duplication(&output),
+        "files: 1\n\
+         source_lines: 2\n\
+         erosion:\n  \
+         ratio: 0\n  \
+         eroded_function_mass: 0\n  \
+         total_function_mass: 0\n  \
+         findings: []\n\
+         skipped[1]{path,reason}:\n  \
+         src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
+    );
+}
+
+#[test]
+fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_source_lines() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "types/globals.d.ts",
+        "declare const version: string;\ndeclare function greet(name: string): string;\n",
+    );
+    repository.write(
+        "types/module.d.mts",
+        "export declare const answer: number;\n",
+    );
+    repository.write("types/legacy.d.cts", "declare const legacy: number;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        without_duplication(&output),
+        "files: 1\n\
+         source_lines: 1\n\
+         erosion:\n  \
+         ratio: 0\n  \
+         eroded_function_mass: 0\n  \
+         total_function_mass: 0\n  \
+         findings: []\n\
+         declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
+    );
+}
+
+#[test]
+fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
+    let repository = Repository::new();
+    repository.write(
+        "src/mixed.ts",
+        concat!(
+            "export function eroded(value: number): number {\n",
+            "  const doubled = value * 2;\n",
+            "  if (doubled === 2) return 1;\n",
+            "  if (doubled === 4) return 2;\n",
+            "  if (doubled === 6) return 3;\n",
+            "  if (doubled === 8) return 4;\n",
+            "  if (doubled === 10) return 5;\n",
+            "  for (const step of [1, 2]) value += step;\n",
+            "  for (const key in { a: 1 }) value += key.length;\n",
+            "  for (let index = 0; index < 2; index++) value += index;\n",
+            "  while (value > 100) value -= 100;\n",
+            "  do value += 1; while (value < 0);\n",
+            "  if (doubled === 12) return 6;\n",
+            "  const tripled = value * 3;\n",
+            "  return tripled;\n",
+            "}\n",
+            "\n",
+            "export function small(values: number[]): number {\n",
+            "  let total = 0;\n",
+            "  const count = values.length;\n",
+            "  for (const value of values) {\n",
+            "    total += value;\n",
+            "  }\n",
+            "  total += count;\n",
+            "  return total;\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        without_duplication(&output),
+        concat!(
+            "files: 1\n",
+            "source_lines: 25\n",
+            "erosion:\n",
+            "  ratio: 0.8889\n",
+            "  eroded_function_mass: 48\n",
+            "  total_function_mass: 54\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/mixed.ts,1,12,16,48\n",
+        )
+    );
+}
+
+#[test]
+fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
+    let repository = Repository::new();
+    repository.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    repository.write("src/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        without_duplication(&output),
+        concat!(
+            "files: 3\n",
+            "source_lines: 39\n",
+            "erosion:\n",
+            "  ratio: 0.7094\n",
+            "  eroded_function_mass: 84.561\n",
+            "  total_function_mass: 119.202\n",
+            "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/eleven.ts,1,12,14,44.8999\n",
+            "    src/ten.ts,1,11,13,39.6611\n",
+        )
+    );
+}
+
+#[test]
+fn a_repository_without_functions_reports_erosion_0() {
+    let repository = Repository::new();
+    repository.write("src/constants.ts", "export const one = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        without_duplication(&output),
+        concat!(
+            "files: 1\n",
+            "source_lines: 1\n",
+            "erosion:\n",
+            "  ratio: 0\n",
+            "  eroded_function_mass: 0\n",
+            "  total_function_mass: 0\n",
+            "  findings: []\n",
+        )
+    );
+}
+
+#[test]
+fn decision_points_of_a_callback_count_only_toward_the_callback() {
+    let repository = Repository::new();
+    let branches: String = (1..=10)
+        .map(|value| format!("    if (row === {value}) return;\n"))
+        .collect();
+    repository.write(
+        "src/outer.ts",
+        &format!(
+            "export function outer(rows: number[]): void {{\n  rows.forEach((row) => {{\n{branches}  }});\n}}\n"
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        without_duplication(&output),
+        concat!(
+            "files: 1\n",
+            "source_lines: 14\n",
+            "erosion:\n",
+            "  ratio: 0.9106\n",
+            "  eroded_function_mass: 38.1051\n",
+            "  total_function_mass: 41.8468\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/outer.ts,2,11,12,38.1051\n",
+        )
     );
 }
 
@@ -281,10 +479,7 @@ fn check_of_a_subfolder_measures_the_whole_working_tree() {
     let output = repository.codeint(&["check", "src"]);
 
     assert_success(&output);
-    assert_eq!(
-        stdout(&output),
-        format!("files: 2\nsource_lines: 3\n{NO_DUPLICATION}")
-    );
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 3\n");
 }
 
 #[test]
@@ -310,7 +505,7 @@ fn an_unknown_option_prints_the_usage_error_and_exits_2() {
          \n\
          \x20 tip: to pass '--unknown' as a value, use '-- --unknown'\n\
          \n\
-         Usage: codeint check [PATH]\n\
+         Usage: codeint check [OPTIONS] [PATH]\n\
          \n\
          For more information, try '--help'.\n",
     );
@@ -357,6 +552,118 @@ fn a_closed_standard_output_is_an_operational_error_and_not_a_panic() {
     );
 }
 
+#[test]
+fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothing() {
+    let repository = Repository::new();
+    repository.write(
+        "src/main.ts",
+        "export const main = 1;\nexport const more = 2;\n",
+    );
+    repository.commit_all();
+    let printed = repository.codeint(&["check"]);
+    assert_success(&printed);
+
+    let output = repository.codeint(&["check", "--output", "report.toon"]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output).is_empty(),
+        "unexpected output: {}",
+        stdout(&output)
+    );
+    assert!(output.stderr.is_empty());
+    let saved = fs::read(repository.path().join("report.toon")).expect("read the report file");
+    assert_eq!(saved, printed.stdout);
+    assert_eq!(
+        saved,
+        format!("files: 1\nsource_lines: 2\nerosion:\n  ratio: 0\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n{NO_DUPLICATION}").as_bytes()
+    );
+}
+
+#[test]
+fn output_replaces_an_existing_file() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+    fs::write(
+        repository.path().join("report.toon"),
+        "an older and longer report\nthat spans two lines\n",
+    )
+    .expect("write the older report");
+
+    let output = repository.codeint(&["check", "--output", "report.toon"]);
+
+    assert_success(&output);
+    assert_eq!(
+        fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
+        format!(
+            "files: 1\nsource_lines: 1\nerosion:\n  ratio: 0\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n{NO_DUPLICATION}"
+        )
+    );
+}
+
+#[test]
+fn output_in_a_folder_that_does_not_exist_names_the_path_and_exits_2_before_measuring() {
+    let repository = Repository::new();
+    repository.write("src/broken.ts", "export const = ;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--output", "reports/today/report.toon"]);
+
+    assert_operational_error(
+        &output,
+        "codeint: cannot write the report to reports/today/report.toon: reports/today is not a folder that exists\n\
+         Create the folder first, or pass --output a file path in a folder that exists.\n",
+    );
+    assert!(!repository.path().join("reports").exists());
+}
+
+#[test]
+fn output_to_a_folder_names_the_path_and_exits_2() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--output", "src"]);
+
+    assert_unwritable_output(&output, "src");
+}
+
+#[cfg(unix)]
+#[test]
+fn output_to_a_read_only_file_names_the_path_exits_2_and_keeps_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+    let report = repository.path().join("report.toon");
+    fs::write(&report, "kept\n").expect("write the read-only report");
+    fs::set_permissions(&report, fs::Permissions::from_mode(0o444)).expect("make it read-only");
+
+    let output = repository.codeint(&["check", "--output", "report.toon"]);
+
+    assert_unwritable_output(&output, "report.toon");
+    assert_eq!(
+        fs::read_to_string(&report).expect("read the report"),
+        "kept\n"
+    );
+}
+
+fn assert_unwritable_output(output: &Output, path: &str) {
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stdout(output).is_empty());
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        message.starts_with(&format!("codeint: cannot write the report to {path}: "))
+            && message.ends_with(
+                "\nPass --output a file path that you have permission to write, not a folder.\n"
+            )
+            && message.lines().count() == 2,
+        "unexpected message: {message}"
+    );
+}
+
 const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
@@ -384,11 +691,10 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 20\n");
     assert_eq!(
-        stdout(&output),
+        duplication(&output),
         concat!(
-            "files: 2\n",
-            "source_lines: 20\n",
             "duplication:\n",
             "  ratio: 0.9\n",
             "  clone_lines: 18\n",
@@ -412,8 +718,6 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(
-        stdout(&output),
-        format!("files: 2\nsource_lines: 6\n{NO_DUPLICATION}")
-    );
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
+    assert_eq!(duplication(&output), NO_DUPLICATION);
 }
