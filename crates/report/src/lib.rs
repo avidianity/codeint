@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use codeint_metrics::{ErodedFunction, Erosion};
-use codeint_model::{CodeModel, RepoPath, SkippedFile};
+use codeint_model::{CodeModel, RepoPath, SkippedFile, SourceSet, SourceSets};
 use serde::Serialize;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
@@ -14,11 +14,30 @@ pub struct ReportError(#[source] toon_format::ToonError);
 pub struct Report {
     files: usize,
     source_lines: u64,
-    erosion: ErosionSection,
+    source_sets: SourceSetSections,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct SourceSetSections {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    production: Option<SourceSetSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    test: Option<SourceSetSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    generated: Option<SourceSetSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vendored: Option<SourceSetSection>,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceSetSection {
+    files: usize,
+    source_lines: u64,
+    erosion: ErosionSection,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +71,45 @@ impl Decimal {
     fn rounded(value: f64) -> Decimal {
         Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
     }
+}
+
+impl SourceSetSections {
+    fn new(source_sets: &SourceSets) -> SourceSetSections {
+        let mut sections = SourceSetSections::default();
+        for (source_set, model) in source_sets.iter() {
+            if !model.files.is_empty() {
+                *sections.slot(source_set) = Some(SourceSetSection::new(model));
+            }
+        }
+        sections
+    }
+
+    fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {
+        match source_set {
+            SourceSet::Production => &mut self.production,
+            SourceSet::Test => &mut self.test,
+            SourceSet::Generated => &mut self.generated,
+            SourceSet::Vendored => &mut self.vendored,
+        }
+    }
+}
+
+impl SourceSetSection {
+    fn new(model: &CodeModel) -> SourceSetSection {
+        SourceSetSection {
+            files: model.files.len(),
+            source_lines: source_lines(model),
+            erosion: ErosionSection::new(&Erosion::measure(model)),
+        }
+    }
+}
+
+fn source_lines(model: &CodeModel) -> u64 {
+    model
+        .files
+        .iter()
+        .map(|file| u64::from(file.model.source_lines))
+        .sum()
 }
 
 impl ErosionSection {
@@ -91,21 +149,17 @@ impl From<&SkippedFile> for SkippedEntry {
 }
 
 impl Report {
-    pub fn summarize(model: &CodeModel) -> Report {
+    pub fn summarize(model: CodeModel) -> Report {
         Report {
             files: model.files.len(),
-            source_lines: model
-                .files
-                .iter()
-                .map(|file| u64::from(file.model.source_lines))
-                .sum(),
-            erosion: ErosionSection::new(&Erosion::measure(model)),
+            source_lines: source_lines(&model),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only
                 .iter()
                 .map(RepoPath::to_string)
                 .collect(),
+            source_sets: SourceSetSections::new(&model.into_source_sets()),
         }
     }
 

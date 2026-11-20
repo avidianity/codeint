@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod functions;
+mod source_set;
 
 use codeint_model::language::{FileModel, Guest, LowerError};
 use oxc_allocator::Allocator;
@@ -8,6 +9,7 @@ use oxc_parser::Parser;
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
+use crate::source_set::source_set;
 
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
@@ -43,6 +45,7 @@ impl Guest for TypeScriptAndJavaScript {
             .map(|comment| comment.span.start as usize..comment.span.end as usize);
         let code_lines = CodeLines::new(&blank_out(&text, comment_spans));
         Ok(FileModel {
+            source_set: source_set(&path),
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
         })

@@ -24,7 +24,7 @@ pub(crate) enum CheckError {
 pub(crate) fn check(folder: &Path) -> Result<String, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let model = measure(&tree, &[&TypeScriptAndJavaScript])?;
-    Ok(Report::summarize(&model).to_toon()?)
+    Ok(Report::summarize(model).to_toon()?)
 }
 
 fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeModel, CheckError> {

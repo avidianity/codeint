@@ -14,7 +14,7 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::FileModel;
+pub use language::{FileModel, SourceSet};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoPath(String);
@@ -75,6 +75,42 @@ pub struct CodeModel {
     pub files: Vec<SourceFile>,
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceSets {
+    production: CodeModel,
+    test: CodeModel,
+    generated: CodeModel,
+    vendored: CodeModel,
+}
+
+impl CodeModel {
+    pub fn into_source_sets(self) -> SourceSets {
+        todo!()
+    }
+}
+
+impl SourceSets {
+    pub fn get(&self, source_set: SourceSet) -> &CodeModel {
+        match source_set {
+            SourceSet::Production => &self.production,
+            SourceSet::Test => &self.test,
+            SourceSet::Generated => &self.generated,
+            SourceSet::Vendored => &self.vendored,
+        }
+    }
+
+    pub fn iter(&self) -> std::array::IntoIter<(SourceSet, &CodeModel), 4> {
+        [
+            SourceSet::Production,
+            SourceSet::Test,
+            SourceSet::Generated,
+            SourceSet::Vendored,
+        ]
+        .map(|source_set| (source_set, self.get(source_set)))
+        .into_iter()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
