@@ -15,10 +15,25 @@ interface language {
         source-lines: u32,
     }
 
-    /// One token of a source file, as written, so never whitespace or a comment.
+    /// What a token is to clone detection, by the rules of the Language plugin.
+    enum token-kind {
+        /// A name the code chooses, such as a variable, function, parameter, type, or property name.
+        /// Clone detection treats every identifier as the same token.
+        identifier,
+        /// A literal value, such as a string, number, boolean, null, regular expression, or template text.
+        /// Clone detection treats every literal as the same token.
+        literal,
+        /// Any other token, such as a keyword, an operator, or punctuation.
+        /// Clone detection compares these by their text hash.
+        other,
+    }
+
+    /// One token of a source file, so never whitespace or a comment.
     record token {
-        /// The text of the token.
-        text: string,
+        /// Whether the token is an identifier, a literal, or another token.
+        kind: token-kind,
+        /// The 64-bit FNV-1a hash of the token's UTF-8 text as written.
+        text-hash: u64,
         /// The 1-based line on which the token starts.
         line: u32,
     }

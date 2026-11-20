@@ -1,6 +1,8 @@
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, Token};
+use codeint_model::{
+    CodeModel, FileModel, RepoPath, SourceFile, Token, TokenKind, token_text_hash,
+};
 
 use super::{CloneGroup, Duplication, Fragment, MinimumCloneTokens};
 
@@ -10,7 +12,8 @@ fn file(path: &str, lines: &[&str]) -> SourceFile {
         .zip(1u32..)
         .flat_map(|(line, number)| {
             line.split_whitespace().map(move |text| Token {
-                text: text.to_owned(),
+                kind: TokenKind::Other,
+                text_hash: token_text_hash(text),
                 line: number,
             })
         })

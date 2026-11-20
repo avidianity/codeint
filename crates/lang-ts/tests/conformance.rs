@@ -1,6 +1,8 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::Function;
-use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath};
+use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath, TokenKind, token_text_hash};
+
+use TokenKind::{Identifier, Literal, Other};
 
 fn plugin() -> &'static dyn LanguagePlugin {
     &TypeScriptAndJavaScript
@@ -447,22 +449,46 @@ fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
     assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
 }
 
-fn tokens(path: &str, text: &str) -> Vec<(String, u32)> {
+fn tokens(path: &str, text: &str, texts: &[&str]) -> Vec<(TokenKind, String, u32)> {
+    let text_of = |hash: u64| {
+        texts
+            .iter()
+            .find(|text| token_text_hash(text) == hash)
+            .map_or_else(
+                || format!("unknown text {hash:#x}"),
+                |text| (*text).to_owned(),
+            )
+    };
     match lower(path, text) {
         Ok(model) => model
             .tokens
             .into_iter()
-            .map(|token| (token.text, token.line))
+            .map(|token| (token.kind, text_of(token.text_hash), token.line))
             .collect(),
         Err(error) => panic!("{path} did not lower: {error}"),
     }
 }
 
-fn expected_tokens(tokens: &[(&str, u32)]) -> Vec<(String, u32)> {
-    tokens
+fn assert_tokens(path: &str, text: &str, expected: &[(TokenKind, &str, u32)]) {
+    let texts: Vec<&str> = expected.iter().map(|(_, text, _)| *text).collect();
+    let expected: Vec<(TokenKind, String, u32)> = expected
         .iter()
-        .map(|(text, line)| ((*text).to_owned(), *line))
-        .collect()
+        .map(|(kind, text, line)| (*kind, (*text).to_owned(), *line))
+        .collect();
+    assert_eq!(tokens(path, text, &texts), expected);
+}
+
+fn assert_token_kinds(path: &str, text: &str, expected: &[(&str, TokenKind)]) {
+    let texts: Vec<&str> = expected.iter().map(|(text, _)| *text).collect();
+    let actual: Vec<(String, TokenKind)> = tokens(path, text, &texts)
+        .into_iter()
+        .map(|(kind, text, _)| (text, kind))
+        .collect();
+    let expected: Vec<(String, TokenKind)> = expected
+        .iter()
+        .map(|(text, kind)| ((*text).to_owned(), *kind))
+        .collect();
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -479,45 +505,66 @@ fn the_token_stream_holds_each_token_with_its_line_and_no_whitespace_or_comments
         "${total} last`;\n",
     );
 
-    assert_eq!(
-        tokens("src/tokens.ts", text),
-        expected_tokens(&[
-            ("const", 3),
-            ("total", 3),
-            ("=", 3),
-            ("1", 3),
-            ("+", 3),
-            ("2", 3),
-            (";", 3),
-            ("export", 8),
-            ("const", 8),
-            ("text", 8),
-            ("=", 8),
-            ("`first\n${", 8),
-            ("total", 9),
-            ("} last`", 9),
-            (";", 9),
-        ])
+    assert_tokens(
+        "src/tokens.ts",
+        text,
+        &[
+            (Other, "const", 3),
+            (Identifier, "total", 3),
+            (Other, "=", 3),
+            (Literal, "1", 3),
+            (Other, "+", 3),
+            (Literal, "2", 3),
+            (Other, ";", 3),
+            (Other, "export", 8),
+            (Other, "const", 8),
+            (Identifier, "text", 8),
+            (Other, "=", 8),
+            (Literal, "`first\n${", 8),
+            (Identifier, "total", 9),
+            (Literal, "} last`", 9),
+            (Other, ";", 9),
+        ],
     );
 }
 
 #[test]
 fn the_token_stream_covers_jsx_and_regular_expressions() {
-    let text = "export const Hit = () => <b title=\"x\">{/a+/.test('aa')}</b>;\n";
-
-    assert_eq!(
-        tokens("src/hit.tsx", text)
-            .into_iter()
-            .map(|(text, _)| text)
-            .collect::<Vec<_>>(),
-        [
-            "export", "const", "Hit", "=", "(", ")", "=>", "<", "b", "title", "=", "\"x\"", ">",
-            "{", "/a+/", ".", "test", "(", "'aa'", ")", "}", "<", "/", "b", ">", ";",
-        ]
+    assert_token_kinds(
+        "src/hit.tsx",
+        "export const Hit = () => <b title=\"x\">{/a+/.test('aa')}</b>;\n",
+        &[
+            ("export", Other),
+            ("const", Other),
+            ("Hit", Identifier),
+            ("=", Other),
+            ("(", Other),
+            (")", Other),
+            ("=>", Other),
+            ("<", Other),
+            ("b", Identifier),
+            ("title", Identifier),
+            ("=", Other),
+            ("\"x\"", Literal),
+            (">", Other),
+            ("{", Other),
+            ("/a+/", Literal),
+            (".", Other),
+            ("test", Identifier),
+            ("(", Other),
+            ("'aa'", Literal),
+            (")", Other),
+            ("}", Other),
+            ("<", Other),
+            ("/", Other),
+            ("b", Identifier),
+            (">", Other),
+            (";", Other),
+        ],
     );
 }
 
 #[test]
 fn an_empty_file_has_no_tokens() {
-    assert_eq!(tokens("src/empty.ts", ""), []);
+    assert_eq!(tokens("src/empty.ts", "", &[]), []);
 }

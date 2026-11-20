@@ -1,14 +1,16 @@
 #![forbid(unsafe_code)]
 
 mod functions;
+mod tokens;
 
-use codeint_model::language::{FileModel, Guest, LowerError, Token};
+use codeint_model::language::{FileModel, Guest, LowerError};
 use oxc_allocator::Allocator;
+use oxc_parser::Parser;
 use oxc_parser::config::TokensParserConfig;
-use oxc_parser::{Kind, Parser};
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
+use crate::tokens::tokens;
 
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
@@ -48,36 +50,9 @@ impl Guest for TypeScriptAndJavaScript {
         Ok(FileModel {
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
-            tokens: tokens(&text, &parsed.tokens)?,
+            tokens: tokens(&text, &parsed.tokens, &parsed.program)?,
         })
     }
-}
-
-fn tokens(text: &str, lexed: &[oxc_parser::Token]) -> Result<Vec<Token>, LowerError> {
-    let mut tokens = Vec::with_capacity(lexed.len());
-    let mut line: u32 = 1;
-    let mut cursor = 0;
-    for token in lexed.iter().filter(|token| is_code_token(token.kind())) {
-        let start = token.start() as usize;
-        let newlines = text.as_bytes()[cursor..start]
-            .iter()
-            .filter(|byte| **byte == b'\n')
-            .count();
-        line = u32::try_from(newlines)
-            .ok()
-            .and_then(|newlines| line.checked_add(newlines))
-            .ok_or(LowerError::TooLarge)?;
-        cursor = start;
-        tokens.push(Token {
-            text: text[start..token.end() as usize].to_owned(),
-            line,
-        });
-    }
-    Ok(tokens)
-}
-
-fn is_code_token(kind: Kind) -> bool {
-    !matches!(kind, Kind::Eof | Kind::Skip | Kind::HashbangComment)
 }
 
 fn position(text: &str, offset: usize) -> String {

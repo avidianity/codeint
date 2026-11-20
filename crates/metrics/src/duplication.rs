@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, RepoPath, Token};
+use codeint_model::{CodeModel, RepoPath, Token, TokenKind};
 
 #[cfg(test)]
 mod tests;
@@ -105,8 +105,25 @@ struct WindowClasses {
     class_at: HashMap<Position, usize>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum NormalizedToken {
+    Identifier,
+    Literal,
+    Other { text_hash: u64 },
+}
+
+fn normalized(token: &Token) -> NormalizedToken {
+    match token.kind {
+        TokenKind::Identifier => NormalizedToken::Identifier,
+        TokenKind::Literal => NormalizedToken::Literal,
+        TokenKind::Other => NormalizedToken::Other {
+            text_hash: token.text_hash,
+        },
+    }
+}
+
 fn interned_token_streams(model: &CodeModel) -> Vec<Vec<u64>> {
-    let mut ids: HashMap<&str, u64> = HashMap::new();
+    let mut ids: HashMap<NormalizedToken, u64> = HashMap::new();
     model
         .files
         .iter()
@@ -116,7 +133,7 @@ fn interned_token_streams(model: &CodeModel) -> Vec<Vec<u64>> {
                 .iter()
                 .map(|token| {
                     let next_id = ids.len() as u64;
-                    *ids.entry(token.text.as_str()).or_insert(next_id)
+                    *ids.entry(normalized(token)).or_insert(next_id)
                 })
                 .collect()
         })

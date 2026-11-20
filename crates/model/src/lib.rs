@@ -14,7 +14,12 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, Token};
+pub use language::{FileModel, Token, TokenKind};
+
+pub fn token_text_hash(text: &str) -> u64 {
+    let _ = text;
+    todo!()
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoPath(String);
