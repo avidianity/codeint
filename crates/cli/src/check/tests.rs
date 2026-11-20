@@ -3,7 +3,9 @@ use std::process::Command;
 
 use codeint_config::FindingsShown;
 use codeint_model::LanguagePlugin;
-use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange, SourceSet};
+use codeint_model::language::{
+    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, SourceSet,
+};
 use tempfile::TempDir;
 
 use super::{CheckError, check_with};
@@ -27,7 +29,12 @@ fn lines_in(source_set: SourceSet, text: &str) -> Result<FileModel, LowerError> 
         functions: Vec::new(),
         tokens: Vec::new(),
         flagged_lines: Vec::new(),
+        runtime_imports: Vec::new(),
     })
+}
+
+fn all_external(requests: &[ImportRequest]) -> Vec<Resolution> {
+    requests.iter().map(|_| Resolution::External).collect()
 }
 
 fn erosion_range(low: f64, high: f64, source: &str) -> Vec<ReferenceRange> {
@@ -51,6 +58,13 @@ impl Guest for Alpha {
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
     }
+
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        all_external(&requests)
+    }
 }
 
 impl Guest for Beta {
@@ -65,6 +79,13 @@ impl Guest for Beta {
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
     }
+
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        all_external(&requests)
+    }
 }
 
 impl Guest for Malformed {
@@ -78,6 +99,13 @@ impl Guest for Malformed {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.7, 0.2, "Reversed")
+    }
+
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        all_external(&requests)
     }
 }
 
@@ -96,6 +124,13 @@ impl Guest for ChecksFolderIsTest {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
+    }
+
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        all_external(&requests)
     }
 }
 
@@ -207,6 +242,20 @@ fn an_invalid_reference_range_from_a_language_plugin_stops_the_check() {
     );
 }
 
+fn source_set_sizes(report: &str) -> Vec<&str> {
+    report
+        .lines()
+        .filter(|line| {
+            let code = line.trim_start();
+            match line.len() - code.len() {
+                2 => true,
+                4 => code.starts_with("files:") || code.starts_with("source_lines:"),
+                _ => false,
+            }
+        })
+        .collect()
+}
+
 #[test]
 fn the_core_puts_each_file_in_the_source_set_that_its_language_plugin_names() {
     let report = report(
@@ -219,19 +268,8 @@ fn the_core_puts_each_file_in_the_source_set_that_its_language_plugin_names() {
         &[&ChecksFolderIsTest],
     );
 
-    let source_sets = report
-        .lines()
-        .filter(|line| {
-            let code = line.trim_start();
-            match line.len() - code.len() {
-                2 => true,
-                4 => code.starts_with("files:") || code.starts_with("source_lines:"),
-                _ => false,
-            }
-        })
-        .collect::<Vec<_>>();
     assert_eq!(
-        source_sets,
+        source_set_sizes(&report),
         [
             "  production:",
             "    files: 2",
@@ -239,6 +277,33 @@ fn the_core_puts_each_file_in_the_source_set_that_its_language_plugin_names() {
             "  test:",
             "    files: 2",
             "    source_lines: 3",
+        ],
+        "unexpected report: {report}"
+    );
+}
+
+#[test]
+fn the_core_puts_a_file_under_a_vendor_or_third_party_folder_in_vendored_whatever_its_language_plugin_names()
+ {
+    let report = report(
+        &[
+            ("checks/vendor/first.checked", "one\n"),
+            ("vendor/second.checked", "one\ntwo\n"),
+            ("src/third_party/third.checked", "one\ntwo\nthree\n"),
+            ("src/main.checked", "one\ntwo\nthree\nfour\n"),
+        ],
+        &[&ChecksFolderIsTest],
+    );
+
+    assert_eq!(
+        source_set_sizes(&report),
+        [
+            "  production:",
+            "    files: 1",
+            "    source_lines: 4",
+            "  vendored:",
+            "    files: 3",
+            "    source_lines: 6",
         ],
         "unexpected report: {report}"
     );
