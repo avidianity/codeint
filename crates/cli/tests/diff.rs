@@ -326,7 +326,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
     fixture.commit("base");
     let merge_base = fixture.run_git(&["rev-parse", "HEAD"]);
     fixture.remove("src/a.ts");
-    fixture.put("src/b.ts", &function_with_if_statements("b", 12));
+    fixture.put("src/b.ts", &function_with_if_statements("b", 18));
 
     let output = fixture.codeint_diff(&["main", "--format", "markdown"]);
 
@@ -345,8 +345,8 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          | Source set | Metric | Base | Head | New | Resolved | Unchanged |\n\
          | ---------- | ------ | ---- | ---- | --- | -------- | --------- |\n\
          | Production | Erosion | 1 | 1 | 1 | 1 | 0 |\n\
-         | Production | Duplication | 0 | 0.8 | 1 | 0 | 0 |\n\
-         | Production | Verbosity | 0 | 0.8 | 0 | 0 | 0 |\n\
+         | Production | Duplication | 0 | 0.8571 | 1 | 0 | 0 |\n\
+         | Production | Verbosity | 0 | 0.8571 | 0 | 0 | 0 |\n\
          | Production | Import cycles | 0 | 0 | 0 | 0 | 0 |\n\
          \n\
          ## Production changes\n\
@@ -354,7 +354,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          ### New Erosion Findings\n\
          \n\
          {eroded_function_table}\n\
-         | `src/b.ts:1` | 13 | 15 | 50.3488 |\n\
+         | `src/b.ts:1` | 19 | 21 | 87.0689 |\n\
          \n\
          ### Resolved Erosion Findings\n\
          \n\
@@ -363,7 +363,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          \n\
          ### New Duplication Findings\n\
          \n\
-         - 54 tokens: `src/b.ts:2-7`, `src/b.ts:8-13`\n"
+         - 81 tokens: `src/b.ts:2-10`, `src/b.ts:11-19`\n"
         )
     );
 }

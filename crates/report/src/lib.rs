@@ -612,7 +612,7 @@ struct Measured {
 
 impl Measured {
     fn new(model: &CodeModel) -> Measured {
-        let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+        let duplication = Duplication::measure(model, MinimumCloneTokens::DEFAULT);
         Measured {
             erosion: Erosion::measure(model),
             verbosity: Verbosity::measure(model, &duplication.clone_lines),

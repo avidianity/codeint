@@ -1,12 +1,12 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The default minimum clone size is 75 tokens
 
-Ticket #33 of Spec #10 measured candidate minimums on 2026-11-21.
-The Owner approves the default before it lands in code.
-Until then, `MinimumCloneTokens::PROVISIONAL_DEFAULT` stays at 50 tokens.
+The Owner decided this on 2026-11-21, after Ticket #33 of Spec #10 measured candidate minimums the same day.
+`MinimumCloneTokens::DEFAULT` holds the 75 tokens.
+The structural filter that this record proposes is a separate Decision that is still pending; this record does not build it.
 
 ## Context
 
