@@ -1,13 +1,16 @@
 #![forbid(unsafe_code)]
 
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
+mod metric;
 mod runtime_imports;
 mod source_set;
 #[cfg(test)]
 mod tests;
+mod workspace;
 
 mod bindings {
     wit_bindgen::generate!({
@@ -19,9 +22,11 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, ReferenceRange, SourceSet, Token, TokenKind};
+pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind};
+pub use metric::Metric;
 pub use runtime_imports::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
 pub use source_set::settle_source_set;
+pub use workspace::{Package, Workspace, WorkspaceError};
 
 pub fn token_text_hash(text: &str) -> u64 {
     const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -58,12 +63,21 @@ impl RepoPath {
         &self.0
     }
 
+    pub fn file_name(&self) -> &str {
+        self.0.rsplit('/').next().unwrap_or(&self.0)
+    }
+
     pub fn extension(&self) -> Option<&str> {
-        let file_name = self.0.rsplit('/').next().unwrap_or(&self.0);
-        match file_name.rsplit_once('.') {
+        match self.file_name().rsplit_once('.') {
             Some((stem, extension)) if !stem.is_empty() => Some(extension),
             _ => None,
         }
+    }
+}
+
+impl Borrow<str> for RepoPath {
+    fn borrow(&self) -> &str {
+        &self.0
     }
 }
 
@@ -90,6 +104,7 @@ pub struct CodeModel {
     pub files: Vec<SourceFile>,
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
+    pub workspace: Workspace,
     pub submodules: Vec<RepoPath>,
     pub runtime_imports: Vec<RuntimeImport>,
 }
@@ -110,6 +125,14 @@ impl CodeModel {
             .map(|file| (file.path.clone(), file.model.source_set))
             .collect();
         let mut source_sets = SourceSets::default();
+        for source_set in [
+            &mut source_sets.production,
+            &mut source_sets.test,
+            &mut source_sets.generated,
+            &mut source_sets.vendored,
+        ] {
+            source_set.workspace = self.workspace.clone();
+        }
         for file in self.files {
             source_sets.get_mut(file.model.source_set).files.push(file);
         }
@@ -228,6 +251,10 @@ pub trait LanguagePlugin {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
 
+    fn workspace_manifests(&self) -> Vec<String>;
+
+    fn workspace_packages(&self, manifests: Vec<Manifest>)
+    -> Result<Vec<RepoPath>, WorkspaceError>;
     fn resolve_imports(
         &self,
         repository_paths: &[RepoPath],
@@ -244,6 +271,20 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
+    }
+
+    fn workspace_manifests(&self) -> Vec<String> {
+        Plugin::workspace_manifests()
+    }
+
+    fn workspace_packages(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        Plugin::workspace_packages(manifests)?
+            .into_iter()
+            .map(|root| Ok(RepoPath::new(root)?))
+            .collect()
     }
 
     fn resolve_imports(

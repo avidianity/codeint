@@ -27,6 +27,7 @@ impl<'schema> Shape<'schema> {
     ) -> Result<(), ConfigurationFileError> {
         let schema = self.resolve(schema);
         self.check_type(value, schema, key)?;
+        check_range(value, schema, key)?;
         match value {
             Value::Object(members) => self.check_members(members, schema, key),
             Value::Array(items) => self.check_items(items, schema, key),
@@ -98,6 +99,26 @@ impl<'schema> Shape<'schema> {
         };
         items.iter().enumerate().try_for_each(|(index, item)| {
             self.check(item, item_schema, &key.child(KeySegment::Index(index)))
+        })
+    }
+}
+
+fn check_range(value: &Value, schema: &Value, key: &KeyPath) -> Result<(), ConfigurationFileError> {
+    let (Some(found), Some(minimum), Some(maximum)) = (
+        value.as_f64(),
+        schema.get("minimum").and_then(Value::as_f64),
+        schema.get("maximum").and_then(Value::as_f64),
+    ) else {
+        return Ok(());
+    };
+    if (minimum..=maximum).contains(&found) {
+        Ok(())
+    } else {
+        Err(ConfigurationFileError::OutOfRange {
+            key: key.clone(),
+            minimum,
+            maximum,
+            found,
         })
     }
 }

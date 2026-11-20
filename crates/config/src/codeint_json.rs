@@ -1,7 +1,7 @@
 use std::fmt;
 use std::path::Path;
 
-use codeint_model::{RepoPath, SourceSet};
+use codeint_model::{Metric, RepoPath, SourceSet};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -14,6 +14,35 @@ pub const CONFIGURATION_FILE_NAME: &str = "codeint.json";
 #[derive(Debug, Default)]
 pub struct Configuration {
     pub source_set_overrides: SourceSetOverrides,
+    pub budgets: Budgets,
+}
+
+#[derive(Debug, Default)]
+pub struct Budgets {
+    set: Vec<(SourceSet, Metric, Budget)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(transparent)]
+pub struct Budget(f64);
+
+impl Budgets {
+    pub fn budget(&self, source_set: SourceSet, metric: Metric) -> Option<Budget> {
+        self.set
+            .iter()
+            .find(|(set, measured, _)| *set == source_set && *measured == metric)
+            .map(|(_, _, budget)| *budget)
+    }
+}
+
+impl Budget {
+    pub fn ratio(self) -> f64 {
+        self.0
+    }
+
+    pub fn admits(self, ratio: f64) -> bool {
+        ratio <= self.0
+    }
 }
 
 #[derive(Debug, Default)]
@@ -71,6 +100,15 @@ pub enum ConfigurationFileError {
         expected: Vec<JsonType>,
         found: JsonType,
     },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} must be between {minimum} and {maximum}, not {found}"
+    )]
+    OutOfRange {
+        key: KeyPath,
+        minimum: f64,
+        maximum: f64,
+        found: f64,
+    },
     #[error("{CONFIGURATION_FILE_NAME}: {key} is not a valid glob")]
     InvalidGlob {
         key: KeyPath,
@@ -96,6 +134,61 @@ struct ConfigurationFile {
         description = "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins."
     )]
     source_sets: SourceSetGlobs,
+    #[serde(default)]
+    #[schemars(
+        description = "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
+    )]
+    budgets: SourceSetBudgets,
+}
+
+#[derive(Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SourceSetBudgets {
+    #[serde(default)]
+    #[schemars(description = "The Budgets of the Production Source set.")]
+    production: MetricBudgets,
+    #[serde(default)]
+    #[schemars(description = "The Budgets of the Test Source set.")]
+    test: MetricBudgets,
+    #[serde(default)]
+    #[schemars(description = "The Budgets of the Generated Source set.")]
+    generated: MetricBudgets,
+    #[serde(default)]
+    #[schemars(description = "The Budgets of the Vendored Source set.")]
+    vendored: MetricBudgets,
+}
+
+#[derive(Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct MetricBudgets {
+    #[serde(default)]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Erosion ratio, from 0 to 1."
+    )]
+    erosion: Option<Budget>,
+    #[serde(default)]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Duplication ratio, from 0 to 1."
+    )]
+    duplication: Option<Budget>,
+    #[serde(default)]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Verbosity ratio, from 0 to 1."
+    )]
+    verbosity: Option<Budget>,
+    #[serde(default)]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Import cycles ratio, from 0 to 1."
+    )]
+    import_cycles: Option<Budget>,
 }
 
 #[derive(Default, Deserialize, JsonSchema)]
@@ -136,7 +229,42 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
     Ok(Configuration {
         source_set_overrides: source_set_overrides(file.source_sets)?,
+        budgets: budgets(file.budgets),
     })
+}
+
+fn budgets(file: SourceSetBudgets) -> Budgets {
+    let SourceSetBudgets {
+        production,
+        test,
+        generated,
+        vendored,
+    } = file;
+    let set = [
+        (SourceSet::Production, production),
+        (SourceSet::Test, test),
+        (SourceSet::Generated, generated),
+        (SourceSet::Vendored, vendored),
+    ]
+    .into_iter()
+    .flat_map(|(source_set, metric_budgets)| {
+        let MetricBudgets {
+            erosion,
+            duplication,
+            verbosity,
+            import_cycles,
+        } = metric_budgets;
+        [
+            (Metric::Erosion, erosion),
+            (Metric::Duplication, duplication),
+            (Metric::Verbosity, verbosity),
+            (Metric::ImportCycles, import_cycles),
+        ]
+        .into_iter()
+        .filter_map(move |(metric, ratio)| Some((source_set, metric, ratio?)))
+    })
+    .collect();
+    Budgets { set }
 }
 
 fn source_set_overrides(

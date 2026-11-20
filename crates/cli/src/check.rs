@@ -7,8 +7,9 @@ use codeint_config::{
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, ResolveError,
-    SkippedFile, SourceFile, resolve_runtime_imports, settle_source_set,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
+    ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError, resolve_runtime_imports,
+    settle_source_set,
 };
 use codeint_report::{ReferenceRangeScope, Report};
 
@@ -25,6 +26,8 @@ pub(crate) enum CheckError {
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
     ReferenceRange(#[source] InvalidReferenceRange),
+    #[error(transparent)]
+    Workspace(#[from] WorkspaceError),
 }
 
 struct Measurement {
@@ -45,7 +48,12 @@ fn check_with(
     let configuration = read_configuration(tree.root())?;
     let Measurement { model, ranges } =
         measure(&tree, plugins, &configuration.source_set_overrides)?;
-    Ok(Report::summarize(model, &ranges, findings))
+    Ok(Report::summarize(
+        model,
+        &ranges,
+        findings,
+        &configuration.budgets,
+    ))
 }
 
 fn reference_range_scope(
@@ -82,6 +90,7 @@ fn measure(
         })
         .collect();
     let mut model = CodeModel {
+        workspace: find_workspace(tree, plugins)?,
         submodules: tree.submodules().to_vec(),
         ..CodeModel::default()
     };
@@ -137,4 +146,27 @@ fn measure(
     }
     let ranges = reference_range_scope(plugins, &measured)?;
     Ok(Measurement { model, ranges })
+}
+
+fn find_workspace(
+    tree: &WorkingTree,
+    plugins: &[&dyn LanguagePlugin],
+) -> Result<Workspace, CheckError> {
+    let mut member_roots = Vec::new();
+    for plugin in plugins {
+        let manifest_names = plugin.workspace_manifests();
+        let manifests = tree
+            .files()
+            .iter()
+            .filter(|path| manifest_names.iter().any(|name| name == path.file_name()))
+            .map(|path| {
+                Ok(Manifest {
+                    path: path.to_string(),
+                    text: String::from_utf8_lossy(&tree.read(path)?).into_owned(),
+                })
+            })
+            .collect::<Result<Vec<Manifest>, GitError>>()?;
+        member_roots.extend(plugin.workspace_packages(manifests)?);
+    }
+    Ok(Workspace::new(member_roots))
 }

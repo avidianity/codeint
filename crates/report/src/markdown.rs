@@ -1,7 +1,8 @@
 use crate::{
-    CloneGroupFinding, CloneLocation, DuplicationSection, ErodedFunctionFinding, ErosionSection,
-    Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection, ReferenceRangeEntry, Report,
-    SourceSetSection, SourceSetSections, UnresolvedImportRow, VerbositySection,
+    BudgetFailure, CloneGroupFinding, CloneLocation, DuplicationSection, ErodedFunctionFinding,
+    ErosionSection, Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection,
+    PackageSection, ReferenceRangeEntry, Report, SourceSetSection, SourceSetSections,
+    UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -20,6 +21,16 @@ const ERODED_FUNCTION_COLUMNS: [&str; 4] = [
     "Cyclomatic complexity",
     "Source lines",
     "Function mass",
+];
+const PACKAGE_COLUMNS: [&str; 8] = [
+    "Source set",
+    "Package",
+    "Files",
+    "Source lines",
+    "Erosion",
+    "Duplication",
+    "Verbosity",
+    "Import cycles",
 ];
 const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
@@ -93,6 +104,23 @@ pub(crate) fn render(report: &Report) -> String {
                 .collect(),
         ));
     }
+    if !report.over_budget.is_empty() {
+        blocks.push("## Over Budget".to_string());
+        blocks.push(list(report.over_budget.iter().map(budget_failure_item)));
+    }
+    let package_rows: Vec<Vec<String>> = sections
+        .iter()
+        .flat_map(|(name, section)| {
+            section
+                .packages
+                .iter()
+                .map(|package| package_row(name, package))
+        })
+        .collect();
+    if !package_rows.is_empty() {
+        blocks.push("## Workspace packages".to_string());
+        blocks.push(table(&PACKAGE_COLUMNS, package_rows));
+    }
     for (name, section) in &sections {
         let findings = findings_blocks(section);
         if !findings.is_empty() {
@@ -106,6 +134,29 @@ pub(crate) fn render(report: &Report) -> String {
         blocks.push(not_measured.join("\n"));
     }
     blocks.join("\n\n")
+}
+
+fn budget_failure_item(failure: &BudgetFailure) -> String {
+    let sentence = failure.to_string();
+    let mut characters = sentence.chars();
+    let capitalized: String = characters
+        .next()
+        .map(|first| first.to_uppercase().chain(characters).collect())
+        .unwrap_or_default();
+    format!("{}.", prose(&capitalized))
+}
+
+fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
+    vec![
+        source_set.to_string(),
+        code(&package.path),
+        package.files.to_string(),
+        package.source_lines.to_string(),
+        package.erosion.ratio.0.to_string(),
+        package.duplication.ratio.0.to_string(),
+        package.verbosity.ratio.0.to_string(),
+        package.import_cycles.ratio.0.to_string(),
+    ]
 }
 
 impl SourceSetSections {

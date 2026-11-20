@@ -26,6 +26,30 @@ irm https://github.com/avidianity/codeint/releases/latest/download/install.ps1 |
 npx codeint check
 ```
 
+## Budgets
+
+A Budget is the highest ratio a Metric may reach in one Source set.
+Set Budgets in `codeint.json` at the root of the repository, one object per Source set:
+
+```json
+{
+  "budgets": {
+    "production": { "erosion": 0.2, "duplication": 0.05, "verbosity": 0.1, "import_cycles": 0 },
+    "test": { "duplication": 0.2 }
+  }
+}
+```
+
+Each Budget is a number from 0 to 1.
+A Budget applies only to its own Source set, and a Metric without a Budget never fails.
+codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
+
+When a Metric is over its Budget, codeint still writes the whole report, lists the Metric under `over_budget`, names it on standard error, and exits with code 1:
+
+```text
+codeint: the production erosion ratio 0.4321 is over its Budget 0.2
+```
+
 ## Report formats
 
 `codeint check` prints the report in TOON by default.
@@ -97,6 +121,7 @@ The top-level object has these fields:
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
 | `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
+| `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
 A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `duplication`, `verbosity`, and `import_cycles`.
 Each Metric object has these fields:
@@ -125,7 +150,7 @@ Each Finding is an object:
 Every `path` is relative to the root of the Git repository and uses `/` as the separator.
 Line numbers start at 1.
 
-An optional field is left out when it has no content: a Source set without files, an empty `skipped` or `declaration_only` list, and `findings_left_out` when no Finding is left out.
+An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `declaration_only`, or `over_budget` list, and `findings_left_out` when no Finding is left out.
 
 #### Compatibility rule
 
@@ -142,6 +167,7 @@ Readers ignore fields they do not know, and treat a missing optional field as em
 
 `--format markdown` prints a report to paste into a pull request comment.
 It starts with one table: each Metric's value per Source set, the counts behind the value, and the Reference range.
+Next come each Metric over its Budget and a table of the ratios of each workspace package, when there are any.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 
