@@ -70,11 +70,23 @@ struct OpenFunction {
 
 impl FunctionCollector<'_> {
     fn give_lines_to_nested(&mut self, first_line_index: usize, last_line_index: usize) {
-        let parent = self
-            .open
-            .last()
-            .map(|open| open.last_line_index_given_to_nested);
-        todo!("{parent:?} {first_line_index}..={last_line_index}")
+        let Some(parent) = self.open.last_mut() else {
+            return;
+        };
+        let first_line_index_not_given = match parent.last_line_index_given_to_nested {
+            Some(given) => first_line_index.max(given + 1),
+            None => first_line_index,
+        };
+        if first_line_index_not_given > last_line_index {
+            return;
+        }
+        parent.last_line_index_given_to_nested = Some(last_line_index);
+        let given_lines = saturating_u32(
+            self.code_lines
+                .count_between(first_line_index_not_given, last_line_index),
+        );
+        let function = &mut self.functions[parent.index];
+        function.source_lines = function.source_lines.saturating_sub(given_lines);
     }
 
     fn open_function(&mut self, span: Span) {

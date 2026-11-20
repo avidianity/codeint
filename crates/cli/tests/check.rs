@@ -365,9 +365,9 @@ fn a_repository_without_functions_reports_erosion_0() {
 }
 
 #[test]
-fn decision_points_of_a_callback_count_only_toward_the_callback() {
+fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
     let repository = Repository::new();
-    let branches: String = (1..=10)
+    let branches: String = (1..=11)
         .map(|value| format!("    if (row === {value}) return;\n"))
         .collect();
     repository.write(
@@ -385,13 +385,13 @@ fn decision_points_of_a_callback_count_only_toward_the_callback() {
         stdout(&output),
         concat!(
             "files: 1\n",
-            "source_lines: 14\n",
+            "source_lines: 15\n",
             "erosion:\n",
-            "  ratio: 0.9106\n",
-            "  eroded_function_mass: 38.1051\n",
-            "  total_function_mass: 41.8468\n",
+            "  ratio: 0.9683\n",
+            "  eroded_function_mass: 43.2666\n",
+            "  total_function_mass: 44.6808\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/outer.ts,2,11,12,38.1051\n",
+            "    src/outer.ts,2,12,13,43.2666\n",
         )
     );
 }
