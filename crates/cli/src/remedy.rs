@@ -1,4 +1,4 @@
-use codeint_config::ConfigError;
+use codeint_config::{ConfigError, ConfigurationFileError};
 use codeint_git::GitError;
 
 use crate::CliError;
@@ -8,6 +8,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(CheckError::Git(error)) => git_remedy(error),
+        CliError::Check(CheckError::Configuration(error)) => configuration_file_remedy(error),
         CliError::Check(CheckError::NotUtf8 { .. }) => {
             "Save the file as UTF-8, then run codeint again."
         }
@@ -60,4 +61,8 @@ fn git_remedy(error: &GitError) -> &'static str {
             "Check that you have permission to read the file, then run codeint again."
         }
     }
+}
+
+fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
+    todo!("{error:?}")
 }

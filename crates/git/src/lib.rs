@@ -63,6 +63,10 @@ impl WorkingTree {
         Ok(WorkingTree { root, files })
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn files(&self) -> &[RepoPath] {
         &self.files
     }
