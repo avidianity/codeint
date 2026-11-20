@@ -25,7 +25,7 @@ use crate::tokens::tokens;
 
 pub use rules::flagged_line_rules;
 
-const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+pub(crate) const EXTENSIONS: [&str; 8] = ["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"];
 const REFERENCE_RANGE_SOURCE: &str =
     "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
 

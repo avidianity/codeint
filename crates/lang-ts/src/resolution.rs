@@ -6,11 +6,10 @@ use std::collections::HashSet;
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
 use oxc_resolver::{ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 
+use crate::EXTENSIONS;
 use crate::resolution::packages::PackageLink;
 use crate::resolution::snapshot::Snapshot;
 use crate::workspaces::{PACKAGE_MANIFEST, PNPM_WORKSPACE_MANIFEST};
-
-const EXTENSIONS: [&str; 8] = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
 
 const TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT: [(&str, &[&str]); 4] = [
     (".js", &[".js", ".ts", ".tsx"]),
@@ -52,7 +51,10 @@ impl ProjectResolver {
             cwd: Some(snapshot::root()),
             tsconfig: Some(TsconfigDiscovery::Auto),
             condition_names: CONDITIONS.iter().map(ToString::to_string).collect(),
-            extensions: EXTENSIONS.iter().map(ToString::to_string).collect(),
+            extensions: EXTENSIONS
+                .iter()
+                .map(|extension| format!(".{extension}"))
+                .collect(),
             extension_alias: TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT
                 .iter()
                 .map(|(output, sources)| {
