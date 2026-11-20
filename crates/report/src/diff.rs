@@ -297,7 +297,7 @@ impl<T> MetricChanges<T> {
         metric: Metric,
         limits: &RegressionLimits,
     ) -> Vec<Regression> {
-        let limit = limits.limit(metric);
+        let limit = limits.limit(source_set, metric);
         REGRESSION_RULES
             .into_iter()
             .filter(|rule| self.breaks(*rule, limit))
