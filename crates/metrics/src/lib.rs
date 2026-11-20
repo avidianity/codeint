@@ -1,3 +1,7 @@
 #![forbid(unsafe_code)]
 
-pub mod import_cycles;
+mod erosion;
+mod import_cycles;
+
+pub use erosion::{ErodedFunction, Erosion};
+pub use import_cycles::{ImportCycle, ImportCycles};

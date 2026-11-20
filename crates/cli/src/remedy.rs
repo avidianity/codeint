@@ -11,9 +11,6 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Check(CheckError::NotUtf8 { .. }) => {
             "Save the file as UTF-8, then run codeint again."
         }
-        CliError::Check(CheckError::Lower { .. }) => {
-            "Fix the file named above so that it parses, then run codeint again."
-        }
         CliError::Check(CheckError::Resolve(_)) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
@@ -21,6 +18,9 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
         CliError::Output(_) => "Keep standard output open until codeint exits.",
+        CliError::OutputFile { .. } => {
+            "Pass --output a file path that you have permission to write, not a folder."
+        }
     }
 }
 
@@ -36,6 +36,9 @@ fn config_remedy(error: &ConfigError) -> &'static str {
             "Pass a folder, not a file; codeint measures the whole working tree that contains it."
         }
         ConfigError::UnreadablePath { .. } => "Pass a folder that you have permission to open.",
+        ConfigError::MissingOutputFolder { .. } => {
+            "Create the folder first, or pass --output a file path in a folder that exists."
+        }
     }
 }
 

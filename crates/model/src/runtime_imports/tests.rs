@@ -32,6 +32,7 @@ fn importer(name: &str, specifiers: &[&str]) -> SourceFile {
         path: path(name),
         model: FileModel {
             source_lines: 1,
+            functions: Vec::new(),
             runtime_imports: specifiers.iter().map(|text| (*text).to_owned()).collect(),
         },
     }

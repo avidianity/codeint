@@ -200,7 +200,6 @@ dependencies = [
  "codeint-config",
  "codeint-git",
  "codeint-lang-ts",
- "codeint-metrics",
  "codeint-model",
  "codeint-report",
  "tempfile",

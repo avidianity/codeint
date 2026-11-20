@@ -11,6 +11,7 @@ fn module(name: &str) -> SourceFile {
         path: path(name),
         model: FileModel {
             source_lines: 1,
+            functions: Vec::new(),
             runtime_imports: Vec::new(),
         },
     }
@@ -31,6 +32,7 @@ fn graph(modules: &[&str], imports: &[(&str, &str)]) -> CodeModel {
             .iter()
             .map(|(importer, target)| resolved(importer, target))
             .collect(),
+        ..CodeModel::default()
     }
 }
 

@@ -61,6 +61,14 @@ impl ImportCycles {
         }
     }
 
+    pub fn ratio(&self) -> f64 {
+        if self.modules > 0 {
+            self.modules_in_import_cycles() as f64 / self.modules as f64
+        } else {
+            0.0
+        }
+    }
+
     pub fn modules(&self) -> usize {
         self.modules
     }

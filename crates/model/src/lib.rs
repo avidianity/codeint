@@ -66,9 +66,17 @@ pub struct SourceFile {
     pub model: FileModel,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkippedFile {
+    pub path: RepoPath,
+    pub reason: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CodeModel {
     pub files: Vec<SourceFile>,
+    pub skipped: Vec<SkippedFile>,
+    pub declaration_only: Vec<RepoPath>,
     pub runtime_imports: Vec<RuntimeImport>,
 }
 
@@ -80,6 +88,8 @@ pub enum LowerError {
     UnsupportedFile { message: String },
     #[error("the file has more source lines than the Code model can hold")]
     TooLarge,
+    #[error("the file only declares types and holds no code to measure")]
+    DeclarationOnly,
 }
 
 impl From<language::LowerError> for LowerError {
@@ -90,6 +100,7 @@ impl From<language::LowerError> for LowerError {
                 LowerError::UnsupportedFile { message }
             }
             language::LowerError::TooLarge => LowerError::TooLarge,
+            language::LowerError::DeclarationOnly => LowerError::DeclarationOnly,
         }
     }
 }

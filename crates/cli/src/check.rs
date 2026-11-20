@@ -4,9 +4,8 @@ use std::string::FromUtf8Error;
 
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_metrics::import_cycles::ImportCycles;
 use codeint_model::{
-    CodeModel, LanguagePlugin, LowerError, RepoPath, ResolveError, SourceFile,
+    CodeModel, LanguagePlugin, LowerError, RepoPath, ResolveError, SkippedFile, SourceFile,
     resolve_runtime_imports,
 };
 use codeint_report::{Report, ReportError};
@@ -21,12 +20,6 @@ pub(crate) enum CheckError {
         #[source]
         source: FromUtf8Error,
     },
-    #[error("{path}")]
-    Lower {
-        path: RepoPath,
-        #[source]
-        source: LowerError,
-    },
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error(transparent)]
@@ -36,8 +29,7 @@ pub(crate) enum CheckError {
 pub(crate) fn check(folder: &Path) -> Result<String, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let model = measure(&tree, &[&TypeScriptAndJavaScript])?;
-    let import_cycles = ImportCycles::measure(&model);
-    Ok(Report::summarize(&model, &import_cycles).to_toon()?)
+    Ok(Report::summarize(&model).to_toon()?)
 }
 
 fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeModel, CheckError> {
@@ -65,18 +57,20 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
             path: path.clone(),
             source,
         })?;
-        let file =
-            plugins[plugin_index]
-                .lower(path, &text)
-                .map_err(|source| CheckError::Lower {
+        match plugins[plugin_index].lower(path, &text) {
+            Ok(file) => {
+                model.files.push(SourceFile {
                     path: path.clone(),
-                    source,
-                })?;
-        model.files.push(SourceFile {
-            path: path.clone(),
-            model: file,
-        });
-        plugin_of_file.push(plugin_index);
+                    model: file,
+                });
+                plugin_of_file.push(plugin_index);
+            }
+            Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
+            Err(reason) => model.skipped.push(SkippedFile {
+                path: path.clone(),
+                reason: reason.to_string(),
+            }),
+        }
     }
     for (plugin_index, plugin) in plugins.iter().enumerate() {
         let importers: Vec<&SourceFile> = model
