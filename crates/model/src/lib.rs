@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 use std::borrow::Borrow;
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::fmt;
 
 #[cfg(test)]
@@ -12,11 +14,12 @@ mod bindings {
         world: "language-plugin",
         path: "../../wit",
         additional_derives: [PartialEq, Eq],
+        additional_derives_ignore: ["reference-range"],
     });
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, Manifest, Token};
+pub use language::{FileModel, Manifest, ReferenceRange, Token};
 pub use workspace::{Package, Workspace, WorkspaceError};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -115,6 +118,51 @@ impl From<language::LowerError> for LowerError {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ReferenceRanges {
+    by_metric: BTreeMap<String, ReferenceRange>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidReferenceRange {
+    #[error("the Language plugin supplies more than one Reference range for {metric}")]
+    Duplicate { metric: String },
+    #[error(
+        "the Reference range for {metric} runs from {low} to {high}, but a Reference range runs from a lower to a higher ratio between 0 and 1"
+    )]
+    Bounds { metric: String, low: f64, high: f64 },
+}
+
+impl ReferenceRanges {
+    pub fn new(ranges: Vec<ReferenceRange>) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        let mut by_metric = BTreeMap::new();
+        for range in ranges {
+            if !(0.0 <= range.low && range.low <= range.high && range.high <= 1.0) {
+                return Err(InvalidReferenceRange::Bounds {
+                    metric: range.metric,
+                    low: range.low,
+                    high: range.high,
+                });
+            }
+            match by_metric.entry(range.metric.clone()) {
+                Entry::Occupied(_) => {
+                    return Err(InvalidReferenceRange::Duplicate {
+                        metric: range.metric,
+                    });
+                }
+                Entry::Vacant(vacant) => {
+                    vacant.insert(range);
+                }
+            }
+        }
+        Ok(ReferenceRanges { by_metric })
+    }
+
+    pub fn for_metric(&self, metric: &str) -> Option<&ReferenceRange> {
+        self.by_metric.get(metric)
+    }
+}
+
 pub trait LanguagePlugin {
     fn extensions(&self) -> Vec<String>;
 
@@ -124,6 +172,8 @@ pub trait LanguagePlugin {
 
     fn workspace_packages(&self, manifests: Vec<Manifest>)
     -> Result<Vec<RepoPath>, WorkspaceError>;
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
 }
 
 impl<Plugin: language::Guest> LanguagePlugin for Plugin {
@@ -147,5 +197,9 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
             .into_iter()
             .map(|root| Ok(RepoPath::new(root)?))
             .collect()
+    }
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        ReferenceRanges::new(Plugin::reference_ranges())
     }
 }

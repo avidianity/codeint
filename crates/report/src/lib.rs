@@ -7,11 +7,14 @@ use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
     MinimumCloneTokens, Verbosity,
 };
-use codeint_model::{CodeModel, Package, RepoPath, SkippedFile};
+use codeint_model::{CodeModel, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
+const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
+const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
+    "not shown, because the measured files are in more than one language";
 
 #[derive(Debug, thiserror::Error)]
 #[error("cannot render the report")]
@@ -32,9 +35,26 @@ pub struct Report {
     declaration_only: Vec<String>,
 }
 
+pub enum ReferenceRangeScope {
+    OneLanguage(ReferenceRanges),
+    SeveralLanguages,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum ReferenceRangeEntry {
+    Published {
+        low: Decimal,
+        high: Decimal,
+        source: String,
+    },
+    NotShown(&'static str),
+}
+
 #[derive(Debug, Serialize)]
 struct ErosionSection {
     ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
     #[serde(flatten)]
@@ -78,6 +98,7 @@ struct PackageErosion {
 #[derive(Debug, Serialize)]
 struct DuplicationSection {
     ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
     clone_lines: u64,
     #[serde(flatten)]
     clone_groups: Findings<CloneGroupFinding>,
@@ -99,6 +120,7 @@ struct CloneLocation {
 #[derive(Debug, Serialize)]
 struct VerbositySection {
     ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
     verbose_lines: u64,
     #[serde(flatten)]
     findings: Findings<FlaggedLineRow>,
@@ -124,6 +146,30 @@ struct SkippedEntry {
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
         Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
+    }
+}
+
+impl ReferenceRangeScope {
+    fn entry(&self, metric: &str) -> ReferenceRangeEntry {
+        match self {
+            ReferenceRangeScope::OneLanguage(ranges) => ranges.for_metric(metric).map_or(
+                ReferenceRangeEntry::NotShown(NOT_PUBLISHED_FOR_THIS_LANGUAGE),
+                ReferenceRangeEntry::from,
+            ),
+            ReferenceRangeScope::SeveralLanguages => {
+                ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_SEVERAL_LANGUAGES)
+            }
+        }
+    }
+}
+
+impl From<&ReferenceRange> for ReferenceRangeEntry {
+    fn from(range: &ReferenceRange) -> ReferenceRangeEntry {
+        ReferenceRangeEntry::Published {
+            low: Decimal::rounded(range.low),
+            high: Decimal::rounded(range.high),
+            source: range.source.clone(),
+        }
     }
 }
 
@@ -168,9 +214,14 @@ impl FindingKind for FlaggedLineRow {
 }
 
 impl ErosionSection {
-    fn new(erosion: &Erosion, shown: FindingsShown) -> ErosionSection {
+    fn new(
+        erosion: &Erosion,
+        ranges: &ReferenceRangeScope,
+        shown: FindingsShown,
+    ) -> ErosionSection {
         ErosionSection {
             ratio: Decimal::rounded(erosion.ratio()),
+            reference_range: ranges.entry("erosion"),
             eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
             total_function_mass: Decimal::rounded(erosion.total_function_mass()),
             findings: Findings::worst_first(
@@ -197,9 +248,14 @@ impl ErodedFunctionFinding {
 }
 
 impl DuplicationSection {
-    fn new(duplication: &Duplication, shown: FindingsShown) -> DuplicationSection {
+    fn new(
+        duplication: &Duplication,
+        ranges: &ReferenceRangeScope,
+        shown: FindingsShown,
+    ) -> DuplicationSection {
         DuplicationSection {
             ratio: Decimal::rounded(duplication.ratio()),
+            reference_range: ranges.entry("duplication"),
             clone_lines: duplication.clone_lines,
             clone_groups: Findings::worst_first(
                 duplication.clone_groups.iter().map(CloneGroupFinding::new),
@@ -229,9 +285,14 @@ impl CloneLocation {
 }
 
 impl VerbositySection {
-    fn new(verbosity: &Verbosity, shown: FindingsShown) -> VerbositySection {
+    fn new(
+        verbosity: &Verbosity,
+        ranges: &ReferenceRangeScope,
+        shown: FindingsShown,
+    ) -> VerbositySection {
         VerbositySection {
             ratio: Decimal::rounded(verbosity.ratio()),
+            reference_range: ranges.entry("verbosity"),
             verbose_lines: verbosity.verbose_lines(),
             findings: Findings::worst_first(
                 verbosity.flagged_lines().iter().map(FlaggedLineRow::from),
@@ -291,7 +352,11 @@ fn package_sections(model: &CodeModel, erosion: &Erosion) -> Vec<PackageSection>
 }
 
 impl Report {
-    pub fn summarize(model: &CodeModel, findings: FindingsShown) -> Report {
+    pub fn summarize(
+        model: &CodeModel,
+        ranges: &ReferenceRangeScope,
+        findings: FindingsShown,
+    ) -> Report {
         let erosion = Erosion::measure(model);
         Report {
             files: model.files.len(),
@@ -301,12 +366,13 @@ impl Report {
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
             packages: package_sections(model, &erosion),
-            erosion: ErosionSection::new(&erosion, findings),
+            erosion: ErosionSection::new(&erosion, ranges, findings),
             duplication: DuplicationSection::new(
                 &Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
+                ranges,
                 findings,
             ),
-            verbosity: VerbositySection::new(&Verbosity::measure(model), findings),
+            verbosity: VerbositySection::new(&Verbosity::measure(model), ranges, findings),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

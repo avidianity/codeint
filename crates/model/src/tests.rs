@@ -1,4 +1,5 @@
-use super::{Package, RepoPath, Workspace};
+use super::language::{FileModel, Guest, LowerError, Manifest, ReferenceRange, WorkspaceError};
+use super::{InvalidReferenceRange, LanguagePlugin, Package, ReferenceRanges, RepoPath, Workspace};
 
 fn path(text: &str) -> RepoPath {
     RepoPath::new(text).expect("a valid path")
@@ -37,6 +38,94 @@ fn the_packages_of_a_workspace_are_the_root_package_then_each_member_by_path() {
             .collect::<Vec<Package<'_>>>(),
         [Package::Root]
     );
+}
+
+struct MeasuredLanguage;
+
+impl Guest for MeasuredLanguage {
+    fn extensions() -> Vec<String> {
+        vec!["measured".to_owned()]
+    }
+
+    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        Ok(FileModel {
+            source_lines: u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?,
+            functions: Vec::new(),
+            tokens: Vec::new(),
+            flagged_lines: Vec::new(),
+        })
+    }
+
+    fn workspace_manifests() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        Ok(Vec::new())
+    }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        vec![range("erosion", 0.12, 0.56, "Measured panel, Table 1")]
+    }
+}
+
+fn range(metric: &str, low: f64, high: f64, source: &str) -> ReferenceRange {
+    ReferenceRange {
+        metric: metric.to_owned(),
+        low,
+        high,
+        source: source.to_owned(),
+    }
+}
+
+#[test]
+fn a_reference_range_that_a_plugin_supplies_comes_back_for_its_metric_with_its_source_label() {
+    let plugin: &dyn LanguagePlugin = &MeasuredLanguage;
+
+    let ranges = plugin.reference_ranges().expect("valid Reference ranges");
+
+    let erosion = ranges.for_metric("erosion").expect("an Erosion range");
+    assert_eq!(
+        (erosion.low, erosion.high, erosion.source.as_str()),
+        (0.12, 0.56, "Measured panel, Table 1")
+    );
+    assert!(ranges.for_metric("verbosity").is_none());
+    assert!(ranges.for_metric("Erosion").is_none());
+}
+
+#[test]
+fn two_reference_ranges_for_one_metric_are_invalid() {
+    let result = ReferenceRanges::new(vec![
+        range("erosion", 0.1, 0.2, "First"),
+        range("erosion", 0.3, 0.4, "Second"),
+    ]);
+
+    assert!(
+        matches!(&result, Err(InvalidReferenceRange::Duplicate { metric }) if metric == "erosion"),
+        "unexpected result: {result:?}"
+    );
+}
+
+#[test]
+fn a_reference_range_must_run_from_a_lower_to_a_higher_ratio_between_0_and_1() {
+    for (low, high) in [
+        (0.5, 0.4),
+        (-0.1, 0.4),
+        (0.1, 1.1),
+        (f64::NAN, 0.4),
+        (0.1, f64::NAN),
+        (0.1, f64::INFINITY),
+    ] {
+        let result = ReferenceRanges::new(vec![range("verbosity", low, high, "Source")]);
+
+        assert!(
+            matches!(result, Err(InvalidReferenceRange::Bounds { .. })),
+            "{low} to {high}: unexpected result: {result:?}"
+        );
+    }
+    for (low, high) in [(0.0, 1.0), (0.3, 0.3)] {
+        assert!(ReferenceRanges::new(vec![range("verbosity", low, high, "Source")]).is_ok());
+    }
 }
 
 #[test]

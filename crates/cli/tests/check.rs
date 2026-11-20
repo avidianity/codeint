@@ -108,15 +108,18 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          source_lines: {source_lines}\n\
          erosion:\n  \
          ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
          eroded_function_mass: 0\n  \
          total_function_mass: 0\n  \
          findings: []\n\
          duplication:\n  \
          ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
          clone_lines: 0\n  \
          clone_groups: []\n\
          verbosity:\n  \
          ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
          verbose_lines: 0\n  \
          findings: []\n"
     )
@@ -165,6 +168,7 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
         section(&output, "verbosity"),
         "verbosity:\n  \
          ratio: 0.15\n  \
+         reference_range: no published Reference range for this language\n  \
          verbose_lines: 3\n  \
          findings[3]{path,line,rule}:\n    \
          src/sign.ts,4,else-after-return\n    \
@@ -375,6 +379,7 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
         concat!(
             "erosion:\n",
             "  ratio: 0.8889\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 48\n",
             "  total_function_mass: 54\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -400,6 +405,7 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
         concat!(
             "erosion:\n",
             "  ratio: 0.7094\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 84.561\n",
             "  total_function_mass: 119.202\n",
             "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -424,11 +430,37 @@ fn a_repository_without_functions_reports_erosion_0() {
         concat!(
             "erosion:\n",
             "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 0\n",
             "  findings: []\n",
         )
     );
+}
+
+#[test]
+fn the_typescript_and_javascript_report_says_that_no_published_reference_range_exists_for_each_metric()
+ {
+    let repository = Repository::new();
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.write("src/sum.js", "export const sum = (a, b) => a + b;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let report = stdout(&output);
+    let metric_sections = report
+        .lines()
+        .filter(|line| !line.starts_with(' ') && line.ends_with(':'))
+        .count();
+    let unpublished = report
+        .lines()
+        .filter(|line| *line == "  reference_range: no published Reference range for this language")
+        .count();
+    assert!(metric_sections >= 3, "unexpected report: {report}");
+    assert_eq!(unpublished, metric_sections, "unexpected report: {report}");
+    assert!(!report.contains("low:"), "unexpected report: {report}");
 }
 
 #[test]
@@ -454,6 +486,7 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
         concat!(
             "erosion:\n",
             "  ratio: 0.9683\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 43.2666\n",
             "  total_function_mass: 44.6808\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -797,7 +830,7 @@ fn assert_unwritable_output(output: &Output, path: &str) {
     );
 }
 
-const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  clone_lines: 0\n  clone_groups: []\n";
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
     "export function total(items: { price: number; quantity: number }[]): number {\n",
@@ -830,6 +863,7 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
         concat!(
             "duplication:\n",
             "  ratio: 0.9\n",
+            "  reference_range: no published Reference range for this language\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - tokens: 59\n",
@@ -932,16 +966,19 @@ const TWO_PACKAGE_REPORT: &str = concat!(
     "source_lines: 21\n",
     "erosion:\n",
     "  ratio: 0.8209\n",
+    "  reference_range: no published Reference range for this language\n",
     "  eroded_function_mass: 44.8999\n",
     "  total_function_mass: 54.6978\n",
     "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
     "    packages/eroded/src/branches.ts,1,12,14,44.8999\n",
     "duplication:\n",
     "  ratio: 0\n",
+    "  reference_range: no published Reference range for this language\n",
     "  clone_lines: 0\n",
     "  clone_groups: []\n",
     "verbosity:\n",
     "  ratio: 0\n",
+    "  reference_range: no published Reference range for this language\n",
     "  verbose_lines: 0\n",
     "  findings: []\n",
     "packages[3]{path,files,source_lines,erosion{ratio,eroded_function_mass,total_function_mass}}:\n",

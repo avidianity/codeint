@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::string::FromUtf8Error;
 
@@ -6,10 +6,13 @@ use codeint_config::FindingsShown;
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, LanguagePlugin, LowerError, Manifest, RepoPath, SkippedFile, SourceFile, Workspace,
-    WorkspaceError,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
+    RepoPath, SkippedFile, SourceFile, Workspace, WorkspaceError,
 };
-use codeint_report::{Report, ReportError};
+use codeint_report::{ReferenceRangeScope, Report, ReportError};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CheckError {
@@ -21,45 +24,83 @@ pub(crate) enum CheckError {
         #[source]
         source: FromUtf8Error,
     },
+    #[error("a Language plugin supplies an invalid Reference range")]
+    ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     Report(#[from] ReportError),
 }
 
-pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
-    let tree = WorkingTree::discover(folder)?;
-    let model = measure(&tree, &[&TypeScriptAndJavaScript])?;
-    Ok(Report::summarize(&model, findings).to_toon()?)
+struct Measurement {
+    model: CodeModel,
+    ranges: ReferenceRangeScope,
 }
 
-fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeModel, CheckError> {
-    let plugins_by_extension: HashMap<String, &dyn LanguagePlugin> = plugins
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
+    check_with(folder, &[&TypeScriptAndJavaScript], findings)
+}
+
+fn check_with(
+    folder: &Path,
+    plugins: &[&dyn LanguagePlugin],
+    findings: FindingsShown,
+) -> Result<String, CheckError> {
+    let tree = WorkingTree::discover(folder)?;
+    let Measurement { model, ranges } = measure(&tree, plugins)?;
+    Ok(Report::summarize(&model, &ranges, findings).to_toon()?)
+}
+
+fn reference_range_scope(
+    plugins: &[&dyn LanguagePlugin],
+    measured: &BTreeSet<usize>,
+) -> Result<ReferenceRangeScope, CheckError> {
+    let mut ranges_by_plugin = plugins
         .iter()
-        .flat_map(|plugin| {
+        .map(|plugin| plugin.reference_ranges())
+        .collect::<Result<Vec<ReferenceRanges>, _>>()
+        .map_err(CheckError::ReferenceRange)?;
+    match measured.iter().collect::<Vec<_>>().as_slice() {
+        [] => Ok(ReferenceRangeScope::OneLanguage(ReferenceRanges::default())),
+        [only] => Ok(ReferenceRangeScope::OneLanguage(
+            ranges_by_plugin.swap_remove(**only),
+        )),
+        _ => Ok(ReferenceRangeScope::SeveralLanguages),
+    }
+}
+
+fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measurement, CheckError> {
+    let plugins_by_extension: HashMap<String, usize> = plugins
+        .iter()
+        .enumerate()
+        .flat_map(|(index, plugin)| {
             plugin
                 .extensions()
                 .into_iter()
-                .map(move |extension| (extension, *plugin))
+                .map(move |extension| (extension, index))
         })
         .collect();
     let mut model = CodeModel {
         workspace: find_workspace(tree, plugins)?,
         ..CodeModel::default()
     };
+    let mut measured = BTreeSet::new();
     for path in tree.files() {
-        let Some(plugin) = path
+        let Some(&index) = path
             .extension()
             .and_then(|extension| plugins_by_extension.get(extension))
         else {
             continue;
         };
         let text = read_text(tree, path)?;
-        match plugin.lower(path, &text) {
-            Ok(file) => model.files.push(SourceFile {
-                path: path.clone(),
-                model: file,
-            }),
+        match plugins[index].lower(path, &text) {
+            Ok(file) => {
+                measured.insert(index);
+                model.files.push(SourceFile {
+                    path: path.clone(),
+                    model: file,
+                });
+            }
             Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
             Err(reason) => model.skipped.push(SkippedFile {
                 path: path.clone(),
@@ -67,7 +108,8 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
             }),
         }
     }
-    Ok(model)
+    let ranges = reference_range_scope(plugins, &measured)?;
+    Ok(Measurement { model, ranges })
 }
 
 fn find_workspace(

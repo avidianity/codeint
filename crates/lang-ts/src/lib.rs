@@ -4,7 +4,9 @@ mod functions;
 mod rules;
 mod workspaces;
 
-use codeint_model::language::{FileModel, Guest, LowerError, Manifest, Token, WorkspaceError};
+use codeint_model::language::{
+    FileModel, Guest, LowerError, Manifest, ReferenceRange, Token, WorkspaceError,
+};
 use oxc_allocator::Allocator;
 use oxc_parser::config::TokensParserConfig;
 use oxc_parser::{Kind, Parser};
@@ -64,6 +66,10 @@ impl Guest for TypeScriptAndJavaScript {
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
         workspaces::workspace_packages(manifests)
+    }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
     }
 }
 
