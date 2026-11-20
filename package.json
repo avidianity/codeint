@@ -1,0 +1,15 @@
+{
+  "name": "codeint-development",
+  "private": true,
+  "description": "Development tools for the codeint repository. The published npm packages live in npm/.",
+  "license": "MIT",
+  "scripts": {
+    "duplicates": "jscpd --config .jscpd.json --min-lines 10 --min-tokens 1 . && jscpd --config .jscpd.json --min-lines 1 --min-tokens 100 ."
+  },
+  "devDependencies": {
+    "jscpd": "5.4.3",
+    "lefthook": "2.2.2",
+    "markdownlint-cli2": "0.24.2",
+    "skills": "1.9.0"
+  }
+}

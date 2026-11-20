@@ -1,0 +1,23 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.rs"
+      run: cargo fmt --all --check
+    repository:
+      run: cargo xtask hook
+    markdown:
+      glob: "*.md"
+      run: npx --no-install markdownlint-cli2 {staged_files}
+    links:
+      glob: "*.md"
+      run: lychee --config lychee.toml {staged_files}
+    duplicates:
+      run: npm run --silent duplicates
+    secrets:
+      run: gitleaks git --pre-commit --staged --redact --no-banner
+
+commit-msg:
+  commands:
+    message:
+      run: cargo xtask commit-message --file {1}

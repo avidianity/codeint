@@ -1,0 +1,8 @@
+{
+  "threshold": 0,
+  "format": ["rust", "javascript", "typescript"],
+  "ignore": ["**/target/**", "**/node_modules/**", ".agents/**", ".claude/**"],
+  "gitignore": true,
+  "reporters": ["console"],
+  "exitCode": 1
+}
