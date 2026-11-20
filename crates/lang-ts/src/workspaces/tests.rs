@@ -214,3 +214,12 @@ fn an_empty_pnpm_workspace_yaml_or_one_with_an_empty_packages_field_means_no_wor
         assert!(roots.is_empty(), "{pnpm_workspace_manifest:?}");
     }
 }
+
+#[test]
+fn repeated_any_depth_segments_in_a_pnpm_pattern_do_not_backtrack_exponentially() {
+    let deep_folder = (0..20).map(|_| "a").collect::<Vec<_>>().join("/");
+    let pattern = format!("{}nomatch", "**/".repeat(15));
+    let roots = pnpm_package_roots(&[&pattern], &[&deep_folder]);
+
+    assert!(roots.is_empty());
+}

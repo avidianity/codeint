@@ -135,18 +135,33 @@ impl Wildcards {
 }
 
 fn segments_match(segments: &[Segment<'_>], folder: &[&str], wildcards: Wildcards) -> bool {
-    match segments.split_first() {
-        None => folder.is_empty(),
-        Some((any_depth @ Segment::AnyDepth, rest)) => {
-            segments_match(rest, folder, wildcards)
-                || folder.split_first().is_some_and(|(name, below)| {
-                    any_depth.matches(name, wildcards) && segments_match(segments, below, wildcards)
-                })
+    let mut reachable = vec![false; folder.len() + 1];
+    reachable[0] = true;
+    for segment in segments {
+        let mut next = vec![false; folder.len() + 1];
+        match segment {
+            Segment::AnyDepth => {
+                for index in 0..=folder.len() {
+                    if reachable[index]
+                        || (index > 0
+                            && next[index - 1]
+                            && segment.matches(folder[index - 1], wildcards))
+                    {
+                        next[index] = true;
+                    }
+                }
+            }
+            Segment::Name { .. } => {
+                for index in 0..folder.len() {
+                    if reachable[index] && segment.matches(folder[index], wildcards) {
+                        next[index + 1] = true;
+                    }
+                }
+            }
         }
-        Some((segment, rest)) => folder.split_first().is_some_and(|(name, below)| {
-            segment.matches(name, wildcards) && segments_match(rest, below, wildcards)
-        }),
+        reachable = next;
     }
+    reachable[folder.len()]
 }
 
 fn normalized_segments(folders: &str) -> Vec<&str> {
