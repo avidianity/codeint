@@ -12,8 +12,8 @@ A single number is easy to read and easy to gate on.
 A weighted blend of Metrics needs weights that cannot be calibrated honestly, and it hides which Metric moved.
 Once a number becomes a target it stops measuring well (Goodhart's law).
 Published Reference ranges exist per Metric, not for a blend.
-Sources checked on 2026-11-21: arXiv:2603.24755, appendix G, and <https://earendil.com/posts/measuring-code-sloppiness>.
-They give Verbosity 0.15 ± 0.06 for established repositories against 0.33 ± 0.10 for agent-written code, and Erosion 0.31 ± 0.17 against 0.68 ± 0.20.
+Source checked on 2026-11-21: arXiv:2603.24755, appendix G.
+It gives Verbosity 0.15 ± 0.06 for established repositories against 0.33 ± 0.10 for agent-written code, and Erosion 0.31 ± 0.17 against 0.68 ± 0.20.
 
 ## Decision
 
