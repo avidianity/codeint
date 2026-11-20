@@ -38,3 +38,5 @@ A Plugin gets no file system, network, or clock access unless codeint grants it.
 - The Plugin host is tier 3, because its capability grants are a security boundary.
 - Amended 2026-11-21: codeint is language-neutral, and TypeScript and JavaScript are only the first Language plugin.
   Every rule that differs between languages lives in a Language plugin, so a new language never changes the core or a Metric plugin.
+- Amended 2026-11-21: every Plugin runs under a memory cap and a time limit, with defaults set by measurement and raised in configuration.
+  A Language plugin that hits a limit on a file skips that file, which the report lists; a Metric plugin that hits a limit stops the run with an operational error.
