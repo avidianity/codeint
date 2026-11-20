@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use codeint_model::{CodeModel, Package, RepoPath, Token, token_text_hash};
+use codeint_model::{CodeModel, Metric, Package, RepoPath, Token, token_text_hash};
 
-use crate::finding_id::{FindingIds, MetricKey};
+use crate::finding_id::FindingIds;
 use crate::line_share::{LineShare, line_shares_by_package};
 use crate::{CloneLines, FindingId};
 
@@ -117,7 +117,7 @@ fn flagged_line_findings(
         .iter()
         .map(|file| (&file.path, file.model.tokens.as_slice()))
         .collect();
-    let mut ids = FindingIds::new(MetricKey::Verbosity);
+    let mut ids = FindingIds::new(Metric::Verbosity);
     flagged_lines
         .iter()
         .map(|&(path, line, rule)| {

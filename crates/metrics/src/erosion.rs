@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use codeint_model::language::Function;
-use codeint_model::{CodeModel, Package, RepoPath, Token};
+use codeint_model::{CodeModel, Metric, Package, RepoPath, Token};
 
 use crate::FindingId;
-use crate::finding_id::{FindingIds, MetricKey};
+use crate::finding_id::FindingIds;
 
 const ERODED_ABOVE_CYCLOMATIC_COMPLEXITY: u32 = 10;
 
@@ -51,7 +51,7 @@ impl Erosion {
         let mut masses = FunctionMasses::default();
         let mut masses_by_file = BTreeMap::new();
         let mut eroded_functions = Vec::new();
-        let mut ids = FindingIds::new(MetricKey::Erosion);
+        let mut ids = FindingIds::new(Metric::Erosion);
         for file in &model.files {
             let mut file_masses = FunctionMasses::default();
             for function in &file.model.functions {

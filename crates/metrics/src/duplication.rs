@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, Package, RepoPath, Token, TokenKind};
+use codeint_model::{CodeModel, Metric, Package, RepoPath, Token, TokenKind};
 
 use crate::line_share::{LineShare, line_shares_by_package};
 
 use crate::FindingId;
-use crate::finding_id::{FindingIds, MetricKey};
+use crate::finding_id::FindingIds;
 
 #[cfg(test)]
 mod tests;
@@ -81,7 +81,7 @@ impl Duplication {
         }
         unidentified_groups
             .sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-        let mut ids = FindingIds::new(MetricKey::Duplication);
+        let mut ids = FindingIds::new(Metric::Duplication);
         let clone_groups = unidentified_groups
             .into_iter()
             .map(|(tokens, fragments, normalized_content)| CloneGroup {

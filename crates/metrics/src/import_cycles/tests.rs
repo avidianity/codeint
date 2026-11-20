@@ -76,6 +76,25 @@ fn two_rings_joined_by_a_one_way_import_are_two_import_cycles() {
 }
 
 #[test]
+fn a_larger_import_cycle_comes_before_a_smaller_one() {
+    let cycles = ImportCycles::measure(&graph(
+        &["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"],
+        &[
+            ("a.ts", "b.ts"),
+            ("b.ts", "a.ts"),
+            ("c.ts", "d.ts"),
+            ("d.ts", "e.ts"),
+            ("e.ts", "c.ts"),
+        ],
+    ));
+
+    assert_eq!(
+        cycle_members(&cycles),
+        [vec!["c.ts", "d.ts", "e.ts"], vec!["a.ts", "b.ts"]]
+    );
+}
+
+#[test]
 fn imports_of_files_that_are_not_modules_and_unresolved_imports_add_no_edge() {
     let mut model = graph(&["a.ts", "b.ts"], &[("a.ts", "b.ts"), ("b.ts", "a.json")]);
     model.runtime_imports.push(RuntimeImport {

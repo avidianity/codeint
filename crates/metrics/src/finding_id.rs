@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use codeint_model::{RepoPath, StableHasher};
+use codeint_model::{Metric, RepoPath, StableHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FindingId(u64);
@@ -12,32 +12,13 @@ impl fmt::Display for FindingId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MetricKey {
-    Erosion,
-    Duplication,
-    Verbosity,
-    ImportCycles,
-}
-
-impl MetricKey {
-    fn as_str(self) -> &'static str {
-        match self {
-            MetricKey::Erosion => "erosion",
-            MetricKey::Duplication => "duplication",
-            MetricKey::Verbosity => "verbosity",
-            MetricKey::ImportCycles => "import_cycles",
-        }
-    }
-}
-
 pub(crate) struct FindingIds {
-    metric: MetricKey,
+    metric: Metric,
     occurrences: HashMap<u64, u64>,
 }
 
 impl FindingIds {
-    pub(crate) fn new(metric: MetricKey) -> FindingIds {
+    pub(crate) fn new(metric: Metric) -> FindingIds {
         FindingIds {
             metric,
             occurrences: HashMap::new(),
@@ -49,7 +30,7 @@ impl FindingIds {
         paths: impl IntoIterator<Item = &'path RepoPath>,
         content: impl IntoIterator<Item = u64>,
     ) -> FindingId {
-        let with_metric = length_prefixed(StableHasher::new(), self.metric.as_str().as_bytes());
+        let with_metric = length_prefixed(StableHasher::new(), self.metric.key().as_bytes());
         let mut path_count = 0;
         let with_paths = paths.into_iter().fold(with_metric, |hasher, path| {
             path_count += 1;

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
-use codeint_model::{CodeModel, ImportResolution, Package, RepoPath};
+use codeint_model::{CodeModel, ImportResolution, Metric, Package, RepoPath};
 
 use crate::FindingId;
-use crate::finding_id::{FindingIds, MetricKey};
+use crate::finding_id::FindingIds;
 
 #[cfg(test)]
 mod tests;
@@ -86,8 +86,9 @@ impl ImportCycles {
                 members
             })
             .collect();
-        cycle_modules.sort();
-        let mut ids = FindingIds::new(MetricKey::ImportCycles);
+        cycle_modules
+            .sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+        let mut ids = FindingIds::new(Metric::ImportCycles);
         let cycles = cycle_modules
             .into_iter()
             .map(|modules| ImportCycle {
