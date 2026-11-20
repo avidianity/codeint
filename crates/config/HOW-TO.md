@@ -116,3 +116,23 @@ let written = write_starter_configuration(tree.root(), &languages)?;
 - `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
 - An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.
 - The `$schema` value is `published_schema_address()`: the raw GitHub address of `schema/codeint.schema.json` at the tag `v{version}` of the running codeint.
+
+## Find the result cache folder
+
+```rust
+if let Command::Diff { result_cache, .. } = read_invocation()?.command {
+    let cache = result_cache.map(ResultCache::in_folder);
+}
+```
+
+- `CODEINT_CACHE_DIR` names the folder itself; a relative path starts at the current folder.
+- Otherwise the folder is `codeint` inside the user cache folder: `$XDG_CACHE_HOME`, else `$HOME/.cache`, on Linux and macOS, and `%LOCALAPPDATA%` on Windows.
+  An empty or relative `XDG_CACHE_HOME` is ignored, as the XDG Base Directory Specification says.
+- `None` means no variable gives a folder; codeint then runs without a cache.
+- Every test that runs `codeint diff` sets `CODEINT_CACHE_DIR` to a temporary folder, so no test touches the user cache.
+
+## Key a cached result by the configuration
+
+- `Configuration` serializes as the effective `codeint.json`: every key with its default filled in, without the `$schema` address.
+  A file that only differs in `$schema` or in keys set to their defaults serializes the same.
+- Put the whole `Configuration` in the settings of a cached result, not chosen keys, so that a new setting can never leave a stale entry.

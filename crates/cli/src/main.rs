@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
+use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 #[derive(Debug, thiserror::Error)]
@@ -92,12 +93,14 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             findings,
             format,
+            result_cache,
         } => {
             let refs = diff::Refs {
                 base: &base_ref,
                 head: head_ref.as_deref(),
             };
-            let report = diff::diff(&folder, refs, findings)?;
+            let result_cache = result_cache.map(ResultCache::in_folder);
+            let report = diff::diff(&folder, refs, findings, result_cache.as_ref())?;
             write_report(&report.render(format)?, &destination)?;
             Ok(Outcome::from_failures(report.failure_messages()))
         }
@@ -132,7 +135,7 @@ fn save_report(text: &str, path: &Path) -> Result<(), CliError> {
     })
 }
 
-fn describe(error: &dyn Error) -> String {
+pub(crate) fn describe(error: &dyn Error) -> String {
     let mut message = error.to_string();
     let mut cause = error.source();
     while let Some(source) = cause {

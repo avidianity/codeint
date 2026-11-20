@@ -1,16 +1,17 @@
 use codeint_config::{
     Budgets, FindingsShown, NewFindingsRule, RegressionLimit, RegressionLimits, ReportFormat,
 };
-use codeint_model::{CodeModel, Metric, SourceSet};
+use codeint_model::{Metric, SourceSet};
 use std::collections::HashSet;
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurement};
 use crate::sarif::{ListedFindings, SarifLog};
 use crate::{
     BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding, Findings, FlaggedLineRow,
-    ImportCycleFinding, Measured, ReportError,
+    ImportCycleFinding, ReportError,
 };
 
 mod markdown;
@@ -119,27 +120,21 @@ trait Identified {
     fn id(&self) -> &str;
 }
 
-struct Side<T> {
-    ratio: f64,
-    numerator: f64,
-    findings_worst_first: Vec<T>,
-}
-
 impl DiffReport {
     pub fn compare(
         base: BaseCommit,
         head: Head,
-        base_model: CodeModel,
-        head_model: CodeModel,
+        base_measurement: CommitMeasurement,
+        head_measurement: CommitMeasurement,
         findings: FindingsShown,
         budgets: &Budgets,
         limits: &RegressionLimits,
     ) -> DiffReport {
         let mut source_sets = SourceSetChangesSections::default();
-        let base_sets = base_model.into_source_sets();
-        let head_sets = head_model.into_source_sets();
-        for ((source_set, base), (_, head)) in base_sets.iter().zip(head_sets.iter()) {
-            if !base.files.is_empty() || !head.files.is_empty() {
+        let base_sets = base_measurement.into_source_sets();
+        let head_sets = head_measurement.into_source_sets();
+        for ((source_set, base), (_, head)) in base_sets.into_iter().zip(head_sets) {
+            if base.files > 0 || head.files > 0 {
                 *source_sets.slot(source_set) = Some(source_set_changes(base, head, findings));
             }
         }
@@ -215,7 +210,11 @@ impl<T: Serialize> Serialize for MetricChanges<T> {
     }
 }
 
-fn classify<T: Identified>(base: Side<T>, head: Side<T>, shown: FindingsShown) -> MetricChanges<T> {
+fn classify<T: Identified>(
+    base: MetricMeasurement<T>,
+    head: MetricMeasurement<T>,
+    shown: FindingsShown,
+) -> MetricChanges<T> {
     let base_ids = ids(&base.findings_worst_first);
     let head_ids = ids(&head.findings_worst_first);
     MetricChanges {
@@ -419,69 +418,15 @@ fn missing_from<T: Identified>(
 }
 
 fn source_set_changes(
-    base: &CodeModel,
-    head: &CodeModel,
+    base: SourceSetMeasurement,
+    head: SourceSetMeasurement,
     shown: FindingsShown,
 ) -> SourceSetChanges {
-    let base = Measured::new(base);
-    let head = Measured::new(head);
     SourceSetChanges {
-        erosion: classify(erosion_side(&base), erosion_side(&head), shown),
-        duplication: classify(duplication_side(&base), duplication_side(&head), shown),
-        verbosity: classify(verbosity_side(&base), verbosity_side(&head), shown),
-        import_cycles: classify(import_cycles_side(&base), import_cycles_side(&head), shown),
-    }
-}
-
-fn erosion_side(measured: &Measured) -> Side<ErodedFunctionFinding> {
-    Side {
-        ratio: measured.erosion.ratio(),
-        numerator: measured.erosion.eroded_function_mass(),
-        findings_worst_first: measured
-            .erosion
-            .eroded_functions()
-            .iter()
-            .map(ErodedFunctionFinding::new)
-            .collect(),
-    }
-}
-
-fn duplication_side(measured: &Measured) -> Side<CloneGroupFinding> {
-    Side {
-        ratio: measured.duplication.ratio(),
-        numerator: measured.duplication.clone_lines.count() as f64,
-        findings_worst_first: measured
-            .duplication
-            .clone_groups
-            .iter()
-            .map(CloneGroupFinding::new)
-            .collect(),
-    }
-}
-
-fn verbosity_side(measured: &Measured) -> Side<FlaggedLineRow> {
-    Side {
-        ratio: measured.verbosity.ratio(),
-        numerator: measured.verbosity.verbose_lines() as f64,
-        findings_worst_first: measured
-            .verbosity
-            .flagged_lines()
-            .iter()
-            .map(FlaggedLineRow::from)
-            .collect(),
-    }
-}
-
-fn import_cycles_side(measured: &Measured) -> Side<ImportCycleFinding> {
-    Side {
-        ratio: measured.import_cycles.ratio(),
-        numerator: measured.import_cycles.modules_in_import_cycles() as f64,
-        findings_worst_first: measured
-            .import_cycles
-            .cycles()
-            .iter()
-            .map(ImportCycleFinding::new)
-            .collect(),
+        erosion: classify(base.erosion, head.erosion, shown),
+        duplication: classify(base.duplication, head.duplication, shown),
+        verbosity: classify(base.verbosity, head.verbosity, shown),
+        import_cycles: classify(base.import_cycles, head.import_cycles, shown),
     }
 }
 

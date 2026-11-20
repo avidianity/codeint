@@ -15,8 +15,8 @@ mod tests;
 pub struct MinimumCloneTokens(NonZeroUsize);
 
 impl MinimumCloneTokens {
-    pub const PROVISIONAL_DEFAULT: MinimumCloneTokens =
-        MinimumCloneTokens(NonZeroUsize::new(50).expect("50 is not zero"));
+    pub const DEFAULT: MinimumCloneTokens =
+        MinimumCloneTokens(NonZeroUsize::new(75).expect("75 is not zero"));
 
     pub fn new(tokens: NonZeroUsize) -> MinimumCloneTokens {
         MinimumCloneTokens(tokens)

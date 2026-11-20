@@ -204,6 +204,32 @@ An invalid limit stops the run with exit code 2 and names the key:
 codeint: codeint.json: regression_limits.production.erosion.ratio_rise must be between 0 and 1, not 1.5
 ```
 
+### Result cache
+
+codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
+That covers the merge-base, and the head ref of `--head`.
+An entry belongs to one commit and to the settings that shape a measurement: the codeint version, each Language plugin and its version, and the effective `codeint.json`.
+Any change to `codeint.json` other than its `$schema` address measures the commit again.
+The working tree is never cached, because it has no commit.
+
+The cache lives in the `codeint` folder of your user cache folder:
+
+| Platform | Folder |
+| -------- | ------ |
+| Linux and macOS | `$XDG_CACHE_HOME/codeint`, or `~/.cache/codeint` when `XDG_CACHE_HOME` is unset, empty, or relative |
+| Windows | `%LOCALAPPDATA%\codeint` |
+
+Set `CODEINT_CACHE_DIR` to use another folder; a relative path starts at the current folder.
+Without any of these variables, codeint runs without a cache.
+
+Deleting the folder is always safe.
+codeint ignores an entry it cannot read or parse and writes it again.
+When it cannot write an entry, it prints a warning to standard error and the run still succeeds:
+
+```text
+codeint: cannot write the cache entry /home/someone/.cache/codeint: File exists (os error 17); the next run measures commit 651980e53c24d8e14611d5b8cc84c11f0bbb3dca again
+```
+
 ## Report formats
 
 `codeint check` prints the report in TOON by default.

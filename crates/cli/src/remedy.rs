@@ -88,7 +88,7 @@ fn git_remedy(error: &GitError) -> &'static str {
 fn workspace_remedy(error: &WorkspaceError) -> &'static str {
     match error {
         WorkspaceError::Manifest { .. } => {
-            "Fix the workspaces field of the manifest so that your package manager accepts it, then run codeint again."
+            "Fix the manifest that the message names so that your package manager accepts it, then run codeint again."
         }
         WorkspaceError::InvalidPackageRoot(_) => {
             "This is a defect in the Language plugin; report it to the Plugin's author."
