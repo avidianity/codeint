@@ -34,8 +34,20 @@ fn lines_in(source_set: SourceSet, text: &str) -> Result<FileModel, LowerError> 
     })
 }
 
-fn all_external(requests: &[ImportRequest]) -> Vec<Resolution> {
-    requests.iter().map(|_| Resolution::External).collect()
+macro_rules! every_import_is_external {
+    () => {
+        fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn resolve_imports(
+            _repository_paths: Vec<String>,
+            _manifests: Vec<Manifest>,
+            requests: Vec<ImportRequest>,
+        ) -> Vec<Resolution> {
+            requests.iter().map(|_| Resolution::External).collect()
+        }
+    };
 }
 
 fn erosion_range(low: f64, high: f64, source: &str) -> Vec<ReferenceRange> {
@@ -49,10 +61,6 @@ fn erosion_range(low: f64, high: f64, source: &str) -> Vec<ReferenceRange> {
 
 macro_rules! without_workspaces {
     () => {
-        fn workspace_manifests() -> Vec<String> {
-            Vec::new()
-        }
-
         fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
             Ok(Vec::new())
         }
@@ -74,12 +82,7 @@ impl Guest for Alpha {
         erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
     }
 
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        all_external(&requests)
-    }
+    every_import_is_external!();
 }
 
 impl Guest for Beta {
@@ -97,12 +100,7 @@ impl Guest for Beta {
         Vec::new()
     }
 
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        all_external(&requests)
-    }
+    every_import_is_external!();
 }
 
 impl Guest for Malformed {
@@ -120,12 +118,7 @@ impl Guest for Malformed {
         erosion_range(0.7, 0.2, "Reversed")
     }
 
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        all_external(&requests)
-    }
+    every_import_is_external!();
 }
 
 impl Guest for ChecksFolderIsTest {
@@ -147,12 +140,7 @@ impl Guest for ChecksFolderIsTest {
         Vec::new()
     }
 
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        all_external(&requests)
-    }
+    every_import_is_external!();
 }
 
 fn repository(files: &[(&str, &str)]) -> TempDir {

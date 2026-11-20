@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
+use std::string::FromUtf8Error;
 
 use codeint_config::{
     ConfigurationFileError, FindingsShown, SourceSetOverrides, read_configuration,
@@ -8,8 +9,8 @@ use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
-    ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError, resolve_runtime_imports,
-    settle_source_set,
+    RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError, choose_manifests,
+    resolve_runtime_imports, settle_source_set,
 };
 use codeint_report::{ReferenceRangeScope, Report};
 
@@ -89,8 +90,9 @@ fn measure(
                 .map(move |extension| (extension, index))
         })
         .collect();
+    let manifests_by_plugin = read_manifests(tree, plugins)?;
     let mut model = CodeModel {
-        workspace: find_workspace(tree, plugins)?,
+        workspace: find_workspace(plugins, &manifests_by_plugin)?,
         submodules: tree.submodules().to_vec(),
         ..CodeModel::default()
     };
@@ -107,10 +109,7 @@ fn measure(
         let text = match String::from_utf8(bytes) {
             Ok(text) => text,
             Err(error) => {
-                model.skipped.push(SkippedFile {
-                    path: path.clone(),
-                    reason: format!("not valid UTF-8: {}", error.utf8_error()),
-                });
+                model.skipped.push(not_utf8(path.clone(), &error));
                 continue;
             }
         };
@@ -132,7 +131,7 @@ fn measure(
             }),
         }
     }
-    for (index, plugin) in plugins.iter().enumerate() {
+    for ((index, plugin), manifests) in plugins.iter().enumerate().zip(manifests_by_plugin) {
         let importers: Vec<&SourceFile> = model
             .files
             .iter()
@@ -140,7 +139,7 @@ fn measure(
             .filter(|(_, file_plugin)| **file_plugin == index)
             .map(|(file, _)| file)
             .collect();
-        let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), &importers)
+        let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), manifests, &importers)
             .map_err(CheckError::Resolve)?;
         model.runtime_imports.extend(runtime_imports);
     }
@@ -148,25 +147,41 @@ fn measure(
     Ok(Measurement { model, ranges })
 }
 
-fn find_workspace(
+fn read_manifests(
     tree: &WorkingTree,
     plugins: &[&dyn LanguagePlugin],
+) -> Result<Vec<Vec<Manifest>>, CheckError> {
+    plugins
+        .iter()
+        .map(|plugin| {
+            choose_manifests(*plugin, tree.files())
+                .map_err(CheckError::Resolve)?
+                .into_iter()
+                .map(|path| {
+                    Ok(Manifest {
+                        text: String::from_utf8_lossy(&tree.read(&path)?).into_owned(),
+                        path: path.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn find_workspace(
+    plugins: &[&dyn LanguagePlugin],
+    manifests_by_plugin: &[Vec<Manifest>],
 ) -> Result<Workspace, CheckError> {
     let mut member_roots = Vec::new();
-    for plugin in plugins {
-        let manifest_names = plugin.workspace_manifests();
-        let manifests = tree
-            .files()
-            .iter()
-            .filter(|path| manifest_names.iter().any(|name| name == path.file_name()))
-            .map(|path| {
-                Ok(Manifest {
-                    path: path.to_string(),
-                    text: String::from_utf8_lossy(&tree.read(path)?).into_owned(),
-                })
-            })
-            .collect::<Result<Vec<Manifest>, GitError>>()?;
-        member_roots.extend(plugin.workspace_packages(manifests)?);
+    for (plugin, manifests) in plugins.iter().zip(manifests_by_plugin) {
+        member_roots.extend(plugin.workspace_packages(manifests.clone())?);
     }
     Ok(Workspace::new(member_roots))
+}
+
+fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {
+    SkippedFile {
+        path,
+        reason: format!("not valid UTF-8: {}", error.utf8_error()),
+    }
 }

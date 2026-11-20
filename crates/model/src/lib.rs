@@ -24,7 +24,9 @@ mod bindings {
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind};
 pub use metric::Metric;
-pub use runtime_imports::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
+pub use runtime_imports::{
+    ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,
+};
 pub use source_set::settle_source_set;
 pub use workspace::{Package, Workspace, WorkspaceError};
 
@@ -251,13 +253,15 @@ pub trait LanguagePlugin {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
 
-    fn workspace_manifests(&self) -> Vec<String>;
+    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String>;
 
     fn workspace_packages(&self, manifests: Vec<Manifest>)
     -> Result<Vec<RepoPath>, WorkspaceError>;
+
     fn resolve_imports(
         &self,
         repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution>;
 
@@ -273,8 +277,8 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
     }
 
-    fn workspace_manifests(&self) -> Vec<String> {
-        Plugin::workspace_manifests()
+    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+        Plugin::manifest_paths(owned_paths(repository_paths))
     }
 
     fn workspace_packages(
@@ -290,18 +294,20 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
     fn resolve_imports(
         &self,
         repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution> {
-        Plugin::resolve_imports(
-            repository_paths
-                .iter()
-                .map(|path| path.as_str().to_owned())
-                .collect(),
-            requests,
-        )
+        Plugin::resolve_imports(owned_paths(repository_paths), manifests, requests)
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         ReferenceRanges::new(Plugin::reference_ranges())
     }
+}
+
+fn owned_paths(repository_paths: &[RepoPath]) -> Vec<String> {
+    repository_paths
+        .iter()
+        .map(|path| path.as_str().to_owned())
+        .collect()
 }
