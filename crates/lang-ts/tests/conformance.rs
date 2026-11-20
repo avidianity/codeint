@@ -146,6 +146,29 @@ fn an_export_in_a_commonjs_script_is_unparsable() {
 }
 
 #[test]
+fn a_typescript_declaration_file_is_declaration_only() {
+    for path in [
+        "types/globals.d.ts",
+        "types/module.d.mts",
+        "types/legacy.d.cts",
+        "src/styles.d.css.ts",
+    ] {
+        let result = lower(path, "declare const version: string;\n");
+
+        assert!(
+            matches!(result, Err(LowerError::DeclarationOnly)),
+            "{path}: unexpected result: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn a_file_named_like_a_declaration_without_the_d_suffix_is_code() {
+    assert_eq!(source_lines("src/d.ts", "const one = 1;\n"), 1);
+    assert_eq!(source_lines("src/build.ts", "const one = 1;\n"), 1);
+}
+
+#[test]
 fn a_file_with_an_undeclared_extension_is_unsupported() {
     let result = lower("scripts/tool.py", "print('codeint')\n");
 

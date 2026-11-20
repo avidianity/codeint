@@ -4,7 +4,7 @@ use std::string::FromUtf8Error;
 
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_model::{CodeModel, LanguagePlugin, LowerError, RepoPath, SourceFile};
+use codeint_model::{CodeModel, LanguagePlugin, LowerError, RepoPath, SkippedFile, SourceFile};
 use codeint_report::{Report, ReportError};
 
 #[derive(Debug, thiserror::Error)]
@@ -16,12 +16,6 @@ pub(crate) enum CheckError {
         path: RepoPath,
         #[source]
         source: FromUtf8Error,
-    },
-    #[error("{path}")]
-    Lower {
-        path: RepoPath,
-        #[source]
-        source: LowerError,
     },
     #[error(transparent)]
     Report(#[from] ReportError),
@@ -56,16 +50,17 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
             path: path.clone(),
             source,
         })?;
-        let file = plugin
-            .lower(path, &text)
-            .map_err(|source| CheckError::Lower {
+        match plugin.lower(path, &text) {
+            Ok(file) => model.files.push(SourceFile {
                 path: path.clone(),
-                source,
-            })?;
-        model.files.push(SourceFile {
-            path: path.clone(),
-            model: file,
-        });
+                model: file,
+            }),
+            Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
+            Err(reason) => model.skipped.push(SkippedFile {
+                path: path.clone(),
+                reason: reason.to_string(),
+            }),
+        }
     }
     Ok(model)
 }
