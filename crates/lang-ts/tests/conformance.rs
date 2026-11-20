@@ -1533,7 +1533,11 @@ fn a_manifest_that_is_not_the_root_manifest_is_not_parsed() {
 }
 
 fn workspace_error(root_manifest: &str) -> String {
-    match plugin().workspace_packages(vec![manifest("package.json", root_manifest)]) {
+    manifest_workspace_error("package.json", root_manifest)
+}
+
+fn manifest_workspace_error(path: &str, text: &str) -> String {
+    match plugin().workspace_packages(vec![manifest(path, text)]) {
         Ok(roots) => panic!("expected an error, found {roots:?}"),
         Err(error) => error.to_string(),
     }
@@ -1569,5 +1573,48 @@ fn an_invalid_workspace_glob_is_an_error_that_names_the_pattern() {
             "cannot find the workspace packages from package.json: has the workspace pattern \"packages/[a\", which is not a valid glob: "
         ),
         "{message}"
+    );
+}
+
+fn pnpm_workspace_error(pnpm_workspace_manifest: &str) -> String {
+    manifest_workspace_error("pnpm-workspace.yaml", pnpm_workspace_manifest)
+}
+
+#[test]
+fn a_pnpm_workspace_yaml_that_is_not_yaml_is_an_error_that_names_it() {
+    assert_eq!(
+        pnpm_workspace_error("packages: [apps/*\n"),
+        "cannot find the workspace packages from pnpm-workspace.yaml: is not valid YAML: unclosed bracket '[' at line 1, column 11"
+    );
+}
+
+const PNPM_WRONG_SHAPE: &str = "cannot find the workspace packages from pnpm-workspace.yaml: must be a mapping whose packages field is a list of folder patterns";
+
+#[test]
+fn a_packages_field_of_the_wrong_shape_is_an_error_that_names_the_expected_shape_and_the_place() {
+    for (wrong, place) in [
+        (
+            "packages: apps/*\n",
+            "expected sequence start at line 1, column 11",
+        ),
+        (
+            "packages:\n  - name: app\n",
+            "expected string scalar at line 2, column 5",
+        ),
+        ("- apps/*\n", "expected mapping start at line 1, column 1"),
+    ] {
+        assert_eq!(
+            pnpm_workspace_error(wrong),
+            format!("{PNPM_WRONG_SHAPE}: {place}"),
+            "{wrong:?}"
+        );
+    }
+}
+
+#[test]
+fn a_pnpm_package_pattern_that_is_not_a_glob_is_an_error_that_names_it() {
+    assert_eq!(
+        pnpm_workspace_error("packages:\n  - packages/[app\n"),
+        "cannot find the workspace packages from pnpm-workspace.yaml: has the package pattern \"packages/[app\", which is not a valid glob: error parsing glob '[app': unclosed character class; missing ']'"
     );
 }

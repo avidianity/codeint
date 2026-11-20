@@ -3130,7 +3130,52 @@ fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
             "codeint: cannot find the workspace packages from package.json: ",
             "the workspaces field must be an array of folder patterns, ",
             "or an object whose packages field is one\n",
-            "Fix the workspaces field of the manifest so that your package manager accepts it, ",
+            "Fix the manifest that the message names so that your package manager accepts it, ",
+            "then run codeint again.\n",
+        ),
+    );
+}
+
+#[test]
+fn pnpm_workspace_packages_each_report_erosion_and_a_negated_pattern_excludes_a_package() {
+    let repository = Repository::new();
+    write_two_package_workspace(&repository, "{\"name\": \"shop\"}\n");
+    repository.write(
+        "pnpm-workspace.yaml",
+        concat!(
+            "# The packages of the shop.\n",
+            "packages:\n",
+            "  - packages/*\n",
+            "  - \"!packages/legacy\"\n",
+            "catalog:\n",
+            "  react: ^19.0.0\n",
+        ),
+    );
+    repository.write("packages/legacy/package.json", "{\"name\": \"legacy\"}\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_two_package_report(&output);
+}
+
+#[test]
+fn a_pnpm_workspace_yaml_that_is_not_yaml_names_the_manifest_and_exits_2() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"name\": \"shop\"}\n");
+    repository.write("pnpm-workspace.yaml", "packages: [packages/*\n");
+    repository.write("packages/app/package.json", "{}\n");
+    repository.write("packages/app/index.ts", "export const app = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        concat!(
+            "codeint: cannot find the workspace packages from pnpm-workspace.yaml: ",
+            "is not valid YAML: unclosed bracket '[' at line 1, column 11\n",
+            "Fix the manifest that the message names so that your package manager accepts it, ",
             "then run codeint again.\n",
         ),
     );

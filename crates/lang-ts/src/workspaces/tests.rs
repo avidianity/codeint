@@ -1,12 +1,13 @@
 use codeint_model::language::Manifest;
 
-use super::workspace_packages_reading_pnpm_patterns_with;
+use super::workspace_packages;
 
-fn one_pattern_per_line(pnpm_workspace_manifest: &str) -> Result<Vec<String>, String> {
-    match pnpm_workspace_manifest.strip_prefix("unreadable: ") {
-        Some(message) => Err(message.to_owned()),
-        None => Ok(pnpm_workspace_manifest.lines().map(str::to_owned).collect()),
-    }
+fn pnpm_workspace_yaml(patterns: &[&str]) -> String {
+    patterns
+        .iter()
+        .fold(String::from("packages:\n"), |yaml, pattern| {
+            yaml + &format!("  - '{}'\n", pattern.replace('\'', "''"))
+        })
 }
 
 fn manifest(path: &str, text: &str) -> Manifest {
@@ -19,18 +20,17 @@ fn manifest(path: &str, text: &str) -> Manifest {
 fn pnpm_package_roots(patterns: &[&str], package_folders: &[&str]) -> Vec<String> {
     let mut manifests = vec![
         manifest("package.json", "{}"),
-        manifest("pnpm-workspace.yaml", &patterns.join("\n")),
+        manifest("pnpm-workspace.yaml", &pnpm_workspace_yaml(patterns)),
     ];
     manifests.extend(
         package_folders
             .iter()
             .map(|folder| manifest(&format!("{folder}/package.json"), "{}")),
     );
-    let mut roots =
-        match workspace_packages_reading_pnpm_patterns_with(&manifests, one_pattern_per_line) {
-            Ok(roots) => roots,
-            Err(error) => panic!("workspace packages not found: {error}"),
-        };
+    let mut roots = match workspace_packages(&manifests) {
+        Ok(roots) => roots,
+        Err(error) => panic!("workspace packages not found: {error}"),
+    };
     roots.sort();
     roots
 }
@@ -87,15 +87,12 @@ fn a_negated_pnpm_package_pattern_excludes_whatever_order_it_is_written_in() {
 }
 
 fn package_roots_with_both_manifests(pnpm_workspace_manifest_path: &str) -> Vec<String> {
-    workspace_packages_reading_pnpm_patterns_with(
-        &[
-            manifest("package.json", r#"{"workspaces": ["apps/*"]}"#),
-            manifest(pnpm_workspace_manifest_path, "packages/*"),
-            manifest("apps/web/package.json", "{}"),
-            manifest("packages/core/package.json", "{}"),
-        ],
-        one_pattern_per_line,
-    )
+    workspace_packages(&[
+        manifest("package.json", r#"{"workspaces": ["apps/*"]}"#),
+        manifest(pnpm_workspace_manifest_path, "packages:\n  - packages/*\n"),
+        manifest("apps/web/package.json", "{}"),
+        manifest("packages/core/package.json", "{}"),
+    ])
     .expect("workspace packages")
 }
 
@@ -181,28 +178,39 @@ fn a_package_inside_node_modules_or_bower_components_is_never_a_pnpm_workspace_p
     assert_eq!(roots, ["app"]);
 }
 
-fn pnpm_workspace_error(pnpm_workspace_manifest: &str) -> String {
-    match workspace_packages_reading_pnpm_patterns_with(
-        &[manifest("pnpm-workspace.yaml", pnpm_workspace_manifest)],
-        one_pattern_per_line,
-    ) {
-        Ok(roots) => panic!("expected an error, found {roots:?}"),
-        Err(error) => codeint_model::WorkspaceError::from(error).to_string(),
+#[test]
+fn a_pnpm_workspace_yaml_with_comments_and_other_settings_reads_only_its_package_patterns() {
+    let roots = workspace_packages(&[
+        manifest(
+            "pnpm-workspace.yaml",
+            concat!(
+                "# The apps and the shared libraries.\n",
+                "packages:\n",
+                "  - apps/*   # every app\n",
+                "  - \"!apps/legacy\"\n",
+                "catalog:\n",
+                "  react: ^19.0.0\n",
+                "onlyBuiltDependencies:\n",
+                "  - esbuild\n",
+            ),
+        ),
+        manifest("apps/web/package.json", "{}"),
+        manifest("apps/legacy/package.json", "{}"),
+    ])
+    .expect("workspace packages");
+
+    assert_eq!(roots, ["apps/web"]);
+}
+
+#[test]
+fn an_empty_pnpm_workspace_yaml_or_one_with_an_empty_packages_field_means_no_workspace_packages() {
+    for pnpm_workspace_manifest in ["", "# only a comment\n", "packages:\n", "packages: []\n"] {
+        let roots = workspace_packages(&[
+            manifest("pnpm-workspace.yaml", pnpm_workspace_manifest),
+            manifest("packages/app/package.json", "{}"),
+        ])
+        .expect("workspace packages");
+
+        assert!(roots.is_empty(), "{pnpm_workspace_manifest:?}");
     }
-}
-
-#[test]
-fn an_unreadable_pnpm_workspace_yaml_is_an_error_that_names_it() {
-    assert_eq!(
-        pnpm_workspace_error("unreadable: is not valid YAML"),
-        "cannot find the workspace packages from pnpm-workspace.yaml: is not valid YAML"
-    );
-}
-
-#[test]
-fn a_pnpm_package_pattern_that_is_not_a_glob_is_an_error_that_names_it() {
-    assert_eq!(
-        pnpm_workspace_error("packages/[app"),
-        "cannot find the workspace packages from pnpm-workspace.yaml: has the package pattern \"packages/[app\", which is not a valid glob: error parsing glob '[app': unclosed character class; missing ']'"
-    );
 }

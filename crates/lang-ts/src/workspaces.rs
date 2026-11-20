@@ -8,20 +8,11 @@ mod tests;
 
 pub(crate) use pnpm::PNPM_WORKSPACE_MANIFEST;
 
-use pnpm::{ReadPnpmPackagePatterns, pnpm_package_patterns};
-
 pub(crate) const PACKAGE_MANIFEST: &str = "package.json";
 
 const WRONG_SHAPE: &str = "the workspaces field must be an array of folder patterns, or an object whose packages field is one";
 
 pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, WorkspaceError> {
-    workspace_packages_reading_pnpm_patterns_with(manifests, pnpm_package_patterns)
-}
-
-fn workspace_packages_reading_pnpm_patterns_with(
-    manifests: &[Manifest],
-    read_pnpm_package_patterns: ReadPnpmPackagePatterns,
-) -> Result<Vec<String>, WorkspaceError> {
     let Some(pnpm_workspace_manifest) = manifests
         .iter()
         .find(|manifest| manifest.path == PNPM_WORKSPACE_MANIFEST)
@@ -29,7 +20,7 @@ fn workspace_packages_reading_pnpm_patterns_with(
         return package_json_workspace_packages(manifests);
     };
     let patterns =
-        read_pnpm_package_patterns(&pnpm_workspace_manifest.text).map_err(|message| {
+        pnpm::pnpm_package_patterns(&pnpm_workspace_manifest.text).map_err(|message| {
             WorkspaceError {
                 path: PNPM_WORKSPACE_MANIFEST.to_owned(),
                 message,

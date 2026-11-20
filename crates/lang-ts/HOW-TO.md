@@ -74,5 +74,6 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - A `pnpm-workspace.yaml` at the repository root decides the packages, and the `workspaces` field of `package.json` is then ignored, because pnpm reads only `pnpm-workspace.yaml`.
   Without it, the `workspaces` field of the root `package.json` decides, as npm, Yarn, and Bun read it.
 - `src/workspaces/pnpm.rs` matches pnpm package patterns as pnpm does: a `!` pattern excludes in any position, a wildcard skips folder names that begin with a dot unless the pattern is negated, `./`, `..`, and repeated slashes resolve first, and an absolute pattern selects nothing.
-- `pnpm_package_patterns` turns the text of `pnpm-workspace.yaml` into its package patterns.
-  Prove the matching in `src/workspaces/tests.rs`, which reads patterns with a stand-in so the tests do not depend on the YAML parser.
+- `pnpm_package_patterns` reads `pnpm-workspace.yaml` with `serde-saphyr` into a derived struct, so YAML that does not parse and a `packages` field of the wrong shape each give an error with the line and column.
+  A missing or empty `packages` field means the repository is one package.
+- Prove the matching in `src/workspaces/tests.rs`, each error text in `tests/conformance.rs`, and the report in `crates/cli/tests/check.rs`.

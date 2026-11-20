@@ -1,5 +1,7 @@
 use codeint_model::language::{Manifest, WorkspaceError};
 use globset::{Glob, GlobMatcher};
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 
 use super::PACKAGE_MANIFEST;
 
@@ -7,10 +9,24 @@ pub(crate) const PNPM_WORKSPACE_MANIFEST: &str = "pnpm-workspace.yaml";
 
 const FOLDERS_PNPM_NEVER_SEARCHES: [&str; 2] = ["node_modules", "bower_components"];
 
-pub(super) type ReadPnpmPackagePatterns = fn(&str) -> Result<Vec<String>, String>;
+#[derive(Deserialize)]
+struct PnpmWorkspaceManifest {
+    packages: Option<Vec<String>>,
+}
 
-pub(super) fn pnpm_package_patterns(_pnpm_workspace_manifest: &str) -> Result<Vec<String>, String> {
-    todo!()
+pub(super) fn pnpm_package_patterns(pnpm_workspace_manifest: &str) -> Result<Vec<String>, String> {
+    serde_saphyr::from_str::<IgnoredAny>(pnpm_workspace_manifest)
+        .map_err(|error| format!("is not valid YAML: {}", error.without_snippet()))?;
+    let manifest: Option<PnpmWorkspaceManifest> = serde_saphyr::from_str(pnpm_workspace_manifest)
+        .map_err(|error| {
+        format!(
+            "must be a mapping whose packages field is a list of folder patterns: {}",
+            error.without_snippet()
+        )
+    })?;
+    Ok(manifest
+        .and_then(|manifest| manifest.packages)
+        .unwrap_or_default())
 }
 
 pub(super) fn pnpm_workspace_packages(
