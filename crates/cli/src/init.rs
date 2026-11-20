@@ -1,10 +1,11 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use codeint_config::{DetectedLanguage, StarterConfigurationError};
-use codeint_git::GitError;
-use codeint_model::RepoPath;
+use codeint_config::{DetectedLanguage, StarterConfigurationError, write_starter_configuration};
+use codeint_git::{GitError, WorkingTree};
+use codeint_model::{InvalidRepoPath, RepoPath};
 
-use crate::check::NamedLanguagePlugin;
+use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, NamedLanguagePlugin};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InitError {
@@ -14,14 +15,38 @@ pub(crate) enum InitError {
     StarterConfiguration(#[from] StarterConfigurationError),
 }
 
-pub(crate) fn init(_folder: &Path) -> Result<PathBuf, InitError> {
-    let _detected = detect_languages(&[], &[]);
-    todo!()
+pub(crate) fn init(folder: &Path) -> Result<PathBuf, InitError> {
+    let tree = WorkingTree::discover(folder)?;
+    let languages = detect_languages(tree.files(), &BUILT_IN_LANGUAGE_PLUGINS)?;
+    Ok(write_starter_configuration(tree.root(), &languages)?)
 }
 
 fn detect_languages(
-    _files: &[RepoPath],
-    _plugins: &[NamedLanguagePlugin<'_>],
-) -> Vec<DetectedLanguage> {
-    todo!()
+    files: &[RepoPath],
+    plugins: &[NamedLanguagePlugin<'_>],
+) -> Result<Vec<DetectedLanguage>, GitError> {
+    let mut detected = Vec::new();
+    for named in plugins {
+        let extensions = named.plugin.extensions();
+        let top_level_paths: BTreeSet<RepoPath> = files
+            .iter()
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extensions.iter().any(|claimed| claimed == extension))
+            })
+            .map(top_level_path)
+            .collect::<Result<_, InvalidRepoPath>>()?;
+        if !top_level_paths.is_empty() {
+            detected.push(DetectedLanguage {
+                plugin: named.name.to_owned(),
+                include: top_level_paths.into_iter().collect(),
+            });
+        }
+    }
+    Ok(detected)
+}
+
+fn top_level_path(path: &RepoPath) -> Result<RepoPath, InvalidRepoPath> {
+    let first_segment = path.as_str().split('/').next().unwrap_or(path.as_str());
+    RepoPath::new(first_segment)
 }

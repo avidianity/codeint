@@ -26,6 +26,35 @@ irm https://github.com/avidianity/codeint/releases/latest/download/install.ps1 |
 npx codeint check
 ```
 
+## Start a configuration
+
+`codeint init` writes a starter `codeint.json` at the root of the Git repository that contains the current folder:
+
+```sh
+codeint init
+```
+
+```text
+Wrote /home/me/shop/codeint.json
+```
+
+The file links to the JSON schema of the running codeint version, so your editor completes and checks it.
+It sets every key to its default, and lists under `languages` each top-level folder or file that a Language plugin measures:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
+  "source_sets": { "production": [], "test": [], "generated": [], "vendored": [] },
+  "budgets": { "production": {}, "test": {}, "generated": {}, "vendored": {} },
+  "languages": [
+    { "plugin": "typescript-javascript", "include": ["packages", "scripts"], "exclude": [] }
+  ]
+}
+```
+
+When no file belongs to a Language plugin, the file leaves `languages` out, so every Language plugin measures the whole repository.
+`codeint init` never replaces an existing `codeint.json`; it exits with code 2 instead.
+
 ## Budgets
 
 A Budget is the highest ratio a Metric may reach in one Source set.

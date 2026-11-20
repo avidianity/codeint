@@ -4,7 +4,7 @@ use std::path::Path;
 use codeint_model::{Metric, RepoPath, SourceSet};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod shape;
@@ -29,7 +29,7 @@ pub struct Budgets {
     set: Vec<(SourceSet, Metric, Budget)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct Budget(f64);
 
@@ -210,7 +210,7 @@ pub enum ConfigurationFileError {
     },
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(
     title = "codeint.json",
@@ -232,14 +232,14 @@ struct ConfigurationFile {
         description = "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
     )]
     budgets: SourceSetBudgets,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
     )]
     languages: Option<Vec<LanguageGlobs>>,
 }
 
-#[derive(Default, Deserialize, JsonSchema)]
+#[derive(Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SourceSetBudgets {
     #[serde(default)]
@@ -256,31 +256,31 @@ struct SourceSetBudgets {
     vendored: MetricBudgets,
 }
 
-#[derive(Default, Deserialize, JsonSchema)]
+#[derive(Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct MetricBudgets {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
         range(min = 0, max = 1),
         description = "The highest Erosion ratio, from 0 to 1."
     )]
     erosion: Option<Budget>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
         range(min = 0, max = 1),
         description = "The highest Duplication ratio, from 0 to 1."
     )]
     duplication: Option<Budget>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
         range(min = 0, max = 1),
         description = "The highest Verbosity ratio, from 0 to 1."
     )]
     verbosity: Option<Budget>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
         range(min = 0, max = 1),
@@ -289,7 +289,7 @@ struct MetricBudgets {
     import_cycles: Option<Budget>,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct LanguageGlobs {
     #[schemars(description = "The name of the Language plugin, such as typescript-javascript.")]
@@ -305,7 +305,7 @@ struct LanguageGlobs {
     exclude: Vec<String>,
 }
 
-#[derive(Default, Deserialize, JsonSchema)]
+#[derive(Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SourceSetGlobs {
     #[serde(default)]
