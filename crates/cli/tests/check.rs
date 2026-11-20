@@ -639,3 +639,86 @@ fn assert_unwritable_output(output: &Output, path: &str) {
         "unexpected message: {message}"
     );
 }
+
+fn write_two_package_workspace(repository: &Repository, root_manifest: &str) {
+    repository.write("package.json", root_manifest);
+    repository.write("packages/eroded/package.json", "{\"name\": \"eroded\"}\n");
+    repository.write(
+        "packages/eroded/src/branches.ts",
+        &function_with_if_statements("branches", 11),
+    );
+    repository.write("packages/small/package.json", "{\"name\": \"small\"}\n");
+    repository.write(
+        "packages/small/src/sum.ts",
+        &function_with_if_statements("sum", 3),
+    );
+    repository.write("scripts/build.ts", "export const build = 1;\n");
+    repository.write(
+        "docs/package.json",
+        "{\"name\": \"not-a-workspace-package\"}\n",
+    );
+}
+
+const TWO_PACKAGE_REPORT: &str = concat!(
+    "files: 3\n",
+    "source_lines: 21\n",
+    "erosion:\n",
+    "  ratio: 0.8209\n",
+    "  eroded_function_mass: 44.8999\n",
+    "  total_function_mass: 54.6978\n",
+    "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+    "    packages/eroded/src/branches.ts,1,12,14,44.8999\n",
+    "packages[3]{path,files,source_lines,erosion{ratio,eroded_function_mass,total_function_mass}}:\n",
+    "  .,1,1,0,0,0\n",
+    "  packages/eroded,1,14,1,44.8999,44.8999\n",
+    "  packages/small,1,6,0,0,9.798\n",
+);
+
+#[test]
+fn workspace_packages_of_the_array_form_each_report_erosion_and_the_total_sums_their_numerators() {
+    let repository = Repository::new();
+    write_two_package_workspace(&repository, "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), TWO_PACKAGE_REPORT);
+}
+
+#[test]
+fn workspace_packages_of_the_object_form_with_packages_are_reported_like_the_array_form() {
+    let repository = Repository::new();
+    write_two_package_workspace(
+        &repository,
+        "{\"workspaces\": {\"packages\": [\"packages/*\"], \"nohoist\": [\"**/react\"]}}\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), TWO_PACKAGE_REPORT);
+}
+
+#[test]
+fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": \"packages/*\"}\n");
+    repository.write("packages/app/package.json", "{}\n");
+    repository.write("packages/app/index.ts", "export const app = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        concat!(
+            "codeint: cannot find the workspace packages from package.json: ",
+            "the workspaces field must be an array of folder patterns, ",
+            "or an object whose packages field is one\n",
+            "Fix the workspaces field of the manifest so that your package manager accepts it, ",
+            "then run codeint again.\n",
+        ),
+    );
+}

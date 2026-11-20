@@ -5,7 +5,7 @@ use std::string::FromUtf8Error;
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, LanguagePlugin, LowerError, RepoPath, SkippedFile, SourceFile, Workspace,
+    CodeModel, LanguagePlugin, LowerError, Manifest, RepoPath, SkippedFile, SourceFile, Workspace,
     WorkspaceError,
 };
 use codeint_report::{Report, ReportError};
@@ -70,10 +70,26 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
 }
 
 fn find_workspace(
-    _tree: &WorkingTree,
-    _plugins: &[&dyn LanguagePlugin],
+    tree: &WorkingTree,
+    plugins: &[&dyn LanguagePlugin],
 ) -> Result<Workspace, CheckError> {
-    todo!()
+    let mut member_roots = Vec::new();
+    for plugin in plugins {
+        let manifest_names = plugin.workspace_manifests();
+        let manifests = tree
+            .files()
+            .iter()
+            .filter(|path| manifest_names.iter().any(|name| name == path.file_name()))
+            .map(|path| {
+                Ok(Manifest {
+                    path: path.to_string(),
+                    text: read_text(tree, path)?,
+                })
+            })
+            .collect::<Result<Vec<Manifest>, CheckError>>()?;
+        member_roots.extend(plugin.workspace_packages(manifests)?);
+    }
+    Ok(Workspace::new(member_roots))
 }
 
 fn read_text(tree: &WorkingTree, path: &RepoPath) -> Result<String, CheckError> {

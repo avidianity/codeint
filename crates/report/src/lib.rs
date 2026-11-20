@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
+
 use codeint_metrics::{ErodedFunction, Erosion};
-use codeint_model::{CodeModel, RepoPath, SkippedFile};
+use codeint_model::{CodeModel, Package, RepoPath, SkippedFile};
 use serde::Serialize;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
@@ -107,8 +109,34 @@ impl From<&SkippedFile> for SkippedEntry {
     }
 }
 
-fn package_sections(_model: &CodeModel, _erosion: &Erosion) -> Vec<PackageSection> {
-    todo!()
+fn package_sections(model: &CodeModel, erosion: &Erosion) -> Vec<PackageSection> {
+    let workspace = &model.workspace;
+    if !workspace.has_members() {
+        return Vec::new();
+    }
+    let mut sizes: BTreeMap<Package<'_>, (usize, u64)> = BTreeMap::new();
+    for file in &model.files {
+        let (files, source_lines) = sizes.entry(workspace.package_of(&file.path)).or_default();
+        *files += 1;
+        *source_lines += u64::from(file.model.source_lines);
+    }
+    erosion
+        .by_package(workspace)
+        .into_iter()
+        .map(|(package, masses)| {
+            let (files, source_lines) = sizes.get(&package).copied().unwrap_or_default();
+            PackageSection {
+                path: package.to_string(),
+                files,
+                source_lines,
+                erosion: PackageErosion {
+                    ratio: Decimal::rounded(masses.ratio()),
+                    eroded_function_mass: Decimal::rounded(masses.eroded),
+                    total_function_mass: Decimal::rounded(masses.total),
+                },
+            }
+        })
+        .collect()
 }
 
 impl Report {

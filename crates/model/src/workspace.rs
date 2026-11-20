@@ -5,7 +5,7 @@ use crate::{InvalidRepoPath, RepoPath, language};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {
-    #[error("cannot find the workspace packages: {path} {message}")]
+    #[error("cannot find the workspace packages from {path}: {message}")]
     Manifest { path: String, message: String },
     #[error("a Language plugin named an invalid workspace package root")]
     InvalidPackageRoot(#[from] InvalidRepoPath),
@@ -32,25 +32,37 @@ pub enum Package<'workspace> {
 }
 
 impl Workspace {
-    pub fn new(_member_roots: impl IntoIterator<Item = RepoPath>) -> Workspace {
-        todo!()
+    pub fn new(member_roots: impl IntoIterator<Item = RepoPath>) -> Workspace {
+        Workspace {
+            member_roots: member_roots.into_iter().collect(),
+        }
     }
 
     pub fn has_members(&self) -> bool {
-        todo!()
+        !self.member_roots.is_empty()
     }
 
     pub fn packages(&self) -> impl Iterator<Item = Package<'_>> {
         std::iter::once(Package::Root).chain(self.member_roots.iter().map(Package::Member))
     }
 
-    pub fn package_of(&self, _path: &RepoPath) -> Package<'_> {
-        todo!()
+    pub fn package_of(&self, path: &RepoPath) -> Package<'_> {
+        let mut folder = path.as_str();
+        while let Some((parent, _)) = folder.rsplit_once('/') {
+            if let Some(root) = self.member_roots.get(parent) {
+                return Package::Member(root);
+            }
+            folder = parent;
+        }
+        Package::Root
     }
 }
 
 impl fmt::Display for Package<'_> {
-    fn fmt(&self, _formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Package::Root => formatter.write_str("."),
+            Package::Member(root) => root.fmt(formatter),
+        }
     }
 }

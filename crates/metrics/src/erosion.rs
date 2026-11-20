@@ -27,6 +27,11 @@ pub struct Erosion {
 }
 
 impl FunctionMasses {
+    fn add(&mut self, other: FunctionMasses) {
+        self.eroded += other.eroded;
+        self.total += other.total;
+    }
+
     pub fn ratio(&self) -> f64 {
         if self.total > 0.0 {
             self.eroded / self.total
@@ -38,15 +43,18 @@ impl FunctionMasses {
 
 impl Erosion {
     pub fn measure(model: &CodeModel) -> Erosion {
-        let mut total_function_mass = 0.0;
+        let mut masses = FunctionMasses::default();
+        let mut masses_by_file = BTreeMap::new();
         let mut eroded_functions = Vec::new();
         for file in &model.files {
+            let mut file_masses = FunctionMasses::default();
             for function in &file.model.functions {
                 let cyclomatic_complexity = function.decision_points.saturating_add(1);
                 let function_mass =
                     f64::from(cyclomatic_complexity) * f64::from(function.source_lines).sqrt();
-                total_function_mass += function_mass;
+                file_masses.total += function_mass;
                 if cyclomatic_complexity > ERODED_ABOVE_CYCLOMATIC_COMPLEXITY {
+                    file_masses.eroded += function_mass;
                     eroded_functions.push(ErodedFunction {
                         path: file.path.clone(),
                         line: function.line,
@@ -56,6 +64,8 @@ impl Erosion {
                     });
                 }
             }
+            masses.add(file_masses);
+            masses_by_file.insert(file.path.clone(), file_masses);
         }
         eroded_functions.sort_by(|left, right| {
             right
@@ -65,14 +75,8 @@ impl Erosion {
                 .then_with(|| left.line.cmp(&right.line))
         });
         Erosion {
-            masses: FunctionMasses {
-                eroded: eroded_functions
-                    .iter()
-                    .map(|function| function.function_mass)
-                    .sum(),
-                total: total_function_mass,
-            },
-            masses_by_file: BTreeMap::new(),
+            masses,
+            masses_by_file,
             eroded_functions,
         }
     }
@@ -95,8 +99,18 @@ impl Erosion {
 
     pub fn by_package<'workspace>(
         &self,
-        _workspace: &'workspace Workspace,
+        workspace: &'workspace Workspace,
     ) -> BTreeMap<Package<'workspace>, FunctionMasses> {
-        todo!()
+        let mut masses: BTreeMap<Package<'workspace>, FunctionMasses> = workspace
+            .packages()
+            .map(|package| (package, FunctionMasses::default()))
+            .collect();
+        for (path, file_masses) in &self.masses_by_file {
+            masses
+                .entry(workspace.package_of(path))
+                .or_default()
+                .add(*file_masses);
+        }
+        masses
     }
 }

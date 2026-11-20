@@ -46,9 +46,12 @@ impl RepoPath {
         &self.0
     }
 
+    pub fn file_name(&self) -> &str {
+        self.0.rsplit('/').next().unwrap_or(&self.0)
+    }
+
     pub fn extension(&self) -> Option<&str> {
-        let file_name = self.0.rsplit('/').next().unwrap_or(&self.0);
-        match file_name.rsplit_once('.') {
+        match self.file_name().rsplit_once('.') {
             Some((stem, extension)) if !stem.is_empty() => Some(extension),
             _ => None,
         }
@@ -138,8 +141,11 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
 
     fn workspace_packages(
         &self,
-        _manifests: Vec<Manifest>,
+        manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        todo!()
+        Plugin::workspace_packages(manifests)?
+            .into_iter()
+            .map(|root| Ok(RepoPath::new(root)?))
+            .collect()
     }
 }

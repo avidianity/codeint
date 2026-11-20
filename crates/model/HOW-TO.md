@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, Manifest, WorkspaceError};
 
 pub struct Plain;
 
@@ -19,6 +19,14 @@ impl Guest for Plain {
             functions: Vec::new(),
         })
     }
+
+    fn workspace_manifests() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        Ok(Vec::new())
+    }
 }
 ```
 
@@ -32,6 +40,13 @@ impl Guest for Plain {
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
   Which files are declaration-only is a rule of the Language plugin, never of the core.
+- `workspace_manifests` returns the file names, such as `package.json`, that describe workspace packages in the language's ecosystem.
+  Return an empty list when the language has no workspaces.
+- `workspace_packages` receives every file of the repository, at any depth, whose file name `workspace_manifests` lists, as a `Manifest` with its repository-relative path and its text.
+  Return the root folder of each workspace package, never the repository root.
+  An empty list means the repository is one package.
+- Return a `WorkspaceError` that names the manifest and what is wrong with it when a manifest that decides the packages is invalid.
+  Which manifest decides the packages, and how its patterns match folders, is a rule of the Language plugin, never of the core.
 
 ## Lower files in the core
 
@@ -51,3 +66,29 @@ assert_eq!(model.source_lines, 2);
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
+
+## Find workspace packages in the core
+
+```rust
+use codeint_model::{CodeModel, Manifest, Workspace};
+
+let manifests = vec![Manifest {
+    path: "package.json".to_owned(),
+    text: tree_text_of("package.json"),
+}];
+let model = CodeModel {
+    workspace: Workspace::new(plugins[0].workspace_packages(manifests)?),
+    ..CodeModel::default()
+};
+for package in model.workspace.packages() {
+    println!("{package}");
+}
+let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.ts")?);
+```
+
+- The host reads every file whose name a Language plugin lists in `workspace_manifests` and passes them to that plugin; the plugin reads no files itself.
+- A `WorkspaceError` stops the run with exit code 2, because the package of every file depends on it.
+- `Workspace::packages` yields `Package::Root` first, then each member package by root folder.
+  `Package::Root` holds every file outside all member packages, and displays as `.`.
+- `Workspace::package_of` gives the deepest member package whose root folder holds the file, or `Package::Root`.
+- A `Workspace` without members is one package; `has_members` tells the report whether to list packages.
