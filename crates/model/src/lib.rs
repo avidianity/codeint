@@ -5,6 +5,17 @@ use std::fmt;
 #[cfg(test)]
 mod tests;
 
+mod bindings {
+    wit_bindgen::generate!({
+        world: "language-plugin",
+        path: "../../wit",
+        additional_derives: [PartialEq, Eq],
+    });
+}
+
+pub use bindings::exports::codeint::plugin::language;
+pub use language::FileModel;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoPath(String);
 
@@ -48,11 +59,6 @@ impl fmt::Display for RepoPath {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FileModel {
-    pub source_lines: u32,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceFile {
     pub path: RepoPath,
     pub model: FileModel,
@@ -73,8 +79,24 @@ pub enum LowerError {
     TooLarge,
 }
 
+impl From<language::LowerError> for LowerError {
+    fn from(error: language::LowerError) -> LowerError {
+        todo!("{error:?}")
+    }
+}
+
 pub trait LanguagePlugin {
     fn extensions(&self) -> Vec<String>;
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
+}
+
+impl<Plugin: language::Guest> LanguagePlugin for Plugin {
+    fn extensions(&self) -> Vec<String> {
+        todo!()
+    }
+
+    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
+        todo!("{path} {}", text.len())
+    }
 }

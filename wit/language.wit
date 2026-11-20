@@ -1,0 +1,35 @@
+/// The Plugin interface of codeint.
+/// A change that breaks a Plugin built against this version needs a new version.
+package codeint:plugin@0.1.0;
+
+/// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
+interface language {
+    /// The Code model of one source file.
+    record file-model {
+        /// The lines that hold code, so not a blank line or a line with only comments.
+        source-lines: u32,
+    }
+
+    /// Why a Language plugin cannot lower a file.
+    variant lower-error {
+        /// The file does not parse; the payload is the parser's message.
+        unparsable(string),
+        /// No rule of the Language plugin covers the file; the payload says why.
+        unsupported-file(string),
+        /// The file has more source lines than a `u32` holds.
+        too-large,
+    }
+
+    /// The file extensions the Language plugin reads, each without its leading dot, such as `ts`.
+    extensions: func() -> list<string>;
+
+    /// Lowers one file into its Code model.
+    /// `path` is relative to the repository root and uses forward slashes.
+    /// `text` is the whole file.
+    lower: func(path: string, text: string) -> result<file-model, lower-error>;
+}
+
+/// A Language plugin exports `language` and imports nothing.
+world language-plugin {
+    export language;
+}

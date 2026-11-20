@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath};
+use codeint_model::language::{FileModel, Guest, LowerError};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -9,29 +9,25 @@ const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "c
 
 pub struct TypeScriptAndJavaScript;
 
-impl LanguagePlugin for TypeScriptAndJavaScript {
-    fn extensions(&self) -> Vec<String> {
+impl Guest for TypeScriptAndJavaScript {
+    fn extensions() -> Vec<String> {
         EXTENSIONS.iter().map(ToString::to_string).collect()
     }
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
-        let source_type =
-            SourceType::from_path(path.as_str()).map_err(|error| LowerError::UnsupportedFile {
-                message: error.to_string(),
-            })?;
+    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+        let source_type = SourceType::from_path(&path)
+            .map_err(|error| LowerError::UnsupportedFile(error.to_string()))?;
         let allocator = Allocator::default();
-        let parsed = Parser::new(&allocator, text, source_type).parse();
+        let parsed = Parser::new(&allocator, &text, source_type).parse();
         if let Some(diagnostic) = parsed.diagnostics.first() {
-            return Err(LowerError::Unparsable {
-                message: diagnostic.to_string(),
-            });
+            return Err(LowerError::Unparsable(diagnostic.to_string()));
         }
         let comment_spans = parsed
             .program
             .comments
             .iter()
             .map(|comment| comment.span.start as usize..comment.span.end as usize);
-        let code = blank_out(text, comment_spans);
+        let code = blank_out(&text, comment_spans);
         let source_lines = code
             .lines()
             .filter(|line| line.chars().any(is_code_character))
