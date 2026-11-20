@@ -9,6 +9,10 @@ use gix::dir::entry::{Kind, Status};
 use gix::dir::walk::EmissionMode;
 use gix::dir::walk::delegate::Collect;
 
+mod result_cache;
+
+pub use result_cache::{ResultCache, ResultCacheError};
+
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
     #[error("{} is not inside a Git repository", start.display())]

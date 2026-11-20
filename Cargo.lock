@@ -225,6 +225,7 @@ dependencies = [
  "codeint-lang-ts",
  "codeint-model",
  "codeint-report",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",
@@ -251,6 +252,8 @@ version = "0.1.0"
 dependencies = [
  "codeint-model",
  "gix",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

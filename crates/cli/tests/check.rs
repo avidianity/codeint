@@ -264,11 +264,11 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
 }
 
 const PLURAL_LABEL: &str = concat!(
-    "export function label(count: number, unit: string): string {\n",
-    "  if (count === 0) {\n",
-    "    return 'no ' + unit + 's';\n",
+    "export function label(count: number, unit: string, plural: string, prefix: string): string {\n",
+    "  if (Number(count) === 0) {\n",
+    "    return prefix.trim() + ' no ' + plural + ' left';\n",
     "  } else {\n",
-    "    return count + ' ' + unit + (count === 1 ? '' : 's');\n",
+    "    return prefix.trim() + ' ' + String(count) + ' ' + (count === 1 ? unit : plural) + ' left';\n",
     "  }\n",
     "}\n",
 );
@@ -1218,14 +1218,14 @@ fn assert_unwritable_output(output: &Output, path: &str) {
 const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
-    "export function total(items: { price: number; quantity: number }[]): number {\n",
+    "export function total(items: { price: number; discount: number; quantity: number }[]): number {\n",
     "  let sum = 0;\n",
-    "  for (const item of items) {\n",
+    "  for (const item of items.filter(Boolean)) {\n",
     "    if (item.quantity > 0) {\n",
-    "      sum += item.price * item.quantity;\n",
+    "      sum += (item.price - item.discount) * item.quantity;\n",
     "    }\n",
     "  }\n",
-    "  return sum;\n",
+    "  return Math.round(sum * 100) / 100;\n",
     "}\n",
 );
 
@@ -1252,7 +1252,7 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
-            "      tokens: 59\n",
+            "      tokens: 83\n",
             "      locations[2]{path,start_line,end_line}:\n",
             "        src/cart.ts,1,9\n",
             "        src/invoice.ts,2,10\n",
@@ -1261,26 +1261,26 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
 }
 
 const ORDER_TOTAL_RENAMED: &str = concat!(
-    "export function amount(lines: { cost: number; count: number }[]): number {\n",
+    "export function amount(lines: { cost: number; rebate: number; count: number }[]): number {\n",
     "  let result = 100;\n",
-    "  for (const line of lines) {\n",
+    "  for (const line of lines.filter(Present)) {\n",
     "    if (line.count > 5) {\n",
-    "      result += line.cost * line.count;\n",
+    "      result += (line.cost - line.rebate) * line.count;\n",
     "    }\n",
     "  }\n",
-    "  return result;\n",
+    "  return Tally.floor(result * 10) / 1000;\n",
     "}\n",
 );
 
 const CART_TOTAL_RESTRUCTURED: &str = concat!(
-    "export function total(items: { price: number; quantity: number }[]): number {\n",
+    "export function total(items: { price: number; discount: number; quantity: number }[]): number {\n",
     "  let sum = 0;\n",
-    "  for (const item of items) {\n",
+    "  for (const item of items.filter(Boolean)) {\n",
     "    while (item.quantity > 0) {\n",
-    "      sum += item.price * item.quantity;\n",
+    "      sum += (item.price - item.discount) * item.quantity;\n",
     "    }\n",
     "  }\n",
-    "  return sum + 1;\n",
+    "  return Math.round(sum * 100) / 100 + 1;\n",
     "}\n",
 );
 
@@ -1303,7 +1303,7 @@ fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
-            "      tokens: 59\n",
+            "      tokens: 83\n",
             "      locations[2]{path,start_line,end_line}:\n",
             "        src/cart.ts,1,9\n",
             "        src/order.ts,1,9\n",
@@ -1337,6 +1337,58 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
     assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
+}
+
+const AREA_OF_75_TOKENS: &str = concat!(
+    "export default function area(width: number, height: number, depth: number) {\n",
+    "  const base = width * height;\n",
+    "  const side = height * depth;\n",
+    "  const volume = base * depth / 2;\n",
+    "  const half = volume - side % 3;\n",
+    "  if (base > side) {\n",
+    "    return base * depth + half;\n",
+    "  }\n",
+    "  return side * width - base + 1;\n",
+    "}\n",
+);
+
+#[test]
+fn a_copy_of_74_tokens_is_not_a_clone_group_and_a_copy_of_75_tokens_is() {
+    let without_default =
+        AREA_OF_75_TOKENS.replacen("export default function", "export function", 1);
+    let below = Repository::new();
+    below.write("src/first.ts", &without_default);
+    below.write("src/second.ts", &without_default);
+    below.commit_all();
+    let at = Repository::new();
+    at.write("src/first.ts", AREA_OF_75_TOKENS);
+    at.write("src/second.ts", AREA_OF_75_TOKENS);
+    at.commit_all();
+
+    let below_output = below.codeint(&["check"]);
+    let at_output = at.codeint(&["check"]);
+
+    assert_success(&below_output);
+    assert_success(&at_output);
+    assert_eq!(
+        production_section(&at_output, "duplication"),
+        concat!(
+            "duplication:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  clone_lines: 20\n",
+            "  clone_groups[1]:\n",
+            "    - id: <id>\n",
+            "      tokens: 75\n",
+            "      locations[2]{path,start_line,end_line}:\n",
+            "        src/first.ts,1,10\n",
+            "        src/second.ts,1,10\n",
+        )
+    );
+    assert_eq!(
+        production_section(&below_output, "duplication"),
+        NO_DUPLICATION
+    );
 }
 
 fn write_21_clone_groups_of_equal_size(repository: &Repository) {
@@ -2558,13 +2610,13 @@ const PRICE_LABEL: &str = concat!(
     "/**\n",
     " * Formats a price for the receipt.\n",
     " */\n",
-    "export function priceLabel(items: { price: number; quantity: number }[]): string {\n",
+    "export function priceLabel(items: { price: number; discount: number; quantity: number }[], currency: string): string {\n",
     "  let sum = 0;\n",
-    "  for (const item of items) {\n",
-    "    sum += item.price * item.quantity;\n",
+    "  for (const item of items.filter(Boolean)) {\n",
+    "    sum += (item.price - item.discount) * item.quantity;\n",
     "  }\n",
     "  return `total:\n",
-    "${sum}\n",
+    "${Math.round(sum * 100) / 100} ${currency}\n",
     "end`;\n",
     "}\n",
 );
@@ -4055,7 +4107,7 @@ fn a_clone_group_and_an_import_cycle_list_their_other_locations_as_related_locat
     };
     assert_eq!(
         result_of("duplication")["message"]["text"],
-        "Clone group of 59 tokens in 2 fragments; the other fragments: packages/web/src/cart.ts lines 1-9."
+        "Clone group of 83 tokens in 2 fragments; the other fragments: packages/web/src/cart.ts lines 1-9."
     );
     assert_eq!(
         related("duplication"),

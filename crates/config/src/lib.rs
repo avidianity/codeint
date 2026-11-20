@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 mod codeint_json;
 mod regression_limits;
+mod result_cache_folder;
 
 pub use codeint_json::{
     Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError,
@@ -74,6 +75,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        result_cache: Option<PathBuf>,
     },
     Init {
         folder: PathBuf,
@@ -171,6 +173,11 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             destination: report_destination(&current_folder, report.output)?,
             findings: findings_shown(report.all),
             format: report.format,
+            result_cache: result_cache_folder::result_cache_folder(
+                &current_folder,
+                result_cache_folder::CacheFolderConvention::of_this_platform(),
+                |name| std::env::var_os(name),
+            ),
         },
         CommandArguments::Init => Command::Init {
             folder: current_folder,
