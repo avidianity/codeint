@@ -7,6 +7,7 @@ use oxc_span::Span;
 use crate::functions::CodeLines;
 
 mod catch_only_rethrows;
+mod constructor_only_forwards;
 mod else_after_return;
 mod if_else_returns_boolean;
 
@@ -15,10 +16,11 @@ struct Rule {
     find: fn(&Program<'_>, &str) -> Vec<Span>,
 }
 
-const RULES: [Rule; 3] = [
+const RULES: [Rule; 4] = [
     else_after_return::RULE,
     if_else_returns_boolean::RULE,
     catch_only_rethrows::RULE,
+    constructor_only_forwards::RULE,
 ];
 
 pub fn flagged_line_rules() -> impl Iterator<Item = &'static str> {
