@@ -199,7 +199,7 @@
         },
         "new_findings": {
           "$ref": "#/$defs/NewFindingsRule",
-          "description": "When new Findings fail: any_new_finding fails on any new Finding; numerator_rise_with_new_findings fails only when the numerator rises too, so a Finding that only moves passes."
+          "description": "When new Findings fail: any_new_finding fails on any new Finding; numerator_rise_with_new_findings fails only when the numerator rises too, so a Finding that only moves passes; never lets new Findings pass, so that with ratio_rise 1 this Metric never makes a Regression here."
         }
       }
     },
@@ -207,7 +207,8 @@
       "type": "string",
       "enum": [
         "any_new_finding",
-        "numerator_rise_with_new_findings"
+        "numerator_rise_with_new_findings",
+        "never"
       ]
     },
     "MetricRegressionLimits": {

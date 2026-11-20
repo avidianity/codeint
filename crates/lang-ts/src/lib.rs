@@ -35,8 +35,7 @@ impl Guest for TypeScriptAndJavaScript {
     }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        let source_type = SourceType::from_path(&path)
-            .map_err(|error| LowerError::UnsupportedFile(error.to_string()))?;
+        let source_type = source_type(&path)?;
         if source_type.is_typescript_definition() {
             return Err(LowerError::DeclarationOnly);
         }
@@ -94,6 +93,16 @@ impl Guest for TypeScriptAndJavaScript {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
+    }
+}
+
+fn source_type(path: &str) -> Result<SourceType, LowerError> {
+    let source_type = SourceType::from_path(path)
+        .map_err(|error| LowerError::UnsupportedFile(error.to_string()))?;
+    if source_type.is_javascript() {
+        Ok(source_type.with_jsx(true))
+    } else {
+        Ok(source_type)
     }
 }
 

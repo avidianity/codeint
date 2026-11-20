@@ -629,16 +629,17 @@ fn an_import_cycle_that_stays_is_not_a_regression() {
     );
 }
 
-#[test]
-fn a_numerator_rise_that_adds_new_findings_is_a_regression_named_with_its_base_and_head_numerator()
-{
+fn erosion_numerator_rise_with_1_new_finding() -> Fixture {
     let fixture = Fixture::with_committed_function_of_11_conditions();
     fixture.put(
         "src/b.ts",
         &function_with_joined_conditions("b", 11, "<", " || "),
     );
+    fixture
+}
 
-    let report = fixture.diff_failing_with(
+fn assert_erosion_numerator_rise_fails(fixture: &Fixture) -> Value {
+    fixture.diff_failing_with(
         &[regression(
             "erosion",
             "numerator_rise_with_new_findings",
@@ -647,7 +648,14 @@ fn a_numerator_rise_that_adds_new_findings_is_a_regression_named_with_its_base_a
             1,
         )],
         "the production erosion numerator eroded_function_mass rose from 19.0526 to 38.1051 with 1 new Finding",
-    );
+    )
+}
+
+#[test]
+fn a_numerator_rise_that_adds_new_findings_is_a_regression_named_with_its_base_and_head_numerator()
+{
+    let fixture = erosion_numerator_rise_with_1_new_finding();
+    let report = assert_erosion_numerator_rise_fails(&fixture);
 
     let erosion = &report["source_sets"]["production"]["erosion"];
     assert_eq!(erosion["base_ratio"], erosion["head_ratio"]);
@@ -771,15 +779,49 @@ fn new_findings_set_to_any_new_finding_makes_a_moved_erosion_finding_a_regressio
     );
 }
 
+fn assert_replaced_import_cycle_passes_with_new_findings_rule(rule: &str) {
+    let fixture = Fixture::with_import_cycle_replaced_by_another();
+    fixture.put_regression_limits(&format!(
+        r#"{{ "import_cycles": {{ "new_findings": "{rule}" }} }}"#
+    ));
+
+    fixture.diff_passing();
+}
+
 #[test]
 fn new_findings_set_to_numerator_rise_with_new_findings_lets_a_new_import_cycle_without_a_rise_pass()
  {
-    let fixture = Fixture::with_import_cycle_replaced_by_another();
-    fixture.put_regression_limits(
-        r#"{ "import_cycles": { "new_findings": "numerator_rise_with_new_findings" } }"#,
-    );
+    assert_replaced_import_cycle_passes_with_new_findings_rule("numerator_rise_with_new_findings");
+}
 
-    fixture.diff_passing();
+fn erosion_numerator_rise_with_new_findings_never_in(source_set: &str) -> Fixture {
+    let fixture = erosion_numerator_rise_with_1_new_finding();
+    fixture.put_regression_limits(&format!(
+        r#"{{ "{source_set}": {{ "erosion": {{ "new_findings": "never" }} }} }}"#
+    ));
+    fixture
+}
+
+#[test]
+fn new_findings_set_to_never_lets_a_numerator_rise_with_new_findings_in_its_source_set_pass() {
+    let report = erosion_numerator_rise_with_new_findings_never_in("production").diff_passing();
+
+    assert_eq!(
+        paths_of(&report["source_sets"]["production"]["erosion"]["new"]),
+        vec!["src/b.ts".to_owned()]
+    );
+}
+
+#[test]
+fn new_findings_set_to_never_in_another_source_set_leaves_the_numerator_rise_a_regression() {
+    let fixture = erosion_numerator_rise_with_new_findings_never_in("generated");
+
+    assert_erosion_numerator_rise_fails(&fixture);
+}
+
+#[test]
+fn new_findings_set_to_never_for_a_metric_lets_a_new_import_cycle_pass() {
+    assert_replaced_import_cycle_passes_with_new_findings_rule("never");
 }
 
 #[test]
@@ -795,7 +837,7 @@ fn a_ratio_limit_over_1_stops_diff_with_exit_code_2_and_names_the_key() {
 fn an_unknown_new_findings_rule_stops_diff_with_exit_code_2_and_names_the_key_and_the_rules() {
     assert_regression_limits_rejected(
         r#"{ "erosion": { "new_findings": "sometimes" } }"#,
-        "regression_limits.erosion.new_findings must be one of any_new_finding, numerator_rise_with_new_findings, not \"sometimes\"",
+        "regression_limits.erosion.new_findings must be one of any_new_finding, numerator_rise_with_new_findings, never, not \"sometimes\"",
         "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one.",
     );
 }

@@ -1,6 +1,6 @@
 use codeint_model::language::SourceSet;
 
-const TEST_FOLDER: &str = "__tests__";
+const TEST_FOLDERS: [&str; 3] = ["__tests__", "test", "tests"];
 const TEST_FILE_MARKERS: [&str; 2] = ["test", "spec"];
 const GENERATED_MARKERS: [&str; 7] = [
     "@generated",
@@ -17,7 +17,9 @@ pub(crate) fn source_set<'text>(
     mut header_comments: impl Iterator<Item = &'text str>,
 ) -> SourceSet {
     let (folders, file_name) = path.rsplit_once('/').unwrap_or(("", path));
-    let in_test_folder = folders.split('/').any(|folder| folder == TEST_FOLDER);
+    let in_test_folder = folders
+        .split('/')
+        .any(|folder| TEST_FOLDERS.contains(&folder));
     if header_comments.any(has_generated_marker) {
         SourceSet::Generated
     } else if in_test_folder || is_test_file_name(file_name) {

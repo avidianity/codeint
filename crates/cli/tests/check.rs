@@ -444,6 +444,63 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
 }
 
 #[test]
+fn javascript_files_with_jsx_count_toward_erosion_and_duplication_while_flow_is_skipped() {
+    let component = concat!(
+        "export function StatusCard({ items, status, label, fallback }) {\n",
+        "  let total = 0;\n",
+        "  for (const item of items) {\n",
+        "    if (item.active && item.visible && item.weight > 0) total += item.weight;\n",
+        "  }\n",
+        "  while (total > 100) total -= 50;\n",
+        "  switch (status) {\n",
+        "    case 'warn':\n",
+        "      return <aside role=\"alert\">{label ?? fallback}</aside>;\n",
+        "    case 'error':\n",
+        "      return <strong data-total={total || 1}>{label}</strong>;\n",
+        "    default:\n",
+        "      return <section>{total > 0 ? <span>{label}</span> : <em>{fallback}</em>}</section>;\n",
+        "  }\n",
+        "}\n",
+    );
+    let repository = Repository::new();
+    repository.write("src/first.js", component);
+    repository.write("src/second.js", component);
+    repository.write(
+        "src/flow.js",
+        "// @flow\nexport function greet(name: string): string {\n  return name;\n}\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 30\n");
+    assert_eq!(
+        erosion_findings_lines(&output),
+        vec![
+            erosion_findings_header(2),
+            "    <id>,src/first.js,1".to_owned(),
+            "    <id>,src/second.js,1".to_owned(),
+        ]
+    );
+    let duplication = production_section(&output, "duplication");
+    assert!(
+        duplication.contains("clone_lines: 30\n")
+            && duplication.contains("src/first.js,1,15\n")
+            && duplication.contains("src/second.js,1,15\n"),
+        "unexpected duplication section:\n{duplication}"
+    );
+    assert!(
+        stdout(&output).contains(
+            "skipped[1]{path,reason}:\n  \
+             src/flow.js,\"cannot parse: Flow is not supported at line 1, column 1\"\n"
+        ),
+        "unexpected output:\n{}",
+        stdout(&output)
+    );
+}
+
+#[test]
 fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_source_lines() {
     let repository = Repository::new();
     repository.write("src/main.ts", "export const main = 1;\n");
@@ -2395,6 +2452,45 @@ fn generated_files_do_not_change_production_metrics() {
     assert!(
         metric_section(&output, "generated", "erosion").contains("public/app.min.js,1,13,1,13"),
         "the eroded function of the bundle counts toward the Generated Source set"
+    );
+}
+
+#[test]
+fn a_production_override_in_codeint_json_wins_over_the_test_folder_rule() {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "source_sets": {
+    "production": ["test/support/**"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "test/main.ts",
+        "export const one = 1;\nexport const two = 2;\n",
+    );
+    repository.write(
+        "packages/app/tests/deep/user.ts",
+        "export const user = 1;\nexport const name = 2;\nexport const age = 3;\n",
+    );
+    repository.write(
+        "test/support/server.ts",
+        "export const port = 1;\nexport const host = 2;\nexport const path = 3;\nexport const ready = 4;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 2 source_lines: 5",
+            "test: files: 2 source_lines: 5",
+        ]
     );
 }
 

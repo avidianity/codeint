@@ -151,6 +151,109 @@ fn an_export_in_a_commonjs_script_is_unparsable() {
 }
 
 #[test]
+fn javascript_files_with_jsx_lower_their_functions_and_tokens() {
+    let esm = concat!(
+        "export function Badge({ label, active }) {\n",
+        "  if (active) {\n",
+        "    return <span title=\"on\">{label}</span>;\n",
+        "  }\n",
+        "  return <span>{label}</span>;\n",
+        "}\n",
+    );
+    let cjs = concat!(
+        "function Badge({ label, active }) {\n",
+        "  if (active) {\n",
+        "    return <span title=\"on\">{label}</span>;\n",
+        "  }\n",
+        "  return <span>{label}</span>;\n",
+        "}\n",
+        "module.exports = { Badge };\n",
+    );
+
+    let from_jsx = lower("src/badge.jsx", esm).expect("jsx file lowers");
+    for path in ["src/badge.js", "src/badge.mjs"] {
+        let model =
+            lower(path, esm).unwrap_or_else(|error| panic!("{path} did not lower: {error}"));
+        assert_eq!(model.source_lines, from_jsx.source_lines, "{path}");
+        assert_eq!(model.functions, [function(1, 6, 1, 6)], "{path}");
+        assert_eq!(model.tokens, from_jsx.tokens, "{path}");
+    }
+
+    let cjs_model = lower("src/badge.cjs", cjs).expect("cjs file with jsx lowers");
+    assert_eq!(cjs_model.source_lines, 7);
+    assert_eq!(cjs_model.functions, [function(1, 6, 1, 6)]);
+    assert!(!cjs_model.tokens.is_empty());
+}
+
+#[test]
+fn a_javascript_file_without_jsx_keeps_its_functions_and_comparison_tokens() {
+    let text = concat!(
+        "export function inRange(value, low, high) {\n",
+        "  return value < high && value > low;\n",
+        "}\n",
+    );
+
+    assert_eq!(functions("src/range.js", text), [function(1, 3, 1, 3)]);
+    assert_token_kinds(
+        "src/range.js",
+        text,
+        &[
+            ("export", Other),
+            ("function", Other),
+            ("inRange", Identifier),
+            ("(", Other),
+            ("value", Identifier),
+            (",", Other),
+            ("low", Identifier),
+            (",", Other),
+            ("high", Identifier),
+            (")", Other),
+            ("{", Other),
+            ("return", Other),
+            ("value", Identifier),
+            ("<", Other),
+            ("high", Identifier),
+            ("&&", Other),
+            ("value", Identifier),
+            (">", Other),
+            ("low", Identifier),
+            (";", Other),
+            ("}", Other),
+        ],
+    );
+}
+
+#[test]
+fn a_flow_annotated_javascript_file_is_unparsable() {
+    let text = concat!(
+        "// @flow\n",
+        "export function greet(name: string): string {\n",
+        "  return name;\n",
+        "}\n",
+    );
+
+    let result = lower("src/flow.js", text);
+
+    assert!(
+        matches!(
+            &result,
+            Err(LowerError::Unparsable { message }) if message.contains("Flow is not supported")
+        ),
+        "unexpected result: {result:?}"
+    );
+}
+
+#[test]
+fn a_typescript_file_without_tsx_extension_rejects_jsx() {
+    let result = lower("src/badge.ts", "export const Badge = () => <span />;\n");
+
+    assert!(
+        matches!(result, Err(LowerError::Unparsable { .. })),
+        "unexpected result: {result:?}"
+    );
+}
+
+#[test]
 fn a_typescript_declaration_file_is_declaration_only() {
     for path in [
         "types/globals.d.ts",
@@ -1365,11 +1468,18 @@ fn a_test_or_spec_file_of_every_extension_is_in_the_test_source_set() {
 }
 
 #[test]
-fn a_file_under_a_tests_folder_at_any_depth_is_in_the_test_source_set() {
+fn a_file_under_a_test_or_tests_folder_at_any_depth_is_in_the_test_source_set() {
     for path in [
         "__tests__/greet.ts",
         "src/__tests__/greet.tsx",
         "src/__tests__/helpers/fixtures.js",
+        "test/greet.ts",
+        "tests/greet.mjs",
+        "src/test/greet.ts",
+        "src/tests/greet.ts",
+        "packages/app/test/fixtures/deep/user.js",
+        "packages/app/tests/helpers/setup.tsx",
+        "test/test.ts",
     ] {
         assert_eq!(source_set(path), SourceSet::Test, "{path}");
     }
@@ -1384,8 +1494,13 @@ fn a_file_that_no_test_rule_matches_is_in_the_production_source_set() {
         "src/.test.ts",
         "src/greet.testing.ts",
         "src/latest.ts",
-        "src/test/greet.ts",
-        "src/tests/greet.ts",
+        "test.ts",
+        "tests.ts",
+        "src/tests.ts",
+        "src/testing/greet.ts",
+        "src/my-tests/greet.ts",
+        "src/latest/greet.ts",
+        "src/Test/greet.ts",
         "src/__tests__.ts",
         "src/my__tests__/greet.ts",
         "src/greet.test.helpers.ts",
