@@ -64,5 +64,21 @@ fn git_remedy(error: &GitError) -> &'static str {
 }
 
 fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
-    todo!("{error:?}")
+    match error {
+        ConfigurationFileError::Unreadable(_) => {
+            "Check that codeint.json is a file you have permission to read, then run codeint again."
+        }
+        ConfigurationFileError::NotJson(_) => {
+            "Fix the JSON syntax of codeint.json at that line and column."
+        }
+        ConfigurationFileError::UnknownKey { .. } => {
+            "Remove the key, or correct its spelling to one of the allowed keys."
+        }
+        ConfigurationFileError::WrongType { .. } => {
+            "Change the value to the expected type; the JSON schema that $schema links to describes every key."
+        }
+        ConfigurationFileError::InvalidGlob { .. } => {
+            "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
+        }
+    }
 }

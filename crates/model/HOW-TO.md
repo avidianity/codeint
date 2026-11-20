@@ -106,6 +106,7 @@ model.source_set = settle_source_set(&path, model.source_set);
 - A file with a folder named exactly `vendor` or `third_party`, at any depth, is Vendored, whatever Source set the Language plugin names.
 - The file name never counts: `src/vendor.ts` keeps the Source set that the Language plugin names.
 - Every other file keeps the Source set that the Language plugin names.
+- Source set overrides from `codeint.json` apply after `settle_source_set` and win over it; [the configuration HOW-TO](../config/HOW-TO.md#apply-source-set-overrides) shows the call.
 
 ## Split the Code model by Source set
 

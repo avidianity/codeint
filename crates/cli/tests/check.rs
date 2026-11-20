@@ -1167,3 +1167,154 @@ fn all_lists_every_clone_group() {
     expected.extend((1..=21).map(|index| format!("src/a{index:02}.ts,1,9")));
     assert_eq!(clone_groups_by_first_location(&output), expected);
 }
+
+#[test]
+fn a_source_set_override_in_codeint_json_moves_each_matching_file_into_the_named_source_set() {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
+  "source_sets": {
+    "production": ["src/fixtures.test.ts"],
+    "test": ["e2e/**"],
+    "generated": ["src/proto/*.ts"],
+    "vendored": ["lib/legacy/**/*.js"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "src/fixtures.test.ts",
+        "export const fixture = 1;\nexport const other = 2;\n",
+    );
+    repository.write(
+        "e2e/login.ts",
+        "export const login = 1;\nexport const user = 2;\nexport const page = 3;\n",
+    );
+    repository.write("src/proto/user.ts", "export const user = 1;\n");
+    repository.write("src/proto/nested/kept.ts", "export const kept = 1;\n");
+    repository.write("lib/legacy/a/b.js", "export const legacy = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "src"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 3 source_lines: 4",
+            "test: files: 1 source_lines: 3",
+            "generated: files: 1 source_lines: 1",
+            "vendored: files: 1 source_lines: 1",
+        ]
+    );
+}
+
+#[test]
+fn a_file_that_matches_overrides_of_several_source_sets_goes_to_the_first_of_vendored_generated_test_production()
+ {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "source_sets": {
+    "production": ["src/**"],
+    "test": ["src/**"],
+    "generated": ["src/api/**"],
+    "vendored": ["src/api/external/**"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write("src/api/client.ts", "export const client = 1;\n");
+    repository.write("src/api/external/sdk.ts", "export const sdk = 1;\n");
+    repository.write("lib/vendor/kept.ts", "export const kept = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "test: files: 1 source_lines: 1",
+            "generated: files: 1 source_lines: 1",
+            "vendored: files: 2 source_lines: 2",
+        ]
+    );
+}
+
+const UNKNOWN_KEY_REMEDY: &str =
+    "Remove the key, or correct its spelling to one of the allowed keys.";
+
+const WRONG_TYPE_REMEDY: &str = "Change the value to the expected type; the JSON schema that $schema links to describes every key.";
+
+fn assert_codeint_json_is_rejected(codeint_json: &str, message: &str, remedy: &str) {
+    let repository = Repository::new();
+    repository.write("codeint.json", codeint_json);
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "src"]);
+
+    assert_operational_error(&output, &format!("codeint: {message}\n{remedy}\n"));
+}
+
+#[test]
+fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "generatd": ["dist/**"] } }"#,
+        "codeint.json has an unknown key source_sets.generatd; \
+         the keys allowed there are production, test, generated, vendored",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "budget": {} }"#,
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn a_value_of_the_wrong_type_in_codeint_json_names_the_key_and_the_expected_type_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "generated": "dist/**" } }"#,
+        "codeint.json: source_sets.generated must be an array, not a string",
+        WRONG_TYPE_REMEDY,
+    );
+}
+
+#[test]
+fn an_item_of_the_wrong_type_in_codeint_json_names_its_index_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "test": ["e2e/**", 42] } }"#,
+        "codeint.json: source_sets.test[1] must be a string, not an integer",
+        WRONG_TYPE_REMEDY,
+    );
+}
+
+#[test]
+fn an_invalid_glob_in_codeint_json_names_the_key_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "vendored": ["lib/[abc"] } }"#,
+        "codeint.json: source_sets.vendored[0] is not a valid glob: \
+         error parsing glob 'lib/[abc': unclosed character class; missing ']'",
+        "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b.",
+    );
+}
+
+#[test]
+fn codeint_json_that_is_not_json_names_the_line_and_column_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        "{\n  \"source_sets\": {},\n}\n",
+        "codeint.json is not valid JSON: trailing comma at line 3 column 1",
+        "Fix the JSON syntax of codeint.json at that line and column.",
+    );
+}
