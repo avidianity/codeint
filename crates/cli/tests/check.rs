@@ -1938,7 +1938,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, languages",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -1977,5 +1977,143 @@ fn codeint_json_that_is_not_json_names_the_line_and_column_and_exits_2() {
         "{\n  \"source_sets\": {},\n}\n",
         "codeint.json is not valid JSON: trailing comma at line 3 column 1",
         "Fix the JSON syntax of codeint.json at that line and column.",
+    );
+}
+
+fn write_files_of_distinct_line_counts(repository: &Repository, paths: &[&str]) {
+    for (power, path) in paths.iter().enumerate() {
+        let lines: String = (0..1usize << power)
+            .map(|line| format!("export const value{line} = {line};\n"))
+            .collect();
+        repository.write(path, &lines);
+    }
+}
+
+fn check_with_languages(languages: &str, paths: &[&str]) -> Output {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        &format!(r#"{{ "languages": {languages} }}"#),
+    );
+    write_files_of_distinct_line_counts(&repository, paths);
+    repository.commit_all();
+    repository.codeint(&["check"])
+}
+
+#[test]
+fn a_languages_entry_measures_only_the_folders_it_includes() {
+    let output = check_with_languages(
+        r#"[{ "plugin": "typescript-javascript", "include": ["packages/web", "scripts/*.ts"] }]"#,
+        &[
+            "packages/web/src/main.ts",
+            "packages/web/index.js",
+            "packages/api/main.ts",
+            "scripts/build.ts",
+            "scripts/nested/deploy.ts",
+            "main.ts",
+        ],
+    );
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["production: files: 3 source_lines: 11"]
+    );
+}
+
+#[test]
+fn an_exclude_glob_leaves_out_a_folder_inside_an_included_one() {
+    let output = check_with_languages(
+        r#"[{
+            "plugin": "typescript-javascript",
+            "include": ["packages/**"],
+            "exclude": ["packages/web/legacy", "**/*.js"]
+        }]"#,
+        &[
+            "packages/web/main.ts",
+            "packages/web/legacy/old.ts",
+            "packages/web/legacy/deep/older.ts",
+            "packages/api/main.ts",
+            "packages/api/bundle.js",
+        ],
+    );
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["production: files: 2 source_lines: 9"]
+    );
+}
+
+#[test]
+fn two_entries_for_one_language_plugin_both_apply() {
+    let output = check_with_languages(
+        r#"[
+            { "plugin": "typescript-javascript", "include": ["web"] },
+            { "plugin": "typescript-javascript", "include": ["api"], "exclude": ["api/generated"] }
+        ]"#,
+        &[
+            "web/main.ts",
+            "api/main.ts",
+            "api/generated/client.ts",
+            "tools/lint.ts",
+        ],
+    );
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["production: files: 2 source_lines: 3"]
+    );
+}
+
+#[test]
+fn without_the_languages_setting_every_language_plugin_measures_the_whole_repository() {
+    let output = check_with_languages("null", &["web/main.ts", "api/main.ts", "tools/lint.js"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["production: files: 3 source_lines: 7"]
+    );
+}
+
+#[test]
+fn an_empty_languages_setting_measures_nothing() {
+    let output = check_with_languages("[]", &["web/main.ts"]);
+
+    assert_success(&output);
+    assert_eq!(source_set_sizes(&output), Vec::<String>::new());
+}
+
+#[test]
+fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "languages": [
+            { "plugin": "typescript-javascript", "include": ["web"] },
+            { "plugin": "python", "include": ["scripts"] }
+        ] }"#,
+        "codeint.json names an unknown Language plugin python at languages[1].plugin; \
+         the Language plugins are typescript-javascript",
+        "Name one of the Language plugins listed, or remove the entry from languages.",
+    );
+}
+
+#[test]
+fn a_languages_entry_without_include_names_the_missing_key_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "languages": [{ "plugin": "typescript-javascript" }] }"#,
+        "codeint.json: languages[0] needs the key include",
+        "Add the key; the JSON schema that $schema links to describes every key.",
+    );
+}
+
+#[test]
+fn an_invalid_exclude_glob_names_its_key_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "languages": [{ "plugin": "typescript-javascript", "include": ["**"], "exclude": ["web/[abc"] }] }"#,
+        "codeint.json: languages[0].exclude[0] is not a valid glob: \
+         error parsing glob 'web/[abc': unclosed character class; missing ']'",
+        "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b.",
     );
 }

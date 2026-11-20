@@ -13,6 +13,16 @@
     "source_sets": {
       "$ref": "#/$defs/SourceSetGlobs",
       "description": "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins."
+    },
+    "languages": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/LanguageGlobs"
+      },
+      "description": "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
     }
   },
   "title": "codeint.json",
@@ -56,6 +66,35 @@
           "default": []
         }
       }
+    },
+    "LanguageGlobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The name of the Language plugin, such as typescript-javascript."
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of repository-relative folders or files inside the included ones that the Language plugin leaves out.",
+          "default": []
+        }
+      },
+      "required": [
+        "plugin",
+        "include"
+      ]
     }
   }
 }

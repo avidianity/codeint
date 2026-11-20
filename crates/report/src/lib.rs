@@ -8,6 +8,8 @@ use codeint_metrics::{
 use codeint_model::{
     CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
 };
+use std::collections::BTreeMap;
+
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
@@ -22,16 +24,30 @@ pub struct ReportError(#[source] toon_format::ToonError);
 
 #[derive(Debug, Serialize)]
 pub struct Report {
-    files: usize,
-    source_lines: u64,
-    source_sets: SourceSetSections,
+    #[serde(flatten)]
+    measured: MeasuredSection,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    languages: BTreeMap<String, MeasuredSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
 }
 
-pub enum ReferenceRangeScope {
+pub struct MeasuredLanguage {
+    pub plugin: String,
+    pub model: CodeModel,
+    pub reference_ranges: ReferenceRanges,
+}
+
+#[derive(Debug, Serialize)]
+struct MeasuredSection {
+    files: usize,
+    source_lines: u64,
+    source_sets: SourceSetSections,
+}
+
+enum ReferenceRangeScope {
     OneLanguage(ReferenceRanges),
     SeveralLanguages,
 }
@@ -428,22 +444,68 @@ impl From<&SkippedFile> for SkippedEntry {
     }
 }
 
-impl Report {
-    pub fn summarize(
+impl MeasuredSection {
+    fn new(
         model: CodeModel,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
-    ) -> Report {
-        Report {
+    ) -> MeasuredSection {
+        MeasuredSection {
             files: model.files.len(),
             source_lines: source_lines(&model),
+            source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
+        }
+    }
+}
+
+impl Report {
+    pub fn summarize(languages: Vec<MeasuredLanguage>, findings: FindingsShown) -> Report {
+        let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
+            .into_iter()
+            .partition(|language| !language.model.files.is_empty());
+        let (total_ranges, sections_per_language) = match measured.as_slice() {
+            [] => (
+                ReferenceRangeScope::OneLanguage(ReferenceRanges::default()),
+                BTreeMap::new(),
+            ),
+            [only] => (
+                ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
+                BTreeMap::new(),
+            ),
+            _ => (
+                ReferenceRangeScope::SeveralLanguages,
+                measured
+                    .iter()
+                    .map(|language| {
+                        (
+                            language.plugin.clone(),
+                            MeasuredSection::new(
+                                language.model.clone(),
+                                &ReferenceRangeScope::OneLanguage(
+                                    language.reference_ranges.clone(),
+                                ),
+                                findings,
+                            ),
+                        )
+                    })
+                    .collect(),
+            ),
+        };
+        let model = CodeModel::merge(
+            measured
+                .into_iter()
+                .chain(unmeasured)
+                .map(|language| language.model),
+        );
+        Report {
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only
                 .iter()
                 .map(RepoPath::to_string)
                 .collect(),
-            source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
+            measured: MeasuredSection::new(model, &total_ranges, findings),
+            languages: sections_per_language,
         }
     }
 

@@ -14,6 +14,82 @@ pub const CONFIGURATION_FILE_NAME: &str = "codeint.json";
 #[derive(Debug, Default)]
 pub struct Configuration {
     pub source_set_overrides: SourceSetOverrides,
+    pub languages: Languages,
+}
+
+#[derive(Debug, Default)]
+pub struct Languages {
+    entries: Option<Vec<LanguageEntry>>,
+}
+
+#[derive(Debug)]
+struct LanguageEntry {
+    plugin_key: KeyPath,
+    plugin: String,
+    include: GlobSet,
+    exclude: GlobSet,
+}
+
+#[derive(Debug)]
+pub struct LanguageCoverage<'languages> {
+    entries: Option<Vec<&'languages LanguageEntry>>,
+}
+
+impl Languages {
+    pub fn coverage_of(
+        &self,
+        plugin_names: &[&str],
+    ) -> Result<Vec<LanguageCoverage<'_>>, ConfigurationFileError> {
+        let Some(entries) = &self.entries else {
+            return Ok(plugin_names
+                .iter()
+                .map(|_| LanguageCoverage { entries: None })
+                .collect());
+        };
+        if let Some(unknown) = entries
+            .iter()
+            .find(|entry| !plugin_names.contains(&entry.plugin.as_str()))
+        {
+            return Err(ConfigurationFileError::UnknownLanguagePlugin {
+                key: unknown.plugin_key.clone(),
+                name: unknown.plugin.clone(),
+                known: plugin_names.iter().map(|name| (*name).to_owned()).collect(),
+            });
+        }
+        Ok(plugin_names
+            .iter()
+            .map(|name| LanguageCoverage {
+                entries: Some(
+                    entries
+                        .iter()
+                        .filter(|entry| entry.plugin == *name)
+                        .collect(),
+                ),
+            })
+            .collect())
+    }
+}
+
+impl LanguageCoverage<'_> {
+    pub fn covers(&self, path: &RepoPath) -> bool {
+        let Some(entries) = &self.entries else {
+            return true;
+        };
+        let path_and_folders_above: Vec<&str> = path
+            .as_str()
+            .match_indices('/')
+            .map(|(end, _)| &path.as_str()[..end])
+            .chain([path.as_str()])
+            .collect();
+        let matches_any = |globs: &GlobSet| {
+            path_and_folders_above
+                .iter()
+                .any(|path| globs.is_match(path))
+        };
+        entries
+            .iter()
+            .any(|entry| matches_any(&entry.include) && !matches_any(&entry.exclude))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -71,6 +147,17 @@ pub enum ConfigurationFileError {
         expected: Vec<JsonType>,
         found: JsonType,
     },
+    #[error("{CONFIGURATION_FILE_NAME}: {key} needs the key {missing}")]
+    MissingKey { key: KeyPath, missing: String },
+    #[error(
+        "{CONFIGURATION_FILE_NAME} names an unknown Language plugin {name} at {key}; the Language plugins are {}",
+        known.join(", ")
+    )]
+    UnknownLanguagePlugin {
+        key: KeyPath,
+        name: String,
+        known: Vec<String>,
+    },
     #[error("{CONFIGURATION_FILE_NAME}: {key} is not a valid glob")]
     InvalidGlob {
         key: KeyPath,
@@ -96,6 +183,27 @@ struct ConfigurationFile {
         description = "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins."
     )]
     source_sets: SourceSetGlobs,
+    #[serde(default)]
+    #[schemars(
+        description = "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
+    )]
+    languages: Option<Vec<LanguageGlobs>>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct LanguageGlobs {
+    #[schemars(description = "The name of the Language plugin, such as typescript-javascript.")]
+    plugin: String,
+    #[schemars(
+        description = "Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it."
+    )]
+    include: Vec<String>,
+    #[serde(default)]
+    #[schemars(
+        description = "Globs of repository-relative folders or files inside the included ones that the Language plugin leaves out."
+    )]
+    exclude: Vec<String>,
 }
 
 #[derive(Default, Deserialize, JsonSchema)]
@@ -136,9 +244,38 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
     Ok(Configuration {
         source_set_overrides: source_set_overrides(file.source_sets)?,
+        languages: languages(file.languages)?,
     })
 }
 
+fn languages(entries: Option<Vec<LanguageGlobs>>) -> Result<Languages, ConfigurationFileError> {
+    let Some(entries) = entries else {
+        return Ok(Languages::default());
+    };
+    let languages_key = KeyPath::default().child(KeySegment::Key("languages".to_owned()));
+    let entries = entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let entry_key = languages_key.child(KeySegment::Index(index));
+            Ok(LanguageEntry {
+                plugin_key: entry_key.child(KeySegment::Key("plugin".to_owned())),
+                plugin: entry.plugin,
+                include: glob_set(
+                    &entry_key.child(KeySegment::Key("include".to_owned())),
+                    &entry.include,
+                )?,
+                exclude: glob_set(
+                    &entry_key.child(KeySegment::Key("exclude".to_owned())),
+                    &entry.exclude,
+                )?,
+            })
+        })
+        .collect::<Result<_, ConfigurationFileError>>()?;
+    Ok(Languages {
+        entries: Some(entries),
+    })
+}
 fn source_set_overrides(
     globs: SourceSetGlobs,
 ) -> Result<SourceSetOverrides, ConfigurationFileError> {
@@ -156,15 +293,17 @@ fn source_set_overrides(
     ]
     .into_iter()
     .filter(|(_, _, globs)| !globs.is_empty())
-    .map(|(source_set, key, globs)| Ok((source_set, glob_set(key, &globs)?)))
+    .map(|(source_set, key, globs)| {
+        let key = KeyPath::default()
+            .child(KeySegment::Key("source_sets".to_owned()))
+            .child(KeySegment::Key(key.to_owned()));
+        Ok((source_set, glob_set(&key, &globs)?))
+    })
     .collect::<Result<_, ConfigurationFileError>>()?;
     Ok(SourceSetOverrides { by_precedence })
 }
 
-fn glob_set(key: &str, globs: &[String]) -> Result<GlobSet, ConfigurationFileError> {
-    let source_set_key = KeyPath::default()
-        .child(KeySegment::Key("source_sets".to_owned()))
-        .child(KeySegment::Key(key.to_owned()));
+fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, ConfigurationFileError> {
     let mut builder = GlobSetBuilder::new();
     for (index, glob) in globs.iter().enumerate() {
         let compiled = GlobBuilder::new(glob)
@@ -172,7 +311,7 @@ fn glob_set(key: &str, globs: &[String]) -> Result<GlobSet, ConfigurationFileErr
             .backslash_escape(true)
             .build()
             .map_err(|source| ConfigurationFileError::InvalidGlob {
-                key: source_set_key.child(KeySegment::Index(index)),
+                key: key.child(KeySegment::Index(index)),
                 source,
             })?;
         builder.add(compiled);
@@ -180,7 +319,7 @@ fn glob_set(key: &str, globs: &[String]) -> Result<GlobSet, ConfigurationFileErr
     builder
         .build()
         .map_err(|source| ConfigurationFileError::InvalidGlob {
-            key: source_set_key,
+            key: key.clone(),
             source,
         })
 }

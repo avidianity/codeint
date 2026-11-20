@@ -8,7 +8,7 @@ mod codeint_json;
 
 pub use codeint_json::{
     CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError, JsonType, KeyPath, KeySegment,
-    SourceSetOverrides, configuration_schema, read_configuration,
+    LanguageCoverage, Languages, SourceSetOverrides, configuration_schema, read_configuration,
 };
 
 #[derive(Debug, thiserror::Error)]

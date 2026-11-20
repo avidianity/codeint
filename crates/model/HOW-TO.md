@@ -169,3 +169,16 @@ if let Some(erosion) = ranges.for_metric("erosion") {
   That failure stops the run with exit code 2.
 - Show a plugin's ranges only next to values that this plugin alone measured.
   When the measured files come from several Language plugins, show no Reference range.
+- Keep one `CodeModel` per Language plugin and hand each to `codeint_report::Report::summarize` as a `MeasuredLanguage` with the plugin's name and ranges.
+  The report applies this rule: the total shows a plugin's ranges only when that plugin alone measured files, and each per-language section shows its own plugin's ranges.
+
+## Merge the Code models of several Language plugins
+
+```rust
+use codeint_model::CodeModel;
+
+let total = CodeModel::merge([typescript_model, python_model]);
+```
+
+- `merge` joins the files, skipped files, declaration-only files, and runtime imports of every model.
+- It orders files, skipped files, and declaration-only files by path, so the total does not depend on the order of the plugins.
