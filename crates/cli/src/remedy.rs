@@ -1,5 +1,6 @@
 use codeint_config::ConfigError;
 use codeint_git::GitError;
+use codeint_model::WorkspaceError;
 
 use crate::CliError;
 use crate::check::CheckError;
@@ -11,6 +12,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Check(CheckError::NotUtf8 { .. }) => {
             "Save the file as UTF-8, then run codeint again."
         }
+        CliError::Check(CheckError::Workspace(error)) => workspace_remedy(error),
         CliError::Check(CheckError::Report(_)) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
@@ -55,6 +57,17 @@ fn git_remedy(error: &GitError) -> &'static str {
         }
         GitError::Read { .. } => {
             "Check that you have permission to read the file, then run codeint again."
+        }
+    }
+}
+
+fn workspace_remedy(error: &WorkspaceError) -> &'static str {
+    match error {
+        WorkspaceError::Manifest { .. } => {
+            "Fix the workspaces field of the manifest so that your package manager accepts it, then run codeint again."
+        }
+        WorkspaceError::InvalidPackageRoot(_) => {
+            "This is a defect in the Language plugin; report it to the Plugin's author."
         }
     }
 }

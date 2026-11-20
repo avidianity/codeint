@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 
 mod functions;
+mod workspaces;
 
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, Manifest, WorkspaceError};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -46,6 +47,14 @@ impl Guest for TypeScriptAndJavaScript {
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
         })
+    }
+
+    fn workspace_manifests() -> Vec<String> {
+        vec![workspaces::PACKAGE_MANIFEST.to_owned()]
+    }
+
+    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        workspaces::workspace_packages(manifests)
     }
 }
 

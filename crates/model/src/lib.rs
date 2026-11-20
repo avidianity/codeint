@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+use std::borrow::Borrow;
 use std::fmt;
 
 #[cfg(test)]
 mod tests;
+mod workspace;
 
 mod bindings {
     wit_bindgen::generate!({
@@ -14,7 +16,8 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::FileModel;
+pub use language::{FileModel, Manifest};
+pub use workspace::{Package, Workspace, WorkspaceError};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoPath(String);
@@ -52,6 +55,12 @@ impl RepoPath {
     }
 }
 
+impl Borrow<str> for RepoPath {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Display for RepoPath {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
@@ -75,6 +84,7 @@ pub struct CodeModel {
     pub files: Vec<SourceFile>,
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
+    pub workspace: Workspace,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -106,6 +116,11 @@ pub trait LanguagePlugin {
     fn extensions(&self) -> Vec<String>;
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
+
+    fn workspace_manifests(&self) -> Vec<String>;
+
+    fn workspace_packages(&self, manifests: Vec<Manifest>)
+    -> Result<Vec<RepoPath>, WorkspaceError>;
 }
 
 impl<Plugin: language::Guest> LanguagePlugin for Plugin {
@@ -115,5 +130,16 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
+    }
+
+    fn workspace_manifests(&self) -> Vec<String> {
+        Plugin::workspace_manifests()
+    }
+
+    fn workspace_packages(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        todo!()
     }
 }

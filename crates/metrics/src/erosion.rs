@@ -1,4 +1,6 @@
-use codeint_model::{CodeModel, RepoPath};
+use std::collections::BTreeMap;
+
+use codeint_model::{CodeModel, Package, RepoPath, Workspace};
 
 const ERODED_ABOVE_CYCLOMATIC_COMPLEXITY: u32 = 10;
 
@@ -11,11 +13,27 @@ pub struct ErodedFunction {
     pub function_mass: f64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FunctionMasses {
+    pub eroded: f64,
+    pub total: f64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Erosion {
-    eroded_function_mass: f64,
-    total_function_mass: f64,
+    masses: FunctionMasses,
+    masses_by_file: BTreeMap<RepoPath, FunctionMasses>,
     eroded_functions: Vec<ErodedFunction>,
+}
+
+impl FunctionMasses {
+    pub fn ratio(&self) -> f64 {
+        if self.total > 0.0 {
+            self.eroded / self.total
+        } else {
+            0.0
+        }
+    }
 }
 
 impl Erosion {
@@ -47,32 +65,38 @@ impl Erosion {
                 .then_with(|| left.line.cmp(&right.line))
         });
         Erosion {
-            eroded_function_mass: eroded_functions
-                .iter()
-                .map(|function| function.function_mass)
-                .sum(),
-            total_function_mass,
+            masses: FunctionMasses {
+                eroded: eroded_functions
+                    .iter()
+                    .map(|function| function.function_mass)
+                    .sum(),
+                total: total_function_mass,
+            },
+            masses_by_file: BTreeMap::new(),
             eroded_functions,
         }
     }
 
     pub fn ratio(&self) -> f64 {
-        if self.total_function_mass > 0.0 {
-            self.eroded_function_mass / self.total_function_mass
-        } else {
-            0.0
-        }
+        self.masses.ratio()
     }
 
     pub fn eroded_function_mass(&self) -> f64 {
-        self.eroded_function_mass
+        self.masses.eroded
     }
 
     pub fn total_function_mass(&self) -> f64 {
-        self.total_function_mass
+        self.masses.total
     }
 
     pub fn eroded_functions(&self) -> &[ErodedFunction] {
         &self.eroded_functions
+    }
+
+    pub fn by_package<'workspace>(
+        &self,
+        _workspace: &'workspace Workspace,
+    ) -> BTreeMap<Package<'workspace>, FunctionMasses> {
+        todo!()
     }
 }

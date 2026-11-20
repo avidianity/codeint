@@ -4,7 +4,10 @@ use std::string::FromUtf8Error;
 
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_model::{CodeModel, LanguagePlugin, LowerError, RepoPath, SkippedFile, SourceFile};
+use codeint_model::{
+    CodeModel, LanguagePlugin, LowerError, RepoPath, SkippedFile, SourceFile, Workspace,
+    WorkspaceError,
+};
 use codeint_report::{Report, ReportError};
 
 #[derive(Debug, thiserror::Error)]
@@ -17,6 +20,8 @@ pub(crate) enum CheckError {
         #[source]
         source: FromUtf8Error,
     },
+    #[error(transparent)]
+    Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     Report(#[from] ReportError),
 }
@@ -37,7 +42,10 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
                 .map(move |extension| (extension, *plugin))
         })
         .collect();
-    let mut model = CodeModel::default();
+    let mut model = CodeModel {
+        workspace: find_workspace(tree, plugins)?,
+        ..CodeModel::default()
+    };
     for path in tree.files() {
         let Some(plugin) = path
             .extension()
@@ -45,11 +53,7 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
         else {
             continue;
         };
-        let bytes = tree.read(path)?;
-        let text = String::from_utf8(bytes).map_err(|source| CheckError::NotUtf8 {
-            path: path.clone(),
-            source,
-        })?;
+        let text = read_text(tree, path)?;
         match plugin.lower(path, &text) {
             Ok(file) => model.files.push(SourceFile {
                 path: path.clone(),
@@ -63,4 +67,19 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
         }
     }
     Ok(model)
+}
+
+fn find_workspace(
+    _tree: &WorkingTree,
+    _plugins: &[&dyn LanguagePlugin],
+) -> Result<Workspace, CheckError> {
+    todo!()
+}
+
+fn read_text(tree: &WorkingTree, path: &RepoPath) -> Result<String, CheckError> {
+    let bytes = tree.read(path)?;
+    String::from_utf8(bytes).map_err(|source| CheckError::NotUtf8 {
+        path: path.clone(),
+        source,
+    })
 }

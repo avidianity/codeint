@@ -16,6 +16,8 @@ pub struct Report {
     source_lines: u64,
     erosion: ErosionSection,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    packages: Vec<PackageSection>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
@@ -36,6 +38,21 @@ struct ErodedFunctionFinding {
     cyclomatic_complexity: u32,
     source_lines: u32,
     function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageSection {
+    path: String,
+    files: usize,
+    source_lines: u64,
+    erosion: PackageErosion,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageErosion {
+    ratio: Decimal,
+    eroded_function_mass: Decimal,
+    total_function_mass: Decimal,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,8 +107,13 @@ impl From<&SkippedFile> for SkippedEntry {
     }
 }
 
+fn package_sections(_model: &CodeModel, _erosion: &Erosion) -> Vec<PackageSection> {
+    todo!()
+}
+
 impl Report {
     pub fn summarize(model: &CodeModel) -> Report {
+        let erosion = Erosion::measure(model);
         Report {
             files: model.files.len(),
             source_lines: model
@@ -99,7 +121,8 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
-            erosion: ErosionSection::new(&Erosion::measure(model)),
+            packages: package_sections(model, &erosion),
+            erosion: ErosionSection::new(&erosion),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

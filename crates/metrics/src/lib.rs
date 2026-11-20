@@ -2,4 +2,4 @@
 
 mod erosion;
 
-pub use erosion::{ErodedFunction, Erosion};
+pub use erosion::{ErodedFunction, Erosion, FunctionMasses};
