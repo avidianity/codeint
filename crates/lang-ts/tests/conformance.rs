@@ -1172,8 +1172,11 @@ fn package_roots(root_manifest: &str, package_folders: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn the_plugin_reads_package_json_manifests_to_find_workspace_packages() {
-    assert_eq!(plugin().workspace_manifests(), ["package.json"]);
+fn the_plugin_reads_package_json_and_pnpm_workspace_yaml_manifests_to_find_workspace_packages() {
+    assert_eq!(
+        plugin().workspace_manifests(),
+        ["package.json", "pnpm-workspace.yaml"]
+    );
 }
 
 #[test]
