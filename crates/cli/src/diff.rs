@@ -7,6 +7,7 @@ use codeint_report::{BaseCommit, CommitMeasurement, DiffReport};
 use serde::Serialize;
 
 use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, CheckError, measure_with};
+use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -51,7 +52,7 @@ fn measure_commit(
     configuration: &Configuration,
     result_cache: Option<&ResultCache>,
 ) -> Result<CommitMeasurement, CheckError> {
-    let _settings = MeasurementSettings {
+    let settings = MeasurementSettings {
         codeint_version: CODEINT_VERSION,
         language_plugins: BUILT_IN_LANGUAGE_PLUGINS
             .iter()
@@ -62,8 +63,19 @@ fn measure_commit(
             .collect(),
         configuration,
     };
-    let _ = result_cache;
-    measure_all_languages(&repository.commit(commit)?, configuration)
+    if let Some(cached) = result_cache.and_then(|cache| cache.read(commit, &settings)) {
+        return Ok(cached);
+    }
+    let measurement = measure_all_languages(&repository.commit(commit)?, configuration)?;
+    if let Some(cache) = result_cache
+        && let Err(error) = cache.write(commit, &settings, &measurement)
+    {
+        eprintln!(
+            "codeint: {}; the next run measures commit {commit} again",
+            describe(&error)
+        );
+    }
+    Ok(measurement)
 }
 
 fn measure_all_languages(

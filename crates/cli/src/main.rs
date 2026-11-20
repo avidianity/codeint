@@ -123,7 +123,7 @@ fn save_report(text: &str, path: &Path) -> Result<(), CliError> {
     })
 }
 
-fn describe(error: &dyn Error) -> String {
+pub(crate) fn describe(error: &dyn Error) -> String {
     let mut message = error.to_string();
     let mut cause = error.source();
     while let Some(source) = cause {
