@@ -2715,3 +2715,112 @@ fn format_json_carries_every_field_and_value_of_the_toon_report() {
         with_every_number_as_f64(from_toon)
     );
 }
+
+fn repository_with_a_nested_path_in_every_report_section() -> Repository {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{ "source_sets": { "test": ["packages/app/checks/**"] } }"#,
+    );
+    repository.write(
+        "packages/app/src/deep/eroded.ts",
+        &function_with_if_statements("route", 11),
+    );
+    repository.write("packages/app/src/cart.ts", CART_TOTAL);
+    repository.write("packages/lib/src/invoice.ts", CART_TOTAL);
+    repository.write(
+        "packages/app/src/ring/a.ts",
+        "import { b } from '../../../lib/src/ring/b';\nexport const a = () => b();\n",
+    );
+    repository.write(
+        "packages/lib/src/ring/b.ts",
+        "import { a } from '../../../app/src/ring/a';\nexport const b = () => a();\n",
+    );
+    repository.write("packages/app/checks/smoke.ts", "export const smoke = 1;\n");
+    repository.write(
+        "packages/lib/src/broken.ts",
+        "export const ok = 1;\nexport const = ;\n",
+    );
+    repository.write(
+        "packages/lib/types/index.d.ts",
+        "declare const version: string;\n",
+    );
+    repository.commit_all();
+    repository
+}
+
+#[test]
+fn repository_root_check_from_a_nested_subfolder_prints_the_same_report_as_from_the_root() {
+    let repository = repository_with_a_nested_path_in_every_report_section();
+
+    for format in ["toon", "json"] {
+        let arguments = ["check", "--all", "--format", format];
+        let from_root = repository.codeint(&arguments);
+        let from_subfolder =
+            run_codeint(&repository.path().join("packages/lib/src/ring"), &arguments);
+
+        assert_success(&from_root);
+        assert_success(&from_subfolder);
+        assert_eq!(stdout(&from_subfolder), stdout(&from_root), "{format}");
+    }
+}
+
+fn json_strings_naming_a_file(value: &serde_json::Value, strings: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) if text.ends_with(".ts") => strings.push(text.clone()),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .for_each(|item| json_strings_naming_a_file(item, strings)),
+        serde_json::Value::Object(fields) => fields
+            .values()
+            .for_each(|field| json_strings_naming_a_file(field, strings)),
+        _ => {}
+    }
+}
+
+#[test]
+fn repository_root_relative_paths_with_forward_slashes_appear_in_the_toon_and_json_reports() {
+    let repository = repository_with_a_nested_path_in_every_report_section();
+    let subfolder = repository.path().join("packages/app");
+
+    let output = run_codeint(&subfolder, &["check"]);
+    let json = run_codeint(&subfolder, &["check", "--format", "json"]);
+
+    assert_success(&output);
+    assert_success(&json);
+    let report = stdout(&output);
+    assert!(!report.contains('\\'), "unexpected backslash: {report}");
+    let path_lines: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains(".ts"))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        path_lines,
+        [
+            "packages/app/src/deep/eroded.ts,1,12,14,44.8999",
+            "packages/app/src/cart.ts,1,9",
+            "packages/lib/src/invoice.ts,1,9",
+            "- modules[2]: packages/app/src/ring/a.ts,packages/lib/src/ring/b.ts",
+            "packages/lib/src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"",
+            "declaration_only[1]: packages/lib/types/index.d.ts",
+        ]
+    );
+    let json_report: serde_json::Value =
+        serde_json::from_str(&stdout(&json)).expect("the JSON report parses");
+    let mut json_paths = Vec::new();
+    json_strings_naming_a_file(&json_report, &mut json_paths);
+    json_paths.sort();
+    assert_eq!(
+        json_paths,
+        [
+            "packages/app/src/cart.ts",
+            "packages/app/src/deep/eroded.ts",
+            "packages/app/src/ring/a.ts",
+            "packages/lib/src/broken.ts",
+            "packages/lib/src/invoice.ts",
+            "packages/lib/src/ring/b.ts",
+            "packages/lib/types/index.d.ts",
+        ]
+    );
+}
