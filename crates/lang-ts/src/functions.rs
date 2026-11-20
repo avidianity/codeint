@@ -113,15 +113,25 @@ fn function_with_body(kind: AstKind<'_>) -> Option<Span> {
 }
 
 fn is_decision_point(kind: AstKind<'_>) -> bool {
-    matches!(
-        kind,
+    match kind {
         AstKind::IfStatement(_)
-            | AstKind::ForStatement(_)
-            | AstKind::ForInStatement(_)
-            | AstKind::ForOfStatement(_)
-            | AstKind::WhileStatement(_)
-            | AstKind::DoWhileStatement(_)
-    )
+        | AstKind::ForStatement(_)
+        | AstKind::ForInStatement(_)
+        | AstKind::ForOfStatement(_)
+        | AstKind::WhileStatement(_)
+        | AstKind::DoWhileStatement(_)
+        | AstKind::CatchClause(_)
+        | AstKind::ConditionalExpression(_)
+        | AstKind::LogicalExpression(_) => true,
+        AstKind::SwitchCase(case) => case.test.is_some(),
+        AstKind::AssignmentExpression(assignment) => assignment.operator.is_logical(),
+        AstKind::StaticMemberExpression(member) => member.optional,
+        AstKind::ComputedMemberExpression(member) => member.optional,
+        AstKind::PrivateFieldExpression(member) => member.optional,
+        AstKind::CallExpression(call) => call.optional,
+        AstKind::FormalParameter(parameter) => parameter.initializer.is_some(),
+        _ => false,
+    }
 }
 
 fn saturating_u32(value: usize) -> u32 {
