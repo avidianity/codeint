@@ -207,6 +207,20 @@ fn an_invalid_reference_range_from_a_language_plugin_stops_the_check() {
     );
 }
 
+fn source_set_sizes(report: &str) -> Vec<&str> {
+    report
+        .lines()
+        .filter(|line| {
+            let code = line.trim_start();
+            match line.len() - code.len() {
+                2 => true,
+                4 => code.starts_with("files:") || code.starts_with("source_lines:"),
+                _ => false,
+            }
+        })
+        .collect()
+}
+
 #[test]
 fn the_core_puts_each_file_in_the_source_set_that_its_language_plugin_names() {
     let report = report(
@@ -219,19 +233,8 @@ fn the_core_puts_each_file_in_the_source_set_that_its_language_plugin_names() {
         &[&ChecksFolderIsTest],
     );
 
-    let source_sets = report
-        .lines()
-        .filter(|line| {
-            let code = line.trim_start();
-            match line.len() - code.len() {
-                2 => true,
-                4 => code.starts_with("files:") || code.starts_with("source_lines:"),
-                _ => false,
-            }
-        })
-        .collect::<Vec<_>>();
     assert_eq!(
-        source_sets,
+        source_set_sizes(&report),
         [
             "  production:",
             "    files: 2",
@@ -239,6 +242,33 @@ fn the_core_puts_each_file_in_the_source_set_that_its_language_plugin_names() {
             "  test:",
             "    files: 2",
             "    source_lines: 3",
+        ],
+        "unexpected report: {report}"
+    );
+}
+
+#[test]
+fn the_core_puts_a_file_under_a_vendor_or_third_party_folder_in_vendored_whatever_its_language_plugin_names()
+ {
+    let report = report(
+        &[
+            ("checks/vendor/first.checked", "one\n"),
+            ("vendor/second.checked", "one\ntwo\n"),
+            ("src/third_party/third.checked", "one\ntwo\nthree\n"),
+            ("src/main.checked", "one\ntwo\nthree\nfour\n"),
+        ],
+        &[&ChecksFolderIsTest],
+    );
+
+    assert_eq!(
+        source_set_sizes(&report),
+        [
+            "  production:",
+            "    files: 1",
+            "    source_lines: 4",
+            "  vendored:",
+            "    files: 3",
+            "    source_lines: 6",
         ],
         "unexpected report: {report}"
     );

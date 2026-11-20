@@ -14,11 +14,12 @@ struct Flagged {
     lines: &'static [u32],
 }
 
-const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
-    rule: "else-after-return",
-    flagged: &[
-        Flagged {
-            text: "export function sign(value: number): string {
+const FIXTURES: &[RuleFixtures] = &[
+    RuleFixtures {
+        rule: "else-after-return",
+        flagged: &[
+            Flagged {
+                text: "export function sign(value: number): string {
   if (value < 0) {
     return 'negative';
   } else {
@@ -26,18 +27,18 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   }
 }
 ",
-            lines: &[4],
-        },
-        Flagged {
-            text: "export function label(done: boolean) {
+                lines: &[4],
+            },
+            Flagged {
+                text: "export function label(done: boolean) {
   if (done) return 'done';
   else return 'open';
 }
 ",
-            lines: &[3],
-        },
-        Flagged {
-            text: "export function size(count: number): string {
+                lines: &[3],
+            },
+            Flagged {
+                text: "export function size(count: number): string {
   if (count === 0) {
     return 'none';
   } else if (count === 1) {
@@ -47,10 +48,10 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   }
 }
 ",
-            lines: &[6],
-        },
-        Flagged {
-            text: "export function pick(first: boolean, second: boolean) {
+                lines: &[6],
+            },
+            Flagged {
+                text: "export function pick(first: boolean, second: boolean) {
   if (first) {
     if (second) {
       return 1;
@@ -62,10 +63,10 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   }
 }
 ",
-            lines: &[5, 8],
-        },
-        Flagged {
-            text: "export class Gate {
+                lines: &[5, 8],
+            },
+            Flagged {
+                text: "export class Gate {
   open(key: string) {
     if (!key) {
       return false;
@@ -79,10 +80,10 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   }
 }
 ",
-            lines: &[5],
-        },
-        Flagged {
-            text: "export const parity = (value) => {
+                lines: &[5],
+            },
+            Flagged {
+                text: "export const parity = (value) => {
   switch (value % 2) {
     case 0:
       if (value === 0) {
@@ -97,10 +98,10 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   }
 };
 ",
-            lines: &[7],
-        },
-        Flagged {
-            text: "export function decide(ready) {
+                lines: &[7],
+            },
+            Flagged {
+                text: "export function decide(ready) {
   if (ready) {
     return 'go';
   } else
@@ -110,22 +111,22 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   }
 }
 ",
-            lines: &[4],
-        },
-        Flagged {
-            text: "export function finish(done) {\r\n  if (done) {\r\n    return 1;\r\n  } else {\r\n    return 0;\r\n  }\r\n}\r\n",
-            lines: &[4],
-        },
-    ],
-    passing: &[
-        "export function sign(value: number): string {
+                lines: &[4],
+            },
+            Flagged {
+                text: "export function finish(done) {\r\n  if (done) {\r\n    return 1;\r\n  } else {\r\n    return 0;\r\n  }\r\n}\r\n",
+                lines: &[4],
+            },
+        ],
+        passing: &[
+            "export function sign(value: number): string {
   if (value < 0) {
     return 'negative';
   }
   return 'positive';
 }
 ",
-        "export function log(value: number): number {
+            "export function log(value: number): number {
   if (value < 0) {
     console.log('negative');
   } else {
@@ -134,7 +135,7 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   return value;
 }
 ",
-        "export function size(count: number): string {
+            "export function size(count: number): string {
   if (count === 0) {
     return 'none';
   } else if (count === 1) {
@@ -143,7 +144,7 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   return 'many';
 }
 ",
-        "export function size(count: number): string {
+            "export function size(count: number): string {
   if (count === 0) {
     return 'none';
   } else if (count === 1) {
@@ -154,7 +155,7 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   return 'one';
 }
 ",
-        "export function first(items: number[]) {
+            "export function first(items: number[]) {
   if (items.length > 0) {
     for (const item of items) {
       return item;
@@ -165,7 +166,7 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   return undefined;
 }
 ",
-        "export function maybe(first: boolean, second: boolean) {
+            "export function maybe(first: boolean, second: boolean) {
   if (first) {
     if (second) {
       return 1;
@@ -176,7 +177,7 @@ const FIXTURES: &[RuleFixtures] = &[RuleFixtures {
   return 3;
 }
 ",
-        "const total = 1;
+            "const total = 1;
 export function shadow(empty: boolean) {
   if (empty) {
     return 0;
@@ -187,15 +188,254 @@ export function shadow(empty: boolean) {
   return total;
 }
 ",
-        "export function scan(items: number[]) {
+            "export function scan(items: number[]) {
   for (const item of items)
     if (item > 0) return item;
     else console.log(item);
   return 0;
 }
 ",
-    ],
-}];
+        ],
+    },
+    RuleFixtures {
+        rule: "catch-only-rethrows",
+        flagged: &[
+            Flagged {
+                text: "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  }
+}
+",
+                lines: &[4, 5, 6],
+            },
+            Flagged {
+                text: "export async function fetchUser(id: string) {
+  try { return await get(id); } catch (e) { throw e; }
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export class Store {
+  save(record: object) {
+    try {
+      this.write(record);
+    }
+    catch (failure: unknown) {
+      throw (failure);
+    }
+  }
+  write(record: object) {
+    console.log(record);
+  }
+}
+",
+                lines: &[6, 7, 8],
+            },
+            Flagged {
+                text: "export const parse = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    // let the caller decide
+    throw error;
+  }
+};
+",
+                lines: &[4, 6, 7],
+            },
+            Flagged {
+                text: "export function outer() {
+  try {
+    try {
+      inner();
+    } catch (first) {
+      throw first;
+    }
+  } catch (second) {
+    throw second;
+  }
+}
+",
+                lines: &[5, 6, 7, 8, 9, 10],
+            },
+        ],
+        passing: &[
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw new Error(`cannot load ${path}`, { cause: error });
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  } finally {
+    close(path);
+  }
+}
+",
+            "export function load(path: string, fallback: Error) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw fallback;
+  }
+}
+",
+            "const failure = new Error('unavailable');
+export function load(path: string) {
+  try {
+    return read(path);
+  } catch {
+    throw failure;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch ({ message }) {
+    throw message;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error.cause;
+  }
+}
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "if-else-returns-boolean",
+        flagged: &[
+            Flagged {
+                text: "export function isAdult(age: number): boolean {
+  if (age >= 18) return true;
+  else return false;
+}
+",
+                lines: &[2, 3],
+            },
+            Flagged {
+                text: "export function isEmpty(items: string[]): boolean {
+  if (items.length > 0) {
+    return false;
+  } else {
+    return true;
+  }
+}
+",
+                lines: &[2, 3, 4, 5, 6],
+            },
+            Flagged {
+                text: "export function rank(score: number): string | boolean {
+  if (score > 90) {
+    return 'top';
+  } else if (score > 50) {
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+                lines: &[4, 5, 6, 7, 8],
+            },
+            Flagged {
+                text: "export function ready(state) {
+  if (state.loaded) {
+    // loaded means ready
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+                lines: &[2, 4, 5, 6, 7],
+            },
+        ],
+        passing: &[
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    console.log('adult');
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    return true;
+  } else {
+    audit(age);
+    return false;
+  }
+}
+function audit(age: number) {
+  console.log(age);
+}
+",
+            "export function always(flag: boolean): boolean {
+  if (flag) {
+    return true;
+  } else {
+    return true;
+  }
+}
+",
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    return true;
+  }
+  return false;
+}
+",
+            "export function check(flag: boolean): string | boolean {
+  if (flag) {
+    return 'yes';
+  } else {
+    return false;
+  }
+}
+",
+            "export function* toggle(flag: boolean) {
+  if (flag) {
+    yield true;
+  } else {
+    yield false;
+  }
+}
+",
+            "export function isSet(flag: boolean): boolean {
+  if (flag) return true;
+  else if (!flag) return false;
+  return false;
+}
+",
+        ],
+    },
+];
 
 fn flagged_lines(rule: &str, text: &str) -> Vec<u32> {
     let path = RepoPath::new("src/fixture.ts").expect("a valid path");

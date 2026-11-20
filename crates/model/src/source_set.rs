@@ -1,24 +1,26 @@
 use crate::{RepoPath, SourceSet};
 
+const VENDORED_FOLDERS: [&str; 2] = ["vendor", "third_party"];
 const BUILD_OUTPUT_FOLDERS: [&str; 4] = ["dist", "build", "out", "coverage"];
 const LONGEST_AVERAGE_LINE_OF_WRITTEN_CODE: usize = 250;
 
-pub fn resolve_source_set(path: &RepoPath, text: &str, from_plugin: SourceSet) -> SourceSet {
-    if is_in_build_output_folder(path) || has_longer_average_line_than_written_code(text) {
+pub fn settle_source_set(path: &RepoPath, text: &str, named_by_plugin: SourceSet) -> SourceSet {
+    if is_in_folder_named(path, &VENDORED_FOLDERS) {
+        SourceSet::Vendored
+    } else if is_in_folder_named(path, &BUILD_OUTPUT_FOLDERS)
+        || has_longer_average_line_than_written_code(text)
+    {
         SourceSet::Generated
     } else {
-        from_plugin
+        named_by_plugin
     }
 }
 
-fn is_in_build_output_folder(path: &RepoPath) -> bool {
-    path.as_str()
-        .rsplit_once('/')
-        .is_some_and(|(folders, _file_name)| {
-            folders
-                .split('/')
-                .any(|folder| BUILD_OUTPUT_FOLDERS.contains(&folder))
-        })
+fn is_in_folder_named(path: &RepoPath, names: &[&str]) -> bool {
+    let Some((folders, _file_name)) = path.as_str().rsplit_once('/') else {
+        return false;
+    };
+    folders.split('/').any(|folder| names.contains(&folder))
 }
 
 fn has_longer_average_line_than_written_code(text: &str) -> bool {

@@ -63,6 +63,9 @@ impl Guest for Plain {
   `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
   Return Production for a file that no rule claims.
   Which files are Test is a rule of the Language plugin, never of the core.
+  Which files are Vendored is a rule of the core, because it is the same in every language.
+  A generated marker comment is a Generated rule of the Language plugin, because only the plugin knows what a comment is in its language.
+  Build output folders and very long lines are Generated rules of the core, because they read only the path and the text.
 - `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each with a `source` label that names where it was published.
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
@@ -91,6 +94,25 @@ assert_eq!(model.source_lines, 2);
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
+
+## Settle the Source set of a lowered file
+
+```rust
+use codeint_model::settle_source_set;
+
+let mut model = plugins[0].lower(&path, text)?;
+model.source_set = settle_source_set(&path, text, model.source_set);
+```
+
+- Call `settle_source_set` on every file that a Language plugin lowers, before the file joins the `CodeModel`, with the same text the plugin lowered.
+- A file with a folder named exactly `vendor` or `third_party`, at any depth, is Vendored, whatever Source set the Language plugin names.
+  Vendored wins over every Generated rule, because a vendored `dist` folder is third-party code first.
+- Otherwise a file with a folder named exactly `dist`, `build`, `out`, or `coverage`, at any depth, is Generated.
+- Otherwise a file whose non-blank lines average more than 250 characters is Generated, such as a minified bundle.
+  Line length counts characters, not bytes, and a CRLF line ending counts like LF.
+- The file name never counts: `src/vendor.ts` and `src/dist.ts` keep the Source set that the Language plugin names.
+- Every other file keeps the Source set that the Language plugin names.
+- Configuration overrides of the Source set belong in front of this call, at its one call site.
 
 ## Split the Code model by Source set
 
