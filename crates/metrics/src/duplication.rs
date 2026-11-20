@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, RepoPath, Token, TokenKind};
+use codeint_model::{CodeModel, Package, RepoPath, Token, TokenKind};
+
+use crate::line_share::{LineShare, line_shares_by_package};
 
 use crate::FindingId;
 use crate::finding_id::{FindingIds, MetricKey};
@@ -89,6 +91,13 @@ impl Duplication {
             self.clone_lines.count() as f64 / self.source_lines as f64
         }
     }
+
+    pub fn by_package<'model>(
+        &self,
+        model: &'model CodeModel,
+    ) -> BTreeMap<Package<'model>, LineShare> {
+        line_shares_by_package(model, self.clone_lines.count_by_file())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -106,6 +115,12 @@ impl CloneLines {
 
     pub fn count(&self) -> u64 {
         self.0.values().map(|lines| lines.len() as u64).sum()
+    }
+
+    pub(crate) fn count_by_file(&self) -> impl Iterator<Item = (&RepoPath, u64)> {
+        self.0
+            .iter()
+            .map(|(path, lines)| (path, lines.len() as u64))
     }
 
     pub fn contains(&self, path: &RepoPath, line: u32) -> bool {

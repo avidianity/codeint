@@ -1060,7 +1060,7 @@ fn an_unknown_format_names_the_formats_codeint_prints_and_exits_2() {
     assert_operational_error(
         &output,
         "error: invalid value 'yaml' for '--format <FORMAT>'\n\
-         \x20 [possible values: toon, json]\n\
+         \x20 [possible values: toon, json, markdown]\n\
          \n\
          For more information, try '--help'.\n",
     );
@@ -2247,7 +2247,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -2591,21 +2591,7 @@ fn with_every_number_as_f64(value: serde_json::Value) -> serde_json::Value {
 
 #[test]
 fn format_json_carries_every_field_and_value_of_the_toon_report() {
-    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
-    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 21);
-    repository.write(
-        "src/a.ts",
-        "import { b } from './b';\nexport const a = b;\n",
-    );
-    repository.write(
-        "src/b.ts",
-        "import { a } from './a';\nexport const b = a;\n",
-    );
-    repository.write(
-        "src/sign.test.ts",
-        "import { sign } from './sign';\nsign(1);\n",
-    );
-    repository.commit_all();
+    let repository = repository_with_every_optional_part_of_the_report();
 
     let toon = repository.codeint(&["check"]);
     let json = repository.codeint(&["check", "--format", "json"]);
@@ -2629,6 +2615,701 @@ fn format_json_carries_every_field_and_value_of_the_toon_report() {
     assert_eq!(
         with_every_number_as_f64(from_json),
         with_every_number_as_f64(from_toon)
+    );
+}
+
+fn repository_with_every_optional_part_of_the_report() -> Repository {
+    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 21);
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nexport const a = b;\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { a } from './a';\nexport const b = a;\n",
+    );
+    repository.write(
+        "src/sign.test.ts",
+        "import { sign } from './sign';\nsign(1);\n",
+    );
+    repository.commit_all();
+    repository
+}
+
+#[test]
+fn format_markdown_prints_each_metric_then_the_findings_then_the_files_not_measured() {
+    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        include_str!("snapshots/markdown-report.md")
+    );
+}
+
+#[test]
+fn format_markdown_lists_every_optional_part_of_the_report_and_escapes_markdown_in_paths_and_text()
+{
+    let repository = repository_with_every_optional_part_of_the_report();
+    repository.write(
+        "src/pipe.ts",
+        "import { x } from './a|b`c';\nexport const y = x;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        include_str!("snapshots/markdown-report-every-part.md")
+    );
+}
+
+#[test]
+fn format_markdown_lists_a_git_submodule_under_files_not_measured() {
+    let (repository, _library) = repository_with_a_submodule();
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output)
+            .ends_with("\n\n## Files not measured\n\n- `modules/library`: Git submodule\n"),
+        "unexpected report: {}",
+        stdout(&output)
+    );
+}
+
+fn repository_with_a_nested_path_in_every_report_section() -> Repository {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{ "source_sets": { "test": ["packages/app/checks/**"] } }"#,
+    );
+    repository.write(
+        "packages/app/src/deep/eroded.ts",
+        &function_with_if_statements("route", 11),
+    );
+    repository.write("packages/app/src/cart.ts", CART_TOTAL);
+    repository.write("packages/lib/src/invoice.ts", CART_TOTAL);
+    repository.write(
+        "packages/app/src/ring/a.ts",
+        "import { b } from '../../../lib/src/ring/b';\nexport const a = () => b();\n",
+    );
+    repository.write(
+        "packages/lib/src/ring/b.ts",
+        "import { a } from '../../../app/src/ring/a';\nexport const b = () => a();\n",
+    );
+    repository.write("packages/app/checks/smoke.ts", "export const smoke = 1;\n");
+    repository.write(
+        "packages/lib/src/broken.ts",
+        "export const ok = 1;\nexport const = ;\n",
+    );
+    repository.write(
+        "packages/lib/types/index.d.ts",
+        "declare const version: string;\n",
+    );
+    repository.commit_all();
+    repository
+}
+
+#[test]
+fn repository_root_check_from_a_nested_subfolder_prints_the_same_report_as_from_the_root() {
+    let repository = repository_with_a_nested_path_in_every_report_section();
+
+    for format in ["toon", "json"] {
+        let arguments = ["check", "--all", "--format", format];
+        let from_root = repository.codeint(&arguments);
+        let from_subfolder =
+            run_codeint(&repository.path().join("packages/lib/src/ring"), &arguments);
+
+        assert_success(&from_root);
+        assert_success(&from_subfolder);
+        assert_eq!(stdout(&from_subfolder), stdout(&from_root), "{format}");
+    }
+}
+
+fn json_strings_naming_a_file(value: &serde_json::Value, strings: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) if text.ends_with(".ts") => strings.push(text.clone()),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .for_each(|item| json_strings_naming_a_file(item, strings)),
+        serde_json::Value::Object(fields) => fields
+            .values()
+            .for_each(|field| json_strings_naming_a_file(field, strings)),
+        _ => {}
+    }
+}
+
+#[test]
+fn repository_root_relative_paths_with_forward_slashes_appear_in_the_toon_and_json_reports() {
+    let repository = repository_with_a_nested_path_in_every_report_section();
+    let subfolder = repository.path().join("packages/app");
+
+    let output = run_codeint(&subfolder, &["check"]);
+    let json = run_codeint(&subfolder, &["check", "--format", "json"]);
+
+    assert_success(&output);
+    assert_success(&json);
+    let report = stdout(&output);
+    assert!(!report.contains('\\'), "unexpected backslash: {report}");
+    let path_lines: Vec<String> = report
+        .lines()
+        .filter(|line| line.contains(".ts"))
+        .map(|line| with_finding_id_shown_as_a_placeholder(line.trim()))
+        .collect();
+    assert_eq!(
+        path_lines,
+        [
+            "<id>,packages/app/src/deep/eroded.ts,1,12,14,44.8999",
+            "packages/app/src/cart.ts,1,9",
+            "packages/lib/src/invoice.ts,1,9",
+            "modules[2]: packages/app/src/ring/a.ts,packages/lib/src/ring/b.ts",
+            "packages/lib/src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"",
+            "declaration_only[1]: packages/lib/types/index.d.ts",
+        ]
+    );
+    let json_report: serde_json::Value =
+        serde_json::from_str(&stdout(&json)).expect("the JSON report parses");
+    let mut json_paths = Vec::new();
+    json_strings_naming_a_file(&json_report, &mut json_paths);
+    json_paths.sort();
+    assert_eq!(
+        json_paths,
+        [
+            "packages/app/src/cart.ts",
+            "packages/app/src/deep/eroded.ts",
+            "packages/app/src/ring/a.ts",
+            "packages/lib/src/broken.ts",
+            "packages/lib/src/invoice.ts",
+            "packages/lib/src/ring/b.ts",
+            "packages/lib/types/index.d.ts",
+        ]
+    );
+}
+
+fn write_two_package_workspace(repository: &Repository, root_manifest: &str) {
+    repository.write("package.json", root_manifest);
+    repository.write("packages/eroded/package.json", "{\"name\": \"eroded\"}\n");
+    repository.write(
+        "packages/eroded/src/branches.ts",
+        &function_with_if_statements("branches", 11),
+    );
+    repository.write("packages/small/package.json", "{\"name\": \"small\"}\n");
+    repository.write(
+        "packages/small/src/sum.ts",
+        &function_with_if_statements("sum", 3),
+    );
+    repository.write("scripts/build.ts", "export const build = 1;\n");
+    repository.write(
+        "docs/package.json",
+        "{\"name\": \"not-a-workspace-package\"}\n",
+    );
+}
+
+const TWO_PACKAGE_EROSION: &str = concat!(
+    "erosion:\n",
+    "  ratio: 0.8209\n",
+    "  reference_range: no published Reference range for this language\n",
+    "  eroded_function_mass: 44.8999\n",
+    "  total_function_mass: 54.6978\n",
+    "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+    "    <id>,packages/eroded/src/branches.ts,1,12,14,44.8999\n",
+);
+
+const TWO_PACKAGE_ROWS: &str = concat!(
+    "  .,1,1,0,0,0,0,0,0,0,0,0\n",
+    "  packages/eroded,1,14,1,44.8999,44.8999,0,0,0,0,0,0\n",
+    "  packages/small,1,6,0,0,9.798,0,0,0,0,0,0\n",
+);
+
+fn assert_two_package_report(output: &Output) {
+    assert_success(output);
+    assert_eq!(summary(output), "files: 3\nsource_lines: 21\n");
+    assert_eq!(
+        source_set_sizes(output),
+        ["production: files: 3 source_lines: 21"]
+    );
+    assert_eq!(production_section(output, "erosion"), TWO_PACKAGE_EROSION);
+    assert_eq!(
+        packages_table(output, "production"),
+        PACKAGES_HEADER.to_owned() + TWO_PACKAGE_ROWS
+    );
+}
+
+#[test]
+fn workspace_packages_of_the_array_form_each_report_erosion_and_the_total_sums_their_numerators() {
+    let repository = Repository::new();
+    write_two_package_workspace(&repository, "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_two_package_report(&output);
+}
+
+#[test]
+fn workspace_packages_of_the_object_form_with_packages_are_reported_like_the_array_form() {
+    let repository = Repository::new();
+    write_two_package_workspace(
+        &repository,
+        "{\"workspaces\": {\"packages\": [\"packages/*\"], \"nohoist\": [\"**/react\"]}}\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_two_package_report(&output);
+}
+
+#[test]
+fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": \"packages/*\"}\n");
+    repository.write("packages/app/package.json", "{}\n");
+    repository.write("packages/app/index.ts", "export const app = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        concat!(
+            "codeint: cannot find the workspace packages from package.json: ",
+            "the workspaces field must be an array of folder patterns, ",
+            "or an object whose packages field is one\n",
+            "Fix the workspaces field of the manifest so that your package manager accepts it, ",
+            "then run codeint again.\n",
+        ),
+    );
+}
+
+const PACKAGES_HEADER: &str = concat!(
+    "packages[3]{path,files,source_lines,",
+    "erosion{ratio,eroded_function_mass,total_function_mass},",
+    "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines},",
+    "import_cycles{ratio,modules_in_import_cycles}}:\n",
+);
+
+fn packages_table(output: &Output, source_set: &str) -> String {
+    let source_set_heading = format!("  {source_set}:");
+    stdout(output)
+        .lines()
+        .skip_while(|line| *line != source_set_heading)
+        .skip_while(|line| !line.starts_with("    packages["))
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || indent(line) > METRIC_INDENT)
+        .map(|(_, line)| format!("{}\n", &line[METRIC_INDENT..]))
+        .collect()
+}
+
+#[test]
+fn each_workspace_package_reports_its_own_clone_lines_and_verbose_lines() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/cart/package.json", "{}\n");
+    repository.write("packages/cart/src/total.ts", CART_TOTAL);
+    repository.write("packages/invoice/package.json", "{}\n");
+    repository.write(
+        "packages/invoice/src/total.ts",
+        &format!("const currency = 'EUR';\n{CART_TOTAL}export const label = currency;\n"),
+    );
+    repository.write(
+        "packages/invoice/src/sign.ts",
+        concat!(
+            "export function sign(value: number): string {\n",
+            "  if (value < 0) {\n",
+            "    return 'negative';\n",
+            "  } else {\n",
+            "    return 'positive';\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 27\n");
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/cart,1,9,0,0,9,1,9,1,9,0,0\n",
+                "  packages/invoice,2,18,0,0,14.2915,0.5,9,0.5556,10,0,0\n",
+            )
+    );
+    assert!(production_section(&output, "duplication").contains("  clone_lines: 18\n"));
+    assert!(production_section(&output, "verbosity").contains("  verbose_lines: 19\n"));
+}
+
+#[test]
+fn each_source_set_splits_into_every_workspace_package() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/app/package.json", "{}\n");
+    repository.write("packages/app/src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "packages/app/src/main.test.ts",
+        "export const checked = 1;\nexport const twice = 2;\n",
+    );
+    repository.write("packages/lib/package.json", "{}\n");
+    repository.write("packages/lib/src/lib.ts", "export const lib = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,1,0,0,0,0,0,0,0,0,0\n",
+                "  packages/lib,1,1,0,0,0,0,0,0,0,0,0\n",
+            )
+    );
+    assert_eq!(
+        packages_table(&output, "test"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,2,0,0,0,0,0,0,0,0,0\n",
+                "  packages/lib,0,0,0,0,0,0,0,0,0,0,0\n",
+            )
+    );
+}
+
+#[test]
+fn an_import_cycle_across_two_workspace_packages_counts_each_module_in_its_own_package() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/orders/package.json", "{}\n");
+    repository.write(
+        "packages/orders/src/order.ts",
+        "import { bill } from '../../billing/src/bill';\nexport const order = () => bill();\n",
+    );
+    repository.write("packages/billing/package.json", "{}\n");
+    repository.write(
+        "packages/billing/src/bill.ts",
+        "import { order } from '../../orders/src/order';\nexport const bill = () => order();\n",
+    );
+    repository.write("packages/billing/src/rate.ts", "export const rate = 2;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert!(
+        production_section(&output, "import_cycles").contains("  modules_in_import_cycles: 2\n")
+    );
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/billing,2,3,0,0,1,0,0,0,0,0.5,1\n",
+                "  packages/orders,1,2,0,0,1,0,0,0,0,1,1\n",
+            )
+    );
+}
+
+#[test]
+fn a_member_manifest_that_is_not_utf_8_still_makes_its_folder_a_workspace_package() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/cafe/index.ts", "export const cafe = 1;\n");
+    repository.write_bytes("packages/cafe/package.json", b"{\"name\": \"caf\xe9\"}\n");
+    repository.write("packages/shop/package.json", "{\"name\": \"shop\"}\n");
+    repository.write("packages/shop/index.ts", "export const shop = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/cafe,1,1,0,0,0,0,0,0,0,0,0\n",
+                "  packages/shop,1,1,0,0,0,0,0,0,0,0,0\n",
+            )
+    );
+}
+
+#[test]
+fn the_json_report_lists_each_workspace_package_with_its_numerators() {
+    let repository = Repository::new();
+    write_two_package_workspace(&repository, "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+
+    assert_success(&output);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("the JSON report parses");
+    let packages = &report["source_sets"]["production"]["packages"];
+    assert_eq!(
+        packages[1],
+        serde_json::json!({
+            "path": "packages/eroded",
+            "files": 1,
+            "source_lines": 14,
+            "erosion": {
+                "ratio": 1.0,
+                "eroded_function_mass": 44.8999,
+                "total_function_mass": 44.8999
+            },
+            "duplication": { "ratio": 0.0, "clone_lines": 0 },
+            "verbosity": { "ratio": 0.0, "verbose_lines": 0 },
+            "import_cycles": { "ratio": 0.0, "modules_in_import_cycles": 0 }
+        })
+    );
+    assert_eq!(packages.as_array().map(Vec::len), Some(3));
+}
+
+fn repository_with_budgets(budgets: &str) -> Repository {
+    let repository = Repository::new();
+    repository.write("codeint.json", &format!("{{ \"budgets\": {budgets} }}\n"));
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.commit_all();
+    repository
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8(output.stderr.clone()).expect("standard error is UTF-8")
+}
+
+fn assert_over_budget(output: &Output, report: &str, failures: &[&str]) {
+    assert_eq!(output.status.code(), Some(1));
+    let named: String = failures
+        .iter()
+        .map(|failure| format!("codeint: {failure}\n"))
+        .collect();
+    assert_eq!(stderr(output), named);
+    assert!(
+        report.ends_with(&over_budget_rows(failures.len())),
+        "unexpected report:\n{report}"
+    );
+}
+
+fn over_budget_rows(count: usize) -> String {
+    format!("over_budget[{count}]{{source_set,metric,ratio,budget}}:\n")
+}
+
+fn check_with_a_production_erosion_budget_of_half(args: &[&str]) -> (Repository, Output) {
+    let repository = repository_with_budgets(r#"{ "production": { "erosion": 0.5 } }"#);
+    let output = repository.codeint(args);
+    (repository, output)
+}
+
+const PRODUCTION_EROSION_OVER_HALF: &str = "  production,erosion,1,0.5\n";
+
+fn assert_production_erosion_over_its_budget_of_half(output: &Output, report: &str) {
+    assert!(
+        report.ends_with(PRODUCTION_EROSION_OVER_HALF),
+        "unexpected report:\n{report}"
+    );
+    assert_over_budget(
+        output,
+        report.trim_end_matches(PRODUCTION_EROSION_OVER_HALF),
+        &["the production erosion ratio 1 is over its Budget 0.5"],
+    );
+}
+
+fn assert_within_budget(output: &Output) {
+    assert_success(output);
+    assert_eq!(stderr(output), "");
+    assert!(!stdout(output).contains("over_budget"));
+}
+
+#[test]
+fn a_production_erosion_over_its_budget_is_listed_named_on_standard_error_and_exits_1() {
+    let (_repository, output) = check_with_a_production_erosion_budget_of_half(&["check"]);
+
+    let report = stdout(&output);
+    assert_production_erosion_over_its_budget_of_half(&output, &report);
+}
+
+#[test]
+fn a_ratio_equal_to_its_budget_as_the_report_shows_it_passes_though_its_unrounded_value_is_higher()
+{
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{ "budgets": { "production": { "erosion": 0.9667 } } }"#,
+    );
+    repository.write("src/twelve.ts", &function_with_if_statements("twelve", 12));
+    repository.write(
+        "src/small.ts",
+        "export function small(): number {\n  return 1;\n}\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_within_budget(&output);
+    assert!(
+        production_section(&output, "erosion").contains("  ratio: 0.9667\n"),
+        "the report shows the ratio rounded down to the Budget"
+    );
+}
+
+#[test]
+fn a_test_budget_does_not_apply_to_the_production_source_set() {
+    let repository = repository_with_budgets(r#"{ "test": { "erosion": 0 } }"#);
+
+    let output = repository.codeint(&["check"]);
+
+    assert_within_budget(&output);
+}
+
+#[test]
+fn every_metric_over_its_budget_is_named_in_source_set_and_metric_order() {
+    let repository = repository_with_budgets(
+        r#"{
+  "test": { "erosion": 0.5 },
+  "production": { "import_cycles": 0, "erosion": 0.25, "duplication": 1 }
+}"#,
+    );
+    repository.write(
+        "src/eleven.test.ts",
+        &function_with_if_statements("eleven", 11),
+    );
+    repository.write("src/ring.ts", "import './ring';\nexport const ring = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    let report = stdout(&output);
+    let rows = concat!(
+        "  production,erosion,1,0.25\n",
+        "  production,import_cycles,0.5,0\n",
+        "  test,erosion,1,0.5\n",
+    );
+    assert!(report.ends_with(rows), "unexpected report:\n{report}");
+    assert_over_budget(
+        &output,
+        report.trim_end_matches(rows),
+        &[
+            "the production erosion ratio 1 is over its Budget 0.25",
+            "the production import_cycles ratio 0.5 is over its Budget 0",
+            "the test erosion ratio 1 is over its Budget 0.5",
+        ],
+    );
+}
+
+#[test]
+fn a_metric_over_its_budget_exits_1_after_it_writes_the_report_to_the_output_file() {
+    let (repository, output) =
+        check_with_a_production_erosion_budget_of_half(&["check", "--output", "report.toon"]);
+
+    assert_eq!(stdout(&output), "");
+    let report =
+        fs::read_to_string(repository.path().join("report.toon")).expect("read the report");
+    assert_production_erosion_over_its_budget_of_half(&output, &report);
+}
+
+fn assert_budget_out_of_range(budgets: &str, key: &str, found: &str) {
+    assert_codeint_json_is_rejected(
+        &format!(r#"{{ "budgets": {budgets} }}"#),
+        &format!("codeint.json: {key} must be between 0 and 1, not {found}"),
+        "Set the Budget to a ratio from 0 to 1, as the report shows the Metric.",
+    );
+}
+
+#[test]
+fn a_budget_above_1_names_the_key_and_the_allowed_range_and_exits_2() {
+    assert_budget_out_of_range(
+        r#"{ "production": { "erosion": 1.5 } }"#,
+        "budgets.production.erosion",
+        "1.5",
+    );
+}
+
+#[test]
+fn a_negative_budget_names_the_key_and_the_allowed_range_and_exits_2() {
+    assert_budget_out_of_range(
+        r#"{ "test": { "duplication": -1 } }"#,
+        "budgets.test.duplication",
+        "-1",
+    );
+}
+
+#[test]
+fn a_budget_for_an_unknown_metric_names_the_metrics_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "budgets": { "production": { "complexity": 0.1 } } }"#,
+        "codeint.json has an unknown key budgets.production.complexity; \
+         the keys allowed there are erosion, duplication, verbosity, import_cycles",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn a_budget_that_is_not_a_number_names_the_key_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "budgets": { "production": { "erosion": "10%" } } }"#,
+        "codeint.json: budgets.production.erosion must be a number, not a string",
+        WRONG_TYPE_REMEDY,
+    );
+}
+
+#[test]
+fn format_markdown_lists_each_metric_over_its_budget_after_the_metric_table_and_exits_1() {
+    let repository = repository_with_budgets(r#"{ "production": { "erosion": 0.5 } }"#);
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stdout(&output).contains(
+            "| no published Reference range for this language |\n\
+             \n\
+             ## Over Budget\n\
+             \n\
+             - The production erosion ratio 1 is over its Budget 0.5.\n\
+             \n\
+             ## Production Findings\n"
+        ),
+        "unexpected report: {}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn format_markdown_lists_the_ratios_of_each_workspace_package_after_the_metric_table() {
+    let repository = Repository::new();
+    write_two_package_workspace(&repository, "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "markdown"]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains(
+            "| no published Reference range for this language |\n\
+             \n\
+             ## Workspace packages\n\
+             \n\
+             | Source set | Package | Files | Source lines | Erosion | Duplication | Verbosity | Import cycles |\n\
+             | ---------- | ------- | ----- | ------------ | ------- | ----------- | --------- | ------------- |\n\
+             | Production | `.` | 1 | 1 | 0 | 0 | 0 | 0 |\n\
+             | Production | `packages/eroded` | 1 | 14 | 1 | 0 | 0 | 0 |\n\
+             | Production | `packages/small` | 1 | 6 | 0 | 0 | 0 | 0 |\n\
+             \n\
+             ## Production Findings\n"
+        ),
+        "unexpected report: {}",
+        stdout(&output)
     );
 }
 

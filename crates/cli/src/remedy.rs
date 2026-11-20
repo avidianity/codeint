@@ -1,5 +1,6 @@
 use codeint_config::{ConfigError, ConfigurationFileError};
 use codeint_git::GitError;
+use codeint_model::WorkspaceError;
 
 use crate::CliError;
 use crate::check::CheckError;
@@ -9,6 +10,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(CheckError::Git(error)) => git_remedy(error),
         CliError::Check(CheckError::Configuration(error)) => configuration_file_remedy(error),
+        CliError::Check(CheckError::Workspace(error)) => workspace_remedy(error),
         CliError::Check(CheckError::Resolve(_)) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
@@ -63,6 +65,17 @@ fn git_remedy(error: &GitError) -> &'static str {
     }
 }
 
+fn workspace_remedy(error: &WorkspaceError) -> &'static str {
+    match error {
+        WorkspaceError::Manifest { .. } => {
+            "Fix the workspaces field of the manifest so that your package manager accepts it, then run codeint again."
+        }
+        WorkspaceError::InvalidPackageRoot(_) => {
+            "This is a defect in the Language plugin; report it to the Plugin's author."
+        }
+    }
+}
+
 fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
     match error {
         ConfigurationFileError::Unreadable(_) => {
@@ -76,6 +89,9 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         }
         ConfigurationFileError::WrongType { .. } => {
             "Change the value to the expected type; the JSON schema that $schema links to describes every key."
+        }
+        ConfigurationFileError::OutOfRange { .. } => {
+            "Set the Budget to a ratio from 0 to 1, as the report shows the Metric."
         }
         ConfigurationFileError::InvalidGlob { .. } => {
             "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."

@@ -6,9 +6,11 @@ mod rules;
 mod runtime_imports;
 mod source_set;
 mod tokens;
+mod workspaces;
 
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution,
+    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    WorkspaceError,
 };
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -68,6 +70,14 @@ impl Guest for TypeScriptAndJavaScript {
             flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
             runtime_imports: runtime_import_specifiers(&parsed.program),
         })
+    }
+
+    fn workspace_manifests() -> Vec<String> {
+        vec![workspaces::PACKAGE_MANIFEST.to_owned()]
+    }
+
+    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        workspaces::workspace_packages(manifests)
     }
 
     fn resolve_imports(

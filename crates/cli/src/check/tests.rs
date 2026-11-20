@@ -4,7 +4,8 @@ use std::process::Command;
 use codeint_config::{FindingsShown, ReportFormat};
 use codeint_model::LanguagePlugin;
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, SourceSet,
+    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
+    WorkspaceError,
 };
 use tempfile::TempDir;
 
@@ -46,6 +47,18 @@ fn erosion_range(low: f64, high: f64, source: &str) -> Vec<ReferenceRange> {
     }]
 }
 
+macro_rules! without_workspaces {
+    () => {
+        fn workspace_manifests() -> Vec<String> {
+            Vec::new()
+        }
+
+        fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+            Ok(Vec::new())
+        }
+    };
+}
+
 impl Guest for Alpha {
     fn extensions() -> Vec<String> {
         vec!["alpha".to_owned()]
@@ -54,6 +67,8 @@ impl Guest for Alpha {
     fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
         lines_of(&text)
     }
+
+    without_workspaces!();
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
@@ -76,6 +91,8 @@ impl Guest for Beta {
         lines_of(&text)
     }
 
+    without_workspaces!();
+
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
     }
@@ -96,6 +113,8 @@ impl Guest for Malformed {
     fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
         lines_of(&text)
     }
+
+    without_workspaces!();
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.7, 0.2, "Reversed")
@@ -121,6 +140,8 @@ impl Guest for ChecksFolderIsTest {
             lines_of(&text)
         }
     }
+
+    without_workspaces!();
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()

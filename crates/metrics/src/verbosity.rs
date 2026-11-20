@@ -1,8 +1,9 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use codeint_model::{CodeModel, RepoPath, Token, token_text_hash};
+use codeint_model::{CodeModel, Package, RepoPath, Token, token_text_hash};
 
 use crate::finding_id::{FindingIds, MetricKey};
+use crate::line_share::{LineShare, line_shares_by_package};
 use crate::{CloneLines, FindingId};
 
 #[cfg(test)]
@@ -23,6 +24,7 @@ pub struct Verbosity {
     clone_line_count: u64,
     source_lines: u64,
     flagged_lines: Vec<FlaggedLineFinding>,
+    verbose_lines_by_file: BTreeMap<RepoPath, u64>,
 }
 
 impl Verbosity {
@@ -41,12 +43,18 @@ impl Verbosity {
             .iter()
             .map(|&(path, line, _)| (path, line))
             .collect();
-        let flagged_lines_outside_clones = distinct_flagged_lines
+        let mut verbose_lines_by_file: BTreeMap<RepoPath, u64> = clone_lines
+            .count_by_file()
+            .map(|(path, lines)| (path.clone(), lines))
+            .collect();
+        for (path, _) in distinct_flagged_lines
             .iter()
             .filter(|(path, line)| !clone_lines.contains(path, *line))
-            .count() as u64;
+        {
+            *verbose_lines_by_file.entry((*path).clone()).or_default() += 1;
+        }
         Verbosity {
-            verbose_lines: clone_lines.count() + flagged_lines_outside_clones,
+            verbose_lines: verbose_lines_by_file.values().sum(),
             flagged_line_count: distinct_flagged_lines.len() as u64,
             clone_line_count: clone_lines.count(),
             source_lines: model
@@ -55,6 +63,7 @@ impl Verbosity {
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
             flagged_lines: flagged_line_findings(model, &flagged_lines),
+            verbose_lines_by_file,
         }
     }
 
@@ -84,6 +93,18 @@ impl Verbosity {
         } else {
             self.verbose_lines as f64 / self.source_lines as f64
         }
+    }
+
+    pub fn by_package<'model>(
+        &self,
+        model: &'model CodeModel,
+    ) -> BTreeMap<Package<'model>, LineShare> {
+        line_shares_by_package(
+            model,
+            self.verbose_lines_by_file
+                .iter()
+                .map(|(path, lines)| (path, *lines)),
+        )
     }
 }
 

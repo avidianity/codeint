@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use codeint_model::{CodeModel, ImportResolution, RepoPath};
+use codeint_model::{CodeModel, ImportResolution, Package, RepoPath};
 
 use crate::FindingId;
 use crate::finding_id::{FindingIds, MetricKey};
@@ -26,6 +26,22 @@ pub struct ImportCycles {
     modules: usize,
     cycles: Vec<ImportCycle>,
     unresolved_imports: Vec<UnresolvedImport>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModuleShare {
+    pub modules_in_import_cycles: usize,
+    pub modules: usize,
+}
+
+impl ModuleShare {
+    pub fn ratio(&self) -> f64 {
+        if self.modules > 0 {
+            self.modules_in_import_cycles as f64 / self.modules as f64
+        } else {
+            0.0
+        }
+    }
 }
 
 impl ImportCycle {
@@ -104,6 +120,30 @@ impl ImportCycles {
 
     pub fn cycles(&self) -> &[ImportCycle] {
         &self.cycles
+    }
+
+    pub fn by_package<'model>(
+        &self,
+        model: &'model CodeModel,
+    ) -> BTreeMap<Package<'model>, ModuleShare> {
+        let workspace = &model.workspace;
+        let mut shares: BTreeMap<Package<'model>, ModuleShare> = workspace
+            .packages()
+            .map(|package| (package, ModuleShare::default()))
+            .collect();
+        for file in &model.files {
+            shares
+                .entry(workspace.package_of(&file.path))
+                .or_default()
+                .modules += 1;
+        }
+        for module in self.cycles.iter().flat_map(|cycle| &cycle.modules) {
+            shares
+                .entry(workspace.package_of(module))
+                .or_default()
+                .modules_in_import_cycles += 1;
+        }
+        shares
     }
 
     pub fn unresolved_imports(&self) -> &[UnresolvedImport] {
