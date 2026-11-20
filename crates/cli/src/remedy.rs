@@ -18,6 +18,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
         CliError::Output(_) => "Keep standard output open until codeint exits.",
+        CliError::OutputFile { .. } => todo!(),
     }
 }
 
@@ -33,6 +34,7 @@ fn config_remedy(error: &ConfigError) -> &'static str {
             "Pass a folder, not a file; codeint measures the whole working tree that contains it."
         }
         ConfigError::UnreadablePath { .. } => "Pass a folder that you have permission to open.",
+        ConfigError::MissingOutputFolder { .. } => todo!(),
     }
 }
 

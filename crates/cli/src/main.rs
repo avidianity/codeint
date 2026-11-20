@@ -5,9 +5,10 @@ mod remedy;
 
 use std::error::Error;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use codeint_config::{Command, ConfigError, read_invocation};
+use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
 
 #[derive(Debug, thiserror::Error)]
 enum CliError {
@@ -17,6 +18,12 @@ enum CliError {
     Check(#[from] check::CheckError),
     #[error("cannot write the report to standard output")]
     Output(#[source] std::io::Error),
+    #[error("cannot write the report to {}", path.display())]
+    OutputFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 fn main() -> ExitCode {
@@ -30,10 +37,26 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), CliError> {
-    let report = match read_invocation()?.command {
-        Command::Check { folder } => check::check(&folder)?,
-    };
-    print_report(&report)
+    match read_invocation()?.command {
+        Command::Check {
+            folder,
+            destination,
+        } => write_report(&check::check(&folder)?, &destination),
+    }
+}
+
+fn write_report(report: &str, destination: &ReportDestination) -> Result<(), CliError> {
+    match destination {
+        ReportDestination::StandardOutput => print_report(report),
+        ReportDestination::File(path) => save_report(report, path),
+    }
+}
+
+fn save_report(report: &str, path: &Path) -> Result<(), CliError> {
+    std::fs::write(path, report).map_err(|source| CliError::OutputFile {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 fn print_report(report: &str) -> Result<(), CliError> {
