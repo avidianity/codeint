@@ -9,16 +9,13 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(CheckError::Git(error)) => git_remedy(error),
         CliError::Check(CheckError::Configuration(error)) => configuration_file_remedy(error),
-        CliError::Check(CheckError::NotUtf8 { .. }) => {
-            "Save the file as UTF-8, then run codeint again."
-        }
         CliError::Check(CheckError::Resolve(_)) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
         CliError::Check(CheckError::ReferenceRange(_)) => {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
-        CliError::Check(CheckError::Report(_)) => {
+        CliError::Report(_) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
         CliError::Output(_) => "Keep standard output open until codeint exits.",

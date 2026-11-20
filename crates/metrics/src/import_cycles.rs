@@ -11,9 +11,17 @@ pub struct ImportCycle {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnresolvedImport {
+    pub importer: RepoPath,
+    pub specifier: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportCycles {
     modules: usize,
     cycles: Vec<ImportCycle>,
+    unresolved_imports: Vec<UnresolvedImport>,
 }
 
 impl ImportCycle {
@@ -58,6 +66,7 @@ impl ImportCycles {
         ImportCycles {
             modules: modules.len(),
             cycles,
+            unresolved_imports: unresolved_imports(model),
         }
     }
 
@@ -80,6 +89,27 @@ impl ImportCycles {
     pub fn cycles(&self) -> &[ImportCycle] {
         &self.cycles
     }
+
+    pub fn unresolved_imports(&self) -> &[UnresolvedImport] {
+        &self.unresolved_imports
+    }
+}
+
+fn unresolved_imports(model: &CodeModel) -> Vec<UnresolvedImport> {
+    let mut unresolved: Vec<UnresolvedImport> = model
+        .runtime_imports
+        .iter()
+        .filter_map(|runtime_import| match &runtime_import.resolution {
+            ImportResolution::Unresolved { reason } => Some(UnresolvedImport {
+                importer: runtime_import.importer.clone(),
+                specifier: runtime_import.specifier.clone(),
+                reason: reason.clone(),
+            }),
+            ImportResolution::Resolved(_) | ImportResolution::External => None,
+        })
+        .collect();
+    unresolved.sort_by(|left, right| left.importer.cmp(&right.importer));
+    unresolved
 }
 
 struct Tarjan<'graph> {

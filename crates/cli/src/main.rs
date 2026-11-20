@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
+use codeint_report::ReportError;
 
 #[derive(Debug, thiserror::Error)]
 enum CliError {
@@ -16,6 +17,8 @@ enum CliError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error(transparent)]
+    Report(#[from] ReportError),
     #[error("cannot write the report to standard output")]
     Output(#[source] std::io::Error),
     #[error("cannot write the report to {}", path.display())]
@@ -56,13 +59,19 @@ fn run() -> Result<Outcome, CliError> {
             folder,
             destination,
             findings,
+            format,
         } => {
-            let checked = check::check(&folder, findings)?;
-            write_report(&checked.report, &destination)?;
-            Ok(if checked.over_budget.is_empty() {
+            let report = check::check(&folder, findings)?;
+            write_report(&report.render(format)?, &destination)?;
+            let over_budget: Vec<String> = report
+                .over_budget()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            Ok(if over_budget.is_empty() {
                 Outcome::Passed
             } else {
-                Outcome::OverBudget(checked.over_budget)
+                Outcome::OverBudget(over_budget)
             })
         }
     }
