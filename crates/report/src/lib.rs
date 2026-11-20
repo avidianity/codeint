@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use codeint_config::FindingsShown;
+use codeint_config::{FindingsShown, ReportFormat};
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
     ImportCycles, MinimumCloneTokens, Verbosity,
@@ -17,8 +17,12 @@ const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
 
 #[derive(Debug, thiserror::Error)]
-#[error("cannot render the report")]
-pub struct ReportError(#[source] toon_format::ToonError);
+pub enum ReportError {
+    #[error("cannot render the report as TOON")]
+    Toon(#[source] toon_format::ToonError),
+    #[error("cannot render the report as JSON")]
+    Json(#[source] serde_json::Error),
+}
 
 #[derive(Debug, Serialize)]
 pub struct Report {
@@ -447,7 +451,7 @@ impl Report {
         }
     }
 
-    pub fn to_toon(&self) -> Result<String, ReportError> {
-        toon_format::encode_default(self).map_err(ReportError)
+    pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
+        todo!("render {format:?}")
     }
 }

@@ -258,6 +258,7 @@ dependencies = [
  "codeint-metrics",
  "codeint-model",
  "serde",
+ "serde_json",
  "thiserror",
  "toon-format",
 ]
