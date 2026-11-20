@@ -15,7 +15,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Check(CheckError::ReferenceRange(_)) => {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
-        CliError::Check(CheckError::Report(_)) => {
+        CliError::Report(_) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
         CliError::Output(_) => "Keep standard output open until codeint exits.",

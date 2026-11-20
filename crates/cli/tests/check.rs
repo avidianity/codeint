@@ -176,20 +176,19 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
     )
 }
 
-#[test]
-fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_names_each_rule() {
-    let repository = Repository::new();
-    repository.write(
-        "src/sign.ts",
-        "export function sign(value: number): string {
+const SIGN_WITH_AN_ELSE_AFTER_RETURN: &str = "export function sign(value: number): string {
   if (value < 0) {
     return 'negative';
   } else {
     return 'positive';
   }
 }
-",
-    );
+";
+
+#[test]
+fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_names_each_rule() {
+    let repository = Repository::new();
+    repository.write("src/sign.ts", SIGN_WITH_AN_ELSE_AFTER_RETURN);
     repository.write(
         "src/size.ts",
         "export function size(count: number): string {
@@ -1014,6 +1013,21 @@ fn an_unknown_option_prints_the_usage_error_and_exits_2() {
          \x20 tip: to pass '--unknown' as a value, use '-- --unknown'\n\
          \n\
          Usage: codeint check [OPTIONS] [PATH]\n\
+         \n\
+         For more information, try '--help'.\n",
+    );
+}
+
+#[test]
+fn an_unknown_format_names_the_formats_codeint_prints_and_exits_2() {
+    let repository = Repository::new();
+
+    let output = repository.codeint(&["check", "--format", "yaml"]);
+
+    assert_operational_error(
+        &output,
+        "error: invalid value 'yaml' for '--format <FORMAT>'\n\
+         \x20 [possible values: toon, json]\n\
          \n\
          For more information, try '--help'.\n",
     );
@@ -2426,6 +2440,144 @@ fn a_git_submodule_that_is_not_checked_out_is_listed_and_adds_nothing() {
     assert_eq!(stdout(&output), report_with_one_submodule());
 }
 
+fn repository_with_a_finding_a_skipped_file_and_a_declaration_file() -> Repository {
+    let repository = Repository::new();
+    repository.write("src/sign.ts", SIGN_WITH_AN_ELSE_AFTER_RETURN);
+    repository.write("src/broken.ts", "export const = ;\n");
+    repository.write("src/types.d.ts", "export type Sign = string;\n");
+    repository.commit_all();
+    repository
+}
+
+#[test]
+fn format_json_prints_the_report_as_json_with_the_documented_shape() {
+    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        r#"{
+  "files": 1,
+  "source_lines": 7,
+  "source_sets": {
+    "production": {
+      "files": 1,
+      "source_lines": 7,
+      "erosion": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "eroded_function_mass": 0.0,
+        "total_function_mass": 5.2915,
+        "findings": []
+      },
+      "duplication": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "clone_lines": 0,
+        "clone_groups": []
+      },
+      "verbosity": {
+        "ratio": 0.1429,
+        "reference_range": "no published Reference range for this language",
+        "verbose_lines": 1,
+        "flagged_lines": 1,
+        "clone_lines": 0,
+        "findings": [
+          {
+            "path": "src/sign.ts",
+            "line": 4,
+            "rule": "else-after-return"
+          }
+        ]
+      },
+      "import_cycles": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "modules_in_import_cycles": 0,
+        "modules": 1,
+        "findings": [],
+        "unresolved_imports": {
+          "count": 0,
+          "imports": []
+        }
+      }
+    }
+  },
+  "skipped": [
+    {
+      "path": "src/broken.ts",
+      "reason": "cannot parse: Unexpected token at line 1, column 14"
+    }
+  ],
+  "declaration_only": [
+    "src/types.d.ts"
+  ]
+}
+"#
+    );
+}
+
+fn with_every_number_as_f64(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Number(number) => {
+            serde_json::Value::from(number.as_f64().expect("every report number fits in an f64"))
+        }
+        serde_json::Value::Array(items) => {
+            items.into_iter().map(with_every_number_as_f64).collect()
+        }
+        serde_json::Value::Object(fields) => fields
+            .into_iter()
+            .map(|(key, field)| (key, with_every_number_as_f64(field)))
+            .collect(),
+        other => other,
+    }
+}
+
+#[test]
+fn format_json_carries_every_field_and_value_of_the_toon_report() {
+    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 21);
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nexport const a = b;\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { a } from './a';\nexport const b = a;\n",
+    );
+    repository.write(
+        "src/sign.test.ts",
+        "import { sign } from './sign';\nsign(1);\n",
+    );
+    repository.commit_all();
+
+    let toon = repository.codeint(&["check"]);
+    let json = repository.codeint(&["check", "--format", "json"]);
+
+    assert_success(&toon);
+    assert_success(&json);
+    let from_toon: serde_json::Value =
+        toon_format::decode_default(&stdout(&toon)).expect("the TOON report decodes");
+    let from_json: serde_json::Value =
+        serde_json::from_str(&stdout(&json)).expect("the JSON report parses");
+    let production = &from_json["source_sets"]["production"];
+    assert!(
+        production["erosion"]["findings_left_out"].is_number()
+            && production["duplication"]["clone_groups"][0].is_object()
+            && production["import_cycles"]["findings"][0].is_object()
+            && from_json["source_sets"]["test"].is_object()
+            && from_json["skipped"][0].is_object()
+            && from_json["declaration_only"][0].is_string(),
+        "the fixture covers every optional part of the report: {from_json}"
+    );
+    assert_eq!(
+        with_every_number_as_f64(from_json),
+        with_every_number_as_f64(from_toon)
+    );
+}
+
 fn repository_with_a_nested_path_in_every_report_section() -> Repository {
     let repository = Repository::new();
     repository.write(
@@ -2463,24 +2615,41 @@ fn repository_with_a_nested_path_in_every_report_section() -> Repository {
 fn repository_root_check_from_a_nested_subfolder_prints_the_same_report_as_from_the_root() {
     let repository = repository_with_a_nested_path_in_every_report_section();
 
-    let from_root = repository.codeint(&["check", "--all"]);
-    let from_subfolder = run_codeint(
-        &repository.path().join("packages/lib/src/ring"),
-        &["check", "--all"],
-    );
+    for format in ["toon", "json"] {
+        let arguments = ["check", "--all", "--format", format];
+        let from_root = repository.codeint(&arguments);
+        let from_subfolder =
+            run_codeint(&repository.path().join("packages/lib/src/ring"), &arguments);
 
-    assert_success(&from_root);
-    assert_success(&from_subfolder);
-    assert_eq!(stdout(&from_subfolder), stdout(&from_root));
+        assert_success(&from_root);
+        assert_success(&from_subfolder);
+        assert_eq!(stdout(&from_subfolder), stdout(&from_root), "{format}");
+    }
+}
+
+fn json_strings_naming_a_file(value: &serde_json::Value, strings: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) if text.ends_with(".ts") => strings.push(text.clone()),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .for_each(|item| json_strings_naming_a_file(item, strings)),
+        serde_json::Value::Object(fields) => fields
+            .values()
+            .for_each(|field| json_strings_naming_a_file(field, strings)),
+        _ => {}
+    }
 }
 
 #[test]
-fn repository_root_relative_paths_with_forward_slashes_appear_in_every_report_section() {
+fn repository_root_relative_paths_with_forward_slashes_appear_in_the_toon_and_json_reports() {
     let repository = repository_with_a_nested_path_in_every_report_section();
+    let subfolder = repository.path().join("packages/app");
 
-    let output = run_codeint(&repository.path().join("packages/app"), &["check"]);
+    let output = run_codeint(&subfolder, &["check"]);
+    let json = run_codeint(&subfolder, &["check", "--format", "json"]);
 
     assert_success(&output);
+    assert_success(&json);
     let report = stdout(&output);
     assert!(!report.contains('\\'), "unexpected backslash: {report}");
     let path_lines: Vec<&str> = report
@@ -2497,6 +2666,23 @@ fn repository_root_relative_paths_with_forward_slashes_appear_in_every_report_se
             "- modules[2]: packages/app/src/ring/a.ts,packages/lib/src/ring/b.ts",
             "packages/lib/src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"",
             "declaration_only[1]: packages/lib/types/index.d.ts",
+        ]
+    );
+    let json_report: serde_json::Value =
+        serde_json::from_str(&stdout(&json)).expect("the JSON report parses");
+    let mut json_paths = Vec::new();
+    json_strings_naming_a_file(&json_report, &mut json_paths);
+    json_paths.sort();
+    assert_eq!(
+        json_paths,
+        [
+            "packages/app/src/cart.ts",
+            "packages/app/src/deep/eroded.ts",
+            "packages/app/src/ring/a.ts",
+            "packages/lib/src/broken.ts",
+            "packages/lib/src/invoice.ts",
+            "packages/lib/src/ring/b.ts",
+            "packages/lib/types/index.d.ts",
         ]
     );
 }

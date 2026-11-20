@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
+use codeint_report::ReportError;
 
 #[derive(Debug, thiserror::Error)]
 enum CliError {
@@ -16,6 +17,8 @@ enum CliError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error(transparent)]
+    Report(#[from] ReportError),
     #[error("cannot write the report to standard output")]
     Output(#[source] std::io::Error),
     #[error("cannot write the report to {}", path.display())]
@@ -42,7 +45,11 @@ fn run() -> Result<(), CliError> {
             folder,
             destination,
             findings,
-        } => write_report(&check::check(&folder, findings)?, &destination),
+            format,
+        } => write_report(
+            &check::check(&folder, findings)?.render(format)?,
+            &destination,
+        ),
     }
 }
 

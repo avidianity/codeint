@@ -10,6 +10,7 @@ codeint-config = { workspace = true }
 codeint-metrics = { workspace = true }
 codeint-model = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 toon-format = { workspace = true }
 
