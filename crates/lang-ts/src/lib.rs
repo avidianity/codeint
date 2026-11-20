@@ -97,7 +97,13 @@ impl Guest for TypeScriptAndJavaScript {
 }
 
 fn source_type(path: &str) -> Result<SourceType, LowerError> {
-    todo!("{path}")
+    let source_type = SourceType::from_path(path)
+        .map_err(|error| LowerError::UnsupportedFile(error.to_string()))?;
+    if source_type.is_javascript() {
+        Ok(source_type.with_jsx(true))
+    } else {
+        Ok(source_type)
+    }
 }
 
 fn header_comments<'a>(

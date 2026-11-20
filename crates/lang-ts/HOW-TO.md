@@ -83,3 +83,10 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - `pnpm_package_patterns` reads `pnpm-workspace.yaml` with `serde-saphyr` into a derived struct, so YAML that does not parse and a `packages` field of the wrong shape each give an error with the line and column.
   A missing or empty `packages` field means the repository is one package.
 - Prove the matching in `src/workspaces/tests.rs`, each error text in `tests/conformance.rs`, and the report in `crates/cli/tests/check.rs`.
+
+## JavaScript JSX and Flow
+
+- `source_type` in `src/lib.rs` enables JSX on every JavaScript extension (`.js`, `.mjs`, `.cjs`, and `.jsx`), while preserving each extension's module kind (`Unambiguous` for `.js` and `.jsx`, `Module` for `.mjs`, `CommonJS` for `.cjs`).
+  TypeScript files enable JSX only on `.tsx`.
+- `oxc_parser` does not support Flow syntax; when a JavaScript file with a `@flow` comment fails to parse, `oxc_parser` reports `Flow is not supported`, and the plugin returns `LowerError::Unparsable` so the report skips and counts it with the parse error.
+- Prove JSX and Flow handling in `tests/conformance.rs` and `crates/cli/tests/check.rs`.
