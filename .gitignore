@@ -1,0 +1,6 @@
+/target/
+node_modules/
+/report/
+.DS_Store
+/.claude/worktrees/
+/.reasonix/

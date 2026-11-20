@@ -1,0 +1,83 @@
+[rules]
+file = ".rules"
+entry_files = ["AGENTS.md", "CLAUDE.md"]
+size_budget_bytes = 32000
+
+[skills]
+folder = ".agents/skills"
+links = [".claude/skills"]
+lock_file = "skills-lock.json"
+project = ["correction"]
+
+[commit]
+types = ["feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert"]
+scopes = ["cli", "model", "host", "lang-ts", "metrics", "git", "report", "config", "npm", "install", "release", "checks", "ci", "docs", "deps", "rules", "skills"]
+
+[placeholders]
+paths = [".rules", "docs/agents/**", "docs/checks/**"]
+
+[records]
+folders = ["docs/adr"]
+
+[config_access]
+modules = ["crates/config/**", "xtask/src/config.rs"]
+
+[suppressions]
+approved = []
+
+[behavior]
+source = ["crates/**/*.rs", "xtask/src/**/*.rs", "wit/**/*.wit", "npm/**/*.js", "npm/**/*.mjs", "npm/**/*.cjs", "install.sh", "install.ps1"]
+tests = ["**/tests.rs", "**/tests/**", "**/*.test.js", "**/*.test.mjs"]
+
+[tier]
+default = 2
+
+[[tier.rules]]
+tier = 0
+paths = ["**/*.md", "LICENSE"]
+
+[[tier.rules]]
+tier = 3
+paths = [
+  ".rules",
+  "AGENTS.md",
+  "CLAUDE.md",
+  ".agents/**",
+  ".claude/**",
+  "skills-lock.json",
+  ".github/**",
+  "**/.cargo/**",
+  "checks.toml",
+  "xtask/**",
+  "**/lefthook*.yml",
+  "**/lefthook*.yaml",
+  "**/.lefthook*",
+  "package.json",
+  "package-lock.json",
+  ".npmrc",
+  "**/.jscpd*",
+  "**/.markdownlint*",
+  "**/lychee.toml",
+  "**/.lycheeignore",
+  "**/.gitleaks*",
+  "**/.gitattributes",
+  "**/clippy.toml",
+  "**/.clippy.toml",
+  "**/rustfmt.toml",
+  "**/.rustfmt.toml",
+  "**/rust-toolchain*",
+  "**/deny.toml",
+  "docs/checks/**",
+  "docs/agents/review-and-merge.md",
+  "docs/agents/security.md",
+  "install.sh",
+  "install.ps1",
+  "npm/**",
+  "crates/plugin-host/**",
+]
+
+[feedback_budget]
+hook_seconds = 30
+relevant_seconds = 120
+ci_gate_seconds = 600
+warn_ratio = 0.8

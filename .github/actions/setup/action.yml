@@ -1,0 +1,12 @@
+name: Set up the workspace
+description: Restore the Rust cache and install the pinned npm development tools.
+runs:
+  using: composite
+  steps:
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 24
+        cache: npm
+    - shell: bash
+      run: npm ci --no-audit --no-fund
