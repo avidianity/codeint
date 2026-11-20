@@ -125,6 +125,8 @@ struct VerbositySection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
     verbose_lines: u64,
+    flagged_lines: u64,
+    clone_lines: u64,
     #[serde(flatten)]
     findings: Findings<FlaggedLineRow>,
 }
@@ -266,16 +268,14 @@ impl SourceSetSection {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
     ) -> SourceSetSection {
+        let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+        let verbosity = Verbosity::measure(model, &duplication.clone_lines);
         SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: ErosionSection::new(&Erosion::measure(model), ranges, findings),
-            duplication: DuplicationSection::new(
-                &Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
-                ranges,
-                findings,
-            ),
-            verbosity: VerbositySection::new(&Verbosity::measure(model), ranges, findings),
+            duplication: DuplicationSection::new(&duplication, ranges, findings),
+            verbosity: VerbositySection::new(&verbosity, ranges, findings),
             import_cycles: ImportCyclesSection::new(
                 &ImportCycles::measure(model),
                 ranges,
@@ -336,7 +336,7 @@ impl DuplicationSection {
         DuplicationSection {
             ratio: Decimal::rounded(duplication.ratio()),
             reference_range: ranges.entry("duplication"),
-            clone_lines: duplication.clone_lines,
+            clone_lines: duplication.clone_lines.count(),
             clone_groups: Findings::worst_first(
                 duplication.clone_groups.iter().map(CloneGroupFinding::new),
                 shown,
@@ -374,6 +374,8 @@ impl VerbositySection {
             ratio: Decimal::rounded(verbosity.ratio()),
             reference_range: ranges.entry("verbosity"),
             verbose_lines: verbosity.verbose_lines(),
+            flagged_lines: verbosity.flagged_line_count(),
+            clone_lines: verbosity.clone_line_count(),
             findings: Findings::worst_first(
                 verbosity.flagged_lines().iter().map(FlaggedLineRow::from),
                 shown,

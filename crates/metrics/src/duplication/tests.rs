@@ -82,7 +82,7 @@ fn three_copies_form_one_clone_group_with_three_fragments() {
             ],
         }]
     );
-    assert_eq!(duplication.clone_lines, 6);
+    assert_eq!(duplication.clone_lines.count(), 6);
     assert_eq!(duplication.source_lines, 8);
     assert_eq!(duplication.ratio(), 0.75);
 }
@@ -100,7 +100,7 @@ fn a_copy_inside_one_file_is_a_clone_group() {
             fragments: vec![fragment("one.ts", 1, 1), fragment("one.ts", 3, 3)],
         }]
     );
-    assert_eq!(duplication.clone_lines, 2);
+    assert_eq!(duplication.clone_lines.count(), 2);
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn a_repeated_token_run_does_not_form_a_clone_group_with_itself() {
     let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(duplication.clone_groups, []);
-    assert_eq!(duplication.clone_lines, 0);
+    assert_eq!(duplication.clone_lines.count(), 0);
 }
 
 #[test]

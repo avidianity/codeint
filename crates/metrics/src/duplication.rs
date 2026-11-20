@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroUsize;
 
 use codeint_model::{CodeModel, RepoPath, Token, TokenKind};
@@ -20,7 +20,7 @@ impl MinimumCloneTokens {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Duplication {
-    pub clone_lines: u64,
+    pub clone_lines: CloneLines,
     pub source_lines: u64,
     pub clone_groups: Vec<CloneGroup>,
 }
@@ -29,7 +29,7 @@ impl Duplication {
     pub fn measure(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
         let window = minimum.0.get();
         let classes = equal_window_classes(&token_streams(model), window);
-        let mut clone_lines = HashSet::new();
+        let mut clone_lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
         let mut clone_groups = Vec::new();
         for (tokens, starts) in maximal_runs(&classes, window) {
             let starts = without_overlaps(starts, tokens);
@@ -39,7 +39,10 @@ impl Duplication {
             let mut fragments = Vec::with_capacity(starts.len());
             for Position { file, token } in starts {
                 let covered = &model.files[file].model.tokens[token..token + tokens];
-                clone_lines.extend(covered.iter().map(|covered| (file, covered.line)));
+                clone_lines_by_file
+                    .entry(file)
+                    .or_default()
+                    .extend(covered.iter().map(|covered| covered.line));
                 fragments.push(fragment(&model.files[file].path, covered));
             }
             fragments.sort();
@@ -52,7 +55,7 @@ impl Duplication {
                 .then_with(|| left.fragments.cmp(&right.fragments))
         });
         Duplication {
-            clone_lines: clone_lines.len() as u64,
+            clone_lines: CloneLines::of_files(model, clone_lines_by_file),
             source_lines: model
                 .files
                 .iter()
@@ -66,8 +69,27 @@ impl Duplication {
         if self.source_lines == 0 {
             0.0
         } else {
-            self.clone_lines as f64 / self.source_lines as f64
+            self.clone_lines.count() as f64 / self.source_lines as f64
         }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CloneLines(BTreeMap<RepoPath, BTreeSet<u32>>);
+
+impl CloneLines {
+    fn of_files(model: &CodeModel, lines_by_file: BTreeMap<usize, BTreeSet<u32>>) -> CloneLines {
+        _ = (model, lines_by_file);
+        todo!()
+    }
+
+    pub fn count(&self) -> u64 {
+        todo!()
+    }
+
+    pub fn contains(&self, path: &RepoPath, line: u32) -> bool {
+        _ = (path, line);
+        todo!()
     }
 }
 
