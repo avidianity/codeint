@@ -1,0 +1,91 @@
+# How to build and render reports
+
+## Summarize one snapshot with `Report`
+
+```rust
+use codeint_config::{Budgets, FindingsShown, ReportFormat};
+use codeint_report::{MeasuredLanguage, Report};
+
+let report = Report::summarize(
+    vec![MeasuredLanguage {
+        plugin: "typescript-javascript".to_owned(),
+        model,
+        reference_ranges,
+    }],
+    submodules,
+    FindingsShown::default(),
+    &Budgets::default(),
+);
+let text = report.render(ReportFormat::Toon)?;
+if !report.over_budget().is_empty() {
+    for failure in report.over_budget() {
+        eprintln!("{failure}");
+    }
+}
+```
+
+- Pass one `MeasuredLanguage` per Language plugin that ran on the snapshot.
+- `Report::summarize` splits the merged `CodeModel` by Source set, computes all four Metrics per Source set, and checks every `Budget`.
+- When two or more Language plugins measure files, the report adds a `languages` section per plugin and omits Reference ranges on the combined totals.
+- `render` formats the report as `Toon`, `Json`, `Sarif`, or `Markdown`.
+- SARIF output emits one result per listed Finding and stores each Finding id in `partialFingerprints.codeintFindingId`.
+- `over_budget` returns every `BudgetFailure` whose displayed ratio exceeds its configured `Budget`.
+
+## Measure one commit with `CommitMeasurement`
+
+```rust
+use codeint_report::CommitMeasurement;
+
+let measurement = CommitMeasurement::of(model);
+```
+
+- `CommitMeasurement::of` splits the `CodeModel` by Source set and records the ratios, numerators, and worst-first Findings for all four Metrics.
+- `CommitMeasurement` derives `Serialize` and `Deserialize`, so callers can cache it per commit in `codeint_git::ResultCache`.
+- Pass `CommitMeasurement` values into `DiffReport::compare` or `TrendReport::of`.
+
+## Compare two snapshots with `DiffReport`
+
+```rust
+use codeint_config::{Budgets, FindingsShown, RegressionLimits, ReportFormat};
+use codeint_report::{BaseCommit, CommitMeasurement, DiffReport, Head};
+
+let diff = DiffReport::compare(
+    BaseCommit {
+        git_ref: "main".to_owned(),
+        merge_base: merge_base_id.to_string(),
+    },
+    Head::WorkingTree,
+    CommitMeasurement::of(base_model),
+    CommitMeasurement::of(head_model),
+    FindingsShown::default(),
+    &Budgets::default(),
+    &RegressionLimits::default(),
+);
+let text = diff.render(ReportFormat::Markdown)?;
+for message in diff.failure_messages() {
+    eprintln!("{message}");
+}
+```
+
+- Use `Head::WorkingTree` when comparing against the working tree, or `Head::Commit(HeadCommit { git_ref, commit })` when comparing two commits.
+- `DiffReport::compare` matches Findings by id to classify each one as `new`, `resolved`, or `unchanged`.
+- `failure_messages` returns every `BudgetFailure` on the head side followed by every `Regression` that exceeds `RegressionLimits`.
+- `render` formats the diff as `Toon`, `Json`, `Sarif` (new Findings only), or `Markdown`.
+
+## Summarize history with `TrendReport`
+
+```rust
+use codeint_config::{CalendarDay, TrendFormat};
+use codeint_report::{CommitMeasurement, TrendPoint, TrendReport};
+
+let trend = TrendReport::of(vec![TrendPoint {
+    commit: commit_id.to_string(),
+    committed_on: CalendarDay::from_unix_seconds(timestamp),
+    measurement: CommitMeasurement::of(model),
+}]);
+let text = trend.render(TrendFormat::Toon)?;
+```
+
+- Pass `TrendPoint` values oldest first.
+- `TrendReport::of` records the four Metric ratios per Source set across commits and omits Source sets that have zero files in every commit.
+- `render` formats the trend as `Toon`, `Json`, or `Markdown`.
