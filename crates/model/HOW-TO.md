@@ -4,8 +4,8 @@
 
 ```rust
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, SourceSet, Token,
-    TokenKind,
+    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
+    Token, TokenKind, WorkspaceError,
 };
 use codeint_model::token_text_hash;
 
@@ -44,6 +44,14 @@ impl Guest for Plain {
         })
     }
 
+    fn workspace_manifests() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        Ok(Vec::new())
+    }
+
     fn resolve_imports(_repository_paths: Vec<String>, requests: Vec<ImportRequest>) -> Vec<Resolution> {
         requests.iter().map(|_| Resolution::External).collect()
     }
@@ -69,6 +77,13 @@ impl Guest for Plain {
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
   Which files are declaration-only is a rule of the Language plugin, never of the core.
+- `workspace_manifests` returns the file names, such as `package.json`, that describe workspace packages in the language's ecosystem.
+  Return an empty list when the language has no workspaces.
+- `workspace_packages` receives every file of the repository, at any depth, whose file name `workspace_manifests` lists, as a `Manifest` with its repository-relative path and its text.
+  Return the root folder of each workspace package, never the repository root.
+  An empty list means the repository is one package.
+- Return a `WorkspaceError` that names the manifest and what is wrong with it when a manifest that decides the packages is invalid.
+  Which manifest decides the packages, and how its patterns match folders, is a rule of the Language plugin, never of the core.
 - Set `source_set` of each `FileModel` with the rules of the Language plugin, such as the TypeScript `*.test.ts`, `*.spec.ts`, and `__tests__` rules.
   `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
   Return Production for a file that no rule claims.
@@ -117,6 +132,33 @@ assert_eq!(model.source_lines, 2);
 - Hand the text to `lower` with its line endings as written; a CRLF line ending counts like LF in every line a Language plugin reports.
 - Put each Git submodule of the working tree in `CodeModel::submodules`; codeint never measures a submodule's files.
 
+## Find workspace packages in the core
+
+```rust
+use codeint_model::{CodeModel, Manifest, Workspace};
+
+let manifests = vec![Manifest {
+    path: "package.json".to_owned(),
+    text: tree_text_of("package.json"),
+}];
+let model = CodeModel {
+    workspace: Workspace::new(plugins[0].workspace_packages(manifests)?),
+    ..CodeModel::default()
+};
+for package in model.workspace.packages() {
+    println!("{package}");
+}
+let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.ts")?);
+```
+
+- The host reads every file whose name a Language plugin lists in `workspace_manifests` and passes them to that plugin; the plugin reads no files itself.
+- The host decodes a manifest that is not valid UTF-8 lossily, so its folder can still be a package.
+- A `WorkspaceError` stops the run with exit code 2, because the package of every file depends on it.
+- `Workspace::packages` yields `Package::Root` first, then each member package by root folder.
+  `Package::Root` holds every file outside all member packages, and displays as `.`.
+- `Workspace::package_of` gives the deepest member package whose root folder holds the file, or `Package::Root`.
+- A `Workspace` without members is one package; `has_members` tells the report whether to list packages.
+
 ## Settle the Source set of a lowered file
 
 ```rust
@@ -151,6 +193,7 @@ for (source_set, files) in source_sets.iter() {
 - `into_source_sets` moves each file into the `CodeModel` of its Source set.
 - It moves each `RuntimeImport` into the `CodeModel` of its importer's Source set, so an import of a file in another Source set adds no edge there.
 - Every Source set gets a `CodeModel`, empty when no file belongs to it.
+- Every Source set's `CodeModel` keeps the whole `workspace`, so each Source set splits into the same workspace packages.
 - `iter` yields the Source sets in the order Production, Test, Generated, Vendored.
 - A skipped or declaration-only file belongs to no Source set.
   Read `skipped` and `declaration_only` before the split; the split leaves them out.

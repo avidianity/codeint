@@ -1,7 +1,8 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{Function, ImportRequest, Resolution};
 use codeint_model::{
-    FileModel, LanguagePlugin, LowerError, RepoPath, SourceSet, TokenKind, token_text_hash,
+    FileModel, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind,
+    token_text_hash,
 };
 
 use TokenKind::{Identifier, Literal, Other};
@@ -1142,4 +1143,136 @@ fn a_generated_marker_after_the_first_code_or_outside_a_comment_does_not_make_a_
             "{text}"
         );
     }
+}
+
+fn manifest(path: &str, text: &str) -> Manifest {
+    Manifest {
+        path: path.to_owned(),
+        text: text.to_owned(),
+    }
+}
+
+fn package_roots(root_manifest: &str, package_folders: &[&str]) -> Vec<String> {
+    let mut manifests = vec![manifest("package.json", root_manifest)];
+    manifests.extend(
+        package_folders
+            .iter()
+            .map(|folder| manifest(&format!("{folder}/package.json"), "{}")),
+    );
+    let mut roots: Vec<String> = match plugin().workspace_packages(manifests) {
+        Ok(roots) => roots.iter().map(ToString::to_string).collect(),
+        Err(error) => panic!("workspace packages not found: {error}"),
+    };
+    roots.sort();
+    roots
+}
+
+#[test]
+fn the_plugin_reads_package_json_manifests_to_find_workspace_packages() {
+    assert_eq!(plugin().workspace_manifests(), ["package.json"]);
+}
+
+#[test]
+fn a_negated_workspace_pattern_excludes_the_folders_it_matches() {
+    let roots = package_roots(
+        r#"{"workspaces": ["packages/*", "!packages/legacy"]}"#,
+        &["packages/app", "packages/legacy"],
+    );
+
+    assert_eq!(roots, ["packages/app"]);
+}
+
+#[test]
+fn a_workspace_pattern_with_a_leading_dot_slash_or_a_trailing_slash_matches_like_one_without() {
+    let roots = package_roots(
+        r#"{"workspaces": ["./apps/*", "tools/", "./libs/core/"]}"#,
+        &["apps/web", "tools", "libs/core"],
+    );
+
+    assert_eq!(roots, ["apps/web", "libs/core", "tools"]);
+}
+
+#[test]
+fn a_double_star_workspace_pattern_matches_packages_at_any_depth_below_its_folder() {
+    let roots = package_roots(
+        r#"{"workspaces": ["packages/**"]}"#,
+        &["packages/app", "packages/group/inner", "other/app"],
+    );
+
+    assert_eq!(roots, ["packages/app", "packages/group/inner"]);
+}
+
+#[test]
+fn a_package_inside_node_modules_is_never_a_workspace_package() {
+    let roots = package_roots(
+        r#"{"workspaces": ["**"]}"#,
+        &["app", "app/node_modules/dependency", "node_modules/tool"],
+    );
+
+    assert_eq!(roots, ["app"]);
+}
+
+#[test]
+fn a_root_manifest_without_workspaces_or_no_root_manifest_means_no_workspace_packages() {
+    assert!(package_roots(r#"{"name": "single"}"#, &["packages/app"]).is_empty());
+    let without_root = plugin()
+        .workspace_packages(vec![manifest("packages/app/package.json", "{}")])
+        .expect("no root manifest is not an error");
+    assert!(without_root.is_empty());
+}
+
+#[test]
+fn a_manifest_that_is_not_the_root_manifest_is_not_parsed() {
+    let roots = package_roots(r#"{"workspaces": ["packages/*"]}"#, &[]);
+    assert!(roots.is_empty());
+    let broken_member = plugin().workspace_packages(vec![
+        manifest("package.json", r#"{"workspaces": ["packages/*"]}"#),
+        manifest("packages/app/package.json", "{ not json"),
+    ]);
+    let roots: Vec<String> = broken_member
+        .expect("a broken member manifest is not an error")
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(roots, ["packages/app"]);
+}
+
+fn workspace_error(root_manifest: &str) -> String {
+    match plugin().workspace_packages(vec![manifest("package.json", root_manifest)]) {
+        Ok(roots) => panic!("expected an error, found {roots:?}"),
+        Err(error) => error.to_string(),
+    }
+}
+
+#[test]
+fn a_root_manifest_that_is_not_json_is_an_error_that_names_it() {
+    assert_eq!(
+        workspace_error("{ \"workspaces\": "),
+        "cannot find the workspace packages from package.json: is not valid JSON: EOF while parsing a value at line 1 column 16"
+    );
+}
+
+#[test]
+fn a_workspaces_field_of_the_wrong_shape_is_an_error_that_names_the_expected_shape() {
+    let expected = "cannot find the workspace packages from package.json: \
+                    the workspaces field must be an array of folder patterns, \
+                    or an object whose packages field is one";
+    for wrong in [
+        r#"{"workspaces": "packages/*"}"#,
+        r#"{"workspaces": {"packages": "packages/*"}}"#,
+        r#"{"workspaces": ["packages/*", 3]}"#,
+    ] {
+        assert_eq!(workspace_error(wrong), expected, "{wrong}");
+    }
+}
+
+#[test]
+fn an_invalid_workspace_glob_is_an_error_that_names_the_pattern() {
+    let message = workspace_error(r#"{"workspaces": ["packages/[a"]}"#);
+    assert!(
+        message.starts_with(
+            "cannot find the workspace packages from package.json: has the workspace pattern \"packages/[a\", which is not a valid glob: "
+        ),
+        "{message}"
+    );
 }

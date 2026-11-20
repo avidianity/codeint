@@ -11,6 +11,9 @@ println!("ratio {}", erosion.ratio());
 for function in erosion.eroded_functions() {
     println!("{}:{} has Function mass {}", function.path, function.line, function.function_mass);
 }
+for (package, masses) in erosion.by_package(&model) {
+    println!("{package}: {} of {}, ratio {}", masses.eroded, masses.total, masses.ratio());
+}
 ```
 
 - `Erosion::measure` reads only the `CodeModel`; it never knows the source language.
@@ -19,6 +22,9 @@ for function in erosion.eroded_functions() {
 - A function is eroded when its cyclomatic complexity is greater than 10.
 - `ratio` is the eroded Function mass divided by the total Function mass, and 0 when the total is 0.
 - `eroded_functions` lists the Findings, the largest Function mass first, then by path and line.
+- `by_package` gives the `FunctionMasses` of every package of the workspace, the root package included, even a package with no functions.
+  Each package's masses are sums over its files, so the package masses add up to the totals.
+  Compute a total from summed masses, never from an average of package ratios.
 
 ## Report a Metric per Source set
 
@@ -26,6 +32,8 @@ for function in erosion.eroded_functions() {
 - The report crate splits the Code model with `CodeModel::into_source_sets` and measures every Metric once per Source set.
 - To add a Metric to the report, add its section as a field of `SourceSetSection` in `crates/report/src/lib.rs`, built from the `CodeModel` of that Source set.
   The report then shows the Metric for each Source set that holds a file.
+- To show the Metric per workspace package too, give it a `by_package(&model)` method and add its numerator to `PackageSection`.
+  Every Source set's `CodeModel` keeps the whole workspace, so each Source set lists every package.
 
 ## Find Clone groups
 
@@ -47,6 +55,8 @@ let ratio = duplication.ratio();
 - `ratio` is `clone_lines.count() / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
 - `MinimumCloneTokens::PROVISIONAL_DEFAULT` is 50 tokens until the calibration Ticket #33 fixes the default.
+- `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its clone lines and its source lines.
+  A Clone group that spans two packages adds each copy's lines to the package that holds it.
 
 ## Measure Verbosity
 
@@ -69,6 +79,21 @@ for finding in verbosity.flagged_lines() {
 - `flagged_line_count` counts the distinct Flagged lines, and `clone_line_count` the clone lines; a line that is both adds to each.
 - `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
 - `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.
+- `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its verbose lines and its source lines.
+
+## Split a Metric by workspace package
+
+```rust
+let erosion_by_package = erosion.by_package(&model);
+for (package, share) in duplication.by_package(&model) {
+    println!("{package}: {} of {} lines, ratio {}", share.lines, share.source_lines, share.ratio());
+}
+```
+
+- Each Metric measures the whole model once, then attributes each file's numerator and denominator to the package that holds the file.
+  Measuring each package on its own would lose a Clone group or an Import cycle that spans two packages.
+- Every map holds every package, the root package included, so the package numerators and denominators add up to the totals.
+- Compute a total from summed numerators and denominators, never from an average of package ratios.
 
 ## Measure Import cycles
 
@@ -89,6 +114,8 @@ for cycle in import_cycles.cycles() {
 - An Import cycle is a strongly connected component of more than one module, or one module that imports itself.
 - `ratio` is the modules in at least one Import cycle divided by all modules, and 0 when there are no modules.
 - `cycles` lists the Findings, each with its modules sorted by path, ordered by their sorted module lists.
+- `by_package(&model)` gives a `ModuleShare` for every package of `model.workspace`: its modules in an Import cycle and all its modules.
+  An Import cycle that spans two packages counts each module in the package that holds it.
 
 ## List unresolved imports
 

@@ -2686,3 +2686,286 @@ fn repository_root_relative_paths_with_forward_slashes_appear_in_the_toon_and_js
         ]
     );
 }
+
+fn write_two_package_workspace(repository: &Repository, root_manifest: &str) {
+    repository.write("package.json", root_manifest);
+    repository.write("packages/eroded/package.json", "{\"name\": \"eroded\"}\n");
+    repository.write(
+        "packages/eroded/src/branches.ts",
+        &function_with_if_statements("branches", 11),
+    );
+    repository.write("packages/small/package.json", "{\"name\": \"small\"}\n");
+    repository.write(
+        "packages/small/src/sum.ts",
+        &function_with_if_statements("sum", 3),
+    );
+    repository.write("scripts/build.ts", "export const build = 1;\n");
+    repository.write(
+        "docs/package.json",
+        "{\"name\": \"not-a-workspace-package\"}\n",
+    );
+}
+
+const TWO_PACKAGE_EROSION: &str = concat!(
+    "erosion:\n",
+    "  ratio: 0.8209\n",
+    "  reference_range: no published Reference range for this language\n",
+    "  eroded_function_mass: 44.8999\n",
+    "  total_function_mass: 54.6978\n",
+    "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+    "    packages/eroded/src/branches.ts,1,12,14,44.8999\n",
+);
+
+const TWO_PACKAGE_ROWS: &str = concat!(
+    "  .,1,1,0,0,0,0,0,0,0,0,0\n",
+    "  packages/eroded,1,14,1,44.8999,44.8999,0,0,0,0,0,0\n",
+    "  packages/small,1,6,0,0,9.798,0,0,0,0,0,0\n",
+);
+
+fn assert_two_package_report(output: &Output) {
+    assert_success(output);
+    assert_eq!(summary(output), "files: 3\nsource_lines: 21\n");
+    assert_eq!(
+        source_set_sizes(output),
+        ["production: files: 3 source_lines: 21"]
+    );
+    assert_eq!(production_section(output, "erosion"), TWO_PACKAGE_EROSION);
+    assert_eq!(
+        packages_table(output, "production"),
+        PACKAGES_HEADER.to_owned() + TWO_PACKAGE_ROWS
+    );
+}
+
+#[test]
+fn workspace_packages_of_the_array_form_each_report_erosion_and_the_total_sums_their_numerators() {
+    let repository = Repository::new();
+    write_two_package_workspace(&repository, "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_two_package_report(&output);
+}
+
+#[test]
+fn workspace_packages_of_the_object_form_with_packages_are_reported_like_the_array_form() {
+    let repository = Repository::new();
+    write_two_package_workspace(
+        &repository,
+        "{\"workspaces\": {\"packages\": [\"packages/*\"], \"nohoist\": [\"**/react\"]}}\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_two_package_report(&output);
+}
+
+#[test]
+fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": \"packages/*\"}\n");
+    repository.write("packages/app/package.json", "{}\n");
+    repository.write("packages/app/index.ts", "export const app = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        concat!(
+            "codeint: cannot find the workspace packages from package.json: ",
+            "the workspaces field must be an array of folder patterns, ",
+            "or an object whose packages field is one\n",
+            "Fix the workspaces field of the manifest so that your package manager accepts it, ",
+            "then run codeint again.\n",
+        ),
+    );
+}
+
+const PACKAGES_HEADER: &str = concat!(
+    "packages[3]{path,files,source_lines,",
+    "erosion{ratio,eroded_function_mass,total_function_mass},",
+    "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines},",
+    "import_cycles{ratio,modules_in_import_cycles}}:\n",
+);
+
+fn packages_table(output: &Output, source_set: &str) -> String {
+    let source_set_heading = format!("  {source_set}:");
+    stdout(output)
+        .lines()
+        .skip_while(|line| *line != source_set_heading)
+        .skip_while(|line| !line.starts_with("    packages["))
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || indent(line) > METRIC_INDENT)
+        .map(|(_, line)| format!("{}\n", &line[METRIC_INDENT..]))
+        .collect()
+}
+
+#[test]
+fn each_workspace_package_reports_its_own_clone_lines_and_verbose_lines() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/cart/package.json", "{}\n");
+    repository.write("packages/cart/src/total.ts", CART_TOTAL);
+    repository.write("packages/invoice/package.json", "{}\n");
+    repository.write(
+        "packages/invoice/src/total.ts",
+        &format!("const currency = 'EUR';\n{CART_TOTAL}export const label = currency;\n"),
+    );
+    repository.write(
+        "packages/invoice/src/sign.ts",
+        concat!(
+            "export function sign(value: number): string {\n",
+            "  if (value < 0) {\n",
+            "    return 'negative';\n",
+            "  } else {\n",
+            "    return 'positive';\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 27\n");
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/cart,1,9,0,0,9,1,9,1,9,0,0\n",
+                "  packages/invoice,2,18,0,0,14.2915,0.5,9,0.5556,10,0,0\n",
+            )
+    );
+    assert!(production_section(&output, "duplication").contains("  clone_lines: 18\n"));
+    assert!(production_section(&output, "verbosity").contains("  verbose_lines: 19\n"));
+}
+
+#[test]
+fn each_source_set_splits_into_every_workspace_package() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/app/package.json", "{}\n");
+    repository.write("packages/app/src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "packages/app/src/main.test.ts",
+        "export const checked = 1;\nexport const twice = 2;\n",
+    );
+    repository.write("packages/lib/package.json", "{}\n");
+    repository.write("packages/lib/src/lib.ts", "export const lib = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,1,0,0,0,0,0,0,0,0,0\n",
+                "  packages/lib,1,1,0,0,0,0,0,0,0,0,0\n",
+            )
+    );
+    assert_eq!(
+        packages_table(&output, "test"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,2,0,0,0,0,0,0,0,0,0\n",
+                "  packages/lib,0,0,0,0,0,0,0,0,0,0,0\n",
+            )
+    );
+}
+
+#[test]
+fn an_import_cycle_across_two_workspace_packages_counts_each_module_in_its_own_package() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/orders/package.json", "{}\n");
+    repository.write(
+        "packages/orders/src/order.ts",
+        "import { bill } from '../../billing/src/bill';\nexport const order = () => bill();\n",
+    );
+    repository.write("packages/billing/package.json", "{}\n");
+    repository.write(
+        "packages/billing/src/bill.ts",
+        "import { order } from '../../orders/src/order';\nexport const bill = () => order();\n",
+    );
+    repository.write("packages/billing/src/rate.ts", "export const rate = 2;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert!(
+        production_section(&output, "import_cycles").contains("  modules_in_import_cycles: 2\n")
+    );
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/billing,2,3,0,0,1,0,0,0,0,0.5,1\n",
+                "  packages/orders,1,2,0,0,1,0,0,0,0,1,1\n",
+            )
+    );
+}
+
+#[test]
+fn a_member_manifest_that_is_not_utf_8_still_makes_its_folder_a_workspace_package() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/cafe/index.ts", "export const cafe = 1;\n");
+    repository.write_bytes("packages/cafe/package.json", b"{\"name\": \"caf\xe9\"}\n");
+    repository.write("packages/shop/package.json", "{\"name\": \"shop\"}\n");
+    repository.write("packages/shop/index.ts", "export const shop = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/cafe,1,1,0,0,0,0,0,0,0,0,0\n",
+                "  packages/shop,1,1,0,0,0,0,0,0,0,0,0\n",
+            )
+    );
+}
+
+#[test]
+fn the_json_report_lists_each_workspace_package_with_its_numerators() {
+    let repository = Repository::new();
+    write_two_package_workspace(&repository, "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+
+    assert_success(&output);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("the JSON report parses");
+    let packages = &report["source_sets"]["production"]["packages"];
+    assert_eq!(
+        packages[1],
+        serde_json::json!({
+            "path": "packages/eroded",
+            "files": 1,
+            "source_lines": 14,
+            "erosion": {
+                "ratio": 1.0,
+                "eroded_function_mass": 44.8999,
+                "total_function_mass": 44.8999
+            },
+            "duplication": { "ratio": 0.0, "clone_lines": 0 },
+            "verbosity": { "ratio": 0.0, "verbose_lines": 0 },
+            "import_cycles": { "ratio": 0.0, "modules_in_import_cycles": 0 }
+        })
+    );
+    assert_eq!(packages.as_array().map(Vec::len), Some(3));
+}

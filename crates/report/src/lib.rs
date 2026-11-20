@@ -1,12 +1,15 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
+
 use codeint_config::{FindingsShown, ReportFormat};
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
     ImportCycles, MinimumCloneTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
-    CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
+    CodeModel, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet,
+    SourceSets,
 };
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -76,6 +79,44 @@ struct SourceSetSection {
     duplication: DuplicationSection,
     verbosity: VerbositySection,
     import_cycles: ImportCyclesSection,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    packages: Vec<PackageSection>,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageSection {
+    path: String,
+    files: usize,
+    source_lines: u64,
+    erosion: PackageErosion,
+    duplication: PackageDuplication,
+    verbosity: PackageVerbosity,
+    import_cycles: PackageImportCycles,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageErosion {
+    ratio: Decimal,
+    eroded_function_mass: Decimal,
+    total_function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageDuplication {
+    ratio: Decimal,
+    clone_lines: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageVerbosity {
+    ratio: Decimal,
+    verbose_lines: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageImportCycles {
+    ratio: Decimal,
+    modules_in_import_cycles: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -301,18 +342,20 @@ impl SourceSetSection {
         findings: FindingsShown,
     ) -> SourceSetSection {
         let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
-        let verbosity = Verbosity::measure(model, &duplication.clone_lines);
+        let measured = Measured {
+            erosion: Erosion::measure(model),
+            verbosity: Verbosity::measure(model, &duplication.clone_lines),
+            duplication,
+            import_cycles: ImportCycles::measure(model),
+        };
         SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
-            erosion: ErosionSection::new(&Erosion::measure(model), ranges, findings),
-            duplication: DuplicationSection::new(&duplication, ranges, findings),
-            verbosity: VerbositySection::new(&verbosity, ranges, findings),
-            import_cycles: ImportCyclesSection::new(
-                &ImportCycles::measure(model),
-                ranges,
-                findings,
-            ),
+            erosion: ErosionSection::new(&measured.erosion, ranges, findings),
+            duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
+            verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
+            import_cycles: ImportCyclesSection::new(&measured.import_cycles, ranges, findings),
+            packages: package_sections(model, &measured),
         }
     }
 }
@@ -481,6 +524,60 @@ impl From<&SkippedFile> for SkippedEntry {
             reason: file.reason.clone(),
         }
     }
+}
+
+struct Measured {
+    erosion: Erosion,
+    duplication: Duplication,
+    verbosity: Verbosity,
+    import_cycles: ImportCycles,
+}
+
+fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSection> {
+    if !model.workspace.has_members() {
+        return Vec::new();
+    }
+    let mut files: BTreeMap<Package<'_>, usize> = BTreeMap::new();
+    for file in &model.files {
+        *files
+            .entry(model.workspace.package_of(&file.path))
+            .or_default() += 1;
+    }
+    let mut duplication = measured.duplication.by_package(model);
+    let mut verbosity = measured.verbosity.by_package(model);
+    let mut import_cycles = measured.import_cycles.by_package(model);
+    measured
+        .erosion
+        .by_package(model)
+        .into_iter()
+        .map(|(package, masses)| {
+            let clone_lines = duplication.remove(&package).unwrap_or_default();
+            let verbose_lines = verbosity.remove(&package).unwrap_or_default();
+            let modules = import_cycles.remove(&package).unwrap_or_default();
+            PackageSection {
+                path: package.to_string(),
+                files: files.get(&package).copied().unwrap_or_default(),
+                source_lines: clone_lines.source_lines,
+                erosion: PackageErosion {
+                    ratio: Decimal::rounded(masses.ratio()),
+                    eroded_function_mass: Decimal::rounded(masses.eroded),
+                    total_function_mass: Decimal::rounded(masses.total),
+                },
+                duplication: PackageDuplication {
+                    ratio: Decimal::rounded(clone_lines.ratio()),
+                    clone_lines: clone_lines.lines,
+                },
+                verbosity: PackageVerbosity {
+                    ratio: Decimal::rounded(verbose_lines.ratio()),
+                    verbose_lines: verbose_lines.lines,
+                },
+                import_cycles: PackageImportCycles {
+                    ratio: Decimal::rounded(modules.ratio()),
+                    modules_in_import_cycles: modules.modules_in_import_cycles,
+                },
+            }
+        })
+        .collect()
 }
 
 impl Report {
