@@ -3,7 +3,7 @@ use crate::Findings;
 use crate::markdown::{
     CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, FLAGGED_LINE, FLAGGED_LINE_COLUMNS,
     IMPORT_CYCLE, Noun, clone_group_item, code, eroded_function_row, flagged_line_row,
-    import_cycle_item, list, push_findings, table,
+    import_cycle_item, list, push_findings, sentence_item, table,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -36,6 +36,14 @@ pub(super) fn render(report: &DiffReport) -> String {
                 .flat_map(|(name, changes)| metric_rows(name, changes))
                 .collect(),
         ));
+    }
+    if !report.over_budget.is_empty() {
+        blocks.push("## Over Budget".to_string());
+        blocks.push(list(report.over_budget.iter().map(sentence_item)));
+    }
+    if !report.regressions.is_empty() {
+        blocks.push("## Regressions".to_string());
+        blocks.push(list(report.regressions.iter().map(sentence_item)));
     }
     for (name, changes) in &sections {
         let findings = findings_blocks(changes);

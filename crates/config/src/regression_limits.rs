@@ -27,11 +27,11 @@ impl RatioRise {
     pub const DEFAULT: RatioRise = RatioRise(0.01);
 
     pub fn ratio(self) -> f64 {
-        todo!()
+        self.0
     }
 
-    pub fn admits(self, _displayed_rise: f64) -> bool {
-        todo!()
+    pub fn admits(self, displayed_rise: f64) -> bool {
+        displayed_rise <= self.0
     }
 }
 
@@ -48,13 +48,23 @@ impl RegressionLimit {
 }
 
 impl RegressionLimits {
-    pub fn limit(&self, _metric: Metric) -> RegressionLimit {
-        todo!()
+    pub fn limit(&self, metric: Metric) -> RegressionLimit {
+        match metric {
+            Metric::Erosion => self.erosion,
+            Metric::Duplication => self.duplication,
+            Metric::Verbosity => self.verbosity,
+            Metric::ImportCycles => self.import_cycles,
+        }
     }
 }
 
 impl Default for RegressionLimits {
     fn default() -> RegressionLimits {
-        todo!()
+        RegressionLimits {
+            erosion: RegressionLimit::DEFAULT,
+            duplication: RegressionLimit::DEFAULT,
+            verbosity: RegressionLimit::DEFAULT,
+            import_cycles: RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES,
+        }
     }
 }

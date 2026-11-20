@@ -1,4 +1,6 @@
-use codeint_config::{Budgets, FindingsShown, RegressionLimit, RegressionLimits, ReportFormat};
+use codeint_config::{
+    Budgets, FindingsShown, NewFindingsRule, RegressionLimit, RegressionLimits, ReportFormat,
+};
 use codeint_model::{CodeModel, Metric, SourceSet};
 use std::collections::HashSet;
 
@@ -12,6 +14,8 @@ use crate::{
 };
 
 mod markdown;
+#[cfg(test)]
+mod tests;
 
 const WORKING_TREE: &str = "working tree";
 
@@ -39,6 +43,10 @@ pub(crate) struct Regression {
     base: Decimal,
     head: Decimal,
     new_findings: usize,
+    #[serde(skip)]
+    ratio_rise_limit: f64,
+    #[serde(skip)]
+    numerator_key: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -127,7 +135,11 @@ impl DiffReport {
     }
 
     pub fn failure_messages(&self) -> Vec<String> {
-        todo!()
+        self.over_budget
+            .iter()
+            .map(ToString::to_string)
+            .chain(self.regressions.iter().map(ToString::to_string))
+            .collect()
     }
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
@@ -195,8 +207,30 @@ const REGRESSION_RULES: [RegressionRule; 3] = [
     RegressionRule::NumeratorRiseWithNewFindings,
 ];
 
-fn over_budget(_source_sets: &SourceSetChangesSections, _budgets: &Budgets) -> Vec<BudgetFailure> {
-    todo!()
+fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec<BudgetFailure> {
+    crate::over_budget(
+        budgets,
+        source_sets.iter().flat_map(|(source_set, changes)| {
+            [
+                (source_set, Metric::Erosion, changes.erosion.head_ratio.0),
+                (
+                    source_set,
+                    Metric::Duplication,
+                    changes.duplication.head_ratio.0,
+                ),
+                (
+                    source_set,
+                    Metric::Verbosity,
+                    changes.verbosity.head_ratio.0,
+                ),
+                (
+                    source_set,
+                    Metric::ImportCycles,
+                    changes.import_cycles.head_ratio.0,
+                ),
+            ]
+        }),
+    )
 }
 
 fn regressions(
@@ -246,14 +280,33 @@ impl<T> MetricChanges<T> {
                     rule,
                     base,
                     head,
-                    new_findings: self.new.listed.len() + self.new.left_out,
+                    new_findings: self.new_findings(),
+                    ratio_rise_limit: limit.ratio_rise.ratio(),
+                    numerator_key: numerator_key(metric),
                 }
             })
             .collect()
     }
 
-    fn breaks(&self, _rule: RegressionRule, _limit: RegressionLimit) -> bool {
-        todo!()
+    fn breaks(&self, rule: RegressionRule, limit: RegressionLimit) -> bool {
+        let adds_findings = self.new_findings() > 0;
+        match rule {
+            RegressionRule::RatioRise => !limit
+                .ratio_rise
+                .admits(Decimal::rounded(self.head_ratio.0 - self.base_ratio.0).0),
+            RegressionRule::NewFindings => {
+                adds_findings && limit.new_findings == NewFindingsRule::AnyNewFinding
+            }
+            RegressionRule::NumeratorRiseWithNewFindings => {
+                adds_findings
+                    && limit.new_findings == NewFindingsRule::NumeratorRiseWithNewFindings
+                    && self.head_numerator.0 > self.base_numerator.0
+            }
+        }
+    }
+
+    fn new_findings(&self) -> usize {
+        self.new.listed.len() + self.new.left_out
     }
 
     fn compared_values(&self, rule: RegressionRule) -> (Decimal, Decimal) {
@@ -270,8 +323,51 @@ impl<T> MetricChanges<T> {
 }
 
 impl std::fmt::Display for Regression {
-    fn fmt(&self, _formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Regression {
+            source_set,
+            metric,
+            base,
+            head,
+            ..
+        } = self;
+        match self.rule {
+            RegressionRule::RatioRise => write!(
+                formatter,
+                "the {source_set} {metric} ratio rose from {} to {}, more than its Regression limit {}",
+                base.0, head.0, self.ratio_rise_limit
+            ),
+            RegressionRule::NewFindings => write!(
+                formatter,
+                "the {source_set} {metric} Metric has {}, and its Regression limit allows none",
+                new_findings_phrase(self.new_findings)
+            ),
+            RegressionRule::NumeratorRiseWithNewFindings => write!(
+                formatter,
+                "the {source_set} {metric} numerator {} rose from {} to {} with {}",
+                self.numerator_key,
+                base.0,
+                head.0,
+                new_findings_phrase(self.new_findings)
+            ),
+        }
+    }
+}
+
+fn numerator_key(metric: Metric) -> &'static str {
+    match metric {
+        Metric::Erosion => "eroded_function_mass",
+        Metric::Duplication => "clone_lines",
+        Metric::Verbosity => "verbose_lines",
+        Metric::ImportCycles => "modules_in_import_cycles",
+    }
+}
+
+fn new_findings_phrase(count: usize) -> String {
+    if count == 1 {
+        "1 new Finding".to_owned()
+    } else {
+        format!("{count} new Findings")
     }
 }
 
