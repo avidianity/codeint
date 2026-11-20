@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
@@ -18,11 +18,26 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
+    #[error(
+        "cannot write the report to {}: {} is not a folder that exists",
+        path.display(),
+        folder.display()
+    )]
+    MissingOutputFolder { path: PathBuf, folder: PathBuf },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportDestination {
+    StandardOutput,
+    File(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    Check { folder: PathBuf },
+    Check {
+        folder: PathBuf,
+        destination: ReportDestination,
+    },
 }
 
 #[derive(Debug)]
@@ -49,22 +64,36 @@ enum CommandArguments {
             help = "A folder inside the Git repository to measure; the current folder by default"
         )]
         path: Option<PathBuf>,
+        #[command(flatten)]
+        report: ReportArguments,
     },
 }
 
+#[derive(Debug, clap::Args)]
+struct ReportArguments {
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Write the report to this file instead of standard output"
+    )]
+    output: Option<PathBuf>,
+}
+
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
-    let command = match Arguments::parse().command {
-        CommandArguments::Check { path } => Command::Check {
-            folder: existing_folder(path)?,
+    let arguments = Arguments::parse();
+    let current_folder = std::env::current_dir().map_err(ConfigError::CurrentFolder)?;
+    let command = match arguments.command {
+        CommandArguments::Check { path, report } => Command::Check {
+            folder: existing_folder(&current_folder, path)?,
+            destination: report_destination(&current_folder, report.output)?,
         },
     };
     Ok(Invocation { command })
 }
 
-fn existing_folder(path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
-    let current_folder = std::env::current_dir().map_err(ConfigError::CurrentFolder)?;
+fn existing_folder(current_folder: &Path, path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
     let Some(path) = path else {
-        return Ok(current_folder);
+        return Ok(current_folder.to_path_buf());
     };
     let folder = std::fs::canonicalize(current_folder.join(&path)).map_err(|source| {
         if source.kind() == std::io::ErrorKind::NotFound {
@@ -80,5 +109,20 @@ fn existing_folder(path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
         Ok(folder)
     } else {
         Err(ConfigError::NotAFolder { path })
+    }
+}
+
+fn report_destination(
+    current_folder: &Path,
+    output: Option<PathBuf>,
+) -> Result<ReportDestination, ConfigError> {
+    let Some(path) = output else {
+        return Ok(ReportDestination::StandardOutput);
+    };
+    let folder = path.parent().unwrap_or(Path::new("")).to_path_buf();
+    if current_folder.join(&folder).is_dir() {
+        Ok(ReportDestination::File(path))
+    } else {
+        Err(ConfigError::MissingOutputFolder { path, folder })
     }
 }

@@ -26,6 +26,7 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
             file("src/b.ts", 6, &[(2, "rule-two"), (2, "rule-one")]),
             file("src/a.ts", 2, &[(1, "rule-one")]),
         ],
+        ..CodeModel::default()
     };
 
     let verbosity = Verbosity::measure(&model);

@@ -1,5 +1,7 @@
+#![forbid(unsafe_code)]
+
 use codeint_metrics::verbosity::{FlaggedLineFinding, Verbosity};
-use codeint_model::CodeModel;
+use codeint_model::{CodeModel, RepoPath, SkippedFile};
 use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -11,6 +13,10 @@ pub struct Report {
     files: usize,
     source_lines: u64,
     verbosity: VerbosityReport,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    skipped: Vec<SkippedEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    declaration_only: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,6 +33,21 @@ struct FlaggedLineRow {
     rule: String,
 }
 
+#[derive(Debug, Serialize)]
+struct SkippedEntry {
+    path: String,
+    reason: String,
+}
+
+impl From<&SkippedFile> for SkippedEntry {
+    fn from(file: &SkippedFile) -> SkippedEntry {
+        SkippedEntry {
+            path: file.path.to_string(),
+            reason: file.reason.clone(),
+        }
+    }
+}
+
 impl Report {
     pub fn summarize(model: &CodeModel) -> Report {
         Report {
@@ -37,6 +58,12 @@ impl Report {
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
             verbosity: VerbosityReport::from(Verbosity::measure(model)),
+            skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
+            declaration_only: model
+                .declaration_only
+                .iter()
+                .map(RepoPath::to_string)
+                .collect(),
         }
     }
 

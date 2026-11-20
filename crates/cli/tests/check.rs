@@ -251,23 +251,58 @@ fn check_outside_a_git_repository_exits_with_an_operational_error() {
 }
 
 #[test]
-fn check_stops_with_an_operational_error_on_a_file_that_does_not_parse() {
+fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
     let repository = Repository::new();
-    repository.write("src/broken.ts", "export const = ;\n");
+    repository.write("src/broken.ts", "export const ok = 1;\nexport const = ;\n");
+    repository.write(
+        "src/main.ts",
+        "export const main = 1;\nexport const more = 2;\n",
+    );
     repository.commit_all();
 
     let output = repository.codeint(&["check"]);
 
-    assert_eq!(output.status.code(), Some(2));
-    assert!(stdout(&output).is_empty());
-    let message = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        message.starts_with("codeint: src/broken.ts: cannot parse")
-            && message.ends_with(
-                "\nFix the file named above so that it parses, then run codeint again.\n"
-            )
-            && message.lines().count() == 2,
-        "unexpected message: {message}"
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "files: 1\n\
+         source_lines: 2\n\
+         verbosity:\n\
+         \x20 ratio: 0\n\
+         \x20 verbose_lines: 0\n\
+         \x20 flagged_lines: []\n\
+         skipped[1]{path,reason}:\n  \
+         src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
+    );
+}
+
+#[test]
+fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_source_lines() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "types/globals.d.ts",
+        "declare const version: string;\ndeclare function greet(name: string): string;\n",
+    );
+    repository.write(
+        "types/module.d.mts",
+        "export declare const answer: number;\n",
+    );
+    repository.write("types/legacy.d.cts", "declare const legacy: number;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "files: 1\n\
+         source_lines: 1\n\
+         verbosity:\n\
+         \x20 ratio: 0\n\
+         \x20 verbose_lines: 0\n\
+         \x20 flagged_lines: []\n\
+         declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
     );
 }
 
@@ -358,7 +393,7 @@ fn an_unknown_option_prints_the_usage_error_and_exits_2() {
          \n\
          \x20 tip: to pass '--unknown' as a value, use '-- --unknown'\n\
          \n\
-         Usage: codeint check [PATH]\n\
+         Usage: codeint check [OPTIONS] [PATH]\n\
          \n\
          For more information, try '--help'.\n",
     );
@@ -401,6 +436,113 @@ fn a_closed_standard_output_is_an_operational_error_and_not_a_panic() {
     assert!(
         message.starts_with("codeint: cannot write the report to standard output: ")
             && message.ends_with("\nKeep standard output open until codeint exits.\n"),
+        "unexpected message: {message}"
+    );
+}
+
+#[test]
+fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothing() {
+    let repository = Repository::new();
+    repository.write(
+        "src/main.ts",
+        "export const main = 1;\nexport const more = 2;\n",
+    );
+    repository.commit_all();
+    let printed = repository.codeint(&["check"]);
+    assert_success(&printed);
+
+    let output = repository.codeint(&["check", "--output", "report.toon"]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output).is_empty(),
+        "unexpected output: {}",
+        stdout(&output)
+    );
+    assert!(output.stderr.is_empty());
+    let saved = fs::read(repository.path().join("report.toon")).expect("read the report file");
+    assert_eq!(saved, printed.stdout);
+    assert_eq!(saved, report_without_findings(1, 2).as_bytes());
+}
+
+#[test]
+fn output_replaces_an_existing_file() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+    fs::write(
+        repository.path().join("report.toon"),
+        "an older and longer report\nthat spans two lines\n",
+    )
+    .expect("write the older report");
+
+    let output = repository.codeint(&["check", "--output", "report.toon"]);
+
+    assert_success(&output);
+    assert_eq!(
+        fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
+        report_without_findings(1, 1)
+    );
+}
+
+#[test]
+fn output_in_a_folder_that_does_not_exist_names_the_path_and_exits_2_before_measuring() {
+    let repository = Repository::new();
+    repository.write("src/broken.ts", "export const = ;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--output", "reports/today/report.toon"]);
+
+    assert_operational_error(
+        &output,
+        "codeint: cannot write the report to reports/today/report.toon: reports/today is not a folder that exists\n\
+         Create the folder first, or pass --output a file path in a folder that exists.\n",
+    );
+    assert!(!repository.path().join("reports").exists());
+}
+
+#[test]
+fn output_to_a_folder_names_the_path_and_exits_2() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--output", "src"]);
+
+    assert_unwritable_output(&output, "src");
+}
+
+#[cfg(unix)]
+#[test]
+fn output_to_a_read_only_file_names_the_path_exits_2_and_keeps_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+    let report = repository.path().join("report.toon");
+    fs::write(&report, "kept\n").expect("write the read-only report");
+    fs::set_permissions(&report, fs::Permissions::from_mode(0o444)).expect("make it read-only");
+
+    let output = repository.codeint(&["check", "--output", "report.toon"]);
+
+    assert_unwritable_output(&output, "report.toon");
+    assert_eq!(
+        fs::read_to_string(&report).expect("read the report"),
+        "kept\n"
+    );
+}
+
+fn assert_unwritable_output(output: &Output, path: &str) {
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stdout(output).is_empty());
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        message.starts_with(&format!("codeint: cannot write the report to {path}: "))
+            && message.ends_with(
+                "\nPass --output a file path that you have permission to write, not a folder.\n"
+            )
+            && message.lines().count() == 2,
         "unexpected message: {message}"
     );
 }

@@ -21,10 +21,20 @@ impl Guest for TypeScriptAndJavaScript {
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_type = SourceType::from_path(&path)
             .map_err(|error| LowerError::UnsupportedFile(error.to_string()))?;
+        if source_type.is_typescript_definition() {
+            return Err(LowerError::DeclarationOnly);
+        }
         let allocator = Allocator::default();
         let parsed = Parser::new(&allocator, &text, source_type).parse();
         if let Some(diagnostic) = parsed.diagnostics.first() {
-            return Err(LowerError::Unparsable(diagnostic.to_string()));
+            let message = match diagnostic.labels.first() {
+                Some(label) => format!(
+                    "{diagnostic} at {}",
+                    position(&text, label.offset() as usize)
+                ),
+                None => diagnostic.to_string(),
+            };
+            return Err(LowerError::Unparsable(message));
         }
         let comment_spans = parsed
             .program
@@ -41,6 +51,14 @@ impl Guest for TypeScriptAndJavaScript {
             flagged_lines: rules::flag(&parsed.program, &code)?,
         })
     }
+}
+
+fn position(text: &str, offset: usize) -> String {
+    let before = text.get(..offset).unwrap_or(text);
+    let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
+    let line = before.matches('\n').count() + 1;
+    let column = before[line_start..].chars().count() + 1;
+    format!("line {line}, column {column}")
 }
 
 fn blank_out(text: &str, spans: impl Iterator<Item = std::ops::Range<usize>>) -> String {
