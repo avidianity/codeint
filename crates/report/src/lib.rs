@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use codeint_config::FindingsShown;
 use codeint_metrics::{ErodedFunction, Erosion};
 use codeint_model::{CodeModel, RepoPath, SkippedFile};
 use serde::Serialize;
@@ -26,7 +27,15 @@ struct ErosionSection {
     ratio: Decimal,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
-    findings: Vec<ErodedFunctionFinding>,
+    #[serde(flatten)]
+    findings: Findings<ErodedFunctionFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct Findings<T> {
+    findings: Vec<T>,
+    #[serde(skip_serializing_if = "is_zero")]
+    findings_left_out: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,17 +63,32 @@ impl Decimal {
     }
 }
 
+fn is_zero(count: &usize) -> bool {
+    *count == 0
+}
+
+impl<T> Findings<T> {
+    fn worst_first(
+        worst_first: impl ExactSizeIterator<Item = T>,
+        shown: FindingsShown,
+    ) -> Findings<T> {
+        todo!("{} {shown:?}", worst_first.len())
+    }
+}
+
 impl ErosionSection {
-    fn new(erosion: &Erosion) -> ErosionSection {
+    fn new(erosion: &Erosion, shown: FindingsShown) -> ErosionSection {
         ErosionSection {
             ratio: Decimal::rounded(erosion.ratio()),
             eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
             total_function_mass: Decimal::rounded(erosion.total_function_mass()),
-            findings: erosion
-                .eroded_functions()
-                .iter()
-                .map(ErodedFunctionFinding::new)
-                .collect(),
+            findings: Findings::worst_first(
+                erosion
+                    .eroded_functions()
+                    .iter()
+                    .map(ErodedFunctionFinding::new),
+                shown,
+            ),
         }
     }
 }
@@ -91,7 +115,7 @@ impl From<&SkippedFile> for SkippedEntry {
 }
 
 impl Report {
-    pub fn summarize(model: &CodeModel) -> Report {
+    pub fn summarize(model: &CodeModel, findings: FindingsShown) -> Report {
         Report {
             files: model.files.len(),
             source_lines: model
@@ -99,7 +123,7 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
-            erosion: ErosionSection::new(&Erosion::measure(model)),
+            erosion: ErosionSection::new(&Erosion::measure(model), findings),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

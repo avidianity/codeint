@@ -32,11 +32,20 @@ pub enum ReportDestination {
     File(PathBuf),
 }
 
+const WORST_FINDINGS_PER_METRIC: usize = 20;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FindingsShown {
+    WorstPerMetric(usize),
+    All,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Check {
         folder: PathBuf,
         destination: ReportDestination,
+        findings: FindingsShown,
     },
 }
 
@@ -77,6 +86,8 @@ struct ReportArguments {
         help = "Write the report to this file instead of standard output"
     )]
     output: Option<PathBuf>,
+    #[arg(long, help = "List every Finding instead of the 20 worst per Metric")]
+    all: bool,
 }
 
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
@@ -86,6 +97,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
         CommandArguments::Check { path, report } => Command::Check {
             folder: existing_folder(&current_folder, path)?,
             destination: report_destination(&current_folder, report.output)?,
+            findings: findings_shown(report.all),
         },
     };
     Ok(Invocation { command })
@@ -125,4 +137,8 @@ fn report_destination(
     } else {
         Err(ConfigError::MissingOutputFolder { path, folder })
     }
+}
+
+fn findings_shown(all: bool) -> FindingsShown {
+    todo!("{all} {WORST_FINDINGS_PER_METRIC}")
 }
