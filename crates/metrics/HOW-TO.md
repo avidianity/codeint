@@ -60,7 +60,7 @@ for function in erosion.eroded_functions() {
 ```rust
 use codeint_metrics::{Duplication, MinimumCloneTokens};
 
-let duplication = Duplication::measure(&model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+let duplication = Duplication::measure(&model, MinimumCloneTokens::DEFAULT);
 println!("{} of {} source lines are clone lines", duplication.clone_lines.count(), duplication.source_lines);
 let ratio = duplication.ratio();
 ```
@@ -74,7 +74,7 @@ let ratio = duplication.ratio();
 - `clone_lines.count()` is the number of clone lines, and `clone_lines.contains(path, line)` tells whether a line is one.
 - `ratio` is `clone_lines.count() / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
-- `MinimumCloneTokens::PROVISIONAL_DEFAULT` is 50 tokens until the calibration Ticket #33 fixes the default.
+- `MinimumCloneTokens::DEFAULT` is 75 tokens, as [ADR 0007](../../docs/adr/0007-default-minimum-clone-size.md) decides.
 - `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its clone lines and its source lines.
   A Clone group that spans two packages adds each copy's lines to the package that holds it.
 
@@ -83,7 +83,7 @@ let ratio = duplication.ratio();
 ```rust
 use codeint_metrics::{Duplication, MinimumCloneTokens, Verbosity};
 
-let duplication = Duplication::measure(&model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+let duplication = Duplication::measure(&model, MinimumCloneTokens::DEFAULT);
 let verbosity = Verbosity::measure(&model, &duplication.clone_lines);
 println!("{} of {}", verbosity.verbose_lines(), verbosity.source_lines());
 println!("{} flagged, {} clone lines", verbosity.flagged_line_count(), verbosity.clone_line_count());
