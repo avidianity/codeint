@@ -12,7 +12,7 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 **Error text**:
 
 ```text
-{file} must be a link to .rules. Edit .rules only, then recreate the link.
+{entry} must be a link to {rules}. Edit {rules} only, then recreate the link.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/agent-entry-links.md).

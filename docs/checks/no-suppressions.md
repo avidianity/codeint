@@ -15,7 +15,7 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 **Error text**:
 
 ```text
-{file}:{line} suppresses {rule}. Fix the cause, or change the rule for the whole Project through an ADR.
+{path}:{line} suppresses {rule}. Fix the cause, or change the rule for the whole Project through an ADR.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-suppressions.md).

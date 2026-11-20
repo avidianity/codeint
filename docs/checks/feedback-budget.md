@@ -19,7 +19,7 @@ It opens or updates the `budget` issue only for pull requests from this reposito
 **Error text**:
 
 ```text
-{loop} took {time}; its Feedback budget is {budget}. Make the loop faster in this pull request. Never raise the budget to pass; see testing.md.
+{loop} took {seconds} seconds; its Feedback budget is {budget} seconds. Make the loop faster in this pull request. Never raise the budget to pass; see docs/agents/testing.md.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/feedback-budget.md).

@@ -14,7 +14,8 @@ CI, `pull-request` workflow, `body` job.
 **Error text**:
 
 ```text
-The pull request body lacks {section}. Use templates/pr-evidence.md.
+The pull request body lacks the {required} section. Use .github/pull_request_template.md.
+The pull request body has an empty {required} section. Fill it in, or write "Not applicable" with a reason.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/evidence-bundle.md).

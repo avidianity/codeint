@@ -31,6 +31,7 @@ patterns=(
   'LEFTHOOK[A-Z_]*='
   'lefthook(-local|[[:space:]]+uninstall)'
   '\.git/hooks'
+  'hooks/(pre-commit|commit-msg|prepare-commit-msg|pre-push|pre-merge-commit|post-commit|pre-rebase)'
 )
 for pattern in "${patterns[@]}"; do
   if printf '%s' "$without_allowed" | grep -Eiq -- "$pattern"; then

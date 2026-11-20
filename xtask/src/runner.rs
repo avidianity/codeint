@@ -72,27 +72,42 @@ fn read_file(path: &str) -> Result<String, String> {
 
 fn commit_message(root: &Path, settings: &Settings, args: &[String]) -> Result<Violations, String> {
     let messages = if let Ok(path) = flag(args, "--file") {
+        let merging = git::run(root, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).is_ok();
         vec![(
             "message".to_string(),
             pull_request::without_git_comments(&read_file(&path)?),
+            merging,
         )]
     } else {
         let base = flag(args, "--range")?;
-        git::run(root, &["rev-list", "--reverse", &format!("{base}..HEAD")])?
-            .lines()
-            .map(|commit| {
-                Ok((
-                    commit[..commit.len().min(10)].to_string(),
-                    git::run(root, &["log", "-1", "--format=%B", commit])?,
-                ))
-            })
-            .collect::<Result<Vec<_>, String>>()?
+        git::run(
+            root,
+            &[
+                "rev-list",
+                "--reverse",
+                "--parents",
+                &format!("{base}..HEAD"),
+            ],
+        )?
+        .lines()
+        .map(|line| {
+            let mut ids = line.split_whitespace();
+            let commit = ids.next().unwrap_or_default();
+            let is_merge = ids.count() > 1;
+            Ok((
+                commit[..commit.len().min(10)].to_string(),
+                git::run(root, &["log", "-1", "--format=%B", commit])?,
+                is_merge,
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?
     };
     Ok(messages
         .iter()
-        .flat_map(|(label, message)| {
+        .flat_map(|(label, message, is_merge)| {
             pull_request::commit_message_problems(
                 message,
+                *is_merge,
                 &settings.commit_types,
                 &settings.commit_scopes,
             )

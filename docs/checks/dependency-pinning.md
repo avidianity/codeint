@@ -16,7 +16,9 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 **Error text**:
 
 ```text
-{dependency} is not pinned to an exact version, or the lockfile is stale. Pin it and update the lockfile.
+{name} in {path} is not pinned to an exact version: it {problem}. Pin it with "=x.y.z" and update Cargo.lock.
+{name} in {path} is not pinned to an exact version. Pin it to x.y.z and update package-lock.json.
+Cargo.lock is missing or stale. Run cargo update --workspace --offline or cargo build, and commit Cargo.lock.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/dependency-pinning.md).

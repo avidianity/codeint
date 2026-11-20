@@ -20,7 +20,7 @@ Hook (`duplicates` in [lefthook.yml](../../lefthook.yml)) and CI (`repository` j
 **Error text**:
 
 ```text
-{file}:{lines} duplicates {other file}:{lines}. Extract one shared unit and call it from both places.
+Found {count} clones.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-duplicate-code.md).

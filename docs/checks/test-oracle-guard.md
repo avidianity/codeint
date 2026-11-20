@@ -24,7 +24,7 @@ CI, as an input to the `risk-tier` job.
 **Error text**:
 
 ```text
-Tier 3: {file} weakens a test or check ({what changed}). This needs approval under review-and-merge.md.
+Tier 3: {path} weakens a test or check: it {reason}.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/test-oracle-guard.md).

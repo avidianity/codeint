@@ -20,7 +20,8 @@ CI, `risk-tier` job of the `ci` workflow, on every pull request event, then the 
 **Error text**:
 
 ```text
-Tier {n}: {path} matches {tier map rule}. This Tier needs {approval rule from review-and-merge.md}.
+Tier {highest}. See docs/agents/review-and-merge.md for the approval this Tier needs.
+Tier {tier}: {path} matches tier map rule "{pattern}".
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/risk-tier.md).

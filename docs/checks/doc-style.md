@@ -13,7 +13,7 @@ Hook (`cargo xtask hook` and `markdown` in [lefthook.yml](../../lefthook.yml)) a
 **Error text**:
 
 ```text
-{file}:{line} uses an em dash. Use a plain dash "-" or split the sentence.
+{path}:{line} uses an em dash. Use a plain dash "-" or split the sentence.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/doc-style.md).

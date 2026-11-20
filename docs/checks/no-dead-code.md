@@ -22,7 +22,8 @@ CI (`rust` job for Clippy, `repository` job for `cargo shear`), and every local 
 **Error text**:
 
 ```text
-{symbol} in {file} is dead after this change: nothing reachable from an entry point uses it. Delete it.
+error: function `{name}` is never used
+cargo shear names each unused dependency and exits with status 1.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-dead-code.md).

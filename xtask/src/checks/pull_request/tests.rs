@@ -22,6 +22,7 @@ fn conventional_message_passes() {
     assert!(
         commit_message_problems(
             "fix(auth): refuse expired session tokens\n",
+            false,
             &types(),
             &scopes()
         )
@@ -30,6 +31,7 @@ fn conventional_message_passes() {
     assert!(
         commit_message_problems(
             "feat!: drop the old flag\n\nCloses #4\n",
+            false,
             &types(),
             &scopes()
         )
@@ -42,7 +44,7 @@ fn co_author_trailer_fails() {
     let message =
         "fix(auth): refuse expired tokens\n\nCo-Authored-By: Someone <someone@example.com>\n";
     assert_eq!(
-        commit_message_problems(message, &types(), &scopes()).len(),
+        commit_message_problems(message, false, &types(), &scopes()).len(),
         1
     );
 }
@@ -50,7 +52,7 @@ fn co_author_trailer_fails() {
 #[test]
 fn subject_without_type_fails() {
     assert_eq!(
-        commit_message_problems("refuse expired tokens\n", &types(), &scopes()).len(),
+        commit_message_problems("refuse expired tokens\n", false, &types(), &scopes()).len(),
         1
     );
 }
@@ -58,11 +60,11 @@ fn subject_without_type_fails() {
 #[test]
 fn unknown_scope_and_skip_marker_fail() {
     assert_eq!(
-        commit_message_problems("fix(nope): x\n", &types(), &scopes()).len(),
+        commit_message_problems("fix(nope): x\n", false, &types(), &scopes()).len(),
         1
     );
     assert_eq!(
-        commit_message_problems("fix: x [skip ci]\n", &types(), &scopes()).len(),
+        commit_message_problems("fix: x [skip ci]\n", false, &types(), &scopes()).len(),
         1
     );
 }
@@ -71,7 +73,31 @@ fn unknown_scope_and_skip_marker_fail() {
 fn git_merge_subject_and_comment_lines_are_accepted() {
     let message =
         "Merge remote-tracking branch 'origin/main' into feat/x\n# Please enter a commit message\n";
-    assert!(commit_message_problems(message, &types(), &scopes()).is_empty());
+    assert!(commit_message_problems(message, true, &types(), &scopes()).is_empty());
+}
+
+#[test]
+fn a_merge_subject_on_an_ordinary_commit_fails() {
+    assert_eq!(
+        commit_message_problems("Merge stuff\n", false, &types(), &scopes()).len(),
+        1
+    );
+}
+
+#[test]
+fn every_attribution_trailer_fails() {
+    for trailer in [
+        "Assisted-by: Claude",
+        "Co-developed-by: Bot",
+        "Generated-by: tool",
+    ] {
+        let message = format!("fix(checks): refuse x\n\n{trailer}\n");
+        assert_eq!(
+            commit_message_problems(&message, false, &types(), &scopes()).len(),
+            1,
+            "{trailer}"
+        );
+    }
 }
 
 #[test]
@@ -104,7 +130,7 @@ fn no_behavior_change_needs_a_reason() {
 fn a_stored_commit_keeps_its_comment_lines() {
     let stored =
         "#wip whatever I like\n\nfeat: looks fine\n\n#Generated with Claude Code\n#[skip ci]\n";
-    let problems = commit_message_problems(stored, &types(), &scopes());
+    let problems = commit_message_problems(stored, false, &types(), &scopes());
     assert_eq!(problems.len(), 3, "{problems:?}");
 }
 
@@ -112,7 +138,7 @@ fn a_stored_commit_keeps_its_comment_lines() {
 fn the_hook_message_drops_comment_lines_and_everything_after_the_scissors() {
     let edited = "fix(checks): refuse an empty path\n# Please enter the commit message\n# ------------------------ >8 ------------------------\nCo-Authored-By: Bot <bot@example.invalid>\n";
     let cleaned = without_git_comments(edited);
-    assert!(commit_message_problems(&cleaned, &types(), &scopes()).is_empty());
+    assert!(commit_message_problems(&cleaned, false, &types(), &scopes()).is_empty());
 }
 
 #[test]

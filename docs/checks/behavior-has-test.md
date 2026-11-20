@@ -14,7 +14,7 @@ CI, `pull-request` workflow, `body` job, on every pull request event that change
 **Error text**:
 
 ```text
-This pull request changes source files but no tests. Add a fail-first test, or state "No behavior change" with a reason.
+This pull request changes source files but no tests. Add a fail-first test, or state "No behavior change: {reason}" in the body.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/behavior-has-test.md).

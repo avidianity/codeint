@@ -14,7 +14,9 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 **Error text**:
 
 ```text
-{folder} must be a link to {skills folder}.` or `{skill} is not pinned in the skills lock file. Install it with the skills installer.
+{link} must be a link to {skills folder}.
+{skill} is not pinned in the skills lock file. Install it with the skills installer.
+{skill} is pinned in {lock file} but missing from {skills folder}. Restore it with the skills installer.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/skills-link.md).

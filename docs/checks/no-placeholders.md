@@ -15,7 +15,7 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 **Error text**:
 
 ```text
-{file}:{line} still holds the placeholder {text}. Replace it with the Project value.
+{path}:{line} still holds the placeholder <{placeholder}>. Replace it with the Project value.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-placeholders.md).

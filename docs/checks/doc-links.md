@@ -12,7 +12,7 @@ Hook (`links` in [lefthook.yml](../../lefthook.yml), on staged Markdown files) a
 **Error text**:
 
 ```text
-{file}:{line} links to {target}, which does not exist. Fix the link or restore the target.
+[ERROR] {file} (at {line}:{column}) | File not found
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/doc-links.md).

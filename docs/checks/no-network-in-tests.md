@@ -13,7 +13,7 @@ CI, `rust` job, on every run.
 **Error text**:
 
 ```text
-Test {name} tried to connect to {host kind}. Tests use injected adapters; no network beyond the local machine.
+{test} failed: Network is unreachable (os error 101)
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-network-in-tests.md).

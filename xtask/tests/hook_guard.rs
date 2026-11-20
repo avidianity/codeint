@@ -51,6 +51,8 @@ fn the_guard_refuses_every_known_way_to_skip_git_hooks() {
         "printf 'pre-commit:\\n  skip: true\\n' > lefthook-local.yml",
         "npx lefthook uninstall",
         "rm .git/hooks/pre-commit",
+        "cd .git && rm hooks/pre-commit",
+        "cd .git/hooks && : > commit-msg",
     ];
     for bypass in bypasses {
         assert_eq!(command(bypass), Some(2), "the guard let through: {bypass}");

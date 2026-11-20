@@ -32,7 +32,7 @@ Hook (`cargo xtask hook`) and CI (`repository` job).
 **Error text**:
 
 ```text
-{file}:{line} adds a comment. Delete it. Put the reason in a name, an ADR, a test name, the commit message, or a tracker issue; see engineering.md.
+{path}:{line} adds a comment. Delete it. Put the reason in a name, an ADR, a test name, the commit message, or a tracker issue; see docs/agents/engineering.md.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-comments.md).
