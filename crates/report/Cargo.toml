@@ -1,0 +1,15 @@
+[package]
+name = "codeint-report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+codeint-model = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+toon-format = { workspace = true }
+
+[lints]
+workspace = true
