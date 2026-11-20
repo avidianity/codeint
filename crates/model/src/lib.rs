@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
+mod source_set;
 #[cfg(test)]
 mod tests;
 
@@ -18,6 +19,7 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{FileModel, ReferenceRange, SourceSet, Token};
+pub use source_set::resolve_source_set;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoPath(String);

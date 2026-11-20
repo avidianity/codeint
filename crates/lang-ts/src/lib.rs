@@ -50,9 +50,10 @@ impl Guest for TypeScriptAndJavaScript {
             .iter()
             .map(|comment| comment.span.start as usize..comment.span.end as usize);
         let code = blank_out(&text, comment_spans);
+        let header_comments = header_comments(&text, &parsed.program.comments, &parsed.tokens);
         let code_lines = CodeLines::new(&code);
         Ok(FileModel {
-            source_set: source_set(&path),
+            source_set: source_set(&path, header_comments.into_iter()),
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
             tokens: tokens(&text, &parsed.tokens)?,
@@ -86,6 +87,15 @@ fn tokens(text: &str, lexed: &[oxc_parser::Token]) -> Result<Vec<Token>, LowerEr
         });
     }
     Ok(tokens)
+}
+
+fn header_comments<'text>(
+    text: &'text str,
+    comments: &[oxc_ast::Comment],
+    lexed: &[oxc_parser::Token],
+) -> Vec<&'text str> {
+    let _ = (text, comments, lexed);
+    todo!()
 }
 
 fn is_code_token(kind: Kind) -> bool {
