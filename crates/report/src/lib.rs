@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use codeint_metrics::{ErodedFunction, Erosion};
 use codeint_model::CodeModel;
 use serde::Serialize;
 
@@ -11,6 +12,55 @@ pub struct ReportError(#[source] toon_format::ToonError);
 pub struct Report {
     files: usize,
     source_lines: u64,
+    erosion: ErosionSection,
+}
+
+#[derive(Debug, Serialize)]
+struct ErosionSection {
+    ratio: Decimal,
+    eroded_function_mass: Decimal,
+    total_function_mass: Decimal,
+    findings: Vec<ErodedFunctionFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct ErodedFunctionFinding {
+    path: String,
+    line: u32,
+    cyclomatic_complexity: u32,
+    source_lines: u32,
+    function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+struct Decimal(f64);
+
+impl Decimal {
+    fn rounded(value: f64) -> Decimal {
+        todo!("{value}")
+    }
+}
+
+impl ErosionSection {
+    fn new(erosion: &Erosion) -> ErosionSection {
+        ErosionSection {
+            ratio: Decimal::rounded(erosion.ratio()),
+            eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
+            total_function_mass: Decimal::rounded(erosion.total_function_mass()),
+            findings: erosion
+                .eroded_functions()
+                .iter()
+                .map(ErodedFunctionFinding::new)
+                .collect(),
+        }
+    }
+}
+
+impl ErodedFunctionFinding {
+    fn new(function: &ErodedFunction) -> ErodedFunctionFinding {
+        todo!("{function:?}")
+    }
 }
 
 impl Report {
@@ -22,6 +72,7 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
+            erosion: ErosionSection::new(&Erosion::measure(model)),
         }
     }
 

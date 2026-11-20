@@ -1,9 +1,13 @@
 #![forbid(unsafe_code)]
 
+mod functions;
+
 use codeint_model::language::{FileModel, Guest, LowerError};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
+
+use crate::functions::{CodeLines, functions};
 
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
@@ -27,13 +31,10 @@ impl Guest for TypeScriptAndJavaScript {
             .comments
             .iter()
             .map(|comment| comment.span.start as usize..comment.span.end as usize);
-        let code = blank_out(&text, comment_spans);
-        let source_lines = code
-            .lines()
-            .filter(|line| line.chars().any(is_code_character))
-            .count();
+        let code_lines = CodeLines::new(&blank_out(&text, comment_spans));
         Ok(FileModel {
-            source_lines: u32::try_from(source_lines).map_err(|_| LowerError::TooLarge)?,
+            source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
+            functions: functions(&parsed.program, &code_lines),
         })
     }
 }
@@ -52,8 +53,4 @@ fn blank_out(text: &str, spans: impl Iterator<Item = std::ops::Range<usize>>) ->
     }
     code.push_str(&text[cursor..]);
     code
-}
-
-fn is_code_character(character: char) -> bool {
-    !character.is_whitespace() && character != '\u{feff}'
 }

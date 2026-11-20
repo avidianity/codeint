@@ -14,7 +14,10 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
-        Ok(FileModel { source_lines })
+        Ok(FileModel {
+            source_lines,
+            functions: Vec::new(),
+        })
     }
 }
 ```
