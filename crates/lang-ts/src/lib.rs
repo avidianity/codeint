@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, Token};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
+use oxc_parser::config::TokensParserConfig;
 use oxc_span::SourceType;
 
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
@@ -18,7 +19,9 @@ impl Guest for TypeScriptAndJavaScript {
         let source_type = SourceType::from_path(&path)
             .map_err(|error| LowerError::UnsupportedFile(error.to_string()))?;
         let allocator = Allocator::default();
-        let parsed = Parser::new(&allocator, &text, source_type).parse();
+        let parsed = Parser::new(&allocator, &text, source_type)
+            .with_config(TokensParserConfig)
+            .parse();
         if let Some(diagnostic) = parsed.diagnostics.first() {
             return Err(LowerError::Unparsable(diagnostic.to_string()));
         }
@@ -34,8 +37,14 @@ impl Guest for TypeScriptAndJavaScript {
             .count();
         Ok(FileModel {
             source_lines: u32::try_from(source_lines).map_err(|_| LowerError::TooLarge)?,
+            tokens: tokens(&text, &parsed.tokens)?,
         })
     }
+}
+
+fn tokens(text: &str, lexed: &[oxc_parser::Token]) -> Result<Vec<Token>, LowerError> {
+    let _ = (text, lexed);
+    todo!()
 }
 
 fn blank_out(text: &str, spans: impl Iterator<Item = std::ops::Range<usize>>) -> String {

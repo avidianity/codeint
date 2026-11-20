@@ -4,6 +4,7 @@ use std::string::FromUtf8Error;
 
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
+use codeint_metrics::duplication::{MinimumCloneTokens, find_clone_groups};
 use codeint_model::{CodeModel, LanguagePlugin, LowerError, RepoPath, SourceFile};
 use codeint_report::{Report, ReportError};
 
@@ -30,7 +31,8 @@ pub(crate) enum CheckError {
 pub(crate) fn check(folder: &Path) -> Result<String, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let model = measure(&tree, &[&TypeScriptAndJavaScript])?;
-    Ok(Report::summarize(&model).to_toon()?)
+    let duplication = find_clone_groups(&model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+    Ok(Report::summarize(&model, &duplication).to_toon()?)
 }
 
 fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeModel, CheckError> {

@@ -200,6 +200,7 @@ dependencies = [
  "codeint-config",
  "codeint-git",
  "codeint-lang-ts",
+ "codeint-metrics",
  "codeint-model",
  "codeint-report",
  "tempfile",
@@ -234,6 +235,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeint-metrics"
+version = "0.1.0"
+dependencies = [
+ "codeint-model",
+]
+
+[[package]]
 name = "codeint-model"
 version = "0.1.0"
 dependencies = [
@@ -245,6 +253,7 @@ dependencies = [
 name = "codeint-report"
 version = "0.1.0"
 dependencies = [
+ "codeint-metrics",
  "codeint-model",
  "serde",
  "thiserror",
