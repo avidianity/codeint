@@ -5,19 +5,29 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, thiserror::Error)]
-#[error("cannot read the current directory")]
-pub struct ConfigError(#[source] std::io::Error);
+pub enum ConfigError {
+    #[error("cannot read the current folder")]
+    CurrentFolder(#[source] std::io::Error),
+    #[error("{} does not exist", path.display())]
+    MissingPath { path: PathBuf },
+    #[error("{} is not a folder", path.display())]
+    NotAFolder { path: PathBuf },
+    #[error("cannot open {}", path.display())]
+    UnreadablePath {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    #[command(about = "Measure the working tree and print the report")]
-    Check,
+    Check { folder: PathBuf },
 }
 
 #[derive(Debug)]
 pub struct Invocation {
     pub command: Command,
-    pub working_directory: PathBuf,
 }
 
 #[derive(Debug, Parser)]
@@ -28,14 +38,29 @@ pub struct Invocation {
 )]
 struct Arguments {
     #[command(subcommand)]
-    command: Command,
+    command: CommandArguments,
+}
+
+#[derive(Debug, Subcommand)]
+enum CommandArguments {
+    #[command(about = "Measure the working tree and print the report")]
+    Check {
+        #[arg(
+            help = "A folder inside the Git repository to measure; the current folder by default"
+        )]
+        path: Option<PathBuf>,
+    },
 }
 
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
-    let arguments = Arguments::parse();
-    let working_directory = std::env::current_dir().map_err(ConfigError)?;
-    Ok(Invocation {
-        command: arguments.command,
-        working_directory,
-    })
+    let command = match Arguments::parse().command {
+        CommandArguments::Check { path } => Command::Check {
+            folder: existing_folder(path)?,
+        },
+    };
+    Ok(Invocation { command })
+}
+
+fn existing_folder(path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
+    todo!("resolve {path:?} against the current folder and require an existing folder")
 }

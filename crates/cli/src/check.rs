@@ -27,8 +27,8 @@ pub(crate) enum CheckError {
     Report(#[from] ReportError),
 }
 
-pub(crate) fn check(start: &Path) -> Result<String, CheckError> {
-    let tree = WorkingTree::discover(start)?;
+pub(crate) fn check(folder: &Path) -> Result<String, CheckError> {
+    let tree = WorkingTree::discover(folder)?;
     let model = measure(&tree, &[&TypeScriptAndJavaScript])?;
     Ok(Report::summarize(&model).to_toon()?)
 }

@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
 mod check;
+mod remedy;
 
 use std::error::Error;
+use std::io::Write;
 use std::process::ExitCode;
 
 use codeint_config::{Command, ConfigError, read_invocation};
@@ -13,26 +15,32 @@ enum CliError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error("cannot write the report to standard output")]
+    Output(#[source] std::io::Error),
 }
 
 fn main() -> ExitCode {
     match run() {
-        Ok(report) => {
-            println!("{report}");
-            ExitCode::SUCCESS
-        }
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("codeint: {}", describe(&error));
+            eprintln!("codeint: {}\n{}", describe(&error), remedy::remedy(&error));
             ExitCode::from(2)
         }
     }
 }
 
-fn run() -> Result<String, CliError> {
-    let invocation = read_invocation()?;
-    match invocation.command {
-        Command::Check => Ok(check::check(&invocation.working_directory)?),
-    }
+fn run() -> Result<(), CliError> {
+    let report = match read_invocation()?.command {
+        Command::Check { folder } => check::check(&folder)?,
+    };
+    print_report(&report)
+}
+
+fn print_report(report: &str) -> Result<(), CliError> {
+    let mut output = std::io::stdout().lock();
+    writeln!(output, "{report}")
+        .and_then(|()| output.flush())
+        .map_err(CliError::Output)
 }
 
 fn describe(error: &dyn Error) -> String {

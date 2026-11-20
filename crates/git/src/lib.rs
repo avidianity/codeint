@@ -10,11 +10,15 @@ use gix::dir::walk::delegate::Collect;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
-    #[error("{} is not inside a Git repository with a working tree", start.display())]
-    NoWorkingTree {
+    #[error("{} is not inside a Git repository", start.display())]
+    NotInRepository { start: PathBuf },
+    #[error("{} is inside a bare Git repository, which has no working tree", start.display())]
+    BareRepository { start: PathBuf },
+    #[error("cannot open the Git repository that contains {}", start.display())]
+    Open {
         start: PathBuf,
         #[source]
-        source: Option<gix::Error>,
+        source: gix::Error,
     },
     #[error("cannot list the files of the working tree")]
     Walk(#[source] gix::Error),
@@ -37,14 +41,23 @@ pub struct WorkingTree {
 
 impl WorkingTree {
     pub fn discover(start: &Path) -> Result<WorkingTree, GitError> {
-        let no_working_tree = |source| GitError::NoWorkingTree {
-            start: start.to_path_buf(),
-            source,
-        };
-        let repository = gix::discover(start).map_err(|error| no_working_tree(Some(error)))?;
+        let repository = gix::discover(start).map_err(|source| {
+            if source.is_not_found() {
+                GitError::NotInRepository {
+                    start: start.to_path_buf(),
+                }
+            } else {
+                GitError::Open {
+                    start: start.to_path_buf(),
+                    source,
+                }
+            }
+        })?;
         let root = repository
             .workdir()
-            .ok_or_else(|| no_working_tree(None))?
+            .ok_or_else(|| GitError::BareRepository {
+                start: start.to_path_buf(),
+            })?
             .to_path_buf();
         let files = list_measurable_files(&repository)?;
         Ok(WorkingTree { root, files })
