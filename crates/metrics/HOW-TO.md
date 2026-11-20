@@ -20,6 +20,13 @@ for function in erosion.eroded_functions() {
 - `ratio` is the eroded Function mass divided by the total Function mass, and 0 when the total is 0.
 - `eroded_functions` lists the Findings, the largest Function mass first, then by path and line.
 
+## Report a Metric per Source set
+
+- A Metric measures one `CodeModel` and never reads the Source set of a file itself.
+- The report crate splits the Code model with `CodeModel::into_source_sets` and measures every Metric once per Source set.
+- To add a Metric to the report, add its section as a field of `SourceSetSection` in `crates/report/src/lib.rs`, built from the `CodeModel` of that Source set.
+  The report then shows the Metric for each Source set that holds a file.
+
 ## Find Clone groups
 
 ```rust
@@ -39,3 +46,21 @@ let ratio = duplication.ratio();
 - `ratio` is `clone_lines / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
 - `MinimumCloneTokens::PROVISIONAL_DEFAULT` is 50 tokens until the calibration Ticket #33 fixes the default.
+
+## Measure Verbosity
+
+```rust
+use codeint_metrics::Verbosity;
+
+let verbosity = Verbosity::measure(&model);
+println!("{} of {}", verbosity.verbose_lines(), verbosity.source_lines());
+println!("ratio {}", verbosity.ratio());
+for finding in verbosity.flagged_lines() {
+    println!("{}:{} matches {}", finding.path, finding.line, finding.rule);
+}
+```
+
+- `Verbosity::measure` reads only the `CodeModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts lines.
+- `verbose_lines` counts each flagged source line once, even when two rules match it.
+- `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
+- `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.

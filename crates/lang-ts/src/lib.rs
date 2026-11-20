@@ -1,16 +1,21 @@
 #![forbid(unsafe_code)]
 
 mod functions;
+mod rules;
+mod source_set;
 mod tokens;
 
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_parser::config::TokensParserConfig;
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
+use crate::source_set::source_set;
 use crate::tokens::tokens;
+
+pub use rules::flagged_line_rules;
 
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
@@ -46,12 +51,19 @@ impl Guest for TypeScriptAndJavaScript {
             .comments
             .iter()
             .map(|comment| comment.span.start as usize..comment.span.end as usize);
-        let code_lines = CodeLines::new(&blank_out(&text, comment_spans));
+        let code = blank_out(&text, comment_spans);
+        let code_lines = CodeLines::new(&code);
         Ok(FileModel {
+            source_set: source_set(&path),
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
             tokens: tokens(&text, &parsed.tokens, &parsed.program)?,
+            flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
         })
+    }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
     }
 }
 

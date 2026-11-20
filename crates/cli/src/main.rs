@@ -41,7 +41,8 @@ fn run() -> Result<(), CliError> {
         Command::Check {
             folder,
             destination,
-        } => write_report(&check::check(&folder)?, &destination),
+            findings,
+        } => write_report(&check::check(&folder, findings)?, &destination),
     }
 }
 

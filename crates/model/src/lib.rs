@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::fmt;
 
 #[cfg(test)]
@@ -10,11 +12,12 @@ mod bindings {
         world: "language-plugin",
         path: "../../wit",
         additional_derives: [PartialEq, Eq],
+        additional_derives_ignore: ["reference-range"],
     });
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, Token, TokenKind};
+pub use language::{FileModel, ReferenceRange, SourceSet, Token, TokenKind};
 
 pub fn token_text_hash(text: &str) -> u64 {
     const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -85,6 +88,55 @@ pub struct CodeModel {
     pub declaration_only: Vec<RepoPath>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceSets {
+    production: CodeModel,
+    test: CodeModel,
+    generated: CodeModel,
+    vendored: CodeModel,
+}
+
+impl CodeModel {
+    pub fn into_source_sets(self) -> SourceSets {
+        let mut source_sets = SourceSets::default();
+        for file in self.files {
+            source_sets.get_mut(file.model.source_set).files.push(file);
+        }
+        source_sets
+    }
+}
+
+impl SourceSets {
+    pub fn get(&self, source_set: SourceSet) -> &CodeModel {
+        match source_set {
+            SourceSet::Production => &self.production,
+            SourceSet::Test => &self.test,
+            SourceSet::Generated => &self.generated,
+            SourceSet::Vendored => &self.vendored,
+        }
+    }
+
+    fn get_mut(&mut self, source_set: SourceSet) -> &mut CodeModel {
+        match source_set {
+            SourceSet::Production => &mut self.production,
+            SourceSet::Test => &mut self.test,
+            SourceSet::Generated => &mut self.generated,
+            SourceSet::Vendored => &mut self.vendored,
+        }
+    }
+
+    pub fn iter(&self) -> std::array::IntoIter<(SourceSet, &CodeModel), 4> {
+        [
+            SourceSet::Production,
+            SourceSet::Test,
+            SourceSet::Generated,
+            SourceSet::Vendored,
+        ]
+        .map(|source_set| (source_set, self.get(source_set)))
+        .into_iter()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LowerError {
     #[error("cannot parse: {message}")]
@@ -110,10 +162,57 @@ impl From<language::LowerError> for LowerError {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ReferenceRanges {
+    by_metric: BTreeMap<String, ReferenceRange>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidReferenceRange {
+    #[error("the Language plugin supplies more than one Reference range for {metric}")]
+    Duplicate { metric: String },
+    #[error(
+        "the Reference range for {metric} runs from {low} to {high}, but a Reference range runs from a lower to a higher ratio between 0 and 1"
+    )]
+    Bounds { metric: String, low: f64, high: f64 },
+}
+
+impl ReferenceRanges {
+    pub fn new(ranges: Vec<ReferenceRange>) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        let mut by_metric = BTreeMap::new();
+        for range in ranges {
+            if !(0.0 <= range.low && range.low <= range.high && range.high <= 1.0) {
+                return Err(InvalidReferenceRange::Bounds {
+                    metric: range.metric,
+                    low: range.low,
+                    high: range.high,
+                });
+            }
+            match by_metric.entry(range.metric.clone()) {
+                Entry::Occupied(_) => {
+                    return Err(InvalidReferenceRange::Duplicate {
+                        metric: range.metric,
+                    });
+                }
+                Entry::Vacant(vacant) => {
+                    vacant.insert(range);
+                }
+            }
+        }
+        Ok(ReferenceRanges { by_metric })
+    }
+
+    pub fn for_metric(&self, metric: &str) -> Option<&ReferenceRange> {
+        self.by_metric.get(metric)
+    }
+}
+
 pub trait LanguagePlugin {
     fn extensions(&self) -> Vec<String>;
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
 }
 
 impl<Plugin: language::Guest> LanguagePlugin for Plugin {
@@ -123,5 +222,9 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
+    }
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        ReferenceRanges::new(Plugin::reference_ranges())
     }
 }
