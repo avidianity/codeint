@@ -483,10 +483,10 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          \n\
          ## Regressions\n\
          \n\
-         - The production erosion numerator eroded\\_function\\_mass rose from 44.8999 to 50.3488 with 1 new Finding.\n\
-         - The production duplication ratio rose from 0 to 0.8, more than its Regression limit 0.01.\n\
-         - The production duplication numerator clone\\_lines rose from 0 to 12 with 1 new Finding.\n\
-         - The production verbosity ratio rose from 0 to 0.8, more than its Regression limit 0.01.\n\
+         - The production erosion numerator eroded\\_function\\_mass rose from 44.8999 to 87.0689 with 1 new Finding.\n\
+         - The production duplication ratio rose from 0 to 0.8571, more than its Regression limit 0.01.\n\
+         - The production duplication numerator clone\\_lines rose from 0 to 18 with 1 new Finding.\n\
+         - The production verbosity ratio rose from 0 to 0.8571, more than its Regression limit 0.01.\n\
          \n\
          ## Production changes\n\
          \n\
