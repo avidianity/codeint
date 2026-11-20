@@ -317,8 +317,21 @@ fn scan_hash(language: Language, text: &str) -> Scan {
     let mut out = Builder::new();
     let mut open_quote: Option<&str> = None;
     let mut in_block_comment = false;
+    let mut block_scalar_parent: Option<usize> = None;
     for line in text.split_inclusive('\n') {
         let chars: Vec<char> = line.chars().collect();
+        if language == Language::Yaml && open_quote.is_none() {
+            if let Some(parent) = block_scalar_parent {
+                if inside_block_scalar(line, parent) {
+                    block_scalar_line(&mut out, &chars);
+                    continue;
+                }
+                block_scalar_parent = None;
+            }
+            if opens_block_scalar(line) {
+                block_scalar_parent = Some(indentation(line));
+            }
+        }
         let mut position = 0;
         while position < chars.len() {
             let character = chars[position];
@@ -399,6 +412,44 @@ fn scan_hash(language: Language, text: &str) -> Scan {
         }
     }
     out.finish()
+}
+
+fn indentation(line: &str) -> usize {
+    line.chars()
+        .take_while(|character| *character == ' ')
+        .count()
+}
+
+fn opens_block_scalar(line: &str) -> bool {
+    let code = match line.find(" #") {
+        Some(position) => &line[..position],
+        None => line,
+    };
+    let trimmed = code.trim_end();
+    let indicator = trimmed.trim_end_matches(|character: char| {
+        character.is_ascii_digit() || character == '+' || character == '-'
+    });
+    (indicator.ends_with(": |") || indicator.ends_with(": >") || indicator.ends_with("- |"))
+        || indicator == "|"
+        || indicator == ">"
+}
+
+fn inside_block_scalar(line: &str, parent: usize) -> bool {
+    line.trim().is_empty() || indentation(line) > parent
+}
+
+fn block_scalar_line(out: &mut Builder, chars: &[char]) {
+    let is_comment = chars
+        .iter()
+        .find(|character| !character.is_whitespace())
+        .is_some_and(|first| *first == '#');
+    for character in chars {
+        if is_comment {
+            out.comment(*character, false);
+        } else {
+            out.code(*character);
+        }
+    }
 }
 
 fn escape_character(language: Language, quote: &str) -> Option<char> {

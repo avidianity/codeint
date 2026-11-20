@@ -99,3 +99,13 @@ fn a_yaml_quote_inside_a_double_quoted_scalar_spans_lines() {
     assert!(!result.is_comment(2));
     assert!(result.is_comment(3));
 }
+
+#[test]
+fn a_hash_inside_a_yaml_block_scalar_is_text_unless_it_starts_the_line() {
+    let text = "steps:\n  - run: |\n      echo \"Pull request #1 moved\"\n      # explains the next line\n      exit 0\n  - name: next # comment\n";
+    let result = scan(Language::Yaml, text);
+    assert!(!result.is_comment(3));
+    assert!(result.is_comment(4));
+    assert!(!result.is_comment(5));
+    assert!(result.is_comment(6));
+}
