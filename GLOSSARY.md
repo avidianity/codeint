@@ -10,7 +10,7 @@ TypeScript and JavaScript are the first built-in Language plugin.
 
 **Software entropy**:
 The maintainability cost carried in the shape of code: duplication, needless verbosity, and complexity concentrated in a few large functions.
-_Avoid_: slop, sloppiness, structural debt, tech debt, code quality
+_Avoid_: structural debt, tech debt, code quality
 
 **Metric**:
 One named measurement of Software entropy, reported on its own and never blended with other Metrics into a combined score.
