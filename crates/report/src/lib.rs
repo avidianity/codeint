@@ -86,6 +86,8 @@ struct PackageSection {
     files: usize,
     source_lines: u64,
     erosion: PackageErosion,
+    duplication: PackageDuplication,
+    verbosity: PackageVerbosity,
 }
 
 #[derive(Debug, Serialize)]
@@ -93,6 +95,18 @@ struct PackageErosion {
     ratio: Decimal,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageDuplication {
+    ratio: Decimal,
+    clone_lines: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageVerbosity {
+    ratio: Decimal,
+    verbose_lines: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -321,30 +335,47 @@ impl From<&SkippedFile> for SkippedEntry {
     }
 }
 
-fn package_sections(model: &CodeModel, erosion: &Erosion) -> Vec<PackageSection> {
-    let workspace = &model.workspace;
-    if !workspace.has_members() {
+struct Measured {
+    erosion: Erosion,
+    duplication: Duplication,
+    verbosity: Verbosity,
+}
+
+fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSection> {
+    if !model.workspace.has_members() {
         return Vec::new();
     }
-    let mut sizes: BTreeMap<Package<'_>, (usize, u64)> = BTreeMap::new();
+    let mut files: BTreeMap<Package<'_>, usize> = BTreeMap::new();
     for file in &model.files {
-        let (files, source_lines) = sizes.entry(workspace.package_of(&file.path)).or_default();
-        *files += 1;
-        *source_lines += u64::from(file.model.source_lines);
+        *files
+            .entry(model.workspace.package_of(&file.path))
+            .or_default() += 1;
     }
-    erosion
-        .by_package(workspace)
+    let mut duplication = measured.duplication.by_package(model);
+    let mut verbosity = measured.verbosity.by_package(model);
+    measured
+        .erosion
+        .by_package(model)
         .into_iter()
         .map(|(package, masses)| {
-            let (files, source_lines) = sizes.get(&package).copied().unwrap_or_default();
+            let clone_lines = duplication.remove(&package).unwrap_or_default();
+            let verbose_lines = verbosity.remove(&package).unwrap_or_default();
             PackageSection {
                 path: package.to_string(),
-                files,
-                source_lines,
+                files: files.get(&package).copied().unwrap_or_default(),
+                source_lines: clone_lines.source_lines,
                 erosion: PackageErosion {
                     ratio: Decimal::rounded(masses.ratio()),
                     eroded_function_mass: Decimal::rounded(masses.eroded),
                     total_function_mass: Decimal::rounded(masses.total),
+                },
+                duplication: PackageDuplication {
+                    ratio: Decimal::rounded(clone_lines.ratio()),
+                    clone_lines: clone_lines.lines,
+                },
+                verbosity: PackageVerbosity {
+                    ratio: Decimal::rounded(verbose_lines.ratio()),
+                    verbose_lines: verbose_lines.lines,
                 },
             }
         })
@@ -357,7 +388,11 @@ impl Report {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
     ) -> Report {
-        let erosion = Erosion::measure(model);
+        let measured = Measured {
+            erosion: Erosion::measure(model),
+            duplication: Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
+            verbosity: Verbosity::measure(model),
+        };
         Report {
             files: model.files.len(),
             source_lines: model
@@ -365,14 +400,10 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
-            packages: package_sections(model, &erosion),
-            erosion: ErosionSection::new(&erosion, ranges, findings),
-            duplication: DuplicationSection::new(
-                &Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
-                ranges,
-                findings,
-            ),
-            verbosity: VerbositySection::new(&Verbosity::measure(model), ranges, findings),
+            packages: package_sections(model, &measured),
+            erosion: ErosionSection::new(&measured.erosion, ranges, findings),
+            duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
+            verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

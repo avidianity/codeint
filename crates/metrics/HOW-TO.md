@@ -11,7 +11,7 @@ println!("ratio {}", erosion.ratio());
 for function in erosion.eroded_functions() {
     println!("{}:{} has Function mass {}", function.path, function.line, function.function_mass);
 }
-for (package, masses) in erosion.by_package(&model.workspace) {
+for (package, masses) in erosion.by_package(&model) {
     println!("{package}: {} of {}, ratio {}", masses.eroded, masses.total, masses.ratio());
 }
 ```
@@ -43,6 +43,8 @@ let ratio = duplication.ratio();
 - `ratio` is `clone_lines / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
 - `MinimumCloneTokens::PROVISIONAL_DEFAULT` is 50 tokens until the calibration Ticket #33 fixes the default.
+- `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its clone lines and its source lines.
+  A Clone group that spans two packages adds each copy's lines to the package that holds it.
 
 ## Measure Verbosity
 
@@ -61,3 +63,18 @@ for finding in verbosity.flagged_lines() {
 - `verbose_lines` counts each flagged source line once, even when two rules match it.
 - `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
 - `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.
+- `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its verbose lines and its source lines.
+
+## Split a Metric by workspace package
+
+```rust
+let erosion_by_package = erosion.by_package(&model);
+for (package, share) in duplication.by_package(&model) {
+    println!("{package}: {} of {} lines, ratio {}", share.lines, share.source_lines, share.ratio());
+}
+```
+
+- Each Metric measures the whole model once, then attributes each file's numerator and denominator to the package that holds the file.
+  Measuring each package on its own would lose a Clone group or an Import cycle that spans two packages.
+- Every map holds every package, the root package included, so the package numerators and denominators add up to the totals.
+- Compute a total from summed numerators and denominators, never from an average of package ratios.

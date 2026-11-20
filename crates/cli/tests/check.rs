@@ -981,10 +981,12 @@ const TWO_PACKAGE_REPORT: &str = concat!(
     "  reference_range: no published Reference range for this language\n",
     "  verbose_lines: 0\n",
     "  findings: []\n",
-    "packages[3]{path,files,source_lines,erosion{ratio,eroded_function_mass,total_function_mass}}:\n",
-    "  .,1,1,0,0,0\n",
-    "  packages/eroded,1,14,1,44.8999,44.8999\n",
-    "  packages/small,1,6,0,0,9.798\n",
+    "packages[3]{path,files,source_lines,",
+    "erosion{ratio,eroded_function_mass,total_function_mass},",
+    "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines}}:\n",
+    "  .,1,1,0,0,0,0,0,0,0\n",
+    "  packages/eroded,1,14,1,44.8999,44.8999,0,0,0,0\n",
+    "  packages/small,1,6,0,0,9.798,0,0,0,0\n",
 );
 
 #[test]
@@ -1034,4 +1036,58 @@ fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
             "then run codeint again.\n",
         ),
     );
+}
+
+fn packages_table(output: &Output) -> String {
+    stdout(output)
+        .lines()
+        .skip_while(|line| !line.starts_with("packages["))
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || line.starts_with(' '))
+        .map(|(_, line)| format!("{line}\n"))
+        .collect()
+}
+
+#[test]
+fn each_workspace_package_reports_its_own_clone_lines_and_verbose_lines() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/cart/package.json", "{}\n");
+    repository.write("packages/cart/src/total.ts", CART_TOTAL);
+    repository.write("packages/invoice/package.json", "{}\n");
+    repository.write(
+        "packages/invoice/src/total.ts",
+        &format!("const currency = 'EUR';\n{CART_TOTAL}export const label = currency;\n"),
+    );
+    repository.write(
+        "packages/invoice/src/sign.ts",
+        concat!(
+            "export function sign(value: number): string {\n",
+            "  if (value < 0) {\n",
+            "    return 'negative';\n",
+            "  } else {\n",
+            "    return 'positive';\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 27\n");
+    assert_eq!(
+        packages_table(&output),
+        concat!(
+            "packages[3]{path,files,source_lines,",
+            "erosion{ratio,eroded_function_mass,total_function_mass},",
+            "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines}}:\n",
+            "  .,0,0,0,0,0,0,0,0,0\n",
+            "  packages/cart,1,9,0,0,9,1,9,0,0\n",
+            "  packages/invoice,2,18,0,0,14.2915,0.5,9,0.0556,1\n",
+        )
+    );
+    assert!(section(&output, "duplication").contains("  clone_lines: 18\n"));
+    assert!(section(&output, "verbosity").contains("  verbose_lines: 1\n"));
 }

@@ -1,7 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, RepoPath, Token};
+use codeint_model::{CodeModel, Package, RepoPath, Token};
+
+use crate::line_share::{LineShare, line_shares_by_package};
 
 #[cfg(test)]
 mod tests;
@@ -23,6 +25,7 @@ pub struct Duplication {
     pub clone_lines: u64,
     pub source_lines: u64,
     pub clone_groups: Vec<CloneGroup>,
+    clone_lines_by_file: BTreeMap<RepoPath, u64>,
 }
 
 impl Duplication {
@@ -52,8 +55,15 @@ impl Duplication {
                 .cmp(&left.tokens)
                 .then_with(|| left.fragments.cmp(&right.fragments))
         });
+        let mut clone_lines_by_file = BTreeMap::new();
+        for (file, _) in &clone_lines {
+            *clone_lines_by_file
+                .entry(model.files[*file].path.clone())
+                .or_default() += 1;
+        }
         Duplication {
             clone_lines: clone_lines.len() as u64,
+            clone_lines_by_file,
             source_lines: model
                 .files
                 .iter()
@@ -69,6 +79,18 @@ impl Duplication {
         } else {
             self.clone_lines as f64 / self.source_lines as f64
         }
+    }
+
+    pub fn by_package<'model>(
+        &self,
+        model: &'model CodeModel,
+    ) -> BTreeMap<Package<'model>, LineShare> {
+        line_shares_by_package(
+            model,
+            self.clone_lines_by_file
+                .iter()
+                .map(|(path, lines)| (path, *lines)),
+        )
     }
 }
 

@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_model::{CodeModel, RepoPath};
+use codeint_model::{CodeModel, Package, RepoPath};
+
+use crate::line_share::{LineShare, line_shares_by_package};
 
 #[cfg(test)]
 mod tests;
@@ -60,6 +62,18 @@ impl Verbosity {
 
     pub fn flagged_lines(&self) -> &[FlaggedLineFinding] {
         &self.flagged_lines
+    }
+
+    pub fn by_package<'model>(
+        &self,
+        model: &'model CodeModel,
+    ) -> BTreeMap<Package<'model>, LineShare> {
+        let verbose_lines: BTreeSet<(&RepoPath, u32)> = self
+            .flagged_lines
+            .iter()
+            .map(|finding| (&finding.path, finding.line))
+            .collect();
+        line_shares_by_package(model, verbose_lines.into_iter().map(|(path, _)| (path, 1)))
     }
 
     pub fn ratio(&self) -> f64 {
