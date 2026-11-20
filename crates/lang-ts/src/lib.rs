@@ -1,9 +1,15 @@
 #![forbid(unsafe_code)]
 
-use codeint_model::language::{FileModel, Guest, LowerError};
+mod resolution;
+mod runtime_imports;
+
+use codeint_model::language::{FileModel, Guest, ImportRequest, LowerError, Resolution};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
+
+use crate::resolution::RelativeResolver;
+use crate::runtime_imports::runtime_import_specifiers;
 
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
@@ -34,7 +40,19 @@ impl Guest for TypeScriptAndJavaScript {
             .count();
         Ok(FileModel {
             source_lines: u32::try_from(source_lines).map_err(|_| LowerError::TooLarge)?,
+            runtime_imports: runtime_import_specifiers(&parsed.program),
         })
+    }
+
+    fn resolve_imports(
+        repository_paths: Vec<String>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        let resolver = RelativeResolver::new(&repository_paths);
+        requests
+            .iter()
+            .map(|request| resolver.resolve(request))
+            .collect()
     }
 }
 

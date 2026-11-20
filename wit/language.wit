@@ -8,6 +8,27 @@ interface language {
     record file-model {
         /// The lines that hold code, so not a blank line or a line with only comments.
         source-lines: u32,
+        /// The module specifiers of the imports that run when the file runs, in source order, such as `./greet`.
+        /// Type-only imports are left out.
+        runtime-imports: list<string>,
+    }
+
+    /// One runtime import to resolve: the file that imports, and the specifier it names.
+    record import-request {
+        /// The importing file, relative to the repository root, with forward slashes.
+        importer: string,
+        /// The module specifier exactly as the file writes it.
+        specifier: string,
+    }
+
+    /// Where a runtime import leads.
+    variant resolution {
+        /// The import names this file of the repository, relative to the root, with forward slashes.
+        resolved(string),
+        /// The import names a module outside the repository, such as a package or a built-in module.
+        external,
+        /// The import should name a file of the repository, but none matches; the payload says why.
+        unresolved(string),
     }
 
     /// Why a Language plugin cannot lower a file.
@@ -27,6 +48,11 @@ interface language {
     /// `path` is relative to the repository root and uses forward slashes.
     /// `text` is the whole file.
     lower: func(path: string, text: string) -> result<file-model, lower-error>;
+
+    /// Resolves runtime imports against the files of one repository snapshot.
+    /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
+    /// The result holds one resolution per request, in request order.
+    resolve-imports: func(repository-paths: list<string>, requests: list<import-request>) -> list<resolution>;
 }
 
 /// A Language plugin exports `language` and imports nothing.

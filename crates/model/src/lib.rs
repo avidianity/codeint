@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+mod runtime_imports;
 #[cfg(test)]
 mod tests;
 
@@ -15,6 +16,7 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::FileModel;
+pub use runtime_imports::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoPath(String);
@@ -67,6 +69,7 @@ pub struct SourceFile {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CodeModel {
     pub files: Vec<SourceFile>,
+    pub runtime_imports: Vec<RuntimeImport>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -95,6 +98,12 @@ pub trait LanguagePlugin {
     fn extensions(&self) -> Vec<String>;
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
+
+    fn resolve_imports(
+        &self,
+        repository_paths: &[RepoPath],
+        requests: Vec<language::ImportRequest>,
+    ) -> Vec<language::Resolution>;
 }
 
 impl<Plugin: language::Guest> LanguagePlugin for Plugin {
@@ -104,5 +113,19 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
+    }
+
+    fn resolve_imports(
+        &self,
+        repository_paths: &[RepoPath],
+        requests: Vec<language::ImportRequest>,
+    ) -> Vec<language::Resolution> {
+        Plugin::resolve_imports(
+            repository_paths
+                .iter()
+                .map(|path| path.as_str().to_owned())
+                .collect(),
+            requests,
+        )
     }
 }
