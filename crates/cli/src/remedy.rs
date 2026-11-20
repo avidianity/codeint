@@ -1,4 +1,4 @@
-use codeint_config::ConfigError;
+use codeint_config::{ConfigError, ConfigurationFileError};
 use codeint_git::GitError;
 
 use crate::CliError;
@@ -8,9 +8,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(CheckError::Git(error)) => git_remedy(error),
-        CliError::Check(CheckError::NotUtf8 { .. }) => {
-            "Save the file as UTF-8, then run codeint again."
-        }
+        CliError::Check(CheckError::Configuration(error)) => configuration_file_remedy(error),
         CliError::Check(CheckError::Resolve(_)) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
@@ -61,6 +59,26 @@ fn git_remedy(error: &GitError) -> &'static str {
         }
         GitError::Read { .. } => {
             "Check that you have permission to read the file, then run codeint again."
+        }
+    }
+}
+
+fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
+    match error {
+        ConfigurationFileError::Unreadable(_) => {
+            "Check that codeint.json is a file you have permission to read, then run codeint again."
+        }
+        ConfigurationFileError::NotJson(_) => {
+            "Fix the JSON syntax of codeint.json at that line and column."
+        }
+        ConfigurationFileError::UnknownKey { .. } => {
+            "Remove the key, or correct its spelling to one of the allowed keys."
+        }
+        ConfigurationFileError::WrongType { .. } => {
+            "Change the value to the expected type; the JSON schema that $schema links to describes every key."
+        }
+        ConfigurationFileError::InvalidGlob { .. } => {
+            "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
         }
     }
 }

@@ -29,6 +29,10 @@ impl Repository {
         fs::write(full, text).expect("write the file");
     }
 
+    fn write_bytes(&self, relative: &str, bytes: &[u8]) {
+        fs::write(self.path().join(relative), bytes).expect("write the file");
+    }
+
     fn git(&self, args: &[&str]) {
         let status = Command::new("git")
             .args(args)
@@ -157,13 +161,18 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          ratio: 0\n      \
          reference_range: no published Reference range for this language\n      \
          verbose_lines: 0\n      \
+         flagged_lines: 0\n      \
+         clone_lines: 0\n      \
          findings: []\n    \
          import_cycles:\n      \
          ratio: 0\n      \
          reference_range: no published Reference range for this language\n      \
          modules_in_import_cycles: 0\n      \
          modules: {files}\n      \
-         findings: []\n"
+         findings: []\n      \
+         unresolved_imports:\n        \
+         count: 0\n        \
+         imports: []\n"
     )
 }
 
@@ -211,10 +220,60 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
          ratio: 0.15\n  \
          reference_range: no published Reference range for this language\n  \
          verbose_lines: 3\n  \
+         flagged_lines: 3\n  \
+         clone_lines: 0\n  \
          findings[3]{path,line,rule}:\n    \
          src/sign.ts,4,else-after-return\n    \
          src/size.ts,4,else-after-return\n    \
          src/size.ts,7,else-after-return\n"
+    );
+}
+
+const PLURAL_LABEL: &str = concat!(
+    "export function label(count: number, unit: string): string {\n",
+    "  if (count === 0) {\n",
+    "    return 'no ' + unit + 's';\n",
+    "  } else {\n",
+    "    return count + ' ' + unit + (count === 1 ? '' : 's');\n",
+    "  }\n",
+    "}\n",
+);
+
+const SIGN: &str = concat!(
+    "export function sign(value: number): string {\n",
+    "  if (value < 0) {\n",
+    "    return 'negative';\n",
+    "  } else {\n",
+    "    return 'positive';\n",
+    "  }\n",
+    "}\n",
+);
+
+#[test]
+fn verbosity_counts_a_line_that_is_both_flagged_and_a_clone_line_once() {
+    let repository = Repository::new();
+    repository.write("src/label.ts", PLURAL_LABEL);
+    repository.write("src/text.ts", &format!("{PLURAL_LABEL}{SIGN}"));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 21\n");
+    assert_eq!(
+        production_section(&output, "verbosity"),
+        concat!(
+            "verbosity:\n",
+            "  ratio: 0.7143\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  verbose_lines: 15\n",
+            "  flagged_lines: 3\n",
+            "  clone_lines: 14\n",
+            "  findings[3]{path,line,rule}:\n",
+            "    src/label.ts,4,else-after-return\n",
+            "    src/text.ts,4,else-after-return\n",
+            "    src/text.ts,11,else-after-return\n",
+        )
     );
 }
 
@@ -1317,7 +1376,10 @@ fn no_import_cycles(modules: usize) -> String {
          \x20 reference_range: no published Reference range for this language\n\
          \x20 modules_in_import_cycles: 0\n\
          \x20 modules: {modules}\n\
-         \x20 findings: []\n"
+         \x20 findings: []\n\
+         \x20 unresolved_imports:\n\
+         \x20   count: 0\n\
+         \x20   imports: []\n"
     )
 }
 
@@ -1352,6 +1414,9 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
             "  modules: 4\n",
             "  findings[1]:\n",
             "    - modules[3]: src/a.ts,src/b.ts,src/c.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
         )
     );
 }
@@ -1420,6 +1485,9 @@ fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
             "  modules: 4\n",
             "  findings[1]:\n",
             "    - modules[3]: lib/helpers.js,lib/loader.js,lib/plugin.js\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
         )
     );
 }
@@ -1484,6 +1552,9 @@ fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() 
             "  modules: 3\n",
             "  findings[1]:\n",
             "    - modules[3]: src/ratio.ts,src/shape.ts,src/unit.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
         )
     );
 }
@@ -1523,6 +1594,10 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
             "    - modules[2]: src/a.ts,src/b.ts\n",
             "    - modules[1]: src/self.ts\n",
             "    - modules[2]: src/x/index.ts,src/y.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 1\n",
+            "    imports[1]{importer,specifier,reason}:\n",
+            "      src/z.ts,./missing,\"no file of the repository matches \\\"./missing\\\"\"\n",
         )
     );
 }
@@ -1541,6 +1616,7 @@ fn import_cycle_findings(output: &Output) -> Vec<String> {
         .lines()
         .map(str::trim_start)
         .skip_while(|line| !line.starts_with("findings"))
+        .take_while(|line| *line != "unresolved_imports:")
         .map(str::to_string)
         .collect()
 }
@@ -1608,6 +1684,172 @@ fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
             "  modules: 2\n",
             "  findings[1]:\n",
             "    - modules[2]: src/greet.test.ts,src/helper.test.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
+        )
+    );
+}
+
+#[test]
+fn unresolved_imports_are_counted_and_listed_and_the_import_cycle_is_still_found() {
+    let repository = Repository::new();
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nimport { gone } from './gone';\nexport const a = () => b(gone);\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { a } from './a';\nexport const b = (value: unknown) => a() ?? value;\n",
+    );
+    repository.write(
+        "src/c.ts",
+        "const outside = require('../../outside');\nexport const c = outside;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0.6667\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 2\n",
+            "  modules: 3\n",
+            "  findings[1]:\n",
+            "    - modules[2]: src/a.ts,src/b.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 2\n",
+            "    imports[2]{importer,specifier,reason}:\n",
+            "      src/a.ts,./gone,\"no file of the repository matches \\\"./gone\\\"\"\n",
+            "      src/c.ts,../../outside,\"\\\"../../outside\\\" leads outside the repository\"\n",
+        )
+    );
+}
+
+#[test]
+fn bare_imports_of_external_packages_and_built_in_modules_are_not_unresolved() {
+    let repository = Repository::new();
+    repository.write(
+        "src/main.ts",
+        "import 'lodash';\nimport { render } from 'react-dom/client';\nimport { z } from '@scope/schema/v4';\nimport { readFile } from 'node:fs/promises';\nconst path = require('path');\nexport const load = () => import('chalk');\nexport const all = [render, z, readFile, path];\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        no_import_cycles(1)
+    );
+}
+
+fn write_21_unresolved_imports_in_two_files(repository: &Repository) {
+    let imports = |names: std::ops::RangeInclusive<usize>| -> String {
+        names
+            .rev()
+            .map(|index| format!("import './missing{index:02}';\n"))
+            .collect()
+    };
+    repository.write("src/later.ts", &imports(12..=21));
+    repository.write("src/earlier.ts", &imports(1..=11));
+}
+
+fn unresolved_import_rows(output: &Output) -> Vec<String> {
+    production_section(output, "import_cycles")
+        .lines()
+        .map(str::trim_start)
+        .skip_while(|line| *line != "unresolved_imports:")
+        .skip(1)
+        .map(|line| line.split(",\"").next().unwrap_or(line).to_string())
+        .collect()
+}
+
+fn unresolved_import_row(importer: &str, index: usize) -> String {
+    format!("{importer},./missing{index:02}")
+}
+
+fn unresolved_import_rows_of_both_files(later_from: usize) -> Vec<String> {
+    (1..=11)
+        .rev()
+        .map(|index| unresolved_import_row("src/earlier.ts", index))
+        .chain(
+            (later_from..=21)
+                .rev()
+                .map(|index| unresolved_import_row("src/later.ts", index)),
+        )
+        .collect()
+}
+
+#[test]
+fn the_report_lists_the_first_20_unresolved_imports_by_importer_and_says_how_many_it_left_out() {
+    let repository = Repository::new();
+    write_21_unresolved_imports_in_two_files(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec![
+        "count: 21".to_string(),
+        "imports[20]{importer,specifier,reason}:".to_string(),
+    ];
+    expected.extend(unresolved_import_rows_of_both_files(13));
+    expected.push("imports_left_out: 1".to_string());
+    assert_eq!(unresolved_import_rows(&output), expected);
+}
+
+#[test]
+fn all_lists_every_unresolved_import() {
+    let repository = Repository::new();
+    write_21_unresolved_imports_in_two_files(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--all"]);
+
+    assert_success(&output);
+    let mut expected = vec![
+        "count: 21".to_string(),
+        "imports[21]{importer,specifier,reason}:".to_string(),
+    ];
+    expected.extend(unresolved_import_rows_of_both_files(12));
+    assert_eq!(unresolved_import_rows(&output), expected);
+}
+
+#[test]
+fn an_unresolved_import_of_a_test_file_is_reported_in_the_test_source_set_only() {
+    let repository = Repository::new();
+    repository.write("src/greet.ts", "export const greet = 'hello';\n");
+    repository.write(
+        "src/greet.test.ts",
+        "import { greet } from './greet';\nimport { fixture } from './fixtures/greeting';\nexport const check = [greet, fixture];\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        metric_section(&output, "production", "import_cycles"),
+        no_import_cycles(1)
+    );
+    assert_eq!(
+        metric_section(&output, "test", "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 0\n",
+            "  modules: 1\n",
+            "  findings: []\n",
+            "  unresolved_imports:\n",
+            "    count: 1\n",
+            "    imports[1]{importer,specifier,reason}:\n",
+            "      src/greet.test.ts,./fixtures/greeting,\"no file of the repository matches \\\"./fixtures/greeting\\\"\"\n",
         )
     );
 }
@@ -1842,6 +2084,362 @@ fn generated_files_do_not_change_production_metrics() {
     );
 }
 
+#[test]
+fn a_source_set_override_in_codeint_json_moves_each_matching_file_into_the_named_source_set() {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
+  "source_sets": {
+    "production": ["src/fixtures.test.ts", "dist/handwritten.ts"],
+    "test": ["e2e/**"],
+    "generated": ["src/proto/*.ts"],
+    "vendored": ["lib/legacy/**/*.js"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "src/fixtures.test.ts",
+        "export const fixture = 1;\nexport const other = 2;\n",
+    );
+    repository.write(
+        "e2e/login.ts",
+        "export const login = 1;\nexport const user = 2;\nexport const page = 3;\n",
+    );
+    repository.write("src/proto/user.ts", "export const user = 1;\n");
+    repository.write("src/proto/nested/kept.ts", "export const kept = 1;\n");
+    repository.write("dist/handwritten.ts", "export const handwritten = 1;\n");
+    repository.write("lib/legacy/a/b.js", "export const legacy = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "src"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 4 source_lines: 5",
+            "test: files: 1 source_lines: 3",
+            "generated: files: 1 source_lines: 1",
+            "vendored: files: 1 source_lines: 1",
+        ]
+    );
+}
+
+#[test]
+fn a_file_that_matches_overrides_of_several_source_sets_goes_to_the_first_of_vendored_generated_test_production()
+ {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "source_sets": {
+    "production": ["src/**"],
+    "test": ["src/**"],
+    "generated": ["src/api/**"],
+    "vendored": ["src/api/external/**"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write("src/api/client.ts", "export const client = 1;\n");
+    repository.write("src/api/external/sdk.ts", "export const sdk = 1;\n");
+    repository.write("lib/vendor/kept.ts", "export const kept = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "test: files: 1 source_lines: 1",
+            "generated: files: 1 source_lines: 1",
+            "vendored: files: 2 source_lines: 2",
+        ]
+    );
+}
+
+const UNKNOWN_KEY_REMEDY: &str =
+    "Remove the key, or correct its spelling to one of the allowed keys.";
+
+const WRONG_TYPE_REMEDY: &str = "Change the value to the expected type; the JSON schema that $schema links to describes every key.";
+
+fn assert_codeint_json_is_rejected(codeint_json: &str, message: &str, remedy: &str) {
+    let repository = Repository::new();
+    repository.write("codeint.json", codeint_json);
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "src"]);
+
+    assert_operational_error(&output, &format!("codeint: {message}\n{remedy}\n"));
+}
+
+#[test]
+fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "generatd": ["dist/**"] } }"#,
+        "codeint.json has an unknown key source_sets.generatd; \
+         the keys allowed there are production, test, generated, vendored",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "budget": {} }"#,
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets",
+        UNKNOWN_KEY_REMEDY,
+    );
+}
+
+#[test]
+fn a_value_of_the_wrong_type_in_codeint_json_names_the_key_and_the_expected_type_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "generated": "dist/**" } }"#,
+        "codeint.json: source_sets.generated must be an array, not a string",
+        WRONG_TYPE_REMEDY,
+    );
+}
+
+#[test]
+fn an_item_of_the_wrong_type_in_codeint_json_names_its_index_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "test": ["e2e/**", 42] } }"#,
+        "codeint.json: source_sets.test[1] must be a string, not an integer",
+        WRONG_TYPE_REMEDY,
+    );
+}
+
+#[test]
+fn an_invalid_glob_in_codeint_json_names_the_key_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "source_sets": { "vendored": ["lib/[abc"] } }"#,
+        "codeint.json: source_sets.vendored[0] is not a valid glob: \
+         error parsing glob 'lib/[abc': unclosed character class; missing ']'",
+        "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b.",
+    );
+}
+
+#[test]
+fn codeint_json_that_is_not_json_names_the_line_and_column_and_exits_2() {
+    assert_codeint_json_is_rejected(
+        "{\n  \"source_sets\": {},\n}\n",
+        "codeint.json is not valid JSON: trailing comma at line 3 column 1",
+        "Fix the JSON syntax of codeint.json at that line and column.",
+    );
+}
+
+#[test]
+fn a_latin_1_file_is_skipped_and_listed_with_the_reason() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write_bytes("src/latin1.ts", b"export const name = 'caf\xe9';\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        report_without_findings(1, 1)
+            + "skipped[1]{path,reason}:\n  \
+             src/latin1.ts,\"not valid UTF-8: invalid utf-8 sequence of 1 bytes from index 24\"\n"
+    );
+}
+
+const PRICE_LABEL: &str = concat!(
+    "/**\n",
+    " * Formats a price for the receipt.\n",
+    " */\n",
+    "export function priceLabel(items: { price: number; quantity: number }[]): string {\n",
+    "  let sum = 0;\n",
+    "  for (const item of items) {\n",
+    "    sum += item.price * item.quantity;\n",
+    "  }\n",
+    "  return `total:\n",
+    "${sum}\n",
+    "end`;\n",
+    "}\n",
+);
+
+const SIGN_WITH_ELSE_AFTER_RETURN: &str = concat!(
+    "import { label } from './label';\n",
+    "export function sign(value: number): string {\n",
+    "  if (value < 0) {\n",
+    "    return label('negative \\\n",
+    "minus');\n",
+    "  } else {\n",
+    "    return label('positive');\n",
+    "  }\n",
+    "}\n",
+);
+
+const LABEL_IN_A_CYCLE: &str = concat!(
+    "import { sign } from './sign';\n",
+    "export const label = (text: string) => text + sign.name;\n",
+);
+
+fn with_crlf(text: &str) -> String {
+    text.replace('\n', "\r\n")
+}
+
+fn write_every_metric_fixture(repository: &Repository, line_ending: fn(&str) -> String) {
+    repository.write("src/cart.ts", &line_ending(PRICE_LABEL));
+    repository.write(
+        "src/invoice.ts",
+        &line_ending(&format!("const currency = 'EUR';\n{PRICE_LABEL}")),
+    );
+    repository.write(
+        "src/eleven.ts",
+        &line_ending(&function_with_if_statements("eleven", 11)),
+    );
+    repository.write("src/sign.ts", &line_ending(SIGN_WITH_ELSE_AFTER_RETURN));
+    repository.write("src/label.ts", &line_ending(LABEL_IN_A_CYCLE));
+    repository.write(
+        "src/broken.ts",
+        &line_ending("export const ok = 1;\nexport const = ;\n"),
+    );
+    repository.commit_all();
+}
+
+#[test]
+fn the_same_files_with_crlf_and_with_lf_line_endings_give_the_same_report() {
+    let lf = Repository::new();
+    write_every_metric_fixture(&lf, str::to_owned);
+    let crlf = Repository::new();
+    write_every_metric_fixture(&crlf, with_crlf);
+
+    let expected = lf.codeint(&["check"]);
+    let output = crlf.codeint(&["check"]);
+
+    assert_success(&expected);
+    assert_success(&output);
+    for (metric, numerator) in [
+        ("erosion", "eroded_function_mass: 0\n"),
+        ("duplication", "clone_lines: 0\n"),
+        ("verbosity", "verbose_lines: 0\n"),
+        ("import_cycles", "modules_in_import_cycles: 0\n"),
+    ] {
+        assert!(
+            !production_section(&expected, metric).contains(numerator),
+            "the fixture has a {metric} Finding"
+        );
+    }
+    assert!(
+        stdout(&expected)
+            .contains("src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\""),
+        "the fixture has a parse failure"
+    );
+    assert_eq!(stdout(&output), stdout(&expected));
+}
+
+#[test]
+fn a_copy_with_crlf_line_endings_and_a_copy_with_lf_line_endings_form_one_clone_group() {
+    let lf = Repository::new();
+    lf.write("src/cart.ts", PRICE_LABEL);
+    lf.write("src/invoice.ts", PRICE_LABEL);
+    lf.commit_all();
+    let mixed = Repository::new();
+    mixed.write("src/cart.ts", PRICE_LABEL);
+    mixed.write("src/invoice.ts", &with_crlf(PRICE_LABEL));
+    mixed.commit_all();
+
+    let expected = lf.codeint(&["check"]);
+    let output = mixed.codeint(&["check"]);
+
+    assert_success(&expected);
+    assert_success(&output);
+    assert_ne!(production_section(&expected, "duplication"), NO_DUPLICATION);
+    assert_eq!(stdout(&output), stdout(&expected));
+}
+
+#[cfg(unix)]
+#[test]
+fn symbolic_links_to_a_measured_file_to_a_folder_and_outside_the_repository_add_nothing() {
+    let outside = tempfile::tempdir().expect("create a temporary folder");
+    fs::write(outside.path().join("outside.ts"), CART_TOTAL).expect("write the file");
+    let plain = Repository::new();
+    plain.write("src/cart.ts", CART_TOTAL);
+    plain.commit_all();
+    let linked = Repository::new();
+    linked.write("src/cart.ts", CART_TOTAL);
+    let link = |target: &Path, relative: &str| {
+        std::os::unix::fs::symlink(target, linked.path().join(relative))
+            .expect("create the symbolic link");
+    };
+    link(Path::new("cart.ts"), "src/alias.ts");
+    link(Path::new("src"), "mirror");
+    link(&outside.path().join("outside.ts"), "src/outside.ts");
+    linked.commit_all();
+
+    let expected = plain.codeint(&["check"]);
+    let output = linked.codeint(&["check"]);
+
+    assert_success(&expected);
+    assert_success(&output);
+    assert_eq!(stdout(&output), stdout(&expected));
+}
+
+fn repository_with_a_submodule() -> (Repository, Repository) {
+    let library = Repository::new();
+    library.write("src/library.ts", CART_TOTAL);
+    library.commit_all();
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "--quiet",
+        library
+            .path()
+            .to_str()
+            .expect("the temporary path is UTF-8"),
+        "modules/library",
+    ]);
+    repository.commit_all();
+    (repository, library)
+}
+
+fn report_with_one_submodule() -> String {
+    report_without_findings(1, 1) + "submodules[1]: modules/library\n"
+}
+
+#[test]
+fn a_git_submodule_is_listed_and_adds_nothing() {
+    let (repository, _library) = repository_with_a_submodule();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), report_with_one_submodule());
+}
+
+#[test]
+fn a_git_submodule_that_is_not_checked_out_is_listed_and_adds_nothing() {
+    let (repository, _library) = repository_with_a_submodule();
+    repository.git(&[
+        "submodule",
+        "deinit",
+        "--quiet",
+        "--force",
+        "modules/library",
+    ]);
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), report_with_one_submodule());
+}
+
 fn repository_with_a_finding_a_skipped_file_and_a_declaration_file() -> Repository {
     let repository = Repository::new();
     repository.write("src/sign.ts", SIGN_WITH_AN_ELSE_AFTER_RETURN);
@@ -1884,6 +2482,8 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "ratio": 0.1429,
         "reference_range": "no published Reference range for this language",
         "verbose_lines": 1,
+        "flagged_lines": 1,
+        "clone_lines": 0,
         "findings": [
           {
             "path": "src/sign.ts",
@@ -1897,7 +2497,11 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "reference_range": "no published Reference range for this language",
         "modules_in_import_cycles": 0,
         "modules": 1,
-        "findings": []
+        "findings": [],
+        "unresolved_imports": {
+          "count": 0,
+          "imports": []
+        }
       }
     }
   },

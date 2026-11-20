@@ -68,6 +68,8 @@ Tools can build on this shape: the compatibility rule below says how it may chan
         "ratio": 0.1429,
         "reference_range": "no published Reference range for this language",
         "verbose_lines": 1,
+        "flagged_lines": 1,
+        "clone_lines": 0,
         "findings": [{ "path": "src/sign.ts", "line": 4, "rule": "else-after-return" }]
       },
       "import_cycles": {
@@ -75,7 +77,8 @@ Tools can build on this shape: the compatibility rule below says how it may chan
         "reference_range": "no published Reference range for this language",
         "modules_in_import_cycles": 0,
         "modules": 1,
-        "findings": []
+        "findings": [],
+        "unresolved_imports": { "count": 0, "imports": [] }
       }
     }
   },
@@ -102,9 +105,14 @@ Each Metric object has these fields:
 - The counts behind the ratio:
   `eroded_function_mass` and `total_function_mass` for Erosion, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
   Duplication and Verbosity divide by the `source_lines` of the Source set.
+  Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
+
+`import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
+It has `count`, the list `imports`, and the optional `imports_left_out`.
+Each import has `importer`, the path of the importing file, `specifier`, the text of the import, and `reason`.
 
 Each Finding is an object:
 

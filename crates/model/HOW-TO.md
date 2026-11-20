@@ -113,6 +113,9 @@ assert_eq!(model.source_lines, 2);
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
+- Push a file that is not valid UTF-8 onto `CodeModel::skipped` without lowering it, with a `reason` that starts with `not valid UTF-8`.
+- Hand the text to `lower` with its line endings as written; a CRLF line ending counts like LF in every line a Language plugin reports.
+- Put each Git submodule of the working tree in `CodeModel::submodules`; codeint never measures a submodule's files.
 
 ## Settle the Source set of a lowered file
 
@@ -131,7 +134,7 @@ model.source_set = settle_source_set(&path, text, model.source_set);
   Line length counts characters, not bytes, and a CRLF line ending counts like LF.
 - The file name never counts: `src/vendor.ts` and `src/dist.ts` keep the Source set that the Language plugin names.
 - Every other file keeps the Source set that the Language plugin names.
-- Configuration overrides of the Source set belong in front of this call, at its one call site.
+- Source set overrides from `codeint.json` apply to the result of `settle_source_set`, at its one call site, and win over every rule; [the configuration HOW-TO](../config/HOW-TO.md#apply-source-set-overrides) shows the call.
 
 ## Split the Code model by Source set
 

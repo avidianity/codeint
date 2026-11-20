@@ -1,13 +1,14 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
-use std::string::FromUtf8Error;
 
-use codeint_config::FindingsShown;
+use codeint_config::{
+    ConfigurationFileError, FindingsShown, SourceSetOverrides, read_configuration,
+};
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, RepoPath,
-    ResolveError, SkippedFile, SourceFile, resolve_runtime_imports, settle_source_set,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, ResolveError,
+    SkippedFile, SourceFile, resolve_runtime_imports, settle_source_set,
 };
 use codeint_report::{ReferenceRangeScope, Report};
 
@@ -18,12 +19,8 @@ mod tests;
 pub(crate) enum CheckError {
     #[error(transparent)]
     Git(#[from] GitError),
-    #[error("{path} is not valid UTF-8")]
-    NotUtf8 {
-        path: RepoPath,
-        #[source]
-        source: FromUtf8Error,
-    },
+    #[error(transparent)]
+    Configuration(#[from] ConfigurationFileError),
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
@@ -45,7 +42,9 @@ fn check_with(
     findings: FindingsShown,
 ) -> Result<Report, CheckError> {
     let tree = WorkingTree::discover(folder)?;
-    let Measurement { model, ranges } = measure(&tree, plugins)?;
+    let configuration = read_configuration(tree.root())?;
+    let Measurement { model, ranges } =
+        measure(&tree, plugins, &configuration.source_set_overrides)?;
     Ok(Report::summarize(model, &ranges, findings))
 }
 
@@ -67,7 +66,11 @@ fn reference_range_scope(
     }
 }
 
-fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measurement, CheckError> {
+fn measure(
+    tree: &WorkingTree,
+    plugins: &[&dyn LanguagePlugin],
+    overrides: &SourceSetOverrides,
+) -> Result<Measurement, CheckError> {
     let plugins_by_extension: HashMap<String, usize> = plugins
         .iter()
         .enumerate()
@@ -78,7 +81,10 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
                 .map(move |extension| (extension, index))
         })
         .collect();
-    let mut model = CodeModel::default();
+    let mut model = CodeModel {
+        submodules: tree.submodules().to_vec(),
+        ..CodeModel::default()
+    };
     let mut measured = BTreeSet::new();
     let mut plugin_of_file = Vec::new();
     for path in tree.files() {
@@ -89,14 +95,21 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
             continue;
         };
         let bytes = tree.read(path)?;
-        let text = String::from_utf8(bytes).map_err(|source| CheckError::NotUtf8 {
-            path: path.clone(),
-            source,
-        })?;
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => {
+                model.skipped.push(SkippedFile {
+                    path: path.clone(),
+                    reason: format!("not valid UTF-8: {}", error.utf8_error()),
+                });
+                continue;
+            }
+        };
         match plugins[index].lower(path, &text) {
             Ok(mut file) => {
                 measured.insert(index);
-                file.source_set = settle_source_set(path, &text, file.source_set);
+                file.source_set =
+                    overrides.source_set(path, settle_source_set(path, &text, file.source_set));
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,

@@ -2,6 +2,7 @@ use codeint_model::language::FlaggedLine;
 use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, SourceSet};
 
 use super::{FlaggedLineFinding, Verbosity};
+use crate::CloneLines;
 
 fn file(path: &str, source_lines: u32, flagged: &[(u32, &str)]) -> SourceFile {
     SourceFile {
@@ -33,7 +34,7 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
         ..CodeModel::default()
     };
 
-    let verbosity = Verbosity::measure(&model);
+    let verbosity = Verbosity::measure(&model, &CloneLines::default());
 
     assert_eq!(verbosity.verbose_lines(), 2);
     assert_eq!(verbosity.source_lines(), 8);
@@ -55,7 +56,7 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
 
 #[test]
 fn a_model_without_source_lines_has_zero_verbosity() {
-    let verbosity = Verbosity::measure(&CodeModel::default());
+    let verbosity = Verbosity::measure(&CodeModel::default(), &CloneLines::default());
 
     assert_eq!(verbosity.ratio(), 0.0);
 }
