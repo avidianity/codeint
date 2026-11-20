@@ -442,14 +442,22 @@ impl ImportCycleFinding {
 }
 
 impl UnresolvedImportsSection {
-    fn new(_import_cycles: &ImportCycles, _shown: FindingsShown) -> UnresolvedImportsSection {
-        todo!()
+    fn new(import_cycles: &ImportCycles, shown: FindingsShown) -> UnresolvedImportsSection {
+        let unresolved = import_cycles.unresolved_imports();
+        UnresolvedImportsSection {
+            count: unresolved.len(),
+            imports: Findings::worst_first(unresolved.iter().map(UnresolvedImportRow::from), shown),
+        }
     }
 }
 
 impl From<&UnresolvedImport> for UnresolvedImportRow {
-    fn from(_import: &UnresolvedImport) -> UnresolvedImportRow {
-        todo!()
+    fn from(import: &UnresolvedImport) -> UnresolvedImportRow {
+        UnresolvedImportRow {
+            importer: import.importer.to_string(),
+            specifier: import.specifier.clone(),
+            reason: import.reason.clone(),
+        }
     }
 }
 

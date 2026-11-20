@@ -2,7 +2,7 @@ use codeint_model::{
     CodeModel, FileModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet,
 };
 
-use super::ImportCycles;
+use super::{ImportCycles, UnresolvedImport};
 
 fn path(text: &str) -> RepoPath {
     RepoPath::new(text).expect("a valid path")
@@ -121,4 +121,53 @@ fn an_empty_code_model_has_no_modules_and_no_import_cycles() {
 
     assert_eq!(cycles.modules(), 0);
     assert!(cycles.cycles().is_empty());
+}
+
+fn unresolved(importer: &str, specifier: &str) -> RuntimeImport {
+    RuntimeImport {
+        importer: path(importer),
+        specifier: specifier.to_owned(),
+        resolution: ImportResolution::Unresolved {
+            reason: format!("no file matches {specifier}"),
+        },
+    }
+}
+
+#[test]
+fn unresolved_imports_are_listed_by_importer_in_source_order_and_others_are_not() {
+    let mut model = graph(&["a.ts", "b.ts"], &[("a.ts", "b.ts"), ("b.ts", "a.ts")]);
+    model.runtime_imports.extend([
+        unresolved("b.ts", "./second"),
+        unresolved("a.ts", "./third"),
+        RuntimeImport {
+            importer: path("a.ts"),
+            specifier: "lodash".to_owned(),
+            resolution: ImportResolution::External,
+        },
+        unresolved("b.ts", "./first"),
+    ]);
+
+    let cycles = ImportCycles::measure(&model);
+
+    assert_eq!(cycle_members(&cycles), [["a.ts", "b.ts"]]);
+    assert_eq!(
+        cycles.unresolved_imports(),
+        [
+            UnresolvedImport {
+                importer: path("a.ts"),
+                specifier: "./third".to_owned(),
+                reason: "no file matches ./third".to_owned(),
+            },
+            UnresolvedImport {
+                importer: path("b.ts"),
+                specifier: "./second".to_owned(),
+                reason: "no file matches ./second".to_owned(),
+            },
+            UnresolvedImport {
+                importer: path("b.ts"),
+                specifier: "./first".to_owned(),
+                reason: "no file matches ./first".to_owned(),
+            },
+        ]
+    );
 }

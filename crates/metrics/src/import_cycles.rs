@@ -95,8 +95,21 @@ impl ImportCycles {
     }
 }
 
-fn unresolved_imports(_model: &CodeModel) -> Vec<UnresolvedImport> {
-    todo!()
+fn unresolved_imports(model: &CodeModel) -> Vec<UnresolvedImport> {
+    let mut unresolved: Vec<UnresolvedImport> = model
+        .runtime_imports
+        .iter()
+        .filter_map(|runtime_import| match &runtime_import.resolution {
+            ImportResolution::Unresolved { reason } => Some(UnresolvedImport {
+                importer: runtime_import.importer.clone(),
+                specifier: runtime_import.specifier.clone(),
+                reason: reason.clone(),
+            }),
+            ImportResolution::Resolved(_) | ImportResolution::External => None,
+        })
+        .collect();
+    unresolved.sort_by(|left, right| left.importer.cmp(&right.importer));
+    unresolved
 }
 
 struct Tarjan<'graph> {

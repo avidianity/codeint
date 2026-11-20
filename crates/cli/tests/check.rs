@@ -163,7 +163,10 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          reference_range: no published Reference range for this language\n      \
          modules_in_import_cycles: 0\n      \
          modules: {files}\n      \
-         findings: []\n"
+         findings: []\n      \
+         unresolved_imports:\n        \
+         count: 0\n        \
+         imports: []\n"
     )
 }
 
@@ -1227,7 +1230,10 @@ fn no_import_cycles(modules: usize) -> String {
          \x20 reference_range: no published Reference range for this language\n\
          \x20 modules_in_import_cycles: 0\n\
          \x20 modules: {modules}\n\
-         \x20 findings: []\n"
+         \x20 findings: []\n\
+         \x20 unresolved_imports:\n\
+         \x20   count: 0\n\
+         \x20   imports: []\n"
     )
 }
 
@@ -1262,6 +1268,9 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
             "  modules: 4\n",
             "  findings[1]:\n",
             "    - modules[3]: src/a.ts,src/b.ts,src/c.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
         )
     );
 }
@@ -1330,6 +1339,9 @@ fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
             "  modules: 4\n",
             "  findings[1]:\n",
             "    - modules[3]: lib/helpers.js,lib/loader.js,lib/plugin.js\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
         )
     );
 }
@@ -1399,6 +1411,10 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
             "    - modules[2]: src/a.ts,src/b.ts\n",
             "    - modules[1]: src/self.ts\n",
             "    - modules[2]: src/x/index.ts,src/y.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 1\n",
+            "    imports[1]{importer,specifier,reason}:\n",
+            "      src/z.ts,./missing,\"no file of the repository matches \\\"./missing\\\"\"\n",
         )
     );
 }
@@ -1417,6 +1433,7 @@ fn import_cycle_findings(output: &Output) -> Vec<String> {
         .lines()
         .map(str::trim_start)
         .skip_while(|line| !line.starts_with("findings"))
+        .take_while(|line| *line != "unresolved_imports:")
         .map(str::to_string)
         .collect()
 }
@@ -1484,6 +1501,172 @@ fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
             "  modules: 2\n",
             "  findings[1]:\n",
             "    - modules[2]: src/greet.test.ts,src/helper.test.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
+        )
+    );
+}
+
+#[test]
+fn unresolved_imports_are_counted_and_listed_and_the_import_cycle_is_still_found() {
+    let repository = Repository::new();
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nimport { gone } from './gone';\nexport const a = () => b(gone);\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { a } from './a';\nexport const b = (value: unknown) => a() ?? value;\n",
+    );
+    repository.write(
+        "src/c.ts",
+        "const outside = require('../../outside');\nexport const c = outside;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0.6667\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 2\n",
+            "  modules: 3\n",
+            "  findings[1]:\n",
+            "    - modules[2]: src/a.ts,src/b.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 2\n",
+            "    imports[2]{importer,specifier,reason}:\n",
+            "      src/a.ts,./gone,\"no file of the repository matches \\\"./gone\\\"\"\n",
+            "      src/c.ts,../../outside,\"\\\"../../outside\\\" leads outside the repository\"\n",
+        )
+    );
+}
+
+#[test]
+fn bare_imports_of_external_packages_and_built_in_modules_are_not_unresolved() {
+    let repository = Repository::new();
+    repository.write(
+        "src/main.ts",
+        "import 'lodash';\nimport { render } from 'react-dom/client';\nimport { z } from '@scope/schema/v4';\nimport { readFile } from 'node:fs/promises';\nconst path = require('path');\nexport const load = () => import('chalk');\nexport const all = [render, z, readFile, path];\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "import_cycles"),
+        no_import_cycles(1)
+    );
+}
+
+fn write_21_unresolved_imports_in_two_files(repository: &Repository) {
+    let imports = |names: std::ops::RangeInclusive<usize>| -> String {
+        names
+            .rev()
+            .map(|index| format!("import './missing{index:02}';\n"))
+            .collect()
+    };
+    repository.write("src/later.ts", &imports(12..=21));
+    repository.write("src/earlier.ts", &imports(1..=11));
+}
+
+fn unresolved_import_rows(output: &Output) -> Vec<String> {
+    production_section(output, "import_cycles")
+        .lines()
+        .map(str::trim_start)
+        .skip_while(|line| *line != "unresolved_imports:")
+        .skip(1)
+        .map(|line| line.split(",\"").next().unwrap_or(line).to_string())
+        .collect()
+}
+
+fn unresolved_import_row(importer: &str, index: usize) -> String {
+    format!("{importer},./missing{index:02}")
+}
+
+fn unresolved_import_rows_of_both_files(later_from: usize) -> Vec<String> {
+    (1..=11)
+        .rev()
+        .map(|index| unresolved_import_row("src/earlier.ts", index))
+        .chain(
+            (later_from..=21)
+                .rev()
+                .map(|index| unresolved_import_row("src/later.ts", index)),
+        )
+        .collect()
+}
+
+#[test]
+fn the_report_lists_the_first_20_unresolved_imports_by_importer_and_says_how_many_it_left_out() {
+    let repository = Repository::new();
+    write_21_unresolved_imports_in_two_files(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec![
+        "count: 21".to_string(),
+        "imports[20]{importer,specifier,reason}:".to_string(),
+    ];
+    expected.extend(unresolved_import_rows_of_both_files(13));
+    expected.push("imports_left_out: 1".to_string());
+    assert_eq!(unresolved_import_rows(&output), expected);
+}
+
+#[test]
+fn all_lists_every_unresolved_import() {
+    let repository = Repository::new();
+    write_21_unresolved_imports_in_two_files(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--all"]);
+
+    assert_success(&output);
+    let mut expected = vec![
+        "count: 21".to_string(),
+        "imports[21]{importer,specifier,reason}:".to_string(),
+    ];
+    expected.extend(unresolved_import_rows_of_both_files(12));
+    assert_eq!(unresolved_import_rows(&output), expected);
+}
+
+#[test]
+fn an_unresolved_import_of_a_test_file_is_reported_in_the_test_source_set_only() {
+    let repository = Repository::new();
+    repository.write("src/greet.ts", "export const greet = 'hello';\n");
+    repository.write(
+        "src/greet.test.ts",
+        "import { greet } from './greet';\nimport { fixture } from './fixtures/greeting';\nexport const check = [greet, fixture];\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        metric_section(&output, "production", "import_cycles"),
+        no_import_cycles(1)
+    );
+    assert_eq!(
+        metric_section(&output, "test", "import_cycles"),
+        concat!(
+            "import_cycles:\n",
+            "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  modules_in_import_cycles: 0\n",
+            "  modules: 1\n",
+            "  findings: []\n",
+            "  unresolved_imports:\n",
+            "    count: 1\n",
+            "    imports[1]{importer,specifier,reason}:\n",
+            "      src/greet.test.ts,./fixtures/greeting,\"no file of the repository matches \\\"./fixtures/greeting\\\"\"\n",
         )
     );
 }
