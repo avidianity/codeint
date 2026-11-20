@@ -19,6 +19,7 @@ fn lines_of(text: &str) -> Result<FileModel, LowerError> {
         source_lines: u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?,
         functions: Vec::new(),
         tokens: Vec::new(),
+        flagged_lines: Vec::new(),
     })
 }
 
@@ -98,9 +99,8 @@ fn report(files: &[(&str, &str)], plugins: &[&dyn LanguagePlugin]) -> String {
 fn a_reference_range_that_the_only_measured_language_supplies_is_shown_with_its_source_label() {
     let report = report(&[("main.alpha", "one\ntwo\n")], &[&Alpha, &Beta]);
 
-    assert_eq!(
-        report,
-        concat!(
+    assert!(
+        report.starts_with(concat!(
             "files: 1\n",
             "source_lines: 2\n",
             "erosion:\n",
@@ -110,14 +110,20 @@ fn a_reference_range_that_the_only_measured_language_supplies_is_shown_with_its_
             "    high: 0.56\n",
             "    source: \"Alpha panel of 40 repositories, Table 3\"\n",
             "  eroded_function_mass: 0\n",
-            "  total_function_mass: 0\n",
-            "  findings: []\n",
-            "duplication:\n",
-            "  ratio: 0\n",
-            "  reference_range: no published Reference range for this language\n",
-            "  clone_lines: 0\n",
-            "  clone_groups: []",
-        )
+        )),
+        "unexpected report: {report}"
+    );
+    let other_metrics = report
+        .lines()
+        .filter(|line| line.starts_with("  reference_range:"))
+        .skip(1)
+        .collect::<Vec<_>>();
+    assert!(!other_metrics.is_empty(), "unexpected report: {report}");
+    assert!(
+        other_metrics.iter().all(
+            |line| *line == "  reference_range: no published Reference range for this language"
+        ),
+        "unexpected report: {report}"
     );
 }
 

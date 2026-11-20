@@ -2,7 +2,8 @@
 
 use codeint_config::FindingsShown;
 use codeint_metrics::{
-    CloneGroup, Duplication, ErodedFunction, Erosion, Fragment, MinimumCloneTokens,
+    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
+    MinimumCloneTokens, Verbosity,
 };
 use codeint_model::{CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile};
 use serde::ser::SerializeMap;
@@ -23,6 +24,7 @@ pub struct Report {
     source_lines: u64,
     erosion: ErosionSection,
     duplication: DuplicationSection,
+    verbosity: VerbositySection,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -94,6 +96,22 @@ struct CloneLocation {
     path: String,
     start_line: u32,
     end_line: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct VerbositySection {
+    ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
+    verbose_lines: u64,
+    #[serde(flatten)]
+    findings: Findings<FlaggedLineRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct FlaggedLineRow {
+    path: String,
+    line: u32,
+    rule: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -172,6 +190,10 @@ impl FindingKind for CloneGroupFinding {
     const LIST_KEY: &'static str = "clone_groups";
 }
 
+impl FindingKind for FlaggedLineRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl ErosionSection {
     fn new(
         erosion: &Erosion,
@@ -243,6 +265,34 @@ impl CloneLocation {
     }
 }
 
+impl VerbositySection {
+    fn new(
+        verbosity: &Verbosity,
+        ranges: &ReferenceRangeScope,
+        shown: FindingsShown,
+    ) -> VerbositySection {
+        VerbositySection {
+            ratio: Decimal::rounded(verbosity.ratio()),
+            reference_range: ranges.entry("verbosity"),
+            verbose_lines: verbosity.verbose_lines(),
+            findings: Findings::worst_first(
+                verbosity.flagged_lines().iter().map(FlaggedLineRow::from),
+                shown,
+            ),
+        }
+    }
+}
+
+impl From<&FlaggedLineFinding> for FlaggedLineRow {
+    fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
+        FlaggedLineRow {
+            path: finding.path.to_string(),
+            line: finding.line,
+            rule: finding.rule.clone(),
+        }
+    }
+}
+
 impl From<&SkippedFile> for SkippedEntry {
     fn from(file: &SkippedFile) -> SkippedEntry {
         SkippedEntry {
@@ -271,6 +321,7 @@ impl Report {
                 ranges,
                 findings,
             ),
+            verbosity: VerbositySection::new(&Verbosity::measure(model), ranges, findings),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

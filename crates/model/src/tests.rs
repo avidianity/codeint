@@ -13,6 +13,7 @@ impl Guest for MeasuredLanguage {
             source_lines: u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?,
             functions: Vec::new(),
             tokens: Vec::new(),
+            flagged_lines: Vec::new(),
         })
     }
 

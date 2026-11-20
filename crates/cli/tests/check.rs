@@ -75,28 +75,6 @@ fn summary(output: &Output) -> String {
         .collect()
 }
 
-fn without_duplication(output: &Output) -> String {
-    report_lines(output, |section| section != "duplication")
-}
-
-fn duplication(output: &Output) -> String {
-    report_lines(output, |section| section == "duplication")
-}
-
-fn report_lines(output: &Output, keep_section: impl Fn(&str) -> bool) -> String {
-    let mut section = String::new();
-    stdout(output)
-        .lines()
-        .filter(|line| {
-            if !line.starts_with(' ') {
-                section = line.split([':', '[']).next().unwrap_or_default().to_owned();
-            }
-            keep_section(&section)
-        })
-        .map(|line| format!("{line}\n"))
-        .collect()
-}
-
 fn function_with_if_statements(name: &str, if_statements: usize) -> String {
     let branches: String = (1..=if_statements)
         .map(|value| format!("  if (value === {value}) return {value};\n"))
@@ -110,6 +88,92 @@ fn assert_success(output: &Output) {
         Some(0),
         "codeint failed: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn section(output: &Output, name: &str) -> String {
+    let heading = format!("{name}:");
+    stdout(output)
+        .lines()
+        .skip_while(|line| *line != heading)
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || line.starts_with(' '))
+        .map(|(_, line)| format!("{line}\n"))
+        .collect()
+}
+
+fn report_without_findings(files: usize, source_lines: u64) -> String {
+    format!(
+        "files: {files}\n\
+         source_lines: {source_lines}\n\
+         erosion:\n  \
+         ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
+         eroded_function_mass: 0\n  \
+         total_function_mass: 0\n  \
+         findings: []\n\
+         duplication:\n  \
+         ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
+         clone_lines: 0\n  \
+         clone_groups: []\n\
+         verbosity:\n  \
+         ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
+         verbose_lines: 0\n  \
+         findings: []\n"
+    )
+}
+
+#[test]
+fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_names_each_rule() {
+    let repository = Repository::new();
+    repository.write(
+        "src/sign.ts",
+        "export function sign(value: number): string {
+  if (value < 0) {
+    return 'negative';
+  } else {
+    return 'positive';
+  }
+}
+",
+    );
+    repository.write(
+        "src/size.ts",
+        "export function size(count: number): string {
+  if (count === 0) {
+    return 'none';
+  } else {
+    if (count === 1) {
+      return 'one';
+    } else {
+      return 'many';
+    }
+  }
+}
+",
+    );
+    repository.write(
+        "src/main.ts",
+        "import { sign } from './sign';\nconsole.log(sign(-1));\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 20\n");
+    assert_eq!(
+        section(&output, "verbosity"),
+        "verbosity:\n  \
+         ratio: 0.15\n  \
+         reference_range: no published Reference range for this language\n  \
+         verbose_lines: 3\n  \
+         findings[3]{path,line,rule}:\n    \
+         src/sign.ts,4,else-after-return\n    \
+         src/size.ts,4,else-after-return\n    \
+         src/size.ts,7,else-after-return\n"
     );
 }
 
@@ -238,17 +302,10 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
 
     assert_success(&output);
     assert_eq!(
-        without_duplication(&output),
-        "files: 1\n\
-         source_lines: 2\n\
-         erosion:\n  \
-         ratio: 0\n  \
-         reference_range: no published Reference range for this language\n  \
-         eroded_function_mass: 0\n  \
-         total_function_mass: 0\n  \
-         findings: []\n\
-         skipped[1]{path,reason}:\n  \
-         src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
+        stdout(&output),
+        report_without_findings(1, 2)
+            + "skipped[1]{path,reason}:\n  \
+             src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
     );
 }
 
@@ -271,16 +328,9 @@ fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_sourc
 
     assert_success(&output);
     assert_eq!(
-        without_duplication(&output),
-        "files: 1\n\
-         source_lines: 1\n\
-         erosion:\n  \
-         ratio: 0\n  \
-         reference_range: no published Reference range for this language\n  \
-         eroded_function_mass: 0\n  \
-         total_function_mass: 0\n  \
-         findings: []\n\
-         declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
+        stdout(&output),
+        report_without_findings(1, 1)
+            + "declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
     );
 }
 
@@ -323,11 +373,10 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 25\n");
     assert_eq!(
-        without_duplication(&output),
+        section(&output, "erosion"),
         concat!(
-            "files: 1\n",
-            "source_lines: 25\n",
             "erosion:\n",
             "  ratio: 0.8889\n",
             "  reference_range: no published Reference range for this language\n",
@@ -350,11 +399,10 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 39\n");
     assert_eq!(
-        without_duplication(&output),
+        section(&output, "erosion"),
         concat!(
-            "files: 3\n",
-            "source_lines: 39\n",
             "erosion:\n",
             "  ratio: 0.7094\n",
             "  reference_range: no published Reference range for this language\n",
@@ -376,11 +424,10 @@ fn a_repository_without_functions_reports_erosion_0() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 1\n");
     assert_eq!(
-        without_duplication(&output),
+        section(&output, "erosion"),
         concat!(
-            "files: 1\n",
-            "source_lines: 1\n",
             "erosion:\n",
             "  ratio: 0\n",
             "  reference_range: no published Reference range for this language\n",
@@ -411,7 +458,7 @@ fn the_typescript_and_javascript_report_says_that_no_published_reference_range_e
         .lines()
         .filter(|line| *line == "  reference_range: no published Reference range for this language")
         .count();
-    assert!(metric_sections >= 2, "unexpected report: {report}");
+    assert!(metric_sections >= 3, "unexpected report: {report}");
     assert_eq!(unpublished, metric_sections, "unexpected report: {report}");
     assert!(!report.contains("low:"), "unexpected report: {report}");
 }
@@ -433,11 +480,10 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 15\n");
     assert_eq!(
-        without_duplication(&output),
+        section(&output, "erosion"),
         concat!(
-            "files: 1\n",
-            "source_lines: 15\n",
             "erosion:\n",
             "  ratio: 0.9683\n",
             "  reference_range: no published Reference range for this language\n",
@@ -466,7 +512,7 @@ fn erosion_findings_header(count: usize) -> String {
 }
 
 fn erosion_findings_lines(output: &Output) -> Vec<String> {
-    report_lines(output, |section| section == "erosion")
+    section(output, "erosion")
         .lines()
         .skip_while(|line| !line.starts_with("  findings"))
         .map(|line| match line.strip_prefix("    ") {
@@ -699,10 +745,7 @@ fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothi
     assert!(output.stderr.is_empty());
     let saved = fs::read(repository.path().join("report.toon")).expect("read the report file");
     assert_eq!(saved, printed.stdout);
-    assert_eq!(
-        saved,
-        format!("files: 1\nsource_lines: 2\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n{NO_DUPLICATION}").as_bytes()
-    );
+    assert_eq!(saved, report_without_findings(1, 2).as_bytes());
 }
 
 #[test]
@@ -721,9 +764,7 @@ fn output_replaces_an_existing_file() {
     assert_success(&output);
     assert_eq!(
         fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
-        format!(
-            "files: 1\nsource_lines: 1\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n{NO_DUPLICATION}"
-        )
+        report_without_findings(1, 1)
     );
 }
 
@@ -818,7 +859,7 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 20\n");
     assert_eq!(
-        duplication(&output),
+        section(&output, "duplication"),
         concat!(
             "duplication:\n",
             "  ratio: 0.9\n",
@@ -845,7 +886,7 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
 
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
-    assert_eq!(duplication(&output), NO_DUPLICATION);
+    assert_eq!(section(&output, "duplication"), NO_DUPLICATION);
 }
 
 fn write_21_clone_groups_of_equal_size(repository: &Repository) {
@@ -860,7 +901,7 @@ fn write_21_clone_groups_of_equal_size(repository: &Repository) {
 }
 
 fn clone_groups_by_first_location(output: &Output) -> Vec<String> {
-    duplication(output)
+    section(output, "duplication")
         .lines()
         .map(str::trim_start)
         .filter(|line| {

@@ -28,6 +28,7 @@ impl Guest for Plain {
             source_lines,
             functions: Vec::new(),
             tokens,
+            flagged_lines: Vec::new(),
         })
     }
 
@@ -58,6 +59,9 @@ impl Guest for Plain {
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
 - `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
   Leave out whitespace and comments; the core finds Clone groups from this stream.
+- `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
+  A line that matches two rules appears once per rule.
+  The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
 
 ## Lower files in the core
 
