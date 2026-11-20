@@ -68,8 +68,12 @@ pub(crate) fn no_comments(
     source: &DiffSource,
 ) -> Result<Violations, String> {
     let mut violations = Violations::new();
+    let test_input = super::glob_set(&settings.test_input_paths)?;
     for change in git::changed_files(root, source)? {
-        if change.is_deleted() || settings.is_third_party_skill(&change.path) {
+        if change.is_deleted()
+            || settings.is_third_party_skill(&change.path)
+            || test_input.is_match(&change.path)
+        {
             continue;
         }
         let Some(language) = Language::of_path(&change.path) else {

@@ -1,4 +1,5 @@
 pub(crate) mod budget;
+pub(crate) mod duplicates;
 pub(crate) mod layout;
 pub(crate) mod pinning;
 pub(crate) mod pull_request;
