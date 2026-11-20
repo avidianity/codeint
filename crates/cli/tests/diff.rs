@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -57,6 +58,10 @@ impl Fixture {
         String::from_utf8(output.stdout).expect("git prints UTF-8")
     }
 
+    fn revision(&self, args: &[&str]) -> String {
+        self.run_git(args).trim().to_owned()
+    }
+
     fn commit(&self, message: &str) {
         self.run_git(&["add", "--all"]);
         self.run_git(&["commit", "--quiet", "--message", message]);
@@ -72,7 +77,11 @@ impl Fixture {
     }
 
     fn diff_json(&self, base_ref: &str) -> Value {
-        let output = self.codeint_diff(&[base_ref, "--format", "json"]);
+        self.diff_json_with(&[base_ref])
+    }
+
+    fn diff_json_with(&self, args: &[&str]) -> Value {
+        let output = self.codeint_diff(&[args, &["--format", "json"]].concat());
         assert_eq!(
             output.status.code(),
             Some(0),
@@ -81,6 +90,29 @@ impl Fixture {
         );
         serde_json::from_slice(&output.stdout).expect("the report is JSON")
     }
+}
+
+fn repository_state(fixture: &Fixture) -> (Vec<u8>, String, String) {
+    (
+        fs::read(fixture.root().join(".git/index")).expect("read the index"),
+        fixture.run_git(&[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ]),
+        fixture.run_git(&["rev-parse", "HEAD"]),
+    )
+}
+
+fn assert_stops_with(output: &Output, message: &str) {
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with(&format!("codeint: {message}")),
+        "unexpected error: {stderr}"
+    );
 }
 
 fn eroded_function(name: &str) -> String {
@@ -151,14 +183,7 @@ fn diff_leaves_the_working_tree_the_index_and_head_untouched() {
     fixture.put("src/untracked.ts", &eroded_function("untracked"));
     let state = |fixture: &Fixture| {
         (
-            fs::read(fixture.root().join(".git/index")).expect("read the index"),
-            fixture.run_git(&[
-                "status",
-                "--porcelain=v2",
-                "--branch",
-                "--untracked-files=all",
-            ]),
-            fixture.run_git(&["rev-parse", "HEAD"]),
+            repository_state(fixture),
             ["src/kept.ts", "src/staged.ts", "src/untracked.ts"]
                 .map(|path| fs::read(fixture.root().join(path)).expect("read the file")),
         )
@@ -184,14 +209,9 @@ fn an_unknown_base_ref_exits_2_and_names_the_ref() {
 
     let output = fixture.codeint_diff(&["no-such-branch"]);
 
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.starts_with(
-            "codeint: the Git ref \"no-such-branch\" does not name a commit in this repository"
-        ),
-        "unexpected error: {stderr}"
+    assert_stops_with(
+        &output,
+        "the Git ref \"no-such-branch\" does not name a commit in this repository",
     );
 }
 
@@ -366,4 +386,234 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          - 54 tokens: `src/b.ts:2-7`, `src/b.ts:8-13`\n"
         )
     );
+}
+
+const METRIC_FINDINGS: [(&str, &str); 4] = [
+    ("erosion", "findings"),
+    ("duplication", "clone_groups"),
+    ("verbosity", "findings"),
+    ("import_cycles", "findings"),
+];
+
+#[derive(Debug, PartialEq, Eq)]
+struct Classification {
+    new: BTreeSet<String>,
+    resolved: BTreeSet<String>,
+    unchanged: usize,
+}
+
+struct FeatureRevisions {
+    merge_base: String,
+    feature: String,
+}
+
+fn ids_of(findings: &Value) -> BTreeSet<String> {
+    findings
+        .as_array()
+        .map(|listed| {
+            listed
+                .iter()
+                .map(|finding| finding["id"].as_str().expect("an id").to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn source_set_names(report: &Value) -> BTreeSet<String> {
+    report["source_sets"]
+        .as_object()
+        .map(|sets| sets.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn check_json_of_checkout(fixture: &Fixture, revision: &str, checkouts: &Path) -> Value {
+    let checkout = checkouts.join(revision.replace('/', "-"));
+    fixture.run_git(&[
+        "worktree",
+        "add",
+        "--quiet",
+        "--detach",
+        checkout.to_str().expect("a UTF-8 path"),
+        revision,
+    ]);
+    let output = Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .args(["check", "--all", "--format", "json"])
+        .current_dir(&checkout)
+        .output()
+        .expect("run codeint check");
+    assert!(
+        matches!(output.status.code(), Some(0 | 1)),
+        "codeint check failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("the report is JSON")
+}
+
+fn per_metric(
+    source_sets: BTreeSet<String>,
+    classify: impl Fn(&str, &str, &str) -> Classification,
+) -> BTreeMap<String, Classification> {
+    source_sets
+        .iter()
+        .flat_map(|source_set| {
+            METRIC_FINDINGS.map(|(metric, findings)| {
+                (
+                    format!("{source_set}.{metric}"),
+                    classify(source_set, metric, findings),
+                )
+            })
+        })
+        .collect()
+}
+
+fn classification_by_hand(base: &Value, head: &Value) -> BTreeMap<String, Classification> {
+    let source_sets = &source_set_names(base) | &source_set_names(head);
+    per_metric(source_sets, |source_set, metric, findings| {
+        let base_ids = ids_of(&base["source_sets"][source_set][metric][findings]);
+        let head_ids = ids_of(&head["source_sets"][source_set][metric][findings]);
+        Classification {
+            new: &head_ids - &base_ids,
+            resolved: &base_ids - &head_ids,
+            unchanged: head_ids.intersection(&base_ids).count(),
+        }
+    })
+}
+
+fn classification_of_diff(report: &Value) -> BTreeMap<String, Classification> {
+    per_metric(source_set_names(report), |source_set, metric, _| {
+        let changes = &report["source_sets"][source_set][metric];
+        let unchanged = changes["unchanged"].as_u64().expect("a count");
+        Classification {
+            new: ids_of(&changes["new"]),
+            resolved: ids_of(&changes["resolved"]),
+            unchanged: usize::try_from(unchanged).expect("a small count"),
+        }
+    })
+}
+
+fn two_branches_and_a_dirty_working_tree() -> Fixture {
+    let fixture = Fixture::on_main();
+    fixture.put(
+        "src/a.ts",
+        "import { b } from \"./b\";\nexport const a = b;\n",
+    );
+    fixture.put("src/kept.ts", &eroded_function("kept"));
+    fixture.put("src/b.ts", "export const b = 2;\n");
+    fixture.put("src/removed.ts", &eroded_function("removed"));
+    fixture.put("tests/kept.test.ts", &eroded_function("keptTest"));
+    fixture.commit("start");
+    fixture.run_git(&["switch", "--quiet", "--create", "feature"]);
+    fixture.remove("src/removed.ts");
+    fixture.put("src/added.ts", &function_with_if_statements("added", 12));
+    fixture.put(
+        "src/b.ts",
+        "import { a } from \"./a\";\nexport const b = 2;\nexport const c = a;\n",
+    );
+    fixture.put("tests/added.test.ts", &eroded_function("addedTest"));
+    fixture.commit("feature work");
+    fixture.run_git(&["switch", "--quiet", "main"]);
+    fixture.put("src/later_on_main.ts", &eroded_function("laterOnMain"));
+    fixture.commit("later work on main");
+    fixture.put("src/uncommitted.ts", &eroded_function("uncommitted"));
+    fixture.remove("src/kept.ts");
+    fixture
+}
+
+fn feature_revisions(fixture: &Fixture) -> FeatureRevisions {
+    FeatureRevisions {
+        merge_base: fixture.revision(&["merge-base", "main", "feature"]),
+        feature: fixture.revision(&["rev-parse", "feature"]),
+    }
+}
+
+#[test]
+fn diff_with_head_classifies_two_commits_like_checking_each_out_by_hand() {
+    let checkouts = tempfile::tempdir().expect("create a temporary folder");
+    let fixture = two_branches_and_a_dirty_working_tree();
+
+    let report = fixture.diff_json_with(&["main", "--all", "--head", "feature"]);
+
+    let merge_base = fixture.revision(&["merge-base", "main", "feature"]);
+    let base_by_hand = check_json_of_checkout(&fixture, &merge_base, checkouts.path());
+    let head_by_hand = check_json_of_checkout(&fixture, "feature", checkouts.path());
+    let by_hand = classification_by_hand(&base_by_hand, &head_by_hand);
+    assert_eq!(classification_of_diff(&report), by_hand);
+    assert_eq!(by_hand["production.erosion"].new.len(), 1);
+    assert_eq!(by_hand["production.erosion"].resolved.len(), 1);
+    assert_eq!(by_hand["production.erosion"].unchanged, 1);
+    assert!(!by_hand["production.duplication"].new.is_empty());
+    assert_eq!(by_hand["production.import_cycles"].new.len(), 1);
+    assert_eq!(by_hand["test.erosion"].new.len(), 1);
+}
+
+#[test]
+fn diff_with_head_names_the_head_ref_and_takes_its_merge_base_with_the_base_ref() {
+    let fixture = two_branches_and_a_dirty_working_tree();
+    let revisions = feature_revisions(&fixture);
+
+    let report = fixture.diff_json_with(&["main", "--head", "feature"]);
+
+    assert_eq!(report["base"]["ref"], "main");
+    assert_eq!(report["base"]["merge_base"], revisions.merge_base.as_str());
+    assert_eq!(report["head"]["ref"], "feature");
+    assert_eq!(report["head"]["commit"], revisions.feature.as_str());
+}
+
+#[test]
+fn diff_with_head_leaves_the_working_tree_the_index_and_head_untouched() {
+    let fixture = two_branches_and_a_dirty_working_tree();
+    let before = repository_state(&fixture);
+
+    fixture.diff_json_with(&["main", "--head", "feature"]);
+
+    assert_eq!(repository_state(&fixture), before);
+}
+
+#[test]
+fn an_unknown_head_ref_exits_2_and_names_the_ref() {
+    let fixture = Fixture::on_main();
+    fixture.put("src/a.ts", "export const a = 1;\n");
+    fixture.commit("base");
+
+    let output = fixture.codeint_diff(&["main", "--head", "no-such-branch"]);
+
+    assert_stops_with(
+        &output,
+        "the Git ref \"no-such-branch\" does not name a commit in this repository",
+    );
+}
+
+#[test]
+fn a_head_ref_without_history_in_common_with_the_base_ref_exits_2_and_names_both_refs() {
+    let fixture = Fixture::on_main();
+    fixture.put("src/on_main.ts", "export const onMain = 1;\n");
+    fixture.commit("work on main");
+    fixture.run_git(&["switch", "--quiet", "--orphan", "unrelated"]);
+    fixture.put("src/b.ts", "export const b = 1;\n");
+    fixture.commit("unrelated");
+
+    let output = fixture.codeint_diff(&["main", "--head", "unrelated"]);
+
+    assert_stops_with(
+        &output,
+        "\"main\" and \"unrelated\" have no commit in common, so they have no merge-base",
+    );
+}
+
+#[test]
+fn format_markdown_with_head_names_the_head_ref_and_its_commit() {
+    let fixture = two_branches_and_a_dirty_working_tree();
+    let FeatureRevisions {
+        merge_base,
+        feature,
+    } = feature_revisions(&fixture);
+
+    let output = fixture.codeint_diff(&["main", "--head", "feature", "--format", "markdown"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let markdown = String::from_utf8(output.stdout).expect("the report is UTF-8");
+    let expected = format!(
+        "codeint compared `feature` at `{feature}` with `{merge_base}`, the merge-base of `main` and `feature`."
+    );
+    assert_eq!(markdown.lines().nth(2), Some(expected.as_str()));
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 use codeint_config::{Configuration, FindingsShown, read_configuration};
 use codeint_git::{CommitId, GitError, Repository, Snapshot};
 use codeint_model::CodeModel;
-use codeint_report::{BaseCommit, DiffReport, Head};
+use codeint_report::{BaseCommit, DiffReport, Head, HeadCommit};
 
 use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, CheckError, measure_with};
 
@@ -45,7 +45,25 @@ pub(crate) fn diff(
 }
 
 fn sides(repository: &Repository, refs: &Refs<'_>) -> Result<Sides, GitError> {
-    todo!("{:?} {:?}", repository.root(), refs.head)
+    match refs.head {
+        None => Ok(Sides {
+            merge_base: repository.merge_base_with_head(refs.base)?,
+            head: Head::WorkingTree,
+            head_snapshot: repository.working_tree()?,
+        }),
+        Some(head_ref) => {
+            let merge_base = repository.merge_base(refs.base, head_ref)?;
+            let head_commit = repository.resolve(head_ref)?;
+            Ok(Sides {
+                merge_base,
+                head: Head::Commit(HeadCommit {
+                    git_ref: head_ref.to_owned(),
+                    commit: head_commit.to_string(),
+                }),
+                head_snapshot: repository.commit(head_commit)?,
+            })
+        }
+    }
 }
 
 fn measure_all_languages(

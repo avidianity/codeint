@@ -77,7 +77,7 @@ fn git_remedy(error: &GitError) -> &'static str {
             "Commit once, then compare again; codeint diff measures the merge-base of the base ref and HEAD."
         }
         GitError::NoMergeBase { .. } => {
-            "Pass a base ref that shares history with HEAD; in a shallow clone, fetch more history: git fetch --unshallow"
+            "Pass a base ref that shares history with the head, which is HEAD unless you pass --head; in a shallow clone, fetch more history: git fetch --unshallow"
         }
         GitError::MergeBase { .. } | GitError::CommitTree { .. } | GitError::ReadBlob { .. } => {
             "Check that git log and git show work in this repository, then run codeint again."

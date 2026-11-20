@@ -140,15 +140,19 @@ impl Repository {
         })
     }
 
-    pub fn merge_base_with_head(&self, base_ref: &str) -> Result<CommitId, GitError> {
-        let base = self
-            .repository
-            .rev_parse_single(base_ref)
+    pub fn resolve(&self, git_ref: &str) -> Result<CommitId, GitError> {
+        self.repository
+            .rev_parse_single(git_ref)
             .and_then(|id| id.object()?.peel_to_commit())
+            .map(|commit| CommitId(commit.id))
             .map_err(|source| GitError::UnknownRef {
-                name: base_ref.to_owned(),
+                name: git_ref.to_owned(),
                 source,
-            })?;
+            })
+    }
+
+    pub fn merge_base_with_head(&self, base_ref: &str) -> Result<CommitId, GitError> {
+        let base = self.resolve(base_ref)?;
         let head = self
             .repository
             .head_id()
@@ -156,27 +160,33 @@ impl Repository {
                 base_ref: base_ref.to_owned(),
                 source,
             })?;
+        self.merge_base_of((base_ref, base), (HEAD, CommitId(head.detach())))
+    }
+
+    pub fn merge_base(&self, base_ref: &str, head_ref: &str) -> Result<CommitId, GitError> {
+        let base = self.resolve(base_ref)?;
+        let head = self.resolve(head_ref)?;
+        self.merge_base_of((base_ref, base), (head_ref, head))
+    }
+
+    fn merge_base_of(
+        &self,
+        (base_ref, base): (&str, CommitId),
+        (head_ref, head): (&str, CommitId),
+    ) -> Result<CommitId, GitError> {
         let merge_base = self
             .repository
-            .merge_base(base.id, head)
+            .merge_base(base.0, head.0)
             .map_err(|source| GitError::MergeBase {
                 base_ref: base_ref.to_owned(),
-                head_ref: HEAD.to_owned(),
+                head_ref: head_ref.to_owned(),
                 source,
             })?
             .ok_or_else(|| GitError::NoMergeBase {
                 base_ref: base_ref.to_owned(),
-                head_ref: HEAD.to_owned(),
+                head_ref: head_ref.to_owned(),
             })?;
         Ok(CommitId(merge_base.detach()))
-    }
-
-    pub fn resolve(&self, git_ref: &str) -> Result<CommitId, GitError> {
-        todo!("{git_ref}")
-    }
-
-    pub fn merge_base(&self, base_ref: &str, head_ref: &str) -> Result<CommitId, GitError> {
-        todo!("{base_ref} {head_ref}")
     }
 
     pub fn commit(&self, commit: CommitId) -> Result<Snapshot, GitError> {

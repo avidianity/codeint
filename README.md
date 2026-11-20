@@ -120,6 +120,28 @@ It lists at most 20 new and 20 resolved Findings per Metric, and counts the rest
 `--format sarif` lists only the new Findings, so code scanning annotates what the change added.
 A base ref that names no commit stops the run with exit code 2 and names the ref.
 
+### Compare two refs
+
+`--head {ref}` measures a second ref instead of the working tree, so you can compare two commits or two branches:
+
+```sh
+codeint diff main --head feature
+```
+
+codeint reads the head ref from Git objects too, so neither the working tree nor HEAD takes part.
+The merge-base is the merge-base of the base ref and the head ref.
+Both sides still use the `codeint.json` of the working tree, never the one in a commit.
+So the classification matches running `codeint check` on a checkout of each side, when each checkout has that same `codeint.json`.
+The report names the head ref and its commit:
+
+```text
+head:
+  ref: feature
+  commit: 8369109f265f4391e4419e8b7c29d33a75ebc59b
+```
+
+A head ref that names no commit, or that shares no history with the base ref, stops the run with exit code 2.
+
 ## Report formats
 
 `codeint check` prints the report in TOON by default.
