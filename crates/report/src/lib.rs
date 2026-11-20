@@ -11,6 +11,7 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+mod sarif;
 #[cfg(test)]
 mod tests;
 
@@ -25,6 +26,8 @@ pub enum ReportError {
     Toon(#[source] toon_format::ToonError),
     #[error("cannot render the report as JSON")]
     Json(#[source] serde_json::Error),
+    #[error("cannot render the report as SARIF")]
+    Sarif(#[source] serde_json::Error),
 }
 
 #[derive(Debug, Serialize)]
@@ -284,6 +287,17 @@ impl SourceSetSections {
         sections
     }
 
+    fn iter(&self) -> impl Iterator<Item = (&'static str, &SourceSetSection)> {
+        [
+            ("production", &self.production),
+            ("test", &self.test),
+            ("generated", &self.generated),
+            ("vendored", &self.vendored),
+        ]
+        .into_iter()
+        .filter_map(|(name, section)| section.as_ref().map(|section| (name, section)))
+    }
+
     fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {
         match source_set {
             SourceSet::Production => &mut self.production,
@@ -507,6 +521,8 @@ impl Report {
         match format {
             ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
             ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            ReportFormat::Sarif => serde_json::to_string_pretty(&sarif::SarifLog::new(self))
+                .map_err(ReportError::Sarif),
         }
     }
 }
