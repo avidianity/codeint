@@ -156,7 +156,9 @@ fn repository(files: &[(&str, &str)]) -> TempDir {
 
 fn report(files: &[(&str, &str)], plugins: &[&dyn LanguagePlugin]) -> String {
     let folder = repository(files);
-    check_with(folder.path(), plugins, FindingsShown::All).expect("the check succeeds")
+    check_with(folder.path(), plugins, FindingsShown::All)
+        .expect("the check succeeds")
+        .report
 }
 
 #[test]

@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use codeint_config::FindingsShown;
+use codeint_config::{Budgets, FindingsShown};
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
     ImportCycles, MinimumCloneTokens, Verbosity,
@@ -29,6 +29,16 @@ pub struct Report {
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    over_budget: Vec<BudgetFailure>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BudgetFailure {
+    source_set: &'static str,
+    metric: &'static str,
+    ratio: Decimal,
+    budget: f64,
 }
 
 pub enum ReferenceRangeScope {
@@ -161,6 +171,12 @@ struct SkippedEntry {
     reason: String,
 }
 
+impl std::fmt::Display for BudgetFailure {
+    fn fmt(&self, _formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
         Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
@@ -248,6 +264,10 @@ impl SourceSetSections {
             }
         }
         sections
+    }
+
+    fn over_budget(&self, _budgets: &Budgets) -> Vec<BudgetFailure> {
+        todo!()
     }
 
     fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {
@@ -433,18 +453,29 @@ impl Report {
         model: CodeModel,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
+        budgets: &Budgets,
     ) -> Report {
+        let files = model.files.len();
+        let source_lines = source_lines(&model);
+        let skipped = model.skipped.iter().map(SkippedEntry::from).collect();
+        let declaration_only = model
+            .declaration_only
+            .iter()
+            .map(RepoPath::to_string)
+            .collect();
+        let source_sets = SourceSetSections::new(&model.into_source_sets(), ranges, findings);
         Report {
-            files: model.files.len(),
-            source_lines: source_lines(&model),
-            skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
-            declaration_only: model
-                .declaration_only
-                .iter()
-                .map(RepoPath::to_string)
-                .collect(),
-            source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
+            over_budget: source_sets.over_budget(budgets),
+            files,
+            source_lines,
+            skipped,
+            declaration_only,
+            source_sets,
         }
+    }
+
+    pub fn over_budget(&self) -> &[BudgetFailure] {
+        &self.over_budget
     }
 
     pub fn to_toon(&self) -> Result<String, ReportError> {
