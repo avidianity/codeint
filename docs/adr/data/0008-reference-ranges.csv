@@ -1,0 +1,39 @@
+language,search_rank,repository,stars,stars_band,default_branch,pinned_commit,pinned_committer_date,status,files,skipped_files,production_lines,test_lines,generated_lines,vendored_lines,erosion,duplication,verbosity,import_cycles,production_flagged_lines,unresolved_imports,codeint_seconds
+TypeScript,1,freeCodeCamp/freeCodeCamp,459397,over 100k,main,,,excluded: metadata: curriculum,,,,,,,,,,,,,
+TypeScript,2,nilbuild/developer-roadmap,372451,over 100k,master,,,excluded: metadata: roadmap,,,,,,,,,,,,,
+TypeScript,3,vuejs/vue,212516,over 100k,main,0e8511a8becf627e00443bd799dd99e5fd1b8a35,2022-12-27T21:38:05Z,panel,400,0,24527,35526,68,,0.5637,0.0071,0.0096,0.2424,60,29,0.1
+TypeScript,4,n8n-io/n8n,211540,over 100k,master,99e3eb634bd34fa6791e09f112ce9e49407fed49,2022-12-29T13:57:20Z,panel,2618,0,486907,18516,,,0.8017,0.1459,0.1461,0.0192,156,2669,0.73
+TypeScript,5,microsoft/vscode,195701,over 100k,main,56e16bf51a7b620ba40b20c0ed94db2d1265295b,2022-12-31T19:09:59Z,panel,4255,6,700471,183773,27836,,0.355,0.0776,0.079,0.0772,1086,289,1.43
+TypeScript,6,iptv-org/iptv,144390,over 100k,master,c56108fbb077ec1a71e066c9ad748e566f7b7ccc,2022-12-31T17:08:46Z,excluded: size floor: 1422 Production lines,58,0,1422,345,,,0.0682,0.0977,0.0977,0.0,0,0,0.01
+TypeScript,7,yangshun/tech-interview-handbook,143384,over 100k,main,,,excluded: metadata: interview questions,,,,,,,,,,,,,
+TypeScript,8,excalidraw/excalidraw,136027,over 100k,master,fdd8552637c21d0b2317f33feb4247d2e46050dc,2022-12-31T21:54:37Z,panel,289,2,42574,9844,34,,0.4881,0.0311,0.0311,0.6767,0,2,0.07
+TypeScript,9,supabase/supabase,115200,over 100k,master,42ad83d7429d3b2467a80cc5ce3a1e80a1cc9cde,2022-12-31T21:38:49Z,panel,2080,92,127101,1955,2002,,0.3891,0.1117,0.114,0.1082,331,43,0.29
+TypeScript,10,angular/angular,101471,over 100k,main,27da7338ea8f3bf5336d77ed1877cfa6a1974d52,2022-12-24T11:26:34Z,panel,5470,307,529042,54719,328,1363,0.3435,0.1985,0.1995,0.0221,629,206,1.08
+TypeScript,11,microsoft/playwright,100680,over 100k,main,a30aac56687598c373c51255308ef5833de0c9bb,2022-12-31T19:08:36Z,panel,1017,2,173251,63175,7942,1869,0.5596,0.2975,0.2985,0.0984,311,91,1.03
+TypeScript,12,ant-design/ant-design,100318,over 100k,master,2f623fe5536395bbb4dfa694fae6dbf2042d9025,2022-12-31T16:26:54Z,panel,1982,0,99382,32075,11,,0.2682,0.0534,0.0534,0.0151,0,1,0.33
+TypeScript,13,tailwindlabs/tailwindcss,98713,50k to 100k,main,8b13ecfe167861202f7f5c0d09d213cb68eeefb7,2022-12-30T22:14:46Z,panel,254,0,10864,25202,546,,0.396,0.0255,0.0256,0.0131,1,10,0.07
+TypeScript,14,puppeteer/puppeteer,95873,50k to 100k,main,29a50764d42309ae88774cb25108acf609c51c4f,2022-12-20T14:37:31Z,panel,242,3,22437,17789,1,4,0.2953,0.0486,0.0499,0.1543,29,50,0.09
+JavaScript,1,react/react,252840,over 100k,main,de7d1c90718ea8f4844a2219991f7115ef2bd2c5,2022-12-23T19:31:27Z,panel,846,1025,51201,25582,3309,,0.6223,0.3067,0.3073,0.0,31,139,0.42
+JavaScript,2,trekhleb/javascript-algorithms,196753,over 100k,master,,,excluded: metadata: interview topic,,,,,,,,,,,,,
+JavaScript,3,CyC2018/CS-Notes,186557,over 100k,master,,,excluded: metadata: interview topic,,,,,,,,,,,,,
+JavaScript,4,twbs/bootstrap,175098,over 100k,main,1b39d1275bf5f91ff126faea33a6e6ab71ba991e,2022-12-31T00:50:10Z,excluded: size floor: 4621 Production lines; Generated 16348 exceeds Production,121,0,4621,12911,16348,1,0.0627,0.0203,0.0203,0.0,0,0,0.12
+JavaScript,5,Snailclimb/JavaGuide,159631,over 100k,main,,,excluded: metadata: interview topic,,,,,,,,,,,,,
+JavaScript,6,airbnb/javascript,148021,over 100k,master,ce3f8e9a090d74406c265758ab8da8cdbd88570b,2022-07-27T12:45:56Z,excluded: size floor: 1741 Production lines,28,0,1741,,,,0.0,0.1292,0.1292,0.0,0,0,0.01
+JavaScript,7,vercel/next.js,143630,over 100k,canary,fd018fd6cb1458cf1c0da154574e74f63950026b,2022-12-31T21:15:43Z,panel,4790,2893,236380,88883,50610,,0.5653,0.305,0.3056,0.0073,262,427,6.67
+JavaScript,8,Chalarangelo/30-seconds-of-code,129578,over 100k,master,,,"excluded: metadata: snippets, list",,,,,,,,,,,,,
+JavaScript,9,nodejs/node,123811,over 100k,main,e2dd139da03d71e190830a3d2e82e37da5ff2f71,2022-12-31T21:23:36Z,panel,15186,2852,1286810,7,174500,13214,0.5723,0.2143,0.2151,0.0235,1772,43,8.12
+JavaScript,10,mrdoob/three.js,119027,over 100k,dev,2a4451c430b6756e9856c242edba4ba80379031b,2022-12-31T11:32:38Z,panel,1357,0,262299,,125182,124,0.5342,0.1762,0.1774,0.0472,372,68,9.1
+JavaScript,11,axios/axios,109385,over 100k,v1.x,abd2cb83a3bc3be81438763eb50efb809b2b5a94,2022-12-29T06:39:48Z,excluded: Generated 8323 exceeds Production 6882,140,0,6882,3304,8323,,0.3663,0.1439,0.1439,0.0,0,0,0.06
+JavaScript,12,react/create-react-app,103222,over 100k,main,d960b9e38c062584ff6cfb1a70e1512509a966e7,2022-09-08T07:40:47Z,panel,147,139,55360,1458,,,0.5414,0.8339,0.834,0.0,114,2,0.2
+JavaScript,13,mui/material-ui,99374,50k to 100k,master,33a0e1c2ebd7575f694638559f42eb9a9d545e60,2022-12-31T19:22:06Z,panel,24216,2633,550243,33995,440,,0.4416,0.1642,0.1645,0.0,232,1005,2.87
+JavaScript,14,microsoft/Web-Dev-For-Beginners,97140,50k to 100k,main,,,"excluded: metadata: curriculum, tutorials",,,,,,,,,,,,,
+JavaScript,15,louislam/uptime-kuma,94712,50k to 100k,master,cd7a6e4019d30affe601e7a41decd235a4b2e049,2022-12-31T18:53:03Z,panel,181,0,28277,249,,,0.3656,0.0332,0.0339,0.0222,21,1,0.05
+JavaScript,16,ryanmcdermott/clean-code-javascript,94690,50k to 100k,master,a4c884f603ea05fe4eb771c8f3c81723d934c787,2022-08-21T17:35:59Z,excluded: size floor: 0 Production lines,0,0,,,,,,,,,,,0.02
+JavaScript,17,sveltejs/svelte,89833,50k to 100k,main,de6821a1de6574b1aa987944fe9a5f0b5f7724bb,2022-12-31T01:13:52Z,panel,1692,0,49793,,8140,,0.5207,0.0834,0.0839,0.0798,24,30,0.32
+JavaScript,18,anuraghazra/github-readme-stats,79838,50k to 100k,master,9eb0c3cbb40d551b93536c45100994d4c83b8c04,2022-11-22T08:46:41Z,excluded: size floor: 3761 Production lines,50,0,3761,2560,,,0.4074,0.0316,0.0332,0.0,6,0,0.03
+JavaScript,19,FortAwesome/Font-Awesome,77044,50k to 100k,7.x,,,excluded: no default-branch commit before 2023-01-01,,,,,,,,,,,,,
+JavaScript,20,typicode/json-server,75750,50k to 100k,main,524c9cc94ced67316a80990116a3376c74978c8e,2022-12-13T20:57:56Z,excluded: size floor: 1074 Production lines,34,0,1074,1298,,,0.2564,0.0,0.0009,0.0,1,0,0.04
+JavaScript,21,juliangarnier/anime,74936,50k to 100k,master,3ebfd913a04f7dc59cc3d52e38275272a5a12ae6,2020-10-15T12:58:33Z,panel,19,0,9060,,63,,0.3943,0.665,0.666,0.0,21,3,0.07
+JavaScript,22,hakimel/reveal.js,72610,50k to 100k,master,4fe3946cb43de57f79aaa7b646aee7e78f4bcc75,2022-12-07T10:27:14Z,panel,53,0,5670,,23,,0.5187,0.0168,0.0178,0.0,6,0,0.42
+JavaScript,24,expressjs/express,69670,50k to 100k,master,442fd467992992558806da8da07e945838712587,2022-11-02T01:13:10Z,beyond panel,153,0,16755,,,,0.0717,0.1499,0.1499,0.0,0,0,0.06
+JavaScript,25,gorhill/uBlock,69517,50k to 100k,master,3c9ad1635906b1f5e1b7220335ea6dd79fc55776,2022-12-28T01:48:52Z,beyond panel,202,0,107489,,118,,0.5454,0.0629,0.0632,0.0,37,38,0.23
