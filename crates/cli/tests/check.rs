@@ -75,34 +75,6 @@ fn summary(output: &Output) -> String {
         .collect()
 }
 
-const METRIC_SECTION_INDENT: usize = 4;
-
-fn without_duplication(output: &Output) -> String {
-    report_lines(output, |section| section != "duplication")
-}
-
-fn duplication(output: &Output) -> String {
-    report_lines(output, |section| section == "duplication")
-}
-
-fn report_lines(output: &Output, keep_section: impl Fn(&str) -> bool) -> String {
-    let mut section = String::new();
-    stdout(output)
-        .lines()
-        .filter(|line| {
-            let code = line.trim_start();
-            let indent = line.len() - code.len();
-            if indent < METRIC_SECTION_INDENT {
-                section.clear();
-            } else if indent == METRIC_SECTION_INDENT {
-                section = code.split([':', '[']).next().unwrap_or_default().to_owned();
-            }
-            keep_section(&section)
-        })
-        .map(|line| format!("{line}\n"))
-        .collect()
-}
-
 fn function_with_if_statements(name: &str, if_statements: usize) -> String {
     let branches: String = (1..=if_statements)
         .map(|value| format!("  if (value === {value}) return {value};\n"))
@@ -116,6 +88,124 @@ fn assert_success(output: &Output) {
         Some(0),
         "codeint failed: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+const METRIC_INDENT: usize = 4;
+
+fn metric_section(output: &Output, source_set: &str, metric: &str) -> String {
+    let source_set_heading = format!("  {source_set}:");
+    let metric_heading = format!("{}{metric}:", " ".repeat(METRIC_INDENT));
+    stdout(output)
+        .lines()
+        .skip_while(|line| *line != source_set_heading)
+        .skip_while(|line| *line != metric_heading)
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || indent(line) > METRIC_INDENT)
+        .map(|(_, line)| format!("{}\n", &line[METRIC_INDENT..]))
+        .collect()
+}
+
+fn production_section(output: &Output, metric: &str) -> String {
+    metric_section(output, "production", metric)
+}
+
+fn indent(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+fn source_set_sizes(output: &Output) -> Vec<String> {
+    let mut sizes = Vec::new();
+    for line in stdout(output).lines() {
+        match indent(line) {
+            2 => sizes.push(line.trim().to_owned()),
+            METRIC_INDENT
+                if line.trim_start().starts_with("files")
+                    || line.trim_start().starts_with("source_lines") =>
+            {
+                if let Some(last) = sizes.last_mut() {
+                    last.push(' ');
+                    last.push_str(line.trim());
+                }
+            }
+            _ => {}
+        }
+    }
+    sizes
+}
+
+fn report_without_findings(files: usize, source_lines: u64) -> String {
+    format!(
+        "files: {files}\n\
+         source_lines: {source_lines}\n\
+         source_sets:\n  \
+         production:\n    \
+         files: {files}\n    \
+         source_lines: {source_lines}\n    \
+         erosion:\n      \
+         ratio: 0\n      \
+         eroded_function_mass: 0\n      \
+         total_function_mass: 0\n      \
+         findings: []\n    \
+         duplication:\n      \
+         ratio: 0\n      \
+         clone_lines: 0\n      \
+         clone_groups: []\n    \
+         verbosity:\n      \
+         ratio: 0\n      \
+         verbose_lines: 0\n      \
+         findings: []\n"
+    )
+}
+
+#[test]
+fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_names_each_rule() {
+    let repository = Repository::new();
+    repository.write(
+        "src/sign.ts",
+        "export function sign(value: number): string {
+  if (value < 0) {
+    return 'negative';
+  } else {
+    return 'positive';
+  }
+}
+",
+    );
+    repository.write(
+        "src/size.ts",
+        "export function size(count: number): string {
+  if (count === 0) {
+    return 'none';
+  } else {
+    if (count === 1) {
+      return 'one';
+    } else {
+      return 'many';
+    }
+  }
+}
+",
+    );
+    repository.write(
+        "src/main.ts",
+        "import { sign } from './sign';\nconsole.log(sign(-1));\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 20\n");
+    assert_eq!(
+        production_section(&output, "verbosity"),
+        "verbosity:\n  \
+         ratio: 0.15\n  \
+         verbose_lines: 3\n  \
+         findings[3]{path,line,rule}:\n    \
+         src/sign.ts,4,else-after-return\n    \
+         src/size.ts,4,else-after-return\n    \
+         src/size.ts,7,else-after-return\n"
     );
 }
 
@@ -244,20 +334,10 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
 
     assert_success(&output);
     assert_eq!(
-        without_duplication(&output),
-        "files: 1\n\
-         source_lines: 2\n\
-         source_sets:\n  \
-         production:\n    \
-         files: 1\n    \
-         source_lines: 2\n    \
-         erosion:\n      \
-         ratio: 0\n      \
-         eroded_function_mass: 0\n      \
-         total_function_mass: 0\n      \
-         findings: []\n\
-         skipped[1]{path,reason}:\n  \
-         src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
+        stdout(&output),
+        report_without_findings(1, 2)
+            + "skipped[1]{path,reason}:\n  \
+             src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
     );
 }
 
@@ -280,19 +360,9 @@ fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_sourc
 
     assert_success(&output);
     assert_eq!(
-        without_duplication(&output),
-        "files: 1\n\
-         source_lines: 1\n\
-         source_sets:\n  \
-         production:\n    \
-         files: 1\n    \
-         source_lines: 1\n    \
-         erosion:\n      \
-         ratio: 0\n      \
-         eroded_function_mass: 0\n      \
-         total_function_mass: 0\n      \
-         findings: []\n\
-         declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
+        stdout(&output),
+        report_without_findings(1, 1)
+            + "declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
     );
 }
 
@@ -335,21 +405,16 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 25\n");
     assert_eq!(
-        without_duplication(&output),
+        production_section(&output, "erosion"),
         concat!(
-            "files: 1\n",
-            "source_lines: 25\n",
-            "source_sets:\n",
-            "  production:\n",
-            "    files: 1\n",
-            "    source_lines: 25\n",
-            "    erosion:\n",
-            "      ratio: 0.8889\n",
-            "      eroded_function_mass: 48\n",
-            "      total_function_mass: 54\n",
-            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "        src/mixed.ts,1,12,16,48\n",
+            "erosion:\n",
+            "  ratio: 0.8889\n",
+            "  eroded_function_mass: 48\n",
+            "  total_function_mass: 54\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/mixed.ts,1,12,16,48\n",
         )
     );
 }
@@ -365,22 +430,17 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 39\n");
     assert_eq!(
-        without_duplication(&output),
+        production_section(&output, "erosion"),
         concat!(
-            "files: 3\n",
-            "source_lines: 39\n",
-            "source_sets:\n",
-            "  production:\n",
-            "    files: 3\n",
-            "    source_lines: 39\n",
-            "    erosion:\n",
-            "      ratio: 0.7094\n",
-            "      eroded_function_mass: 84.561\n",
-            "      total_function_mass: 119.202\n",
-            "      findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "        src/eleven.ts,1,12,14,44.8999\n",
-            "        src/ten.ts,1,11,13,39.6611\n",
+            "erosion:\n",
+            "  ratio: 0.7094\n",
+            "  eroded_function_mass: 84.561\n",
+            "  total_function_mass: 119.202\n",
+            "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/eleven.ts,1,12,14,44.8999\n",
+            "    src/ten.ts,1,11,13,39.6611\n",
         )
     );
 }
@@ -394,20 +454,15 @@ fn a_repository_without_functions_reports_erosion_0() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 1\n");
     assert_eq!(
-        without_duplication(&output),
+        production_section(&output, "erosion"),
         concat!(
-            "files: 1\n",
-            "source_lines: 1\n",
-            "source_sets:\n",
-            "  production:\n",
-            "    files: 1\n",
-            "    source_lines: 1\n",
-            "    erosion:\n",
-            "      ratio: 0\n",
-            "      eroded_function_mass: 0\n",
-            "      total_function_mass: 0\n",
-            "      findings: []\n",
+            "erosion:\n",
+            "  ratio: 0\n",
+            "  eroded_function_mass: 0\n",
+            "  total_function_mass: 0\n",
+            "  findings: []\n",
         )
     );
 }
@@ -429,21 +484,16 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 15\n");
     assert_eq!(
-        without_duplication(&output),
+        production_section(&output, "erosion"),
         concat!(
-            "files: 1\n",
-            "source_lines: 15\n",
-            "source_sets:\n",
-            "  production:\n",
-            "    files: 1\n",
-            "    source_lines: 15\n",
-            "    erosion:\n",
-            "      ratio: 0.9683\n",
-            "      eroded_function_mass: 43.2666\n",
-            "      total_function_mass: 44.6808\n",
-            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "        src/outer.ts,2,12,13,43.2666\n",
+            "erosion:\n",
+            "  ratio: 0.9683\n",
+            "  eroded_function_mass: 43.2666\n",
+            "  total_function_mass: 44.6808\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/outer.ts,2,12,13,43.2666\n",
         )
     );
 }
@@ -461,18 +511,16 @@ fn write_eroded_functions_with_more_if_statements_in_later_files(
 }
 
 fn erosion_findings_header(count: usize) -> String {
-    format!(
-        "      findings[{count}]{{path,line,cyclomatic_complexity,source_lines,function_mass}}:"
-    )
+    format!("  findings[{count}]{{path,line,cyclomatic_complexity,source_lines,function_mass}}:")
 }
 
 fn erosion_findings_lines(output: &Output) -> Vec<String> {
-    report_lines(output, |section| section == "erosion")
+    production_section(output, "erosion")
         .lines()
-        .skip_while(|line| !line.starts_with("      findings"))
-        .map(|line| match line.strip_prefix("        ") {
+        .skip_while(|line| !line.starts_with("  findings"))
+        .map(|line| match line.strip_prefix("    ") {
             Some(row) => format!(
-                "        {}",
+                "    {}",
                 row.splitn(3, ',').take(2).collect::<Vec<_>>().join(",")
             ),
             None => line.to_string(),
@@ -493,9 +541,9 @@ fn the_report_lists_the_20_eroded_functions_of_most_function_mass_and_says_how_m
     expected.extend(
         (6..=25)
             .rev()
-            .map(|index| format!("        src/f{index:02}.ts,1")),
+            .map(|index| format!("    src/f{index:02}.ts,1")),
     );
-    expected.push("      findings_left_out: 5".to_string());
+    expected.push("  findings_left_out: 5".to_string());
     assert_eq!(erosion_findings_lines(&output), expected);
 }
 
@@ -512,7 +560,7 @@ fn all_lists_every_eroded_function_and_leaves_none_out() {
     expected.extend(
         (1..=25)
             .rev()
-            .map(|index| format!("        src/f{index:02}.ts,1")),
+            .map(|index| format!("    src/f{index:02}.ts,1")),
     );
     assert_eq!(erosion_findings_lines(&output), expected);
 }
@@ -536,11 +584,11 @@ fn eroded_functions_of_equal_function_mass_are_listed_by_path_then_line_and_the_
     assert_success(&output);
     let mut expected = vec![
         erosion_findings_header(20),
-        "        src/t00.ts,1".to_string(),
-        "        src/t00.ts,14".to_string(),
+        "    src/t00.ts,1".to_string(),
+        "    src/t00.ts,14".to_string(),
     ];
-    expected.extend((1..=18).map(|index| format!("        src/t{index:02}.ts,1")));
-    expected.push("      findings_left_out: 2".to_string());
+    expected.extend((1..=18).map(|index| format!("    src/t{index:02}.ts,1")));
+    expected.push("  findings_left_out: 2".to_string());
     assert_eq!(erosion_findings_lines(&output), expected);
 }
 
@@ -559,30 +607,34 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 4\nsource_lines: 40\n");
     assert_eq!(
-        without_duplication(&output),
+        source_set_sizes(&output),
+        [
+            "production: files: 2 source_lines: 25",
+            "test: files: 2 source_lines: 15",
+        ]
+    );
+    assert_eq!(
+        metric_section(&output, "production", "erosion"),
         concat!(
-            "files: 4\n",
-            "source_lines: 40\n",
-            "source_sets:\n",
-            "  production:\n",
-            "    files: 2\n",
-            "    source_lines: 25\n",
-            "    erosion:\n",
-            "      ratio: 0.5338\n",
-            "      eroded_function_mass: 39.6611\n",
-            "      total_function_mass: 74.3021\n",
-            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "        src/ten.ts,1,11,13,39.6611\n",
-            "  test:\n",
-            "    files: 2\n",
-            "    source_lines: 15\n",
-            "    erosion:\n",
-            "      ratio: 1\n",
-            "      eroded_function_mass: 44.8999\n",
-            "      total_function_mass: 44.8999\n",
-            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "        src/eleven.test.ts,1,12,14,44.8999\n",
+            "erosion:\n",
+            "  ratio: 0.5338\n",
+            "  eroded_function_mass: 39.6611\n",
+            "  total_function_mass: 74.3021\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/ten.ts,1,11,13,39.6611\n",
+        )
+    );
+    assert_eq!(
+        metric_section(&output, "test", "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 1\n",
+            "  eroded_function_mass: 44.8999\n",
+            "  total_function_mass: 44.8999\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/eleven.test.ts,1,12,14,44.8999\n",
         )
     );
 }
@@ -601,19 +653,17 @@ fn a_source_set_without_files_is_left_out_of_the_report() {
 
     assert_success(&output);
     assert_eq!(
-        without_duplication(&output),
+        source_set_sizes(&output),
+        ["test: files: 1 source_lines: 3"]
+    );
+    assert_eq!(
+        metric_section(&output, "test", "erosion"),
         concat!(
-            "files: 1\n",
-            "source_lines: 3\n",
-            "source_sets:\n",
-            "  test:\n",
-            "    files: 1\n",
-            "    source_lines: 3\n",
-            "    erosion:\n",
-            "      ratio: 0\n",
-            "      eroded_function_mass: 0\n",
-            "      total_function_mass: 1.7321\n",
-            "      findings: []\n",
+            "erosion:\n",
+            "  ratio: 0\n",
+            "  eroded_function_mass: 0\n",
+            "  total_function_mass: 1.7321\n",
+            "  findings: []\n",
         )
     );
 }
@@ -786,10 +836,7 @@ fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothi
     assert!(output.stderr.is_empty());
     let saved = fs::read(repository.path().join("report.toon")).expect("read the report file");
     assert_eq!(saved, printed.stdout);
-    assert_eq!(
-        saved,
-        format!("files: 1\nsource_lines: 2\nsource_sets:\n  production:\n    files: 1\n    source_lines: 2\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n{NO_DUPLICATION}").as_bytes()
-    );
+    assert_eq!(saved, report_without_findings(1, 2).as_bytes());
 }
 
 #[test]
@@ -808,9 +855,7 @@ fn output_replaces_an_existing_file() {
     assert_success(&output);
     assert_eq!(
         fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
-        format!(
-            "files: 1\nsource_lines: 1\nsource_sets:\n  production:\n    files: 1\n    source_lines: 1\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n{NO_DUPLICATION}"
-        )
+        report_without_findings(1, 1)
     );
 }
 
@@ -876,8 +921,7 @@ fn assert_unwritable_output(output: &Output, path: &str) {
     );
 }
 
-const NO_DUPLICATION: &str =
-    "    duplication:\n      ratio: 0\n      clone_lines: 0\n      clone_groups: []\n";
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
     "export function total(items: { price: number; quantity: number }[]): number {\n",
@@ -906,16 +950,16 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 20\n");
     assert_eq!(
-        duplication(&output),
+        production_section(&output, "duplication"),
         concat!(
-            "    duplication:\n",
-            "      ratio: 0.9\n",
-            "      clone_lines: 18\n",
-            "      clone_groups[1]:\n",
-            "        - tokens: 59\n",
-            "          locations[2]{path,start_line,end_line}:\n",
-            "            src/cart.ts,1,9\n",
-            "            src/invoice.ts,2,10\n",
+            "duplication:\n",
+            "  ratio: 0.9\n",
+            "  clone_lines: 18\n",
+            "  clone_groups[1]:\n",
+            "    - tokens: 59\n",
+            "      locations[2]{path,start_line,end_line}:\n",
+            "        src/cart.ts,1,9\n",
+            "        src/invoice.ts,2,10\n",
         )
     );
 }
@@ -932,7 +976,7 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
 
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
-    assert_eq!(duplication(&output), NO_DUPLICATION);
+    assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
 }
 
 fn write_21_clone_groups_of_equal_size(repository: &Repository) {
@@ -947,7 +991,7 @@ fn write_21_clone_groups_of_equal_size(repository: &Repository) {
 }
 
 fn clone_groups_by_first_location(output: &Output) -> Vec<String> {
-    duplication(output)
+    production_section(output, "duplication")
         .lines()
         .map(str::trim_start)
         .filter(|line| {

@@ -22,6 +22,7 @@ fn file(path: &str, lines: &[&str]) -> SourceFile {
             source_lines: u32::try_from(lines.len()).expect("few lines"),
             functions: Vec::new(),
             tokens,
+            flagged_lines: Vec::new(),
         },
     }
 }

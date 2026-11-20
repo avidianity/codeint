@@ -2,7 +2,8 @@
 
 use codeint_config::FindingsShown;
 use codeint_metrics::{
-    CloneGroup, Duplication, ErodedFunction, Erosion, Fragment, MinimumCloneTokens,
+    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
+    MinimumCloneTokens, Verbosity,
 };
 use codeint_model::{CodeModel, RepoPath, SkippedFile, SourceSet, SourceSets};
 use serde::ser::SerializeMap;
@@ -43,6 +44,7 @@ struct SourceSetSection {
     source_lines: u64,
     erosion: ErosionSection,
     duplication: DuplicationSection,
+    verbosity: VerbositySection,
 }
 
 #[derive(Debug, Serialize)]
@@ -92,6 +94,21 @@ struct CloneLocation {
     path: String,
     start_line: u32,
     end_line: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct VerbositySection {
+    ratio: Decimal,
+    verbose_lines: u64,
+    #[serde(flatten)]
+    findings: Findings<FlaggedLineRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct FlaggedLineRow {
+    path: String,
+    line: u32,
+    rule: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,6 +163,10 @@ impl FindingKind for CloneGroupFinding {
     const LIST_KEY: &'static str = "clone_groups";
 }
 
+impl FindingKind for FlaggedLineRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl SourceSetSections {
     fn new(source_sets: &SourceSets, findings: FindingsShown) -> SourceSetSections {
         let mut sections = SourceSetSections::default();
@@ -177,6 +198,7 @@ impl SourceSetSection {
                 &Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
                 findings,
             ),
+            verbosity: VerbositySection::new(&Verbosity::measure(model), findings),
         }
     }
 }
@@ -246,6 +268,29 @@ impl CloneLocation {
             path: fragment.path.to_string(),
             start_line: fragment.start_line,
             end_line: fragment.end_line,
+        }
+    }
+}
+
+impl VerbositySection {
+    fn new(verbosity: &Verbosity, shown: FindingsShown) -> VerbositySection {
+        VerbositySection {
+            ratio: Decimal::rounded(verbosity.ratio()),
+            verbose_lines: verbosity.verbose_lines(),
+            findings: Findings::worst_first(
+                verbosity.flagged_lines().iter().map(FlaggedLineRow::from),
+                shown,
+            ),
+        }
+    }
+}
+
+impl From<&FlaggedLineFinding> for FlaggedLineRow {
+    fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
+        FlaggedLineRow {
+            path: finding.path.to_string(),
+            line: finding.line,
+            rule: finding.rule.clone(),
         }
     }
 }

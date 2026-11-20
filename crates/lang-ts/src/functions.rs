@@ -30,6 +30,16 @@ impl CodeLines {
         self.code_lines_before.last().copied().unwrap_or(0)
     }
 
+    pub(crate) fn source_line_indexes_in(&self, span: Span) -> impl Iterator<Item = usize> + '_ {
+        let first = self.line_index(span.start as usize);
+        let last = self.line_index(
+            (span.end as usize)
+                .saturating_sub(1)
+                .max(span.start as usize),
+        );
+        (first..=last).filter(|&index| self.count_between(index, index) == 1)
+    }
+
     fn line_index(&self, offset: usize) -> usize {
         self.line_starts
             .partition_point(|start| *start <= offset)
