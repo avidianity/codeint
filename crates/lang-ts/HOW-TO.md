@@ -46,9 +46,11 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - `src/source_set.rs` puts a file in the Generated Source set when a comment before its first token of code holds a generated marker.
   `GENERATED_MARKERS` lists the markers; the match ignores case.
   A marker in a later comment or in a string never counts.
-- Otherwise it puts a file in the Test Source set when its name ends in `.test.{extension}` or `.spec.{extension}` after a non-empty stem, or when any of its folders is named `__tests__`.
+- Otherwise it puts a file in the Test Source set when its name ends in `.test.{extension}` or `.spec.{extension}` after a non-empty stem, or when any of its folders, at any depth, is named `__tests__`, `test`, or `tests`.
+  `TEST_FOLDERS` lists the folder names; the match is exact and keeps case.
   Every other file is Production.
 - A file named only `test.ts` or `spec.ts` has an empty stem, so it stays Production.
+- A file named `test.ts` or `tests.ts` stays Production unless one of its folders is a test folder.
 - Build output folders, very long lines, and vendor folders are rules of the core, in `codeint_model::settle_source_set`; never repeat them here.
 - Prove a change with `tests/conformance.rs`: list each path or text that must be Test or Generated, and each look-alike that must stay Production.
 

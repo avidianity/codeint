@@ -508,6 +508,8 @@ Remove the key, or correct its spelling to one of the allowed keys.
 
 Each file belongs to one Source set: `production`, `test`, `generated`, or `vendored`.
 The Language plugin and the core rules settle the Source set of each file.
+The `typescript-javascript` Language plugin puts a file in `test` when its name ends in `.test.{extension}` or `.spec.{extension}`, such as `src/greet.test.ts`, or when any of its folders, at any depth, is named `__tests__`, `test`, or `tests`, such as `test/greet.ts` or `packages/app/tests/setup.ts`.
+A file named `test.ts` or `tests.ts` outside such a folder stays in `production`.
 Globs under `source_sets` win over every rule.
 Globs match the repository-relative path with forward slashes: `*` matches within one folder, and `**` matches across folders.
 When globs of several Source sets match one file, the first of `vendored`, `generated`, `test`, and `production` wins.
