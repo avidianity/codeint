@@ -106,6 +106,22 @@ interface language {
         declaration-only,
     }
 
+    /// A file that describes workspace packages, such as a `package.json` file, as the host read it.
+    record manifest {
+        /// The path of the file, relative to the repository root, with forward slashes.
+        path: string,
+        /// The whole file.
+        text: string,
+    }
+
+    /// Why a Language plugin cannot find the workspace packages of a repository.
+    record workspace-error {
+        /// The path of the manifest that holds the problem, relative to the repository root.
+        path: string,
+        /// What is wrong with the manifest.
+        message: string,
+    }
+
     /// The file extensions the Language plugin reads, each without its leading dot, such as `ts`.
     extensions: func() -> list<string>;
 
@@ -113,6 +129,15 @@ interface language {
     /// `path` is relative to the repository root and uses forward slashes.
     /// `text` is the whole file.
     lower: func(path: string, text: string) -> result<file-model, lower-error>;
+
+    /// The file names of the manifests the Language plugin reads to find workspace packages, such as `package.json`.
+    workspace-manifests: func() -> list<string>;
+
+    /// Finds the workspace packages of a repository.
+    /// `manifests` holds every file of the repository, at any depth, whose file name `workspace-manifests` lists.
+    /// Returns the root folder of each workspace package, relative to the repository root, with forward slashes.
+    /// The repository root is never in the list; an empty list means the repository is one package.
+    workspace-packages: func(manifests: list<manifest>) -> result<list<string>, workspace-error>;
 
     /// Resolves runtime imports against the files of one repository snapshot.
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.

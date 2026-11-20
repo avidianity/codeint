@@ -29,27 +29,51 @@ enum CliError {
     },
 }
 
+const BUDGET_OR_REGRESSION_FAILED: u8 = 1;
+const OPERATIONAL_ERROR: u8 = 2;
+
+enum Outcome {
+    Passed,
+    OverBudget(Vec<String>),
+}
+
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(Outcome::Passed) => ExitCode::SUCCESS,
+        Ok(Outcome::OverBudget(failures)) => {
+            for failure in failures {
+                eprintln!("codeint: {failure}");
+            }
+            ExitCode::from(BUDGET_OR_REGRESSION_FAILED)
+        }
         Err(error) => {
             eprintln!("codeint: {}\n{}", describe(&error), remedy::remedy(&error));
-            ExitCode::from(2)
+            ExitCode::from(OPERATIONAL_ERROR)
         }
     }
 }
 
-fn run() -> Result<(), CliError> {
+fn run() -> Result<Outcome, CliError> {
     match read_invocation()?.command {
         Command::Check {
             folder,
             destination,
             findings,
             format,
-        } => write_report(
-            &check::check(&folder, findings)?.render(format)?,
-            &destination,
-        ),
+        } => {
+            let report = check::check(&folder, findings)?;
+            write_report(&report.render(format)?, &destination)?;
+            let over_budget: Vec<String> = report
+                .over_budget()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            Ok(if over_budget.is_empty() {
+                Outcome::Passed
+            } else {
+                Outcome::OverBudget(over_budget)
+            })
+        }
     }
 }
 

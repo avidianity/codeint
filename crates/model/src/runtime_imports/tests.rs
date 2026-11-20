@@ -1,7 +1,7 @@
 use crate::language::{ImportRequest, Resolution, SourceSet};
 use crate::{
-    FileModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, RepoPath,
-    SourceFile,
+    FileModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
+    RepoPath, SourceFile, WorkspaceError,
 };
 
 use super::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
@@ -15,6 +15,17 @@ impl LanguagePlugin for Answering {
 
     fn lower(&self, _path: &RepoPath, _text: &str) -> Result<FileModel, LowerError> {
         Err(LowerError::TooLarge)
+    }
+
+    fn workspace_manifests(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn workspace_packages(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        Ok(Vec::new())
     }
 
     fn resolve_imports(

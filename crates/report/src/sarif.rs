@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use codeint_model::{Metric, SourceSet};
+
 use crate::{CloneGroupFinding, CloneLocation, ImportCycleFinding, Report, SourceSetSection};
 
 #[cfg(test)]
@@ -115,14 +117,6 @@ struct Region {
     end_line: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum MetricRule {
-    Erosion,
-    Duplication,
-    Verbosity,
-    ImportCycles,
-}
-
 impl SarifLog {
     pub(crate) fn new(report: &Report) -> SarifLog {
         SarifLog {
@@ -134,7 +128,7 @@ impl SarifLog {
                         name: "codeint",
                         version: env!("CARGO_PKG_VERSION"),
                         information_uri: "https://github.com/avidianity/codeint",
-                        rules: MetricRule::ALL.map(MetricRule::descriptor).into(),
+                        rules: RULES.map(descriptor).into(),
                     },
                 },
                 original_uri_base_ids: OriginalUriBaseIds {
@@ -154,75 +148,69 @@ impl SarifLog {
     }
 }
 
-impl MetricRule {
-    const ALL: [MetricRule; 4] = [
-        MetricRule::Erosion,
-        MetricRule::Duplication,
-        MetricRule::Verbosity,
-        MetricRule::ImportCycles,
-    ];
+const RULES: [Metric; 4] = [
+    Metric::Erosion,
+    Metric::Duplication,
+    Metric::Verbosity,
+    Metric::ImportCycles,
+];
 
-    fn id(self) -> &'static str {
-        match self {
-            MetricRule::Erosion => "erosion",
-            MetricRule::Duplication => "duplication",
-            MetricRule::Verbosity => "verbosity",
-            MetricRule::ImportCycles => "import_cycles",
-        }
+fn descriptor(metric: Metric) -> Rule {
+    let (name, short_description, full_description, help) = match metric {
+        Metric::Erosion => (
+            "Erosion",
+            "A function with cyclomatic complexity over 10",
+            "Erosion is the share of total Function mass held by functions whose cyclomatic complexity is greater than 10. Function mass is cyclomatic complexity times the square root of source lines.",
+            "Split the function into smaller functions, each with a cyclomatic complexity of 10 or less.",
+        ),
+        Metric::Duplication => (
+            "Duplication",
+            "A Clone group: code fragments with the same token sequence",
+            "Duplication is the share of source lines that belong to at least one Clone group. A Clone group is two or more code fragments with the same token sequence once identifiers and literals are normalized.",
+            "Extract the fragments of the Clone group into one shared function or module.",
+        ),
+        Metric::Verbosity => (
+            "Verbosity",
+            "A Flagged line: code that can be deleted or collapsed",
+            "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches.",
+            "Delete or collapse the line as its rule describes; the behavior stays the same.",
+        ),
+        Metric::ImportCycles => (
+            "Import cycles",
+            "An Import cycle among runtime imports",
+            "Import cycles is the share of modules that belong to at least one Import cycle. An Import cycle is a group of modules in which every module can reach every other module through runtime imports.",
+            "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them.",
+        ),
+    };
+    Rule {
+        id: metric.key(),
+        name,
+        short_description: Text::from(short_description),
+        full_description: Text::from(full_description),
+        help: Text::from(help),
     }
+}
 
-    fn descriptor(self) -> Rule {
-        let (name, short_description, full_description, help) = match self {
-            MetricRule::Erosion => (
-                "Erosion",
-                "A function with cyclomatic complexity over 10",
-                "Erosion is the share of total Function mass held by functions whose cyclomatic complexity is greater than 10. Function mass is cyclomatic complexity times the square root of source lines.",
-                "Split the function into smaller functions, each with a cyclomatic complexity of 10 or less.",
-            ),
-            MetricRule::Duplication => (
-                "Duplication",
-                "A Clone group: code fragments with the same token sequence",
-                "Duplication is the share of source lines that belong to at least one Clone group. A Clone group is two or more code fragments with the same token sequence once identifiers and literals are normalized.",
-                "Extract the fragments of the Clone group into one shared function or module.",
-            ),
-            MetricRule::Verbosity => (
-                "Verbosity",
-                "A Flagged line: code that can be deleted or collapsed",
-                "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches.",
-                "Delete or collapse the line as its rule describes; the behavior stays the same.",
-            ),
-            MetricRule::ImportCycles => (
-                "Import cycles",
-                "An Import cycle among runtime imports",
-                "Import cycles is the share of modules that belong to at least one Import cycle. An Import cycle is a group of modules in which every module can reach every other module through runtime imports.",
-                "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them.",
-            ),
-        };
-        Rule {
-            id: self.id(),
-            name,
-            short_description: Text::from(short_description),
-            full_description: Text::from(full_description),
-            help: Text::from(help),
-        }
-    }
-
-    fn result(
-        self,
-        source_set: &'static str,
-        message: String,
-        located_at: Location,
-        related_locations: Vec<Location>,
-    ) -> SarifResult {
-        SarifResult {
-            rule_id: self.id(),
-            rule_index: self as usize,
-            level: "note",
-            message: Text { text: message },
-            locations: [located_at],
-            related_locations,
-            properties: ResultProperties { source_set },
-        }
+fn metric_result(
+    metric: Metric,
+    source_set: SourceSet,
+    message: String,
+    located_at: Location,
+    related_locations: Vec<Location>,
+) -> SarifResult {
+    SarifResult {
+        rule_id: metric.key(),
+        rule_index: RULES
+            .iter()
+            .position(|rule| *rule == metric)
+            .unwrap_or_default(),
+        level: "note",
+        message: Text { text: message },
+        locations: [located_at],
+        related_locations,
+        properties: ResultProperties {
+            source_set: source_set.key(),
+        },
     }
 }
 
@@ -259,9 +247,10 @@ impl Location {
     }
 }
 
-fn results(source_set: &'static str, section: &SourceSetSection) -> Vec<SarifResult> {
+fn results(source_set: SourceSet, section: &SourceSetSection) -> Vec<SarifResult> {
     let eroded_functions = section.erosion.findings.listed.iter().map(|function| {
-        MetricRule::Erosion.result(
+        metric_result(
+            Metric::Erosion,
             source_set,
             format!(
                 "Eroded function: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
@@ -278,7 +267,8 @@ fn results(source_set: &'static str, section: &SourceSetSection) -> Vec<SarifRes
         .iter()
         .filter_map(|group| clone_group_result(source_set, group));
     let flagged_lines = section.verbosity.findings.listed.iter().map(|flagged| {
-        MetricRule::Verbosity.result(
+        metric_result(
+            Metric::Verbosity,
             source_set,
             format!("Flagged line: rule {}.", flagged.rule),
             Location::in_repository(&flagged.path, flagged.line, None),
@@ -298,7 +288,7 @@ fn results(source_set: &'static str, section: &SourceSetSection) -> Vec<SarifRes
         .collect()
 }
 
-fn clone_group_result(source_set: &'static str, group: &CloneGroupFinding) -> Option<SarifResult> {
+fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {
     let (first, others) = group.locations.split_first()?;
     let fragment_location = |fragment: &CloneLocation| {
         Location::in_repository(&fragment.path, fragment.start_line, Some(fragment.end_line))
@@ -312,7 +302,8 @@ fn clone_group_result(source_set: &'static str, group: &CloneGroupFinding) -> Op
             )
         })
         .collect();
-    Some(MetricRule::Duplication.result(
+    Some(metric_result(
+        Metric::Duplication,
         source_set,
         format!(
             "Clone group of {} tokens in {} fragments; the other fragments: {}.",
@@ -325,13 +316,11 @@ fn clone_group_result(source_set: &'static str, group: &CloneGroupFinding) -> Op
     ))
 }
 
-fn import_cycle_result(
-    source_set: &'static str,
-    cycle: &ImportCycleFinding,
-) -> Option<SarifResult> {
+fn import_cycle_result(source_set: SourceSet, cycle: &ImportCycleFinding) -> Option<SarifResult> {
     let (first, others) = cycle.modules.split_first()?;
     let module_location = |module: &String| Location::in_repository(module, 1, None);
-    Some(MetricRule::ImportCycles.result(
+    Some(metric_result(
+        Metric::ImportCycles,
         source_set,
         format!(
             "Import cycle of {} modules: {}.",

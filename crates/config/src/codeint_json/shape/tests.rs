@@ -2,16 +2,18 @@ use serde_json::Value;
 
 use crate::configuration_schema;
 
-const CHECKED_KEYWORDS: [&str; 6] = [
+const CHECKED_KEYWORDS: [&str; 8] = [
     "$ref",
     "$defs",
     "type",
     "properties",
     "additionalProperties",
     "items",
+    "minimum",
+    "maximum",
 ];
 
-const ANNOTATION_KEYWORDS: [&str; 4] = ["$schema", "title", "description", "default"];
+const ANNOTATION_KEYWORDS: [&str; 5] = ["$schema", "title", "description", "default", "format"];
 
 fn keywords_outside_the_checked_subset(schema: &Value, found: &mut Vec<String>) {
     let Some(members) = schema.as_object() else {

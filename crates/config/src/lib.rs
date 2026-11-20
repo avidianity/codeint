@@ -7,8 +7,8 @@ use clap::{Parser, Subcommand};
 mod codeint_json;
 
 pub use codeint_json::{
-    CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError, JsonType, KeyPath, KeySegment,
-    SourceSetOverrides, configuration_schema, read_configuration,
+    Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError, JsonType,
+    KeyPath, KeySegment, SourceSetOverrides, configuration_schema, read_configuration,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -52,6 +52,7 @@ pub enum ReportFormat {
     Toon,
     Json,
     Sarif,
+    Markdown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
