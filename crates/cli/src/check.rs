@@ -9,7 +9,7 @@ use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, RepoPath,
-    SkippedFile, SourceFile,
+    SkippedFile, SourceFile, settle_source_set,
 };
 use codeint_report::{ReferenceRangeScope, Report, ReportError};
 
@@ -104,8 +104,9 @@ fn measure(
         })?;
         match plugins[index].lower(path, &text) {
             Ok(mut file) => {
-                file.source_set = overrides.source_set(path, file.source_set);
                 measured.insert(index);
+                file.source_set =
+                    overrides.source_set(path, settle_source_set(path, file.source_set));
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,
