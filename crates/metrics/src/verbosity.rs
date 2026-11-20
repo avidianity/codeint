@@ -14,9 +14,9 @@ pub struct FlaggedLineFinding {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verbosity {
-    pub verbose_lines: u64,
-    pub source_lines: u64,
-    pub flagged_lines: Vec<FlaggedLineFinding>,
+    verbose_lines: u64,
+    source_lines: u64,
+    flagged_lines: Vec<FlaggedLineFinding>,
 }
 
 impl Verbosity {
@@ -48,6 +48,18 @@ impl Verbosity {
                 .sum(),
             flagged_lines: flagged_lines.into_iter().collect(),
         }
+    }
+
+    pub fn verbose_lines(&self) -> u64 {
+        self.verbose_lines
+    }
+
+    pub fn source_lines(&self) -> u64 {
+        self.source_lines
+    }
+
+    pub fn flagged_lines(&self) -> &[FlaggedLineFinding] {
+        &self.flagged_lines
     }
 
     pub fn ratio(&self) -> f64 {

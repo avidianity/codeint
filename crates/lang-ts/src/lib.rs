@@ -1,11 +1,14 @@
 #![forbid(unsafe_code)]
 
+mod functions;
+mod rules;
+
 use codeint_model::language::{FileModel, Guest, LowerError};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
-mod rules;
+use crate::functions::{CodeLines, functions};
 
 pub use rules::flagged_line_rules;
 
@@ -42,13 +45,11 @@ impl Guest for TypeScriptAndJavaScript {
             .iter()
             .map(|comment| comment.span.start as usize..comment.span.end as usize);
         let code = blank_out(&text, comment_spans);
-        let source_lines = code
-            .lines()
-            .filter(|line| line.chars().any(is_code_character))
-            .count();
+        let code_lines = CodeLines::new(&code);
         Ok(FileModel {
-            source_lines: u32::try_from(source_lines).map_err(|_| LowerError::TooLarge)?,
-            flagged_lines: rules::flag(&parsed.program, &code)?,
+            source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
+            functions: functions(&parsed.program, &code_lines),
+            flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
         })
     }
 }
@@ -66,17 +67,15 @@ fn blank_out(text: &str, spans: impl Iterator<Item = std::ops::Range<usize>>) ->
     let mut cursor = 0;
     for span in spans {
         code.push_str(&text[cursor..span.start]);
-        code.extend(
-            text[span.clone()]
-                .chars()
-                .map(|character| if character == '\n' { '\n' } else { ' ' }),
-        );
+        for character in text[span.clone()].chars() {
+            if character == '\n' {
+                code.push('\n');
+            } else {
+                code.extend(std::iter::repeat_n(' ', character.len_utf8()));
+            }
+        }
         cursor = span.end;
     }
     code.push_str(&text[cursor..]);
     code
-}
-
-pub(crate) fn is_code_character(character: char) -> bool {
-    !character.is_whitespace() && character != '\u{feff}'
 }

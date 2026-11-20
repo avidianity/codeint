@@ -16,6 +16,7 @@ impl Guest for Plain {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
         Ok(FileModel {
             source_lines,
+            functions: Vec::new(),
             flagged_lines: Vec::new(),
         })
     }

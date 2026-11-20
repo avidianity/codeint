@@ -1,3 +1,7 @@
 #![forbid(unsafe_code)]
 
-pub mod verbosity;
+mod erosion;
+mod verbosity;
+
+pub use erosion::{ErodedFunction, Erosion};
+pub use verbosity::{FlaggedLineFinding, Verbosity};

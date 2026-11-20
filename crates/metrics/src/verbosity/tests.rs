@@ -8,6 +8,7 @@ fn file(path: &str, source_lines: u32, flagged: &[(u32, &str)]) -> SourceFile {
         path: RepoPath::new(path).expect("a valid path"),
         model: FileModel {
             source_lines,
+            functions: Vec::new(),
             flagged_lines: flagged
                 .iter()
                 .map(|&(line, rule)| FlaggedLine {
@@ -31,8 +32,8 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
 
     let verbosity = Verbosity::measure(&model);
 
-    assert_eq!(verbosity.verbose_lines, 2);
-    assert_eq!(verbosity.source_lines, 8);
+    assert_eq!(verbosity.verbose_lines(), 2);
+    assert_eq!(verbosity.source_lines(), 8);
     assert_eq!(verbosity.ratio(), 0.25);
     let finding = |path: &str, line, rule: &str| FlaggedLineFinding {
         path: RepoPath::new(path).expect("a valid path"),
@@ -40,7 +41,7 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
         rule: rule.to_owned(),
     };
     assert_eq!(
-        verbosity.flagged_lines,
+        verbosity.flagged_lines(),
         [
             finding("src/a.ts", 1, "rule-one"),
             finding("src/b.ts", 2, "rule-one"),

@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
-use codeint_metrics::verbosity::{FlaggedLineFinding, Verbosity};
+use codeint_metrics::{ErodedFunction, Erosion, FlaggedLineFinding, Verbosity};
 use codeint_model::{CodeModel, RepoPath, SkippedFile};
 use serde::Serialize;
+
+const DECIMAL_SCALE: f64 = 10_000.0;
 
 #[derive(Debug, thiserror::Error)]
 #[error("cannot render the report")]
@@ -12,7 +14,8 @@ pub struct ReportError(#[source] toon_format::ToonError);
 pub struct Report {
     files: usize,
     source_lines: u64,
-    verbosity: VerbosityReport,
+    erosion: ErosionSection,
+    verbosity: VerbositySection,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -20,10 +23,27 @@ pub struct Report {
 }
 
 #[derive(Debug, Serialize)]
-struct VerbosityReport {
-    ratio: f64,
+struct ErosionSection {
+    ratio: Decimal,
+    eroded_function_mass: Decimal,
+    total_function_mass: Decimal,
+    findings: Vec<ErodedFunctionFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct ErodedFunctionFinding {
+    path: String,
+    line: u32,
+    cyclomatic_complexity: u32,
+    source_lines: u32,
+    function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct VerbositySection {
+    ratio: Decimal,
     verbose_lines: u64,
-    flagged_lines: Vec<FlaggedLineRow>,
+    findings: Vec<FlaggedLineRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,9 +54,70 @@ struct FlaggedLineRow {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(transparent)]
+struct Decimal(f64);
+
+#[derive(Debug, Serialize)]
 struct SkippedEntry {
     path: String,
     reason: String,
+}
+
+impl Decimal {
+    fn rounded(value: f64) -> Decimal {
+        Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
+    }
+}
+
+impl ErosionSection {
+    fn new(erosion: &Erosion) -> ErosionSection {
+        ErosionSection {
+            ratio: Decimal::rounded(erosion.ratio()),
+            eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
+            total_function_mass: Decimal::rounded(erosion.total_function_mass()),
+            findings: erosion
+                .eroded_functions()
+                .iter()
+                .map(ErodedFunctionFinding::new)
+                .collect(),
+        }
+    }
+}
+
+impl ErodedFunctionFinding {
+    fn new(function: &ErodedFunction) -> ErodedFunctionFinding {
+        ErodedFunctionFinding {
+            path: function.path.to_string(),
+            line: function.line,
+            cyclomatic_complexity: function.cyclomatic_complexity,
+            source_lines: function.source_lines,
+            function_mass: Decimal::rounded(function.function_mass),
+        }
+    }
+}
+
+impl VerbositySection {
+    fn new(verbosity: &Verbosity) -> VerbositySection {
+        VerbositySection {
+            ratio: Decimal::rounded(verbosity.ratio()),
+            verbose_lines: verbosity.verbose_lines(),
+            findings: verbosity
+                .flagged_lines()
+                .iter()
+                .map(FlaggedLineRow::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&FlaggedLineFinding> for FlaggedLineRow {
+    fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
+        FlaggedLineRow {
+            path: finding.path.to_string(),
+            line: finding.line,
+            rule: finding.rule.clone(),
+        }
+    }
 }
 
 impl From<&SkippedFile> for SkippedEntry {
@@ -57,7 +138,8 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
-            verbosity: VerbosityReport::from(Verbosity::measure(model)),
+            erosion: ErosionSection::new(&Erosion::measure(model)),
+            verbosity: VerbositySection::new(&Verbosity::measure(model)),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only
@@ -69,29 +151,5 @@ impl Report {
 
     pub fn to_toon(&self) -> Result<String, ReportError> {
         toon_format::encode_default(self).map_err(ReportError)
-    }
-}
-
-impl From<Verbosity> for VerbosityReport {
-    fn from(verbosity: Verbosity) -> VerbosityReport {
-        VerbosityReport {
-            ratio: verbosity.ratio(),
-            verbose_lines: verbosity.verbose_lines,
-            flagged_lines: verbosity
-                .flagged_lines
-                .into_iter()
-                .map(FlaggedLineRow::from)
-                .collect(),
-        }
-    }
-}
-
-impl From<FlaggedLineFinding> for FlaggedLineRow {
-    fn from(finding: FlaggedLineFinding) -> FlaggedLineRow {
-        FlaggedLineRow {
-            path: finding.path.to_string(),
-            line: finding.line,
-            rule: finding.rule,
-        }
     }
 }

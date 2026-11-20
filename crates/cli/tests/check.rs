@@ -67,6 +67,21 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).expect("standard output is UTF-8")
 }
 
+fn summary(output: &Output) -> String {
+    stdout(output)
+        .lines()
+        .take_while(|line| !line.ends_with(':'))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+fn function_with_if_statements(name: &str, if_statements: usize) -> String {
+    let branches: String = (1..=if_statements)
+        .map(|value| format!("  if (value === {value}) return {value};\n"))
+        .collect();
+    format!("export function {name}(value: number): number {{\n{branches}  return 0;\n}}\n")
+}
+
 fn assert_success(output: &Output) {
     assert_eq!(
         output.status.code(),
@@ -76,14 +91,30 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn section(output: &Output, name: &str) -> String {
+    let heading = format!("{name}:");
+    stdout(output)
+        .lines()
+        .skip_while(|line| *line != heading)
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || line.starts_with(' '))
+        .map(|(_, line)| format!("{line}\n"))
+        .collect()
+}
+
 fn report_without_findings(files: usize, source_lines: u64) -> String {
     format!(
         "files: {files}\n\
          source_lines: {source_lines}\n\
-         verbosity:\n\
-         \x20 ratio: 0\n\
-         \x20 verbose_lines: 0\n\
-         \x20 flagged_lines: []\n"
+         erosion:\n  \
+         ratio: 0\n  \
+         eroded_function_mass: 0\n  \
+         total_function_mass: 0\n  \
+         findings: []\n\
+         verbosity:\n  \
+         ratio: 0\n  \
+         verbose_lines: 0\n  \
+         findings: []\n"
     )
 }
 
@@ -125,17 +156,16 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 20\n");
     assert_eq!(
-        stdout(&output),
-        "files: 3\n\
-         source_lines: 20\n\
-         verbosity:\n\
-         \x20 ratio: 0.15\n\
-         \x20 verbose_lines: 3\n\
-         \x20 flagged_lines[3]{path,line,rule}:\n\
-         \x20   src/sign.ts,4,else-after-return\n\
-         \x20   src/size.ts,4,else-after-return\n\
-         \x20   src/size.ts,7,else-after-return\n"
+        section(&output, "verbosity"),
+        "verbosity:\n  \
+         ratio: 0.15\n  \
+         verbose_lines: 3\n  \
+         findings[3]{path,line,rule}:\n    \
+         src/sign.ts,4,else-after-return\n    \
+         src/size.ts,4,else-after-return\n    \
+         src/size.ts,7,else-after-return\n"
     );
 }
 
@@ -155,7 +185,7 @@ fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files(
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), report_without_findings(2, 5));
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 5\n");
 }
 
 #[test]
@@ -185,7 +215,7 @@ fn blank_lines_and_comment_only_lines_are_not_source_lines() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), report_without_findings(1, 5));
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 5\n");
 }
 
 #[test]
@@ -202,7 +232,7 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), report_without_findings(8, 8));
+    assert_eq!(summary(&output), "files: 8\nsource_lines: 8\n");
 }
 
 #[test]
@@ -224,7 +254,7 @@ fn files_git_ignores_are_not_measured_and_untracked_files_are() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), report_without_findings(2, 3));
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 3\n");
 }
 
 #[test]
@@ -267,10 +297,15 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
         stdout(&output),
         "files: 1\n\
          source_lines: 2\n\
-         verbosity:\n\
-         \x20 ratio: 0\n\
-         \x20 verbose_lines: 0\n\
-         \x20 flagged_lines: []\n\
+         erosion:\n  \
+         ratio: 0\n  \
+         eroded_function_mass: 0\n  \
+         total_function_mass: 0\n  \
+         findings: []\n\
+         verbosity:\n  \
+         ratio: 0\n  \
+         verbose_lines: 0\n  \
+         findings: []\n\
          skipped[1]{path,reason}:\n  \
          src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
     );
@@ -298,11 +333,148 @@ fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_sourc
         stdout(&output),
         "files: 1\n\
          source_lines: 1\n\
-         verbosity:\n\
-         \x20 ratio: 0\n\
-         \x20 verbose_lines: 0\n\
-         \x20 flagged_lines: []\n\
+         erosion:\n  \
+         ratio: 0\n  \
+         eroded_function_mass: 0\n  \
+         total_function_mass: 0\n  \
+         findings: []\n\
+         verbosity:\n  \
+         ratio: 0\n  \
+         verbose_lines: 0\n  \
+         findings: []\n\
          declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
+    );
+}
+
+#[test]
+fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
+    let repository = Repository::new();
+    repository.write(
+        "src/mixed.ts",
+        concat!(
+            "export function eroded(value: number): number {\n",
+            "  const doubled = value * 2;\n",
+            "  if (doubled === 2) return 1;\n",
+            "  if (doubled === 4) return 2;\n",
+            "  if (doubled === 6) return 3;\n",
+            "  if (doubled === 8) return 4;\n",
+            "  if (doubled === 10) return 5;\n",
+            "  for (const step of [1, 2]) value += step;\n",
+            "  for (const key in { a: 1 }) value += key.length;\n",
+            "  for (let index = 0; index < 2; index++) value += index;\n",
+            "  while (value > 100) value -= 100;\n",
+            "  do value += 1; while (value < 0);\n",
+            "  if (doubled === 12) return 6;\n",
+            "  const tripled = value * 3;\n",
+            "  return tripled;\n",
+            "}\n",
+            "\n",
+            "export function small(values: number[]): number {\n",
+            "  let total = 0;\n",
+            "  const count = values.length;\n",
+            "  for (const value of values) {\n",
+            "    total += value;\n",
+            "  }\n",
+            "  total += count;\n",
+            "  return total;\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 25\n");
+    assert_eq!(
+        section(&output, "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0.8889\n",
+            "  eroded_function_mass: 48\n",
+            "  total_function_mass: 54\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/mixed.ts,1,12,16,48\n",
+        )
+    );
+}
+
+#[test]
+fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
+    let repository = Repository::new();
+    repository.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    repository.write("src/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 3\nsource_lines: 39\n");
+    assert_eq!(
+        section(&output, "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0.7094\n",
+            "  eroded_function_mass: 84.561\n",
+            "  total_function_mass: 119.202\n",
+            "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/eleven.ts,1,12,14,44.8999\n",
+            "    src/ten.ts,1,11,13,39.6611\n",
+        )
+    );
+}
+
+#[test]
+fn a_repository_without_functions_reports_erosion_0() {
+    let repository = Repository::new();
+    repository.write("src/constants.ts", "export const one = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 1\n");
+    assert_eq!(
+        section(&output, "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0\n",
+            "  eroded_function_mass: 0\n",
+            "  total_function_mass: 0\n",
+            "  findings: []\n",
+        )
+    );
+}
+
+#[test]
+fn decision_points_of_a_callback_count_only_toward_the_callback() {
+    let repository = Repository::new();
+    let branches: String = (1..=10)
+        .map(|value| format!("    if (row === {value}) return;\n"))
+        .collect();
+    repository.write(
+        "src/outer.ts",
+        &format!(
+            "export function outer(rows: number[]): void {{\n  rows.forEach((row) => {{\n{branches}  }});\n}}\n"
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 1\nsource_lines: 14\n");
+    assert_eq!(
+        section(&output, "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0.9106\n",
+            "  eroded_function_mass: 38.1051\n",
+            "  total_function_mass: 41.8468\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/outer.ts,2,11,12,38.1051\n",
+        )
     );
 }
 
@@ -367,7 +539,7 @@ fn check_of_a_subfolder_measures_the_whole_working_tree() {
     let output = repository.codeint(&["check", "src"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), report_without_findings(2, 3));
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 3\n");
 }
 
 #[test]
