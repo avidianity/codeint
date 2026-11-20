@@ -12,15 +12,17 @@ use codeint_model::{
     SourceSets,
 };
 use serde::ser::SerializeMap;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
 mod diff;
 mod markdown;
+mod measurement;
 mod sarif;
 #[cfg(test)]
 mod tests;
 
 pub use diff::{BaseCommit, DiffReport};
+pub use measurement::CommitMeasurement;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
@@ -171,7 +173,7 @@ struct Findings<T> {
     left_out: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ErodedFunctionFinding {
     id: String,
     path: String,
@@ -190,14 +192,14 @@ struct DuplicationSection {
     clone_groups: Findings<CloneGroupFinding>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CloneGroupFinding {
     id: String,
     tokens: usize,
     locations: Vec<CloneLocation>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct CloneLocation {
     path: String,
     start_line: u32,
@@ -215,7 +217,7 @@ struct VerbositySection {
     findings: Findings<FlaggedLineRow>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct FlaggedLineRow {
     id: String,
     path: String,
@@ -248,13 +250,13 @@ struct UnresolvedImportRow {
     reason: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ImportCycleFinding {
     id: String,
     modules: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(transparent)]
 struct Decimal(f64);
 

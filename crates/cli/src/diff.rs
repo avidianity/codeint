@@ -1,21 +1,38 @@
 use std::path::Path;
 
 use codeint_config::{Configuration, FindingsShown, read_configuration};
-use codeint_git::{Repository, Snapshot};
+use codeint_git::{CommitId, Repository, ResultCache, Snapshot};
 use codeint_model::CodeModel;
-use codeint_report::{BaseCommit, DiffReport};
+use codeint_report::{BaseCommit, CommitMeasurement, DiffReport};
+use serde::Serialize;
 
 use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, CheckError, measure_with};
+
+const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Serialize)]
+struct MeasurementSettings<'configuration> {
+    codeint_version: &'static str,
+    language_plugins: Vec<PluginIdentity>,
+    configuration: &'configuration Configuration,
+}
+
+#[derive(Serialize)]
+struct PluginIdentity {
+    name: &'static str,
+    version: &'static str,
+}
 
 pub(crate) fn diff(
     folder: &Path,
     base_ref: &str,
     findings: FindingsShown,
+    result_cache: Option<&ResultCache>,
 ) -> Result<DiffReport, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
     let merge_base = repository.merge_base_with_head(base_ref)?;
-    let base = measure_all_languages(&repository.commit(merge_base)?, &configuration)?;
+    let base = measure_commit(&repository, merge_base, &configuration, result_cache)?;
     let head = measure_all_languages(&repository.working_tree()?, &configuration)?;
     Ok(DiffReport::compare(
         BaseCommit {
@@ -28,12 +45,33 @@ pub(crate) fn diff(
     ))
 }
 
+fn measure_commit(
+    repository: &Repository,
+    commit: CommitId,
+    configuration: &Configuration,
+    result_cache: Option<&ResultCache>,
+) -> Result<CommitMeasurement, CheckError> {
+    let _settings = MeasurementSettings {
+        codeint_version: CODEINT_VERSION,
+        language_plugins: BUILT_IN_LANGUAGE_PLUGINS
+            .iter()
+            .map(|named| PluginIdentity {
+                name: named.name,
+                version: CODEINT_VERSION,
+            })
+            .collect(),
+        configuration,
+    };
+    let _ = result_cache;
+    measure_all_languages(&repository.commit(commit)?, configuration)
+}
+
 fn measure_all_languages(
     tree: &Snapshot,
     configuration: &Configuration,
-) -> Result<CodeModel, CheckError> {
+) -> Result<CommitMeasurement, CheckError> {
     let languages = measure_with(tree, &BUILT_IN_LANGUAGE_PLUGINS, configuration)?;
-    Ok(CodeModel::merge(
+    Ok(CommitMeasurement::of(CodeModel::merge(
         languages.into_iter().map(|language| language.model),
-    ))
+    )))
 }

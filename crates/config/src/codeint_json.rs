@@ -22,6 +22,13 @@ pub struct Configuration {
     pub source_set_overrides: SourceSetOverrides,
     pub budgets: Budgets,
     pub languages: Languages,
+    effective: ConfigurationFile,
+}
+
+impl Serialize for Configuration {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.effective.serialize(serializer)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -210,7 +217,7 @@ pub enum ConfigurationFileError {
     },
 }
 
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(
     title = "codeint.json",
@@ -239,7 +246,7 @@ struct ConfigurationFile {
     languages: Option<Vec<LanguageGlobs>>,
 }
 
-#[derive(Default, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SourceSetBudgets {
     #[serde(default)]
@@ -256,7 +263,7 @@ struct SourceSetBudgets {
     vendored: MetricBudgets,
 }
 
-#[derive(Default, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct MetricBudgets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -289,7 +296,7 @@ struct MetricBudgets {
     import_cycles: Option<Budget>,
 }
 
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct LanguageGlobs {
     #[schemars(description = "The name of the Language plugin, such as typescript-javascript.")]
@@ -305,7 +312,7 @@ struct LanguageGlobs {
     exclude: Vec<String>,
 }
 
-#[derive(Default, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SourceSetGlobs {
     #[serde(default)]
@@ -341,11 +348,22 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
     shape::check_shape(&value, schema.as_value())?;
     let file: ConfigurationFile =
         serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
+    let effective = file.without_schema_address();
     Ok(Configuration {
+        effective,
         source_set_overrides: source_set_overrides(file.source_sets)?,
         budgets: budgets(file.budgets),
         languages: languages(file.languages)?,
     })
+}
+
+impl ConfigurationFile {
+    fn without_schema_address(&self) -> ConfigurationFile {
+        ConfigurationFile {
+            _schema: None,
+            ..self.clone()
+        }
+    }
 }
 
 fn budgets(file: SourceSetBudgets) -> Budgets {
