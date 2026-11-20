@@ -89,3 +89,20 @@ for cycle in import_cycles.cycles() {
 - An Import cycle is a strongly connected component of more than one module, or one module that imports itself.
 - `ratio` is the modules in at least one Import cycle divided by all modules, and 0 when there are no modules.
 - `cycles` lists the Findings, each with its modules sorted by path, ordered by their sorted module lists.
+
+## List unresolved imports
+
+```rust
+use codeint_metrics::ImportCycles;
+
+let import_cycles = ImportCycles::measure(&model);
+for import in import_cycles.unresolved_imports() {
+    println!("{} imports {}: {}", import.importer, import.specifier, import.reason);
+}
+```
+
+- `unresolved_imports` lists each `RuntimeImport` whose resolution is `Unresolved`, with the reason the Language plugin gave.
+  External imports, such as bare imports of packages and built-in modules, are never unresolved.
+- The list is sorted by importer path, and keeps source order within one importer.
+- An unresolved import adds no edge and never changes the ratio; it only shows how complete the import graph is.
+- The report shows the count and the first unresolved imports under `import_cycles.unresolved_imports` of each Source set, with the same limit and `--all` option as Findings.
