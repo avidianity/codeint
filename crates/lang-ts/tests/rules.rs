@@ -326,6 +326,115 @@ export function load(path: string) {
 ",
         ],
     },
+    RuleFixtures {
+        rule: "if-else-returns-boolean",
+        flagged: &[
+            Flagged {
+                text: "export function isAdult(age: number): boolean {
+  if (age >= 18) return true;
+  else return false;
+}
+",
+                lines: &[2, 3],
+            },
+            Flagged {
+                text: "export function isEmpty(items: string[]): boolean {
+  if (items.length > 0) {
+    return false;
+  } else {
+    return true;
+  }
+}
+",
+                lines: &[2, 3, 4, 5, 6],
+            },
+            Flagged {
+                text: "export function rank(score: number): string | boolean {
+  if (score > 90) {
+    return 'top';
+  } else if (score > 50) {
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+                lines: &[4, 5, 6, 7, 8],
+            },
+            Flagged {
+                text: "export function ready(state) {
+  if (state.loaded) {
+    // loaded means ready
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+                lines: &[2, 4, 5, 6, 7],
+            },
+        ],
+        passing: &[
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    console.log('adult');
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    return true;
+  } else {
+    audit(age);
+    return false;
+  }
+}
+function audit(age: number) {
+  console.log(age);
+}
+",
+            "export function always(flag: boolean): boolean {
+  if (flag) {
+    return true;
+  } else {
+    return true;
+  }
+}
+",
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    return true;
+  }
+  return false;
+}
+",
+            "export function check(flag: boolean): string | boolean {
+  if (flag) {
+    return 'yes';
+  } else {
+    return false;
+  }
+}
+",
+            "export function* toggle(flag: boolean) {
+  if (flag) {
+    yield true;
+  } else {
+    yield false;
+  }
+}
+",
+            "export function isSet(flag: boolean): boolean {
+  if (flag) return true;
+  else if (!flag) return false;
+  return false;
+}
+",
+        ],
+    },
 ];
 
 fn flagged_lines(rule: &str, text: &str) -> Vec<u32> {
