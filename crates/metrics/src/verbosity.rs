@@ -2,6 +2,8 @@ use std::collections::BTreeSet;
 
 use codeint_model::{CodeModel, RepoPath};
 
+use crate::CloneLines;
+
 #[cfg(test)]
 mod tests;
 
@@ -15,12 +17,14 @@ pub struct FlaggedLineFinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verbosity {
     verbose_lines: u64,
+    flagged_line_count: u64,
+    clone_line_count: u64,
     source_lines: u64,
     flagged_lines: Vec<FlaggedLineFinding>,
 }
 
 impl Verbosity {
-    pub fn measure(model: &CodeModel) -> Verbosity {
+    pub fn measure(model: &CodeModel, clone_lines: &CloneLines) -> Verbosity {
         let flagged_lines: BTreeSet<FlaggedLineFinding> = model
             .files
             .iter()
@@ -35,12 +39,18 @@ impl Verbosity {
                     })
             })
             .collect();
-        let verbose_lines: BTreeSet<(&RepoPath, u32)> = flagged_lines
+        let distinct_flagged_lines: BTreeSet<(&RepoPath, u32)> = flagged_lines
             .iter()
             .map(|finding| (&finding.path, finding.line))
             .collect();
+        let flagged_lines_outside_clones = distinct_flagged_lines
+            .iter()
+            .filter(|(path, line)| !clone_lines.contains(path, *line))
+            .count() as u64;
         Verbosity {
-            verbose_lines: verbose_lines.len() as u64,
+            verbose_lines: clone_lines.count() + flagged_lines_outside_clones,
+            flagged_line_count: distinct_flagged_lines.len() as u64,
+            clone_line_count: clone_lines.count(),
             source_lines: model
                 .files
                 .iter()
@@ -52,6 +62,14 @@ impl Verbosity {
 
     pub fn verbose_lines(&self) -> u64 {
         self.verbose_lines
+    }
+
+    pub fn flagged_line_count(&self) -> u64 {
+        self.flagged_line_count
+    }
+
+    pub fn clone_line_count(&self) -> u64 {
+        self.clone_line_count
     }
 
     pub fn source_lines(&self) -> u64 {

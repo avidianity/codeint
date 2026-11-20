@@ -33,7 +33,7 @@ for function in erosion.eroded_functions() {
 use codeint_metrics::{Duplication, MinimumCloneTokens};
 
 let duplication = Duplication::measure(&model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
-println!("{} of {} source lines are clone lines", duplication.clone_lines, duplication.source_lines);
+println!("{} of {} source lines are clone lines", duplication.clone_lines.count(), duplication.source_lines);
 let ratio = duplication.ratio();
 ```
 
@@ -42,26 +42,31 @@ let ratio = duplication.ratio();
   Normalizing treats every identifier as one token and every literal as another, so copies that differ only in names and literal values form one Clone group; other tokens must have the same text hash.
   This finds type-1 and type-2 clones in one pass.
   Each fragment is as long as the tokens that all copies share, and copies of one fragment never overlap in one file.
-- A clone line is a line on which a token of a fragment starts; `clone_lines` counts each such line once.
-- `ratio` is `clone_lines / source_lines`, and 0 when the model has no source lines.
+- A clone line is a line on which a token of a fragment starts; `clone_lines` holds each such line once, by path and line.
+- `clone_lines.count()` is the number of clone lines, and `clone_lines.contains(path, line)` tells whether a line is one.
+- `ratio` is `clone_lines.count() / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
 - `MinimumCloneTokens::PROVISIONAL_DEFAULT` is 50 tokens until the calibration Ticket #33 fixes the default.
 
 ## Measure Verbosity
 
 ```rust
-use codeint_metrics::Verbosity;
+use codeint_metrics::{Duplication, MinimumCloneTokens, Verbosity};
 
-let verbosity = Verbosity::measure(&model);
+let duplication = Duplication::measure(&model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+let verbosity = Verbosity::measure(&model, &duplication.clone_lines);
 println!("{} of {}", verbosity.verbose_lines(), verbosity.source_lines());
+println!("{} flagged, {} clone lines", verbosity.flagged_line_count(), verbosity.clone_line_count());
 println!("ratio {}", verbosity.ratio());
 for finding in verbosity.flagged_lines() {
     println!("{}:{} matches {}", finding.path, finding.line, finding.rule);
 }
 ```
 
-- `Verbosity::measure` reads only the `CodeModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts lines.
-- `verbose_lines` counts each flagged source line once, even when two rules match it.
+- `Verbosity::measure` reads the Flagged lines of the `CodeModel` and the clone lines of the same `CodeModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts lines.
+- Pass the clone lines of the `Duplication` already measured on the same `CodeModel`, so that clone detection runs once per Source set.
+- `verbose_lines` counts each line that is a Flagged line, a clone line, or both once, even when two rules match it.
+- `flagged_line_count` counts the distinct Flagged lines, and `clone_line_count` the clone lines; a line that is both adds to each.
 - `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
 - `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.
 
@@ -84,3 +89,20 @@ for cycle in import_cycles.cycles() {
 - An Import cycle is a strongly connected component of more than one module, or one module that imports itself.
 - `ratio` is the modules in at least one Import cycle divided by all modules, and 0 when there are no modules.
 - `cycles` lists the Findings, each with its modules sorted by path, ordered by their sorted module lists.
+
+## List unresolved imports
+
+```rust
+use codeint_metrics::ImportCycles;
+
+let import_cycles = ImportCycles::measure(&model);
+for import in import_cycles.unresolved_imports() {
+    println!("{} imports {}: {}", import.importer, import.specifier, import.reason);
+}
+```
+
+- `unresolved_imports` lists each `RuntimeImport` whose resolution is `Unresolved`, with the reason the Language plugin gave.
+  External imports, such as bare imports of packages and built-in modules, are never unresolved.
+- The list is sorted by importer path, and keeps source order within one importer.
+- An unresolved import adds no edge and never changes the ratio; it only shows how complete the import graph is.
+- The report shows the count and the first unresolved imports under `import_cycles.unresolved_imports` of each Source set, with the same limit and `--all` option as Findings.

@@ -1,7 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
-use codeint_config::FindingsShown;
+use codeint_config::{
+    ConfigurationFileError, FindingsShown, SourceSetOverrides, read_configuration,
+};
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
@@ -17,6 +19,8 @@ mod tests;
 pub(crate) enum CheckError {
     #[error(transparent)]
     Git(#[from] GitError),
+    #[error(transparent)]
+    Configuration(#[from] ConfigurationFileError),
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
@@ -40,7 +44,9 @@ fn check_with(
     findings: FindingsShown,
 ) -> Result<String, CheckError> {
     let tree = WorkingTree::discover(folder)?;
-    let Measurement { model, ranges } = measure(&tree, plugins)?;
+    let configuration = read_configuration(tree.root())?;
+    let Measurement { model, ranges } =
+        measure(&tree, plugins, &configuration.source_set_overrides)?;
     Ok(Report::summarize(model, &ranges, findings).to_toon()?)
 }
 
@@ -62,7 +68,11 @@ fn reference_range_scope(
     }
 }
 
-fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measurement, CheckError> {
+fn measure(
+    tree: &WorkingTree,
+    plugins: &[&dyn LanguagePlugin],
+    overrides: &SourceSetOverrides,
+) -> Result<Measurement, CheckError> {
     let plugins_by_extension: HashMap<String, usize> = plugins
         .iter()
         .enumerate()
@@ -100,7 +110,8 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
         match plugins[index].lower(path, &text) {
             Ok(mut file) => {
                 measured.insert(index);
-                file.source_set = settle_source_set(path, &text, file.source_set);
+                file.source_set =
+                    overrides.source_set(path, settle_source_set(path, &text, file.source_set));
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,
