@@ -14,6 +14,7 @@ pub(crate) fn tokens(
     program: &Program<'_>,
 ) -> Result<Vec<Token>, LowerError> {
     let identifier_starts = identifier_starts(program);
+    let mut import_or_export_spans = import_or_export_spans(program).into_iter().peekable();
     let mut tokens = Vec::with_capacity(lexed.len());
     let mut line: u32 = 1;
     let mut cursor = 0;
@@ -28,9 +29,16 @@ pub(crate) fn tokens(
             .and_then(|newlines| line.checked_add(newlines))
             .ok_or(LowerError::TooLarge)?;
         cursor = start;
+        while import_or_export_spans
+            .next_if(|span| span.end <= token.start())
+            .is_some()
+        {}
+        let in_import_or_export = import_or_export_spans
+            .peek()
+            .is_some_and(|span| span.start <= token.start());
         let names_an_identifier = identifier_starts.binary_search(&token.start()).is_ok();
         tokens.push(Token {
-            kind: kind(token.kind(), names_an_identifier),
+            kind: kind(token.kind(), names_an_identifier, in_import_or_export),
             text_hash: token_text_hash(&text[start..token.end() as usize]),
             line,
         });
@@ -51,8 +59,14 @@ fn identifier_starts(program: &Program<'_>) -> Vec<u32> {
     starts
 }
 
-fn kind(lexed: Kind, names_an_identifier: bool) -> TokenKind {
-    if names_an_identifier || matches!(lexed, Kind::Ident | Kind::PrivateIdentifier) {
+fn import_or_export_spans(program: &Program<'_>) -> Vec<Span> {
+    todo!("{}", program.body.len())
+}
+
+fn kind(lexed: Kind, names_an_identifier: bool, in_import_or_export: bool) -> TokenKind {
+    if in_import_or_export {
+        TokenKind::ImportOrExport
+    } else if names_an_identifier || matches!(lexed, Kind::Ident | Kind::PrivateIdentifier) {
         TokenKind::Identifier
     } else if lexed.is_literal()
         || matches!(

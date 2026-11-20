@@ -4,7 +4,7 @@ use codeint_model::{
     CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
 };
 
-use super::{Duplication, Fragment, MinimumCloneTokens};
+use super::{Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens};
 
 fn file(path: &str, lines: &[&str]) -> SourceFile {
     let tokens = lines
@@ -52,6 +52,10 @@ fn minimum(tokens: usize) -> MinimumCloneTokens {
     MinimumCloneTokens::new(NonZeroUsize::new(tokens).expect("not zero"))
 }
 
+fn measure(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
+    Duplication::measure(model, minimum, MinimumDistinctTokens::new(0))
+}
+
 fn groups(duplication: &Duplication) -> Vec<(usize, Vec<Fragment>)> {
     duplication
         .clone_groups
@@ -77,7 +81,7 @@ fn three_copies_form_one_clone_group_with_three_fragments() {
         file("three.ts", &lines),
     ]);
 
-    let duplication = Duplication::measure(&model, minimum(4));
+    let duplication = measure(&model, minimum(4));
 
     assert_eq!(
         groups(&duplication),
@@ -99,7 +103,7 @@ fn three_copies_form_one_clone_group_with_three_fragments() {
 fn a_copy_inside_one_file_is_a_clone_group() {
     let model = model(vec![file("one.ts", &["a b c d", "x", "a b c d"])]);
 
-    let duplication = Duplication::measure(&model, minimum(4));
+    let duplication = measure(&model, minimum(4));
 
     assert_eq!(
         groups(&duplication),
@@ -112,7 +116,7 @@ fn a_copy_inside_one_file_is_a_clone_group() {
 fn a_repeated_token_run_does_not_form_a_clone_group_with_itself() {
     let model = model(vec![file("zeros.ts", &["0 0 0 0 0"])]);
 
-    let duplication = Duplication::measure(&model, minimum(4));
+    let duplication = measure(&model, minimum(4));
 
     assert_eq!(groups(&duplication), []);
     assert_eq!(duplication.clone_lines.count(), 0);
@@ -125,7 +129,7 @@ fn fragments_that_share_fewer_tokens_than_the_minimum_are_not_clones() {
         file("two.ts", &["a b c y"]),
     ]);
 
-    let duplication = Duplication::measure(&model, minimum(4));
+    let duplication = measure(&model, minimum(4));
 
     assert_eq!(groups(&duplication), []);
 }
@@ -137,7 +141,7 @@ fn a_fragment_of_exactly_the_minimum_size_is_a_clone() {
         file("two.ts", &["a b c d"]),
     ]);
 
-    let duplication = Duplication::measure(&model, minimum(4));
+    let duplication = measure(&model, minimum(4));
 
     assert_eq!(duplication.clone_groups.len(), 1);
     assert_eq!(duplication.clone_groups[0].tokens, 4);
@@ -145,7 +149,7 @@ fn a_fragment_of_exactly_the_minimum_size_is_a_clone() {
 
 #[test]
 fn a_model_without_source_lines_has_a_ratio_of_zero() {
-    let duplication = Duplication::measure(&CodeModel::default(), minimum(4));
+    let duplication = measure(&CodeModel::default(), minimum(4));
 
     assert_eq!(duplication.ratio(), 0.0);
     assert_eq!(groups(&duplication), []);
@@ -158,7 +162,7 @@ fn larger_clone_groups_come_first() {
         file("two.ts", &["a b c d", "x", "p q r s t"]),
     ]);
 
-    let duplication = Duplication::measure(&model, minimum(4));
+    let duplication = measure(&model, minimum(4));
 
     assert_eq!(
         duplication
@@ -177,7 +181,7 @@ fn copies_with_other_identifiers_and_literals_form_one_clone_group() {
         file("two.ts", &["a $second = \"y\" ;"]),
     ]);
 
-    let duplication = Duplication::measure(&model, minimum(5));
+    let duplication = measure(&model, minimum(5));
 
     assert_eq!(
         groups(&duplication),
@@ -192,7 +196,7 @@ fn an_identifier_and_a_literal_in_the_same_place_are_not_a_clone() {
         file("two.ts", &["a \"name\" = b ;"]),
     ]);
 
-    let duplication = Duplication::measure(&model, minimum(5));
+    let duplication = measure(&model, minimum(5));
 
     assert_eq!(groups(&duplication), []);
 }
@@ -204,7 +208,7 @@ fn copies_with_other_keywords_or_operators_are_not_a_clone() {
         file("two.ts", &["while $a > \"x\" ;"]),
     ]);
 
-    let duplication = Duplication::measure(&model, minimum(3));
+    let duplication = measure(&model, minimum(3));
 
     assert_eq!(groups(&duplication), []);
 }

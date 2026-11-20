@@ -23,6 +23,17 @@ impl MinimumCloneTokens {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MinimumDistinctTokens(usize);
+
+impl MinimumDistinctTokens {
+    pub const DEFAULT: MinimumDistinctTokens = MinimumDistinctTokens(14);
+
+    pub fn new(tokens: usize) -> MinimumDistinctTokens {
+        MinimumDistinctTokens(tokens)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Duplication {
     pub clone_lines: CloneLines,
@@ -31,9 +42,13 @@ pub struct Duplication {
 }
 
 impl Duplication {
-    pub fn measure(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
+    pub fn measure(
+        model: &CodeModel,
+        minimum: MinimumCloneTokens,
+        minimum_distinct: MinimumDistinctTokens,
+    ) -> Duplication {
         let window = minimum.0.get();
-        let classes = equal_window_classes(&token_streams(model), window);
+        let classes = equal_window_classes(model, &searched_runs(model), window);
         let mut clone_lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
         let mut unidentified_groups = Vec::new();
         for (tokens, starts) in maximal_runs(&classes, window) {
@@ -42,6 +57,11 @@ impl Duplication {
                 continue;
             }
             let first = starts[0];
+            let first_fragment =
+                &model.files[first.file].model.tokens[first.token..first.token + tokens];
+            if distinct_normalized_tokens(first_fragment) < minimum_distinct.0 {
+                continue;
+            }
             let normalized_content: Vec<u64> = model.files[first.file].model.tokens
                 [first.token..first.token + tokens]
                 .iter()
@@ -173,7 +193,7 @@ fn normalized(token: &Token) -> NormalizedToken {
     match token.kind {
         TokenKind::Identifier => NormalizedToken::Identifier,
         TokenKind::Literal => NormalizedToken::Literal,
-        TokenKind::Other => NormalizedToken::Other {
+        TokenKind::Other | TokenKind::ImportOrExport => NormalizedToken::Other {
             text_hash: token.text_hash,
         },
     }
@@ -189,49 +209,64 @@ impl NormalizedToken {
     }
 }
 
-fn token_streams(model: &CodeModel) -> Vec<&[Token]> {
-    model
-        .files
-        .iter()
-        .map(|file| file.model.tokens.as_slice())
-        .collect()
+struct SearchedRun<'model> {
+    file: usize,
+    first_token: usize,
+    tokens: &'model [Token],
+}
+
+fn searched_runs(model: &CodeModel) -> Vec<SearchedRun<'_>> {
+    todo!(
+        "split the {} files at import and export tokens",
+        model.files.len()
+    )
+}
+
+fn distinct_normalized_tokens(tokens: &[Token]) -> usize {
+    todo!(
+        "count the distinct normalized tokens of {} tokens",
+        tokens.len()
+    )
 }
 
 struct FirstTokenIndexes(Vec<usize>);
 
 impl FirstTokenIndexes {
-    fn new(streams: &[&[Token]]) -> FirstTokenIndexes {
+    fn new(runs: &[SearchedRun<'_>]) -> FirstTokenIndexes {
         FirstTokenIndexes(
-            streams
-                .iter()
-                .scan(0, |next, stream| {
+            runs.iter()
+                .scan(0, |next, run| {
                     let first = *next;
-                    *next += stream.len();
+                    *next += run.tokens.len();
                     Some(first)
                 })
                 .collect(),
         )
     }
 
-    fn position(&self, index: usize) -> Position {
-        let file = self.0.partition_point(|first| *first <= index) - 1;
+    fn position(&self, runs: &[SearchedRun<'_>], index: usize) -> Position {
+        let run = self.0.partition_point(|first| *first <= index) - 1;
         Position {
-            file,
-            token: index - self.0[file],
+            file: runs[run].file,
+            token: runs[run].first_token + index - self.0[run],
         }
     }
 }
 
-fn equal_window_classes(streams: &[&[Token]], window: usize) -> WindowClasses {
-    let window_count = streams
+fn equal_window_classes(
+    model: &CodeModel,
+    runs: &[SearchedRun<'_>],
+    window: usize,
+) -> WindowClasses {
+    let window_count = runs
         .iter()
-        .map(|stream| (stream.len() + 1).saturating_sub(window))
+        .map(|run| (run.tokens.len() + 1).saturating_sub(window))
         .sum();
-    let first_token_indexes = FirstTokenIndexes::new(streams);
+    let first_token_indexes = FirstTokenIndexes::new(runs);
     let mut windows: Vec<(u64, usize)> = Vec::with_capacity(window_count);
-    for (stream, first_token_index) in streams.iter().zip(&first_token_indexes.0) {
+    for (run, first_token_index) in runs.iter().zip(&first_token_indexes.0) {
         windows.extend(
-            rolling_window_hashes(stream, window)
+            rolling_window_hashes(run.tokens, window)
                 .enumerate()
                 .map(|(token, hash)| (hash, first_token_index + token)),
         );
@@ -246,14 +281,14 @@ fn equal_window_classes(streams: &[&[Token]], window: usize) -> WindowClasses {
             continue;
         }
         let normalized_window = |position: Position| {
-            streams[position.file][position.token..position.token + window]
+            model.files[position.file].model.tokens[position.token..position.token + window]
                 .iter()
                 .map(normalized)
         };
         let mut equal_text: Vec<Vec<Position>> = Vec::new();
         for position in same_hash
             .iter()
-            .map(|&(_, index)| first_token_indexes.position(index))
+            .map(|&(_, index)| first_token_indexes.position(runs, index))
         {
             match equal_text
                 .iter_mut()
