@@ -5,8 +5,8 @@
 ```rust
 use codeint_config::read_configuration;
 
-let tree = WorkingTree::discover(&folder)?;
-let configuration = read_configuration(tree.root())?;
+let repository = Repository::discover(&folder)?;
+let configuration = read_configuration(repository.root())?;
 ```
 
 - `read_configuration` reads `codeint.json` at the root of the repository, so pass the root of the working tree, never the folder the user named.
@@ -14,6 +14,8 @@ let configuration = read_configuration(tree.root())?;
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.
 - Only this crate reads `codeint.json`; every other crate receives the typed `Configuration`.
+- `codeint diff` reads `codeint.json` of the working tree once and measures both the merge-base and the working tree with it, so a comparison shows changes in the code, not in the configuration.
+  Never read `codeint.json` from a commit.
 
 ## Apply Source set overrides
 

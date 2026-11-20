@@ -16,7 +16,7 @@ const METRIC_COLUMNS: [&str; 5] = [
     "Behind the value",
     "Reference range",
 ];
-const ERODED_FUNCTION_COLUMNS: [&str; 4] = [
+pub(crate) const ERODED_FUNCTION_COLUMNS: [&str; 4] = [
     "Function",
     "Cyclomatic complexity",
     "Source lines",
@@ -32,10 +32,10 @@ const PACKAGE_COLUMNS: [&str; 8] = [
     "Verbosity",
     "Import cycles",
 ];
-const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
+pub(crate) const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
 
-struct Noun {
+pub(crate) struct Noun {
     one: &'static str,
     many: &'static str,
 }
@@ -56,7 +56,7 @@ const VERBOSE_LINE: Noun = Noun {
     one: "verbose line",
     many: "verbose lines",
 };
-const FLAGGED_LINE: Noun = Noun {
+pub(crate) const FLAGGED_LINE: Noun = Noun {
     one: "Flagged line",
     many: "Flagged lines",
 };
@@ -64,15 +64,15 @@ const MODULE: Noun = Noun {
     one: "module",
     many: "modules",
 };
-const ERODED_FUNCTION: Noun = Noun {
+pub(crate) const ERODED_FUNCTION: Noun = Noun {
     one: "eroded function",
     many: "eroded functions",
 };
-const CLONE_GROUP: Noun = Noun {
+pub(crate) const CLONE_GROUP: Noun = Noun {
     one: "Clone group",
     many: "Clone groups",
 };
-const IMPORT_CYCLE: Noun = Noun {
+pub(crate) const IMPORT_CYCLE: Noun = Noun {
     one: "Import cycle",
     many: "Import cycles",
 };
@@ -351,7 +351,7 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
     blocks
 }
 
-fn push_findings<T>(
+pub(crate) fn push_findings<T>(
     blocks: &mut Vec<String>,
     heading: &str,
     findings: &Findings<T>,
@@ -374,7 +374,7 @@ fn push_findings<T>(
     }
 }
 
-fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<String> {
+pub(crate) fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<String> {
     vec![
         code(&format!("{}:{}", function.path, function.line)),
         function.cyclomatic_complexity.to_string(),
@@ -383,7 +383,7 @@ fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<String> {
     ]
 }
 
-fn clone_group_item(group: &CloneGroupFinding) -> String {
+pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     let locations: Vec<String> = group.locations.iter().map(clone_location).collect();
     format!("{} tokens: {}", group.tokens, locations.join(", "))
 }
@@ -399,14 +399,14 @@ fn clone_location(location: &CloneLocation) -> String {
     }
 }
 
-fn flagged_line_row(row: &FlaggedLineRow) -> Vec<String> {
+pub(crate) fn flagged_line_row(row: &FlaggedLineRow) -> Vec<String> {
     vec![
         code(&format!("{}:{}", row.path, row.line)),
         prose(&row.rule),
     ]
 }
 
-fn import_cycle_item(cycle: &ImportCycleFinding) -> String {
+pub(crate) fn import_cycle_item(cycle: &ImportCycleFinding) -> String {
     let modules: Vec<String> = cycle.modules.iter().map(|module| code(module)).collect();
     modules.join(", ")
 }
@@ -439,14 +439,14 @@ fn files_not_measured(report: &Report) -> Vec<String> {
         .collect()
 }
 
-fn list(items: impl Iterator<Item = String>) -> String {
+pub(crate) fn list(items: impl Iterator<Item = String>) -> String {
     items
         .map(|item| format!("- {item}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn table(columns: &[&str], rows: Vec<Vec<String>>) -> String {
+pub(crate) fn table(columns: &[&str], rows: Vec<Vec<String>>) -> String {
     let header = table_row(columns.iter().map(|column| column.to_string()));
     let delimiter = table_row(columns.iter().map(|column| "-".repeat(column.len())));
     let body = rows.into_iter().map(table_row);
@@ -465,7 +465,7 @@ fn table_row(cells: impl IntoIterator<Item = String>) -> String {
     format!("| {} |", cells.join(" | "))
 }
 
-fn code(text: &str) -> String {
+pub(crate) fn code(text: &str) -> String {
     let text = on_one_line(text);
     let longest_backtick_run = text
         .split(|character| character != '`')

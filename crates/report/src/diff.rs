@@ -1,11 +1,16 @@
 use codeint_config::{FindingsShown, ReportFormat};
 use codeint_model::{CodeModel, SourceSet};
+use std::collections::HashSet;
+
+use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 use crate::{
     CloneGroupFinding, Decimal, ErodedFunctionFinding, Findings, FlaggedLineRow,
     ImportCycleFinding, Measured, ReportError,
 };
+
+mod markdown;
 
 const WORKING_TREE: &str = "working tree";
 
@@ -77,7 +82,9 @@ impl DiffReport {
         let base_sets = base_model.into_source_sets();
         let head_sets = head_model.into_source_sets();
         for ((source_set, base), (_, head)) in base_sets.iter().zip(head_sets.iter()) {
-            *source_sets.slot(source_set) = Some(source_set_changes(base, head, findings));
+            if !base.files.is_empty() || !head.files.is_empty() {
+                *source_sets.slot(source_set) = Some(source_set_changes(base, head, findings));
+            }
         }
         DiffReport {
             base: BaseEntry {
@@ -90,34 +97,61 @@ impl DiffReport {
     }
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
-        let _ = format;
-        todo!()
+        match format {
+            ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
+            ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            ReportFormat::Markdown => Ok(markdown::render(self)),
+        }
     }
 }
 
 impl<T: Serialize> Serialize for MetricChanges<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let _ = (
-            serializer,
-            &self.base_ratio,
-            &self.head_ratio,
-            &self.new,
-            &self.resolved,
-            self.unchanged,
-        );
-        todo!()
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("base_ratio", &self.base_ratio)?;
+        map.serialize_entry("head_ratio", &self.head_ratio)?;
+        map.serialize_entry("new", &self.new.listed)?;
+        if self.new.left_out > 0 {
+            map.serialize_entry("new_left_out", &self.new.left_out)?;
+        }
+        map.serialize_entry("resolved", &self.resolved.listed)?;
+        if self.resolved.left_out > 0 {
+            map.serialize_entry("resolved_left_out", &self.resolved.left_out)?;
+        }
+        map.serialize_entry("unchanged", &self.unchanged)?;
+        map.end()
     }
 }
 
 fn classify<T: Identified>(base: Side<T>, head: Side<T>, shown: FindingsShown) -> MetricChanges<T> {
-    let _ = (
-        base.ratio,
-        base.findings_worst_first.iter().map(Identified::id).count(),
-        head.ratio,
-        head.findings_worst_first,
-        shown,
-    );
-    todo!()
+    let base_ids = ids(&base.findings_worst_first);
+    let head_ids = ids(&head.findings_worst_first);
+    MetricChanges {
+        base_ratio: Decimal::rounded(base.ratio),
+        head_ratio: Decimal::rounded(head.ratio),
+        unchanged: head_ids.intersection(&base_ids).count(),
+        new: missing_from(head.findings_worst_first, &base_ids, shown),
+        resolved: missing_from(base.findings_worst_first, &head_ids, shown),
+    }
+}
+
+fn ids<T: Identified>(findings: &[T]) -> HashSet<String> {
+    findings
+        .iter()
+        .map(|finding| finding.id().to_owned())
+        .collect()
+}
+
+fn missing_from<T: Identified>(
+    findings_worst_first: Vec<T>,
+    other_side: &HashSet<String>,
+    shown: FindingsShown,
+) -> Findings<T> {
+    let missing: Vec<T> = findings_worst_first
+        .into_iter()
+        .filter(|finding| !other_side.contains(finding.id()))
+        .collect();
+    Findings::worst_first(missing.into_iter(), shown)
 }
 
 fn source_set_changes(
@@ -136,26 +170,66 @@ fn source_set_changes(
 }
 
 fn erosion_side(measured: &Measured) -> Side<ErodedFunctionFinding> {
-    let _ = measured;
-    todo!()
+    Side {
+        ratio: measured.erosion.ratio(),
+        findings_worst_first: measured
+            .erosion
+            .eroded_functions()
+            .iter()
+            .map(ErodedFunctionFinding::new)
+            .collect(),
+    }
 }
 
 fn duplication_side(measured: &Measured) -> Side<CloneGroupFinding> {
-    let _ = measured;
-    todo!()
+    Side {
+        ratio: measured.duplication.ratio(),
+        findings_worst_first: measured
+            .duplication
+            .clone_groups
+            .iter()
+            .map(CloneGroupFinding::new)
+            .collect(),
+    }
 }
 
 fn verbosity_side(measured: &Measured) -> Side<FlaggedLineRow> {
-    let _ = measured;
-    todo!()
+    Side {
+        ratio: measured.verbosity.ratio(),
+        findings_worst_first: measured
+            .verbosity
+            .flagged_lines()
+            .iter()
+            .map(FlaggedLineRow::from)
+            .collect(),
+    }
 }
 
 fn import_cycles_side(measured: &Measured) -> Side<ImportCycleFinding> {
-    let _ = measured;
-    todo!()
+    Side {
+        ratio: measured.import_cycles.ratio(),
+        findings_worst_first: measured
+            .import_cycles
+            .cycles()
+            .iter()
+            .map(ImportCycleFinding::new)
+            .collect(),
+    }
 }
 
 impl SourceSetChangesSections {
+    fn named(&self) -> Vec<(&'static str, &SourceSetChanges)> {
+        [
+            ("Production", &self.production),
+            ("Test", &self.test),
+            ("Generated", &self.generated),
+            ("Vendored", &self.vendored),
+        ]
+        .into_iter()
+        .filter_map(|(name, changes)| changes.as_ref().map(|changes| (name, changes)))
+        .collect()
+    }
+
     fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetChanges> {
         match source_set {
             SourceSet::Production => &mut self.production,

@@ -50,6 +50,45 @@ When a Metric is over its Budget, codeint still writes the whole report, lists t
 codeint: the production erosion ratio 0.4321 is over its Budget 0.2
 ```
 
+## Compare with a base branch
+
+`codeint diff {base-ref}` compares the working tree with the merge-base of the base ref and HEAD:
+
+```sh
+codeint diff main
+codeint diff origin/main --format markdown
+```
+
+codeint reads the merge-base straight from Git objects, so it never checks out a commit and leaves the working tree and the index as they are.
+The working tree side includes uncommitted and untracked changes, and leaves out the files that Git ignores, as `codeint check` does.
+Commits added to the base branch after your branch started are not part of the comparison, because the merge-base comes before them.
+
+Both sides use the `codeint.json` of the working tree, so the comparison shows changes in the code, not in the configuration.
+Both sides follow the same file rules as `codeint check`: symbolic links are not followed, Git submodules are not measured, and files that are not valid UTF-8 are skipped.
+
+The report classifies each Finding by its `id`: new when only the working tree has it, resolved when only the merge-base has it, and unchanged when both have it.
+For each Metric of each Source set, it shows the ratio on both sides, the new and the resolved Findings, worst first, and the number of unchanged Findings:
+
+```text
+base:
+  ref: main
+  merge_base: 651980e53c24d8e14611d5b8cc84c11f0bbb3dca
+head: working tree
+source_sets:
+  production:
+    erosion:
+      base_ratio: 0
+      head_ratio: 0.9182
+      new[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
+        fb04850b9b041f9e,src/parse.ts,1,12,14,44.8999
+      resolved: []
+      unchanged: 0
+```
+
+It lists at most 20 new and 20 resolved Findings per Metric, and counts the rest in `new_left_out` and `resolved_left_out`; `--all` lists every one.
+`--format json` and `--format markdown` print the same comparison.
+A base ref that names no commit stops the run with exit code 2 and names the ref.
+
 ## Report formats
 
 `codeint check` prints the report in TOON by default.

@@ -87,7 +87,7 @@ enum Contents {
         root: PathBuf,
     },
     Commit {
-        repository: gix::Repository,
+        repository: Box<gix::Repository>,
         commit: CommitId,
         blobs: HashMap<RepoPath, gix::ObjectId>,
     },
@@ -138,8 +138,32 @@ impl Repository {
     }
 
     pub fn merge_base_with_head(&self, base_ref: &str) -> Result<CommitId, GitError> {
-        let _ = base_ref;
-        todo!()
+        let base = self
+            .repository
+            .rev_parse_single(base_ref)
+            .and_then(|id| id.object()?.peel_to_commit())
+            .map_err(|source| GitError::UnknownRef {
+                name: base_ref.to_owned(),
+                source,
+            })?;
+        let head = self
+            .repository
+            .head_id()
+            .map_err(|source| GitError::NoHeadCommit {
+                base_ref: base_ref.to_owned(),
+                source,
+            })?;
+        let merge_base = self
+            .repository
+            .merge_base(base.id, head)
+            .map_err(|source| GitError::MergeBase {
+                base_ref: base_ref.to_owned(),
+                source,
+            })?
+            .ok_or_else(|| GitError::NoMergeBase {
+                base_ref: base_ref.to_owned(),
+            })?;
+        Ok(CommitId(merge_base.detach()))
     }
 
     pub fn commit(&self, commit: CommitId) -> Result<Snapshot, GitError> {
@@ -148,7 +172,7 @@ impl Repository {
             files,
             submodules,
             contents: Contents::Commit {
-                repository: self.repository.clone(),
+                repository: Box::new(self.repository.clone()),
                 commit,
                 blobs,
             },
@@ -178,8 +202,18 @@ impl Snapshot {
                 commit,
                 blobs,
             } => {
-                let _ = (repository, commit, blobs);
-                todo!()
+                let blob = blobs.get(path).ok_or_else(|| GitError::Read {
+                    path: path.clone(),
+                    source: std::io::ErrorKind::NotFound.into(),
+                })?;
+                repository
+                    .find_blob(*blob)
+                    .map(|mut blob| blob.take_data())
+                    .map_err(|source| GitError::ReadBlob {
+                        path: path.clone(),
+                        commit: *commit,
+                        source,
+                    })
             }
         }
     }
@@ -230,8 +264,28 @@ fn list_commit(
     repository: &gix::Repository,
     commit: CommitId,
 ) -> Result<(Listing, HashMap<RepoPath, gix::ObjectId>), GitError> {
-    let _ = (repository, commit, repo_path);
-    todo!()
+    let entries = repository
+        .find_commit(commit.0)
+        .and_then(|found| found.tree())
+        .and_then(|tree| tree.traverse().breadthfirst.files())
+        .map_err(|source| GitError::CommitTree { commit, source })?;
+    let mut listing = Listing {
+        files: Vec::new(),
+        submodules: Vec::new(),
+    };
+    let mut blobs = HashMap::new();
+    for entry in entries {
+        if entry.mode.is_commit() {
+            listing.submodules.push(repo_path(entry.filepath)?);
+        } else if entry.mode.is_blob() {
+            let path = repo_path(entry.filepath)?;
+            blobs.insert(path.clone(), entry.oid);
+            listing.files.push(path);
+        }
+    }
+    listing.files.sort();
+    listing.submodules.sort();
+    Ok((listing, blobs))
 }
 
 fn repo_path(rela_path: gix::bstr::BString) -> Result<RepoPath, GitError> {
