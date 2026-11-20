@@ -4,7 +4,7 @@
   "description": "Development tools for the codeint repository. The published npm packages live in npm/.",
   "license": "MIT",
   "scripts": {
-    "duplicates": "jscpd --config .jscpd.json --min-lines 10 --min-tokens 1 . && jscpd --config .jscpd.json --min-lines 1 --min-tokens 100 ."
+    "duplicates": "cargo xtask no-duplicate-code"
   },
   "devDependencies": {
     "jscpd": "5.4.3",

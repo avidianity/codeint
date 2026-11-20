@@ -25,7 +25,7 @@ The allow-list:
 - the tool directives `# yaml-language-server:` and `# shellcheck shell=`.
 
 Rust doc comments are not on the allow-list, because no Rust crate is published.
-The exempt paths are `no_comments.exempt` in [checks.toml](../../checks.toml).
+The test input paths are `test_input.paths` in [checks.toml](../../checks.toml); [no-duplicate-code](./no-duplicate-code.md) reads the same list.
 This page is the allow-list file; a change to it is Tier 3.
 
 **Runs in**:

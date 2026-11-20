@@ -25,6 +25,11 @@ pub(crate) struct TierRule {
     pub(crate) paths: Vec<String>,
 }
 
+pub(crate) struct DuplicatePass {
+    pub(crate) min_lines: u64,
+    pub(crate) min_tokens: u64,
+}
+
 pub(crate) struct FeedbackBudgets {
     pub(crate) hook_seconds: f64,
     pub(crate) relevant_seconds: f64,
@@ -46,7 +51,8 @@ pub(crate) struct Settings {
     pub(crate) record_folders: Vec<String>,
     pub(crate) config_modules: Vec<String>,
     pub(crate) approved_suppressions: Vec<String>,
-    pub(crate) comment_exempt_paths: Vec<String>,
+    pub(crate) test_input_paths: Vec<String>,
+    pub(crate) duplicate_passes: Vec<DuplicatePass>,
     pub(crate) behavior_source: Vec<String>,
     pub(crate) behavior_tests: Vec<String>,
     pub(crate) tier_default: u8,
@@ -84,6 +90,25 @@ pub(crate) fn load_settings(root: &Path) -> Result<Settings, String> {
             Ok(TierRule { tier, paths })
         })
         .collect::<Result<Vec<_>, String>>()?;
+    let duplicate_passes = lookup(&table, "duplicates.passes")?
+        .as_array()
+        .ok_or("checks.toml: duplicates.passes must be an array of tables")?
+        .iter()
+        .map(|pass| {
+            let number = |key: &str| {
+                pass.get(key)
+                    .and_then(Value::as_integer)
+                    .and_then(|number| u64::try_from(number).ok())
+                    .ok_or(format!(
+                        "checks.toml: each duplicates pass needs a positive integer {key}"
+                    ))
+            };
+            Ok(DuplicatePass {
+                min_lines: number("min_lines")?,
+                min_tokens: number("min_tokens")?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(Settings {
         rules_file: string(&table, "rules.file")?,
         entry_files: strings(&table, "rules.entry_files")?,
@@ -98,7 +123,8 @@ pub(crate) fn load_settings(root: &Path) -> Result<Settings, String> {
         record_folders: strings(&table, "records.folders")?,
         config_modules: strings(&table, "config_access.modules")?,
         approved_suppressions: strings(&table, "suppressions.approved")?,
-        comment_exempt_paths: strings(&table, "no_comments.exempt")?,
+        test_input_paths: strings(&table, "test_input.paths")?,
+        duplicate_passes,
         behavior_source: strings(&table, "behavior.source")?,
         behavior_tests: strings(&table, "behavior.tests")?,
         tier_default: u8::try_from(integer(&table, "tier.default")?)

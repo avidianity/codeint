@@ -25,8 +25,14 @@ modules = ["crates/config/**", "xtask/src/config.rs"]
 [suppressions]
 approved = []
 
-[no_comments]
-exempt = ["crates/*/tests/fixtures/**"]
+[test_input]
+paths = ["crates/*/tests/fixtures/**"]
+
+[duplicates]
+passes = [
+  { min_lines = 10, min_tokens = 1 },
+  { min_lines = 1, min_tokens = 100 },
+]
 
 [behavior]
 source = ["crates/**/*.rs", "xtask/src/**/*.rs", "wit/**/*.wit", "npm/**/*.js", "npm/**/*.mjs", "npm/**/*.cjs", "install.sh", "install.ps1"]
