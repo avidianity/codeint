@@ -12,6 +12,9 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Check(CheckError::NotUtf8 { .. }) => {
             "Save the file as UTF-8, then run codeint again."
         }
+        CliError::Check(CheckError::Resolve(_)) => {
+            "This is a defect in the Language plugin; report it to the author of the Language plugin."
+        }
         CliError::Check(CheckError::ReferenceRange(_)) => {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }

@@ -435,6 +435,405 @@ function audit(age: number) {
 ",
         ],
     },
+    RuleFixtures {
+        rule: "trailing-bare-return",
+        flagged: &[
+            Flagged {
+                text: "export function log(message: string) {
+  console.log(message);
+  return;
+}
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const log = function (message) {
+  console.log(message);
+  return;
+};
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const log = (message: string) => {
+  console.log(message);
+  return;
+};
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export class Logger {
+  #lines: string[] = [];
+  constructor(first: string) {
+    this.#lines.push(first);
+    return;
+  }
+  write(line: string) {
+    this.#lines.push(line);
+    return;
+  }
+  static reset(logger: Logger) {
+    logger.#lines = [];
+    return;
+  }
+  get size() {
+    console.log(this.#lines.length);
+    return;
+  }
+  set last(line: string) {
+    this.#lines.push(line);
+    return;
+  }
+}
+",
+                lines: &[5, 9, 13, 17, 21],
+            },
+            Flagged {
+                text: "export function* count(limit: number) {
+  for (let index = 0; index < limit; index++) {
+    yield index;
+  }
+  return;
+}
+",
+                lines: &[5],
+            },
+            Flagged {
+                text: "export async function save(record: object) {
+  await write(record);
+  return;
+}
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const handlers = {
+  open() {
+    console.log('open');
+    return;
+  },
+  async *stream(items) {
+    yield* items;
+    return;
+  },
+};
+",
+                lines: &[4, 8],
+            },
+            Flagged {
+                text: "export function outer(items: number[]) {
+  items.forEach((item) => {
+    if (item < 0) {
+      return;
+    }
+    console.log(item);
+    return;
+  });
+  return;
+}
+",
+                lines: &[7, 9],
+            },
+            Flagged {
+                text: "export function done() {
+  console.log('done');
+  // nothing to return
+  return; // explicit end
+}
+",
+                lines: &[4],
+            },
+            Flagged {
+                text: "export function noop() { return; }
+",
+                lines: &[1],
+            },
+        ],
+        passing: &[
+            "export function log(message: string) {
+  if (!message) {
+    return;
+  }
+  console.log(message);
+}
+",
+            "export function total(items: number[]) {
+  console.log(items);
+  return items.length;
+}
+",
+            "export function total(items: number[]) {
+  console.log(items);
+  return undefined;
+}
+",
+            "export function check(ready: boolean) {
+  if (ready) {
+    console.log('ready');
+    return;
+  }
+}
+",
+            "export function first(items: number[]) {
+  for (const item of items) {
+    console.log(item);
+    return;
+  }
+}
+",
+            "export function run(task: () => void) {
+  return;
+  task();
+}
+",
+            "export const noop = () => undefined;
+",
+            "export function handle(kind: string) {
+  switch (kind) {
+    case 'a':
+      console.log(kind);
+      return;
+  }
+}
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "conditional-yields-boolean",
+        flagged: &[
+            Flagged {
+                text: "export const isAdult = (age: number) => age >= 18 ? true : false;
+",
+                lines: &[1],
+            },
+            Flagged {
+                text: "export function isEmpty(items: string[]) {
+  const empty = items.length > 0 ? false : true;
+  return empty;
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export function visible(user, page) {
+  return user.signedIn && page.public
+    // a signed-in user on a public page
+    ? true
+    : false;
+}
+",
+                lines: &[2, 4, 5],
+            },
+            Flagged {
+                text: "export const access = (admin, owner) =>
+  admin
+    ? 'all'
+    : owner
+      ? true
+      : false;
+",
+                lines: &[4, 5, 6],
+            },
+            Flagged {
+                text: "export function show(flag) {
+  if (flag ? true : false) {
+    console.log('shown');
+  }
+}
+",
+                lines: &[2],
+            },
+        ],
+        passing: &[
+            "export const label = (done: boolean) => done ? 'done' : 'open';
+",
+            "export const always = (flag: boolean) => flag ? true : true;
+",
+            "export const never = (flag: boolean) => flag ? false : false;
+",
+            "export const bit = (flag: boolean) => flag ? 1 : 0;
+",
+            "export const text = (flag: boolean) => flag ? 'true' : 'false';
+",
+            "export const either = (flag: boolean, other: boolean) => flag ? true : other;
+",
+            "export const both = (flag: boolean, other: boolean) => flag ? other : false;
+",
+            "export const unset = (flag: boolean) => flag ? undefined : null;
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "constructor-only-forwards",
+        flagged: &[
+            Flagged {
+                text: "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(name, role);
+  }
+}
+",
+                lines: &[2, 3, 4],
+            },
+            Flagged {
+                text: "export class Empty extends Base {
+  constructor() { super(); }
+  describe() {
+    return 'empty';
+  }
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export class Logger extends Sink {
+  public constructor(target: string, ...options: string[]) {
+    super(target, ...options);
+  }
+}
+",
+                lines: &[2, 3, 4],
+            },
+            Flagged {
+                text: "export const Child = class extends Parent {
+  constructor(value?: number) {
+    // the parent does the work
+    (super(value));
+  }
+};
+",
+                lines: &[2, 4, 5],
+            },
+            Flagged {
+                text: "export function make() {
+  return class Outer extends Base {
+    build() {
+      return class Inner extends Base {
+        constructor(...parts) {
+          super(...parts);
+        }
+      };
+    }
+  };
+}
+",
+                lines: &[5, 6, 7],
+            },
+        ],
+        passing: &[
+            "export class Admin extends User {
+  constructor(private name: string, role: string) {
+    super(name, role);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(readonly name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(role, name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name, 'admin');
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name.trim());
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name = 'root') {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor({ name }: { name: string }) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name);
+    this.audit();
+  }
+  audit() {
+    console.log('created');
+  }
+}
+",
+            "export class Admin extends User {
+  private constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  protected constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string);
+  constructor(name: string, role?: string);
+  constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(@Inject(NAME) name: string) {
+    super(name);
+  }
+}
+",
+            "@Injectable()
+export class Admin extends User {
+  constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, roles: string[]) {
+    super(name, ...roles);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, ...roles: string[]) {
+    super(name, roles);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    'use strict';
+    super(name);
+  }
+}
+",
+        ],
+    },
 ];
 
 fn flagged_lines(rule: &str, text: &str) -> Vec<u32> {

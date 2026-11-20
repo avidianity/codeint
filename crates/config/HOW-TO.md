@@ -23,7 +23,7 @@ use codeint_model::settle_source_set;
 let mut model = plugins[0].lower(&path, text)?;
 model.source_set = configuration
     .source_set_overrides
-    .source_set(&path, settle_source_set(&path, model.source_set));
+    .source_set(&path, settle_source_set(&path, text, model.source_set));
 ```
 
 - Apply the overrides once per lowered file, last, on the Source set that the Language plugin and the core rules settled.

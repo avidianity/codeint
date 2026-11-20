@@ -2,8 +2,10 @@
 
 mod duplication;
 mod erosion;
+mod import_cycles;
 mod verbosity;
 
 pub use duplication::{CloneGroup, Duplication, Fragment, MinimumCloneTokens};
 pub use erosion::{ErodedFunction, Erosion};
+pub use import_cycles::{ImportCycle, ImportCycles};
 pub use verbosity::{FlaggedLineFinding, Verbosity};

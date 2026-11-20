@@ -1,5 +1,10 @@
-use super::language::{FileModel, Guest, LowerError, ReferenceRange, SourceSet};
-use super::{InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath};
+use super::language::{
+    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, SourceSet,
+};
+use super::{
+    CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath,
+    RuntimeImport, SourceFile,
+};
 
 struct MeasuredLanguage;
 
@@ -15,7 +20,15 @@ impl Guest for MeasuredLanguage {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            runtime_imports: Vec::new(),
         })
+    }
+
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        requests.iter().map(|_| Resolution::External).collect()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
@@ -115,4 +128,62 @@ fn the_extension_is_the_text_after_the_last_dot_of_the_file_name() {
     assert_eq!(extension_of("types/index.d.ts"), Some("ts".to_owned()));
     assert_eq!(extension_of("v1.2/Makefile"), None);
     assert_eq!(extension_of("src/.eslintrc"), None);
+}
+
+fn file_in(path: &str, source_set: SourceSet) -> SourceFile {
+    SourceFile {
+        path: RepoPath::new(path).expect("a valid path"),
+        model: FileModel {
+            source_set,
+            source_lines: 1,
+            functions: Vec::new(),
+            tokens: Vec::new(),
+            flagged_lines: Vec::new(),
+            runtime_imports: Vec::new(),
+        },
+    }
+}
+
+fn import_of(importer: &str, target: &str) -> RuntimeImport {
+    RuntimeImport {
+        importer: RepoPath::new(importer).expect("a valid path"),
+        specifier: format!("./{target}"),
+        resolution: ImportResolution::Resolved(RepoPath::new(target).expect("a valid path")),
+    }
+}
+
+#[test]
+fn each_runtime_import_moves_into_the_source_set_of_the_file_that_imports() {
+    let model = CodeModel {
+        files: vec![
+            file_in("main.ts", SourceSet::Production),
+            file_in("main.test.ts", SourceSet::Test),
+        ],
+        runtime_imports: vec![
+            import_of("main.ts", "main.test.ts"),
+            import_of("main.test.ts", "main.ts"),
+            import_of("main.test.ts", "main.test.ts"),
+        ],
+        ..CodeModel::default()
+    };
+
+    let source_sets = model.into_source_sets();
+
+    assert_eq!(
+        source_sets.get(SourceSet::Production).runtime_imports,
+        [import_of("main.ts", "main.test.ts")]
+    );
+    assert_eq!(
+        source_sets.get(SourceSet::Test).runtime_imports,
+        [
+            import_of("main.test.ts", "main.ts"),
+            import_of("main.test.ts", "main.test.ts"),
+        ]
+    );
+    assert!(
+        source_sets
+            .get(SourceSet::Generated)
+            .runtime_imports
+            .is_empty()
+    );
 }

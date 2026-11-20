@@ -1,5 +1,5 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_model::language::Function;
+use codeint_model::language::{Function, ImportRequest, Resolution};
 use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath, SourceSet};
 
 fn plugin() -> &'static dyn LanguagePlugin {
@@ -456,6 +456,192 @@ fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
     assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
 }
 
+fn cyclomatic_complexity(path: &str, text: &str) -> u32 {
+    match functions(path, text).as_slice() {
+        [only] => 1 + only.decision_points,
+        other => panic!("{path} lowered to {} functions, not 1", other.len()),
+    }
+}
+
+fn assert_cyclomatic_complexities(cases: &[(&str, &str, u32)]) {
+    for (construct, body, expected) in cases {
+        let text = format!(
+            "export function measured(a: any, b: any, c: any): any {{\n  {body}\n  return a;\n}}\n"
+        );
+        assert_eq!(
+            cyclomatic_complexity("src/measured.ts", &text),
+            *expected,
+            "{construct}: {body}"
+        );
+    }
+}
+
+#[test]
+fn each_branch_and_loop_statement_adds_one_to_cyclomatic_complexity() {
+    assert_cyclomatic_complexities(&[
+        ("if", "if (a) { b(); }", 2),
+        ("if with else", "if (a) { b(); } else { c(); }", 2),
+        ("else if", "if (a) { b(); } else if (c) { c(); }", 3),
+        ("for", "for (let i = 0; i < a; i++) { b(); }", 2),
+        ("for in", "for (const key in a) { b(key); }", 2),
+        ("for of", "for (const item of a) { b(item); }", 2),
+        ("while", "while (a) { a = b(); }", 2),
+        ("do while", "do { a = b(); } while (a);", 2),
+    ]);
+}
+
+#[test]
+fn each_non_default_case_adds_one_and_a_default_case_adds_nothing() {
+    assert_cyclomatic_complexities(&[
+        ("one case", "switch (a) { case 1: b(); }", 2),
+        (
+            "two cases",
+            "switch (a) { case 1: b(); break; case 2: c(); }",
+            3,
+        ),
+        (
+            "fallthrough cases",
+            "switch (a) { case 1: case 2: b(); }",
+            3,
+        ),
+        ("only a default case", "switch (a) { default: b(); }", 1),
+        (
+            "a case and a default case",
+            "switch (a) { case 1: b(); break; default: c(); }",
+            2,
+        ),
+    ]);
+}
+
+#[test]
+fn a_catch_clause_adds_one_and_a_finally_block_adds_nothing() {
+    assert_cyclomatic_complexities(&[
+        ("catch", "try { b(); } catch (error) { c(error); }", 2),
+        ("catch without a binding", "try { b(); } catch { c(); }", 2),
+        ("finally", "try { b(); } finally { c(); }", 1),
+        (
+            "catch and finally",
+            "try { b(); } catch { c(); } finally { c(); }",
+            2,
+        ),
+    ]);
+}
+
+#[test]
+fn each_conditional_operator_adds_one() {
+    assert_cyclomatic_complexities(&[
+        ("conditional", "a = b ? 1 : 2;", 2),
+        ("nested conditional", "a = b ? 1 : c ? 2 : 3;", 3),
+    ]);
+}
+
+#[test]
+fn each_logical_operator_and_its_assignment_form_adds_one() {
+    assert_cyclomatic_complexities(&[
+        ("and", "a = b && c;", 2),
+        ("or", "a = b || c;", 2),
+        ("nullish coalescing", "a = b ?? c;", 2),
+        ("a chain of three operators", "a = (a && b || c) ?? 1;", 4),
+        ("and assignment", "a &&= b;", 2),
+        ("or assignment", "a ||= b;", 2),
+        ("nullish assignment", "a ??= b;", 2),
+        ("plain assignment", "a = b;", 1),
+        ("compound assignment", "a += b;", 1),
+        ("bitwise operators", "a = b & c | 1;", 1),
+    ]);
+}
+
+#[test]
+fn each_optional_chain_link_adds_one() {
+    assert_cyclomatic_complexities(&[
+        ("optional property", "b(a?.name);", 2),
+        ("optional element", "b(a?.[0]);", 2),
+        ("optional call", "a?.();", 2),
+        ("optional method call", "a.run?.();", 2),
+        (
+            "one optional link before plain links",
+            "b(a?.first.second[0]());",
+            2,
+        ),
+        ("two optional links", "b(a?.first?.second);", 3),
+        ("three optional links", "a?.first?.[0]?.();", 4),
+        (
+            "plain member access and calls",
+            "b(a.first[0].second());",
+            1,
+        ),
+    ]);
+}
+
+#[test]
+fn an_optional_private_field_link_adds_one() {
+    let text = concat!(
+        "export class Vault {\n",
+        "  #secret = 1;\n",
+        "  read(other?: Vault) {\n",
+        "    return other?.#secret;\n",
+        "  }\n",
+        "}\n",
+    );
+
+    assert_eq!(cyclomatic_complexity("src/vault.ts", text), 2);
+}
+
+#[test]
+fn each_default_parameter_adds_one_to_its_own_function() {
+    let cases = [
+        (
+            "one default",
+            "export function f(a = 1) {\n  return a;\n}\n",
+            2,
+        ),
+        (
+            "two defaults and a plain parameter",
+            "export function f(a: number, b = 1, c: string = 'c') {\n  return a + b + c;\n}\n",
+            3,
+        ),
+        ("arrow function", "export const f = (a = 1) => a;\n", 2),
+        (
+            "method",
+            "export class Greeter {\n  greet(name = 'you') {\n    return name;\n  }\n}\n",
+            2,
+        ),
+        (
+            "optional parameter without a default",
+            "export function f(a?: number) {\n  return a;\n}\n",
+            1,
+        ),
+        (
+            "rest parameter",
+            "export function f(...rest: number[]) {\n  return rest;\n}\n",
+            1,
+        ),
+    ];
+
+    for (construct, text, expected) in cases {
+        assert_eq!(
+            cyclomatic_complexity("src/defaults.ts", text),
+            expected,
+            "{construct}"
+        );
+    }
+}
+
+#[test]
+fn a_default_parameter_of_a_nested_function_counts_only_toward_the_nested_function() {
+    let text = concat!(
+        "export function outer() {\n",
+        "  const inner = (limit = 10) => limit;\n",
+        "  return inner();\n",
+        "}\n",
+    );
+
+    assert_eq!(
+        functions("src/outer.ts", text),
+        [function(1, 0, 3), function(2, 1, 1)]
+    );
+}
+
 fn tokens(path: &str, text: &str) -> Vec<(String, u32)> {
     match lower(path, text) {
         Ok(model) => model
@@ -511,6 +697,23 @@ fn the_token_stream_holds_each_token_with_its_line_and_no_whitespace_or_comments
 }
 
 #[test]
+fn decision_points_in_a_javascript_file_count_the_same_way() {
+    let text = concat!(
+        "export function pick(options = {}) {\n",
+        "  const name = options?.name ?? 'none';\n",
+        "  switch (name) {\n",
+        "    case 'a':\n",
+        "      return options.a || 1;\n",
+        "    default:\n",
+        "      return name ? 2 : 3;\n",
+        "  }\n",
+        "}\n",
+    );
+
+    assert_eq!(cyclomatic_complexity("src/pick.js", text), 7);
+}
+
+#[test]
 fn the_token_stream_covers_jsx_and_regular_expressions() {
     let text = "export const Hit = () => <b title=\"x\">{/a+/.test('aa')}</b>;\n";
 
@@ -529,6 +732,193 @@ fn the_token_stream_covers_jsx_and_regular_expressions() {
 #[test]
 fn an_empty_file_has_no_tokens() {
     assert_eq!(tokens("src/empty.ts", ""), []);
+}
+
+fn runtime_imports(path: &str, text: &str) -> Vec<String> {
+    match lower(path, text) {
+        Ok(model) => model.runtime_imports,
+        Err(error) => panic!("{path} did not lower: {error}"),
+    }
+}
+
+#[test]
+fn every_runtime_import_form_is_reported_in_source_order() {
+    let text = concat!(
+        "import './side-effect';\n",
+        "import main from './default';\n",
+        "import * as all from './namespace';\n",
+        "import { named, type Shape } from './mixed';\n",
+        "export * from './everything';\n",
+        "export { renamed as alias } from './reexport';\n",
+        "import legacy = require('./legacy');\n",
+        "export async function load() {\n",
+        "  const lazy = await import('./lazy');\n",
+        "  const templated = await import(`./templated`);\n",
+        "  return [main, all, named, legacy, lazy, templated, require('./required')];\n",
+        "}\n",
+    );
+
+    assert_eq!(
+        runtime_imports("src/forms.ts", text),
+        [
+            "./side-effect",
+            "./default",
+            "./namespace",
+            "./mixed",
+            "./everything",
+            "./reexport",
+            "./legacy",
+            "./lazy",
+            "./templated",
+            "./required",
+        ]
+    );
+}
+
+#[test]
+fn type_only_imports_and_exports_are_not_runtime_imports() {
+    let text = concat!(
+        "import type { First } from './first';\n",
+        "import { type Second, type Third } from './second';\n",
+        "export type { Fourth } from './fourth';\n",
+        "export { type Fifth } from './fifth';\n",
+        "export type * from './sixth';\n",
+        "import type Seventh = require('./seventh');\n",
+        "export const shapes: [First, Second, Third, Seventh] | null = null;\n",
+    );
+
+    assert_eq!(runtime_imports("src/types.ts", text), Vec::<String>::new());
+}
+
+#[test]
+fn an_import_with_a_computed_specifier_is_not_reported() {
+    let text = concat!(
+        "const name = './computed';\n",
+        "export const load = () => import(name);\n",
+        "export const read = () => require(`./${name}`);\n",
+    );
+
+    assert_eq!(
+        runtime_imports("src/computed.js", text),
+        Vec::<String>::new()
+    );
+}
+
+fn resolve(repository_paths: &[&str], importer: &str, specifier: &str) -> Resolution {
+    let paths: Vec<RepoPath> = repository_paths
+        .iter()
+        .map(|path| RepoPath::new(*path).expect("a valid path"))
+        .collect();
+    let request = ImportRequest {
+        importer: importer.to_owned(),
+        specifier: specifier.to_owned(),
+    };
+    let mut resolutions = plugin().resolve_imports(&paths, vec![request]);
+    assert_eq!(resolutions.len(), 1, "one resolution per request");
+    resolutions.remove(0)
+}
+
+fn resolved(path: &str) -> Resolution {
+    Resolution::Resolved(path.to_owned())
+}
+
+#[test]
+fn a_relative_specifier_resolves_to_the_first_matching_file_in_typescript_order() {
+    let files = [
+        "src/main.ts",
+        "src/util.ts",
+        "src/util.js",
+        "src/view.tsx",
+        "src/legacy.js",
+        "src/esm.mts",
+        "src/common.cts",
+        "src/data.json",
+        "src/widgets/index.tsx",
+        "lib/shared.ts",
+        "index.js",
+    ];
+    let cases = [
+        ("./util", resolved("src/util.ts")),
+        ("./util.js", resolved("src/util.js")),
+        ("./view.js", resolved("src/view.tsx")),
+        ("./view.jsx", resolved("src/view.tsx")),
+        ("./legacy", resolved("src/legacy.js")),
+        ("./esm.mjs", resolved("src/esm.mts")),
+        ("./common.cjs", resolved("src/common.cts")),
+        ("./data.json", resolved("src/data.json")),
+        ("./widgets", resolved("src/widgets/index.tsx")),
+        ("./widgets/", resolved("src/widgets/index.tsx")),
+        ("../lib/shared", resolved("lib/shared.ts")),
+        ("./../src/./util", resolved("src/util.ts")),
+        ("..", resolved("index.js")),
+    ];
+
+    for (specifier, expected) in cases {
+        assert_eq!(
+            resolve(&files, "src/main.ts", specifier),
+            expected,
+            "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn a_bare_specifier_names_a_module_outside_the_repository() {
+    for specifier in ["react", "@scope/package/sub", "node:path", "fs"] {
+        assert_eq!(
+            resolve(&["src/main.ts"], "src/main.ts", specifier),
+            Resolution::External,
+            "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn a_relative_specifier_without_a_matching_file_is_unresolved() {
+    for specifier in [
+        "./missing",
+        "./main.ts/extra",
+        "../../outside",
+        "/absolute/path",
+    ] {
+        let resolution = resolve(&["src/main.ts"], "src/main.ts", specifier);
+        assert!(
+            matches!(&resolution, Resolution::Unresolved(reason) if reason.contains(specifier)),
+            "{specifier}: {resolution:?}"
+        );
+    }
+}
+
+#[test]
+fn resolutions_come_back_one_per_request_in_request_order() {
+    let paths: Vec<RepoPath> = ["a.ts", "b.ts"]
+        .iter()
+        .map(|path| RepoPath::new(*path).expect("a valid path"))
+        .collect();
+    let requests = [
+        ("a.ts", "./b"),
+        ("b.ts", "react"),
+        ("b.ts", "./a"),
+        ("a.ts", "./c"),
+    ]
+    .iter()
+    .map(|(importer, specifier)| ImportRequest {
+        importer: (*importer).to_owned(),
+        specifier: (*specifier).to_owned(),
+    })
+    .collect();
+
+    let resolutions = plugin().resolve_imports(&paths, requests);
+
+    assert_eq!(
+        resolutions,
+        [
+            resolved("b.ts"),
+            Resolution::External,
+            resolved("a.ts"),
+            Resolution::Unresolved("no file of the repository matches \"./c\"".to_owned()),
+        ]
+    );
 }
 
 fn source_set(path: &str) -> SourceSet {
@@ -578,5 +968,63 @@ fn a_file_that_no_test_rule_matches_is_in_the_production_source_set() {
         "src/greet.test.helpers.ts",
     ] {
         assert_eq!(source_set(path), SourceSet::Production, "{path}");
+    }
+}
+
+fn source_set_of_text(path: &str, text: &str) -> SourceSet {
+    match lower(path, text) {
+        Ok(model) => model.source_set,
+        Err(error) => panic!("{path} did not lower: {error}"),
+    }
+}
+
+#[test]
+fn a_file_with_a_generated_marker_in_a_comment_before_its_code_is_in_the_generated_source_set() {
+    for text in [
+        "// @generated\nexport const one = 1;\n",
+        "/* @generated SignedSource<<0123abcd>> */\nexport const one = 1;\n",
+        "/**\n * This file was automatically generated by json-schema-to-typescript.\n */\nexport type One = 1;\n",
+        "// Code generated by protoc-gen-ts. DO NOT EDIT.\nexport const one = 1;\n",
+        "/* eslint-disable */\n// This file is auto-generated.\nexport const one = 1;\n",
+        "/* !!! This is code generated by Prisma. Do not edit directly. !!! */\nexport const one = 1;\n",
+        "/* NOTE: This class is auto generated by OpenAPI Generator. */\nexport class One {}\n",
+        "// AUTOGENERATED FILE\nexport const one = 1;\n",
+        "// Generated by CoffeeScript 1.12.7\nexport const one = 1;\n",
+        "#!/usr/bin/env node\n// @generated\nexport const one = 1;\n",
+        "// @generated\n",
+    ] {
+        assert_eq!(
+            source_set_of_text("src/one.ts", text),
+            SourceSet::Generated,
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_generated_marker_wins_over_a_test_rule() {
+    assert_eq!(
+        source_set_of_text(
+            "src/__tests__/fixtures.ts",
+            "// @generated\nexport const one = 1;\n"
+        ),
+        SourceSet::Generated
+    );
+}
+
+#[test]
+fn a_generated_marker_after_the_first_code_or_outside_a_comment_does_not_make_a_file_generated() {
+    for text in [
+        "export const one = 1;\n// @generated\n",
+        "import { two } from './two';\n/* DO NOT EDIT below this line */\nexport const one = two;\n",
+        "const banner = '// @generated';\nexport { banner };\n",
+        "// The generator of this report reads the config.\nexport const one = 1;\n",
+        "// Generates the next id, so edit with care.\nexport const one = 1;\n",
+    ] {
+        assert_eq!(
+            source_set_of_text("src/one.ts", text),
+            SourceSet::Production,
+            "{text}"
+        );
     }
 }
