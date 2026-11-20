@@ -1,10 +1,13 @@
 #![forbid(unsafe_code)]
 
 use codeint_metrics::{ErodedFunction, Erosion};
-use codeint_model::{CodeModel, RepoPath, SkippedFile};
+use codeint_model::{CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile};
 use serde::Serialize;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
+const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
+const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
+    "not shown, because the measured files are in more than one language";
 
 #[derive(Debug, thiserror::Error)]
 #[error("cannot render the report")]
@@ -21,9 +24,26 @@ pub struct Report {
     declaration_only: Vec<String>,
 }
 
+pub enum ReferenceRangeScope {
+    OneLanguage(ReferenceRanges),
+    SeveralLanguages,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum ReferenceRangeEntry {
+    Published {
+        low: Decimal,
+        high: Decimal,
+        source: String,
+    },
+    NotShown(&'static str),
+}
+
 #[derive(Debug, Serialize)]
 struct ErosionSection {
     ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
     findings: Vec<ErodedFunctionFinding>,
@@ -54,10 +74,35 @@ impl Decimal {
     }
 }
 
+impl ReferenceRangeScope {
+    fn entry(&self, metric: &str) -> ReferenceRangeEntry {
+        match self {
+            ReferenceRangeScope::OneLanguage(ranges) => ranges.for_metric(metric).map_or(
+                ReferenceRangeEntry::NotShown(NOT_PUBLISHED_FOR_THIS_LANGUAGE),
+                ReferenceRangeEntry::from,
+            ),
+            ReferenceRangeScope::SeveralLanguages => {
+                ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_SEVERAL_LANGUAGES)
+            }
+        }
+    }
+}
+
+impl From<&ReferenceRange> for ReferenceRangeEntry {
+    fn from(range: &ReferenceRange) -> ReferenceRangeEntry {
+        ReferenceRangeEntry::Published {
+            low: Decimal::rounded(range.low),
+            high: Decimal::rounded(range.high),
+            source: range.source.clone(),
+        }
+    }
+}
+
 impl ErosionSection {
-    fn new(erosion: &Erosion) -> ErosionSection {
+    fn new(erosion: &Erosion, ranges: &ReferenceRangeScope) -> ErosionSection {
         ErosionSection {
             ratio: Decimal::rounded(erosion.ratio()),
+            reference_range: ranges.entry("erosion"),
             eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
             total_function_mass: Decimal::rounded(erosion.total_function_mass()),
             findings: erosion
@@ -91,7 +136,7 @@ impl From<&SkippedFile> for SkippedEntry {
 }
 
 impl Report {
-    pub fn summarize(model: &CodeModel) -> Report {
+    pub fn summarize(model: &CodeModel, ranges: &ReferenceRangeScope) -> Report {
         Report {
             files: model.files.len(),
             source_lines: model
@@ -99,7 +144,7 @@ impl Report {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
-            erosion: ErosionSection::new(&Erosion::measure(model)),
+            erosion: ErosionSection::new(&Erosion::measure(model), ranges),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

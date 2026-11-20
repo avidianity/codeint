@@ -2,7 +2,7 @@
 
 mod functions;
 
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -46,6 +46,10 @@ impl Guest for TypeScriptAndJavaScript {
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
         })
+    }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        todo!()
     }
 }
 
