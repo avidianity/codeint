@@ -182,25 +182,37 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          source_lines: {source_lines}\n    \
          erosion:\n      \
          ratio: 0\n      \
-         reference_range: no published Reference range for this language\n      \
+         reference_range:\n        \
+         low: 0.352\n        \
+         high: 0.6\n        \
+         source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n      \
          eroded_function_mass: 0\n      \
          total_function_mass: 0\n      \
          findings: []\n    \
          duplication:\n      \
          ratio: 0\n      \
-         reference_range: no published Reference range for this language\n      \
+         reference_range:\n        \
+         low: 0.017\n        \
+         high: 0.346\n        \
+         source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n      \
          clone_lines: 0\n      \
          clone_groups: []\n    \
          verbosity:\n      \
          ratio: 0\n      \
-         reference_range: no published Reference range for this language\n      \
+         reference_range:\n        \
+         low: 0.018\n        \
+         high: 0.347\n        \
+         source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n      \
          verbose_lines: 0\n      \
          flagged_lines: 0\n      \
          clone_lines: 0\n      \
          findings: []\n    \
          import_cycles:\n      \
          ratio: 0\n      \
-         reference_range: no published Reference range for this language\n      \
+         reference_range:\n        \
+         low: 0\n        \
+         high: 0.308\n        \
+         source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n      \
          modules_in_import_cycles: 0\n      \
          modules: {files}\n      \
          findings: []\n      \
@@ -252,7 +264,10 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
         production_section(&output, "verbosity"),
         "verbosity:\n  \
          ratio: 0.15\n  \
-         reference_range: no published Reference range for this language\n  \
+         reference_range:\n    \
+         low: 0.018\n    \
+         high: 0.347\n    \
+         source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n  \
          verbose_lines: 3\n  \
          flagged_lines: 3\n  \
          clone_lines: 0\n  \
@@ -299,7 +314,10 @@ fn verbosity_counts_a_line_that_is_both_flagged_and_a_clone_line_once() {
         concat!(
             "verbosity:\n",
             "  ratio: 0.7143\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.018\n",
+            "    high: 0.347\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  verbose_lines: 15\n",
             "  flagged_lines: 3\n",
             "  clone_lines: 14\n",
@@ -570,7 +588,10 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
         concat!(
             "erosion:\n",
             "  ratio: 0.8889\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 48\n",
             "  total_function_mass: 54\n",
             "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -596,7 +617,10 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
         concat!(
             "erosion:\n",
             "  ratio: 0.7094\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 84.561\n",
             "  total_function_mass: 119.202\n",
             "  findings[2]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -621,7 +645,10 @@ fn a_repository_without_functions_reports_erosion_0() {
         concat!(
             "erosion:\n",
             "  ratio: 0\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 0\n",
             "  findings: []\n",
@@ -630,7 +657,7 @@ fn a_repository_without_functions_reports_erosion_0() {
 }
 
 #[test]
-fn the_typescript_and_javascript_report_says_that_no_published_reference_range_exists_for_each_metric()
+fn the_typescript_and_javascript_report_shows_the_approved_reference_ranges_with_their_source_label()
  {
     let repository = Repository::new();
     repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
@@ -641,20 +668,23 @@ fn the_typescript_and_javascript_report_says_that_no_published_reference_range_e
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    let report = stdout(&output);
-    let metric_sections = report
-        .lines()
-        .filter(|line| indent(line) == METRIC_INDENT && line.ends_with(':'))
-        .count();
-    let unpublished = report
-        .lines()
-        .filter(|line| {
-            *line == "      reference_range: no published Reference range for this language"
-        })
-        .count();
-    assert!(metric_sections >= 6, "unexpected report: {report}");
-    assert_eq!(unpublished, metric_sections, "unexpected report: {report}");
-    assert!(!report.contains("low:"), "unexpected report: {report}");
+    let source =
+        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
+    for (metric, low, high) in [
+        ("erosion", "0.352", "0.6"),
+        ("duplication", "0.017", "0.346"),
+        ("verbosity", "0.018", "0.347"),
+        ("import_cycles", "0", "0.308"),
+    ] {
+        let expected = format!(
+            "  reference_range:\n    low: {low}\n    high: {high}\n    source: \"{source}\"\n"
+        );
+        let section = production_section(&output, metric);
+        assert!(
+            section.contains(&expected),
+            "missing Reference range for {metric} in:\n{section}"
+        );
+    }
 }
 
 #[test]
@@ -680,7 +710,10 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
         concat!(
             "erosion:\n",
             "  ratio: 0.9683\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 43.2666\n",
             "  total_function_mass: 44.6808\n",
             "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -820,7 +853,10 @@ fn every_kind_of_decision_point_counts_toward_erosion() {
         concat!(
             "erosion:\n",
             "  ratio: 1\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 46.669\n",
             "  total_function_mass: 46.669\n",
             "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -857,7 +893,10 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
         concat!(
             "erosion:\n",
             "  ratio: 0.5338\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 39.6611\n",
             "  total_function_mass: 74.3021\n",
             "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -869,7 +908,10 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
         concat!(
             "erosion:\n",
             "  ratio: 1\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 44.8999\n",
             "  total_function_mass: 44.8999\n",
             "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -996,7 +1038,10 @@ fn a_source_set_without_files_is_left_out_of_the_report() {
         concat!(
             "erosion:\n",
             "  ratio: 0\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.352\n",
+            "    high: 0.6\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 1.7321\n",
             "  findings: []\n",
@@ -1272,7 +1317,7 @@ fn assert_unwritable_output(output: &Output, path: &str) {
     );
 }
 
-const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  clone_lines: 0\n  clone_groups: []\n";
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  reference_range:\n    low: 0.017\n    high: 0.346\n    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
     "export function total(items: { price: number; discount: number; quantity: number }[]): number {\n",
@@ -1305,7 +1350,10 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
         concat!(
             "duplication:\n",
             "  ratio: 0.9\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.017\n",
+            "    high: 0.346\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1356,7 +1404,10 @@ fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
         concat!(
             "duplication:\n",
             "  ratio: 1\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.017\n",
+            "    high: 0.346\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1432,7 +1483,10 @@ fn a_copy_of_74_tokens_is_not_a_clone_group_and_a_copy_of_75_tokens_is() {
         concat!(
             "duplication:\n",
             "  ratio: 1\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.017\n",
+            "    high: 0.346\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  clone_lines: 20\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1581,7 +1635,10 @@ fn a_copied_function_after_a_shared_import_list_forms_a_clone_group_of_the_funct
         concat!(
             "duplication:\n",
             "  ratio: 0.4737\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0.017\n",
+            "    high: 0.346\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1618,7 +1675,10 @@ fn no_import_cycles(modules: usize) -> String {
     format!(
         "import_cycles:\n\
          \x20 ratio: 0\n\
-         \x20 reference_range: no published Reference range for this language\n\
+         \x20 reference_range:\n\
+         \x20   low: 0\n\
+         \x20   high: 0.308\n\
+         \x20   source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n\
          \x20 modules_in_import_cycles: 0\n\
          \x20 modules: {modules}\n\
          \x20 findings: []\n\
@@ -1654,7 +1714,10 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.75\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
@@ -1700,7 +1763,10 @@ fn a_cycle_through_a_tsconfig_path_alias_is_an_import_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.6667\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -1762,7 +1828,10 @@ fn a_cycle_through_the_exports_of_a_workspace_package_is_an_import_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.6667\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -1834,7 +1903,10 @@ fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.75\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
@@ -1902,7 +1974,10 @@ fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() 
         concat!(
             "import_cycles:\n",
             "  ratio: 1\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -1943,7 +2018,10 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.7143\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 5\n",
             "  modules: 7\n",
             "  findings[3]:\n",
@@ -2048,7 +2126,10 @@ fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
         concat!(
             "import_cycles:\n",
             "  ratio: 1\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 2\n",
             "  findings[1]:\n",
@@ -2086,7 +2167,10 @@ fn unresolved_imports_are_counted_and_listed_and_the_import_cycle_is_still_found
         concat!(
             "import_cycles:\n",
             "  ratio: 0.6667\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -2213,7 +2297,10 @@ fn an_unresolved_import_of_a_test_file_is_reported_in_the_test_source_set_only()
         concat!(
             "import_cycles:\n",
             "  ratio: 0\n",
-            "  reference_range: no published Reference range for this language\n",
+            "  reference_range:\n",
+            "    low: 0\n",
+            "    high: 0.308\n",
+            "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  modules_in_import_cycles: 0\n",
             "  modules: 1\n",
             "  findings: []\n",
@@ -3015,20 +3102,32 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       "source_lines": 7,
       "erosion": {
         "ratio": 0.0,
-        "reference_range": "no published Reference range for this language",
+        "reference_range": {
+          "low": 0.352,
+          "high": 0.6,
+          "source": "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+        },
         "eroded_function_mass": 0.0,
         "total_function_mass": 5.2915,
         "findings": []
       },
       "duplication": {
         "ratio": 0.0,
-        "reference_range": "no published Reference range for this language",
+        "reference_range": {
+          "low": 0.017,
+          "high": 0.346,
+          "source": "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+        },
         "clone_lines": 0,
         "clone_groups": []
       },
       "verbosity": {
         "ratio": 0.1429,
-        "reference_range": "no published Reference range for this language",
+        "reference_range": {
+          "low": 0.018,
+          "high": 0.347,
+          "source": "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+        },
         "verbose_lines": 1,
         "flagged_lines": 1,
         "clone_lines": 0,
@@ -3043,7 +3142,11 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       },
       "import_cycles": {
         "ratio": 0.0,
-        "reference_range": "no published Reference range for this language",
+        "reference_range": {
+          "low": 0.0,
+          "high": 0.308,
+          "source": "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+        },
         "modules_in_import_cycles": 0,
         "modules": 1,
         "findings": [],
@@ -3312,7 +3415,10 @@ fn write_two_package_workspace(repository: &Repository, root_manifest: &str) {
 const TWO_PACKAGE_EROSION: &str = concat!(
     "erosion:\n",
     "  ratio: 0.8209\n",
-    "  reference_range: no published Reference range for this language\n",
+    "  reference_range:\n",
+    "    low: 0.352\n",
+    "    high: 0.6\n",
+    "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
     "  eroded_function_mass: 44.8999\n",
     "  total_function_mass: 54.6978\n",
     "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -3814,7 +3920,7 @@ fn format_markdown_lists_each_metric_over_its_budget_after_the_metric_table_and_
     assert_eq!(output.status.code(), Some(1));
     assert!(
         stdout(&output).contains(
-            "| no published Reference range for this language |\n\
+            "| 0 to 0.308, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |\n\
              \n\
              ## Over Budget\n\
              \n\
@@ -3838,7 +3944,7 @@ fn format_markdown_lists_the_ratios_of_each_workspace_package_after_the_metric_t
     assert_success(&output);
     assert!(
         stdout(&output).contains(
-            "| no published Reference range for this language |\n\
+            "| 0 to 0.308, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |\n\
              \n\
              ## Workspace packages\n\
              \n\

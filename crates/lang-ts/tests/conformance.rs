@@ -277,11 +277,25 @@ fn a_file_named_like_a_declaration_without_the_d_suffix_is_code() {
 }
 
 #[test]
-fn the_plugin_supplies_no_reference_range_because_none_is_published_for_typescript_or_javascript() {
+fn the_plugin_supplies_the_approved_reference_ranges_for_every_metric() {
     let ranges = plugin().reference_ranges().expect("valid Reference ranges");
+    let source =
+        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
 
-    for metric in ["erosion", "verbosity", "duplication", "import_cycles"] {
-        assert!(ranges.for_metric(metric).is_none(), "{metric}");
+    for (metric, low, high) in [
+        ("erosion", 0.352, 0.600),
+        ("verbosity", 0.018, 0.347),
+        ("duplication", 0.017, 0.346),
+        ("import_cycles", 0.000, 0.308),
+    ] {
+        let range = ranges
+            .for_metric(metric)
+            .unwrap_or_else(|| panic!("missing Reference range for {metric}"));
+        assert_eq!(
+            (range.low, range.high, range.source.as_str()),
+            (low, high, source),
+            "{metric}"
+        );
     }
 }
 

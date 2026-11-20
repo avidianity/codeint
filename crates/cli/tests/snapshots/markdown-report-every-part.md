@@ -4,14 +4,14 @@ codeint measured 28 files with 516 source lines: Production has 27 files with 51
 
 | Source set | Metric | Value | Behind the value | Reference range |
 | ---------- | ------ | ----- | ---------------- | --------------- |
-| Production | Erosion | 0.9894 | 2177.4789 of 2200.7704 Function mass in eroded functions | no published Reference range for this language |
-| Production | Duplication | 0.035 | 18 clone lines of 514 source lines | no published Reference range for this language |
-| Production | Verbosity | 0.037 | 19 verbose lines of 514 source lines: 1 Flagged line, 18 clone lines | no published Reference range for this language |
-| Production | Import cycles | 0.0741 | 2 of 27 modules in an Import cycle, 1 unresolved import | no published Reference range for this language |
-| Test | Erosion | 0 | 0 of 0 Function mass in eroded functions | no published Reference range for this language |
-| Test | Duplication | 0 | 0 clone lines of 2 source lines | no published Reference range for this language |
-| Test | Verbosity | 0 | 0 verbose lines of 2 source lines: 0 Flagged lines, 0 clone lines | no published Reference range for this language |
-| Test | Import cycles | 0 | 0 of 1 module in an Import cycle | no published Reference range for this language |
+| Production | Erosion | 0.9894 | 2177.4789 of 2200.7704 Function mass in eroded functions | 0.352 to 0.6, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Production | Duplication | 0.035 | 18 clone lines of 514 source lines | 0.017 to 0.346, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Production | Verbosity | 0.037 | 19 verbose lines of 514 source lines: 1 Flagged line, 18 clone lines | 0.018 to 0.347, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Production | Import cycles | 0.0741 | 2 of 27 modules in an Import cycle, 1 unresolved import | 0 to 0.308, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Test | Erosion | 0 | 0 of 0 Function mass in eroded functions | 0.352 to 0.6, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Test | Duplication | 0 | 0 clone lines of 2 source lines | 0.017 to 0.346, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Test | Verbosity | 0 | 0 verbose lines of 2 source lines: 0 Flagged lines, 0 clone lines | 0.018 to 0.347, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Test | Import cycles | 0 | 0 of 1 module in an Import cycle | 0 to 0.308, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 
 ## Production Findings
 

@@ -1,10 +1,10 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # TypeScript and JavaScript Reference ranges come from a panel of 20 public repositories
 
-Ticket #74 of Spec #10 proposes this record on 2026-11-21, for the Owner's approval.
+The Owner approved this record on 2026-11-21 for Ticket #74 of Spec #10.
 The published Reference ranges cover Python only, as ADR 0003 records, so codeint measures its own for TypeScript and JavaScript.
 
 ## Context

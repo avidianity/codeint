@@ -26,6 +26,8 @@ use crate::tokens::tokens;
 pub use rules::flagged_line_rules;
 
 const EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+const REFERENCE_RANGE_SOURCE: &str =
+    "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
 
 pub struct TypeScriptAndJavaScript;
 
@@ -92,7 +94,20 @@ impl Guest for TypeScriptAndJavaScript {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
+        [
+            ("erosion", 0.352, 0.600),
+            ("verbosity", 0.018, 0.347),
+            ("duplication", 0.017, 0.346),
+            ("import_cycles", 0.000, 0.308),
+        ]
+        .into_iter()
+        .map(|(metric, low, high)| ReferenceRange {
+            metric: metric.to_owned(),
+            low,
+            high,
+            source: REFERENCE_RANGE_SOURCE.to_owned(),
+        })
+        .collect()
     }
 }
 
