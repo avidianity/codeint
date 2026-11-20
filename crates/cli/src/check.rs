@@ -98,7 +98,7 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
         match plugins[index].lower(path, &text) {
             Ok(mut file) => {
                 measured.insert(index);
-                file.source_set = settle_source_set(path, file.source_set);
+                file.source_set = settle_source_set(path, &text, file.source_set);
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,
