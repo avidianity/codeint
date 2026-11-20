@@ -78,6 +78,9 @@ impl ProjectResolver {
                 "{specifier:?} is an absolute path, which depends on the machine"
             ));
         }
+        if is_relative(specifier) && leaves_the_repository(&request.importer, specifier) {
+            return Resolution::Unresolved(format!("{specifier:?} leads outside the repository"));
+        }
         let importer = snapshot::absolute(&request.importer);
         let resolved = match self.resolver.resolve_file(&importer, specifier) {
             Err(error) if is_project_configuration_error(&error) => {
@@ -136,6 +139,19 @@ fn is_project_configuration_error(error: &ResolveError) -> bool {
 
 fn is_relative(specifier: &str) -> bool {
     matches!(specifier, "." | "..") || specifier.starts_with("./") || specifier.starts_with("../")
+}
+
+fn leaves_the_repository(importer: &str, specifier: &str) -> bool {
+    let mut depth = importer.matches('/').count();
+    for segment in specifier.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." if depth == 0 => return true,
+            ".." => depth -= 1,
+            _ => depth += 1,
+        }
+    }
+    false
 }
 
 fn package_name(specifier: &str) -> &str {

@@ -2,7 +2,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::string::FromUtf8Error;
 
-use codeint_config::FindingsShown;
+use codeint_config::{
+    ConfigurationFileError, FindingsShown, SourceSetOverrides, read_configuration,
+};
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
@@ -10,7 +12,7 @@ use codeint_model::{
     RepoPath, ResolveError, SkippedFile, SourceFile, choose_manifests, resolve_runtime_imports,
     settle_source_set,
 };
-use codeint_report::{ReferenceRangeScope, Report, ReportError};
+use codeint_report::{ReferenceRangeScope, Report};
 
 #[cfg(test)]
 mod tests;
@@ -19,18 +21,12 @@ mod tests;
 pub(crate) enum CheckError {
     #[error(transparent)]
     Git(#[from] GitError),
-    #[error("{path} is not valid UTF-8")]
-    NotUtf8 {
-        path: RepoPath,
-        #[source]
-        source: FromUtf8Error,
-    },
+    #[error(transparent)]
+    Configuration(#[from] ConfigurationFileError),
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
     ReferenceRange(#[source] InvalidReferenceRange),
-    #[error(transparent)]
-    Report(#[from] ReportError),
 }
 
 struct Measurement {
@@ -38,7 +34,7 @@ struct Measurement {
     ranges: ReferenceRangeScope,
 }
 
-pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
     check_with(folder, &[&TypeScriptAndJavaScript], findings)
 }
 
@@ -46,10 +42,12 @@ fn check_with(
     folder: &Path,
     plugins: &[&dyn LanguagePlugin],
     findings: FindingsShown,
-) -> Result<String, CheckError> {
+) -> Result<Report, CheckError> {
     let tree = WorkingTree::discover(folder)?;
-    let Measurement { model, ranges } = measure(&tree, plugins)?;
-    Ok(Report::summarize(model, &ranges, findings).to_toon()?)
+    let configuration = read_configuration(tree.root())?;
+    let Measurement { model, ranges } =
+        measure(&tree, plugins, &configuration.source_set_overrides)?;
+    Ok(Report::summarize(model, &ranges, findings))
 }
 
 fn reference_range_scope(
@@ -70,7 +68,11 @@ fn reference_range_scope(
     }
 }
 
-fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measurement, CheckError> {
+fn measure(
+    tree: &WorkingTree,
+    plugins: &[&dyn LanguagePlugin],
+    overrides: &SourceSetOverrides,
+) -> Result<Measurement, CheckError> {
     let plugins_by_extension: HashMap<String, usize> = plugins
         .iter()
         .enumerate()
@@ -81,7 +83,10 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
                 .map(move |extension| (extension, index))
         })
         .collect();
-    let mut model = CodeModel::default();
+    let mut model = CodeModel {
+        submodules: tree.submodules().to_vec(),
+        ..CodeModel::default()
+    };
     let mut measured = BTreeSet::new();
     let mut plugin_of_file = Vec::new();
     for path in tree.files() {
@@ -91,11 +96,19 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
         else {
             continue;
         };
-        let text = read_text(tree, path)?;
+        let bytes = tree.read(path)?;
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => {
+                model.skipped.push(not_utf8(path.clone(), &error));
+                continue;
+            }
+        };
         match plugins[index].lower(path, &text) {
             Ok(mut file) => {
                 measured.insert(index);
-                file.source_set = settle_source_set(path, file.source_set);
+                file.source_set =
+                    overrides.source_set(path, settle_source_set(path, &text, file.source_set));
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,
@@ -117,16 +130,16 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
             .filter(|(_, file_plugin)| **file_plugin == index)
             .map(|(file, _)| file)
             .collect();
-        let manifests = choose_manifests(*plugin, tree.files())
-            .map_err(CheckError::Resolve)?
-            .into_iter()
-            .map(|path| {
-                Ok(Manifest {
-                    text: read_text(tree, &path)?,
+        let mut manifests = Vec::new();
+        for path in choose_manifests(*plugin, tree.files()).map_err(CheckError::Resolve)? {
+            match String::from_utf8(tree.read(&path)?) {
+                Ok(text) => manifests.push(Manifest {
                     path: path.as_str().to_owned(),
-                })
-            })
-            .collect::<Result<Vec<Manifest>, CheckError>>()?;
+                    text,
+                }),
+                Err(error) => model.skipped.push(not_utf8(path, &error)),
+            }
+        }
         let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), manifests, &importers)
             .map_err(CheckError::Resolve)?;
         model.runtime_imports.extend(runtime_imports);
@@ -135,9 +148,9 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
     Ok(Measurement { model, ranges })
 }
 
-fn read_text(tree: &WorkingTree, path: &RepoPath) -> Result<String, CheckError> {
-    String::from_utf8(tree.read(path)?).map_err(|source| CheckError::NotUtf8 {
-        path: path.clone(),
-        source,
-    })
+fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {
+    SkippedFile {
+        path,
+        reason: format!("not valid UTF-8: {}", error.utf8_error()),
+    }
 }

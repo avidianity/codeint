@@ -4,6 +4,13 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod codeint_json;
+
+pub use codeint_json::{
+    CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError, JsonType, KeyPath, KeySegment,
+    SourceSetOverrides, configuration_schema, read_configuration,
+};
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("cannot read the current folder")]
@@ -40,12 +47,19 @@ pub enum FindingsShown {
     All,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ReportFormat {
+    Toon,
+    Json,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Check {
         folder: PathBuf,
         destination: ReportDestination,
         findings: FindingsShown,
+        format: ReportFormat,
     },
 }
 
@@ -88,6 +102,13 @@ struct ReportArguments {
     output: Option<PathBuf>,
     #[arg(long, help = "List every Finding instead of the 20 worst per Metric")]
     all: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = ReportFormat::Toon,
+        help = "The format of the report"
+    )]
+    format: ReportFormat,
 }
 
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
@@ -98,6 +119,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             folder: existing_folder(&current_folder, path)?,
             destination: report_destination(&current_folder, report.output)?,
             findings: findings_shown(report.all),
+            format: report.format,
         },
     };
     Ok(Invocation { command })

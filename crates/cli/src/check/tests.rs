@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-use codeint_config::FindingsShown;
+use codeint_config::{FindingsShown, ReportFormat};
 use codeint_model::LanguagePlugin;
 use codeint_model::language::{
     FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
@@ -148,7 +148,10 @@ fn repository(files: &[(&str, &str)]) -> TempDir {
 
 fn report(files: &[(&str, &str)], plugins: &[&dyn LanguagePlugin]) -> String {
     let folder = repository(files);
-    check_with(folder.path(), plugins, FindingsShown::All).expect("the check succeeds")
+    check_with(folder.path(), plugins, FindingsShown::All)
+        .expect("the check succeeds")
+        .render(ReportFormat::Toon)
+        .expect("the report renders")
 }
 
 #[test]

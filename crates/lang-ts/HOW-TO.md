@@ -41,12 +41,16 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - The test `every_flagged_line_rule_ships_flagged_and_passing_fixtures` fails until every rule in `RULES` has both kinds of fixture.
 - Keep fixtures as string literals in the test, never as files under `tests/fixtures/`, while the no-comments check scans fixture files.
 
-## Change the Test rules
+## Change the Test and Generated rules
 
-- `src/source_set.rs` puts a file in the Test Source set when its name ends in `.test.{extension}` or `.spec.{extension}` after a non-empty stem, or when any of its folders is named `__tests__`.
+- `src/source_set.rs` puts a file in the Generated Source set when a comment before its first token of code holds a generated marker.
+  `GENERATED_MARKERS` lists the markers; the match ignores case.
+  A marker in a later comment or in a string never counts.
+- Otherwise it puts a file in the Test Source set when its name ends in `.test.{extension}` or `.spec.{extension}` after a non-empty stem, or when any of its folders is named `__tests__`.
   Every other file is Production.
 - A file named only `test.ts` or `spec.ts` has an empty stem, so it stays Production.
-- Prove a change with `tests/conformance.rs`: list each path that must be Test and each look-alike path that must stay Production.
+- Build output folders, very long lines, and vendor folders are rules of the core, in `codeint_model::settle_source_set`; never repeat them here.
+- Prove a change with `tests/conformance.rs`: list each path or text that must be Test or Generated, and each look-alike that must stay Production.
 
 ## Change how imports resolve
 
