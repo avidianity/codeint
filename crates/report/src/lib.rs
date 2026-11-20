@@ -20,7 +20,7 @@ mod sarif;
 #[cfg(test)]
 mod tests;
 
-pub use diff::{BaseCommit, DiffReport};
+pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::checks::budget::{self, FeedbackLoop, Verdict};
-use crate::checks::{Violations, layout, pinning, pull_request, source, tier};
+use crate::checks::{Violations, duplicates, layout, pinning, pull_request, source, tier};
 use crate::config::{self, Settings};
 use crate::git::{self, DiffSource};
 
@@ -13,6 +13,7 @@ const USAGE: &str = "usage: cargo xtask {command}
 Whole-repository checks:
   agent-entry-links | skills-link | doc-size | doc-style | no-placeholders
   record-numbers | dependency-pinning | config-access | no-suppressions
+  no-duplicate-code        run jscpd and report clones outside test input
   merged-result            run every whole-repository check
 
 Change checks:
@@ -41,6 +42,7 @@ pub(crate) fn run(command: &str, args: &[String]) -> Result<Violations, String> 
         "dependency-pinning" => pinning::dependency_pinning(&root),
         "config-access" => source::config_access(&root, &settings),
         "no-suppressions" => source::no_suppressions(&root, &settings),
+        "no-duplicate-code" => duplicates::no_duplicate_code(&root, &settings),
         "no-comments" => source::no_comments(&root, &settings, &DiffSource::from_args(args)?),
         "commit-message" => commit_message(&root, &settings, args),
         "behavior-has-test" => behavior_has_test(&root, &settings, args),

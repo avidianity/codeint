@@ -32,3 +32,15 @@ let bytes = base.read(&base.files()[0])?;
 - A commit `Snapshot` follows the same rules as the working tree: regular and executable files are files, symbolic links are left out, and submodules are listed.
 - Measure both `Snapshot` values with the same code; the caller never knows which kind it holds.
 - `CommitId` displays as the full hexadecimal object id; use it to name the commit in a report or a cache key.
+
+## Read the merge-base of two refs
+
+```rust
+let merge_base = repository.merge_base("main", "feature")?;
+let head = repository.commit(repository.resolve("feature")?)?;
+```
+
+- `resolve` turns a ref into a `CommitId`, as `git rev-parse` does, and peels a tag to its commit.
+  It fails with `GitError::UnknownRef` that names the ref when the ref names no commit.
+- `merge_base` resolves both refs and returns their best merge-base; HEAD plays no part.
+- Both `merge_base` and `merge_base_with_head` fail with `GitError::NoMergeBase` when the two sides share no commit; the error names both refs, and the head ref is `HEAD` for `merge_base_with_head`.

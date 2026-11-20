@@ -24,10 +24,20 @@ pub struct BaseCommit {
     pub merge_base: String,
 }
 
+pub enum Head {
+    WorkingTree,
+    Commit(HeadCommit),
+}
+
+pub struct HeadCommit {
+    pub git_ref: String,
+    pub commit: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct DiffReport {
     base: BaseEntry,
-    head: &'static str,
+    head: HeadEntry,
     source_sets: SourceSetChangesSections,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     over_budget: Vec<BudgetFailure>,
@@ -62,6 +72,17 @@ struct BaseEntry {
     #[serde(rename = "ref")]
     git_ref: String,
     merge_base: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum HeadEntry {
+    WorkingTree(&'static str),
+    Commit {
+        #[serde(rename = "ref")]
+        git_ref: String,
+        commit: String,
+    },
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -108,6 +129,7 @@ struct Side<T> {
 impl DiffReport {
     pub fn compare(
         base: BaseCommit,
+        head: Head,
         base_model: CodeModel,
         head_model: CodeModel,
         findings: FindingsShown,
@@ -127,7 +149,7 @@ impl DiffReport {
                 git_ref: base.git_ref,
                 merge_base: base.merge_base,
             },
-            head: WORKING_TREE,
+            head: head_entry(head),
             over_budget: over_budget(&source_sets, budgets),
             regressions: regressions(&source_sets, limits),
             source_sets,
@@ -150,6 +172,13 @@ impl DiffReport {
                 .map_err(ReportError::Sarif),
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
+    }
+}
+
+fn head_entry(head: Head) -> HeadEntry {
+    match head {
+        Head::WorkingTree => HeadEntry::WorkingTree(WORKING_TREE),
+        Head::Commit(HeadCommit { git_ref, commit }) => HeadEntry::Commit { git_ref, commit },
     }
 }
 
