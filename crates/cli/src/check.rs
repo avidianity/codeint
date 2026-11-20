@@ -4,7 +4,7 @@ use std::string::FromUtf8Error;
 
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_model::{CodeModel, LanguagePlugin, LowerError, RepoPath, SourceFile};
+use codeint_model::{CodeModel, LanguagePlugin, LowerError, RepoPath, SkippedFile, SourceFile};
 use codeint_report::{Report, ReportError};
 
 #[derive(Debug, thiserror::Error)]
@@ -55,8 +55,11 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeMo
                 path: path.clone(),
                 model: file,
             }),
-            Err(LowerError::DeclarationOnly) => todo!(),
-            Err(_reason) => todo!(),
+            Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
+            Err(reason) => model.skipped.push(SkippedFile {
+                path: path.clone(),
+                reason: reason.to_string(),
+            }),
         }
     }
     Ok(model)

@@ -26,6 +26,9 @@ impl Guest for Plain {
 - `extensions` returns each file extension without its leading dot.
 - `lower` receives a repository-relative path with forward slashes and the whole file as text.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.
+- Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
+- Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
+  Which files are declaration-only is a rule of the Language plugin, never of the core.
 
 ## Lower files in the core
 
@@ -42,3 +45,6 @@ assert_eq!(model.source_lines, 2);
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
+- A `LowerError` never stops the run.
+  Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
+  A skipped or declaration-only file adds no source lines and no file to the Metrics.

@@ -188,23 +188,50 @@ fn check_outside_a_git_repository_exits_with_an_operational_error() {
 }
 
 #[test]
-fn check_stops_with_an_operational_error_on_a_file_that_does_not_parse() {
+fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
     let repository = Repository::new();
-    repository.write("src/broken.ts", "export const = ;\n");
+    repository.write("src/broken.ts", "export const ok = 1;\nexport const = ;\n");
+    repository.write(
+        "src/main.ts",
+        "export const main = 1;\nexport const more = 2;\n",
+    );
     repository.commit_all();
 
     let output = repository.codeint(&["check"]);
 
-    assert_eq!(output.status.code(), Some(2));
-    assert!(stdout(&output).is_empty());
-    let message = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        message.starts_with("codeint: src/broken.ts: cannot parse")
-            && message.ends_with(
-                "\nFix the file named above so that it parses, then run codeint again.\n"
-            )
-            && message.lines().count() == 2,
-        "unexpected message: {message}"
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "files: 1\n\
+         source_lines: 2\n\
+         skipped[1]{path,reason}:\n  \
+         src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
+    );
+}
+
+#[test]
+fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_source_lines() {
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "types/globals.d.ts",
+        "declare const version: string;\ndeclare function greet(name: string): string;\n",
+    );
+    repository.write(
+        "types/module.d.mts",
+        "export declare const answer: number;\n",
+    );
+    repository.write("types/legacy.d.cts", "declare const legacy: number;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "files: 1\n\
+         source_lines: 1\n\
+         declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
     );
 }
 
