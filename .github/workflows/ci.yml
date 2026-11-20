@@ -109,8 +109,12 @@ jobs:
       - run: cargo build --locked --package xtask
       - name: Git hook loop
         run: |
+          files=()
+          while IFS= read -r path; do
+            files+=(--file "$path")
+          done < <(git diff --name-only --diff-filter=d "$BASE...HEAD")
           start=$(date +%s.%N)
-          git diff --name-only "$BASE...HEAD" | npx --no-install lefthook run pre-commit --force --no-auto-install --files-from-stdin
+          npx --no-install lefthook run pre-commit --force --no-auto-install "${files[@]}"
           seconds=$(echo "$(date +%s.%N) - $start" | bc)
           cargo xtask feedback-budget --loop hook --seconds "$seconds" --report
       - name: Relevant tier loop
