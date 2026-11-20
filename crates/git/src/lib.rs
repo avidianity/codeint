@@ -45,11 +45,12 @@ pub enum GitError {
         #[source]
         source: gix::Error,
     },
-    #[error("{base_ref:?} and HEAD have no commit in common, so they have no merge-base")]
-    NoMergeBase { base_ref: String },
-    #[error("cannot find the merge-base of {base_ref:?} and HEAD")]
+    #[error("{base_ref:?} and {head_ref:?} have no commit in common, so they have no merge-base")]
+    NoMergeBase { base_ref: String, head_ref: String },
+    #[error("cannot find the merge-base of {base_ref:?} and {head_ref:?}")]
     MergeBase {
         base_ref: String,
+        head_ref: String,
         #[source]
         source: gix::Error,
     },
@@ -67,6 +68,8 @@ pub enum GitError {
         source: gix::Error,
     },
 }
+
+const HEAD: &str = "HEAD";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CommitId(gix::ObjectId);
@@ -158,12 +161,22 @@ impl Repository {
             .merge_base(base.id, head)
             .map_err(|source| GitError::MergeBase {
                 base_ref: base_ref.to_owned(),
+                head_ref: HEAD.to_owned(),
                 source,
             })?
             .ok_or_else(|| GitError::NoMergeBase {
                 base_ref: base_ref.to_owned(),
+                head_ref: HEAD.to_owned(),
             })?;
         Ok(CommitId(merge_base.detach()))
+    }
+
+    pub fn resolve(&self, git_ref: &str) -> Result<CommitId, GitError> {
+        todo!("{git_ref}")
+    }
+
+    pub fn merge_base(&self, base_ref: &str, head_ref: &str) -> Result<CommitId, GitError> {
+        todo!("{base_ref} {head_ref}")
     }
 
     pub fn commit(&self, commit: CommitId) -> Result<Snapshot, GitError> {

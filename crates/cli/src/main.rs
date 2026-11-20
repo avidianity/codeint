@@ -81,11 +81,16 @@ fn run() -> Result<Outcome, CliError> {
         Command::Diff {
             folder,
             base_ref,
+            head_ref,
             destination,
             findings,
             format,
         } => {
-            let report = diff::diff(&folder, &base_ref, findings)?;
+            let refs = diff::Refs {
+                base: &base_ref,
+                head: head_ref.as_deref(),
+            };
+            let report = diff::diff(&folder, refs, findings)?;
             write_report(&report.render(format)?, &destination)?;
             Ok(Outcome::Passed)
         }

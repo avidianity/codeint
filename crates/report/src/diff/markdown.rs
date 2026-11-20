@@ -1,4 +1,4 @@
-use super::{DiffReport, MetricChanges, SourceSetChanges};
+use super::{DiffReport, HeadEntry, MetricChanges, SourceSetChanges};
 use crate::Findings;
 use crate::markdown::{
     CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, FLAGGED_LINE, FLAGGED_LINE_COLUMNS,
@@ -19,15 +19,7 @@ const METRIC_COLUMNS: [&str; 7] = [
 
 pub(super) fn render(report: &DiffReport) -> String {
     let sections = report.source_sets.named();
-    let mut blocks = vec![
-        TITLE.to_string(),
-        format!(
-            "codeint compared the {} with {}, the merge-base of {} and HEAD.",
-            report.head,
-            code(&report.base.merge_base),
-            code(&report.base.git_ref)
-        ),
-    ];
+    let mut blocks = vec![TITLE.to_string(), comparison_sentence(report)];
     if !sections.is_empty() {
         blocks.push(table(
             &METRIC_COLUMNS,
@@ -45,6 +37,21 @@ pub(super) fn render(report: &DiffReport) -> String {
         }
     }
     blocks.join("\n\n")
+}
+
+fn comparison_sentence(report: &DiffReport) -> String {
+    let (head, head_ref) = match &report.head {
+        HeadEntry::WorkingTree(label) => (format!("the {label}"), "HEAD".to_owned()),
+        HeadEntry::Commit { git_ref, commit } => (
+            format!("{} at {}", code(git_ref), code(commit)),
+            code(git_ref),
+        ),
+    };
+    format!(
+        "codeint compared {head} with {}, the merge-base of {} and {head_ref}.",
+        code(&report.base.merge_base),
+        code(&report.base.git_ref)
+    )
 }
 
 fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>> {
