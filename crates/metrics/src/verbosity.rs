@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::{CodeModel, Package, RepoPath};
 
+use crate::CloneLines;
 use crate::line_share::{LineShare, line_shares_by_package};
 
 #[cfg(test)]
@@ -17,12 +18,15 @@ pub struct FlaggedLineFinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verbosity {
     verbose_lines: u64,
+    flagged_line_count: u64,
+    clone_line_count: u64,
     source_lines: u64,
     flagged_lines: Vec<FlaggedLineFinding>,
+    verbose_lines_by_file: BTreeMap<RepoPath, u64>,
 }
 
 impl Verbosity {
-    pub fn measure(model: &CodeModel) -> Verbosity {
+    pub fn measure(model: &CodeModel, clone_lines: &CloneLines) -> Verbosity {
         let flagged_lines: BTreeSet<FlaggedLineFinding> = model
             .files
             .iter()
@@ -37,23 +41,44 @@ impl Verbosity {
                     })
             })
             .collect();
-        let verbose_lines: BTreeSet<(&RepoPath, u32)> = flagged_lines
+        let distinct_flagged_lines: BTreeSet<(&RepoPath, u32)> = flagged_lines
             .iter()
             .map(|finding| (&finding.path, finding.line))
             .collect();
+        let mut verbose_lines_by_file: BTreeMap<RepoPath, u64> = clone_lines
+            .count_by_file()
+            .map(|(path, lines)| (path.clone(), lines))
+            .collect();
+        for (path, _) in distinct_flagged_lines
+            .iter()
+            .filter(|(path, line)| !clone_lines.contains(path, *line))
+        {
+            *verbose_lines_by_file.entry((*path).clone()).or_default() += 1;
+        }
         Verbosity {
-            verbose_lines: verbose_lines.len() as u64,
+            verbose_lines: verbose_lines_by_file.values().sum(),
+            flagged_line_count: distinct_flagged_lines.len() as u64,
+            clone_line_count: clone_lines.count(),
             source_lines: model
                 .files
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
             flagged_lines: flagged_lines.into_iter().collect(),
+            verbose_lines_by_file,
         }
     }
 
     pub fn verbose_lines(&self) -> u64 {
         self.verbose_lines
+    }
+
+    pub fn flagged_line_count(&self) -> u64 {
+        self.flagged_line_count
+    }
+
+    pub fn clone_line_count(&self) -> u64 {
+        self.clone_line_count
     }
 
     pub fn source_lines(&self) -> u64 {
@@ -64,23 +89,23 @@ impl Verbosity {
         &self.flagged_lines
     }
 
-    pub fn by_package<'model>(
-        &self,
-        model: &'model CodeModel,
-    ) -> BTreeMap<Package<'model>, LineShare> {
-        let verbose_lines: BTreeSet<(&RepoPath, u32)> = self
-            .flagged_lines
-            .iter()
-            .map(|finding| (&finding.path, finding.line))
-            .collect();
-        line_shares_by_package(model, verbose_lines.into_iter().map(|(path, _)| (path, 1)))
-    }
-
     pub fn ratio(&self) -> f64 {
         if self.source_lines == 0 {
             0.0
         } else {
             self.verbose_lines as f64 / self.source_lines as f64
         }
+    }
+
+    pub fn by_package<'model>(
+        &self,
+        model: &'model CodeModel,
+    ) -> BTreeMap<Package<'model>, LineShare> {
+        line_shares_by_package(
+            model,
+            self.verbose_lines_by_file
+                .iter()
+                .map(|(path, lines)| (path, *lines)),
+        )
     }
 }

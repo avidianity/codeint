@@ -6,8 +6,8 @@ mod import_cycles;
 mod line_share;
 mod verbosity;
 
-pub use duplication::{CloneGroup, Duplication, Fragment, MinimumCloneTokens};
+pub use duplication::{CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens};
 pub use erosion::{ErodedFunction, Erosion, FunctionMasses};
-pub use import_cycles::{ImportCycle, ImportCycles, ModuleShare};
+pub use import_cycles::{ImportCycle, ImportCycles, ModuleShare, UnresolvedImport};
 pub use line_share::LineShare;
 pub use verbosity::{FlaggedLineFinding, Verbosity};
