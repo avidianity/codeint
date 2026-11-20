@@ -7,7 +7,8 @@ use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
-    RepoPath, SkippedFile, SourceFile, Workspace, WorkspaceError,
+    RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
+    resolve_runtime_imports, settle_source_set,
 };
 use codeint_report::{ReferenceRangeScope, Report, ReportError};
 
@@ -24,6 +25,8 @@ pub(crate) enum CheckError {
         #[source]
         source: FromUtf8Error,
     },
+    #[error("cannot resolve runtime imports")]
+    Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
     ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
@@ -85,6 +88,7 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
         ..CodeModel::default()
     };
     let mut measured = BTreeSet::new();
+    let mut plugin_of_file = Vec::new();
     for path in tree.files() {
         let Some(&index) = path
             .extension()
@@ -94,12 +98,14 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
         };
         let text = read_text(tree, path)?;
         match plugins[index].lower(path, &text) {
-            Ok(file) => {
+            Ok(mut file) => {
                 measured.insert(index);
+                file.source_set = settle_source_set(path, file.source_set);
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,
                 });
+                plugin_of_file.push(index);
             }
             Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
             Err(reason) => model.skipped.push(SkippedFile {
@@ -107,6 +113,18 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
                 reason: reason.to_string(),
             }),
         }
+    }
+    for (index, plugin) in plugins.iter().enumerate() {
+        let importers: Vec<&SourceFile> = model
+            .files
+            .iter()
+            .zip(&plugin_of_file)
+            .filter(|(_, file_plugin)| **file_plugin == index)
+            .map(|(file, _)| file)
+            .collect();
+        let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), &importers)
+            .map_err(CheckError::Resolve)?;
+        model.runtime_imports.extend(runtime_imports);
     }
     let ranges = reference_range_scope(plugins, &measured)?;
     Ok(Measurement { model, ranges })

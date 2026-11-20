@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt;
 
+mod runtime_imports;
+mod source_set;
 #[cfg(test)]
 mod tests;
 mod workspace;
@@ -20,6 +22,8 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token};
+pub use runtime_imports::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
+pub use source_set::settle_source_set;
 pub use workspace::{Package, Workspace, WorkspaceError};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -91,6 +95,7 @@ pub struct CodeModel {
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
     pub workspace: Workspace,
+    pub runtime_imports: Vec<RuntimeImport>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -103,6 +108,11 @@ pub struct SourceSets {
 
 impl CodeModel {
     pub fn into_source_sets(self) -> SourceSets {
+        let source_set_of_importer: BTreeMap<RepoPath, SourceSet> = self
+            .files
+            .iter()
+            .map(|file| (file.path.clone(), file.model.source_set))
+            .collect();
         let mut source_sets = SourceSets::default();
         for source_set in [
             &mut source_sets.production,
@@ -114,6 +124,11 @@ impl CodeModel {
         }
         for file in self.files {
             source_sets.get_mut(file.model.source_set).files.push(file);
+        }
+        for import in self.runtime_imports {
+            if let Some(&source_set) = source_set_of_importer.get(&import.importer) {
+                source_sets.get_mut(source_set).runtime_imports.push(import);
+            }
         }
         source_sets
     }
@@ -229,6 +244,11 @@ pub trait LanguagePlugin {
 
     fn workspace_packages(&self, manifests: Vec<Manifest>)
     -> Result<Vec<RepoPath>, WorkspaceError>;
+    fn resolve_imports(
+        &self,
+        repository_paths: &[RepoPath],
+        requests: Vec<language::ImportRequest>,
+    ) -> Vec<language::Resolution>;
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
 }
@@ -254,6 +274,20 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
             .into_iter()
             .map(|root| Ok(RepoPath::new(root)?))
             .collect()
+    }
+
+    fn resolve_imports(
+        &self,
+        repository_paths: &[RepoPath],
+        requests: Vec<language::ImportRequest>,
+    ) -> Vec<language::Resolution> {
+        Plugin::resolve_imports(
+            repository_paths
+                .iter()
+                .map(|path| path.as_str().to_owned())
+                .collect(),
+            requests,
+        )
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {

@@ -4,7 +4,8 @@
 
 ```rust
 use codeint_model::language::{
-    FileModel, Guest, LowerError, Manifest, ReferenceRange, SourceSet, Token, WorkspaceError,
+    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
+    Token, WorkspaceError,
 };
 
 pub struct Plain;
@@ -37,6 +38,7 @@ impl Guest for Plain {
             functions: Vec::new(),
             tokens,
             flagged_lines: Vec::new(),
+            runtime_imports: Vec::new(),
         })
     }
 
@@ -46,6 +48,10 @@ impl Guest for Plain {
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
         Ok(Vec::new())
+    }
+
+    fn resolve_imports(_repository_paths: Vec<String>, requests: Vec<ImportRequest>) -> Vec<Resolution> {
+        requests.iter().map(|_| Resolution::External).collect()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
@@ -80,6 +86,7 @@ impl Guest for Plain {
   `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
   Return Production for a file that no rule claims.
   Which files are Test is a rule of the Language plugin, never of the core.
+  Which files are Vendored is a rule of the core, because it is the same in every language.
 - `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each with a `source` label that names where it was published.
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
@@ -89,6 +96,9 @@ impl Guest for Plain {
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
+- `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
+- `resolve_imports` receives every file path of the repository snapshot, because a Plugin cannot read the file system.
+  Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` for a package or built-in module, or `Unresolved` with the reason.
 
 ## Lower files in the core
 
@@ -104,6 +114,8 @@ assert_eq!(model.source_lines, 2);
 - The core holds Language plugins as `&dyn LanguagePlugin`.
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
+- After lowering, call `resolve_runtime_imports(plugin, repository_paths, &importers)` once per Language plugin with the files it lowered.
+  It returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
@@ -135,6 +147,20 @@ let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.t
 - `Workspace::package_of` gives the deepest member package whose root folder holds the file, or `Package::Root`.
 - A `Workspace` without members is one package; `has_members` tells the report whether to list packages.
 
+## Settle the Source set of a lowered file
+
+```rust
+use codeint_model::settle_source_set;
+
+let mut model = plugins[0].lower(&path, text)?;
+model.source_set = settle_source_set(&path, model.source_set);
+```
+
+- Call `settle_source_set` on every file that a Language plugin lowers, before the file joins the `CodeModel`.
+- A file with a folder named exactly `vendor` or `third_party`, at any depth, is Vendored, whatever Source set the Language plugin names.
+- The file name never counts: `src/vendor.ts` keeps the Source set that the Language plugin names.
+- Every other file keeps the Source set that the Language plugin names.
+
 ## Split the Code model by Source set
 
 ```rust
@@ -148,6 +174,7 @@ for (source_set, files) in source_sets.iter() {
 ```
 
 - `into_source_sets` moves each file into the `CodeModel` of its Source set.
+- It moves each `RuntimeImport` into the `CodeModel` of its importer's Source set, so an import of a file in another Source set adds no edge there.
 - Every Source set gets a `CodeModel`, empty when no file belongs to it.
 - Every Source set's `CodeModel` keeps the whole `workspace`, so each Source set splits into the same workspace packages.
 - `iter` yields the Source sets in the order Production, Test, Generated, Vendored.

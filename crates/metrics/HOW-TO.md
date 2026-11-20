@@ -32,6 +32,8 @@ for (package, masses) in erosion.by_package(&model) {
 - The report crate splits the Code model with `CodeModel::into_source_sets` and measures every Metric once per Source set.
 - To add a Metric to the report, add its section as a field of `SourceSetSection` in `crates/report/src/lib.rs`, built from the `CodeModel` of that Source set.
   The report then shows the Metric for each Source set that holds a file.
+- To show the Metric per workspace package too, give it a `by_package(&model)` method and add its numerator to `PackageSection`.
+  Every Source set's `CodeModel` keeps the whole workspace, so each Source set lists every package.
 
 ## Find Clone groups
 
@@ -85,3 +87,25 @@ for (package, share) in duplication.by_package(&model) {
   Measuring each package on its own would lose a Clone group or an Import cycle that spans two packages.
 - Every map holds every package, the root package included, so the package numerators and denominators add up to the totals.
 - Compute a total from summed numerators and denominators, never from an average of package ratios.
+
+## Measure Import cycles
+
+```rust
+use codeint_metrics::ImportCycles;
+
+let import_cycles = ImportCycles::measure(&model);
+println!("{} of {}", import_cycles.modules_in_import_cycles(), import_cycles.modules());
+println!("ratio {}", import_cycles.ratio());
+for cycle in import_cycles.cycles() {
+    println!("{:?}", cycle.modules());
+}
+```
+
+- `ImportCycles::measure` reads only the `CodeModel`; it never knows the source language.
+- Every file of `CodeModel::files` is a module.
+- An edge is a `RuntimeImport` whose resolution is `Resolved` to another module; external, unresolved, and non-module targets add no edge.
+- An Import cycle is a strongly connected component of more than one module, or one module that imports itself.
+- `ratio` is the modules in at least one Import cycle divided by all modules, and 0 when there are no modules.
+- `cycles` lists the Findings, each with its modules sorted by path, ordered by their sorted module lists.
+- `by_package(&model)` gives a `ModuleShare` for every package of `model.workspace`: its modules in an Import cycle and all its modules.
+  An Import cycle that spans two packages counts each module in the package that holds it.
