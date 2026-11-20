@@ -62,5 +62,23 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
 }
 
 fn existing_folder(path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
-    todo!("resolve {path:?} against the current folder and require an existing folder")
+    let current_folder = std::env::current_dir().map_err(ConfigError::CurrentFolder)?;
+    let Some(path) = path else {
+        return Ok(current_folder);
+    };
+    let folder = std::fs::canonicalize(current_folder.join(&path)).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            ConfigError::MissingPath { path: path.clone() }
+        } else {
+            ConfigError::UnreadablePath {
+                path: path.clone(),
+                source,
+            }
+        }
+    })?;
+    if folder.is_dir() {
+        Ok(folder)
+    } else {
+        Err(ConfigError::NotAFolder { path })
+    }
 }
