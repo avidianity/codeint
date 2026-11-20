@@ -1482,6 +1482,9 @@ fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() 
             "  modules: 3\n",
             "  findings[1]:\n",
             "    - modules[3]: src/ratio.ts,src/shape.ts,src/unit.ts\n",
+            "  unresolved_imports:\n",
+            "    count: 0\n",
+            "    imports: []\n",
         )
     );
 }
