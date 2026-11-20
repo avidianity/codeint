@@ -221,6 +221,7 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
          source_lines: 2\n\
          erosion:\n  \
          ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
          eroded_function_mass: 0\n  \
          total_function_mass: 0\n  \
          findings: []\n\
@@ -253,6 +254,7 @@ fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_sourc
          source_lines: 1\n\
          erosion:\n  \
          ratio: 0\n  \
+         reference_range: no published Reference range for this language\n  \
          eroded_function_mass: 0\n  \
          total_function_mass: 0\n  \
          findings: []\n\
@@ -306,6 +308,7 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
             "source_lines: 25\n",
             "erosion:\n",
             "  ratio: 0.8889\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 48\n",
             "  total_function_mass: 54\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -332,6 +335,7 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
             "source_lines: 39\n",
             "erosion:\n",
             "  ratio: 0.7094\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 84.561\n",
             "  total_function_mass: 119.202\n",
             "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -357,11 +361,37 @@ fn a_repository_without_functions_reports_erosion_0() {
             "source_lines: 1\n",
             "erosion:\n",
             "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 0\n",
             "  findings: []\n",
         )
     );
+}
+
+#[test]
+fn the_typescript_and_javascript_report_says_that_no_published_reference_range_exists_for_each_metric()
+ {
+    let repository = Repository::new();
+    repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
+    repository.write("src/sum.js", "export const sum = (a, b) => a + b;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let report = stdout(&output);
+    let metric_sections = report
+        .lines()
+        .filter(|line| !line.starts_with(' ') && line.ends_with(':'))
+        .count();
+    let unpublished = report
+        .lines()
+        .filter(|line| *line == "  reference_range: no published Reference range for this language")
+        .count();
+    assert!(metric_sections >= 1, "unexpected report: {report}");
+    assert_eq!(unpublished, metric_sections, "unexpected report: {report}");
+    assert!(!report.contains("low:"), "unexpected report: {report}");
 }
 
 #[test]
@@ -388,6 +418,7 @@ fn decision_points_of_a_callback_count_only_toward_the_callback() {
             "source_lines: 14\n",
             "erosion:\n",
             "  ratio: 0.9106\n",
+            "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 38.1051\n",
             "  total_function_mass: 41.8468\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
@@ -554,7 +585,7 @@ fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothi
     assert_eq!(saved, printed.stdout);
     assert_eq!(
         saved,
-        b"files: 1\nsource_lines: 2\nerosion:\n  ratio: 0\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
+        b"files: 1\nsource_lines: 2\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
     );
 }
 
@@ -574,7 +605,7 @@ fn output_replaces_an_existing_file() {
     assert_success(&output);
     assert_eq!(
         fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
-        "files: 1\nsource_lines: 1\nerosion:\n  ratio: 0\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
+        "files: 1\nsource_lines: 1\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
     );
 }
 

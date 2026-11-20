@@ -10,6 +10,9 @@ use codeint_model::{
 };
 use codeint_report::{ReferenceRangeScope, Report, ReportError};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CheckError {
     #[error(transparent)]

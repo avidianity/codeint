@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange};
 
 pub struct Plain;
 
@@ -19,6 +19,15 @@ impl Guest for Plain {
             functions: Vec::new(),
         })
     }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        vec![ReferenceRange {
+            metric: "erosion".to_owned(),
+            low: 0.12,
+            high: 0.56,
+            source: "Plain text panel of 40 repositories, Table 3".to_owned(),
+        }]
+    }
 }
 ```
 
@@ -32,6 +41,10 @@ impl Guest for Plain {
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
   Which files are declaration-only is a rule of the Language plugin, never of the core.
+- `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each with a `source` label that names where it was published.
+  `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
+  `low` and `high` are ratios with `0 <= low <= high <= 1`.
+  Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
 
 ## Lower files in the core
 
@@ -51,3 +64,21 @@ assert_eq!(model.source_lines, 2);
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
+
+## Show Reference ranges only for the language they were measured in
+
+```rust
+use codeint_model::LanguagePlugin;
+
+let ranges = plugins[0].reference_ranges()?;
+if let Some(erosion) = ranges.for_metric("erosion") {
+    println!("{} to {} ({})", erosion.low, erosion.high, erosion.source);
+}
+```
+
+- `LanguagePlugin::reference_ranges` returns `ReferenceRanges`, which looks a range up by Metric key.
+  A new Metric joins by calling `for_metric` with its own key; nothing else changes.
+- It fails with `InvalidReferenceRange` when the plugin supplies two ranges for one Metric, or a range that does not run from a lower to a higher ratio between 0 and 1.
+  That failure stops the run with exit code 2.
+- Show a plugin's ranges only next to values that this plugin alone measured.
+  When the measured files come from several Language plugins, show no Reference range.

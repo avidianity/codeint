@@ -169,6 +169,15 @@ fn a_file_named_like_a_declaration_without_the_d_suffix_is_code() {
 }
 
 #[test]
+fn the_plugin_supplies_no_reference_range_because_none_is_published_for_typescript_or_javascript() {
+    let ranges = plugin().reference_ranges().expect("valid Reference ranges");
+
+    for metric in ["erosion", "verbosity", "duplication", "import_cycles"] {
+        assert!(ranges.for_metric(metric).is_none(), "{metric}");
+    }
+}
+
+#[test]
 fn a_file_with_an_undeclared_extension_is_unsupported() {
     let result = lower("scripts/tool.py", "print('codeint')\n");
 

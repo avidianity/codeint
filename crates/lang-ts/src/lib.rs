@@ -49,7 +49,7 @@ impl Guest for TypeScriptAndJavaScript {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        todo!()
+        Vec::new()
     }
 }
 

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::fmt;
 
 #[cfg(test)]
@@ -121,11 +122,31 @@ pub enum InvalidReferenceRange {
 
 impl ReferenceRanges {
     pub fn new(ranges: Vec<ReferenceRange>) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        todo!("{ranges:?}")
+        let mut by_metric = BTreeMap::new();
+        for range in ranges {
+            if !(0.0 <= range.low && range.low <= range.high && range.high <= 1.0) {
+                return Err(InvalidReferenceRange::Bounds {
+                    metric: range.metric,
+                    low: range.low,
+                    high: range.high,
+                });
+            }
+            match by_metric.entry(range.metric.clone()) {
+                Entry::Occupied(_) => {
+                    return Err(InvalidReferenceRange::Duplicate {
+                        metric: range.metric,
+                    });
+                }
+                Entry::Vacant(vacant) => {
+                    vacant.insert(range);
+                }
+            }
+        }
+        Ok(ReferenceRanges { by_metric })
     }
 
     pub fn for_metric(&self, metric: &str) -> Option<&ReferenceRange> {
-        todo!("{metric} {:?}", self.by_metric)
+        self.by_metric.get(metric)
     }
 }
 
