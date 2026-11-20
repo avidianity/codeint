@@ -310,7 +310,74 @@ fn a_nested_function_adds_no_decision_points_to_the_function_around_it() {
 
     assert_eq!(
         functions("src/nested.ts", text),
-        [function(1, 1, 12), function(5, 2, 7)]
+        [function(1, 1, 5), function(5, 2, 7)]
+    );
+}
+
+#[test]
+fn each_nested_function_takes_its_lines_and_decision_points_away_from_its_parent() {
+    let text = concat!(
+        "export function build(flag: boolean) {\n",
+        "  const literal = {\n",
+        "    method() {\n",
+        "      return 1;\n",
+        "    },\n",
+        "  };\n",
+        "  class Box {\n",
+        "    value = 0;\n",
+        "    get size(): number {\n",
+        "      return this.value;\n",
+        "    }\n",
+        "    set size(next: number) {\n",
+        "      this.value = next;\n",
+        "    }\n",
+        "    grow(): void {\n",
+        "      if (flag) {\n",
+        "        this.value++;\n",
+        "      }\n",
+        "    }\n",
+        "  }\n",
+        "  const named = function () {\n",
+        "    return 2;\n",
+        "  };\n",
+        "  const pair = [() => 3, () => 4];\n",
+        "  return Promise.resolve(literal)\n",
+        "    .then(() => {\n",
+        "      return new Box();\n",
+        "    }).then(() => {\n",
+        "      return named() + pair.length;\n",
+        "    });\n",
+        "}\n",
+    );
+
+    assert_eq!(
+        functions("src/build.ts", text),
+        [
+            function(1, 0, 8),
+            function(3, 0, 3),
+            function(9, 0, 3),
+            function(12, 0, 3),
+            function(15, 1, 5),
+            function(21, 0, 3),
+            function(24, 0, 1),
+            function(24, 0, 1),
+            function(26, 0, 3),
+            function(28, 0, 3),
+        ]
+    );
+}
+
+#[test]
+fn a_function_nested_on_every_line_of_its_parent_takes_every_line() {
+    let text = concat!(
+        "export const handler = (rows: number[]) => rows.map((row) => {\n",
+        "  return row + 1;\n",
+        "});\n",
+    );
+
+    assert_eq!(
+        functions("src/handler.ts", text),
+        [function(1, 0, 0), function(1, 0, 3)]
     );
 }
 
