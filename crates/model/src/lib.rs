@@ -81,7 +81,13 @@ pub enum LowerError {
 
 impl From<language::LowerError> for LowerError {
     fn from(error: language::LowerError) -> LowerError {
-        todo!("{error:?}")
+        match error {
+            language::LowerError::Unparsable(message) => LowerError::Unparsable { message },
+            language::LowerError::UnsupportedFile(message) => {
+                LowerError::UnsupportedFile { message }
+            }
+            language::LowerError::TooLarge => LowerError::TooLarge,
+        }
     }
 }
 
@@ -93,10 +99,10 @@ pub trait LanguagePlugin {
 
 impl<Plugin: language::Guest> LanguagePlugin for Plugin {
     fn extensions(&self) -> Vec<String> {
-        todo!()
+        Plugin::extensions()
     }
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
-        todo!("{path} {}", text.len())
+        Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
     }
 }

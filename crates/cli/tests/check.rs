@@ -132,6 +132,7 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     }
     repository.write("README.md", "# Fixture\n");
     repository.write("src/data.json", "{\"one\": 1}\n");
+    repository.write("scripts/tool.py", "print('codeint')\n");
     repository.commit_all();
 
     let output = repository.codeint(&["check"]);
