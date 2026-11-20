@@ -80,7 +80,10 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
                 .map(move |extension| (extension, index))
         })
         .collect();
-    let mut model = CodeModel::default();
+    let mut model = CodeModel {
+        submodules: tree.submodules().to_vec(),
+        ..CodeModel::default()
+    };
     let mut measured = BTreeSet::new();
     let mut plugin_of_file = Vec::new();
     for path in tree.files() {

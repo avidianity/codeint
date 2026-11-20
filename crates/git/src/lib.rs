@@ -37,6 +37,7 @@ pub enum GitError {
 pub struct WorkingTree {
     root: PathBuf,
     files: Vec<RepoPath>,
+    submodules: Vec<RepoPath>,
 }
 
 impl WorkingTree {
@@ -59,12 +60,20 @@ impl WorkingTree {
                 start: start.to_path_buf(),
             })?
             .to_path_buf();
-        let files = list_measurable_files(&repository)?;
-        Ok(WorkingTree { root, files })
+        let Listing { files, submodules } = list_working_tree(&repository)?;
+        Ok(WorkingTree {
+            root,
+            files,
+            submodules,
+        })
     }
 
     pub fn files(&self) -> &[RepoPath] {
         &self.files
+    }
+
+    pub fn submodules(&self) -> &[RepoPath] {
+        &self.submodules
     }
 
     pub fn read(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
@@ -73,6 +82,15 @@ impl WorkingTree {
             source,
         })
     }
+}
+
+struct Listing {
+    files: Vec<RepoPath>,
+    submodules: Vec<RepoPath>,
+}
+
+fn list_working_tree(repository: &gix::Repository) -> Result<Listing, GitError> {
+    todo!("{}", list_measurable_files(repository).is_ok())
 }
 
 fn list_measurable_files(repository: &gix::Repository) -> Result<Vec<RepoPath>, GitError> {

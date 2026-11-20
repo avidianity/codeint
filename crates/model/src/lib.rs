@@ -90,6 +90,7 @@ pub struct CodeModel {
     pub files: Vec<SourceFile>,
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
+    pub submodules: Vec<RepoPath>,
     pub runtime_imports: Vec<RuntimeImport>,
 }
 

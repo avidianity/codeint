@@ -29,6 +29,8 @@ pub struct Report {
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    submodules: Vec<String>,
 }
 
 pub enum ReferenceRangeScope {
@@ -443,6 +445,7 @@ impl Report {
                 .iter()
                 .map(RepoPath::to_string)
                 .collect(),
+            submodules: model.submodules.iter().map(RepoPath::to_string).collect(),
             source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
         }
     }
