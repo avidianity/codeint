@@ -1,0 +1,126 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked --no-run
+      - name: Test without network access
+        run: |
+          sudo --preserve-env=PATH,HOME,CARGO_HOME,RUSTUP_HOME unshare --net -- bash -c '
+            ip link set lo up
+            setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups cargo test --workspace --locked --offline
+          '
+
+  repository:
+    name: repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/gitleaks
+      - run: cargo xtask merged-result
+      - if: github.event_name == 'pull_request'
+        run: cargo xtask no-comments --base "origin/${{ github.base_ref }}"
+      - if: github.event_name == 'pull_request'
+        run: cargo xtask commit-message --range "origin/${{ github.base_ref }}"
+      - run: npm run --silent duplicates
+      - run: npx --no-install markdownlint-cli2
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8
+        with:
+          args: --config lychee.toml "./**/*.md" ".rules"
+          fail: true
+          failIfEmpty: true
+          jobSummary: false
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f
+        with:
+          tool: cargo-shear@1.14.1
+      - run: cargo shear
+      - run: gitleaks git --redact --no-banner
+
+  risk-tier:
+    name: risk-tier
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - id: tier
+        run: cargo xtask risk-tier --base "origin/${{ github.base_ref }}" | tee "$RUNNER_TEMP/tier.txt"
+      - name: Apply the tier label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          TIER: ${{ steps.tier.outputs.tier }}
+        run: |
+          set -euo pipefail
+          gh label create "tier-$TIER" --color 5319e7 --description "Tier $TIER from the tier check" --force
+          for label in $(gh pr view "$PULL_REQUEST" --json labels --jq '.labels[].name | select(startswith("tier-"))'); do
+            if [ "$label" != "tier-$TIER" ]; then
+              gh pr edit "$PULL_REQUEST" --remove-label "$label"
+            fi
+          done
+          gh pr edit "$PULL_REQUEST" --add-label "tier-$TIER"
+          cat "$RUNNER_TEMP/tier.txt" >> "$GITHUB_STEP_SUMMARY"
+
+  budget:
+    name: budget
+    if: always() && github.event_name == 'pull_request'
+    needs: [rust, repository, risk-tier]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE: origin/${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/gitleaks
+      - run: cargo build --locked --package xtask
+      - name: Git hook loop
+        run: |
+          start=$(date +%s.%N)
+          git diff --name-only "$BASE...HEAD" | npx --no-install lefthook run pre-commit --force --no-auto-install --files-from-stdin
+          seconds=$(echo "$(date +%s.%N) - $start" | bc)
+          cargo xtask feedback-budget --loop hook --seconds "$seconds" --report
+      - name: Relevant tier loop
+        run: |
+          start=$(date +%s.%N)
+          cargo xtask affected-tests --base "$BASE"
+          seconds=$(echo "$(date +%s.%N) - $start" | bc)
+          cargo xtask feedback-budget --loop relevant --seconds "$seconds" --report
+      - name: CI gate loop
+        run: cargo xtask feedback-budget --loop ci-gate --run-id "${{ github.run_id }}" --exclude-job budget --report
