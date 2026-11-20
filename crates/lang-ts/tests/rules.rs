@@ -436,6 +436,170 @@ function audit(age: number) {
         ],
     },
     RuleFixtures {
+        rule: "trailing-bare-return",
+        flagged: &[
+            Flagged {
+                text: "export function log(message: string) {
+  console.log(message);
+  return;
+}
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const log = function (message) {
+  console.log(message);
+  return;
+};
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const log = (message: string) => {
+  console.log(message);
+  return;
+};
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export class Logger {
+  #lines: string[] = [];
+  constructor(first: string) {
+    this.#lines.push(first);
+    return;
+  }
+  write(line: string) {
+    this.#lines.push(line);
+    return;
+  }
+  static reset(logger: Logger) {
+    logger.#lines = [];
+    return;
+  }
+  get size() {
+    console.log(this.#lines.length);
+    return;
+  }
+  set last(line: string) {
+    this.#lines.push(line);
+    return;
+  }
+}
+",
+                lines: &[5, 9, 13, 17, 21],
+            },
+            Flagged {
+                text: "export function* count(limit: number) {
+  for (let index = 0; index < limit; index++) {
+    yield index;
+  }
+  return;
+}
+",
+                lines: &[5],
+            },
+            Flagged {
+                text: "export async function save(record: object) {
+  await write(record);
+  return;
+}
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const handlers = {
+  open() {
+    console.log('open');
+    return;
+  },
+  async *stream(items) {
+    yield* items;
+    return;
+  },
+};
+",
+                lines: &[4, 8],
+            },
+            Flagged {
+                text: "export function outer(items: number[]) {
+  items.forEach((item) => {
+    if (item < 0) {
+      return;
+    }
+    console.log(item);
+    return;
+  });
+  return;
+}
+",
+                lines: &[7, 9],
+            },
+            Flagged {
+                text: "export function done() {
+  console.log('done');
+  // nothing to return
+  return; // explicit end
+}
+",
+                lines: &[4],
+            },
+            Flagged {
+                text: "export function noop() { return; }
+",
+                lines: &[1],
+            },
+        ],
+        passing: &[
+            "export function log(message: string) {
+  if (!message) {
+    return;
+  }
+  console.log(message);
+}
+",
+            "export function total(items: number[]) {
+  console.log(items);
+  return items.length;
+}
+",
+            "export function total(items: number[]) {
+  console.log(items);
+  return undefined;
+}
+",
+            "export function check(ready: boolean) {
+  if (ready) {
+    console.log('ready');
+    return;
+  }
+}
+",
+            "export function first(items: number[]) {
+  for (const item of items) {
+    console.log(item);
+    return;
+  }
+}
+",
+            "export function run(task: () => void) {
+  return;
+  task();
+}
+",
+            "export const noop = () => undefined;
+",
+            "export function handle(kind: string) {
+  switch (kind) {
+    case 'a':
+      console.log(kind);
+      return;
+  }
+}
+",
+        ],
+    },
+    RuleFixtures {
         rule: "conditional-yields-boolean",
         flagged: &[
             Flagged {

@@ -10,17 +10,19 @@ mod catch_only_rethrows;
 mod conditional_yields_boolean;
 mod else_after_return;
 mod if_else_returns_boolean;
+mod trailing_bare_return;
 
 struct Rule {
     id: &'static str,
     find: fn(&Program<'_>, &str) -> Vec<Span>,
 }
 
-const RULES: [Rule; 4] = [
+const RULES: [Rule; 5] = [
     else_after_return::RULE,
     if_else_returns_boolean::RULE,
     catch_only_rethrows::RULE,
     conditional_yields_boolean::RULE,
+    trailing_bare_return::RULE,
 ];
 
 pub fn flagged_line_rules() -> impl Iterator<Item = &'static str> {
