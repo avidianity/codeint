@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -1027,7 +1028,7 @@ fn an_unknown_format_names_the_formats_codeint_prints_and_exits_2() {
     assert_operational_error(
         &output,
         "error: invalid value 'yaml' for '--format <FORMAT>'\n\
-         \x20 [possible values: toon, json]\n\
+         \x20 [possible values: toon, json, sarif]\n\
          \n\
          For more information, try '--help'.\n",
     );
@@ -2576,4 +2577,477 @@ fn format_json_carries_every_field_and_value_of_the_toon_report() {
         with_every_number_as_f64(from_json),
         with_every_number_as_f64(from_toon)
     );
+}
+
+const SARIF_RULES: &str = r#"          "rules": [
+            {
+              "id": "erosion",
+              "name": "Erosion",
+              "shortDescription": {
+                "text": "A function with cyclomatic complexity over 10"
+              },
+              "fullDescription": {
+                "text": "Erosion is the share of total Function mass held by functions whose cyclomatic complexity is greater than 10. Function mass is cyclomatic complexity times the square root of source lines."
+              },
+              "help": {
+                "text": "Split the function into smaller functions, each with a cyclomatic complexity of 10 or less."
+              }
+            },
+            {
+              "id": "duplication",
+              "name": "Duplication",
+              "shortDescription": {
+                "text": "A Clone group: code fragments with the same token sequence"
+              },
+              "fullDescription": {
+                "text": "Duplication is the share of source lines that belong to at least one Clone group. A Clone group is two or more code fragments with the same token sequence once identifiers and literals are normalized."
+              },
+              "help": {
+                "text": "Extract the fragments of the Clone group into one shared function or module."
+              }
+            },
+            {
+              "id": "verbosity",
+              "name": "Verbosity",
+              "shortDescription": {
+                "text": "A Flagged line: code that can be deleted or collapsed"
+              },
+              "fullDescription": {
+                "text": "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches."
+              },
+              "help": {
+                "text": "Delete or collapse the line as its rule describes; the behavior stays the same."
+              }
+            },
+            {
+              "id": "import_cycles",
+              "name": "Import cycles",
+              "shortDescription": {
+                "text": "An Import cycle among runtime imports"
+              },
+              "fullDescription": {
+                "text": "Import cycles is the share of modules that belong to at least one Import cycle. An Import cycle is a group of modules in which every module can reach every other module through runtime imports."
+              },
+              "help": {
+                "text": "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them."
+              }
+            }
+          ]"#;
+
+#[test]
+fn format_sarif_prints_a_sarif_2_1_0_log_with_one_result_per_finding_and_a_rule_per_metric() {
+    let repository = repository_with_a_finding_a_skipped_file_and_a_declaration_file();
+
+    let output = repository.codeint(&["check", "--format", "sarif"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        format!(
+            r#"{{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {{
+      "tool": {{
+        "driver": {{
+          "name": "codeint",
+          "version": "{version}",
+          "informationUri": "https://github.com/avidianity/codeint",
+{SARIF_RULES}
+        }}
+      }},
+      "originalUriBaseIds": {{
+        "SRCROOT": {{
+          "description": {{
+            "text": "The root of the Git repository"
+          }}
+        }}
+      }},
+      "results": [
+        {{
+          "ruleId": "verbosity",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {{
+            "text": "Flagged line: rule else-after-return."
+          }},
+          "locations": [
+            {{
+              "physicalLocation": {{
+                "artifactLocation": {{
+                  "uri": "src/sign.ts",
+                  "uriBaseId": "SRCROOT"
+                }},
+                "region": {{
+                  "startLine": 4
+                }}
+              }}
+            }}
+          ],
+          "properties": {{
+            "sourceSet": "production"
+          }}
+        }}
+      ]
+    }}
+  ]
+}}
+"#,
+            version = env!("CARGO_PKG_VERSION"),
+        )
+    );
+}
+
+fn repository_with_a_finding_of_every_metric_in_nested_folders() -> Repository {
+    let repository = Repository::new();
+    repository.write("packages/web/src/sign.ts", SIGN_WITH_AN_ELSE_AFTER_RETURN);
+    repository.write(
+        "packages/web/src/eroded.ts",
+        &function_with_if_statements("eroded", 12),
+    );
+    repository.write("packages/web/src/cart.ts", CART_TOTAL);
+    repository.write("packages/api/lib/order.ts", CART_TOTAL);
+    repository.write(
+        "packages/web/src/a.ts",
+        "import { b } from '../../api/lib/b';\nexport const a = b;\n",
+    );
+    repository.write(
+        "packages/api/lib/b.ts",
+        "import { a } from '../../web/src/a';\nexport const b = a;\n",
+    );
+    repository.write(
+        "packages/web/test/sign.test.ts",
+        &function_with_if_statements("tested", 11),
+    );
+    repository.commit_all();
+    repository
+}
+
+type FindingLocation = (String, String, String, u64);
+
+fn finding_locations_of_the_json_report(report: &serde_json::Value) -> Vec<FindingLocation> {
+    let mut locations = Vec::new();
+    for (source_set, section) in report["source_sets"].as_object().expect("source sets") {
+        let rows = |metric: &str, list: &str| {
+            section[metric][list]
+                .as_array()
+                .expect("a Finding list")
+                .clone()
+        };
+        let mut add = |metric: &str, path: &serde_json::Value, line: u64| {
+            locations.push((
+                source_set.clone(),
+                metric.to_owned(),
+                path.as_str().expect("a path").to_owned(),
+                line,
+            ));
+        };
+        for finding in rows("erosion", "findings") {
+            add(
+                "erosion",
+                &finding["path"],
+                finding["line"].as_u64().expect("a line"),
+            );
+        }
+        for group in rows("duplication", "clone_groups") {
+            let first = &group["locations"][0];
+            add(
+                "duplication",
+                &first["path"],
+                first["start_line"].as_u64().expect("a line"),
+            );
+        }
+        for finding in rows("verbosity", "findings") {
+            add(
+                "verbosity",
+                &finding["path"],
+                finding["line"].as_u64().expect("a line"),
+            );
+        }
+        for cycle in rows("import_cycles", "findings") {
+            add("import_cycles", &cycle["modules"][0], 1);
+        }
+    }
+    locations.sort();
+    locations
+}
+
+fn primary_locations_of_the_sarif_log(log: &serde_json::Value) -> Vec<FindingLocation> {
+    let mut locations: Vec<FindingLocation> = log["runs"][0]["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|result| {
+            let location = &result["locations"][0]["physicalLocation"];
+            (
+                result["properties"]["sourceSet"]
+                    .as_str()
+                    .expect("a Source set")
+                    .to_owned(),
+                result["ruleId"].as_str().expect("a rule id").to_owned(),
+                location["artifactLocation"]["uri"]
+                    .as_str()
+                    .expect("a uri")
+                    .to_owned(),
+                location["region"]["startLine"]
+                    .as_u64()
+                    .expect("a start line"),
+            )
+        })
+        .collect();
+    locations.sort();
+    locations
+}
+
+#[test]
+fn every_sarif_result_has_the_metric_rule_and_the_repository_relative_path_and_line_of_its_finding()
+{
+    let repository = repository_with_a_finding_of_every_metric_in_nested_folders();
+    let subfolder = repository.path().join("packages/web");
+
+    let json = run_codeint(&subfolder, &["check", "--format", "json"]);
+    let sarif = run_codeint(&subfolder, &["check", "--format", "sarif"]);
+
+    assert_success(&json);
+    assert_success(&sarif);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout(&json)).expect("the JSON report parses");
+    let log: serde_json::Value =
+        serde_json::from_str(&stdout(&sarif)).expect("the SARIF log parses");
+    let from_json = finding_locations_of_the_json_report(&report);
+    let metrics: BTreeSet<&str> = from_json
+        .iter()
+        .map(|(_, metric, _, _)| metric.as_str())
+        .collect();
+    assert_eq!(
+        metrics,
+        BTreeSet::from(["duplication", "erosion", "import_cycles", "verbosity"]),
+        "the fixture has a Finding of every Metric: {report}"
+    );
+    assert_eq!(primary_locations_of_the_sarif_log(&log), from_json);
+}
+
+#[test]
+fn a_clone_group_and_an_import_cycle_list_their_other_locations_as_related_locations() {
+    let repository = repository_with_a_finding_of_every_metric_in_nested_folders();
+
+    let output = repository.codeint(&["check", "--format", "sarif"]);
+
+    assert_success(&output);
+    let log: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("the SARIF log parses");
+    let results = log["runs"][0]["results"].as_array().expect("results");
+    let result_of = |rule: &str| {
+        results
+            .iter()
+            .find(|result| result["ruleId"] == rule)
+            .unwrap_or_else(|| panic!("a {rule} result in {log}"))
+    };
+    let related = |rule: &str| -> Vec<(u64, String, u64, Option<u64>)> {
+        result_of(rule)["relatedLocations"]
+            .as_array()
+            .expect("related locations")
+            .iter()
+            .map(|location| {
+                let physical = &location["physicalLocation"];
+                (
+                    location["id"].as_u64().expect("an id"),
+                    physical["artifactLocation"]["uri"]
+                        .as_str()
+                        .expect("a uri")
+                        .to_owned(),
+                    physical["region"]["startLine"].as_u64().expect("a line"),
+                    physical["region"]["endLine"].as_u64(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        result_of("duplication")["message"]["text"],
+        "Clone group of 59 tokens in 2 fragments; the other fragments: packages/web/src/cart.ts lines 1-9."
+    );
+    assert_eq!(
+        related("duplication"),
+        vec![(1, "packages/web/src/cart.ts".to_owned(), 1, Some(9))]
+    );
+    assert_eq!(
+        result_of("import_cycles")["message"]["text"],
+        "Import cycle of 2 modules: packages/api/lib/b.ts, packages/web/src/a.ts."
+    );
+    assert_eq!(
+        related("import_cycles"),
+        vec![(1, "packages/web/src/a.ts".to_owned(), 1, None)]
+    );
+}
+
+#[test]
+fn an_eroded_function_result_names_its_cyclomatic_complexity_source_lines_and_function_mass() {
+    let repository = Repository::new();
+    repository.write("src/eroded.ts", &function_with_if_statements("eroded", 12));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "sarif"]);
+
+    assert_success(&output);
+    let log: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("the SARIF log parses");
+    assert_eq!(
+        log["runs"][0]["results"][0]["message"]["text"],
+        "Eroded function: cyclomatic complexity 13, over 10; 15 source lines; Function mass 50.3488."
+    );
+}
+
+#[test]
+fn a_sarif_location_percent_encodes_a_space_in_the_path() {
+    let repository = Repository::new();
+    repository.write("src/my sign.ts", SIGN_WITH_AN_ELSE_AFTER_RETURN);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "sarif"]);
+
+    assert_success(&output);
+    let log: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("the SARIF log parses");
+    assert_eq!(
+        log["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+        "src/my%20sign.ts"
+    );
+}
+
+#[test]
+fn a_repository_without_findings_prints_a_sarif_log_with_no_results() {
+    let repository = Repository::new();
+    repository.write("src/one.ts", "export const one = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "sarif"]);
+
+    assert_success(&output);
+    let log: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("the SARIF log parses");
+    assert_eq!(log["runs"][0]["results"], serde_json::json!([]));
+    assert_eq!(
+        log["runs"][0]["tool"]["driver"]["rules"]
+            .as_array()
+            .map(Vec::len),
+        Some(4)
+    );
+}
+
+#[test]
+fn format_sarif_follows_all_and_output_like_every_other_format() {
+    let repository = Repository::new();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 21);
+    repository.commit_all();
+
+    let top = repository.codeint(&["check", "--format", "sarif"]);
+    let all = repository.codeint(&["check", "--format", "sarif", "--all"]);
+    let to_file = repository.codeint(&[
+        "check",
+        "--format",
+        "sarif",
+        "--all",
+        "--output",
+        "codeint.sarif",
+    ]);
+
+    assert_success(&top);
+    assert_success(&all);
+    assert_success(&to_file);
+    let eroded_functions = |output: &Output| {
+        serde_json::from_str::<serde_json::Value>(&stdout(output)).expect("the SARIF log parses")
+            ["runs"][0]["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .filter(|result| result["ruleId"] == "erosion")
+            .count()
+    };
+    assert_eq!((eroded_functions(&top), eroded_functions(&all)), (20, 21));
+    assert_eq!(stdout(&to_file), "");
+    assert_eq!(
+        fs::read_to_string(repository.path().join("codeint.sarif")).expect("read the report"),
+        stdout(&all)
+    );
+}
+
+fn assert_valid_sarif_location(location: &serde_json::Value, base_ids: &serde_json::Value) {
+    let artifact = &location["physicalLocation"]["artifactLocation"];
+    let uri = artifact["uri"].as_str().expect("a uri");
+    assert!(
+        !uri.is_empty()
+            && !uri.starts_with('/')
+            && !uri.contains(['\\', ' ', ':'])
+            && base_ids
+                .get(artifact["uriBaseId"].as_str().expect("a uriBaseId"))
+                .is_some(),
+        "a relative uri reference with a declared uriBaseId: {location}"
+    );
+    let region = &location["physicalLocation"]["region"];
+    let start_line = region["startLine"].as_u64().expect("a start line");
+    assert!(start_line >= 1, "a positive start line: {location}");
+    if let Some(end_line) = region["endLine"].as_u64() {
+        assert!(
+            end_line >= start_line,
+            "an end line after the start line: {location}"
+        );
+    }
+}
+
+#[test]
+fn the_sarif_log_holds_every_property_and_value_that_sarif_2_1_0_requires() {
+    let repository = repository_with_a_finding_of_every_metric_in_nested_folders();
+
+    let output = repository.codeint(&["check", "--format", "sarif"]);
+
+    assert_success(&output);
+    let log: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("the SARIF log parses");
+    let top_level: BTreeSet<&str> = log
+        .as_object()
+        .expect("an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(top_level, BTreeSet::from(["$schema", "runs", "version"]));
+    assert_eq!(log["version"], "2.1.0");
+    let run = &log["runs"][0];
+    assert_eq!(log["runs"].as_array().map(Vec::len), Some(1));
+    assert_eq!(run["tool"]["driver"]["name"], "codeint");
+    let rules = run["tool"]["driver"]["rules"].as_array().expect("rules");
+    let rule_ids: BTreeSet<&str> = rules
+        .iter()
+        .map(|rule| rule["id"].as_str().expect("a rule id"))
+        .collect();
+    assert_eq!(rule_ids.len(), rules.len(), "unique rule ids");
+    let base_ids = &run["originalUriBaseIds"];
+    let results = run["results"].as_array().expect("results");
+    assert!(!results.is_empty(), "the fixture has results");
+    for result in results {
+        let rule_index = usize::try_from(result["ruleIndex"].as_u64().expect("a rule index"))
+            .expect("a small rule index");
+        assert_eq!(result["ruleId"], rules[rule_index]["id"], "{result}");
+        assert!(
+            ["none", "note", "warning", "error"]
+                .contains(&result["level"].as_str().expect("a level")),
+            "{result}"
+        );
+        assert!(
+            !result["message"]["text"]
+                .as_str()
+                .expect("a message")
+                .is_empty(),
+            "{result}"
+        );
+        let locations = result["locations"].as_array().expect("locations");
+        assert_eq!(locations.len(), 1, "{result}");
+        let related = result["relatedLocations"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for location in locations.iter().chain(&related) {
+            assert_valid_sarif_location(location, base_ids);
+        }
+    }
 }
