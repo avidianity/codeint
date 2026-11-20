@@ -46,6 +46,7 @@ It sets every key to its default, and lists under `languages` each top-level fol
   "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
   "source_sets": { "production": [], "test": [], "generated": [], "vendored": [] },
   "budgets": { "production": {}, "test": {}, "generated": {}, "vendored": {} },
+  "regression_limits": {},
   "languages": [
     { "plugin": "typescript-javascript", "include": ["packages", "scripts"], "exclude": [] }
   ]
@@ -157,11 +158,12 @@ A Regression is a Metric that got worse from the merge-base to the head side by 
 `codeint diff` also applies the Budgets of `codeint.json` to the head side, the working tree or the `--head` ref, as `codeint check` does.
 
 When a Budget or a Regression fails, codeint still writes the whole report, lists each failure under `over_budget` or `regressions`, names it on standard error, and exits with code 1.
-Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, and the numerators for `numerator_rise_with_new_findings`:
+Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, and the numerators for `numerator_rise_with_new_findings`.
+`ratio_rise_limit` is the ratio rise limit of the Metric in that Source set:
 
 ```text
-regressions[1]{source_set,metric,rule,base,head,new_findings}:
-  production,import_cycles,ratio_rise,0.01,0.0204,0
+regressions[1]{source_set,metric,rule,base,head,new_findings,ratio_rise_limit}:
+  production,import_cycles,ratio_rise,0.01,0.0204,0,0.01
 ```
 
 ```text
@@ -169,6 +171,38 @@ codeint: the production import_cycles ratio rose from 0.01 to 0.0204, more than 
 ```
 
 With no failure, the report has no `over_budget` or `regressions` key, and codeint exits with code 0.
+
+#### Regression limits
+
+Set Regression limits in `codeint.json` under `regression_limits`.
+A key named after a Metric sets its limit in every Source set.
+A key named after a Source set holds limits for that Source set only:
+
+```json
+{
+  "regression_limits": {
+    "erosion": { "ratio_rise": 0.02 },
+    "import_cycles": { "new_findings": "numerator_rise_with_new_findings" },
+    "generated": { "duplication": { "ratio_rise": 1 } }
+  }
+}
+```
+
+Each limit has two settings, and you may set either one or both:
+
+- `ratio_rise` is the highest ratio rise that passes, a number from 0 to 1; the default is 0.01.
+- `new_findings` says when new Findings are a Regression.
+  `any_new_finding` fails on any new Finding, the default for Import cycles.
+  `numerator_rise_with_new_findings` fails only when the numerator rises too, the default for the other Metrics.
+
+codeint settles each setting on its own: the Source set limit wins, then the Metric limit, then the default.
+So `{ "erosion": { "ratio_rise": 0.02 }, "production": { "erosion": { "new_findings": "any_new_finding" } } }` gives production Erosion a ratio rise limit of 0.02 and fails it on any new Finding.
+
+An invalid limit stops the run with exit code 2 and names the key:
+
+```text
+codeint: codeint.json: regression_limits.production.erosion.ratio_rise must be between 0 and 1, not 1.5
+```
 
 ## Report formats
 

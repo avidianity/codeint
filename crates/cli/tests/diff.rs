@@ -125,6 +125,28 @@ impl Fixture {
         fixture
     }
 
+    fn with_import_cycle_replaced_by_another() -> Fixture {
+        let fixture = Fixture::with_committed_import_cycle_and_modules(8);
+        fixture.remove("src/a.ts");
+        fixture.remove("src/b.ts");
+        fixture.put_import_cycle("c", "d");
+        fixture
+    }
+
+    fn with_erosion_finding_moved_to_another_file() -> Fixture {
+        let fixture = Fixture::with_committed_function_of_11_conditions();
+        fixture.remove("src/a.ts");
+        fixture.put("src/b.ts", &function_with_conditions_on_one_line("a", 11));
+        fixture
+    }
+
+    fn put_regression_limits(&self, regression_limits: &str) {
+        self.put(
+            "codeint.json",
+            &format!(r#"{{ "regression_limits": {regression_limits} }}"#),
+        );
+    }
+
     fn with_committed_import_cycle_and_modules(modules: usize) -> Fixture {
         let fixture = Fixture::on_main();
         fixture.put_import_cycle("a", "b");
@@ -188,7 +210,8 @@ fn regression(metric: &str, rule: &str, base: f64, head: f64, new_findings: usiz
         "rule": rule,
         "base": base,
         "head": head,
-        "new_findings": new_findings
+        "new_findings": new_findings,
+        "ratio_rise_limit": 0.01
     })
 }
 
@@ -511,11 +534,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
 fn a_ratio_rise_of_exactly_0_01_is_not_a_regression() {
     let report = Fixture::import_cycle_with_modules_cut_from_198_to(98).diff_passing();
 
-    let import_cycles = &report["source_sets"]["production"]["import_cycles"];
-    assert_eq!(
-        (&import_cycles["base_ratio"], &import_cycles["head_ratio"]),
-        (&json!(0.01), &json!(0.02))
-    );
+    assert_import_cycles_ratios(&report, 0.01, 0.02);
 }
 
 #[test]
@@ -528,12 +547,7 @@ fn a_ratio_rise_over_0_01_is_a_regression_named_with_its_base_and_head_ratio() {
 
 #[test]
 fn a_new_import_cycle_is_a_regression_even_when_neither_the_ratio_nor_the_numerator_rises() {
-    let fixture = Fixture::with_committed_import_cycle_and_modules(8);
-    fixture.remove("src/a.ts");
-    fixture.remove("src/b.ts");
-    fixture.put_import_cycle("c", "d");
-
-    fixture.diff_failing_with(
+    Fixture::with_import_cycle_replaced_by_another().diff_failing_with(
         &[regression("import_cycles", "new_findings", 0.2, 0.2, 1)],
         "the production import_cycles Metric has 1 new Finding, and its Regression limit allows none",
     );
@@ -578,16 +592,152 @@ fn a_numerator_rise_that_adds_new_findings_is_a_regression_named_with_its_base_a
 
 #[test]
 fn a_finding_that_moves_to_another_file_without_a_numerator_rise_is_not_a_regression() {
-    let fixture = Fixture::with_committed_function_of_11_conditions();
-    fixture.remove("src/a.ts");
-    fixture.put("src/b.ts", &function_with_conditions_on_one_line("a", 11));
-
-    let report = fixture.diff_passing();
+    let report = Fixture::with_erosion_finding_moved_to_another_file().diff_passing();
 
     let erosion = &report["source_sets"]["production"]["erosion"];
     assert_eq!(
         (paths_of(&erosion["new"]), paths_of(&erosion["resolved"])),
         (vec!["src/b.ts".to_owned()], vec!["src/a.ts".to_owned()])
+    );
+}
+
+fn import_cycles_ratio_from_0_02_to_0_04_under(regression_limits: &str) -> Fixture {
+    let fixture = Fixture::with_committed_import_cycle_and_modules(98);
+    fixture.remove_modules(49..=98);
+    fixture.put_regression_limits(regression_limits);
+    fixture
+}
+
+fn assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails(regression_limits: &str, limit: f64) {
+    let mut expected = regression("import_cycles", "ratio_rise", 0.02, 0.04, 0);
+    expected["ratio_rise_limit"] = json!(limit);
+
+    import_cycles_ratio_from_0_02_to_0_04_under(regression_limits).diff_failing_with(
+        &[expected],
+        &format!(
+            "the production import_cycles ratio rose from 0.02 to 0.04, more than its Regression limit {limit}"
+        ),
+    );
+}
+
+fn assert_import_cycles_ratio_rise_from_0_02_to_0_04_passes(regression_limits: &str) {
+    let report = import_cycles_ratio_from_0_02_to_0_04_under(regression_limits).diff_passing();
+
+    assert_import_cycles_ratios(&report, 0.02, 0.04);
+}
+
+fn assert_import_cycles_ratio_rise_passes_with_production_and_metric_settings(
+    production_setting: &str,
+    metric_setting: &str,
+) {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_passes(&format!(
+        r#"{{ "production": {{ "import_cycles": {production_setting} }}, "import_cycles": {metric_setting} }}"#
+    ));
+}
+
+fn assert_import_cycles_ratios(report: &Value, base: f64, head: f64) {
+    let import_cycles = &report["source_sets"]["production"]["import_cycles"];
+    assert_eq!(
+        (&import_cycles["base_ratio"], &import_cycles["head_ratio"]),
+        (&json!(base), &json!(head))
+    );
+}
+
+fn assert_regression_limits_rejected(regression_limits: &str, message: &str, remedy: &str) {
+    let fixture = Fixture::with_committed_function_of_11_conditions();
+    fixture.put_regression_limits(regression_limits);
+
+    let output = fixture.codeint_diff(&["main"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!("codeint: codeint.json: {message}\n{remedy}\n")
+    );
+}
+
+#[test]
+fn a_ratio_limit_raised_to_0_02_lets_a_0_02_rise_pass() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_passes(
+        r#"{ "import_cycles": { "ratio_rise": 0.02 } }"#,
+    );
+}
+
+#[test]
+fn a_0_02_rise_is_a_regression_under_the_default_limit() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails("{}", 0.01);
+}
+
+#[test]
+fn a_ratio_regression_names_the_ratio_limit_its_source_set_sets() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails(
+        r#"{ "production": { "import_cycles": { "ratio_rise": 0.015 } } }"#,
+        0.015,
+    );
+}
+
+#[test]
+fn a_regression_limit_of_another_source_set_does_not_apply() {
+    assert_import_cycles_ratio_rise_from_0_02_to_0_04_fails(
+        r#"{ "test": { "import_cycles": { "ratio_rise": 0.02 } } }"#,
+        0.01,
+    );
+}
+
+#[test]
+fn a_ratio_limit_of_the_source_set_wins_over_the_ratio_limit_of_the_metric() {
+    assert_import_cycles_ratio_rise_passes_with_production_and_metric_settings(
+        r#"{ "ratio_rise": 0.02 }"#,
+        r#"{ "ratio_rise": 0.005 }"#,
+    );
+}
+
+#[test]
+fn a_source_set_setting_keeps_the_ratio_limit_that_the_metric_setting_raised() {
+    assert_import_cycles_ratio_rise_passes_with_production_and_metric_settings(
+        r#"{ "new_findings": "any_new_finding" }"#,
+        r#"{ "ratio_rise": 0.02 }"#,
+    );
+}
+
+#[test]
+fn new_findings_set_to_any_new_finding_makes_a_moved_erosion_finding_a_regression() {
+    let fixture = Fixture::with_erosion_finding_moved_to_another_file();
+    fixture.put_regression_limits(r#"{ "erosion": { "new_findings": "any_new_finding" } }"#);
+
+    fixture.diff_failing_with(
+        &[regression("erosion", "new_findings", 1.0, 1.0, 1)],
+        "the production erosion Metric has 1 new Finding, and its Regression limit allows none",
+    );
+}
+
+#[test]
+fn new_findings_set_to_numerator_rise_with_new_findings_lets_a_new_import_cycle_without_a_rise_pass()
+ {
+    let fixture = Fixture::with_import_cycle_replaced_by_another();
+    fixture.put_regression_limits(
+        r#"{ "import_cycles": { "new_findings": "numerator_rise_with_new_findings" } }"#,
+    );
+
+    fixture.diff_passing();
+}
+
+#[test]
+fn a_ratio_limit_over_1_stops_diff_with_exit_code_2_and_names_the_key() {
+    assert_regression_limits_rejected(
+        r#"{ "production": { "erosion": { "ratio_rise": 1.5 } } }"#,
+        "regression_limits.production.erosion.ratio_rise must be between 0 and 1, not 1.5",
+        "Set the value to a ratio from 0 to 1, as the report shows ratios.",
+    );
+}
+
+#[test]
+fn an_unknown_new_findings_rule_stops_diff_with_exit_code_2_and_names_the_key_and_the_rules() {
+    assert_regression_limits_rejected(
+        r#"{ "erosion": { "new_findings": "sometimes" } }"#,
+        "regression_limits.erosion.new_findings must be one of any_new_finding, numerator_rise_with_new_findings, not \"sometimes\"",
+        "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one.",
     );
 }
 

@@ -67,11 +67,20 @@ impl RegressionLimit {
     };
 
     fn default_for(metric: Metric) -> RegressionLimit {
-        todo!("{metric:?}")
+        match metric {
+            Metric::ImportCycles => RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES,
+            Metric::Erosion | Metric::Duplication | Metric::Verbosity => RegressionLimit::DEFAULT,
+        }
     }
 
     fn overridden_by(self, setting: Option<RegressionLimitSetting>) -> RegressionLimit {
-        todo!("{setting:?}")
+        let Some(setting) = setting else {
+            return self;
+        };
+        RegressionLimit {
+            ratio_rise: setting.ratio_rise.unwrap_or(self.ratio_rise),
+            new_findings: setting.new_findings.unwrap_or(self.new_findings),
+        }
     }
 }
 

@@ -28,6 +28,7 @@ impl<'schema> Shape<'schema> {
         let schema = self.resolve(schema);
         self.check_type(value, schema, key)?;
         check_range(value, schema, key)?;
+        check_allowed_values(value, schema, key)?;
         match value {
             Value::Object(members) => self.check_members(members, schema, key),
             Value::Array(items) => self.check_items(items, schema, key),
@@ -134,6 +135,30 @@ fn check_range(value: &Value, schema: &Value, key: &KeyPath) -> Result<(), Confi
             found,
         })
     }
+}
+
+fn check_allowed_values(
+    value: &Value,
+    schema: &Value,
+    key: &KeyPath,
+) -> Result<(), ConfigurationFileError> {
+    let Some(allowed) = schema.get("enum").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    if allowed.contains(value) {
+        return Ok(());
+    }
+    Err(ConfigurationFileError::NotOneOf {
+        key: key.clone(),
+        allowed: allowed
+            .iter()
+            .map(|allowed| match allowed {
+                Value::String(name) => name.clone(),
+                other => other.to_string(),
+            })
+            .collect(),
+        found: value.clone(),
+    })
 }
 
 fn expected_types(schema: &Value) -> Vec<JsonType> {

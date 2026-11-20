@@ -111,7 +111,10 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
             "Change the value to the expected type; the JSON schema that $schema links to describes every key."
         }
         ConfigurationFileError::OutOfRange { .. } => {
-            "Set the Budget to a ratio from 0 to 1, as the report shows the Metric."
+            "Set the value to a ratio from 0 to 1, as the report shows ratios."
+        }
+        ConfigurationFileError::NotOneOf { .. } => {
+            "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one."
         }
         ConfigurationFileError::MissingKey { .. } => {
             "Add the key; the JSON schema that $schema links to describes every key."

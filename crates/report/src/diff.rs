@@ -53,7 +53,6 @@ pub(crate) struct Regression {
     base: Decimal,
     head: Decimal,
     new_findings: usize,
-    #[serde(skip)]
     ratio_rise_limit: f64,
     #[serde(skip)]
     numerator_key: &'static str,

@@ -67,7 +67,7 @@ fn schema_line() -> String {
     )
 }
 
-const DEFAULT_SOURCE_SETS_AND_BUDGETS: &str = r#"  "source_sets": {
+const DEFAULT_SOURCE_SETS_BUDGETS_AND_REGRESSION_LIMITS: &str = r#"  "source_sets": {
     "production": [],
     "test": [],
     "generated": [],
@@ -78,7 +78,8 @@ const DEFAULT_SOURCE_SETS_AND_BUDGETS: &str = r#"  "source_sets": {
     "test": {},
     "generated": {},
     "vendored": {}
-  }"#;
+  },
+  "regression_limits": {}"#;
 
 #[test]
 fn init_from_a_subfolder_writes_codeint_json_at_the_root_with_the_schema_link_defaults_and_each_folder_a_language_plugin_claims()
@@ -103,7 +104,7 @@ fn init_from_a_subfolder_writes_codeint_json_at_the_root_with_the_schema_link_de
     assert_eq!(
         repository.configuration(),
         format!(
-            "{{\n{}{DEFAULT_SOURCE_SETS_AND_BUDGETS},\n{}",
+            "{{\n{}{DEFAULT_SOURCE_SETS_BUDGETS_AND_REGRESSION_LIMITS},\n{}",
             schema_line(),
             r#"  "languages": [
     {
@@ -177,7 +178,7 @@ fn init_in_a_repository_without_files_a_language_plugin_claims_leaves_languages_
     assert_eq!(
         repository.configuration(),
         format!(
-            "{{\n{}{DEFAULT_SOURCE_SETS_AND_BUDGETS}\n}}\n",
+            "{{\n{}{DEFAULT_SOURCE_SETS_BUDGETS_AND_REGRESSION_LIMITS}\n}}\n",
             schema_line()
         )
     );

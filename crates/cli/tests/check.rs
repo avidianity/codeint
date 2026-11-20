@@ -2356,7 +2356,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, languages",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -3469,7 +3469,7 @@ fn assert_budget_out_of_range(budgets: &str, key: &str, found: &str) {
     assert_codeint_json_is_rejected(
         &format!(r#"{{ "budgets": {budgets} }}"#),
         &format!("codeint.json: {key} must be between 0 and 1, not {found}"),
-        "Set the Budget to a ratio from 0 to 1, as the report shows the Metric.",
+        "Set the value to a ratio from 0 to 1, as the report shows ratios.",
     );
 }
 

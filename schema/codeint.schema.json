@@ -30,6 +30,11 @@
         "vendored": {}
       }
     },
+    "regression_limits": {
+      "$ref": "#/$defs/RegressionLimitsFile",
+      "description": "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and new Findings fail only with a numerator rise, except for Import cycles, where any new Finding fails.",
+      "default": {}
+    },
     "languages": {
       "type": [
         "array",
@@ -39,11 +44,6 @@
         "$ref": "#/$defs/LanguageGlobs"
       },
       "description": "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
-    },
-    "regression_limits": {
-      "$ref": "#/$defs/RegressionLimitsFile",
-      "description": "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and new Findings fail only with a numerator rise, except for Import cycles, where any new Finding fails.",
-      "default": {}
     }
   },
   "title": "codeint.json",
@@ -148,35 +148,6 @@
         }
       }
     },
-    "LanguageGlobs": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "plugin": {
-          "type": "string",
-          "description": "The name of the Language plugin, such as typescript-javascript."
-        },
-        "include": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it."
-        },
-        "exclude": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Globs of repository-relative folders or files inside the included ones that the Language plugin leaves out.",
-          "default": []
-        }
-      },
-      "required": [
-        "plugin",
-        "include"
-      ]
-    },
     "RegressionLimitsFile": {
       "type": "object",
       "additionalProperties": false,
@@ -260,6 +231,35 @@
           "description": "The Regression limit of Import cycles in this Source set."
         }
       }
+    },
+    "LanguageGlobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The name of the Language plugin, such as typescript-javascript."
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of repository-relative folders or files inside the included ones that the Language plugin leaves out.",
+          "default": []
+        }
+      },
+      "required": [
+        "plugin",
+        "include"
+      ]
     }
   }
 }
