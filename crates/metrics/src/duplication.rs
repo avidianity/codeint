@@ -79,17 +79,20 @@ pub struct CloneLines(BTreeMap<RepoPath, BTreeSet<u32>>);
 
 impl CloneLines {
     fn of_files(model: &CodeModel, lines_by_file: BTreeMap<usize, BTreeSet<u32>>) -> CloneLines {
-        _ = (model, lines_by_file);
-        todo!()
+        CloneLines(
+            lines_by_file
+                .into_iter()
+                .map(|(file, lines)| (model.files[file].path.clone(), lines))
+                .collect(),
+        )
     }
 
     pub fn count(&self) -> u64 {
-        todo!()
+        self.0.values().map(|lines| lines.len() as u64).sum()
     }
 
     pub fn contains(&self, path: &RepoPath, line: u32) -> bool {
-        _ = (path, line);
-        todo!()
+        self.0.get(path).is_some_and(|lines| lines.contains(&line))
     }
 }
 

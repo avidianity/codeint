@@ -157,6 +157,8 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          ratio: 0\n      \
          reference_range: no published Reference range for this language\n      \
          verbose_lines: 0\n      \
+         flagged_lines: 0\n      \
+         clone_lines: 0\n      \
          findings: []\n    \
          import_cycles:\n      \
          ratio: 0\n      \
@@ -212,10 +214,60 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
          ratio: 0.15\n  \
          reference_range: no published Reference range for this language\n  \
          verbose_lines: 3\n  \
+         flagged_lines: 3\n  \
+         clone_lines: 0\n  \
          findings[3]{path,line,rule}:\n    \
          src/sign.ts,4,else-after-return\n    \
          src/size.ts,4,else-after-return\n    \
          src/size.ts,7,else-after-return\n"
+    );
+}
+
+const PLURAL_LABEL: &str = concat!(
+    "export function label(count: number, unit: string): string {\n",
+    "  if (count === 0) {\n",
+    "    return 'no ' + unit + 's';\n",
+    "  } else {\n",
+    "    return count + ' ' + unit + (count === 1 ? '' : 's');\n",
+    "  }\n",
+    "}\n",
+);
+
+const SIGN: &str = concat!(
+    "export function sign(value: number): string {\n",
+    "  if (value < 0) {\n",
+    "    return 'negative';\n",
+    "  } else {\n",
+    "    return 'positive';\n",
+    "  }\n",
+    "}\n",
+);
+
+#[test]
+fn verbosity_counts_a_line_that_is_both_flagged_and_a_clone_line_once() {
+    let repository = Repository::new();
+    repository.write("src/label.ts", PLURAL_LABEL);
+    repository.write("src/text.ts", &format!("{PLURAL_LABEL}{SIGN}"));
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 21\n");
+    assert_eq!(
+        production_section(&output, "verbosity"),
+        concat!(
+            "verbosity:\n",
+            "  ratio: 0.7143\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  verbose_lines: 15\n",
+            "  flagged_lines: 3\n",
+            "  clone_lines: 14\n",
+            "  findings[3]{path,line,rule}:\n",
+            "    src/label.ts,4,else-after-return\n",
+            "    src/text.ts,4,else-after-return\n",
+            "    src/text.ts,11,else-after-return\n",
+        )
     );
 }
 
