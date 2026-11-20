@@ -106,8 +106,41 @@ fn metric_section(output: &Output, source_set: &str, metric: &str) -> String {
         .skip_while(|line| *line != metric_heading)
         .enumerate()
         .take_while(|(index, line)| *index == 0 || indent(line) > METRIC_INDENT)
-        .map(|(_, line)| format!("{}\n", &line[METRIC_INDENT..]))
+        .map(|(_, line)| {
+            format!(
+                "{}\n",
+                with_finding_id_shown_as_a_placeholder(&line[METRIC_INDENT..])
+            )
+        })
         .collect()
+}
+
+const FINDING_ID_DIGITS: usize = 16;
+
+fn with_finding_id_shown_as_a_placeholder(line: &str) -> String {
+    let content = line.trim_start();
+    let indent = &line[..line.len() - content.len()];
+    let (before_id, rest) = match content.strip_prefix("- id: ") {
+        Some(rest) => ("- id: ", rest),
+        None => ("", content),
+    };
+    let (first_digit, id_length) = match rest.as_bytes().get(FINDING_ID_DIGITS + 1) {
+        Some(b'"') if rest.starts_with('"') => (1, FINDING_ID_DIGITS + 2),
+        _ => (0, FINDING_ID_DIGITS),
+    };
+    let starts_with_finding_id = rest
+        .get(first_digit..first_digit + FINDING_ID_DIGITS)
+        .is_some_and(|digits| {
+            digits
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+        && matches!(rest.as_bytes().get(id_length), None | Some(b','));
+    if starts_with_finding_id {
+        format!("{indent}{before_id}<id>{}", &rest[id_length..])
+    } else {
+        line.to_owned()
+    }
 }
 
 fn production_section(output: &Output, metric: &str) -> String {
@@ -222,10 +255,10 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
          verbose_lines: 3\n  \
          flagged_lines: 3\n  \
          clone_lines: 0\n  \
-         findings[3]{path,line,rule}:\n    \
-         src/sign.ts,4,else-after-return\n    \
-         src/size.ts,4,else-after-return\n    \
-         src/size.ts,7,else-after-return\n"
+         findings[3]{id,path,line,rule}:\n    \
+         <id>,src/sign.ts,4,else-after-return\n    \
+         <id>,src/size.ts,4,else-after-return\n    \
+         <id>,src/size.ts,7,else-after-return\n"
     );
 }
 
@@ -269,10 +302,10 @@ fn verbosity_counts_a_line_that_is_both_flagged_and_a_clone_line_once() {
             "  verbose_lines: 15\n",
             "  flagged_lines: 3\n",
             "  clone_lines: 14\n",
-            "  findings[3]{path,line,rule}:\n",
-            "    src/label.ts,4,else-after-return\n",
-            "    src/text.ts,4,else-after-return\n",
-            "    src/text.ts,11,else-after-return\n",
+            "  findings[3]{id,path,line,rule}:\n",
+            "    <id>,src/label.ts,4,else-after-return\n",
+            "    <id>,src/text.ts,4,else-after-return\n",
+            "    <id>,src/text.ts,11,else-after-return\n",
         )
     );
 }
@@ -482,8 +515,8 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
             "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 48\n",
             "  total_function_mass: 54\n",
-            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/mixed.ts,1,12,16,48\n",
+            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/mixed.ts,1,12,16,48\n",
         )
     );
 }
@@ -508,9 +541,9 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
             "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 84.561\n",
             "  total_function_mass: 119.202\n",
-            "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/eleven.ts,1,12,14,44.8999\n",
-            "    src/ten.ts,1,11,13,39.6611\n",
+            "  findings[2]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/eleven.ts,1,12,14,44.8999\n",
+            "    <id>,src/ten.ts,1,11,13,39.6611\n",
         )
     );
 }
@@ -592,8 +625,8 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
             "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 43.2666\n",
             "  total_function_mass: 44.6808\n",
-            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/outer.ts,2,12,13,43.2666\n",
+            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/outer.ts,2,12,13,43.2666\n",
         )
     );
 }
@@ -611,7 +644,7 @@ fn write_eroded_functions_with_more_if_statements_in_later_files(
 }
 
 fn erosion_findings_header(count: usize) -> String {
-    format!("  findings[{count}]{{path,line,cyclomatic_complexity,source_lines,function_mass}}:")
+    format!("  findings[{count}]{{id,path,line,cyclomatic_complexity,source_lines,function_mass}}:")
 }
 
 fn erosion_findings_lines(output: &Output) -> Vec<String> {
@@ -621,7 +654,7 @@ fn erosion_findings_lines(output: &Output) -> Vec<String> {
         .map(|line| match line.strip_prefix("    ") {
             Some(row) => format!(
                 "    {}",
-                row.splitn(3, ',').take(2).collect::<Vec<_>>().join(",")
+                row.splitn(4, ',').take(3).collect::<Vec<_>>().join(",")
             ),
             None => line.to_string(),
         })
@@ -641,7 +674,7 @@ fn the_report_lists_the_20_eroded_functions_of_most_function_mass_and_says_how_m
     expected.extend(
         (6..=25)
             .rev()
-            .map(|index| format!("    src/f{index:02}.ts,1")),
+            .map(|index| format!("    <id>,src/f{index:02}.ts,1")),
     );
     expected.push("  findings_left_out: 5".to_string());
     assert_eq!(erosion_findings_lines(&output), expected);
@@ -660,7 +693,7 @@ fn all_lists_every_eroded_function_and_leaves_none_out() {
     expected.extend(
         (1..=25)
             .rev()
-            .map(|index| format!("    src/f{index:02}.ts,1")),
+            .map(|index| format!("    <id>,src/f{index:02}.ts,1")),
     );
     assert_eq!(erosion_findings_lines(&output), expected);
 }
@@ -684,10 +717,10 @@ fn eroded_functions_of_equal_function_mass_are_listed_by_path_then_line_and_the_
     assert_success(&output);
     let mut expected = vec![
         erosion_findings_header(20),
-        "    src/t00.ts,1".to_string(),
-        "    src/t00.ts,14".to_string(),
+        "    <id>,src/t00.ts,1".to_string(),
+        "    <id>,src/t00.ts,14".to_string(),
     ];
-    expected.extend((1..=18).map(|index| format!("    src/t{index:02}.ts,1")));
+    expected.extend((1..=18).map(|index| format!("    <id>,src/t{index:02}.ts,1")));
     expected.push("  findings_left_out: 2".to_string());
     assert_eq!(erosion_findings_lines(&output), expected);
 }
@@ -732,8 +765,8 @@ fn every_kind_of_decision_point_counts_toward_erosion() {
             "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 46.669\n",
             "  total_function_mass: 46.669\n",
-            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/route.ts,1,11,18,46.669\n",
+            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/route.ts,1,11,18,46.669\n",
         )
     );
 }
@@ -769,8 +802,8 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
             "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 39.6611\n",
             "  total_function_mass: 74.3021\n",
-            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/ten.ts,1,11,13,39.6611\n",
+            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/ten.ts,1,11,13,39.6611\n",
         )
     );
     assert_eq!(
@@ -781,8 +814,8 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
             "  reference_range: no published Reference range for this language\n",
             "  eroded_function_mass: 44.8999\n",
             "  total_function_mass: 44.8999\n",
-            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/eleven.test.ts,1,12,14,44.8999\n",
+            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/eleven.test.ts,1,12,14,44.8999\n",
         )
     );
 }
@@ -1217,7 +1250,8 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
             "  reference_range: no published Reference range for this language\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
-            "    - tokens: 59\n",
+            "    - id: <id>\n",
+            "      tokens: 59\n",
             "      locations[2]{path,start_line,end_line}:\n",
             "        src/cart.ts,1,9\n",
             "        src/invoice.ts,2,10\n",
@@ -1267,7 +1301,8 @@ fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
             "  reference_range: no published Reference range for this language\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
-            "    - tokens: 59\n",
+            "    - id: <id>\n",
+            "      tokens: 59\n",
             "      locations[2]{path,start_line,end_line}:\n",
             "        src/cart.ts,1,9\n",
             "        src/order.ts,1,9\n",
@@ -1413,7 +1448,8 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
-            "    - modules[3]: src/a.ts,src/b.ts,src/c.ts\n",
+            "    - id: <id>\n",
+            "      modules[3]: src/a.ts,src/b.ts,src/c.ts\n",
             "  unresolved_imports:\n",
             "    count: 0\n",
             "    imports: []\n",
@@ -1458,7 +1494,8 @@ fn a_cycle_through_a_tsconfig_path_alias_is_an_import_cycle() {
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
-            "    - modules[2]: src/app/orders.ts,src/app/users.ts\n",
+            "    - id: <id>\n",
+            "      modules[2]: src/app/orders.ts,src/app/users.ts\n",
             "  unresolved_imports:\n",
             "    count: 0\n",
             "    imports: []\n",
@@ -1519,7 +1556,8 @@ fn a_cycle_through_the_exports_of_a_workspace_package_is_an_import_cycle() {
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
-            "    - modules[2]: packages/accounts/lib/accounts.ts,packages/billing/src/index.ts\n",
+            "    - id: <id>\n",
+            "      modules[2]: packages/accounts/lib/accounts.ts,packages/billing/src/index.ts\n",
             "  unresolved_imports:\n",
             "    count: 0\n",
             "    imports: []\n",
@@ -1590,7 +1628,8 @@ fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
-            "    - modules[3]: lib/helpers.js,lib/loader.js,lib/plugin.js\n",
+            "    - id: <id>\n",
+            "      modules[3]: lib/helpers.js,lib/loader.js,lib/plugin.js\n",
             "  unresolved_imports:\n",
             "    count: 0\n",
             "    imports: []\n",
@@ -1657,7 +1696,8 @@ fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() 
             "  modules_in_import_cycles: 3\n",
             "  modules: 3\n",
             "  findings[1]:\n",
-            "    - modules[3]: src/ratio.ts,src/shape.ts,src/unit.ts\n",
+            "    - id: <id>\n",
+            "      modules[3]: src/ratio.ts,src/shape.ts,src/unit.ts\n",
             "  unresolved_imports:\n",
             "    count: 0\n",
             "    imports: []\n",
@@ -1697,9 +1737,12 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
             "  modules_in_import_cycles: 5\n",
             "  modules: 7\n",
             "  findings[3]:\n",
-            "    - modules[2]: src/a.ts,src/b.ts\n",
-            "    - modules[1]: src/self.ts\n",
-            "    - modules[2]: src/x/index.ts,src/y.ts\n",
+            "    - id: <id>\n",
+            "      modules[2]: src/a.ts,src/b.ts\n",
+            "    - id: <id>\n",
+            "      modules[1]: src/self.ts\n",
+            "    - id: <id>\n",
+            "      modules[2]: src/x/index.ts,src/y.ts\n",
             "  unresolved_imports:\n",
             "    count: 1\n",
             "    imports[1]{importer,specifier,reason}:\n",
@@ -1737,7 +1780,12 @@ fn the_report_lists_20_import_cycles_and_says_how_many_it_left_out() {
 
     assert_success(&output);
     let mut expected = vec!["findings[20]:".to_string()];
-    expected.extend((1..=20).map(|index| format!("- modules[1]: src/self{index:02}.ts")));
+    expected.extend((1..=20).flat_map(|index| {
+        [
+            "- id: <id>".to_string(),
+            format!("modules[1]: src/self{index:02}.ts"),
+        ]
+    }));
     expected.push("findings_left_out: 1".to_string());
     assert_eq!(import_cycle_findings(&output), expected);
 }
@@ -1752,7 +1800,12 @@ fn all_lists_every_import_cycle() {
 
     assert_success(&output);
     let mut expected = vec!["findings[21]:".to_string()];
-    expected.extend((1..=21).map(|index| format!("- modules[1]: src/self{index:02}.ts")));
+    expected.extend((1..=21).flat_map(|index| {
+        [
+            "- id: <id>".to_string(),
+            format!("modules[1]: src/self{index:02}.ts"),
+        ]
+    }));
     assert_eq!(import_cycle_findings(&output), expected);
 }
 
@@ -1789,7 +1842,8 @@ fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
             "  modules_in_import_cycles: 2\n",
             "  modules: 2\n",
             "  findings[1]:\n",
-            "    - modules[2]: src/greet.test.ts,src/helper.test.ts\n",
+            "    - id: <id>\n",
+            "      modules[2]: src/greet.test.ts,src/helper.test.ts\n",
             "  unresolved_imports:\n",
             "    count: 0\n",
             "    imports: []\n",
@@ -1826,7 +1880,8 @@ fn unresolved_imports_are_counted_and_listed_and_the_import_cycle_is_still_found
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
-            "    - modules[2]: src/a.ts,src/b.ts\n",
+            "    - id: <id>\n",
+            "      modules[2]: src/a.ts,src/b.ts\n",
             "  unresolved_imports:\n",
             "    count: 2\n",
             "    imports[2]{importer,specifier,reason}:\n",
@@ -2730,6 +2785,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "clone_lines": 0,
         "findings": [
           {
+            "id": "2a57800b29941394",
             "path": "src/sign.ts",
             "line": 4,
             "rule": "else-after-return"
@@ -2948,18 +3004,18 @@ fn repository_root_relative_paths_with_forward_slashes_appear_in_the_toon_and_js
     assert_success(&json);
     let report = stdout(&output);
     assert!(!report.contains('\\'), "unexpected backslash: {report}");
-    let path_lines: Vec<&str> = report
+    let path_lines: Vec<String> = report
         .lines()
         .filter(|line| line.contains(".ts"))
-        .map(str::trim)
+        .map(|line| with_finding_id_shown_as_a_placeholder(line.trim()))
         .collect();
     assert_eq!(
         path_lines,
         [
-            "packages/app/src/deep/eroded.ts,1,12,14,44.8999",
+            "<id>,packages/app/src/deep/eroded.ts,1,12,14,44.8999",
             "packages/app/src/cart.ts,1,9",
             "packages/lib/src/invoice.ts,1,9",
-            "- modules[2]: packages/app/src/ring/a.ts,packages/lib/src/ring/b.ts",
+            "modules[2]: packages/app/src/ring/a.ts,packages/lib/src/ring/b.ts",
             "packages/lib/src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"",
             "declaration_only[1]: packages/lib/types/index.d.ts",
         ]
@@ -3008,8 +3064,8 @@ const TWO_PACKAGE_EROSION: &str = concat!(
     "  reference_range: no published Reference range for this language\n",
     "  eroded_function_mass: 44.8999\n",
     "  total_function_mass: 54.6978\n",
-    "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-    "    packages/eroded/src/branches.ts,1,12,14,44.8999\n",
+    "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+    "    <id>,packages/eroded/src/branches.ts,1,12,14,44.8999\n",
 );
 
 const TWO_PACKAGE_ROWS: &str = concat!(
@@ -3501,4 +3557,168 @@ fn format_markdown_lists_the_ratios_of_each_workspace_package_after_the_metric_t
         "unexpected report: {}",
         stdout(&output)
     );
+}
+
+fn json_report(repository: &Repository) -> serde_json::Value {
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    serde_json::from_str(&stdout(&output)).expect("the JSON report parses")
+}
+
+fn finding_ids(report: &serde_json::Value, metric: &str, list: &str) -> Vec<String> {
+    report["source_sets"]["production"][metric][list]
+        .as_array()
+        .expect("a list of Findings")
+        .iter()
+        .map(|finding| {
+            finding["id"]
+                .as_str()
+                .expect("every Finding has an id")
+                .to_owned()
+        })
+        .collect()
+}
+
+fn eroded_function_ids(repository: &Repository) -> Vec<String> {
+    finding_ids(&json_report(repository), "erosion", "findings")
+}
+
+#[test]
+fn moving_an_eroded_function_down_its_file_keeps_its_finding_id() {
+    let repository = Repository::new();
+    let eroded = function_with_if_statements("eroded", 11);
+    repository.write("src/eroded.ts", &eroded);
+    repository.commit_all();
+    let before = eroded_function_ids(&repository);
+
+    repository.write(
+        "src/eroded.ts",
+        &format!("export const first = 1;\n\n\nexport const second = 2;\n{eroded}"),
+    );
+    let after = eroded_function_ids(&repository);
+
+    assert_eq!(before.len(), 1);
+    assert_eq!(after, before);
+}
+
+#[test]
+fn changing_the_body_of_an_eroded_function_changes_its_finding_id() {
+    let repository = Repository::new();
+    let eroded = function_with_if_statements("eroded", 11);
+    repository.write("src/eroded.ts", &eroded);
+    repository.commit_all();
+    let before = eroded_function_ids(&repository);
+
+    repository.write("src/eroded.ts", &eroded.replace("return 0;", "return -1;"));
+    let after = eroded_function_ids(&repository);
+
+    assert_eq!(after.len(), 1);
+    assert_ne!(after, before);
+}
+
+#[test]
+fn a_finding_id_is_the_same_in_every_run_on_every_platform_and_with_crlf_line_endings() {
+    let eroded = function_with_if_statements("eroded", 11);
+    let expected = vec!["aab96e99646c4ad1".to_owned()];
+    for text in [eroded.clone(), eroded.replace('\n', "\r\n")] {
+        let repository = Repository::new();
+        repository.write("src/eroded.ts", &text);
+        repository.commit_all();
+
+        assert_eq!(eroded_function_ids(&repository), expected);
+        assert_eq!(eroded_function_ids(&repository), expected);
+    }
+}
+
+#[test]
+fn two_identical_eroded_functions_in_one_file_have_distinct_finding_ids() {
+    let repository = Repository::new();
+    let handler = function_with_if_statements("eroded", 11)
+        .replace("export function eroded", "  function")
+        .replace("\n}\n", "\n},\n");
+    repository.write(
+        "src/handlers.ts",
+        &format!("export const handlers = [\n{handler}{handler}];\n"),
+    );
+    repository.write(
+        "src/other.ts",
+        &format!("export const handlers = [\n{handler}];\n"),
+    );
+    repository.commit_all();
+
+    let mut ids = eroded_function_ids(&repository);
+    ids.sort();
+    ids.dedup();
+
+    assert_eq!(ids.len(), 3);
+}
+
+#[test]
+fn moving_a_flagged_line_down_its_file_keeps_its_finding_id() {
+    let sign = "export function sign(value: number): number {\n  if (value < 0) {\n    return -1;\n  } else {\n    return 1;\n  }\n}\n";
+    let repository = Repository::new();
+    repository.write("src/sign.ts", sign);
+    repository.commit_all();
+    let before = finding_ids(&json_report(&repository), "verbosity", "findings");
+
+    repository.write("src/sign.ts", &format!("export const one = 1;\n\n{sign}"));
+    let after = finding_ids(&json_report(&repository), "verbosity", "findings");
+
+    assert_eq!(before.len(), 1);
+    assert_eq!(after, before);
+}
+
+#[test]
+fn moving_a_copy_of_a_clone_group_down_its_file_keeps_its_finding_id() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write("src/invoice.ts", CART_TOTAL);
+    repository.commit_all();
+    let before = finding_ids(&json_report(&repository), "duplication", "clone_groups");
+
+    repository.write(
+        "src/invoice.ts",
+        &format!("export const currency = 'EUR';\n\n{CART_TOTAL}"),
+    );
+    let after = finding_ids(&json_report(&repository), "duplication", "clone_groups");
+
+    assert_eq!(before.len(), 1);
+    assert_eq!(after, before);
+}
+
+#[test]
+fn an_import_cycle_keeps_its_finding_id_when_its_modules_change_and_loses_it_when_a_module_leaves()
+{
+    let repository = Repository::new();
+    repository.write(
+        "src/a.ts",
+        "import { b } from './b';\nexport const a = () => b();\n",
+    );
+    repository.write(
+        "src/b.ts",
+        "import { a } from './a';\nexport const b = () => a();\n",
+    );
+    repository.write("src/c.ts", "export const c = () => 3;\n");
+    repository.commit_all();
+    let before = finding_ids(&json_report(&repository), "import_cycles", "findings");
+
+    repository.write(
+        "src/b.ts",
+        "import { a } from './a';\n\nexport const b = () => a() + 1;\n",
+    );
+    let edited = finding_ids(&json_report(&repository), "import_cycles", "findings");
+    repository.write(
+        "src/b.ts",
+        "import { c } from './c';\nexport const b = () => c();\n",
+    );
+    repository.write(
+        "src/c.ts",
+        "import { a } from './a';\nexport const c = () => a();\n",
+    );
+    let longer = finding_ids(&json_report(&repository), "import_cycles", "findings");
+
+    assert_eq!(before.len(), 1);
+    assert_eq!(edited, before);
+    assert_eq!(longer.len(), 1);
+    assert_ne!(longer, before);
 }

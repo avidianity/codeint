@@ -2,11 +2,15 @@ use std::collections::{BTreeMap, HashMap};
 
 use codeint_model::{CodeModel, ImportResolution, Package, RepoPath};
 
+use crate::FindingId;
+use crate::finding_id::{FindingIds, MetricKey};
+
 #[cfg(test)]
 mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportCycle {
+    id: FindingId,
     modules: Vec<RepoPath>,
 }
 
@@ -41,6 +45,10 @@ impl ModuleShare {
 }
 
 impl ImportCycle {
+    pub fn id(&self) -> FindingId {
+        self.id
+    }
+
     pub fn modules(&self) -> &[RepoPath] {
         &self.modules
     }
@@ -63,7 +71,7 @@ impl ImportCycles {
                 imports[from].push(to);
             }
         }
-        let mut cycles: Vec<ImportCycle> = strongly_connected_components(&imports)
+        let mut cycle_modules: Vec<Vec<RepoPath>> = strongly_connected_components(&imports)
             .into_iter()
             .filter(|component| match component.as_slice() {
                 [single] => imports[*single].contains(single),
@@ -75,10 +83,18 @@ impl ImportCycles {
                     .map(|index| modules[index].clone())
                     .collect();
                 members.sort();
-                ImportCycle { modules: members }
+                members
             })
             .collect();
-        cycles.sort_by(|left, right| left.modules.cmp(&right.modules));
+        cycle_modules.sort();
+        let mut ids = FindingIds::new(MetricKey::ImportCycles);
+        let cycles = cycle_modules
+            .into_iter()
+            .map(|modules| ImportCycle {
+                id: ids.next_in_source_order(&modules, []),
+                modules,
+            })
+            .collect();
         ImportCycles {
             modules: modules.len(),
             cycles,

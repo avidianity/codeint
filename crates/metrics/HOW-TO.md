@@ -26,6 +26,26 @@ for (package, masses) in erosion.by_package(&model) {
   Each package's masses are sums over its files, so the package masses add up to the totals.
   Compute a total from summed masses, never from an average of package ratios.
 
+## Identify a Finding
+
+```rust
+use codeint_metrics::Erosion;
+
+let erosion = Erosion::measure(&model);
+for function in erosion.eroded_functions() {
+    println!("{} is {}:{}", function.id, function.path, function.line);
+}
+```
+
+- Every Finding has a `FindingId`: `ErodedFunction::id`, `CloneGroup::id`, `FlaggedLineFinding::id`, and `ImportCycle::id()`.
+  Its `Display` form is 16 lowercase hexadecimal digits, and the report shows it as `id`.
+- The id is a hash of the Metric key, the paths of the Finding, and its content, never a line number:
+  the tokens from the first to the last line of an eroded function; the normalized token sequence and the fragment paths of a Clone group; the rule and the tokens of a Flagged line; the module paths of an Import cycle.
+  Token content is the `text_hash` of each token, so whitespace, comments, and line endings never change an id.
+- Findings with the same Metric, paths, and content get an occurrence number in source order, so equal Findings in one file stay distinct, and a comparison of two runs counts them right.
+- A Metric computes ids with the crate's `FindingIds`, created once per measurement with its `MetricKey`, and calls `next_in_source_order` for its Findings in path and line order.
+- The hash is `codeint_model::StableHasher`, which writes every number as little-endian bytes, so ids are the same on every platform.
+
 ## Report a Metric per Source set
 
 - A Metric measures one `CodeModel` and never reads the Source set of a file itself.

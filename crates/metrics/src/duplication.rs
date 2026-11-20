@@ -5,6 +5,9 @@ use codeint_model::{CodeModel, Package, RepoPath, Token, TokenKind};
 
 use crate::line_share::{LineShare, line_shares_by_package};
 
+use crate::FindingId;
+use crate::finding_id::{FindingIds, MetricKey};
+
 #[cfg(test)]
 mod tests;
 
@@ -32,12 +35,18 @@ impl Duplication {
         let window = minimum.0.get();
         let classes = equal_window_classes(&token_streams(model), window);
         let mut clone_lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
-        let mut clone_groups = Vec::new();
+        let mut unidentified_groups = Vec::new();
         for (tokens, starts) in maximal_runs(&classes, window) {
             let starts = without_overlaps(starts, tokens);
             if starts.len() < 2 {
                 continue;
             }
+            let first = starts[0];
+            let normalized_content: Vec<u64> = model.files[first.file].model.tokens
+                [first.token..first.token + tokens]
+                .iter()
+                .map(|token| normalized(token).hash_input())
+                .collect();
             let mut fragments = Vec::with_capacity(starts.len());
             for Position { file, token } in starts {
                 let covered = &model.files[file].model.tokens[token..token + tokens];
@@ -48,14 +57,22 @@ impl Duplication {
                 fragments.push(fragment(&model.files[file].path, covered));
             }
             fragments.sort();
-            clone_groups.push(CloneGroup { tokens, fragments });
+            unidentified_groups.push((tokens, fragments, normalized_content));
         }
-        clone_groups.sort_by(|left, right| {
-            right
-                .tokens
-                .cmp(&left.tokens)
-                .then_with(|| left.fragments.cmp(&right.fragments))
-        });
+        unidentified_groups
+            .sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+        let mut ids = FindingIds::new(MetricKey::Duplication);
+        let clone_groups = unidentified_groups
+            .into_iter()
+            .map(|(tokens, fragments, normalized_content)| CloneGroup {
+                id: ids.next_in_source_order(
+                    fragments.iter().map(|fragment| &fragment.path),
+                    normalized_content,
+                ),
+                tokens,
+                fragments,
+            })
+            .collect();
         Duplication {
             clone_lines: CloneLines::of_files(model, clone_lines_by_file),
             source_lines: model
@@ -113,6 +130,7 @@ impl CloneLines {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CloneGroup {
+    pub id: FindingId,
     pub tokens: usize,
     pub fragments: Vec<Fragment>,
 }

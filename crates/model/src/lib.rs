@@ -31,11 +31,39 @@ pub use source_set::settle_source_set;
 pub use workspace::{Package, Workspace, WorkspaceError};
 
 pub fn token_text_hash(text: &str) -> u64 {
+    StableHasher::new().write_bytes(text.as_bytes()).finish()
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct StableHasher(u64);
+
+impl StableHasher {
     const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x0100_0000_01b3;
-    text.bytes().fold(FNV_OFFSET_BASIS, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
-    })
+
+    pub fn new() -> StableHasher {
+        StableHasher(StableHasher::FNV_OFFSET_BASIS)
+    }
+
+    pub fn write_bytes(self, bytes: &[u8]) -> StableHasher {
+        StableHasher(bytes.iter().fold(self.0, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(StableHasher::FNV_PRIME)
+        }))
+    }
+
+    pub fn write_u64(self, value: u64) -> StableHasher {
+        self.write_bytes(&value.to_le_bytes())
+    }
+
+    pub fn finish(self) -> u64 {
+        self.0
+    }
+}
+
+impl Default for StableHasher {
+    fn default() -> StableHasher {
+        StableHasher::new()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

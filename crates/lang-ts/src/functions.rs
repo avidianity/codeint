@@ -111,6 +111,7 @@ impl FunctionCollector<'_> {
         });
         self.functions.push(Function {
             line: saturating_u32(first_line_index + 1),
+            end_line: saturating_u32(last_line_index + 1),
             decision_points: 0,
             source_lines: saturating_u32(
                 self.code_lines

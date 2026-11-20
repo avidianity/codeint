@@ -96,7 +96,7 @@ Tools can build on this shape: the compatibility rule below says how it may chan
         "verbose_lines": 1,
         "flagged_lines": 1,
         "clone_lines": 0,
-        "findings": [{ "path": "src/sign.ts", "line": 4, "rule": "else-after-return" }]
+        "findings": [{ "id": "2a57800b29941394", "path": "src/sign.ts", "line": 4, "rule": "else-after-return" }]
       },
       "import_cycles": {
         "ratio": 0.0,
@@ -143,12 +143,23 @@ Each Metric object has these fields:
 It has `count`, the list `imports`, and the optional `imports_left_out`.
 Each import has `importer`, the path of the importing file, `specifier`, the text of the import, and `reason`.
 
-Each Finding is an object:
+Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
 - An eroded function has `path`, `line`, `cyclomatic_complexity`, `source_lines`, and `function_mass`.
 - A Clone group has `tokens` and `locations`; each location has `path`, `start_line`, and `end_line`.
 - A Flagged line has `path`, `line`, and `rule`.
 - An Import cycle has `modules`, the paths of the modules in the cycle.
+
+The `id` of a Finding is a string of 16 lowercase hexadecimal digits.
+It comes from the Metric, the file or files of the Finding, and their content, never from a line number, so it stays the same when a Finding moves within its file.
+It is the same in every run and on every operating system, and CRLF line endings do not change it.
+Two Findings with the same content in one file get different ids, numbered in the order they appear.
+The content behind the `id` of each kind:
+
+- An eroded function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
+- A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
+- A Flagged line: the rule and the tokens of the line.
+- An Import cycle: the paths of its modules.
 
 Every `path` is relative to the root of the Git repository and uses `/` as the separator.
 Line numbers start at 1.

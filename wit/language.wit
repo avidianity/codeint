@@ -9,6 +9,8 @@ interface language {
     record function {
         /// The line where the function starts, counted from 1.
         line: u32,
+        /// The line where the function ends, counted from 1; the same as `line` for a function on one line.
+        end-line: u32,
         /// The decision points of the function, not counting those of nested functions.
         decision-points: u32,
         /// The source lines from the first to the last line of the function, nested functions included.

@@ -1,11 +1,16 @@
 use std::collections::BTreeMap;
 
-use codeint_model::{CodeModel, Package, RepoPath};
+use codeint_model::language::Function;
+use codeint_model::{CodeModel, Package, RepoPath, Token};
+
+use crate::FindingId;
+use crate::finding_id::{FindingIds, MetricKey};
 
 const ERODED_ABOVE_CYCLOMATIC_COMPLEXITY: u32 = 10;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErodedFunction {
+    pub id: FindingId,
     pub path: RepoPath,
     pub line: u32,
     pub cyclomatic_complexity: u32,
@@ -46,6 +51,7 @@ impl Erosion {
         let mut masses = FunctionMasses::default();
         let mut masses_by_file = BTreeMap::new();
         let mut eroded_functions = Vec::new();
+        let mut ids = FindingIds::new(MetricKey::Erosion);
         for file in &model.files {
             let mut file_masses = FunctionMasses::default();
             for function in &file.model.functions {
@@ -56,6 +62,12 @@ impl Erosion {
                 if cyclomatic_complexity > ERODED_ABOVE_CYCLOMATIC_COMPLEXITY {
                     file_masses.eroded += function_mass;
                     eroded_functions.push(ErodedFunction {
+                        id: ids.next_in_source_order(
+                            [&file.path],
+                            tokens_of(function, &file.model.tokens)
+                                .iter()
+                                .map(|token| token.text_hash),
+                        ),
                         path: file.path.clone(),
                         line: function.line,
                         cyclomatic_complexity,
@@ -114,4 +126,10 @@ impl Erosion {
         }
         masses
     }
+}
+
+fn tokens_of<'tokens>(function: &Function, tokens: &'tokens [Token]) -> &'tokens [Token] {
+    let first = tokens.partition_point(|token| token.line < function.line);
+    let after_last = tokens.partition_point(|token| token.line <= function.end_line);
+    &tokens[first..after_last.max(first)]
 }
