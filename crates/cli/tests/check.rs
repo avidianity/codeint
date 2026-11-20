@@ -2456,6 +2456,45 @@ fn generated_files_do_not_change_production_metrics() {
 }
 
 #[test]
+fn a_production_override_in_codeint_json_wins_over_the_test_folder_rule() {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.json",
+        r#"{
+  "source_sets": {
+    "production": ["test/support/**"]
+  }
+}
+"#,
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "test/main.ts",
+        "export const one = 1;\nexport const two = 2;\n",
+    );
+    repository.write(
+        "packages/app/tests/deep/user.ts",
+        "export const user = 1;\nexport const name = 2;\nexport const age = 3;\n",
+    );
+    repository.write(
+        "test/support/server.ts",
+        "export const port = 1;\nexport const host = 2;\nexport const path = 3;\nexport const ready = 4;\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 2 source_lines: 5",
+            "test: files: 2 source_lines: 5",
+        ]
+    );
+}
+
+#[test]
 fn a_source_set_override_in_codeint_json_moves_each_matching_file_into_the_named_source_set() {
     let repository = Repository::new();
     repository.write(
