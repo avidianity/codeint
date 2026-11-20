@@ -2,11 +2,39 @@ use codeint_model::language::{Manifest, WorkspaceError};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
+mod pnpm;
+#[cfg(test)]
+mod tests;
+
+pub(crate) use pnpm::{PNPM_WORKSPACE_MANIFEST, ReadPnpmPackagePatterns, pnpm_package_patterns};
+
 pub(crate) const PACKAGE_MANIFEST: &str = "package.json";
 
 const WRONG_SHAPE: &str = "the workspaces field must be an array of folder patterns, or an object whose packages field is one";
 
-pub(crate) fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+pub(crate) fn workspace_packages(
+    manifests: Vec<Manifest>,
+    read_pnpm_package_patterns: ReadPnpmPackagePatterns,
+) -> Result<Vec<String>, WorkspaceError> {
+    let Some(pnpm_workspace_manifest) = manifests
+        .iter()
+        .find(|manifest| manifest.path == PNPM_WORKSPACE_MANIFEST)
+    else {
+        return package_json_workspace_packages(manifests);
+    };
+    let patterns =
+        read_pnpm_package_patterns(&pnpm_workspace_manifest.text).map_err(|message| {
+            WorkspaceError {
+                path: PNPM_WORKSPACE_MANIFEST.to_owned(),
+                message,
+            }
+        })?;
+    pnpm::pnpm_workspace_packages(&manifests, &patterns)
+}
+
+fn package_json_workspace_packages(
+    manifests: Vec<Manifest>,
+) -> Result<Vec<String>, WorkspaceError> {
     let Some(root) = manifests
         .iter()
         .find(|manifest| manifest.path == PACKAGE_MANIFEST)

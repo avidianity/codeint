@@ -73,11 +73,14 @@ impl Guest for TypeScriptAndJavaScript {
     }
 
     fn workspace_manifests() -> Vec<String> {
-        vec![workspaces::PACKAGE_MANIFEST.to_owned()]
+        vec![
+            workspaces::PACKAGE_MANIFEST.to_owned(),
+            workspaces::PNPM_WORKSPACE_MANIFEST.to_owned(),
+        ]
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        workspaces::workspace_packages(manifests)
+        workspaces::workspace_packages(manifests, workspaces::pnpm_package_patterns)
     }
 
     fn resolve_imports(
