@@ -59,6 +59,6 @@ fn blank_out(text: &str, spans: impl Iterator<Item = std::ops::Range<usize>>) ->
     code
 }
 
-fn is_code_character(character: char) -> bool {
+pub(crate) fn is_code_character(character: char) -> bool {
     !character.is_whitespace() && character != '\u{feff}'
 }

@@ -76,6 +76,69 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn report_without_findings(files: usize, source_lines: u64) -> String {
+    format!(
+        "files: {files}\n\
+         source_lines: {source_lines}\n\
+         verbosity:\n\
+         \x20 ratio: 0\n\
+         \x20 verbose_lines: 0\n\
+         \x20 flagged_lines: []\n"
+    )
+}
+
+#[test]
+fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_names_each_rule() {
+    let repository = Repository::new();
+    repository.write(
+        "src/sign.ts",
+        "export function sign(value: number): string {
+  if (value < 0) {
+    return 'negative';
+  } else {
+    return 'positive';
+  }
+}
+",
+    );
+    repository.write(
+        "src/size.ts",
+        "export function size(count: number): string {
+  if (count === 0) {
+    return 'none';
+  } else {
+    if (count === 1) {
+      return 'one';
+    } else {
+      return 'many';
+    }
+  }
+}
+",
+    );
+    repository.write(
+        "src/main.ts",
+        "import { sign } from './sign';\nconsole.log(sign(-1));\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "files: 3\n\
+         source_lines: 20\n\
+         verbosity:\n\
+         \x20 ratio: 0.15\n\
+         \x20 verbose_lines: 3\n\
+         \x20 flagged_lines[3]{path,line,rule}:\n\
+         \x20   src/sign.ts,4,else-after-return\n\
+         \x20   src/size.ts,4,else-after-return\n\
+         \x20   src/size.ts,7,else-after-return\n"
+    );
+}
+
 #[test]
 fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files() {
     let repository = Repository::new();
@@ -92,7 +155,7 @@ fn check_reports_the_file_count_and_summed_source_lines_of_two_typescript_files(
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 5\n");
+    assert_eq!(stdout(&output), report_without_findings(2, 5));
 }
 
 #[test]
@@ -122,7 +185,7 @@ fn blank_lines_and_comment_only_lines_are_not_source_lines() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 1\nsource_lines: 5\n");
+    assert_eq!(stdout(&output), report_without_findings(1, 5));
 }
 
 #[test]
@@ -139,7 +202,7 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 8\nsource_lines: 8\n");
+    assert_eq!(stdout(&output), report_without_findings(8, 8));
 }
 
 #[test]
@@ -161,7 +224,7 @@ fn files_git_ignores_are_not_measured_and_untracked_files_are() {
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(stdout(&output), report_without_findings(2, 3));
 }
 
 #[test]
@@ -269,7 +332,7 @@ fn check_of_a_subfolder_measures_the_whole_working_tree() {
     let output = repository.codeint(&["check", "src"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), "files: 2\nsource_lines: 3\n");
+    assert_eq!(stdout(&output), report_without_findings(2, 3));
 }
 
 #[test]

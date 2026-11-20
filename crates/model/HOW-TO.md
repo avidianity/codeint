@@ -14,7 +14,10 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
-        Ok(FileModel { source_lines })
+        Ok(FileModel {
+            source_lines,
+            flagged_lines: Vec::new(),
+        })
     }
 }
 ```
@@ -26,6 +29,9 @@ impl Guest for Plain {
 - `extensions` returns each file extension without its leading dot.
 - `lower` receives a repository-relative path with forward slashes and the whole file as text.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.
+- `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
+  A line that matches two rules appears once per rule.
+  The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
 
 ## Lower files in the core
 

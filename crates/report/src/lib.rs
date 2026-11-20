@@ -47,12 +47,24 @@ impl Report {
 
 impl From<Verbosity> for VerbosityReport {
     fn from(verbosity: Verbosity) -> VerbosityReport {
-        todo!("{verbosity:?}")
+        VerbosityReport {
+            ratio: verbosity.ratio(),
+            verbose_lines: verbosity.verbose_lines,
+            flagged_lines: verbosity
+                .flagged_lines
+                .into_iter()
+                .map(FlaggedLineRow::from)
+                .collect(),
+        }
     }
 }
 
 impl From<FlaggedLineFinding> for FlaggedLineRow {
     fn from(finding: FlaggedLineFinding) -> FlaggedLineRow {
-        todo!("{finding:?}")
+        FlaggedLineRow {
+            path: finding.path.to_string(),
+            line: finding.line,
+            rule: finding.rule,
+        }
     }
 }

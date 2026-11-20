@@ -1,4 +1,9 @@
+use std::collections::BTreeSet;
+
 use codeint_model::{CodeModel, RepoPath};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FlaggedLineFinding {
@@ -16,10 +21,40 @@ pub struct Verbosity {
 
 impl Verbosity {
     pub fn measure(model: &CodeModel) -> Verbosity {
-        todo!("{model:?}")
+        let flagged_lines: BTreeSet<FlaggedLineFinding> = model
+            .files
+            .iter()
+            .flat_map(|file| {
+                file.model
+                    .flagged_lines
+                    .iter()
+                    .map(|flagged| FlaggedLineFinding {
+                        path: file.path.clone(),
+                        line: flagged.line,
+                        rule: flagged.rule.clone(),
+                    })
+            })
+            .collect();
+        let verbose_lines: BTreeSet<(&RepoPath, u32)> = flagged_lines
+            .iter()
+            .map(|finding| (&finding.path, finding.line))
+            .collect();
+        Verbosity {
+            verbose_lines: verbose_lines.len() as u64,
+            source_lines: model
+                .files
+                .iter()
+                .map(|file| u64::from(file.model.source_lines))
+                .sum(),
+            flagged_lines: flagged_lines.into_iter().collect(),
+        }
     }
 
     pub fn ratio(&self) -> f64 {
-        todo!()
+        if self.source_lines == 0 {
+            0.0
+        } else {
+            self.verbose_lines as f64 / self.source_lines as f64
+        }
     }
 }
