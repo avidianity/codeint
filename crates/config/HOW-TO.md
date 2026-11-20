@@ -117,16 +117,36 @@ let written = write_starter_configuration(tree.root(), &languages)?;
 ## Find the result cache folder
 
 ```rust
-if let Command::Diff { result_cache, .. } = read_invocation()?.command {
+if let Command::Diff { result_cache, .. } | Command::Trend { result_cache, .. } =
+    read_invocation()?.command
+{
     let cache = result_cache.map(ResultCache::in_folder);
 }
 ```
 
+- `codeint diff` and `codeint trend` find the folder by the same rules.
 - `CODEINT_CACHE_DIR` names the folder itself; a relative path starts at the current folder.
 - Otherwise the folder is `codeint` inside the user cache folder: `$XDG_CACHE_HOME`, else `$HOME/.cache`, on Linux and macOS, and `%LOCALAPPDATA%` on Windows.
   An empty or relative `XDG_CACHE_HOME` is ignored, as the XDG Base Directory Specification says.
 - `None` means no variable gives a folder; codeint then runs without a cache.
-- Every test that runs `codeint diff` sets `CODEINT_CACHE_DIR` to a temporary folder, so no test touches the user cache.
+- Every test that runs `codeint diff` or `codeint trend` sets `CODEINT_CACHE_DIR` to a temporary folder, so no test touches the user cache.
+
+## Read the range of a trend
+
+```rust
+use codeint_config::{CalendarDay, TrendRange};
+
+let unix_seconds = match range {
+    TrendRange::Latest(count) => None,
+    TrendRange::Since(day) => Some(day.start_unix_seconds()),
+};
+let shown_day = CalendarDay::containing(committed_at_unix_seconds).to_string();
+```
+
+- Without `--since`, the range is `TrendRange::Latest(20)`.
+- `--since` takes a plain `YYYY-MM-DD` day; codeint parses it itself, with no date-time library, and rejects a day that does not exist, such as `2026-02-30`, with exit code 2.
+- A `CalendarDay` is a day in UTC: `start_unix_seconds` is its first second, and `containing` gives the UTC day of a Unix time.
+- `TrendFormat` lists the formats `codeint trend` supports: TOON, JSON, and Markdown.
 
 ## Key a cached result by the configuration
 

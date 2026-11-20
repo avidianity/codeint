@@ -45,6 +45,24 @@ let head = repository.commit(repository.resolve("feature")?)?;
 - `merge_base` resolves both refs and returns their best merge-base; HEAD plays no part.
 - Both `merge_base` and `merge_base_with_head` fail with `GitError::NoMergeBase` when the two sides share no commit; the error names both refs, and the head ref is `HEAD` for `merge_base_with_head`.
 
+## Walk the main line of HEAD
+
+```rust
+use codeint_git::CommitRange;
+
+let latest = repository.first_parent_history(CommitRange::Latest(20))?;
+let since = repository.first_parent_history(CommitRange::CommittedSince { unix_seconds })?;
+for HistoryCommit { commit, committed_at_unix_seconds } in latest {
+    let snapshot = repository.commit(commit)?;
+}
+```
+
+- `first_parent_history` follows the first parent of each commit from HEAD, so a merge commit is listed and the commits of the branch it merged are not.
+- It returns the commits oldest first.
+- `CommitRange::Latest` keeps at most that many commits; `CommitRange::CommittedSince` keeps commits whose committer time is at or after the Unix time, and stops at the first older one.
+- In a shallow clone it stops at the shallow boundary instead of failing on a missing parent.
+- It fails with `GitError::NoHistory` when HEAD names no commit yet, and with `GitError::History` when a commit object cannot be read.
+
 ## Cache a result per commit
 
 ```rust
@@ -61,7 +79,7 @@ let measurement = match cache.read(merge_base, &settings) {
 };
 ```
 
-- Take the folder from `Command::Diff::result_cache`; `None` means codeint runs without a cache.
+- Take the folder from the `result_cache` field of `Command::Diff` or `Command::Trend`; `None` means codeint runs without a cache.
 - `settings` is any `Serialize` value that holds everything, other than the commit, that changes the result: the codeint version, each Plugin and its version, and the effective `Configuration`.
   A different value names a different entry.
 - An entry is a JSON file named `{commit}-{SHA-1 of the settings}.json` that also stores the commit and the settings text; `read` returns the result only when both match.

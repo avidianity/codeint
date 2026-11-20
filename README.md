@@ -173,7 +173,7 @@ With no failure, the report has no `over_budget` or `regressions` key, and codei
 ### Result cache
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
-That covers the merge-base, and the head ref of `--head`.
+That covers the merge-base, the head ref of `--head`, and each commit of `codeint trend`.
 An entry belongs to one commit and to the settings that shape a measurement: the codeint version, each Language plugin and its version, and the effective `codeint.json`.
 Any change to `codeint.json` other than its `$schema` address measures the commit again.
 The working tree is never cached, because it has no commit.
@@ -195,6 +195,43 @@ When it cannot write an entry, it prints a warning to standard error and the run
 ```text
 codeint: cannot write the cache entry /home/someone/.cache/codeint: File exists (os error 17); the next run measures commit 651980e53c24d8e14611d5b8cc84c11f0bbb3dca again
 ```
+
+## Follow a trend
+
+`codeint trend` measures each commit of the main line of the current branch and prints each Metric over time, oldest commit first:
+
+```sh
+codeint trend
+codeint trend --since 2026-11-01
+codeint trend --format markdown
+```
+
+The main line is the first-parent history of HEAD: a merge commit is a row, and the commits of the branch it merged are not.
+Without `--since`, codeint measures the latest 20 commits of the main line.
+`--since {YYYY-MM-DD}` measures every main-line commit committed on or after the start of that day in UTC, with no limit on the count.
+codeint compares the committer date, the date that `git log --since` uses, and stops at the first main-line commit committed before that day.
+In a shallow clone, the trend stops at the oldest commit the clone has.
+
+The report has one table per Source set, with one row per commit.
+Each row shows the commit, the day it was committed in UTC, the number of measured files, and the ratio of each Metric:
+
+```text
+commits: 3
+source_sets:
+  production[3]{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}:
+    c779f40e9158e771f5a7e06e5ba7a19e056d8ae2,2026-11-02,1,0,0,0,0
+    b195f42b2700fe9040214bcff07caa61d83b8bd1,2026-11-09,2,0.9667,0,0,0
+    c2ab6ed7dba4d5f60a6204cd0f43a9699b3e4a63,2026-11-16,3,0.9831,0.9091,0.9091,0
+```
+
+A Source set appears only when at least one commit of the trend has a file in it.
+`--format json` and `--format markdown` print the same rows.
+A trend lists no Findings, so it has no SARIF format; run `codeint diff` for the Findings of a change.
+A trend applies no Budget and no Regression limit, and exits with code 0 when it measures every commit.
+
+codeint reads each commit from Git objects, so it never checks out a commit and never touches the working tree; uncommitted changes are not part of a trend.
+Every commit uses the `codeint.json` of the working tree, as `codeint diff` does.
+Each commit goes through the [result cache](#result-cache), so a repeated trend measures only the commits that are new since the last run.
 
 ## Report formats
 
