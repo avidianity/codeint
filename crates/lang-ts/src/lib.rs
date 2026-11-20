@@ -53,7 +53,7 @@ impl Guest for TypeScriptAndJavaScript {
         let header_comments = header_comments(&text, &parsed.program.comments, &parsed.tokens);
         let code_lines = CodeLines::new(&code);
         Ok(FileModel {
-            source_set: source_set(&path, header_comments.into_iter()),
+            source_set: source_set(&path, header_comments),
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
             tokens: tokens(&text, &parsed.tokens)?,
@@ -89,13 +89,19 @@ fn tokens(text: &str, lexed: &[oxc_parser::Token]) -> Result<Vec<Token>, LowerEr
     Ok(tokens)
 }
 
-fn header_comments<'text>(
-    text: &'text str,
-    comments: &[oxc_ast::Comment],
+fn header_comments<'a>(
+    text: &'a str,
+    comments: &'a [oxc_ast::Comment],
     lexed: &[oxc_parser::Token],
-) -> Vec<&'text str> {
-    let _ = (text, comments, lexed);
-    todo!()
+) -> impl Iterator<Item = &'a str> {
+    let first_code = lexed
+        .iter()
+        .find(|token| is_code_token(token.kind()))
+        .map_or(u32::MAX, oxc_parser::Token::start);
+    comments
+        .iter()
+        .take_while(move |comment| comment.span.end <= first_code)
+        .map(|comment| &text[comment.span.start as usize..comment.span.end as usize])
 }
 
 fn is_code_token(kind: Kind) -> bool {

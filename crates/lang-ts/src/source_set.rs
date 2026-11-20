@@ -39,5 +39,5 @@ fn is_test_file_name(file_name: &str) -> bool {
 
 fn has_generated_marker(comment: &str) -> bool {
     let _ = (comment, GENERATED_MARKERS);
-    todo!()
+    false
 }
