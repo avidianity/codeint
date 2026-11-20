@@ -9,16 +9,18 @@ use crate::functions::CodeLines;
 mod catch_only_rethrows;
 mod else_after_return;
 mod if_else_returns_boolean;
+mod trailing_bare_return;
 
 struct Rule {
     id: &'static str,
     find: fn(&Program<'_>, &str) -> Vec<Span>,
 }
 
-const RULES: [Rule; 3] = [
+const RULES: [Rule; 4] = [
     else_after_return::RULE,
     if_else_returns_boolean::RULE,
     catch_only_rethrows::RULE,
+    trailing_bare_return::RULE,
 ];
 
 pub fn flagged_line_rules() -> impl Iterator<Item = &'static str> {
