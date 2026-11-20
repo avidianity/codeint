@@ -2,9 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use codeint_metrics::{ErodedFunction, Erosion};
+use codeint_config::FindingsShown;
+use codeint_metrics::{
+    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
+    MinimumCloneTokens, Verbosity,
+};
 use codeint_model::{CodeModel, Package, RepoPath, SkippedFile};
-use serde::Serialize;
+use serde::ser::SerializeMap;
+use serde::{Serialize, Serializer};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 
@@ -17,6 +22,8 @@ pub struct Report {
     files: usize,
     source_lines: u64,
     erosion: ErosionSection,
+    duplication: DuplicationSection,
+    verbosity: VerbositySection,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -30,7 +37,18 @@ struct ErosionSection {
     ratio: Decimal,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
-    findings: Vec<ErodedFunctionFinding>,
+    #[serde(flatten)]
+    findings: Findings<ErodedFunctionFinding>,
+}
+
+trait FindingKind: Serialize {
+    const LIST_KEY: &'static str;
+}
+
+#[derive(Debug)]
+struct Findings<T> {
+    listed: Vec<T>,
+    left_out: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +76,42 @@ struct PackageErosion {
 }
 
 #[derive(Debug, Serialize)]
+struct DuplicationSection {
+    ratio: Decimal,
+    clone_lines: u64,
+    #[serde(flatten)]
+    clone_groups: Findings<CloneGroupFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct CloneGroupFinding {
+    tokens: usize,
+    locations: Vec<CloneLocation>,
+}
+
+#[derive(Debug, Serialize)]
+struct CloneLocation {
+    path: String,
+    start_line: u32,
+    end_line: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct VerbositySection {
+    ratio: Decimal,
+    verbose_lines: u64,
+    #[serde(flatten)]
+    findings: Findings<FlaggedLineRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct FlaggedLineRow {
+    path: String,
+    line: u32,
+    rule: String,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(transparent)]
 struct Decimal(f64);
 
@@ -73,17 +127,59 @@ impl Decimal {
     }
 }
 
+impl<T> Findings<T> {
+    fn worst_first(
+        worst_first: impl ExactSizeIterator<Item = T>,
+        shown: FindingsShown,
+    ) -> Findings<T> {
+        let total = worst_first.len();
+        let listed: Vec<T> = match shown {
+            FindingsShown::WorstPerMetric(limit) => worst_first.take(limit).collect(),
+            FindingsShown::All => worst_first.collect(),
+        };
+        Findings {
+            left_out: total - listed.len(),
+            listed,
+        }
+    }
+}
+
+impl<T: FindingKind> Serialize for Findings<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry(T::LIST_KEY, &self.listed)?;
+        if self.left_out > 0 {
+            map.serialize_entry("findings_left_out", &self.left_out)?;
+        }
+        map.end()
+    }
+}
+
+impl FindingKind for ErodedFunctionFinding {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for CloneGroupFinding {
+    const LIST_KEY: &'static str = "clone_groups";
+}
+
+impl FindingKind for FlaggedLineRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl ErosionSection {
-    fn new(erosion: &Erosion) -> ErosionSection {
+    fn new(erosion: &Erosion, shown: FindingsShown) -> ErosionSection {
         ErosionSection {
             ratio: Decimal::rounded(erosion.ratio()),
             eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
             total_function_mass: Decimal::rounded(erosion.total_function_mass()),
-            findings: erosion
-                .eroded_functions()
-                .iter()
-                .map(ErodedFunctionFinding::new)
-                .collect(),
+            findings: Findings::worst_first(
+                erosion
+                    .eroded_functions()
+                    .iter()
+                    .map(ErodedFunctionFinding::new),
+                shown,
+            ),
         }
     }
 }
@@ -96,6 +192,61 @@ impl ErodedFunctionFinding {
             cyclomatic_complexity: function.cyclomatic_complexity,
             source_lines: function.source_lines,
             function_mass: Decimal::rounded(function.function_mass),
+        }
+    }
+}
+
+impl DuplicationSection {
+    fn new(duplication: &Duplication, shown: FindingsShown) -> DuplicationSection {
+        DuplicationSection {
+            ratio: Decimal::rounded(duplication.ratio()),
+            clone_lines: duplication.clone_lines,
+            clone_groups: Findings::worst_first(
+                duplication.clone_groups.iter().map(CloneGroupFinding::new),
+                shown,
+            ),
+        }
+    }
+}
+
+impl CloneGroupFinding {
+    fn new(group: &CloneGroup) -> CloneGroupFinding {
+        CloneGroupFinding {
+            tokens: group.tokens,
+            locations: group.fragments.iter().map(CloneLocation::new).collect(),
+        }
+    }
+}
+
+impl CloneLocation {
+    fn new(fragment: &Fragment) -> CloneLocation {
+        CloneLocation {
+            path: fragment.path.to_string(),
+            start_line: fragment.start_line,
+            end_line: fragment.end_line,
+        }
+    }
+}
+
+impl VerbositySection {
+    fn new(verbosity: &Verbosity, shown: FindingsShown) -> VerbositySection {
+        VerbositySection {
+            ratio: Decimal::rounded(verbosity.ratio()),
+            verbose_lines: verbosity.verbose_lines(),
+            findings: Findings::worst_first(
+                verbosity.flagged_lines().iter().map(FlaggedLineRow::from),
+                shown,
+            ),
+        }
+    }
+}
+
+impl From<&FlaggedLineFinding> for FlaggedLineRow {
+    fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
+        FlaggedLineRow {
+            path: finding.path.to_string(),
+            line: finding.line,
+            rule: finding.rule.clone(),
         }
     }
 }
@@ -140,7 +291,7 @@ fn package_sections(model: &CodeModel, erosion: &Erosion) -> Vec<PackageSection>
 }
 
 impl Report {
-    pub fn summarize(model: &CodeModel) -> Report {
+    pub fn summarize(model: &CodeModel, findings: FindingsShown) -> Report {
         let erosion = Erosion::measure(model);
         Report {
             files: model.files.len(),
@@ -150,7 +301,12 @@ impl Report {
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
             packages: package_sections(model, &erosion),
-            erosion: ErosionSection::new(&erosion),
+            erosion: ErosionSection::new(&erosion, findings),
+            duplication: DuplicationSection::new(
+                &Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
+                findings,
+            ),
+            verbosity: VerbositySection::new(&Verbosity::measure(model), findings),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::string::FromUtf8Error;
 
+use codeint_config::FindingsShown;
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
@@ -26,10 +27,10 @@ pub(crate) enum CheckError {
     Report(#[from] ReportError),
 }
 
-pub(crate) fn check(folder: &Path) -> Result<String, CheckError> {
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let model = measure(&tree, &[&TypeScriptAndJavaScript])?;
-    Ok(Report::summarize(&model).to_toon()?)
+    Ok(Report::summarize(&model, findings).to_toon()?)
 }
 
 fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<CodeModel, CheckError> {

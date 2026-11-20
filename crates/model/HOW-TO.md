@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError, Manifest, WorkspaceError};
+use codeint_model::language::{FileModel, Guest, LowerError, Manifest, Token, WorkspaceError};
 
 pub struct Plain;
 
@@ -14,9 +14,21 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
+        let tokens = text
+            .lines()
+            .zip(1..)
+            .flat_map(|(line, number)| {
+                line.split_whitespace().map(move |word| Token {
+                    text: word.to_owned(),
+                    line: number,
+                })
+            })
+            .collect();
         Ok(FileModel {
             source_lines,
             functions: Vec::new(),
+            tokens,
+            flagged_lines: Vec::new(),
         })
     }
 
@@ -47,6 +59,11 @@ impl Guest for Plain {
   An empty list means the repository is one package.
 - Return a `WorkspaceError` that names the manifest and what is wrong with it when a manifest that decides the packages is invalid.
   Which manifest decides the packages, and how its patterns match folders, is a rule of the Language plugin, never of the core.
+- `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
+  Leave out whitespace and comments; the core finds Clone groups from this stream.
+- `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
+  A line that matches two rules appears once per rule.
+  The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
 
 ## Lower files in the core
 

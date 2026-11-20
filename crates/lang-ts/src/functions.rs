@@ -30,6 +30,16 @@ impl CodeLines {
         self.code_lines_before.last().copied().unwrap_or(0)
     }
 
+    pub(crate) fn source_line_indexes_in(&self, span: Span) -> impl Iterator<Item = usize> + '_ {
+        let first = self.line_index(span.start as usize);
+        let last = self.line_index(
+            (span.end as usize)
+                .saturating_sub(1)
+                .max(span.start as usize),
+        );
+        (first..=last).filter(|&index| self.count_between(index, index) == 1)
+    }
+
     fn line_index(&self, offset: usize) -> usize {
         self.line_starts
             .partition_point(|start| *start <= offset)
@@ -60,16 +70,45 @@ pub(crate) fn functions(program: &Program<'_>, code_lines: &CodeLines) -> Vec<Fu
 struct FunctionCollector<'lines> {
     code_lines: &'lines CodeLines,
     functions: Vec<Function>,
-    open: Vec<usize>,
+    open: Vec<OpenFunction>,
+}
+
+struct OpenFunction {
+    index: usize,
+    last_line_index_given_to_nested: Option<usize>,
 }
 
 impl FunctionCollector<'_> {
+    fn give_lines_to_nested(&mut self, first_line_index: usize, last_line_index: usize) {
+        let Some(parent) = self.open.last_mut() else {
+            return;
+        };
+        let first_line_index_not_given = match parent.last_line_index_given_to_nested {
+            Some(given) => first_line_index.max(given + 1),
+            None => first_line_index,
+        };
+        if first_line_index_not_given > last_line_index {
+            return;
+        }
+        parent.last_line_index_given_to_nested = Some(last_line_index);
+        let given_lines = saturating_u32(
+            self.code_lines
+                .count_between(first_line_index_not_given, last_line_index),
+        );
+        let function = &mut self.functions[parent.index];
+        function.source_lines = function.source_lines.saturating_sub(given_lines);
+    }
+
     fn open_function(&mut self, span: Span) {
         let first_line_index = self.code_lines.line_index(span.start as usize);
         let last_line_index = self
             .code_lines
             .line_index((span.end as usize).saturating_sub(1));
-        self.open.push(self.functions.len());
+        self.give_lines_to_nested(first_line_index, last_line_index);
+        self.open.push(OpenFunction {
+            index: self.functions.len(),
+            last_line_index_given_to_nested: None,
+        });
         self.functions.push(Function {
             line: saturating_u32(first_line_index + 1),
             decision_points: 0,
@@ -81,8 +120,8 @@ impl FunctionCollector<'_> {
     }
 
     fn add_decision_point(&mut self) {
-        if let Some(&innermost) = self.open.last() {
-            let function = &mut self.functions[innermost];
+        if let Some(innermost) = self.open.last() {
+            let function = &mut self.functions[innermost.index];
             function.decision_points = function.decision_points.saturating_add(1);
         }
     }

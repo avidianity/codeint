@@ -16,7 +16,7 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, Manifest};
+pub use language::{FileModel, Manifest, Token};
 pub use workspace::{Package, Workspace, WorkspaceError};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
