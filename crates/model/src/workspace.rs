@@ -38,6 +38,10 @@ impl Workspace {
         }
     }
 
+    pub fn join(&mut self, other: Workspace) {
+        self.member_roots.extend(other.member_roots);
+    }
+
     pub fn has_members(&self) -> bool {
         !self.member_roots.is_empty()
     }

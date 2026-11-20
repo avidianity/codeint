@@ -1,8 +1,8 @@
 use crate::{
     BudgetFailure, CloneGroupFinding, CloneLocation, DuplicationSection, ErodedFunctionFinding,
     ErosionSection, Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection,
-    PackageSection, ReferenceRangeEntry, Report, SourceSetSection, SourceSetSections,
-    UnresolvedImportRow, VerbositySection,
+    MeasuredSection, PackageSection, ReferenceRangeEntry, Report, SourceSetSection,
+    SourceSetSections, UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -93,33 +93,23 @@ impl Noun {
 }
 
 pub(crate) fn render(report: &Report) -> String {
-    let sections = report.source_sets.named();
-    let mut blocks = vec![TITLE.to_string(), measured_summary(report, &sections)];
-    if !sections.is_empty() {
-        blocks.push(table(
-            &METRIC_COLUMNS,
-            sections
-                .iter()
-                .flat_map(|(name, section)| metric_rows(name, section))
-                .collect(),
-        ));
-    }
+    let sections = report.measured.source_sets.named();
+    let mut blocks = vec![TITLE.to_string(), measured_summary(&report.measured)];
+    blocks.extend(metric_table(&sections));
     if !report.over_budget.is_empty() {
         blocks.push("## Over Budget".to_string());
         blocks.push(list(report.over_budget.iter().map(budget_failure_item)));
     }
-    let package_rows: Vec<Vec<String>> = sections
-        .iter()
-        .flat_map(|(name, section)| {
-            section
-                .packages
-                .iter()
-                .map(|package| package_row(name, package))
-        })
-        .collect();
-    if !package_rows.is_empty() {
+    if let Some(packages) = package_table(&sections) {
         blocks.push("## Workspace packages".to_string());
-        blocks.push(table(&PACKAGE_COLUMNS, package_rows));
+        blocks.push(packages);
+    }
+    for (plugin, language) in &report.languages {
+        let language_sections = language.source_sets.named();
+        blocks.push(format!("## Language plugin {}", code(plugin)));
+        blocks.push(measured_summary(language));
+        blocks.extend(metric_table(&language_sections));
+        blocks.extend(package_table(&language_sections));
     }
     for (name, section) in &sections {
         let findings = findings_blocks(section);
@@ -134,6 +124,35 @@ pub(crate) fn render(report: &Report) -> String {
         blocks.push(not_measured.join("\n"));
     }
     blocks.join("\n\n")
+}
+
+fn metric_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
+    if sections.is_empty() {
+        return None;
+    }
+    Some(table(
+        &METRIC_COLUMNS,
+        sections
+            .iter()
+            .flat_map(|(name, section)| metric_rows(name, section))
+            .collect(),
+    ))
+}
+
+fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
+    let package_rows: Vec<Vec<String>> = sections
+        .iter()
+        .flat_map(|(name, section)| {
+            section
+                .packages
+                .iter()
+                .map(|package| package_row(name, package))
+        })
+        .collect();
+    if package_rows.is_empty() {
+        return None;
+    }
+    Some(table(&PACKAGE_COLUMNS, package_rows))
 }
 
 fn budget_failure_item(failure: &BudgetFailure) -> String {
@@ -173,8 +192,9 @@ impl SourceSetSections {
     }
 }
 
-fn measured_summary(report: &Report, sections: &[(&str, &SourceSetSection)]) -> String {
-    let total = files_and_lines(report.files, report.source_lines);
+fn measured_summary(measured: &MeasuredSection) -> String {
+    let sections = measured.source_sets.named();
+    let total = files_and_lines(measured.files, measured.source_lines);
     if sections.len() < 2 {
         return format!("codeint measured {total}.");
     }

@@ -8,7 +8,8 @@ mod codeint_json;
 
 pub use codeint_json::{
     Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError, JsonType,
-    KeyPath, KeySegment, SourceSetOverrides, configuration_schema, read_configuration,
+    KeyPath, KeySegment, LanguageCoverage, Languages, SourceSetOverrides, configuration_schema,
+    read_configuration,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -51,6 +52,7 @@ pub enum FindingsShown {
 pub enum ReportFormat {
     Toon,
     Json,
+    Sarif,
     Markdown,
 }
 

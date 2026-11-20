@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+use crate::sarif::{ListedFindings, SarifLog};
 use crate::{
     CloneGroupFinding, Decimal, ErodedFunctionFinding, Findings, FlaggedLineRow,
     ImportCycleFinding, Measured, ReportError,
@@ -100,8 +101,26 @@ impl DiffReport {
         match format {
             ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
             ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            ReportFormat::Sarif => serde_json::to_string_pretty(&self.new_findings_as_sarif())
+                .map_err(ReportError::Sarif),
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
+    }
+}
+
+impl DiffReport {
+    fn new_findings_as_sarif(&self) -> SarifLog {
+        SarifLog::listing(self.source_sets.iter().map(|(source_set, changes)| {
+            (
+                source_set,
+                ListedFindings {
+                    eroded_functions: &changes.erosion.new.listed,
+                    clone_groups: &changes.duplication.new.listed,
+                    flagged_lines: &changes.verbosity.new.listed,
+                    import_cycles: &changes.import_cycles.new.listed,
+                },
+            )
+        }))
     }
 }
 
@@ -218,16 +237,21 @@ fn import_cycles_side(measured: &Measured) -> Side<ImportCycleFinding> {
 }
 
 impl SourceSetChangesSections {
-    fn named(&self) -> Vec<(&'static str, &SourceSetChanges)> {
+    fn iter(&self) -> impl Iterator<Item = (SourceSet, &SourceSetChanges)> {
         [
-            ("Production", &self.production),
-            ("Test", &self.test),
-            ("Generated", &self.generated),
-            ("Vendored", &self.vendored),
+            (SourceSet::Production, &self.production),
+            (SourceSet::Test, &self.test),
+            (SourceSet::Generated, &self.generated),
+            (SourceSet::Vendored, &self.vendored),
         ]
         .into_iter()
-        .filter_map(|(name, changes)| changes.as_ref().map(|changes| (name, changes)))
-        .collect()
+        .filter_map(|(source_set, changes)| Some((source_set, changes.as_ref()?)))
+    }
+
+    fn named(&self) -> Vec<(&'static str, &SourceSetChanges)> {
+        self.iter()
+            .map(|(source_set, changes)| (source_set_name(source_set), changes))
+            .collect()
     }
 
     fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetChanges> {
@@ -261,5 +285,14 @@ impl Identified for FlaggedLineRow {
 impl Identified for ImportCycleFinding {
     fn id(&self) -> &str {
         &self.id
+    }
+}
+
+fn source_set_name(source_set: SourceSet) -> &'static str {
+    match source_set {
+        SourceSet::Production => "Production",
+        SourceSet::Test => "Test",
+        SourceSet::Generated => "Generated",
+        SourceSet::Vendored => "Vendored",
     }
 }

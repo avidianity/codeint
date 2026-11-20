@@ -42,6 +42,7 @@ Set Budgets in `codeint.json` at the root of the repository, one object per Sour
 
 Each Budget is a number from 0 to 1.
 A Budget applies only to its own Source set, and a Metric without a Budget never fails.
+A Budget applies to the total of every language, never to the section of one Language plugin under `languages`.
 codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
 
 When a Metric is over its Budget, codeint still writes the whole report, lists the Metric under `over_budget`, names it on standard error, and exits with code 1:
@@ -87,6 +88,7 @@ source_sets:
 
 It lists at most 20 new and 20 resolved Findings per Metric, and counts the rest in `new_left_out` and `resolved_left_out`; `--all` lists every one.
 `--format json` and `--format markdown` print the same comparison.
+`--format sarif` lists only the new Findings, so code scanning annotates what the change added.
 A base ref that names no commit stops the run with exit code 2 and names the ref.
 
 ## Report formats
@@ -97,6 +99,7 @@ Pass `--format` to choose another format:
 ```sh
 codeint check --format toon
 codeint check --format json
+codeint check --format sarif
 codeint check --format markdown
 ```
 
@@ -158,6 +161,7 @@ The top-level object has these fields:
 | `files` | integer | Number of measured source files, in every Source set |
 | `source_lines` | integer | Source lines of the measured files; blank and comment-only lines do not count |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
+| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, and `source_sets` for that plugin's files |
 | `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
@@ -167,6 +171,7 @@ Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
 - `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
+  The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
 - The counts behind the ratio:
   `eroded_function_mass` and `total_function_mass` for Erosion, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
   Duplication and Verbosity divide by the `source_lines` of the Source set.
@@ -213,11 +218,52 @@ Later versions of codeint change the JSON report only in ways that keep existing
 
 Readers ignore fields they do not know, and treat a missing optional field as empty.
 
+### SARIF report
+
+`--format sarif` prints a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html) log, so code scanning tools such as GitHub code scanning show each Finding as an annotation.
+The log has one run, and the run has one result per Finding of the report.
+It takes the Findings from the total, never from the sections under `languages`, so a Finding appears once.
+`--all` and `--output` work as they do for every other format: without `--all`, the log holds the 20 worst Findings per Metric and Source set.
+
+The tool lists one rule per Metric, and each result names its Metric in `ruleId`:
+
+| `ruleId` | Finding | Location |
+| -------- | ------- | -------- |
+| `erosion` | An eroded function | The line where the function starts |
+| `duplication` | A Clone group | The first fragment, from its start line to its end line; the other fragments are related locations |
+| `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
+| `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
+
+Each result has the level `note`, and its `properties.sourceSet` names its Source set: `production`, `test`, `generated`, or `vendored`.
+
+```json
+{
+  "ruleId": "verbosity",
+  "ruleIndex": 2,
+  "level": "note",
+  "message": { "text": "Flagged line: rule else-after-return." },
+  "locations": [
+    {
+      "physicalLocation": {
+        "artifactLocation": { "uri": "src/sign.ts", "uriBaseId": "SRCROOT" },
+        "region": { "startLine": 4 }
+      }
+    }
+  ],
+  "properties": { "sourceSet": "production" }
+}
+```
+
+Each `uri` is the path that the other formats print, relative to the root of the Git repository, with `/` as the separator.
+A character that a URI cannot hold, such as a space, is percent-encoded: `src/my sign.ts` becomes `src/my%20sign.ts`.
+`uriBaseId` is `SRCROOT`, the root of the Git repository; the log does not print its absolute path, so the log is the same on every machine.
+
 ### Markdown report
 
 `--format markdown` prints a report to paste into a pull request comment.
 It starts with one table: each Metric's value per Source set, the counts behind the value, and the Reference range.
 Next come each Metric over its Budget and a table of the ratios of each workspace package, when there are any.
+When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 

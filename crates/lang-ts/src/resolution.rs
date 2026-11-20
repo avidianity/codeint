@@ -1,24 +1,74 @@
+mod packages;
+mod snapshot;
+
 use std::collections::HashSet;
 
-use codeint_model::language::{ImportRequest, Resolution};
+use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use oxc_resolver::{ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 
-const PROBED_EXTENSIONS: [&str; 8] = ["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"];
+use crate::resolution::packages::PackageLink;
+use crate::resolution::snapshot::Snapshot;
+use crate::workspaces::PACKAGE_MANIFEST;
+
+const EXTENSIONS: [&str; 8] = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"];
 
 const TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT: [(&str, &[&str]); 4] = [
-    ("js", &["ts", "tsx"]),
-    ("jsx", &["tsx"]),
-    ("mjs", &["mts"]),
-    ("cjs", &["cts"]),
+    (".js", &[".js", ".ts", ".tsx"]),
+    (".jsx", &[".jsx", ".tsx"]),
+    (".mjs", &[".mjs", ".mts"]),
+    (".cjs", &[".cjs", ".cts"]),
 ];
 
-pub(crate) struct RelativeResolver<'paths> {
-    repository_paths: HashSet<&'paths str>,
+const CONDITIONS: [&str; 5] = ["types", "import", "require", "node", "default"];
+
+pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
+    repository_paths
+        .iter()
+        .filter(|path| is_manifest(file_name(path)))
+        .cloned()
+        .collect()
 }
 
-impl<'paths> RelativeResolver<'paths> {
-    pub(crate) fn new(repository_paths: &'paths [String]) -> RelativeResolver<'paths> {
-        RelativeResolver {
-            repository_paths: repository_paths.iter().map(String::as_str).collect(),
+fn is_manifest(file_name: &str) -> bool {
+    file_name == PACKAGE_MANIFEST
+        || (file_name.starts_with("tsconfig") && file_name.ends_with(".json"))
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit_once('/').map_or(path, |(_, name)| name)
+}
+
+pub(crate) struct ProjectResolver {
+    resolver: ResolverGeneric<Snapshot>,
+    package_names: HashSet<String>,
+}
+
+impl ProjectResolver {
+    pub(crate) fn new(repository_paths: &[String], manifests: Vec<Manifest>) -> ProjectResolver {
+        let links: Vec<PackageLink> = packages::package_links(&manifests);
+        let package_names = links.iter().map(|link| link.name.clone()).collect();
+        let file_system = Snapshot::new(repository_paths, manifests, links);
+        let options = ResolveOptions {
+            cwd: Some(snapshot::root()),
+            tsconfig: Some(TsconfigDiscovery::Auto),
+            condition_names: CONDITIONS.iter().map(ToString::to_string).collect(),
+            extensions: EXTENSIONS.iter().map(ToString::to_string).collect(),
+            extension_alias: TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT
+                .iter()
+                .map(|(output, sources)| {
+                    (
+                        (*output).to_owned(),
+                        sources.iter().map(ToString::to_string).collect(),
+                    )
+                })
+                .collect(),
+            builtin_modules: true,
+            node_path: false,
+            ..ResolveOptions::default()
+        };
+        ProjectResolver {
+            resolver: ResolverGeneric::new_with_file_system(file_system, options),
+            package_names,
         }
     }
 
@@ -29,74 +79,98 @@ impl<'paths> RelativeResolver<'paths> {
                 "{specifier:?} is an absolute path, which depends on the machine"
             ));
         }
-        if !is_relative(specifier) {
-            return Resolution::External;
-        }
-        let Some(base) = join(directory_of(&request.importer), specifier) else {
+        if is_relative(specifier) && leaves_the_repository(&request.importer, specifier) {
             return Resolution::Unresolved(format!("{specifier:?} leads outside the repository"));
+        }
+        let importer = snapshot::absolute(&request.importer);
+        let resolved = match self.resolver.resolve_file(&importer, specifier) {
+            Err(error) if is_project_configuration_error(&error) => {
+                importer.parent().map_or(Err(error), |folder| {
+                    self.resolver.resolve(folder, specifier)
+                })
+            }
+            result => result,
         };
-        candidates(&base)
-            .into_iter()
-            .find(|candidate| self.repository_paths.contains(candidate.as_str()))
-            .map_or_else(
+        match resolved {
+            Ok(resolution) => snapshot::repository_path(resolution.path()).map_or_else(
                 || {
                     Resolution::Unresolved(format!(
-                        "no file of the repository matches {specifier:?}"
+                        "{specifier:?} leads to {}, outside the repository",
+                        resolution.path().display()
                     ))
                 },
                 Resolution::Resolved,
-            )
+            ),
+            Err(ResolveError::Builtin { .. }) => Resolution::External,
+            Err(_) if self.names_an_outside_module(&importer, specifier) => Resolution::External,
+            Err(ResolveError::NotFound(_)) => {
+                Resolution::Unresolved(format!("no file of the repository matches {specifier:?}"))
+            }
+            Err(error) => Resolution::Unresolved(format!("{specifier:?}: {error}")),
+        }
     }
+
+    fn names_an_outside_module(&self, importer: &std::path::Path, specifier: &str) -> bool {
+        if is_relative(specifier) || specifier.starts_with('#') {
+            return false;
+        }
+        if self.package_names.contains(package_name(specifier)) {
+            return false;
+        }
+        let matches_path_alias = self
+            .resolver
+            .find_tsconfig(importer)
+            .ok()
+            .flatten()
+            .and_then(|tsconfig| tsconfig.compiler_options.paths.clone())
+            .is_some_and(|paths| paths.keys().any(|key| alias_matches(key, specifier)));
+        !matches_path_alias
+    }
+}
+
+fn is_project_configuration_error(error: &ResolveError) -> bool {
+    matches!(
+        error,
+        ResolveError::TsconfigNotFound(_)
+            | ResolveError::TsconfigSelfReference(_)
+            | ResolveError::TsconfigCircularExtend(_)
+            | ResolveError::TsconfigLoadFailed { .. }
+    )
 }
 
 fn is_relative(specifier: &str) -> bool {
     matches!(specifier, "." | "..") || specifier.starts_with("./") || specifier.starts_with("../")
 }
 
-fn directory_of(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(directory, _)| directory)
-}
-
-fn join(directory: &str, specifier: &str) -> Option<String> {
-    let mut segments: Vec<&str> = directory
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect();
+fn leaves_the_repository(importer: &str, specifier: &str) -> bool {
+    let mut depth = importer.matches('/').count();
     for segment in specifier.split('/') {
         match segment {
             "" | "." => {}
-            ".." => {
-                segments.pop()?;
-            }
-            name => segments.push(name),
+            ".." if depth == 0 => return true,
+            ".." => depth -= 1,
+            _ => depth += 1,
         }
     }
-    Some(segments.join("/"))
+    false
 }
 
-fn candidates(base: &str) -> Vec<String> {
-    let mut candidates = Vec::new();
-    let mut index_prefix = String::new();
-    if !base.is_empty() {
-        candidates.push(base.to_owned());
-        if let Some((stem, extension)) = base.rsplit_once('.') {
-            for (javascript, typescript) in TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT {
-                if extension == javascript {
-                    candidates.extend(typescript.iter().map(|source| format!("{stem}.{source}")));
-                }
-            }
+fn package_name(specifier: &str) -> &str {
+    let segments = if specifier.starts_with('@') { 2 } else { 1 };
+    let end = specifier
+        .match_indices('/')
+        .nth(segments - 1)
+        .map_or(specifier.len(), |(index, _)| index);
+    &specifier[..end]
+}
+
+fn alias_matches(key: &str, specifier: &str) -> bool {
+    match key.split_once('*') {
+        Some((prefix, suffix)) => {
+            specifier.len() >= prefix.len() + suffix.len()
+                && specifier.starts_with(prefix)
+                && specifier.ends_with(suffix)
         }
-        candidates.extend(
-            PROBED_EXTENSIONS
-                .iter()
-                .map(|extension| format!("{base}.{extension}")),
-        );
-        index_prefix = format!("{base}/");
+        None => key == specifier,
     }
-    candidates.extend(
-        PROBED_EXTENSIONS
-            .iter()
-            .map(|extension| format!("{index_prefix}index.{extension}")),
-    );
-    candidates
 }

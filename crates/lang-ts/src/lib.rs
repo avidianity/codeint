@@ -18,7 +18,7 @@ use oxc_parser::config::TokensParserConfig;
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
-use crate::resolution::RelativeResolver;
+use crate::resolution::{ProjectResolver, manifest_paths};
 use crate::runtime_imports::runtime_import_specifiers;
 use crate::source_set::source_set;
 use crate::tokens::tokens;
@@ -72,19 +72,20 @@ impl Guest for TypeScriptAndJavaScript {
         })
     }
 
-    fn workspace_manifests() -> Vec<String> {
-        vec![workspaces::PACKAGE_MANIFEST.to_owned()]
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        manifest_paths(&repository_paths)
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        workspaces::workspace_packages(manifests)
+        workspaces::workspace_packages(&manifests)
     }
 
     fn resolve_imports(
         repository_paths: Vec<String>,
+        manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        let resolver = RelativeResolver::new(&repository_paths);
+        let resolver = ProjectResolver::new(&repository_paths, manifests);
         requests
             .iter()
             .map(|request| resolver.resolve(request))

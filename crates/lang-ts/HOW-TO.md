@@ -51,3 +51,19 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - A file named only `test.ts` or `spec.ts` has an empty stem, so it stays Production.
 - Build output folders, very long lines, and vendor folders are rules of the core, in `codeint_model::settle_source_set`; never repeat them here.
 - Prove a change with `tests/conformance.rs`: list each path or text that must be Test or Generated, and each look-alike that must stay Production.
+
+## Change how imports resolve
+
+- `src/resolution.rs` resolves each import with `oxc_resolver`, the way TypeScript resolves it: relative paths, tsconfig `paths` and `baseUrl`, and the `exports`, `main`, and `index` entries of packages.
+- `manifest_paths` asks the host for every `package.json` file and every file whose name starts with `tsconfig` and ends with `.json`.
+  A tsconfig `extends` entry that names any other file, or a package outside the repository, cannot be read; the importer then resolves without that tsconfig.
+- `src/resolution/snapshot.rs` is the virtual file system that `oxc_resolver` reads: the repository paths, the manifest texts, and a `node_modules` link for each package of the repository.
+  It reads no real file, so a tsconfig never reaches outside the snapshot.
+- `manifest_paths` is also how the plugin asks for the `package.json` files that `workspace_packages` reads, so the host reads each manifest once.
+- `src/resolution/packages.rs` links the `package.json` of each workspace package that the root `package.json` declares, when it has a valid `name`, so an import of a workspace package follows its `exports` field.
+  It finds the workspace packages with `src/workspaces.rs`, the same rule that splits the report by package.
+  A named package outside the declared workspaces, or in a repository without workspaces, is not linked, because npm, Yarn, and Bun do not install it in `node_modules`.
+  Two packages with the same name are both left unlinked.
+- The `exports` conditions are `types`, `import`, `require`, `node`, and `default`, so an export whose `types` entry names a source file resolves to that file.
+- A bare specifier that fails to resolve is `External`, unless it names a linked package or matches a tsconfig `paths` key of the importer; then it is `Unresolved`.
+- Prove a change with `tests/conformance.rs` through `manifest_paths` and `resolve_imports`, and with a cycle test in `crates/cli/tests/check.rs`.

@@ -282,6 +282,44 @@ fn diff_lists_the_20_worst_new_findings_unless_all_is_passed() {
 }
 
 #[test]
+fn format_sarif_lists_only_the_new_findings_so_a_pull_request_annotates_what_it_added() {
+    let fixture = Fixture::on_main();
+    fixture.put("src/kept.ts", &eroded_function("kept"));
+    fixture.put("src/removed.ts", &eroded_function("removed"));
+    fixture.commit("base");
+    fixture.remove("src/removed.ts");
+    let eleven_conditions: Vec<String> = (1..=11).map(|value| format!("value > {value}")).collect();
+    fixture.put(
+        "src/added.ts",
+        &format!(
+            "export function added(value: number): boolean {{\n  return {};\n}}\n",
+            eleven_conditions.join(" && ")
+        ),
+    );
+
+    let output = fixture.codeint_diff(&["main", "--format", "sarif"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let log: Value = serde_json::from_slice(&output.stdout).expect("the log is JSON");
+    assert_eq!(log["version"], "2.1.0");
+    let results: Vec<(String, String)> = log["runs"][0]["results"]
+        .as_array()
+        .expect("a list of results")
+        .iter()
+        .map(|result| {
+            (
+                result["ruleId"].as_str().expect("a rule id").to_owned(),
+                result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+                    .as_str()
+                    .expect("a uri")
+                    .to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(results, [("erosion".to_owned(), "src/added.ts".to_owned())]);
+}
+
+#[test]
 fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_findings() {
     let fixture = Fixture::on_main();
     fixture.put("src/a.ts", &function_with_if_statements("a", 11));

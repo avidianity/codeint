@@ -1,17 +1,19 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::path::Path;
+use std::string::FromUtf8Error;
 
 use codeint_config::{
-    ConfigurationFileError, FindingsShown, SourceSetOverrides, read_configuration,
+    Configuration, ConfigurationFileError, FindingsShown, LanguageCoverage, SourceSetOverrides,
+    read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
-    ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError, resolve_runtime_imports,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, RepoPath, ResolveError,
+    SkippedFile, SourceFile, Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports,
     settle_source_set,
 };
-use codeint_report::{ReferenceRangeScope, Report};
+use codeint_report::{MeasuredLanguage, Report};
 
 #[cfg(test)]
 mod tests;
@@ -30,73 +32,79 @@ pub(crate) enum CheckError {
     Workspace(#[from] WorkspaceError),
 }
 
-pub(crate) struct Measurement {
-    pub(crate) model: CodeModel,
-    ranges: ReferenceRangeScope,
+pub(crate) struct NamedLanguagePlugin<'plugin> {
+    pub(crate) name: &'static str,
+    pub(crate) plugin: &'plugin dyn LanguagePlugin,
 }
 
+pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] =
+    [NamedLanguagePlugin {
+        name: "typescript-javascript",
+        plugin: &TypeScriptAndJavaScript,
+    }];
+
 pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
-    check_with(folder, &[&TypeScriptAndJavaScript], findings)
+    check_with(folder, &BUILT_IN_LANGUAGE_PLUGINS, findings)
 }
 
 fn check_with(
     folder: &Path,
-    plugins: &[&dyn LanguagePlugin],
+    plugins: &[NamedLanguagePlugin<'_>],
     findings: FindingsShown,
 ) -> Result<Report, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
     let tree = repository.working_tree()?;
-    let Measurement { model, ranges } =
-        measure(&tree, plugins, &configuration.source_set_overrides)?;
+    let languages = measure_with(&tree, plugins, &configuration)?;
     Ok(Report::summarize(
-        model,
-        &ranges,
+        languages,
+        tree.submodules().to_vec(),
         findings,
         &configuration.budgets,
     ))
 }
 
-fn reference_range_scope(
-    plugins: &[&dyn LanguagePlugin],
-    measured: &BTreeSet<usize>,
-) -> Result<ReferenceRangeScope, CheckError> {
-    let mut ranges_by_plugin = plugins
-        .iter()
-        .map(|plugin| plugin.reference_ranges())
-        .collect::<Result<Vec<ReferenceRanges>, _>>()
-        .map_err(CheckError::ReferenceRange)?;
-    match measured.iter().collect::<Vec<_>>().as_slice() {
-        [] => Ok(ReferenceRangeScope::OneLanguage(ReferenceRanges::default())),
-        [only] => Ok(ReferenceRangeScope::OneLanguage(
-            ranges_by_plugin.swap_remove(**only),
-        )),
-        _ => Ok(ReferenceRangeScope::SeveralLanguages),
-    }
+pub(crate) fn measure_with(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    configuration: &Configuration,
+) -> Result<Vec<MeasuredLanguage>, CheckError> {
+    let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
+    let coverage = configuration.languages.coverage_of(&names)?;
+    measure(
+        tree,
+        plugins,
+        &coverage,
+        &configuration.source_set_overrides,
+    )
 }
 
-pub(crate) fn measure(
+fn measure(
     tree: &Snapshot,
-    plugins: &[&dyn LanguagePlugin],
+    plugins: &[NamedLanguagePlugin<'_>],
+    coverage: &[LanguageCoverage<'_>],
     overrides: &SourceSetOverrides,
-) -> Result<Measurement, CheckError> {
+) -> Result<Vec<MeasuredLanguage>, CheckError> {
     let plugins_by_extension: HashMap<String, usize> = plugins
         .iter()
         .enumerate()
-        .flat_map(|(index, plugin)| {
-            plugin
+        .flat_map(|(index, named)| {
+            named
+                .plugin
                 .extensions()
                 .into_iter()
                 .map(move |extension| (extension, index))
         })
         .collect();
-    let mut model = CodeModel {
-        workspace: find_workspace(tree, plugins)?,
-        submodules: tree.submodules().to_vec(),
-        ..CodeModel::default()
-    };
-    let mut measured = BTreeSet::new();
-    let mut plugin_of_file = Vec::new();
+    let manifests_by_plugin = read_manifests(tree, plugins)?;
+    let workspace = find_workspace(plugins, &manifests_by_plugin)?;
+    let mut models: Vec<CodeModel> = plugins
+        .iter()
+        .map(|_| CodeModel {
+            workspace: workspace.clone(),
+            ..CodeModel::default()
+        })
+        .collect();
     for path in tree.files() {
         let Some(&index) = path
             .extension()
@@ -104,27 +112,26 @@ pub(crate) fn measure(
         else {
             continue;
         };
+        if !coverage[index].covers(path) {
+            continue;
+        }
+        let model = &mut models[index];
         let bytes = tree.read(path)?;
         let text = match String::from_utf8(bytes) {
             Ok(text) => text,
             Err(error) => {
-                model.skipped.push(SkippedFile {
-                    path: path.clone(),
-                    reason: format!("not valid UTF-8: {}", error.utf8_error()),
-                });
+                model.skipped.push(not_utf8(path.clone(), &error));
                 continue;
             }
         };
-        match plugins[index].lower(path, &text) {
+        match plugins[index].plugin.lower(path, &text) {
             Ok(mut file) => {
-                measured.insert(index);
                 file.source_set =
                     overrides.source_set(path, settle_source_set(path, &text, file.source_set));
                 model.files.push(SourceFile {
                     path: path.clone(),
                     model: file,
                 });
-                plugin_of_file.push(index);
             }
             Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
             Err(reason) => model.skipped.push(SkippedFile {
@@ -133,41 +140,62 @@ pub(crate) fn measure(
             }),
         }
     }
-    for (index, plugin) in plugins.iter().enumerate() {
-        let importers: Vec<&SourceFile> = model
-            .files
-            .iter()
-            .zip(&plugin_of_file)
-            .filter(|(_, file_plugin)| **file_plugin == index)
-            .map(|(file, _)| file)
-            .collect();
-        let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), &importers)
-            .map_err(CheckError::Resolve)?;
-        model.runtime_imports.extend(runtime_imports);
-    }
-    let ranges = reference_range_scope(plugins, &measured)?;
-    Ok(Measurement { model, ranges })
+    plugins
+        .iter()
+        .zip(models)
+        .zip(manifests_by_plugin)
+        .map(|((named, mut model), manifests)| {
+            let importers: Vec<&SourceFile> = model.files.iter().collect();
+            model.runtime_imports =
+                resolve_runtime_imports(named.plugin, tree.files(), manifests, &importers)
+                    .map_err(CheckError::Resolve)?;
+            Ok(MeasuredLanguage {
+                plugin: named.name.to_owned(),
+                model,
+                reference_ranges: named
+                    .plugin
+                    .reference_ranges()
+                    .map_err(CheckError::ReferenceRange)?,
+            })
+        })
+        .collect()
+}
+
+fn read_manifests(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+) -> Result<Vec<Vec<Manifest>>, CheckError> {
+    plugins
+        .iter()
+        .map(|named| {
+            choose_manifests(named.plugin, tree.files())
+                .map_err(CheckError::Resolve)?
+                .into_iter()
+                .map(|path| {
+                    Ok(Manifest {
+                        text: String::from_utf8_lossy(&tree.read(&path)?).into_owned(),
+                        path: path.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn find_workspace(
-    tree: &Snapshot,
-    plugins: &[&dyn LanguagePlugin],
+    plugins: &[NamedLanguagePlugin<'_>],
+    manifests_by_plugin: &[Vec<Manifest>],
 ) -> Result<Workspace, CheckError> {
     let mut member_roots = Vec::new();
-    for plugin in plugins {
-        let manifest_names = plugin.workspace_manifests();
-        let manifests = tree
-            .files()
-            .iter()
-            .filter(|path| manifest_names.iter().any(|name| name == path.file_name()))
-            .map(|path| {
-                Ok(Manifest {
-                    path: path.to_string(),
-                    text: String::from_utf8_lossy(&tree.read(path)?).into_owned(),
-                })
-            })
-            .collect::<Result<Vec<Manifest>, GitError>>()?;
-        member_roots.extend(plugin.workspace_packages(manifests)?);
+    for (named, manifests) in plugins.iter().zip(manifests_by_plugin) {
+        member_roots.extend(named.plugin.workspace_packages(manifests.clone())?);
     }
     Ok(Workspace::new(member_roots))
+}
+
+fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {
+    SkippedFile {
+        path,
+        reason: format!("not valid UTF-8: {}", error.utf8_error()),
+    }
 }

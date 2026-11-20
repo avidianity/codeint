@@ -105,6 +105,12 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         ConfigurationFileError::OutOfRange { .. } => {
             "Set the Budget to a ratio from 0 to 1, as the report shows the Metric."
         }
+        ConfigurationFileError::MissingKey { .. } => {
+            "Add the key; the JSON schema that $schema links to describes every key."
+        }
+        ConfigurationFileError::UnknownLanguagePlugin { .. } => {
+            "Name one of the Language plugins listed, or remove the entry from languages."
+        }
         ConfigurationFileError::InvalidGlob { .. } => {
             "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
         }

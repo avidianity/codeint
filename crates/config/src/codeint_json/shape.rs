@@ -85,7 +85,20 @@ impl<'schema> Shape<'schema> {
                 None => {}
             }
         }
-        Ok(())
+        let missing = schema
+            .get("required")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .find(|name| !members.contains_key(*name));
+        match missing {
+            Some(name) => Err(ConfigurationFileError::MissingKey {
+                key: key.clone(),
+                missing: name.to_owned(),
+            }),
+            None => Ok(()),
+        }
     }
 
     fn check_items(
