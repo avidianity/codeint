@@ -10,6 +10,7 @@ The allow-list is:
 - a doc comment on an exported symbol of a published package, when the package's API reference is generated from it.
 
 Generated files are exempt.
+Test input files under `crates/*/tests/fixtures/` are exempt, because their comments are data that codeint reads, not explanations of codeint's code.
 A suppression directive is not on the allow-list; [no-suppressions](./no-suppressions.md) owns it.
 
 **Implemented by**:
@@ -24,6 +25,7 @@ The allow-list:
 - the tool directives `# yaml-language-server:` and `# shellcheck shell=`.
 
 Rust doc comments are not on the allow-list, because no Rust crate is published.
+The test input paths are `test_input.paths` in [checks.toml](../../checks.toml); [no-duplicate-code](./no-duplicate-code.md) reads the same list.
 This page is the allow-list file; a change to it is Tier 3.
 
 **Runs in**:
