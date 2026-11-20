@@ -3,7 +3,7 @@ use super::language::{
 };
 use super::{
     CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath,
-    RuntimeImport, SourceFile,
+    RuntimeImport, SourceFile, token_text_hash,
 };
 
 struct MeasuredLanguage;
@@ -186,4 +186,11 @@ fn each_runtime_import_moves_into_the_source_set_of_the_file_that_imports() {
             .runtime_imports
             .is_empty()
     );
+}
+
+#[test]
+fn the_token_text_hash_is_64_bit_fnv_1a() {
+    assert_eq!(token_text_hash(""), 0xcbf2_9ce4_8422_2325);
+    assert_eq!(token_text_hash("a"), 0xaf63_dc4c_8601_ec8c);
+    assert_eq!(token_text_hash("foobar"), 0x8594_4171_f739_67e8);
 }

@@ -1152,6 +1152,69 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
     );
 }
 
+const ORDER_TOTAL_RENAMED: &str = concat!(
+    "export function amount(lines: { cost: number; count: number }[]): number {\n",
+    "  let result = 100;\n",
+    "  for (const line of lines) {\n",
+    "    if (line.count > 5) {\n",
+    "      result += line.cost * line.count;\n",
+    "    }\n",
+    "  }\n",
+    "  return result;\n",
+    "}\n",
+);
+
+const CART_TOTAL_RESTRUCTURED: &str = concat!(
+    "export function total(items: { price: number; quantity: number }[]): number {\n",
+    "  let sum = 0;\n",
+    "  for (const item of items) {\n",
+    "    while (item.quantity > 0) {\n",
+    "      sum += item.price * item.quantity;\n",
+    "    }\n",
+    "  }\n",
+    "  return sum + 1;\n",
+    "}\n",
+);
+
+#[test]
+fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write("src/order.ts", ORDER_TOTAL_RENAMED);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        production_section(&output, "duplication"),
+        concat!(
+            "duplication:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  clone_lines: 18\n",
+            "  clone_groups[1]:\n",
+            "    - tokens: 59\n",
+            "      locations[2]{path,start_line,end_line}:\n",
+            "        src/cart.ts,1,9\n",
+            "        src/order.ts,1,9\n",
+        )
+    );
+}
+
+#[test]
+fn copies_with_a_different_structure_do_not_form_a_clone_group() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write("src/restructured.ts", CART_TOTAL_RESTRUCTURED);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
+}
+
 #[test]
 fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
     let small = "export function double(value: number): number {\n  return value * 2;\n}\n";
@@ -1168,11 +1231,24 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
 }
 
 fn write_21_clone_groups_of_equal_size(repository: &Repository) {
+    let one_token_swaps = [
+        ("let sum", "var sum"),
+        ("const item", "let item"),
+        (" > ", " < "),
+        (" += ", " -= "),
+        (" * ", " / "),
+    ];
     for index in 1..=21 {
-        let total = CART_TOTAL
-            .replace("total", &format!("total{index:02}"))
-            .replace("sum", &format!("sum{index:02}"))
-            .replace("item", &format!("item{index:02}"));
+        let total = one_token_swaps.iter().enumerate().fold(
+            CART_TOTAL.to_owned(),
+            |total, (bit, (from, to))| {
+                if index & (1 << bit) == 0 {
+                    total
+                } else {
+                    total.replace(from, to)
+                }
+            },
+        );
         repository.write(&format!("src/a{index:02}.ts"), &total);
         repository.write(&format!("src/b{index:02}.ts"), &total);
     }
