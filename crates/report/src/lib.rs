@@ -33,9 +33,10 @@ pub enum ReportError {
 
 #[derive(Debug, Serialize)]
 pub struct Report {
-    files: usize,
-    source_lines: u64,
-    source_sets: SourceSetSections,
+    #[serde(flatten)]
+    measured: MeasuredSection,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    languages: BTreeMap<String, MeasuredSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -54,7 +55,20 @@ pub struct BudgetFailure {
     budget: f64,
 }
 
-pub enum ReferenceRangeScope {
+pub struct MeasuredLanguage {
+    pub plugin: String,
+    pub model: CodeModel,
+    pub reference_ranges: ReferenceRanges,
+}
+
+#[derive(Debug, Serialize)]
+struct MeasuredSection {
+    files: usize,
+    source_lines: u64,
+    source_sets: SourceSetSections,
+}
+
+enum ReferenceRangeScope {
     OneLanguage(ReferenceRanges),
     SeveralLanguages,
 }
@@ -631,31 +645,78 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
         .collect()
 }
 
-impl Report {
-    pub fn summarize(
+impl MeasuredSection {
+    fn new(
         model: CodeModel,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
+    ) -> MeasuredSection {
+        MeasuredSection {
+            files: model.files.len(),
+            source_lines: source_lines(&model),
+            source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
+        }
+    }
+}
+
+impl Report {
+    pub fn summarize(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
         budgets: &Budgets,
     ) -> Report {
-        let files = model.files.len();
-        let source_lines = source_lines(&model);
+        let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
+            .into_iter()
+            .partition(|language| !language.model.files.is_empty());
+        let (total_ranges, sections_per_language) = match measured.as_slice() {
+            [] => (
+                ReferenceRangeScope::OneLanguage(ReferenceRanges::default()),
+                BTreeMap::new(),
+            ),
+            [only] => (
+                ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
+                BTreeMap::new(),
+            ),
+            _ => (
+                ReferenceRangeScope::SeveralLanguages,
+                measured
+                    .iter()
+                    .map(|language| {
+                        (
+                            language.plugin.clone(),
+                            MeasuredSection::new(
+                                language.model.clone(),
+                                &ReferenceRangeScope::OneLanguage(
+                                    language.reference_ranges.clone(),
+                                ),
+                                findings,
+                            ),
+                        )
+                    })
+                    .collect(),
+            ),
+        };
+        let model = CodeModel::merge(
+            measured
+                .into_iter()
+                .chain(unmeasured)
+                .map(|language| language.model),
+        );
         let skipped = model.skipped.iter().map(SkippedEntry::from).collect();
         let declaration_only = model
             .declaration_only
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let submodules = model.submodules.iter().map(RepoPath::to_string).collect();
-        let source_sets = SourceSetSections::new(&model.into_source_sets(), ranges, findings);
+        let measured = MeasuredSection::new(model, &total_ranges, findings);
         Report {
-            over_budget: source_sets.over_budget(budgets),
-            files,
-            source_lines,
+            over_budget: measured.source_sets.over_budget(budgets),
             skipped,
             declaration_only,
-            submodules,
-            source_sets,
+            submodules: submodules.iter().map(RepoPath::to_string).collect(),
+            measured,
+            languages: sections_per_language,
         }
     }
 

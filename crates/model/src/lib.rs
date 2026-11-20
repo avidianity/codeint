@@ -107,7 +107,6 @@ pub struct CodeModel {
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
     pub workspace: Workspace,
-    pub submodules: Vec<RepoPath>,
     pub runtime_imports: Vec<RuntimeImport>,
 }
 
@@ -120,6 +119,25 @@ pub struct SourceSets {
 }
 
 impl CodeModel {
+    pub fn merge(models: impl IntoIterator<Item = CodeModel>) -> CodeModel {
+        let mut merged = CodeModel::default();
+        for model in models {
+            merged.files.extend(model.files);
+            merged.skipped.extend(model.skipped);
+            merged.declaration_only.extend(model.declaration_only);
+            merged.runtime_imports.extend(model.runtime_imports);
+            merged.workspace.join(model.workspace);
+        }
+        merged
+            .files
+            .sort_by(|left, right| left.path.cmp(&right.path));
+        merged
+            .skipped
+            .sort_by(|left, right| left.path.cmp(&right.path));
+        merged.declaration_only.sort();
+        merged
+    }
+
     pub fn into_source_sets(self) -> SourceSets {
         let source_set_of_importer: BTreeMap<RepoPath, SourceSet> = self
             .files

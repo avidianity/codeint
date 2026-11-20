@@ -42,6 +42,7 @@ Set Budgets in `codeint.json` at the root of the repository, one object per Sour
 
 Each Budget is a number from 0 to 1.
 A Budget applies only to its own Source set, and a Metric without a Budget never fails.
+A Budget applies to the total of every language, never to the section of one Language plugin under `languages`.
 codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
 
 When a Metric is over its Budget, codeint still writes the whole report, lists the Metric under `over_budget`, names it on standard error, and exits with code 1:
@@ -119,6 +120,7 @@ The top-level object has these fields:
 | `files` | integer | Number of measured source files, in every Source set |
 | `source_lines` | integer | Source lines of the measured files; blank and comment-only lines do not count |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
+| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, and `source_sets` for that plugin's files |
 | `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
@@ -128,6 +130,7 @@ Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
 - `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
+  The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
 - The counts behind the ratio:
   `eroded_function_mass` and `total_function_mass` for Erosion, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
   Duplication and Verbosity divide by the `source_lines` of the Source set.
@@ -168,6 +171,7 @@ Readers ignore fields they do not know, and treat a missing optional field as em
 `--format markdown` prints a report to paste into a pull request comment.
 It starts with one table: each Metric's value per Source set, the counts behind the value, and the Reference range.
 Next come each Metric over its Budget and a table of the ratios of each workspace package, when there are any.
+When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 

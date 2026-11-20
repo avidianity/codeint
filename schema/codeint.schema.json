@@ -17,6 +17,16 @@
     "budgets": {
       "$ref": "#/$defs/SourceSetBudgets",
       "description": "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
+    },
+    "languages": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/LanguageGlobs"
+      },
+      "description": "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
     }
   },
   "title": "codeint.json",
@@ -116,6 +126,35 @@
           "maximum": 1
         }
       }
+    },
+    "LanguageGlobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The name of the Language plugin, such as typescript-javascript."
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of repository-relative folders or files inside the included ones that the Language plugin leaves out.",
+          "default": []
+        }
+      },
+      "required": [
+        "plugin",
+        "include"
+      ]
     }
   }
 }

@@ -142,7 +142,7 @@ assert_eq!(model.source_lines, 2);
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
 - Push a file that is not valid UTF-8 onto `CodeModel::skipped` without lowering it, with a `reason` that starts with `not valid UTF-8`.
 - Hand the text to `lower` with its line endings as written; a CRLF line ending counts like LF in every line a Language plugin reports.
-- Put each Git submodule of the working tree in `CodeModel::submodules`; codeint never measures a submodule's files.
+- Pass each Git submodule of the working tree to `Report::summarize`, beside the Code models; no Language plugin measures a submodule's files, so a submodule belongs to no Code model.
 
 ## Find workspace packages in the core
 
@@ -231,3 +231,17 @@ if let Some(erosion) = ranges.for_metric("erosion") {
   That failure stops the run with exit code 2.
 - Show a plugin's ranges only next to values that this plugin alone measured.
   When the measured files come from several Language plugins, show no Reference range.
+- Keep one `CodeModel` per Language plugin and hand each to `codeint_report::Report::summarize` as a `MeasuredLanguage` with the plugin's name and ranges.
+  The report applies this rule: the total shows a plugin's ranges only when that plugin alone measured files, and each per-language section shows its own plugin's ranges.
+
+## Merge the Code models of several Language plugins
+
+```rust
+use codeint_model::CodeModel;
+
+let total = CodeModel::merge([typescript_model, python_model]);
+```
+
+- `merge` joins the files, skipped files, declaration-only files, runtime imports, and workspace packages of every model.
+- Give each Language plugin's `CodeModel` the whole `workspace` that every plugin found, so each per-language section lists the same workspace packages as the total.
+- It orders files, skipped files, and declaration-only files by path, so the total does not depend on the order of the plugins.
