@@ -1,0 +1,19 @@
+name: Install lychee
+description: Download the pinned lychee release and verify its checksum.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        LYCHEE_VERSION: 0.24.2
+      run: |
+        set -euo pipefail
+        cd "$RUNNER_TEMP"
+        archive="lychee-x86_64-unknown-linux-gnu.tar.gz"
+        base="https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}"
+        curl -fsSLO "$base/$archive"
+        curl -fsSLO "$base/$archive.sha256"
+        sha256sum --check --strict "$archive.sha256"
+        tar -xzf "$archive" lychee-x86_64-unknown-linux-gnu/lychee
+        sudo install -m 0755 lychee-x86_64-unknown-linux-gnu/lychee /usr/local/bin/lychee
+        lychee --version

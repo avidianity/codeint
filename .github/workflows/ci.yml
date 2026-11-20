@@ -48,12 +48,8 @@ jobs:
         run: cargo xtask commit-message --range "origin/${{ github.base_ref }}"
       - run: npm run --silent duplicates
       - run: npx --no-install markdownlint-cli2
-      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8
-        with:
-          args: --config lychee.toml "./**/*.md" ".rules"
-          fail: true
-          failIfEmpty: true
-          jobSummary: false
+      - uses: ./.github/actions/lychee
+      - run: lychee --config lychee.toml './**/*.md' .rules
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f
         with:
           tool: cargo-shear@1.14.1
@@ -109,6 +105,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/gitleaks
+      - uses: ./.github/actions/lychee
       - run: cargo build --locked --package xtask
       - name: Git hook loop
         run: |

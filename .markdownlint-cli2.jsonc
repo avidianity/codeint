@@ -9,5 +9,5 @@
     "MD060": false
   },
   "globs": ["**/*.md"],
-  "ignores": [".github/pull_request_template.md", "node_modules/**", "target/**", ".agents/skills/**", ".claude/skills/**"]
+  "ignores": [".github/pull_request_template.md", "**/node_modules/**", ".claude/worktrees/**", "target/**", ".agents/skills/**", ".claude/skills/**"]
 }
