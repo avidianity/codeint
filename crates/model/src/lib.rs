@@ -87,7 +87,11 @@ pub struct SourceSets {
 
 impl CodeModel {
     pub fn into_source_sets(self) -> SourceSets {
-        todo!()
+        let mut source_sets = SourceSets::default();
+        for file in self.files {
+            source_sets.get_mut(file.model.source_set).files.push(file);
+        }
+        source_sets
     }
 }
 
@@ -98,6 +102,15 @@ impl SourceSets {
             SourceSet::Test => &self.test,
             SourceSet::Generated => &self.generated,
             SourceSet::Vendored => &self.vendored,
+        }
+    }
+
+    fn get_mut(&mut self, source_set: SourceSet) -> &mut CodeModel {
+        match source_set {
+            SourceSet::Production => &mut self.production,
+            SourceSet::Test => &mut self.test,
+            SourceSet::Generated => &mut self.generated,
+            SourceSet::Vendored => &mut self.vendored,
         }
     }
 

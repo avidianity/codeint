@@ -1,6 +1,6 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::Function;
-use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath};
+use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath, SourceSet};
 
 fn plugin() -> &'static dyn LanguagePlugin {
     &TypeScriptAndJavaScript
@@ -378,4 +378,54 @@ fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
     let text = "const first = 1;\r\n\r\nfunction later() {\r\n  return first;\r\n}\r\n";
 
     assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
+}
+
+fn source_set(path: &str) -> SourceSet {
+    match lower(path, "const one = 1;\n") {
+        Ok(model) => model.source_set,
+        Err(error) => panic!("{path} did not lower: {error}"),
+    }
+}
+
+#[test]
+fn a_test_or_spec_file_of_every_extension_is_in_the_test_source_set() {
+    for extension in ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"] {
+        for path in [
+            format!("src/greet.test.{extension}"),
+            format!("src/greet.spec.{extension}"),
+            format!("src/app.module.spec.{extension}"),
+        ] {
+            assert_eq!(source_set(&path), SourceSet::Test, "{path}");
+        }
+    }
+}
+
+#[test]
+fn a_file_under_a_tests_folder_at_any_depth_is_in_the_test_source_set() {
+    for path in [
+        "__tests__/greet.ts",
+        "src/__tests__/greet.tsx",
+        "src/__tests__/helpers/fixtures.js",
+    ] {
+        assert_eq!(source_set(path), SourceSet::Test, "{path}");
+    }
+}
+
+#[test]
+fn a_file_that_no_test_rule_matches_is_in_the_production_source_set() {
+    for path in [
+        "src/greet.ts",
+        "src/test.ts",
+        "src/spec.ts",
+        "src/.test.ts",
+        "src/greet.testing.ts",
+        "src/latest.ts",
+        "src/test/greet.ts",
+        "src/tests/greet.ts",
+        "src/__tests__.ts",
+        "src/my__tests__/greet.ts",
+        "src/greet.test.helpers.ts",
+    ] {
+        assert_eq!(source_set(path), SourceSet::Production, "{path}");
+    }
 }

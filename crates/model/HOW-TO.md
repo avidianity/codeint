@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError};
+use codeint_model::language::{FileModel, Guest, LowerError, SourceSet};
 
 pub struct Plain;
 
@@ -14,7 +14,13 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
+        let source_set = if path.starts_with("drafts/") {
+            SourceSet::Test
+        } else {
+            SourceSet::Production
+        };
         Ok(FileModel {
+            source_set,
             source_lines,
             functions: Vec::new(),
         })
@@ -32,6 +38,10 @@ impl Guest for Plain {
 - Return `LowerError::Unparsable` with the parser's message, and its line and column when the parser gives them, for a file that does not parse.
 - Return `LowerError::DeclarationOnly` for a file that only declares types, such as a TypeScript `.d.ts`, `.d.mts`, or `.d.cts` file.
   Which files are declaration-only is a rule of the Language plugin, never of the core.
+- Set `source_set` of each `FileModel` with the rules of the Language plugin, such as the TypeScript `*.test.ts`, `*.spec.ts`, and `__tests__` rules.
+  `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
+  Return Production for a file that no rule claims.
+  Which files are Test is a rule of the Language plugin, never of the core.
 
 ## Lower files in the core
 
@@ -51,3 +61,21 @@ assert_eq!(model.source_lines, 2);
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
+
+## Split the Code model by Source set
+
+```rust
+use codeint_model::{CodeModel, SourceSet};
+
+let source_sets = model.into_source_sets();
+let test_model: &CodeModel = source_sets.get(SourceSet::Test);
+for (source_set, files) in source_sets.iter() {
+    println!("{source_set:?} has {} files", files.files.len());
+}
+```
+
+- `into_source_sets` moves each file into the `CodeModel` of its Source set.
+- Every Source set gets a `CodeModel`, empty when no file belongs to it.
+- `iter` yields the Source sets in the order Production, Test, Generated, Vendored.
+- A skipped or declaration-only file belongs to no Source set.
+  Read `skipped` and `declaration_only` before the split; the split leaves them out.

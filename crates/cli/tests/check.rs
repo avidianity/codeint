@@ -219,10 +219,14 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
         stdout(&output),
         "files: 1\n\
          source_lines: 2\n\
-         erosion:\n  \
-         ratio: 0\n  \
-         eroded_function_mass: 0\n  \
-         total_function_mass: 0\n  \
+         source_sets:\n  \
+         production:\n    \
+         files: 1\n    \
+         source_lines: 2\n    \
+         erosion:\n      \
+         ratio: 0\n      \
+         eroded_function_mass: 0\n      \
+         total_function_mass: 0\n      \
          findings: []\n\
          skipped[1]{path,reason}:\n  \
          src/broken.ts,\"cannot parse: Unexpected token at line 2, column 14\"\n"
@@ -251,10 +255,14 @@ fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_sourc
         stdout(&output),
         "files: 1\n\
          source_lines: 1\n\
-         erosion:\n  \
-         ratio: 0\n  \
-         eroded_function_mass: 0\n  \
-         total_function_mass: 0\n  \
+         source_sets:\n  \
+         production:\n    \
+         files: 1\n    \
+         source_lines: 1\n    \
+         erosion:\n      \
+         ratio: 0\n      \
+         eroded_function_mass: 0\n      \
+         total_function_mass: 0\n      \
          findings: []\n\
          declaration_only[3]: types/globals.d.ts,types/legacy.d.cts,types/module.d.mts\n"
     );
@@ -304,12 +312,16 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
         concat!(
             "files: 1\n",
             "source_lines: 25\n",
-            "erosion:\n",
-            "  ratio: 0.8889\n",
-            "  eroded_function_mass: 48\n",
-            "  total_function_mass: 54\n",
-            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/mixed.ts,1,12,16,48\n",
+            "source_sets:\n",
+            "  production:\n",
+            "    files: 1\n",
+            "    source_lines: 25\n",
+            "    erosion:\n",
+            "      ratio: 0.8889\n",
+            "      eroded_function_mass: 48\n",
+            "      total_function_mass: 54\n",
+            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "        src/mixed.ts,1,12,16,48\n",
         )
     );
 }
@@ -330,13 +342,17 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
         concat!(
             "files: 3\n",
             "source_lines: 39\n",
-            "erosion:\n",
-            "  ratio: 0.7094\n",
-            "  eroded_function_mass: 84.561\n",
-            "  total_function_mass: 119.202\n",
-            "  findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/eleven.ts,1,12,14,44.8999\n",
-            "    src/ten.ts,1,11,13,39.6611\n",
+            "source_sets:\n",
+            "  production:\n",
+            "    files: 3\n",
+            "    source_lines: 39\n",
+            "    erosion:\n",
+            "      ratio: 0.7094\n",
+            "      eroded_function_mass: 84.561\n",
+            "      total_function_mass: 119.202\n",
+            "      findings[2]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "        src/eleven.ts,1,12,14,44.8999\n",
+            "        src/ten.ts,1,11,13,39.6611\n",
         )
     );
 }
@@ -355,11 +371,15 @@ fn a_repository_without_functions_reports_erosion_0() {
         concat!(
             "files: 1\n",
             "source_lines: 1\n",
-            "erosion:\n",
-            "  ratio: 0\n",
-            "  eroded_function_mass: 0\n",
-            "  total_function_mass: 0\n",
-            "  findings: []\n",
+            "source_sets:\n",
+            "  production:\n",
+            "    files: 1\n",
+            "    source_lines: 1\n",
+            "    erosion:\n",
+            "      ratio: 0\n",
+            "      eroded_function_mass: 0\n",
+            "      total_function_mass: 0\n",
+            "      findings: []\n",
         )
     );
 }
@@ -386,14 +406,104 @@ fn decision_points_of_a_callback_count_only_toward_the_callback() {
         concat!(
             "files: 1\n",
             "source_lines: 14\n",
-            "erosion:\n",
-            "  ratio: 0.9106\n",
-            "  eroded_function_mass: 38.1051\n",
-            "  total_function_mass: 41.8468\n",
-            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/outer.ts,2,11,12,38.1051\n",
+            "source_sets:\n",
+            "  production:\n",
+            "    files: 1\n",
+            "    source_lines: 14\n",
+            "    erosion:\n",
+            "      ratio: 0.9106\n",
+            "      eroded_function_mass: 38.1051\n",
+            "      total_function_mass: 41.8468\n",
+            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "        src/outer.ts,2,11,12,38.1051\n",
         )
     );
+}
+
+#[test]
+fn functions_of_test_files_count_toward_the_test_source_set_only() {
+    let repository = Repository::new();
+    repository.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    repository.write("src/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write(
+        "src/eleven.test.ts",
+        &function_with_if_statements("eleven", 11),
+    );
+    repository.write("src/__tests__/setup.ts", "export const ready = true;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 4\n",
+            "source_lines: 40\n",
+            "source_sets:\n",
+            "  production:\n",
+            "    files: 2\n",
+            "    source_lines: 25\n",
+            "    erosion:\n",
+            "      ratio: 0.5338\n",
+            "      eroded_function_mass: 39.6611\n",
+            "      total_function_mass: 74.3021\n",
+            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "        src/ten.ts,1,11,13,39.6611\n",
+            "  test:\n",
+            "    files: 2\n",
+            "    source_lines: 15\n",
+            "    erosion:\n",
+            "      ratio: 1\n",
+            "      eroded_function_mass: 44.8999\n",
+            "      total_function_mass: 44.8999\n",
+            "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "        src/eleven.test.ts,1,12,14,44.8999\n",
+        )
+    );
+}
+
+#[test]
+fn a_source_set_without_files_is_left_out_of_the_report() {
+    let repository = Repository::new();
+    repository.write(
+        "src/greet.spec.ts",
+        "export function greet(): string {\n  return 'Hello';\n}\n",
+    );
+    repository.write("README.md", "# Fixture\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            "files: 1\n",
+            "source_lines: 3\n",
+            "source_sets:\n",
+            "  test:\n",
+            "    files: 1\n",
+            "    source_lines: 3\n",
+            "    erosion:\n",
+            "      ratio: 0\n",
+            "      eroded_function_mass: 0\n",
+            "      total_function_mass: 1.7321\n",
+            "      findings: []\n",
+        )
+    );
+}
+
+#[test]
+fn a_repository_without_measured_files_reports_no_source_set() {
+    let repository = Repository::new();
+    repository.write("README.md", "# Fixture\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), "files: 0\nsource_lines: 0\nsource_sets:\n");
 }
 
 fn not_in_a_repository_message(folder: &Path) -> String {
@@ -554,7 +664,7 @@ fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothi
     assert_eq!(saved, printed.stdout);
     assert_eq!(
         saved,
-        b"files: 1\nsource_lines: 2\nerosion:\n  ratio: 0\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
+        b"files: 1\nsource_lines: 2\nsource_sets:\n  production:\n    files: 1\n    source_lines: 2\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n"
     );
 }
 
@@ -574,7 +684,7 @@ fn output_replaces_an_existing_file() {
     assert_success(&output);
     assert_eq!(
         fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
-        "files: 1\nsource_lines: 1\nerosion:\n  ratio: 0\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
+        "files: 1\nsource_lines: 1\nsource_sets:\n  production:\n    files: 1\n    source_lines: 1\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n"
     );
 }
 
