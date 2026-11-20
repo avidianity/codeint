@@ -1,7 +1,7 @@
 use codeint_model::language::FlaggedLine;
 use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, SourceSet};
 
-use super::{FlaggedLineFinding, Verbosity};
+use super::Verbosity;
 use crate::CloneLines;
 
 fn file(path: &str, source_lines: u32, flagged: &[(u32, &str)]) -> SourceFile {
@@ -39,17 +39,17 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
     assert_eq!(verbosity.verbose_lines(), 2);
     assert_eq!(verbosity.source_lines(), 8);
     assert_eq!(verbosity.ratio(), 0.25);
-    let finding = |path: &str, line, rule: &str| FlaggedLineFinding {
-        path: RepoPath::new(path).expect("a valid path"),
-        line,
-        rule: rule.to_owned(),
-    };
+    let listed: Vec<(&str, u32, &str)> = verbosity
+        .flagged_lines()
+        .iter()
+        .map(|finding| (finding.path.as_str(), finding.line, finding.rule.as_str()))
+        .collect();
     assert_eq!(
-        verbosity.flagged_lines(),
+        listed,
         [
-            finding("src/a.ts", 1, "rule-one"),
-            finding("src/b.ts", 2, "rule-one"),
-            finding("src/b.ts", 2, "rule-two"),
+            ("src/a.ts", 1, "rule-one"),
+            ("src/b.ts", 2, "rule-one"),
+            ("src/b.ts", 2, "rule-two"),
         ]
     );
 }

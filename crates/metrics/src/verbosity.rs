@@ -1,14 +1,16 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
-use codeint_model::{CodeModel, RepoPath};
+use codeint_model::{CodeModel, RepoPath, Token, token_text_hash};
 
-use crate::CloneLines;
+use crate::finding_id::{FindingIds, MetricKey};
+use crate::{CloneLines, FindingId};
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FlaggedLineFinding {
+    pub id: FindingId,
     pub path: RepoPath,
     pub line: u32,
     pub rule: String,
@@ -25,23 +27,19 @@ pub struct Verbosity {
 
 impl Verbosity {
     pub fn measure(model: &CodeModel, clone_lines: &CloneLines) -> Verbosity {
-        let flagged_lines: BTreeSet<FlaggedLineFinding> = model
+        let flagged_lines: BTreeSet<(&RepoPath, u32, &str)> = model
             .files
             .iter()
             .flat_map(|file| {
                 file.model
                     .flagged_lines
                     .iter()
-                    .map(|flagged| FlaggedLineFinding {
-                        path: file.path.clone(),
-                        line: flagged.line,
-                        rule: flagged.rule.clone(),
-                    })
+                    .map(|flagged| (&file.path, flagged.line, flagged.rule.as_str()))
             })
             .collect();
         let distinct_flagged_lines: BTreeSet<(&RepoPath, u32)> = flagged_lines
             .iter()
-            .map(|finding| (&finding.path, finding.line))
+            .map(|&(path, line, _)| (path, line))
             .collect();
         let flagged_lines_outside_clones = distinct_flagged_lines
             .iter()
@@ -56,7 +54,7 @@ impl Verbosity {
                 .iter()
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
-            flagged_lines: flagged_lines.into_iter().collect(),
+            flagged_lines: flagged_line_findings(model, &flagged_lines),
         }
     }
 
@@ -87,4 +85,36 @@ impl Verbosity {
             self.verbose_lines as f64 / self.source_lines as f64
         }
     }
+}
+
+fn flagged_line_findings(
+    model: &CodeModel,
+    flagged_lines: &BTreeSet<(&RepoPath, u32, &str)>,
+) -> Vec<FlaggedLineFinding> {
+    let tokens_by_path: HashMap<&RepoPath, &[Token]> = model
+        .files
+        .iter()
+        .map(|file| (&file.path, file.model.tokens.as_slice()))
+        .collect();
+    let mut ids = FindingIds::new(MetricKey::Verbosity);
+    flagged_lines
+        .iter()
+        .map(|&(path, line, rule)| {
+            let tokens = tokens_by_path.get(path).copied().unwrap_or_default();
+            let first = tokens.partition_point(|token| token.line < line);
+            let after_last = tokens.partition_point(|token| token.line <= line);
+            let line_tokens = tokens[first..after_last]
+                .iter()
+                .map(|token| token.text_hash);
+            FlaggedLineFinding {
+                id: ids.next_in_source_order(
+                    [path],
+                    std::iter::once(token_text_hash(rule)).chain(line_tokens),
+                ),
+                path: path.clone(),
+                line,
+                rule: rule.to_owned(),
+            }
+        })
+        .collect()
 }

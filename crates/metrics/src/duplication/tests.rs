@@ -4,7 +4,7 @@ use codeint_model::{
     CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
 };
 
-use super::{CloneGroup, Duplication, Fragment, MinimumCloneTokens};
+use super::{Duplication, Fragment, MinimumCloneTokens};
 
 fn file(path: &str, lines: &[&str]) -> SourceFile {
     let tokens = lines
@@ -52,6 +52,14 @@ fn minimum(tokens: usize) -> MinimumCloneTokens {
     MinimumCloneTokens::new(NonZeroUsize::new(tokens).expect("not zero"))
 }
 
+fn groups(duplication: &Duplication) -> Vec<(usize, Vec<Fragment>)> {
+    duplication
+        .clone_groups
+        .iter()
+        .map(|group| (group.tokens, group.fragments.clone()))
+        .collect()
+}
+
 fn fragment(path: &str, start_line: u32, end_line: u32) -> Fragment {
     Fragment {
         path: RepoPath::new(path).expect("a valid path"),
@@ -72,15 +80,15 @@ fn three_copies_form_one_clone_group_with_three_fragments() {
     let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(
-        duplication.clone_groups,
-        [CloneGroup {
-            tokens: 6,
-            fragments: vec![
+        groups(&duplication),
+        [(
+            6,
+            vec![
                 fragment("one.ts", 1, 2),
                 fragment("three.ts", 1, 2),
                 fragment("two.ts", 2, 3),
-            ],
-        }]
+            ]
+        )]
     );
     assert_eq!(duplication.clone_lines.count(), 6);
     assert_eq!(duplication.source_lines, 8);
@@ -94,11 +102,8 @@ fn a_copy_inside_one_file_is_a_clone_group() {
     let duplication = Duplication::measure(&model, minimum(4));
 
     assert_eq!(
-        duplication.clone_groups,
-        [CloneGroup {
-            tokens: 4,
-            fragments: vec![fragment("one.ts", 1, 1), fragment("one.ts", 3, 3)],
-        }]
+        groups(&duplication),
+        [(4, vec![fragment("one.ts", 1, 1), fragment("one.ts", 3, 3)])]
     );
     assert_eq!(duplication.clone_lines.count(), 2);
 }
@@ -109,7 +114,7 @@ fn a_repeated_token_run_does_not_form_a_clone_group_with_itself() {
 
     let duplication = Duplication::measure(&model, minimum(4));
 
-    assert_eq!(duplication.clone_groups, []);
+    assert_eq!(groups(&duplication), []);
     assert_eq!(duplication.clone_lines.count(), 0);
 }
 
@@ -122,7 +127,7 @@ fn fragments_that_share_fewer_tokens_than_the_minimum_are_not_clones() {
 
     let duplication = Duplication::measure(&model, minimum(4));
 
-    assert_eq!(duplication.clone_groups, []);
+    assert_eq!(groups(&duplication), []);
 }
 
 #[test]
@@ -143,7 +148,7 @@ fn a_model_without_source_lines_has_a_ratio_of_zero() {
     let duplication = Duplication::measure(&CodeModel::default(), minimum(4));
 
     assert_eq!(duplication.ratio(), 0.0);
-    assert_eq!(duplication.clone_groups, []);
+    assert_eq!(groups(&duplication), []);
 }
 
 #[test]
@@ -175,11 +180,8 @@ fn copies_with_other_identifiers_and_literals_form_one_clone_group() {
     let duplication = Duplication::measure(&model, minimum(5));
 
     assert_eq!(
-        duplication.clone_groups,
-        [CloneGroup {
-            tokens: 5,
-            fragments: vec![fragment("one.ts", 1, 1), fragment("two.ts", 1, 1)],
-        }]
+        groups(&duplication),
+        [(5, vec![fragment("one.ts", 1, 1), fragment("two.ts", 1, 1)])]
     );
 }
 
@@ -192,7 +194,7 @@ fn an_identifier_and_a_literal_in_the_same_place_are_not_a_clone() {
 
     let duplication = Duplication::measure(&model, minimum(5));
 
-    assert_eq!(duplication.clone_groups, []);
+    assert_eq!(groups(&duplication), []);
 }
 
 #[test]
@@ -204,5 +206,5 @@ fn copies_with_other_keywords_or_operators_are_not_a_clone() {
 
     let duplication = Duplication::measure(&model, minimum(3));
 
-    assert_eq!(duplication.clone_groups, []);
+    assert_eq!(groups(&duplication), []);
 }

@@ -198,9 +198,10 @@ fn functions(path: &str, text: &str) -> Vec<Function> {
     }
 }
 
-fn function(line: u32, decision_points: u32, source_lines: u32) -> Function {
+fn function(line: u32, end_line: u32, decision_points: u32, source_lines: u32) -> Function {
     Function {
         line,
+        end_line,
         decision_points,
         source_lines,
     }
@@ -235,14 +236,14 @@ fn each_if_statement_and_loop_is_a_decision_point_of_its_function() {
         "}\n",
     );
 
-    assert_eq!(functions("src/walk.ts", text), [function(1, 7, 23)]);
+    assert_eq!(functions("src/walk.ts", text), [function(1, 24, 7, 23)]);
 }
 
 #[test]
 fn a_function_without_branches_or_loops_has_no_decision_points() {
     let text = "export function one(): number {\n  return 1;\n}\n";
 
-    assert_eq!(functions("src/one.ts", text), [function(1, 0, 3)]);
+    assert_eq!(functions("src/one.ts", text), [function(1, 3, 0, 3)]);
 }
 
 #[test]
@@ -292,14 +293,14 @@ fn every_kind_of_function_is_lowered_in_the_order_of_its_first_line() {
     assert_eq!(
         functions("src/kinds.ts", text),
         [
-            function(1, 1, 6),
-            function(7, 0, 3),
-            function(10, 1, 5),
-            function(15, 0, 1),
-            function(18, 0, 3),
-            function(21, 0, 3),
-            function(24, 1, 5),
-            function(31, 0, 3),
+            function(1, 6, 1, 6),
+            function(7, 9, 0, 3),
+            function(10, 14, 1, 5),
+            function(15, 15, 0, 1),
+            function(18, 20, 0, 3),
+            function(21, 23, 0, 3),
+            function(24, 28, 1, 5),
+            function(31, 33, 0, 3),
         ]
     );
 }
@@ -323,7 +324,7 @@ fn a_nested_function_adds_no_decision_points_to_the_function_around_it() {
 
     assert_eq!(
         functions("src/nested.ts", text),
-        [function(1, 1, 5), function(5, 2, 7)]
+        [function(1, 12, 1, 5), function(5, 11, 2, 7)]
     );
 }
 
@@ -366,16 +367,16 @@ fn each_nested_function_takes_its_lines_and_decision_points_away_from_its_parent
     assert_eq!(
         functions("src/build.ts", text),
         [
-            function(1, 0, 8),
-            function(3, 0, 3),
-            function(9, 0, 3),
-            function(12, 0, 3),
-            function(15, 1, 5),
-            function(21, 0, 3),
-            function(24, 0, 1),
-            function(24, 0, 1),
-            function(26, 0, 3),
-            function(28, 0, 3),
+            function(1, 31, 0, 8),
+            function(3, 5, 0, 3),
+            function(9, 11, 0, 3),
+            function(12, 14, 0, 3),
+            function(15, 19, 1, 5),
+            function(21, 23, 0, 3),
+            function(24, 24, 0, 1),
+            function(24, 24, 0, 1),
+            function(26, 28, 0, 3),
+            function(28, 30, 0, 3),
         ]
     );
 }
@@ -390,7 +391,7 @@ fn a_function_nested_on_every_line_of_its_parent_takes_every_line() {
 
     assert_eq!(
         functions("src/handler.ts", text),
-        [function(1, 0, 0), function(1, 0, 3)]
+        [function(1, 3, 0, 0), function(1, 3, 0, 3)]
     );
 }
 
@@ -409,7 +410,10 @@ fn blank_and_comment_only_lines_of_a_function_are_not_its_source_lines() {
         "}\n",
     );
 
-    assert_eq!(functions("src/documented.ts", text), [function(1, 1, 6)]);
+    assert_eq!(
+        functions("src/documented.ts", text),
+        [function(1, 10, 1, 6)]
+    );
 }
 
 #[test]
@@ -426,7 +430,7 @@ fn a_function_signature_without_a_body_is_not_a_function() {
         "}\n",
     );
 
-    assert_eq!(functions("src/overloads.ts", text), [function(3, 0, 3)]);
+    assert_eq!(functions("src/overloads.ts", text), [function(3, 5, 0, 3)]);
 }
 
 #[test]
@@ -440,7 +444,7 @@ fn a_function_in_a_javascript_file_is_lowered_too() {
         "}\n",
     );
 
-    assert_eq!(functions("src/sign.js", text), [function(1, 1, 6)]);
+    assert_eq!(functions("src/sign.js", text), [function(1, 6, 1, 6)]);
 }
 
 #[test]
@@ -450,14 +454,14 @@ fn a_function_after_a_comment_with_multibyte_characters_starts_on_the_right_line
         "\u{2713}".repeat(20)
     );
 
-    assert_eq!(functions("src/marks.ts", &text), [function(3, 0, 3)]);
+    assert_eq!(functions("src/marks.ts", &text), [function(3, 5, 0, 3)]);
 }
 
 #[test]
 fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
     let text = "const first = 1;\r\n\r\nfunction later() {\r\n  return first;\r\n}\r\n";
 
-    assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
+    assert_eq!(functions("src/crlf.ts", text), [function(3, 5, 0, 3)]);
 }
 
 fn cyclomatic_complexity(path: &str, text: &str) -> u32 {
@@ -642,7 +646,7 @@ fn a_default_parameter_of_a_nested_function_counts_only_toward_the_nested_functi
 
     assert_eq!(
         functions("src/outer.ts", text),
-        [function(1, 0, 3), function(2, 1, 1)]
+        [function(1, 4, 0, 3), function(2, 2, 1, 1)]
     );
 }
 

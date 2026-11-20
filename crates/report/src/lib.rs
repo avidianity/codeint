@@ -101,6 +101,7 @@ struct Findings<T> {
 
 #[derive(Debug, Serialize)]
 struct ErodedFunctionFinding {
+    id: String,
     path: String,
     line: u32,
     cyclomatic_complexity: u32,
@@ -119,6 +120,7 @@ struct DuplicationSection {
 
 #[derive(Debug, Serialize)]
 struct CloneGroupFinding {
+    id: String,
     tokens: usize,
     locations: Vec<CloneLocation>,
 }
@@ -143,6 +145,7 @@ struct VerbositySection {
 
 #[derive(Debug, Serialize)]
 struct FlaggedLineRow {
+    id: String,
     path: String,
     line: u32,
     rule: String,
@@ -175,6 +178,7 @@ struct UnresolvedImportRow {
 
 #[derive(Debug, Serialize)]
 struct ImportCycleFinding {
+    id: String,
     modules: Vec<String>,
 }
 
@@ -350,6 +354,7 @@ impl ErosionSection {
 impl ErodedFunctionFinding {
     fn new(function: &ErodedFunction) -> ErodedFunctionFinding {
         ErodedFunctionFinding {
+            id: function.id.to_string(),
             path: function.path.to_string(),
             line: function.line,
             cyclomatic_complexity: function.cyclomatic_complexity,
@@ -380,6 +385,7 @@ impl DuplicationSection {
 impl CloneGroupFinding {
     fn new(group: &CloneGroup) -> CloneGroupFinding {
         CloneGroupFinding {
+            id: group.id.to_string(),
             tokens: group.tokens,
             locations: group.fragments.iter().map(CloneLocation::new).collect(),
         }
@@ -419,6 +425,7 @@ impl VerbositySection {
 impl From<&FlaggedLineFinding> for FlaggedLineRow {
     fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
         FlaggedLineRow {
+            id: finding.id.to_string(),
             path: finding.path.to_string(),
             line: finding.line,
             rule: finding.rule.clone(),
@@ -449,6 +456,7 @@ impl ImportCyclesSection {
 impl ImportCycleFinding {
     fn new(cycle: &ImportCycle) -> ImportCycleFinding {
         ImportCycleFinding {
+            id: cycle.id().to_string(),
             modules: cycle.modules().iter().map(RepoPath::to_string).collect(),
         }
     }
