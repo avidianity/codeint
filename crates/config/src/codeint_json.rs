@@ -2,6 +2,8 @@ use std::fmt;
 use std::path::Path;
 
 use codeint_model::{Metric, RepoPath, SourceSet};
+
+use crate::RegressionLimits;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -22,6 +24,7 @@ pub struct Configuration {
     pub source_set_overrides: SourceSetOverrides,
     pub budgets: Budgets,
     pub languages: Languages,
+    pub regression_limits: RegressionLimits,
 }
 
 #[derive(Debug, Default)]
@@ -345,6 +348,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         source_set_overrides: source_set_overrides(file.source_sets)?,
         budgets: budgets(file.budgets),
         languages: languages(file.languages)?,
+        regression_limits: RegressionLimits::default(),
     })
 }
 

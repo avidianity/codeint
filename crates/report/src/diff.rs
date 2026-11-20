@@ -1,5 +1,5 @@
-use codeint_config::{FindingsShown, ReportFormat};
-use codeint_model::{CodeModel, SourceSet};
+use codeint_config::{Budgets, FindingsShown, RegressionLimit, RegressionLimits, ReportFormat};
+use codeint_model::{CodeModel, Metric, SourceSet};
 use std::collections::HashSet;
 
 use serde::ser::SerializeMap;
@@ -7,7 +7,7 @@ use serde::{Serialize, Serializer};
 
 use crate::sarif::{ListedFindings, SarifLog};
 use crate::{
-    CloneGroupFinding, Decimal, ErodedFunctionFinding, Findings, FlaggedLineRow,
+    BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding, Findings, FlaggedLineRow,
     ImportCycleFinding, Measured, ReportError,
 };
 
@@ -25,6 +25,28 @@ pub struct DiffReport {
     base: BaseEntry,
     head: &'static str,
     source_sets: SourceSetChangesSections,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    over_budget: Vec<BudgetFailure>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    regressions: Vec<Regression>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct Regression {
+    source_set: &'static str,
+    metric: &'static str,
+    rule: RegressionRule,
+    base: Decimal,
+    head: Decimal,
+    new_findings: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RegressionRule {
+    RatioRise,
+    NewFindings,
+    NumeratorRiseWithNewFindings,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +80,8 @@ struct SourceSetChanges {
 struct MetricChanges<T> {
     base_ratio: Decimal,
     head_ratio: Decimal,
+    base_numerator: Decimal,
+    head_numerator: Decimal,
     new: Findings<T>,
     resolved: Findings<T>,
     unchanged: usize,
@@ -69,6 +93,7 @@ trait Identified {
 
 struct Side<T> {
     ratio: f64,
+    numerator: f64,
     findings_worst_first: Vec<T>,
 }
 
@@ -78,6 +103,8 @@ impl DiffReport {
         base_model: CodeModel,
         head_model: CodeModel,
         findings: FindingsShown,
+        budgets: &Budgets,
+        limits: &RegressionLimits,
     ) -> DiffReport {
         let mut source_sets = SourceSetChangesSections::default();
         let base_sets = base_model.into_source_sets();
@@ -93,8 +120,14 @@ impl DiffReport {
                 merge_base: base.merge_base,
             },
             head: WORKING_TREE,
+            over_budget: over_budget(&source_sets, budgets),
+            regressions: regressions(&source_sets, limits),
             source_sets,
         }
+    }
+
+    pub fn failure_messages(&self) -> Vec<String> {
+        todo!()
     }
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
@@ -148,9 +181,97 @@ fn classify<T: Identified>(base: Side<T>, head: Side<T>, shown: FindingsShown) -
     MetricChanges {
         base_ratio: Decimal::rounded(base.ratio),
         head_ratio: Decimal::rounded(head.ratio),
+        base_numerator: Decimal::rounded(base.numerator),
+        head_numerator: Decimal::rounded(head.numerator),
         unchanged: head_ids.intersection(&base_ids).count(),
         new: missing_from(head.findings_worst_first, &base_ids, shown),
         resolved: missing_from(base.findings_worst_first, &head_ids, shown),
+    }
+}
+
+const REGRESSION_RULES: [RegressionRule; 3] = [
+    RegressionRule::RatioRise,
+    RegressionRule::NewFindings,
+    RegressionRule::NumeratorRiseWithNewFindings,
+];
+
+fn over_budget(_source_sets: &SourceSetChangesSections, _budgets: &Budgets) -> Vec<BudgetFailure> {
+    todo!()
+}
+
+fn regressions(
+    source_sets: &SourceSetChangesSections,
+    limits: &RegressionLimits,
+) -> Vec<Regression> {
+    source_sets
+        .iter()
+        .flat_map(|(source_set, changes)| changes.regressions(source_set, limits))
+        .collect()
+}
+
+impl SourceSetChanges {
+    fn regressions(&self, source_set: SourceSet, limits: &RegressionLimits) -> Vec<Regression> {
+        [
+            self.erosion
+                .regressions(source_set, Metric::Erosion, limits),
+            self.duplication
+                .regressions(source_set, Metric::Duplication, limits),
+            self.verbosity
+                .regressions(source_set, Metric::Verbosity, limits),
+            self.import_cycles
+                .regressions(source_set, Metric::ImportCycles, limits),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+}
+
+impl<T> MetricChanges<T> {
+    fn regressions(
+        &self,
+        source_set: SourceSet,
+        metric: Metric,
+        limits: &RegressionLimits,
+    ) -> Vec<Regression> {
+        let limit = limits.limit(metric);
+        REGRESSION_RULES
+            .into_iter()
+            .filter(|rule| self.breaks(*rule, limit))
+            .map(|rule| {
+                let (base, head) = self.compared_values(rule);
+                Regression {
+                    source_set: source_set.key(),
+                    metric: metric.key(),
+                    rule,
+                    base,
+                    head,
+                    new_findings: self.new.listed.len() + self.new.left_out,
+                }
+            })
+            .collect()
+    }
+
+    fn breaks(&self, _rule: RegressionRule, _limit: RegressionLimit) -> bool {
+        todo!()
+    }
+
+    fn compared_values(&self, rule: RegressionRule) -> (Decimal, Decimal) {
+        match rule {
+            RegressionRule::RatioRise | RegressionRule::NewFindings => {
+                (Decimal(self.base_ratio.0), Decimal(self.head_ratio.0))
+            }
+            RegressionRule::NumeratorRiseWithNewFindings => (
+                Decimal(self.base_numerator.0),
+                Decimal(self.head_numerator.0),
+            ),
+        }
+    }
+}
+
+impl std::fmt::Display for Regression {
+    fn fmt(&self, _formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
     }
 }
 
@@ -191,6 +312,7 @@ fn source_set_changes(
 fn erosion_side(measured: &Measured) -> Side<ErodedFunctionFinding> {
     Side {
         ratio: measured.erosion.ratio(),
+        numerator: measured.erosion.eroded_function_mass(),
         findings_worst_first: measured
             .erosion
             .eroded_functions()
@@ -203,6 +325,7 @@ fn erosion_side(measured: &Measured) -> Side<ErodedFunctionFinding> {
 fn duplication_side(measured: &Measured) -> Side<CloneGroupFinding> {
     Side {
         ratio: measured.duplication.ratio(),
+        numerator: measured.duplication.clone_lines.count() as f64,
         findings_worst_first: measured
             .duplication
             .clone_groups
@@ -215,6 +338,7 @@ fn duplication_side(measured: &Measured) -> Side<CloneGroupFinding> {
 fn verbosity_side(measured: &Measured) -> Side<FlaggedLineRow> {
     Side {
         ratio: measured.verbosity.ratio(),
+        numerator: measured.verbosity.verbose_lines() as f64,
         findings_worst_first: measured
             .verbosity
             .flagged_lines()
@@ -227,6 +351,7 @@ fn verbosity_side(measured: &Measured) -> Side<FlaggedLineRow> {
 fn import_cycles_side(measured: &Measured) -> Side<ImportCycleFinding> {
     Side {
         ratio: measured.import_cycles.ratio(),
+        numerator: measured.import_cycles.modules_in_import_cycles() as f64,
         findings_worst_first: measured
             .import_cycles
             .cycles()

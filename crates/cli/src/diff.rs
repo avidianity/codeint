@@ -25,6 +25,8 @@ pub(crate) fn diff(
         base,
         head,
         findings,
+        &configuration.budgets,
+        &configuration.regression_limits,
     ))
 }
 

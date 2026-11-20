@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 
 mod codeint_json;
+mod regression_limits;
 
 pub use codeint_json::{
     Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError,
@@ -12,6 +13,7 @@ pub use codeint_json::{
     SourceSetOverrides, StarterConfigurationError, configuration_schema, published_schema_address,
     read_configuration, write_starter_configuration,
 };
+pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
