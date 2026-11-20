@@ -60,16 +60,33 @@ pub(crate) fn functions(program: &Program<'_>, code_lines: &CodeLines) -> Vec<Fu
 struct FunctionCollector<'lines> {
     code_lines: &'lines CodeLines,
     functions: Vec<Function>,
-    open: Vec<usize>,
+    open: Vec<OpenFunction>,
+}
+
+struct OpenFunction {
+    index: usize,
+    last_line_index_given_to_nested: Option<usize>,
 }
 
 impl FunctionCollector<'_> {
+    fn give_lines_to_nested(&mut self, first_line_index: usize, last_line_index: usize) {
+        let parent = self
+            .open
+            .last()
+            .map(|open| open.last_line_index_given_to_nested);
+        todo!("{parent:?} {first_line_index}..={last_line_index}")
+    }
+
     fn open_function(&mut self, span: Span) {
         let first_line_index = self.code_lines.line_index(span.start as usize);
         let last_line_index = self
             .code_lines
             .line_index((span.end as usize).saturating_sub(1));
-        self.open.push(self.functions.len());
+        self.give_lines_to_nested(first_line_index, last_line_index);
+        self.open.push(OpenFunction {
+            index: self.functions.len(),
+            last_line_index_given_to_nested: None,
+        });
         self.functions.push(Function {
             line: saturating_u32(first_line_index + 1),
             decision_points: 0,
@@ -81,8 +98,8 @@ impl FunctionCollector<'_> {
     }
 
     fn add_decision_point(&mut self) {
-        if let Some(&innermost) = self.open.last() {
-            let function = &mut self.functions[innermost];
+        if let Some(innermost) = self.open.last() {
+            let function = &mut self.functions[innermost.index];
             function.decision_points = function.decision_points.saturating_add(1);
         }
     }
