@@ -4,7 +4,7 @@ mod functions;
 mod rules;
 mod source_set;
 
-use codeint_model::language::{FileModel, Guest, LowerError, Token};
+use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange, Token};
 use oxc_allocator::Allocator;
 use oxc_parser::config::TokensParserConfig;
 use oxc_parser::{Kind, Parser};
@@ -58,6 +58,10 @@ impl Guest for TypeScriptAndJavaScript {
             tokens: tokens(&text, &parsed.tokens)?,
             flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
         })
+    }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
     }
 }
 

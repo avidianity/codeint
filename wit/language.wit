@@ -77,6 +77,23 @@ interface language {
     /// `path` is relative to the repository root and uses forward slashes.
     /// `text` is the whole file.
     lower: func(path: string, text: string) -> result<file-model, lower-error>;
+
+    /// The published typical value of one Metric for codebases in the language of the Language plugin.
+    record reference-range {
+        /// The Metric, by its key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
+        metric: string,
+        /// The lowest typical ratio, from 0 to 1.
+        low: f64,
+        /// The highest typical ratio, from `low` to 1.
+        high: f64,
+        /// Where the range was published and what it measured, shown next to the range.
+        source: string,
+    }
+
+    /// The Reference ranges measured in the language of this Language plugin, at most one per Metric.
+    /// A Metric without an entry has no published Reference range for this language.
+    /// codeint shows a range only next to values that this Language plugin measured.
+    reference-ranges: func() -> list<reference-range>;
 }
 
 /// A Language plugin exports `language` and imports nothing.

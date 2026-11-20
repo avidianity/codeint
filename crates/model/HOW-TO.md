@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError, SourceSet, Token};
+use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange, SourceSet, Token};
 
 pub struct Plain;
 
@@ -37,6 +37,15 @@ impl Guest for Plain {
             flagged_lines: Vec::new(),
         })
     }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        vec![ReferenceRange {
+            metric: "erosion".to_owned(),
+            low: 0.12,
+            high: 0.56,
+            source: "Plain text panel of 40 repositories, Table 3".to_owned(),
+        }]
+    }
 }
 ```
 
@@ -54,6 +63,10 @@ impl Guest for Plain {
   `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
   Return Production for a file that no rule claims.
   Which files are Test is a rule of the Language plugin, never of the core.
+- `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each with a `source` label that names where it was published.
+  `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
+  `low` and `high` are ratios with `0 <= low <= high <= 1`.
+  Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
 - `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
   Leave out whitespace and comments; the core finds Clone groups from this stream.
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
@@ -96,3 +109,21 @@ for (source_set, files) in source_sets.iter() {
 - `iter` yields the Source sets in the order Production, Test, Generated, Vendored.
 - A skipped or declaration-only file belongs to no Source set.
   Read `skipped` and `declaration_only` before the split; the split leaves them out.
+
+## Show Reference ranges only for the language they were measured in
+
+```rust
+use codeint_model::LanguagePlugin;
+
+let ranges = plugins[0].reference_ranges()?;
+if let Some(erosion) = ranges.for_metric("erosion") {
+    println!("{} to {} ({})", erosion.low, erosion.high, erosion.source);
+}
+```
+
+- `LanguagePlugin::reference_ranges` returns `ReferenceRanges`, which looks a range up by Metric key.
+  A new Metric joins by calling `for_metric` with its own key; nothing else changes.
+- It fails with `InvalidReferenceRange` when the plugin supplies two ranges for one Metric, or a range that does not run from a lower to a higher ratio between 0 and 1.
+  That failure stops the run with exit code 2.
+- Show a plugin's ranges only next to values that this plugin alone measured.
+  When the measured files come from several Language plugins, show no Reference range.
