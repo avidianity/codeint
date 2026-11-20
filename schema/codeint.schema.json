@@ -30,6 +30,11 @@
         "vendored": {}
       }
     },
+    "regression_limits": {
+      "$ref": "#/$defs/RegressionLimitsFile",
+      "description": "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and new Findings fail only with a numerator rise, except for Import cycles, where any new Finding fails.",
+      "default": {}
+    },
     "languages": {
       "type": [
         "array",
@@ -140,6 +145,90 @@
           "description": "The highest Import cycles ratio, from 0 to 1.",
           "minimum": 0,
           "maximum": 1
+        }
+      }
+    },
+    "RegressionLimitsFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "erosion": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Erosion in every Source set."
+        },
+        "duplication": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Duplication in every Source set."
+        },
+        "verbosity": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Verbosity in every Source set."
+        },
+        "import_cycles": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Import cycles in every Source set."
+        },
+        "production": {
+          "$ref": "#/$defs/MetricRegressionLimits",
+          "description": "The Regression limits of the Production Source set."
+        },
+        "test": {
+          "$ref": "#/$defs/MetricRegressionLimits",
+          "description": "The Regression limits of the Test Source set."
+        },
+        "generated": {
+          "$ref": "#/$defs/MetricRegressionLimits",
+          "description": "The Regression limits of the Generated Source set."
+        },
+        "vendored": {
+          "$ref": "#/$defs/MetricRegressionLimits",
+          "description": "The Regression limits of the Vendored Source set."
+        }
+      }
+    },
+    "RegressionLimitSetting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ratio_rise": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest rise of the ratio, from 0 to 1, as the report shows it, rounded to 4 decimal places. A rise equal to the limit passes.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "new_findings": {
+          "$ref": "#/$defs/NewFindingsRule",
+          "description": "When new Findings fail: any_new_finding fails on any new Finding; numerator_rise_with_new_findings fails only when the numerator rises too, so a Finding that only moves passes."
+        }
+      }
+    },
+    "NewFindingsRule": {
+      "type": "string",
+      "enum": [
+        "any_new_finding",
+        "numerator_rise_with_new_findings"
+      ]
+    },
+    "MetricRegressionLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "erosion": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Erosion in this Source set."
+        },
+        "duplication": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Duplication in this Source set."
+        },
+        "verbosity": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Verbosity in this Source set."
+        },
+        "import_cycles": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Import cycles in this Source set."
         }
       }
     },

@@ -65,6 +65,7 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
         _schema: Some(published_schema_address()),
         source_sets: Default::default(),
         budgets: Default::default(),
+        regression_limits: Default::default(),
         languages: (!languages.is_empty()).then(|| {
             languages
                 .iter()

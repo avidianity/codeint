@@ -4,6 +4,7 @@ use std::path::Path;
 use codeint_model::{Metric, RepoPath, SourceSet};
 
 use crate::RegressionLimits;
+use crate::regression_limits::RegressionLimitSetting;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -201,6 +202,15 @@ pub enum ConfigurationFileError {
         maximum: f64,
         found: f64,
     },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} must be one of {}, not {found}",
+        allowed.join(", ")
+    )]
+    NotOneOf {
+        key: KeyPath,
+        allowed: Vec<String>,
+        found: Value,
+    },
     #[error("{CONFIGURATION_FILE_NAME}: {key} needs the key {missing}")]
     MissingKey { key: KeyPath, missing: String },
     #[error(
@@ -242,11 +252,92 @@ struct ConfigurationFile {
         description = "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
     )]
     budgets: SourceSetBudgets,
+    #[serde(default)]
+    #[schemars(
+        description = "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and new Findings fail only with a numerator rise, except for Import cycles, where any new Finding fails."
+    )]
+    regression_limits: RegressionLimitsFile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
     )]
     languages: Option<Vec<LanguageGlobs>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct RegressionLimitsFile {
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Erosion in every Source set.")]
+    erosion: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Duplication in every Source set.")]
+    duplication: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Verbosity in every Source set.")]
+    verbosity: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Import cycles in every Source set.")]
+    import_cycles: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
+    #[schemars(description = "The Regression limits of the Production Source set.")]
+    production: MetricRegressionLimits,
+    #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
+    #[schemars(description = "The Regression limits of the Test Source set.")]
+    test: MetricRegressionLimits,
+    #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
+    #[schemars(description = "The Regression limits of the Generated Source set.")]
+    generated: MetricRegressionLimits,
+    #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
+    #[schemars(description = "The Regression limits of the Vendored Source set.")]
+    vendored: MetricRegressionLimits,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct MetricRegressionLimits {
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Erosion in this Source set.")]
+    erosion: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Duplication in this Source set.")]
+    duplication: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Verbosity in this Source set.")]
+    verbosity: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Import cycles in this Source set.")]
+    import_cycles: RegressionLimitSetting,
+}
+
+impl MetricRegressionLimits {
+    fn is_unset(&self) -> bool {
+        [
+            &self.erosion,
+            &self.duplication,
+            &self.verbosity,
+            &self.import_cycles,
+        ]
+        .into_iter()
+        .all(RegressionLimitSetting::is_unset)
+    }
+
+    fn by_metric(self) -> impl Iterator<Item = (Metric, RegressionLimitSetting)> {
+        let MetricRegressionLimits {
+            erosion,
+            duplication,
+            verbosity,
+            import_cycles,
+        } = self;
+        [
+            (Metric::Erosion, erosion),
+            (Metric::Duplication, duplication),
+            (Metric::Verbosity, verbosity),
+            (Metric::ImportCycles, import_cycles),
+        ]
+        .into_iter()
+        .filter(|(_, setting)| !setting.is_unset())
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -357,8 +448,43 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         source_set_overrides: source_set_overrides(file.source_sets)?,
         budgets: budgets(file.budgets),
         languages: languages(file.languages)?,
-        regression_limits: RegressionLimits::default(),
+        regression_limits: regression_limits(file.regression_limits),
     })
+}
+
+fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
+    let RegressionLimitsFile {
+        erosion,
+        duplication,
+        verbosity,
+        import_cycles,
+        production,
+        test,
+        generated,
+        vendored,
+    } = file;
+    let every_source_set = MetricRegressionLimits {
+        erosion,
+        duplication,
+        verbosity,
+        import_cycles,
+    }
+    .by_metric()
+    .collect();
+    let one_source_set = [
+        (SourceSet::Production, production),
+        (SourceSet::Test, test),
+        (SourceSet::Generated, generated),
+        (SourceSet::Vendored, vendored),
+    ]
+    .into_iter()
+    .flat_map(|(source_set, limits)| {
+        limits
+            .by_metric()
+            .map(move |(metric, setting)| (source_set, metric, setting))
+    })
+    .collect();
+    RegressionLimits::new(every_source_set, one_source_set)
 }
 
 impl ConfigurationFile {

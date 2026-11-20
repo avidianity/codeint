@@ -54,7 +54,6 @@ pub(crate) struct Regression {
     base: Decimal,
     head: Decimal,
     new_findings: usize,
-    #[serde(skip)]
     ratio_rise_limit: f64,
     #[serde(skip)]
     numerator_key: &'static str,
@@ -296,7 +295,7 @@ impl<T> MetricChanges<T> {
         metric: Metric,
         limits: &RegressionLimits,
     ) -> Vec<Regression> {
-        let limit = limits.limit(metric);
+        let limit = limits.limit(source_set, metric);
         REGRESSION_RULES
             .into_iter()
             .filter(|rule| self.breaks(*rule, limit))

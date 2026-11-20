@@ -54,18 +54,21 @@ if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric
 
 ```rust
 use codeint_config::NewFindingsRule;
-use codeint_model::Metric;
+use codeint_model::{Metric, SourceSet};
 
-let limit = configuration.regression_limits.limit(Metric::Erosion);
+let limit = configuration
+    .regression_limits
+    .limit(SourceSet::Production, Metric::Erosion);
 let rise_passes = limit.ratio_rise.admits(displayed_head_ratio_minus_displayed_base_ratio);
 let any_new_finding_fails = limit.new_findings == NewFindingsRule::AnyNewFinding;
 ```
 
 - `limit` always returns a `RegressionLimit`; without a setting it is `RegressionLimit::DEFAULT`, or `RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES` for Import cycles.
+- `codeint.json` sets a limit under `regression_limits.{metric}` for every Source set, and under `regression_limits.{source_set}.{metric}` for one Source set.
+  `limit` settles each of `ratio_rise` and `new_findings` on its own: the Source set setting wins, then the Metric setting, then the default.
 - `RatioRise::DEFAULT` is 0.01, and `admits` passes a rise equal to the limit.
   Round the difference of the two displayed ratios to four places before you pass it, because the plain floating-point difference of 0.0142 and 0.0042 is above 0.01.
 - `NewFindingsRule::AnyNewFinding` fails on any new Finding; `NewFindingsRule::NumeratorRiseWithNewFindings` fails only when the numerator also rises.
-- `codeint.json` does not set Regression limits yet; `read_configuration` returns the defaults.
 
 ## Limit each Language plugin to its folders
 
