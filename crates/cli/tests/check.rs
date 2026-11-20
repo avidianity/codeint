@@ -2028,9 +2028,9 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
             "    - id: <id>\n",
             "      modules[2]: src/a.ts,src/b.ts\n",
             "    - id: <id>\n",
-            "      modules[1]: src/self.ts\n",
-            "    - id: <id>\n",
             "      modules[2]: src/x/index.ts,src/y.ts\n",
+            "    - id: <id>\n",
+            "      modules[1]: src/self.ts\n",
             "  unresolved_imports:\n",
             "    count: 1\n",
             "    imports[1]{importer,specifier,reason}:\n",
@@ -4231,6 +4231,9 @@ fn format_sarif_prints_a_sarif_2_1_0_log_with_one_result_per_finding_and_a_rule_
               }}
             }}
           ],
+          "partialFingerprints": {{
+            "codeintFindingId": "2a57800b29941394"
+          }},
           "properties": {{
             "sourceSet": "production"
           }}

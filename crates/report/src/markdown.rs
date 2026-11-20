@@ -501,7 +501,7 @@ pub(crate) fn code(text: &str) -> String {
     format!("{fence}{padding}{text}{padding}{fence}")
 }
 
-fn prose(text: &str) -> String {
+pub(crate) fn prose(text: &str) -> String {
     on_one_line(text)
         .chars()
         .fold(String::new(), |mut escaped, character| {

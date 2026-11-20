@@ -465,7 +465,7 @@ impl ErosionSection {
     ) -> ErosionSection {
         ErosionSection {
             ratio: Decimal::rounded(erosion.ratio()),
-            reference_range: ranges.entry("erosion"),
+            reference_range: ranges.entry(Metric::Erosion.key()),
             eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
             total_function_mass: Decimal::rounded(erosion.total_function_mass()),
             findings: Findings::worst_first(
@@ -500,7 +500,7 @@ impl DuplicationSection {
     ) -> DuplicationSection {
         DuplicationSection {
             ratio: Decimal::rounded(duplication.ratio()),
-            reference_range: ranges.entry("duplication"),
+            reference_range: ranges.entry(Metric::Duplication.key()),
             clone_lines: duplication.clone_lines.count(),
             clone_groups: Findings::worst_first(
                 duplication.clone_groups.iter().map(CloneGroupFinding::new),
@@ -538,7 +538,7 @@ impl VerbositySection {
     ) -> VerbositySection {
         VerbositySection {
             ratio: Decimal::rounded(verbosity.ratio()),
-            reference_range: ranges.entry("verbosity"),
+            reference_range: ranges.entry(Metric::Verbosity.key()),
             verbose_lines: verbosity.verbose_lines(),
             flagged_lines: verbosity.flagged_line_count(),
             clone_lines: verbosity.clone_line_count(),
@@ -569,7 +569,7 @@ impl ImportCyclesSection {
     ) -> ImportCyclesSection {
         ImportCyclesSection {
             ratio: Decimal::rounded(import_cycles.ratio()),
-            reference_range: ranges.entry("import_cycles"),
+            reference_range: ranges.entry(Metric::ImportCycles.key()),
             modules_in_import_cycles: import_cycles.modules_in_import_cycles(),
             modules: import_cycles.modules(),
             findings: Findings::worst_first(

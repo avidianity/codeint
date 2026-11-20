@@ -1,4 +1,4 @@
-use super::{DiffReport, HeadEntry, MetricChanges, SourceSetChanges};
+use super::{DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges};
 use crate::Findings;
 use crate::markdown::{
     CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, FLAGGED_LINE, FLAGGED_LINE_COLUMNS,
@@ -35,7 +35,9 @@ pub(super) fn render(report: &DiffReport) -> String {
     }
     if !report.regressions.is_empty() {
         blocks.push("## Regressions".to_string());
-        blocks.push(list(report.regressions.iter().map(sentence_item)));
+        blocks.push(list(
+            report.regressions.iter().map(Regression::markdown_item),
+        ));
     }
     for (name, changes) in &sections {
         let findings = findings_blocks(changes);

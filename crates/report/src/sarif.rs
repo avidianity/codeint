@@ -81,7 +81,14 @@ struct SarifResult {
     locations: [Location; 1],
     #[serde(skip_serializing_if = "Vec::is_empty")]
     related_locations: Vec<Location>,
+    partial_fingerprints: PartialFingerprints,
     properties: ResultProperties,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PartialFingerprints {
+    codeint_finding_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -214,6 +221,7 @@ fn descriptor(metric: Metric) -> Rule {
 fn metric_result(
     metric: Metric,
     source_set: SourceSet,
+    finding_id: &str,
     message: String,
     located_at: Location,
     related_locations: Vec<Location>,
@@ -228,6 +236,9 @@ fn metric_result(
         message: Text { text: message },
         locations: [located_at],
         related_locations,
+        partial_fingerprints: PartialFingerprints {
+            codeint_finding_id: finding_id.to_owned(),
+        },
         properties: ResultProperties {
             source_set: source_set.key(),
         },
@@ -283,6 +294,7 @@ fn results(source_set: SourceSet, listed: &ListedFindings<'_>) -> Vec<SarifResul
         metric_result(
             Metric::Erosion,
             source_set,
+            &function.id,
             format!(
                 "Eroded function: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
                 function.cyclomatic_complexity, function.source_lines, function.function_mass.0
@@ -299,6 +311,7 @@ fn results(source_set: SourceSet, listed: &ListedFindings<'_>) -> Vec<SarifResul
         metric_result(
             Metric::Verbosity,
             source_set,
+            &flagged.id,
             format!("Flagged line: rule {}.", flagged.rule),
             Location::in_repository(&flagged.path, flagged.line, None),
             Vec::new(),
@@ -332,6 +345,7 @@ fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Optio
     Some(metric_result(
         Metric::Duplication,
         source_set,
+        &group.id,
         format!(
             "Clone group of {} tokens in {} fragments; the other fragments: {}.",
             group.tokens,
@@ -349,6 +363,7 @@ fn import_cycle_result(source_set: SourceSet, cycle: &ImportCycleFinding) -> Opt
     Some(metric_result(
         Metric::ImportCycles,
         source_set,
+        &cycle.id,
         format!(
             "Import cycle of {} modules: {}.",
             cycle.modules.len(),

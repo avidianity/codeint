@@ -349,6 +349,25 @@ impl<T> MetricChanges<T> {
     }
 }
 
+impl Regression {
+    pub(super) fn markdown_item(&self) -> String {
+        match self.rule {
+            RegressionRule::RatioRise | RegressionRule::NewFindings => {
+                crate::markdown::sentence_item(self)
+            }
+            RegressionRule::NumeratorRiseWithNewFindings => format!(
+                "The {} {} numerator {} rose from {} to {} with {}.",
+                crate::markdown::prose(self.source_set),
+                crate::markdown::prose(self.metric),
+                crate::markdown::code(self.numerator_key),
+                self.base.0,
+                self.head.0,
+                new_findings_phrase(self.new_findings)
+            ),
+        }
+    }
+}
+
 impl std::fmt::Display for Regression {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Regression {

@@ -949,6 +949,9 @@ codeint check --format sarif
               }
             }
           ],
+          "partialFingerprints": {
+            "codeintFindingId": "f0740d06c0975d68"
+          },
           "properties": {
             "sourceSet": "production"
           }
@@ -973,6 +976,9 @@ codeint check --format sarif
               }
             }
           ],
+          "partialFingerprints": {
+            "codeintFindingId": "2a57800b29941394"
+          },
           "properties": {
             "sourceSet": "production"
           }
