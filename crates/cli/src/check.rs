@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::string::FromUtf8Error;
 
+use codeint_config::FindingsShown;
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
@@ -34,14 +35,18 @@ struct Measurement {
     ranges: ReferenceRangeScope,
 }
 
-pub(crate) fn check(folder: &Path) -> Result<String, CheckError> {
-    check_with(folder, &[&TypeScriptAndJavaScript])
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
+    check_with(folder, &[&TypeScriptAndJavaScript], findings)
 }
 
-fn check_with(folder: &Path, plugins: &[&dyn LanguagePlugin]) -> Result<String, CheckError> {
+fn check_with(
+    folder: &Path,
+    plugins: &[&dyn LanguagePlugin],
+    findings: FindingsShown,
+) -> Result<String, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let Measurement { model, ranges } = measure(&tree, plugins)?;
-    Ok(Report::summarize(&model, &ranges).to_toon()?)
+    Ok(Report::summarize(&model, &ranges, findings).to_toon()?)
 }
 
 fn reference_range_scope(

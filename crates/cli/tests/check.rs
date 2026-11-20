@@ -75,6 +75,28 @@ fn summary(output: &Output) -> String {
         .collect()
 }
 
+fn without_duplication(output: &Output) -> String {
+    report_lines(output, |section| section != "duplication")
+}
+
+fn duplication(output: &Output) -> String {
+    report_lines(output, |section| section == "duplication")
+}
+
+fn report_lines(output: &Output, keep_section: impl Fn(&str) -> bool) -> String {
+    let mut section = String::new();
+    stdout(output)
+        .lines()
+        .filter(|line| {
+            if !line.starts_with(' ') {
+                section = line.split([':', '[']).next().unwrap_or_default().to_owned();
+            }
+            keep_section(&section)
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
 fn function_with_if_statements(name: &str, if_statements: usize) -> String {
     let branches: String = (1..=if_statements)
         .map(|value| format!("  if (value === {value}) return {value};\n"))
@@ -216,7 +238,7 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         "files: 1\n\
          source_lines: 2\n\
          erosion:\n  \
@@ -249,7 +271,7 @@ fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_sourc
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         "files: 1\n\
          source_lines: 1\n\
          erosion:\n  \
@@ -302,7 +324,7 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 1\n",
             "source_lines: 25\n",
@@ -329,7 +351,7 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 3\n",
             "source_lines: 39\n",
@@ -355,7 +377,7 @@ fn a_repository_without_functions_reports_erosion_0() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 1\n",
             "source_lines: 1\n",
@@ -389,15 +411,15 @@ fn the_typescript_and_javascript_report_says_that_no_published_reference_range_e
         .lines()
         .filter(|line| *line == "  reference_range: no published Reference range for this language")
         .count();
-    assert!(metric_sections >= 1, "unexpected report: {report}");
+    assert!(metric_sections >= 2, "unexpected report: {report}");
     assert_eq!(unpublished, metric_sections, "unexpected report: {report}");
     assert!(!report.contains("low:"), "unexpected report: {report}");
 }
 
 #[test]
-fn decision_points_of_a_callback_count_only_toward_the_callback() {
+fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
     let repository = Repository::new();
-    let branches: String = (1..=10)
+    let branches: String = (1..=11)
         .map(|value| format!("    if (row === {value}) return;\n"))
         .collect();
     repository.write(
@@ -412,19 +434,113 @@ fn decision_points_of_a_callback_count_only_toward_the_callback() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 1\n",
-            "source_lines: 14\n",
+            "source_lines: 15\n",
             "erosion:\n",
-            "  ratio: 0.9106\n",
+            "  ratio: 0.9683\n",
             "  reference_range: no published Reference range for this language\n",
-            "  eroded_function_mass: 38.1051\n",
-            "  total_function_mass: 41.8468\n",
+            "  eroded_function_mass: 43.2666\n",
+            "  total_function_mass: 44.6808\n",
             "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    src/outer.ts,2,11,12,38.1051\n",
+            "    src/outer.ts,2,12,13,43.2666\n",
         )
     );
+}
+
+fn write_eroded_functions_with_more_if_statements_in_later_files(
+    repository: &Repository,
+    count: usize,
+) {
+    for index in 1..=count {
+        repository.write(
+            &format!("src/f{index:02}.ts"),
+            &function_with_if_statements(&format!("f{index:02}"), 9 + index),
+        );
+    }
+}
+
+fn erosion_findings_header(count: usize) -> String {
+    format!("  findings[{count}]{{path,line,cyclomatic_complexity,source_lines,function_mass}}:")
+}
+
+fn erosion_findings_lines(output: &Output) -> Vec<String> {
+    report_lines(output, |section| section == "erosion")
+        .lines()
+        .skip_while(|line| !line.starts_with("  findings"))
+        .map(|line| match line.strip_prefix("    ") {
+            Some(row) => format!(
+                "    {}",
+                row.splitn(3, ',').take(2).collect::<Vec<_>>().join(",")
+            ),
+            None => line.to_string(),
+        })
+        .collect()
+}
+
+#[test]
+fn the_report_lists_the_20_eroded_functions_of_most_function_mass_and_says_how_many_it_left_out() {
+    let repository = Repository::new();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 25);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec![erosion_findings_header(20)];
+    expected.extend(
+        (6..=25)
+            .rev()
+            .map(|index| format!("    src/f{index:02}.ts,1")),
+    );
+    expected.push("  findings_left_out: 5".to_string());
+    assert_eq!(erosion_findings_lines(&output), expected);
+}
+
+#[test]
+fn all_lists_every_eroded_function_and_leaves_none_out() {
+    let repository = Repository::new();
+    write_eroded_functions_with_more_if_statements_in_later_files(&repository, 25);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--all"]);
+
+    assert_success(&output);
+    let mut expected = vec![erosion_findings_header(25)];
+    expected.extend(
+        (1..=25)
+            .rev()
+            .map(|index| format!("    src/f{index:02}.ts,1")),
+    );
+    assert_eq!(erosion_findings_lines(&output), expected);
+}
+
+#[test]
+fn eroded_functions_of_equal_function_mass_are_listed_by_path_then_line_and_the_last_are_left_out()
+{
+    let repository = Repository::new();
+    let eroded = function_with_if_statements("eroded", 10);
+    for index in (1..=20).rev() {
+        repository.write(&format!("src/t{index:02}.ts"), &eroded);
+    }
+    repository.write(
+        "src/t00.ts",
+        &format!("{eroded}{}", function_with_if_statements("twin", 10)),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec![
+        erosion_findings_header(20),
+        "    src/t00.ts,1".to_string(),
+        "    src/t00.ts,14".to_string(),
+    ];
+    expected.extend((1..=18).map(|index| format!("    src/t{index:02}.ts,1")));
+    expected.push("  findings_left_out: 2".to_string());
+    assert_eq!(erosion_findings_lines(&output), expected);
 }
 
 fn not_in_a_repository_message(folder: &Path) -> String {
@@ -585,7 +701,7 @@ fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothi
     assert_eq!(saved, printed.stdout);
     assert_eq!(
         saved,
-        b"files: 1\nsource_lines: 2\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
+        format!("files: 1\nsource_lines: 2\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n{NO_DUPLICATION}").as_bytes()
     );
 }
 
@@ -605,7 +721,9 @@ fn output_replaces_an_existing_file() {
     assert_success(&output);
     assert_eq!(
         fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
-        "files: 1\nsource_lines: 1\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n"
+        format!(
+            "files: 1\nsource_lines: 1\nerosion:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  eroded_function_mass: 0\n  total_function_mass: 0\n  findings: []\n{NO_DUPLICATION}"
+        )
     );
 }
 
@@ -669,4 +787,116 @@ fn assert_unwritable_output(output: &Output, path: &str) {
             && message.lines().count() == 2,
         "unexpected message: {message}"
     );
+}
+
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  reference_range: no published Reference range for this language\n  clone_lines: 0\n  clone_groups: []\n";
+
+const CART_TOTAL: &str = concat!(
+    "export function total(items: { price: number; quantity: number }[]): number {\n",
+    "  let sum = 0;\n",
+    "  for (const item of items) {\n",
+    "    if (item.quantity > 0) {\n",
+    "      sum += item.price * item.quantity;\n",
+    "    }\n",
+    "  }\n",
+    "  return sum;\n",
+    "}\n",
+);
+
+#[test]
+fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locations() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write(
+        "src/invoice.ts",
+        &format!("const currency = 'EUR';\n{CART_TOTAL}export const label = currency;\n"),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 20\n");
+    assert_eq!(
+        duplication(&output),
+        concat!(
+            "duplication:\n",
+            "  ratio: 0.9\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  clone_lines: 18\n",
+            "  clone_groups[1]:\n",
+            "    - tokens: 59\n",
+            "      locations[2]{path,start_line,end_line}:\n",
+            "        src/cart.ts,1,9\n",
+            "        src/invoice.ts,2,10\n",
+        )
+    );
+}
+
+#[test]
+fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
+    let small = "export function double(value: number): number {\n  return value * 2;\n}\n";
+    let repository = Repository::new();
+    repository.write("src/first.ts", small);
+    repository.write("src/second.ts", small);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
+    assert_eq!(duplication(&output), NO_DUPLICATION);
+}
+
+fn write_21_clone_groups_of_equal_size(repository: &Repository) {
+    for index in 1..=21 {
+        let total = CART_TOTAL
+            .replace("total", &format!("total{index:02}"))
+            .replace("sum", &format!("sum{index:02}"))
+            .replace("item", &format!("item{index:02}"));
+        repository.write(&format!("src/a{index:02}.ts"), &total);
+        repository.write(&format!("src/b{index:02}.ts"), &total);
+    }
+}
+
+fn clone_groups_by_first_location(output: &Output) -> Vec<String> {
+    duplication(output)
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| {
+            line.starts_with("clone_groups")
+                || line.starts_with("findings_left_out")
+                || line.starts_with("src/a")
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn the_report_lists_20_clone_groups_and_says_how_many_it_left_out() {
+    let repository = Repository::new();
+    write_21_clone_groups_of_equal_size(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    let mut expected = vec!["clone_groups[20]:".to_string()];
+    expected.extend((1..=20).map(|index| format!("src/a{index:02}.ts,1,9")));
+    expected.push("findings_left_out: 1".to_string());
+    assert_eq!(clone_groups_by_first_location(&output), expected);
+}
+
+#[test]
+fn all_lists_every_clone_group() {
+    let repository = Repository::new();
+    write_21_clone_groups_of_equal_size(&repository);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--all"]);
+
+    assert_success(&output);
+    let mut expected = vec!["clone_groups[21]:".to_string()];
+    expected.extend((1..=21).map(|index| format!("src/a{index:02}.ts,1,9")));
+    assert_eq!(clone_groups_by_first_location(&output), expected);
 }

@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+codeint-config = { workspace = true }
 codeint-metrics = { workspace = true }
 codeint-model = { workspace = true }
 serde = { workspace = true }

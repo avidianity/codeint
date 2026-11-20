@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange};
+use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange, Token};
 
 pub struct Plain;
 
@@ -14,9 +14,20 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
+        let tokens = text
+            .lines()
+            .zip(1..)
+            .flat_map(|(line, number)| {
+                line.split_whitespace().map(move |word| Token {
+                    text: word.to_owned(),
+                    line: number,
+                })
+            })
+            .collect();
         Ok(FileModel {
             source_lines,
             functions: Vec::new(),
+            tokens,
         })
     }
 
@@ -45,6 +56,8 @@ impl Guest for Plain {
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
+- `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
+  Leave out whitespace and comments; the core finds Clone groups from this stream.
 
 ## Lower files in the core
 

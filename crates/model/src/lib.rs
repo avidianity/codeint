@@ -17,7 +17,7 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, ReferenceRange};
+pub use language::{FileModel, ReferenceRange, Token};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoPath(String);

@@ -319,7 +319,74 @@ fn a_nested_function_adds_no_decision_points_to_the_function_around_it() {
 
     assert_eq!(
         functions("src/nested.ts", text),
-        [function(1, 1, 12), function(5, 2, 7)]
+        [function(1, 1, 5), function(5, 2, 7)]
+    );
+}
+
+#[test]
+fn each_nested_function_takes_its_lines_and_decision_points_away_from_its_parent() {
+    let text = concat!(
+        "export function build(flag: boolean) {\n",
+        "  const literal = {\n",
+        "    method() {\n",
+        "      return 1;\n",
+        "    },\n",
+        "  };\n",
+        "  class Box {\n",
+        "    value = 0;\n",
+        "    get size(): number {\n",
+        "      return this.value;\n",
+        "    }\n",
+        "    set size(next: number) {\n",
+        "      this.value = next;\n",
+        "    }\n",
+        "    grow(): void {\n",
+        "      if (flag) {\n",
+        "        this.value++;\n",
+        "      }\n",
+        "    }\n",
+        "  }\n",
+        "  const named = function () {\n",
+        "    return 2;\n",
+        "  };\n",
+        "  const pair = [() => 3, () => 4];\n",
+        "  return Promise.resolve(literal)\n",
+        "    .then(() => {\n",
+        "      return new Box();\n",
+        "    }).then(() => {\n",
+        "      return named() + pair.length;\n",
+        "    });\n",
+        "}\n",
+    );
+
+    assert_eq!(
+        functions("src/build.ts", text),
+        [
+            function(1, 0, 8),
+            function(3, 0, 3),
+            function(9, 0, 3),
+            function(12, 0, 3),
+            function(15, 1, 5),
+            function(21, 0, 3),
+            function(24, 0, 1),
+            function(24, 0, 1),
+            function(26, 0, 3),
+            function(28, 0, 3),
+        ]
+    );
+}
+
+#[test]
+fn a_function_nested_on_every_line_of_its_parent_takes_every_line() {
+    let text = concat!(
+        "export const handler = (rows: number[]) => rows.map((row) => {\n",
+        "  return row + 1;\n",
+        "});\n",
+    );
+
+    assert_eq!(
+        functions("src/handler.ts", text),
+        [function(1, 0, 0), function(1, 0, 3)]
     );
 }
 
@@ -387,4 +454,79 @@ fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
     let text = "const first = 1;\r\n\r\nfunction later() {\r\n  return first;\r\n}\r\n";
 
     assert_eq!(functions("src/crlf.ts", text), [function(3, 0, 3)]);
+}
+
+fn tokens(path: &str, text: &str) -> Vec<(String, u32)> {
+    match lower(path, text) {
+        Ok(model) => model
+            .tokens
+            .into_iter()
+            .map(|token| (token.text, token.line))
+            .collect(),
+        Err(error) => panic!("{path} did not lower: {error}"),
+    }
+}
+
+fn expected_tokens(tokens: &[(&str, u32)]) -> Vec<(String, u32)> {
+    tokens
+        .iter()
+        .map(|(text, line)| ((*text).to_owned(), *line))
+        .collect()
+}
+
+#[test]
+fn the_token_stream_holds_each_token_with_its_line_and_no_whitespace_or_comments() {
+    let text = concat!(
+        "#!/usr/bin/env node\n",
+        "// a line comment\n",
+        "const total = 1 +   2; /* inline */\r\n",
+        "\n",
+        "/**\n",
+        " * A block comment.\n",
+        " */\n",
+        "export const text = `first\n",
+        "${total} last`;\n",
+    );
+
+    assert_eq!(
+        tokens("src/tokens.ts", text),
+        expected_tokens(&[
+            ("const", 3),
+            ("total", 3),
+            ("=", 3),
+            ("1", 3),
+            ("+", 3),
+            ("2", 3),
+            (";", 3),
+            ("export", 8),
+            ("const", 8),
+            ("text", 8),
+            ("=", 8),
+            ("`first\n${", 8),
+            ("total", 9),
+            ("} last`", 9),
+            (";", 9),
+        ])
+    );
+}
+
+#[test]
+fn the_token_stream_covers_jsx_and_regular_expressions() {
+    let text = "export const Hit = () => <b title=\"x\">{/a+/.test('aa')}</b>;\n";
+
+    assert_eq!(
+        tokens("src/hit.tsx", text)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>(),
+        [
+            "export", "const", "Hit", "=", "(", ")", "=>", "<", "b", "title", "=", "\"x\"", ">",
+            "{", "/a+/", ".", "test", "(", "'aa'", ")", "}", "<", "/", "b", ">", ";",
+        ]
+    );
+}
+
+#[test]
+fn an_empty_file_has_no_tokens() {
+    assert_eq!(tokens("src/empty.ts", ""), []);
 }

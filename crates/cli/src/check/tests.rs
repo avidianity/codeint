@@ -1,6 +1,7 @@
 use std::fs;
 use std::process::Command;
 
+use codeint_config::FindingsShown;
 use codeint_model::LanguagePlugin;
 use codeint_model::language::{FileModel, Guest, LowerError, ReferenceRange};
 use tempfile::TempDir;
@@ -17,6 +18,7 @@ fn lines_of(text: &str) -> Result<FileModel, LowerError> {
     Ok(FileModel {
         source_lines: u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?,
         functions: Vec::new(),
+        tokens: Vec::new(),
     })
 }
 
@@ -89,7 +91,7 @@ fn repository(files: &[(&str, &str)]) -> TempDir {
 
 fn report(files: &[(&str, &str)], plugins: &[&dyn LanguagePlugin]) -> String {
     let folder = repository(files);
-    check_with(folder.path(), plugins).expect("the check succeeds")
+    check_with(folder.path(), plugins, FindingsShown::All).expect("the check succeeds")
 }
 
 #[test]
@@ -109,7 +111,12 @@ fn a_reference_range_that_the_only_measured_language_supplies_is_shown_with_its_
             "    source: \"Alpha panel of 40 repositories, Table 3\"\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 0\n",
-            "  findings: []",
+            "  findings: []\n",
+            "duplication:\n",
+            "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  clone_lines: 0\n",
+            "  clone_groups: []",
         )
     );
 }
@@ -151,7 +158,7 @@ fn no_reference_range_is_shown_when_the_measured_files_are_in_several_languages(
 fn an_invalid_reference_range_from_a_language_plugin_stops_the_check() {
     let folder = repository(&[("main.beta", "one\n")]);
 
-    let result = check_with(folder.path(), &[&Beta, &Malformed]);
+    let result = check_with(folder.path(), &[&Beta, &Malformed], FindingsShown::All);
 
     assert!(
         matches!(result, Err(CheckError::ReferenceRange(_))),
