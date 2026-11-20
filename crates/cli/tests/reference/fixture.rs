@@ -160,6 +160,7 @@ fn commit(root: &Path, message: &str, date: &str) {
 
 fn git(root: &Path, arguments: &[&str], date: &str) {
     let output = Command::new("git")
+        .args(["-c", "gc.auto=0"])
         .args(arguments)
         .current_dir(root)
         .envs(GIT_IDENTITY)
@@ -175,14 +176,30 @@ fn git(root: &Path, arguments: &[&str], date: &str) {
 }
 
 fn copy_folder(from: &Path, to: &Path) {
-    for entry in fs::read_dir(from).expect("list the fixture folder") {
-        let entry = entry.expect("read a fixture folder entry");
+    let entries = match fs::read_dir(from) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => panic!("list the fixture folder: {error}"),
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => panic!("read a fixture folder entry: {error}"),
+        };
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => panic!("read the entry type: {error}"),
+        };
         let target = to.join(entry.file_name());
-        if entry.file_type().expect("read the entry type").is_dir() {
+        if file_type.is_dir() {
             fs::create_dir_all(&target).expect("create a copied folder");
             copy_folder(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), &target).expect("copy a fixture file");
+        } else if let Err(error) = fs::copy(entry.path(), &target)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            panic!("copy a fixture file: {error}");
         }
     }
 }

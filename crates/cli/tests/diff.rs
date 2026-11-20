@@ -569,9 +569,9 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          \n\
          ## Regressions\n\
          \n\
-         - The production erosion numerator eroded\\_function\\_mass rose from 44.8999 to 87.0689 with 1 new Finding.\n\
+         - The production erosion numerator `eroded_function_mass` rose from 44.8999 to 87.0689 with 1 new Finding.\n\
          - The production duplication ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
-         - The production duplication numerator clone\\_lines rose from 0 to 16 with 1 new Finding.\n\
+         - The production duplication numerator `clone_lines` rose from 0 to 16 with 1 new Finding.\n\
          - The production verbosity ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
          \n\
          ## Production changes\n\
@@ -1059,11 +1059,25 @@ fn diff_with_head_leaves_the_working_tree_the_index_and_head_untouched() {
     assert_eq!(repository_state(&fixture), before);
 }
 
+fn assert_no_merge_base_with_main(args: &[&str], head: &str) {
+    let fixture = Fixture::on_main();
+    fixture.put("src/on_main.ts", "export const onMain = 1;\n");
+    fixture.commit("work on main");
+    fixture.run_git(&["switch", "--quiet", "--orphan", "unrelated"]);
+    fixture.put("src/b.ts", "export const b = 1;\n");
+    fixture.commit("unrelated");
+
+    let output = fixture.codeint_diff(args);
+
+    assert_stops_with(
+        &output,
+        &format!("\"main\" and \"{head}\" have no commit in common, so they have no merge-base"),
+    );
+}
+
 #[test]
 fn an_unknown_head_ref_exits_2_and_names_the_ref() {
-    let fixture = Fixture::on_main();
-    fixture.put("src/a.ts", "export const a = 1;\n");
-    fixture.commit("base");
+    let fixture = Fixture::with_committed_function_of_11_conditions();
 
     let output = fixture.codeint_diff(&["main", "--head", "no-such-branch"]);
 
@@ -1075,19 +1089,25 @@ fn an_unknown_head_ref_exits_2_and_names_the_ref() {
 
 #[test]
 fn a_head_ref_without_history_in_common_with_the_base_ref_exits_2_and_names_both_refs() {
-    let fixture = Fixture::on_main();
-    fixture.put("src/on_main.ts", "export const onMain = 1;\n");
-    fixture.commit("work on main");
-    fixture.run_git(&["switch", "--quiet", "--orphan", "unrelated"]);
-    fixture.put("src/b.ts", "export const b = 1;\n");
-    fixture.commit("unrelated");
+    assert_no_merge_base_with_main(&["main", "--head", "unrelated"], "unrelated");
+}
 
-    let output = fixture.codeint_diff(&["main", "--head", "unrelated"]);
+#[test]
+fn an_unborn_head_exits_2_and_names_the_base_ref() {
+    let fixture = Fixture::with_committed_function_of_11_conditions();
+    fixture.run_git(&["switch", "--quiet", "--orphan", "unborn"]);
+
+    let output = fixture.codeint_diff(&["main"]);
 
     assert_stops_with(
         &output,
-        "\"main\" and \"unrelated\" have no commit in common, so they have no merge-base",
+        "HEAD does not name a commit yet, so it has no merge-base with \"main\"",
     );
+}
+
+#[test]
+fn diff_against_unrelated_history_exits_2_and_names_head_and_base() {
+    assert_no_merge_base_with_main(&["main"], "HEAD");
 }
 
 #[test]
