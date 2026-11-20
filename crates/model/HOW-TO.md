@@ -3,7 +3,7 @@
 ## Write a built-in Language plugin
 
 ```rust
-use codeint_model::language::{FileModel, Guest, LowerError, SourceSet};
+use codeint_model::language::{FileModel, Guest, LowerError, SourceSet, Token};
 
 pub struct Plain;
 
@@ -19,10 +19,21 @@ impl Guest for Plain {
         } else {
             SourceSet::Production
         };
+        let tokens = text
+            .lines()
+            .zip(1..)
+            .flat_map(|(line, number)| {
+                line.split_whitespace().map(move |word| Token {
+                    text: word.to_owned(),
+                    line: number,
+                })
+            })
+            .collect();
         Ok(FileModel {
             source_set,
             source_lines,
             functions: Vec::new(),
+            tokens,
         })
     }
 }
@@ -42,6 +53,8 @@ impl Guest for Plain {
   `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
   Return Production for a file that no rule claims.
   Which files are Test is a rule of the Language plugin, never of the core.
+- `tokens` lists every token of the file in source order, each with its text and the 1-based line on which it starts.
+  Leave out whitespace and comments; the core finds Clone groups from this stream.
 
 ## Lower files in the core
 

@@ -75,6 +75,34 @@ fn summary(output: &Output) -> String {
         .collect()
 }
 
+const METRIC_SECTION_INDENT: usize = 4;
+
+fn without_duplication(output: &Output) -> String {
+    report_lines(output, |section| section != "duplication")
+}
+
+fn duplication(output: &Output) -> String {
+    report_lines(output, |section| section == "duplication")
+}
+
+fn report_lines(output: &Output, keep_section: impl Fn(&str) -> bool) -> String {
+    let mut section = String::new();
+    stdout(output)
+        .lines()
+        .filter(|line| {
+            let code = line.trim_start();
+            let indent = line.len() - code.len();
+            if indent < METRIC_SECTION_INDENT {
+                section.clear();
+            } else if indent == METRIC_SECTION_INDENT {
+                section = code.split([':', '[']).next().unwrap_or_default().to_owned();
+            }
+            keep_section(&section)
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
 fn function_with_if_statements(name: &str, if_statements: usize) -> String {
     let branches: String = (1..=if_statements)
         .map(|value| format!("  if (value === {value}) return {value};\n"))
@@ -216,7 +244,7 @@ fn a_file_that_does_not_parse_is_skipped_and_listed_with_the_parse_error() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         "files: 1\n\
          source_lines: 2\n\
          source_sets:\n  \
@@ -252,7 +280,7 @@ fn a_typescript_declaration_file_is_listed_as_declaration_only_and_adds_no_sourc
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         "files: 1\n\
          source_lines: 1\n\
          source_sets:\n  \
@@ -308,7 +336,7 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 1\n",
             "source_lines: 25\n",
@@ -338,7 +366,7 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 3\n",
             "source_lines: 39\n",
@@ -367,7 +395,7 @@ fn a_repository_without_functions_reports_erosion_0() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 1\n",
             "source_lines: 1\n",
@@ -385,9 +413,9 @@ fn a_repository_without_functions_reports_erosion_0() {
 }
 
 #[test]
-fn decision_points_of_a_callback_count_only_toward_the_callback() {
+fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
     let repository = Repository::new();
-    let branches: String = (1..=10)
+    let branches: String = (1..=11)
         .map(|value| format!("    if (row === {value}) return;\n"))
         .collect();
     repository.write(
@@ -402,20 +430,20 @@ fn decision_points_of_a_callback_count_only_toward_the_callback() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 1\n",
-            "source_lines: 14\n",
+            "source_lines: 15\n",
             "source_sets:\n",
             "  production:\n",
             "    files: 1\n",
-            "    source_lines: 14\n",
+            "    source_lines: 15\n",
             "    erosion:\n",
-            "      ratio: 0.9106\n",
-            "      eroded_function_mass: 38.1051\n",
-            "      total_function_mass: 41.8468\n",
+            "      ratio: 0.9683\n",
+            "      eroded_function_mass: 43.2666\n",
+            "      total_function_mass: 44.6808\n",
             "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "        src/outer.ts,2,11,12,38.1051\n",
+            "        src/outer.ts,2,12,13,43.2666\n",
         )
     );
 }
@@ -436,7 +464,7 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 4\n",
             "source_lines: 40\n",
@@ -477,7 +505,7 @@ fn a_source_set_without_files_is_left_out_of_the_report() {
 
     assert_success(&output);
     assert_eq!(
-        stdout(&output),
+        without_duplication(&output),
         concat!(
             "files: 1\n",
             "source_lines: 3\n",
@@ -664,7 +692,7 @@ fn output_writes_exactly_the_standard_output_report_to_the_file_and_prints_nothi
     assert_eq!(saved, printed.stdout);
     assert_eq!(
         saved,
-        b"files: 1\nsource_lines: 2\nsource_sets:\n  production:\n    files: 1\n    source_lines: 2\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n"
+        format!("files: 1\nsource_lines: 2\nsource_sets:\n  production:\n    files: 1\n    source_lines: 2\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n{NO_DUPLICATION}").as_bytes()
     );
 }
 
@@ -684,7 +712,9 @@ fn output_replaces_an_existing_file() {
     assert_success(&output);
     assert_eq!(
         fs::read_to_string(repository.path().join("report.toon")).expect("read the report file"),
-        "files: 1\nsource_lines: 1\nsource_sets:\n  production:\n    files: 1\n    source_lines: 1\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n"
+        format!(
+            "files: 1\nsource_lines: 1\nsource_sets:\n  production:\n    files: 1\n    source_lines: 1\n    erosion:\n      ratio: 0\n      eroded_function_mass: 0\n      total_function_mass: 0\n      findings: []\n{NO_DUPLICATION}"
+        )
     );
 }
 
@@ -748,4 +778,63 @@ fn assert_unwritable_output(output: &Output, path: &str) {
             && message.lines().count() == 2,
         "unexpected message: {message}"
     );
+}
+
+const NO_DUPLICATION: &str =
+    "    duplication:\n      ratio: 0\n      clone_lines: 0\n      clone_groups: []\n";
+
+const CART_TOTAL: &str = concat!(
+    "export function total(items: { price: number; quantity: number }[]): number {\n",
+    "  let sum = 0;\n",
+    "  for (const item of items) {\n",
+    "    if (item.quantity > 0) {\n",
+    "      sum += item.price * item.quantity;\n",
+    "    }\n",
+    "  }\n",
+    "  return sum;\n",
+    "}\n",
+);
+
+#[test]
+fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locations() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write(
+        "src/invoice.ts",
+        &format!("const currency = 'EUR';\n{CART_TOTAL}export const label = currency;\n"),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 20\n");
+    assert_eq!(
+        duplication(&output),
+        concat!(
+            "    duplication:\n",
+            "      ratio: 0.9\n",
+            "      clone_lines: 18\n",
+            "      clone_groups[1]:\n",
+            "        - tokens: 59\n",
+            "          locations[2]{path,start_line,end_line}:\n",
+            "            src/cart.ts,1,9\n",
+            "            src/invoice.ts,2,10\n",
+        )
+    );
+}
+
+#[test]
+fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
+    let small = "export function double(value: number): number {\n  return value * 2;\n}\n";
+    let repository = Repository::new();
+    repository.write("src/first.ts", small);
+    repository.write("src/second.ts", small);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
+    assert_eq!(duplication(&output), NO_DUPLICATION);
 }

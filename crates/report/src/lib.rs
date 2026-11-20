@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
-use codeint_metrics::{ErodedFunction, Erosion};
+use codeint_metrics::{
+    CloneGroup, Duplication, ErodedFunction, Erosion, Fragment, MinimumCloneTokens,
+};
 use codeint_model::{CodeModel, RepoPath, SkippedFile, SourceSet, SourceSets};
 use serde::Serialize;
 
@@ -38,6 +40,7 @@ struct SourceSetSection {
     files: usize,
     source_lines: u64,
     erosion: ErosionSection,
+    duplication: DuplicationSection,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,6 +58,26 @@ struct ErodedFunctionFinding {
     cyclomatic_complexity: u32,
     source_lines: u32,
     function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct DuplicationSection {
+    ratio: Decimal,
+    clone_lines: u64,
+    clone_groups: Vec<CloneGroupFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct CloneGroupFinding {
+    tokens: usize,
+    locations: Vec<CloneLocation>,
+}
+
+#[derive(Debug, Serialize)]
+struct CloneLocation {
+    path: String,
+    start_line: u32,
+    end_line: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -100,6 +123,10 @@ impl SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: ErosionSection::new(&Erosion::measure(model)),
+            duplication: DuplicationSection::new(&Duplication::measure(
+                model,
+                MinimumCloneTokens::PROVISIONAL_DEFAULT,
+            )),
         }
     }
 }
@@ -135,6 +162,39 @@ impl ErodedFunctionFinding {
             cyclomatic_complexity: function.cyclomatic_complexity,
             source_lines: function.source_lines,
             function_mass: Decimal::rounded(function.function_mass),
+        }
+    }
+}
+
+impl DuplicationSection {
+    fn new(duplication: &Duplication) -> DuplicationSection {
+        DuplicationSection {
+            ratio: Decimal::rounded(duplication.ratio()),
+            clone_lines: duplication.clone_lines,
+            clone_groups: duplication
+                .clone_groups
+                .iter()
+                .map(CloneGroupFinding::new)
+                .collect(),
+        }
+    }
+}
+
+impl CloneGroupFinding {
+    fn new(group: &CloneGroup) -> CloneGroupFinding {
+        CloneGroupFinding {
+            tokens: group.tokens,
+            locations: group.fragments.iter().map(CloneLocation::new).collect(),
+        }
+    }
+}
+
+impl CloneLocation {
+    fn new(fragment: &Fragment) -> CloneLocation {
+        CloneLocation {
+            path: fragment.path.to_string(),
+            start_line: fragment.start_line,
+            end_line: fragment.end_line,
         }
     }
 }
