@@ -1,7 +1,7 @@
 {
   "threshold": 0,
   "format": ["rust", "javascript", "jsx", "typescript", "tsx"],
-  "ignore": ["**/target/**", "**/node_modules/**", ".agents/**", ".claude/**"],
+  "ignore": ["**/target/**", "**/node_modules/**", ".agents/**", ".claude/**", "crates/*/tests/fixtures/**"],
   "gitignore": true,
   "reporters": ["console"],
   "exitCode": 1

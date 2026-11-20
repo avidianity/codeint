@@ -46,6 +46,7 @@ pub(crate) struct Settings {
     pub(crate) record_folders: Vec<String>,
     pub(crate) config_modules: Vec<String>,
     pub(crate) approved_suppressions: Vec<String>,
+    pub(crate) comment_exempt_paths: Vec<String>,
     pub(crate) behavior_source: Vec<String>,
     pub(crate) behavior_tests: Vec<String>,
     pub(crate) tier_default: u8,
@@ -97,6 +98,7 @@ pub(crate) fn load_settings(root: &Path) -> Result<Settings, String> {
         record_folders: strings(&table, "records.folders")?,
         config_modules: strings(&table, "config_access.modules")?,
         approved_suppressions: strings(&table, "suppressions.approved")?,
+        comment_exempt_paths: strings(&table, "no_comments.exempt")?,
         behavior_source: strings(&table, "behavior.source")?,
         behavior_tests: strings(&table, "behavior.tests")?,
         tier_default: u8::try_from(integer(&table, "tier.default")?)

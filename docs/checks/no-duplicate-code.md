@@ -5,6 +5,7 @@ A change adds no block of code that duplicates another block in the Project.
 A duplicate is a block of 10 or more lines, or 100 or more tokens, that appears twice when formatting is ignored.
 Test files count.
 Generated files are exempt.
+Test input files under `crates/*/tests/fixtures/` are exempt, because clone-detection fixtures must hold duplicates on purpose.
 
 The thresholds are Defaults.
 The Project keeps them in the check's configuration, changes them only by an ADR, and a change to them is Tier 3; see [test-oracle-guard](./test-oracle-guard.md).

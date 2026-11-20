@@ -25,6 +25,9 @@ modules = ["crates/config/**", "xtask/src/config.rs"]
 [suppressions]
 approved = []
 
+[no_comments]
+exempt = ["crates/*/tests/fixtures/**"]
+
 [behavior]
 source = ["crates/**/*.rs", "xtask/src/**/*.rs", "wit/**/*.wit", "npm/**/*.js", "npm/**/*.mjs", "npm/**/*.cjs", "install.sh", "install.ps1"]
 tests = ["**/tests.rs", "**/tests/**", "**/*.test.js", "**/*.test.mjs"]

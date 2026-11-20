@@ -135,6 +135,37 @@ fn no_comments_rejects_an_added_comment_and_accepts_a_rename() {
 }
 
 #[test]
+fn no_comments_skips_test_fixtures_but_not_other_test_or_source_files() {
+    let repository = Repository::new();
+    repository.branch("feature");
+    repository.write(
+        "crates/lang-ts/tests/fixtures/commented.ts",
+        "// a comment-only line is test input\nexport const one = 1;\n",
+    );
+    repository.commit_all("test: add a commented fixture");
+    assert_passes(&repository.xtask(&["no-comments", "--base", "main"]));
+    repository.write(
+        "crates/lang-ts/tests/conformance.ts",
+        "// not a fixture\nexport const two = 2;\n",
+    );
+    repository.commit_all("test: add a commented test file");
+    assert_fails_with(
+        &repository.xtask(&["no-comments", "--base", "main"]),
+        "crates/lang-ts/tests/conformance.ts:1 adds a comment",
+    );
+    repository.git(&["rm", "-q", "crates/lang-ts/tests/conformance.ts"]);
+    repository.write(
+        "crates/lang-ts/src/fixtures/inline.ts",
+        "// fixtures outside tests are source\nexport const three = 3;\n",
+    );
+    repository.commit_all("feat: add a source file named fixtures");
+    assert_fails_with(
+        &repository.xtask(&["no-comments", "--base", "main"]),
+        "crates/lang-ts/src/fixtures/inline.ts:1 adds a comment",
+    );
+}
+
+#[test]
 fn no_comments_checks_staged_lines_for_the_hook() {
     let repository = Repository::new();
     repository.write("install.sh", "#!/usr/bin/env bash\necho hi\n");

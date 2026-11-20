@@ -68,8 +68,12 @@ pub(crate) fn no_comments(
     source: &DiffSource,
 ) -> Result<Violations, String> {
     let mut violations = Violations::new();
+    let exempt = super::glob_set(&settings.comment_exempt_paths)?;
     for change in git::changed_files(root, source)? {
-        if change.is_deleted() || settings.is_third_party_skill(&change.path) {
+        if change.is_deleted()
+            || settings.is_third_party_skill(&change.path)
+            || exempt.is_match(&change.path)
+        {
             continue;
         }
         let Some(language) = Language::of_path(&change.path) else {
