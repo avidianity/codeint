@@ -113,6 +113,9 @@ assert_eq!(model.source_lines, 2);
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
+- Push a file that is not valid UTF-8 onto `CodeModel::skipped` without lowering it, with a `reason` that starts with `not valid UTF-8`.
+- Hand the text to `lower` with its line endings as written; a CRLF line ending counts like LF in every line a Language plugin reports.
+- Pass each Git submodule of the working tree to `Report::summarize`, beside the Code models; no Language plugin measures a submodule's files, so a submodule belongs to no Code model.
 
 ## Settle the Source set of a lowered file
 

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::string::FromUtf8Error;
 
 use codeint_config::{
     ConfigurationFileError, FindingsShown, LanguageCoverage, SourceSetOverrides, read_configuration,
@@ -8,10 +7,10 @@ use codeint_config::{
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, RepoPath, ResolveError,
-    SkippedFile, SourceFile, resolve_runtime_imports, settle_source_set,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, ResolveError, SkippedFile,
+    SourceFile, resolve_runtime_imports, settle_source_set,
 };
-use codeint_report::{MeasuredLanguage, Report, ReportError};
+use codeint_report::{MeasuredLanguage, Report};
 
 #[cfg(test)]
 mod tests;
@@ -22,18 +21,10 @@ pub(crate) enum CheckError {
     Git(#[from] GitError),
     #[error(transparent)]
     Configuration(#[from] ConfigurationFileError),
-    #[error("{path} is not valid UTF-8")]
-    NotUtf8 {
-        path: RepoPath,
-        #[source]
-        source: FromUtf8Error,
-    },
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
     ReferenceRange(#[source] InvalidReferenceRange),
-    #[error(transparent)]
-    Report(#[from] ReportError),
 }
 
 pub(crate) struct NamedLanguagePlugin<'plugin> {
@@ -46,7 +37,7 @@ const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] = [NamedLangu
     plugin: &TypeScriptAndJavaScript,
 }];
 
-pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<String, CheckError> {
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
     check_with(folder, &BUILT_IN_LANGUAGE_PLUGINS, findings)
 }
 
@@ -54,7 +45,7 @@ fn check_with(
     folder: &Path,
     plugins: &[NamedLanguagePlugin<'_>],
     findings: FindingsShown,
-) -> Result<String, CheckError> {
+) -> Result<Report, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let configuration = read_configuration(tree.root())?;
     let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
@@ -65,7 +56,11 @@ fn check_with(
         &coverage,
         &configuration.source_set_overrides,
     )?;
-    Ok(Report::summarize(languages, findings).to_toon()?)
+    Ok(Report::summarize(
+        languages,
+        tree.submodules().to_vec(),
+        findings,
+    ))
 }
 
 fn measure(
@@ -96,12 +91,18 @@ fn measure(
         if !coverage[index].covers(path) {
             continue;
         }
-        let bytes = tree.read(path)?;
-        let text = String::from_utf8(bytes).map_err(|source| CheckError::NotUtf8 {
-            path: path.clone(),
-            source,
-        })?;
         let model = &mut models[index];
+        let bytes = tree.read(path)?;
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => {
+                model.skipped.push(SkippedFile {
+                    path: path.clone(),
+                    reason: format!("not valid UTF-8: {}", error.utf8_error()),
+                });
+                continue;
+            }
+        };
         match plugins[index].plugin.lower(path, &text) {
             Ok(mut file) => {
                 file.source_set =

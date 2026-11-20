@@ -1,17 +1,20 @@
 #![forbid(unsafe_code)]
 
-use codeint_config::FindingsShown;
+use std::collections::BTreeMap;
+
+use codeint_config::{FindingsShown, ReportFormat};
 use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
-    ImportCycles, MinimumCloneTokens, Verbosity,
+    ImportCycles, MinimumCloneTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
 };
-use std::collections::BTreeMap;
-
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
+
+#[cfg(test)]
+mod tests;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
@@ -19,8 +22,12 @@ const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
 
 #[derive(Debug, thiserror::Error)]
-#[error("cannot render the report")]
-pub struct ReportError(#[source] toon_format::ToonError);
+pub enum ReportError {
+    #[error("cannot render the report as TOON")]
+    Toon(#[source] toon_format::ToonError),
+    #[error("cannot render the report as JSON")]
+    Json(#[source] serde_json::Error),
+}
 
 #[derive(Debug, Serialize)]
 pub struct Report {
@@ -32,6 +39,8 @@ pub struct Report {
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    submodules: Vec<String>,
 }
 
 pub struct MeasuredLanguage {
@@ -97,6 +106,7 @@ struct ErosionSection {
 
 trait FindingKind: Serialize {
     const LIST_KEY: &'static str;
+    const LEFT_OUT_KEY: &'static str = "findings_left_out";
 }
 
 #[derive(Debug)]
@@ -141,6 +151,8 @@ struct VerbositySection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
     verbose_lines: u64,
+    flagged_lines: u64,
+    clone_lines: u64,
     #[serde(flatten)]
     findings: Findings<FlaggedLineRow>,
 }
@@ -160,6 +172,21 @@ struct ImportCyclesSection {
     modules: usize,
     #[serde(flatten)]
     findings: Findings<ImportCycleFinding>,
+    unresolved_imports: UnresolvedImportsSection,
+}
+
+#[derive(Debug, Serialize)]
+struct UnresolvedImportsSection {
+    count: usize,
+    #[serde(flatten)]
+    imports: Findings<UnresolvedImportRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct UnresolvedImportRow {
+    importer: String,
+    specifier: String,
+    reason: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -179,7 +206,9 @@ struct SkippedEntry {
 
 impl Decimal {
     fn rounded(value: f64) -> Decimal {
-        Decimal((value * DECIMAL_SCALE).round() / DECIMAL_SCALE)
+        let rounded = (value * DECIMAL_SCALE).round() / DECIMAL_SCALE;
+        let without_negative_zero = if rounded == 0.0 { 0.0 } else { rounded };
+        Decimal(without_negative_zero)
     }
 }
 
@@ -229,7 +258,7 @@ impl<T: FindingKind> Serialize for Findings<T> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry(T::LIST_KEY, &self.listed)?;
         if self.left_out > 0 {
-            map.serialize_entry("findings_left_out", &self.left_out)?;
+            map.serialize_entry(T::LEFT_OUT_KEY, &self.left_out)?;
         }
         map.end()
     }
@@ -249,6 +278,11 @@ impl FindingKind for FlaggedLineRow {
 
 impl FindingKind for ImportCycleFinding {
     const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for UnresolvedImportRow {
+    const LIST_KEY: &'static str = "imports";
+    const LEFT_OUT_KEY: &'static str = "imports_left_out";
 }
 
 impl SourceSetSections {
@@ -282,16 +316,14 @@ impl SourceSetSection {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
     ) -> SourceSetSection {
+        let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+        let verbosity = Verbosity::measure(model, &duplication.clone_lines);
         SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: ErosionSection::new(&Erosion::measure(model), ranges, findings),
-            duplication: DuplicationSection::new(
-                &Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
-                ranges,
-                findings,
-            ),
-            verbosity: VerbositySection::new(&Verbosity::measure(model), ranges, findings),
+            duplication: DuplicationSection::new(&duplication, ranges, findings),
+            verbosity: VerbositySection::new(&verbosity, ranges, findings),
             import_cycles: ImportCyclesSection::new(
                 &ImportCycles::measure(model),
                 ranges,
@@ -352,7 +384,7 @@ impl DuplicationSection {
         DuplicationSection {
             ratio: Decimal::rounded(duplication.ratio()),
             reference_range: ranges.entry("duplication"),
-            clone_lines: duplication.clone_lines,
+            clone_lines: duplication.clone_lines.count(),
             clone_groups: Findings::worst_first(
                 duplication.clone_groups.iter().map(CloneGroupFinding::new),
                 shown,
@@ -390,6 +422,8 @@ impl VerbositySection {
             ratio: Decimal::rounded(verbosity.ratio()),
             reference_range: ranges.entry("verbosity"),
             verbose_lines: verbosity.verbose_lines(),
+            flagged_lines: verbosity.flagged_line_count(),
+            clone_lines: verbosity.clone_line_count(),
             findings: Findings::worst_first(
                 verbosity.flagged_lines().iter().map(FlaggedLineRow::from),
                 shown,
@@ -423,6 +457,7 @@ impl ImportCyclesSection {
                 import_cycles.cycles().iter().map(ImportCycleFinding::new),
                 shown,
             ),
+            unresolved_imports: UnresolvedImportsSection::new(import_cycles, shown),
         }
     }
 }
@@ -431,6 +466,26 @@ impl ImportCycleFinding {
     fn new(cycle: &ImportCycle) -> ImportCycleFinding {
         ImportCycleFinding {
             modules: cycle.modules().iter().map(RepoPath::to_string).collect(),
+        }
+    }
+}
+
+impl UnresolvedImportsSection {
+    fn new(import_cycles: &ImportCycles, shown: FindingsShown) -> UnresolvedImportsSection {
+        let unresolved = import_cycles.unresolved_imports();
+        UnresolvedImportsSection {
+            count: unresolved.len(),
+            imports: Findings::worst_first(unresolved.iter().map(UnresolvedImportRow::from), shown),
+        }
+    }
+}
+
+impl From<&UnresolvedImport> for UnresolvedImportRow {
+    fn from(import: &UnresolvedImport) -> UnresolvedImportRow {
+        UnresolvedImportRow {
+            importer: import.importer.to_string(),
+            specifier: import.specifier.clone(),
+            reason: import.reason.clone(),
         }
     }
 }
@@ -459,7 +514,11 @@ impl MeasuredSection {
 }
 
 impl Report {
-    pub fn summarize(languages: Vec<MeasuredLanguage>, findings: FindingsShown) -> Report {
+    pub fn summarize(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
+    ) -> Report {
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -504,12 +563,16 @@ impl Report {
                 .iter()
                 .map(RepoPath::to_string)
                 .collect(),
+            submodules: submodules.iter().map(RepoPath::to_string).collect(),
             measured: MeasuredSection::new(model, &total_ranges, findings),
             languages: sections_per_language,
         }
     }
 
-    pub fn to_toon(&self) -> Result<String, ReportError> {
-        toon_format::encode_default(self).map_err(ReportError)
+    pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
+        match format {
+            ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
+            ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+        }
     }
 }

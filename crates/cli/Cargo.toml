@@ -18,7 +18,9 @@ codeint-report = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 tempfile = { workspace = true }
+toon-format = { workspace = true }
 
 [lints]
 workspace = true
