@@ -11,6 +11,7 @@ pub struct RatioRise(f64);
 pub enum NewFindingsRule {
     AnyNewFinding,
     NumeratorRiseWithNewFindings,
+    Never,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -38,7 +39,7 @@ pub(crate) struct RegressionLimitSetting {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "NewFindingsRule",
-        description = "When new Findings fail: any_new_finding fails on any new Finding; numerator_rise_with_new_findings fails only when the numerator rises too, so a Finding that only moves passes."
+        description = "When new Findings fail: any_new_finding fails on any new Finding; numerator_rise_with_new_findings fails only when the numerator rises too, so a Finding that only moves passes; never lets new Findings pass, so that with ratio_rise 1 this Metric never makes a Regression here."
     )]
     new_findings: Option<NewFindingsRule>,
 }

@@ -476,11 +476,11 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
-| `regression_limits.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding` or `numerator_rise_with_new_findings` |
+| `regression_limits.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
 | `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
 | `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
-| `regression_limits.{source_set}.{metric}.new_findings` | string | When new Findings are a Regression |
+| `regression_limits.{source_set}.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
 | `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
@@ -580,6 +580,7 @@ Each limit has two settings, and you may set either one or both:
 - `new_findings` says when new Findings are a Regression.
   `any_new_finding` fails on any new Finding, the default for Import cycles.
   `numerator_rise_with_new_findings` fails only when the numerator rises too, the default for the other Metrics.
+  `never` lets new Findings pass; together with `ratio_rise: 1`, the Metric never makes a Regression there, which suits the `generated` and `vendored` Source sets.
 
 codeint settles each setting on its own: the Source set limit wins, then the Metric limit, then the default.
 So the example above gives production Erosion a ratio rise limit of 0.02 and fails it on any new Finding.

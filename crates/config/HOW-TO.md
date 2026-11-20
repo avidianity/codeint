@@ -68,7 +68,8 @@ let any_new_finding_fails = limit.new_findings == NewFindingsRule::AnyNewFinding
   `limit` settles each of `ratio_rise` and `new_findings` on its own: the Source set setting wins, then the Metric setting, then the default.
 - `RatioRise::DEFAULT` is 0.01, and `admits` passes a rise equal to the limit.
   Round the difference of the two displayed ratios to four places before you pass it, because the plain floating-point difference of 0.0142 and 0.0042 is above 0.01.
-- `NewFindingsRule::AnyNewFinding` fails on any new Finding; `NewFindingsRule::NumeratorRiseWithNewFindings` fails only when the numerator also rises.
+- `NewFindingsRule::AnyNewFinding` fails on any new Finding; `NewFindingsRule::NumeratorRiseWithNewFindings` fails only when the numerator also rises; `NewFindingsRule::Never` never fails on new Findings, so only `ratio_rise` can still make a Regression.
+  In `codeint.json` the three values are `any_new_finding`, `numerator_rise_with_new_findings`, and `never`.
 
 ## Limit each Language plugin to its folders
 
