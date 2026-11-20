@@ -37,3 +37,21 @@ let ratio = duplication.ratio();
 - `ratio` is `clone_lines / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
 - `MinimumCloneTokens::PROVISIONAL_DEFAULT` is 50 tokens until the calibration Ticket #33 fixes the default.
+
+## Measure Verbosity
+
+```rust
+use codeint_metrics::Verbosity;
+
+let verbosity = Verbosity::measure(&model);
+println!("{} of {}", verbosity.verbose_lines(), verbosity.source_lines());
+println!("ratio {}", verbosity.ratio());
+for finding in verbosity.flagged_lines() {
+    println!("{}:{} matches {}", finding.path, finding.line, finding.rule);
+}
+```
+
+- `Verbosity::measure` reads only the `CodeModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts lines.
+- `verbose_lines` counts each flagged source line once, even when two rules match it.
+- `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
+- `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.
