@@ -19,8 +19,10 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, ReferenceRange, SourceSet, Token};
-pub use runtime_imports::{ImportResolution, ResolveError, RuntimeImport, resolve_runtime_imports};
+pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token};
+pub use runtime_imports::{
+    ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,
+};
 pub use source_set::settle_source_set;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -219,9 +221,12 @@ pub trait LanguagePlugin {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
 
+    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String>;
+
     fn resolve_imports(
         &self,
         repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution>;
 
@@ -237,21 +242,27 @@ impl<Plugin: language::Guest> LanguagePlugin for Plugin {
         Plugin::lower(path.as_str().to_owned(), text.to_owned()).map_err(LowerError::from)
     }
 
+    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+        Plugin::manifest_paths(owned_paths(repository_paths))
+    }
+
     fn resolve_imports(
         &self,
         repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution> {
-        Plugin::resolve_imports(
-            repository_paths
-                .iter()
-                .map(|path| path.as_str().to_owned())
-                .collect(),
-            requests,
-        )
+        Plugin::resolve_imports(owned_paths(repository_paths), manifests, requests)
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         ReferenceRanges::new(Plugin::reference_ranges())
     }
+}
+
+fn owned_paths(repository_paths: &[RepoPath]) -> Vec<String> {
+    repository_paths
+        .iter()
+        .map(|path| path.as_str().to_owned())
+        .collect()
 }

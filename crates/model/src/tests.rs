@@ -1,5 +1,5 @@
 use super::language::{
-    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, SourceSet,
+    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
 };
 use super::{
     CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath,
@@ -24,11 +24,20 @@ impl Guest for MeasuredLanguage {
         })
     }
 
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        repository_paths
+    }
+
     fn resolve_imports(
         _repository_paths: Vec<String>,
+        manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        requests.iter().map(|_| Resolution::External).collect()
+        let reason = format!("{} manifests name no module", manifests.len());
+        requests
+            .iter()
+            .map(|_| Resolution::Unresolved(reason.clone()))
+            .collect()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

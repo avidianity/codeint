@@ -7,7 +7,7 @@ mod runtime_imports;
 mod source_set;
 
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, ReferenceRange, Resolution, Token,
+    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token,
 };
 use oxc_allocator::Allocator;
 use oxc_parser::config::TokensParserConfig;
@@ -15,7 +15,7 @@ use oxc_parser::{Kind, Parser};
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
-use crate::resolution::RelativeResolver;
+use crate::resolution::{ProjectResolver, manifest_paths};
 use crate::runtime_imports::runtime_import_specifiers;
 use crate::source_set::source_set;
 
@@ -67,11 +67,16 @@ impl Guest for TypeScriptAndJavaScript {
         })
     }
 
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        manifest_paths(&repository_paths)
+    }
+
     fn resolve_imports(
         repository_paths: Vec<String>,
+        manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        let resolver = RelativeResolver::new(&repository_paths);
+        let resolver = ProjectResolver::new(&repository_paths, manifests);
         requests
             .iter()
             .map(|request| resolver.resolve(request))

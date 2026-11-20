@@ -6,8 +6,9 @@ use codeint_config::FindingsShown;
 use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, ReferenceRanges, RepoPath,
-    ResolveError, SkippedFile, SourceFile, resolve_runtime_imports, settle_source_set,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
+    RepoPath, ResolveError, SkippedFile, SourceFile, choose_manifests, resolve_runtime_imports,
+    settle_source_set,
 };
 use codeint_report::{ReferenceRangeScope, Report, ReportError};
 
@@ -90,11 +91,7 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
         else {
             continue;
         };
-        let bytes = tree.read(path)?;
-        let text = String::from_utf8(bytes).map_err(|source| CheckError::NotUtf8 {
-            path: path.clone(),
-            source,
-        })?;
+        let text = read_text(tree, path)?;
         match plugins[index].lower(path, &text) {
             Ok(mut file) => {
                 measured.insert(index);
@@ -120,10 +117,27 @@ fn measure(tree: &WorkingTree, plugins: &[&dyn LanguagePlugin]) -> Result<Measur
             .filter(|(_, file_plugin)| **file_plugin == index)
             .map(|(file, _)| file)
             .collect();
-        let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), &importers)
+        let manifests = choose_manifests(*plugin, tree.files())
+            .map_err(CheckError::Resolve)?
+            .into_iter()
+            .map(|path| {
+                Ok(Manifest {
+                    text: read_text(tree, &path)?,
+                    path: path.as_str().to_owned(),
+                })
+            })
+            .collect::<Result<Vec<Manifest>, CheckError>>()?;
+        let runtime_imports = resolve_runtime_imports(*plugin, tree.files(), manifests, &importers)
             .map_err(CheckError::Resolve)?;
         model.runtime_imports.extend(runtime_imports);
     }
     let ranges = reference_range_scope(plugins, &measured)?;
     Ok(Measurement { model, ranges })
+}
+
+fn read_text(tree: &WorkingTree, path: &RepoPath) -> Result<String, CheckError> {
+    String::from_utf8(tree.read(path)?).map_err(|source| CheckError::NotUtf8 {
+        path: path.clone(),
+        source,
+    })
 }

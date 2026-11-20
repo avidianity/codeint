@@ -91,6 +91,14 @@ interface language {
         declaration-only,
     }
 
+    /// A file that a Language plugin needs to resolve imports, such as a `package.json` or `tsconfig.json` file, as the host read it.
+    record manifest {
+        /// The path of the file, relative to the repository root, with forward slashes.
+        path: string,
+        /// The whole file.
+        text: string,
+    }
+
     /// The file extensions the Language plugin reads, each without its leading dot, such as `ts`.
     extensions: func() -> list<string>;
 
@@ -99,10 +107,16 @@ interface language {
     /// `text` is the whole file.
     lower: func(path: string, text: string) -> result<file-model, lower-error>;
 
+    /// Chooses the files of one repository snapshot that the host reads and passes to `resolve-imports`, because a Plugin cannot read files.
+    /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
+    /// The result names only paths from `repository-paths`, such as each `package.json` and `tsconfig.json` file.
+    manifest-paths: func(repository-paths: list<string>) -> list<string>;
+
     /// Resolves runtime imports against the files of one repository snapshot.
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
+    /// `manifests` holds each file that `manifest-paths` chose, with its text.
     /// The result holds one resolution per request, in request order.
-    resolve-imports: func(repository-paths: list<string>, requests: list<import-request>) -> list<resolution>;
+    resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>) -> list<resolution>;
     /// The published typical value of one Metric for codebases in the language of the Language plugin.
     record reference-range {
         /// The Metric, by its key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.

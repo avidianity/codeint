@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{LanguagePlugin, RepoPath, SourceFile, language};
+use crate::{LanguagePlugin, Manifest, RepoPath, SourceFile, language};
 
 #[cfg(test)]
 mod tests;
@@ -31,11 +31,21 @@ pub enum ResolveError {
         specifier: String,
         target: String,
     },
+    #[error("the Language plugin asked to read {path:?}, which is not a file of the repository")]
+    UnknownManifest { path: String },
+}
+
+pub fn choose_manifests(
+    plugin: &dyn LanguagePlugin,
+    repository_paths: &[RepoPath],
+) -> Result<Vec<RepoPath>, ResolveError> {
+    todo!("{:?} {:?}", plugin.extensions(), repository_paths)
 }
 
 pub fn resolve_runtime_imports(
     plugin: &dyn LanguagePlugin,
     repository_paths: &[RepoPath],
+    manifests: Vec<Manifest>,
     importers: &[&SourceFile],
 ) -> Result<Vec<RuntimeImport>, ResolveError> {
     let pending: Vec<(&RepoPath, &String)> = importers
@@ -57,7 +67,7 @@ pub fn resolve_runtime_imports(
             specifier: (*specifier).clone(),
         })
         .collect();
-    let resolutions = plugin.resolve_imports(repository_paths, requests);
+    let resolutions = plugin.resolve_imports(repository_paths, manifests, requests);
     if resolutions.len() != pending.len() {
         return Err(ResolveError::WrongCount {
             asked: pending.len(),

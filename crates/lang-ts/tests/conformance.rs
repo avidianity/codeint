@@ -813,7 +813,7 @@ fn resolve(repository_paths: &[&str], importer: &str, specifier: &str) -> Resolu
         importer: importer.to_owned(),
         specifier: specifier.to_owned(),
     };
-    let mut resolutions = plugin().resolve_imports(&paths, vec![request]);
+    let mut resolutions = plugin().resolve_imports(&paths, Vec::new(), vec![request]);
     assert_eq!(resolutions.len(), 1, "one resolution per request");
     resolutions.remove(0)
 }
@@ -908,7 +908,7 @@ fn resolutions_come_back_one_per_request_in_request_order() {
     })
     .collect();
 
-    let resolutions = plugin().resolve_imports(&paths, requests);
+    let resolutions = plugin().resolve_imports(&paths, Vec::new(), requests);
 
     assert_eq!(
         resolutions,
