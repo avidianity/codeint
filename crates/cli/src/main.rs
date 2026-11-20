@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod check;
+mod diff;
 mod remedy;
 
 use std::error::Error;
@@ -73,6 +74,17 @@ fn run() -> Result<Outcome, CliError> {
             } else {
                 Outcome::OverBudget(over_budget)
             })
+        }
+        Command::Diff {
+            folder,
+            base_ref,
+            destination,
+            findings,
+            format,
+        } => {
+            let report = diff::diff(&folder, &base_ref, findings)?;
+            write_report(&report.render(format)?, &destination)?;
+            Ok(Outcome::Passed)
         }
     }
 }

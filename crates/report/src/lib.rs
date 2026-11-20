@@ -14,9 +14,12 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
+mod diff;
 mod markdown;
 #[cfg(test)]
 mod tests;
+
+pub use diff::{BaseCommit, DiffReport};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
@@ -396,13 +399,7 @@ impl SourceSetSection {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
     ) -> SourceSetSection {
-        let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
-        let measured = Measured {
-            erosion: Erosion::measure(model),
-            verbosity: Verbosity::measure(model, &duplication.clone_lines),
-            duplication,
-            import_cycles: ImportCycles::measure(model),
-        };
+        let measured = Measured::new(model);
         SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
@@ -590,6 +587,18 @@ struct Measured {
     duplication: Duplication,
     verbosity: Verbosity,
     import_cycles: ImportCycles,
+}
+
+impl Measured {
+    fn new(model: &CodeModel) -> Measured {
+        let duplication = Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT);
+        Measured {
+            erosion: Erosion::measure(model),
+            verbosity: Verbosity::measure(model, &duplication.clone_lines),
+            duplication,
+            import_cycles: ImportCycles::measure(model),
+        }
+    }
 }
 
 fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSection> {

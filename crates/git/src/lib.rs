@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
@@ -32,16 +33,74 @@ pub enum GitError {
         #[source]
         source: std::io::Error,
     },
+    #[error("the Git ref {name:?} does not name a commit in this repository")]
+    UnknownRef {
+        name: String,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("HEAD does not name a commit yet, so it has no merge-base with {base_ref:?}")]
+    NoHeadCommit {
+        base_ref: String,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("{base_ref:?} and HEAD have no commit in common, so they have no merge-base")]
+    NoMergeBase { base_ref: String },
+    #[error("cannot find the merge-base of {base_ref:?} and HEAD")]
+    MergeBase {
+        base_ref: String,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("cannot list the files of commit {commit}")]
+    CommitTree {
+        commit: CommitId,
+        #[source]
+        source: gix::Error,
+    },
+    #[error("cannot read {path} from commit {commit}")]
+    ReadBlob {
+        path: RepoPath,
+        commit: CommitId,
+        #[source]
+        source: gix::Error,
+    },
 }
 
-pub struct WorkingTree {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CommitId(gix::ObjectId);
+
+pub struct Repository {
+    repository: gix::Repository,
     root: PathBuf,
+}
+
+pub struct Snapshot {
     files: Vec<RepoPath>,
     submodules: Vec<RepoPath>,
+    contents: Contents,
 }
 
-impl WorkingTree {
-    pub fn discover(start: &Path) -> Result<WorkingTree, GitError> {
+enum Contents {
+    WorkingTree {
+        root: PathBuf,
+    },
+    Commit {
+        repository: gix::Repository,
+        commit: CommitId,
+        blobs: HashMap<RepoPath, gix::ObjectId>,
+    },
+}
+
+impl std::fmt::Display for CommitId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl Repository {
+    pub fn discover(start: &Path) -> Result<Repository, GitError> {
         let repository = gix::discover(start).map_err(|source| {
             if source.is_not_found() {
                 GitError::NotInRepository {
@@ -60,18 +119,44 @@ impl WorkingTree {
                 start: start.to_path_buf(),
             })?
             .to_path_buf();
-        let Listing { files, submodules } = list_working_tree(&repository)?;
-        Ok(WorkingTree {
-            root,
-            files,
-            submodules,
-        })
+        Ok(Repository { repository, root })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    pub fn working_tree(&self) -> Result<Snapshot, GitError> {
+        let Listing { files, submodules } = list_working_tree(&self.repository)?;
+        Ok(Snapshot {
+            files,
+            submodules,
+            contents: Contents::WorkingTree {
+                root: self.root.clone(),
+            },
+        })
+    }
+
+    pub fn merge_base_with_head(&self, base_ref: &str) -> Result<CommitId, GitError> {
+        let _ = base_ref;
+        todo!()
+    }
+
+    pub fn commit(&self, commit: CommitId) -> Result<Snapshot, GitError> {
+        let (Listing { files, submodules }, blobs) = list_commit(&self.repository, commit)?;
+        Ok(Snapshot {
+            files,
+            submodules,
+            contents: Contents::Commit {
+                repository: self.repository.clone(),
+                commit,
+                blobs,
+            },
+        })
+    }
+}
+
+impl Snapshot {
     pub fn files(&self) -> &[RepoPath] {
         &self.files
     }
@@ -81,10 +166,22 @@ impl WorkingTree {
     }
 
     pub fn read(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
-        std::fs::read(self.root.join(path.as_str())).map_err(|source| GitError::Read {
-            path: path.clone(),
-            source,
-        })
+        match &self.contents {
+            Contents::WorkingTree { root } => {
+                std::fs::read(root.join(path.as_str())).map_err(|source| GitError::Read {
+                    path: path.clone(),
+                    source,
+                })
+            }
+            Contents::Commit {
+                repository,
+                commit,
+                blobs,
+            } => {
+                let _ = (repository, commit, blobs);
+                todo!()
+            }
+        }
     }
 }
 
@@ -127,6 +224,14 @@ fn list_working_tree(repository: &gix::Repository) -> Result<Listing, GitError> 
         }
     }
     Ok(listing)
+}
+
+fn list_commit(
+    repository: &gix::Repository,
+    commit: CommitId,
+) -> Result<(Listing, HashMap<RepoPath, gix::ObjectId>), GitError> {
+    let _ = (repository, commit, repo_path);
+    todo!()
 }
 
 fn repo_path(rela_path: gix::bstr::BString) -> Result<RepoPath, GitError> {

@@ -62,6 +62,13 @@ pub enum Command {
         findings: FindingsShown,
         format: ReportFormat,
     },
+    Diff {
+        folder: PathBuf,
+        base_ref: String,
+        destination: ReportDestination,
+        findings: FindingsShown,
+        format: ReportFormat,
+    },
 }
 
 #[derive(Debug)]
@@ -88,6 +95,18 @@ enum CommandArguments {
             help = "A folder inside the Git repository to measure; the current folder by default"
         )]
         path: Option<PathBuf>,
+        #[command(flatten)]
+        report: ReportArguments,
+    },
+    #[command(
+        about = "Compare the working tree with the merge-base of a base Git ref and classify each Finding as new, resolved, or unchanged"
+    )]
+    Diff {
+        #[arg(
+            value_name = "BASE_REF",
+            help = "The base Git ref, such as main or origin/main; codeint measures its merge-base with HEAD"
+        )]
+        base_ref: String,
         #[command(flatten)]
         report: ReportArguments,
     },
@@ -118,6 +137,13 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
     let command = match arguments.command {
         CommandArguments::Check { path, report } => Command::Check {
             folder: existing_folder(&current_folder, path)?,
+            destination: report_destination(&current_folder, report.output)?,
+            findings: findings_shown(report.all),
+            format: report.format,
+        },
+        CommandArguments::Diff { base_ref, report } => Command::Diff {
+            folder: current_folder.clone(),
+            base_ref,
             destination: report_destination(&current_folder, report.output)?,
             findings: findings_shown(report.all),
             format: report.format,

@@ -4,7 +4,7 @@ use std::path::Path;
 use codeint_config::{
     ConfigurationFileError, FindingsShown, SourceSetOverrides, read_configuration,
 };
-use codeint_git::{GitError, WorkingTree};
+use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
@@ -30,8 +30,8 @@ pub(crate) enum CheckError {
     Workspace(#[from] WorkspaceError),
 }
 
-struct Measurement {
-    model: CodeModel,
+pub(crate) struct Measurement {
+    pub(crate) model: CodeModel,
     ranges: ReferenceRangeScope,
 }
 
@@ -44,8 +44,9 @@ fn check_with(
     plugins: &[&dyn LanguagePlugin],
     findings: FindingsShown,
 ) -> Result<Report, CheckError> {
-    let tree = WorkingTree::discover(folder)?;
-    let configuration = read_configuration(tree.root())?;
+    let repository = Repository::discover(folder)?;
+    let configuration = read_configuration(repository.root())?;
+    let tree = repository.working_tree()?;
     let Measurement { model, ranges } =
         measure(&tree, plugins, &configuration.source_set_overrides)?;
     Ok(Report::summarize(
@@ -74,8 +75,8 @@ fn reference_range_scope(
     }
 }
 
-fn measure(
-    tree: &WorkingTree,
+pub(crate) fn measure(
+    tree: &Snapshot,
     plugins: &[&dyn LanguagePlugin],
     overrides: &SourceSetOverrides,
 ) -> Result<Measurement, CheckError> {
@@ -149,7 +150,7 @@ fn measure(
 }
 
 fn find_workspace(
-    tree: &WorkingTree,
+    tree: &Snapshot,
     plugins: &[&dyn LanguagePlugin],
 ) -> Result<Workspace, CheckError> {
     let mut member_roots = Vec::new();
