@@ -26,6 +26,13 @@ for (package, masses) in erosion.by_package(&model) {
   Each package's masses are sums over its files, so the package masses add up to the totals.
   Compute a total from summed masses, never from an average of package ratios.
 
+## Report a Metric per Source set
+
+- A Metric measures one `CodeModel` and never reads the Source set of a file itself.
+- The report crate splits the Code model with `CodeModel::into_source_sets` and measures every Metric once per Source set.
+- To add a Metric to the report, add its section as a field of `SourceSetSection` in `crates/report/src/lib.rs`, built from the `CodeModel` of that Source set.
+  The report then shows the Metric for each Source set that holds a file.
+
 ## Find Clone groups
 
 ```rust

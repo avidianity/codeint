@@ -15,6 +15,19 @@ interface language {
         source-lines: u32,
     }
 
+    /// The group a source file belongs to.
+    /// Every source file belongs to exactly one Source set, and every Metric reports each Source set separately.
+    enum source-set {
+        /// Code that ships, the default for a file that no other rule claims.
+        production,
+        /// Code that only tests run, such as a TypeScript `*.test.ts` file.
+        test,
+        /// Code that a tool writes, such as build output.
+        generated,
+        /// Third-party code copied into the repository.
+        vendored,
+    }
+
     /// One token of a source file, as written, so never whitespace or a comment.
     record token {
         /// The text of the token.
@@ -33,6 +46,8 @@ interface language {
 
     /// The Code model of one source file.
     record file-model {
+        /// The Source set of the file, chosen by the rules of the Language plugin.
+        source-set: source-set,
         /// The lines that hold code, so not a blank line or a line with only comments.
         source-lines: u32,
         /// Every function of the file, in the order their first lines appear.

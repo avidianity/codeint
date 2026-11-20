@@ -1,5 +1,5 @@
 use codeint_model::language::FlaggedLine;
-use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile};
+use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, SourceSet};
 
 use super::{FlaggedLineFinding, Verbosity};
 
@@ -7,6 +7,7 @@ fn file(path: &str, source_lines: u32, flagged: &[(u32, &str)]) -> SourceFile {
     SourceFile {
         path: RepoPath::new(path).expect("a valid path"),
         model: FileModel {
+            source_set: SourceSet::Production,
             source_lines,
             functions: Vec::new(),
             tokens: Vec::new(),

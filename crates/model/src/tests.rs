@@ -1,4 +1,6 @@
-use super::language::{FileModel, Guest, LowerError, Manifest, ReferenceRange, WorkspaceError};
+use super::language::{
+    FileModel, Guest, LowerError, Manifest, ReferenceRange, SourceSet, WorkspaceError,
+};
 use super::{InvalidReferenceRange, LanguagePlugin, Package, ReferenceRanges, RepoPath, Workspace};
 
 fn path(text: &str) -> RepoPath {
@@ -49,6 +51,7 @@ impl Guest for MeasuredLanguage {
 
     fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
         Ok(FileModel {
+            source_set: SourceSet::Production,
             source_lines: u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?,
             functions: Vec::new(),
             tokens: Vec::new(),

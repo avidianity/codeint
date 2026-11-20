@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, Token};
+use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token};
 
 use super::{CloneGroup, Duplication, Fragment, MinimumCloneTokens};
 
@@ -18,6 +18,7 @@ fn file(path: &str, lines: &[&str]) -> SourceFile {
     SourceFile {
         path: RepoPath::new(path).expect("a valid path"),
         model: FileModel {
+            source_set: SourceSet::Production,
             source_lines: u32::try_from(lines.len()).expect("few lines"),
             functions: Vec::new(),
             tokens,

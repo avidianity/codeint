@@ -7,7 +7,10 @@ use codeint_metrics::{
     CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
     MinimumCloneTokens, Verbosity,
 };
-use codeint_model::{CodeModel, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile};
+use codeint_model::{
+    CodeModel, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet,
+    SourceSets,
+};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
@@ -24,11 +27,7 @@ pub struct ReportError(#[source] toon_format::ToonError);
 pub struct Report {
     files: usize,
     source_lines: u64,
-    erosion: ErosionSection,
-    duplication: DuplicationSection,
-    verbosity: VerbositySection,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    packages: Vec<PackageSection>,
+    source_sets: SourceSetSections,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -51,33 +50,27 @@ enum ReferenceRangeEntry {
     NotShown(&'static str),
 }
 
-#[derive(Debug, Serialize)]
-struct ErosionSection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
-    eroded_function_mass: Decimal,
-    total_function_mass: Decimal,
-    #[serde(flatten)]
-    findings: Findings<ErodedFunctionFinding>,
-}
-
-trait FindingKind: Serialize {
-    const LIST_KEY: &'static str;
-}
-
-#[derive(Debug)]
-struct Findings<T> {
-    listed: Vec<T>,
-    left_out: usize,
+#[derive(Debug, Default, Serialize)]
+struct SourceSetSections {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    production: Option<SourceSetSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    test: Option<SourceSetSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    generated: Option<SourceSetSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vendored: Option<SourceSetSection>,
 }
 
 #[derive(Debug, Serialize)]
-struct ErodedFunctionFinding {
-    path: String,
-    line: u32,
-    cyclomatic_complexity: u32,
-    source_lines: u32,
-    function_mass: Decimal,
+struct SourceSetSection {
+    files: usize,
+    source_lines: u64,
+    erosion: ErosionSection,
+    duplication: DuplicationSection,
+    verbosity: VerbositySection,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    packages: Vec<PackageSection>,
 }
 
 #[derive(Debug, Serialize)]
@@ -107,6 +100,35 @@ struct PackageDuplication {
 struct PackageVerbosity {
     ratio: Decimal,
     verbose_lines: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct ErosionSection {
+    ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
+    eroded_function_mass: Decimal,
+    total_function_mass: Decimal,
+    #[serde(flatten)]
+    findings: Findings<ErodedFunctionFinding>,
+}
+
+trait FindingKind: Serialize {
+    const LIST_KEY: &'static str;
+}
+
+#[derive(Debug)]
+struct Findings<T> {
+    listed: Vec<T>,
+    left_out: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ErodedFunctionFinding {
+    path: String,
+    line: u32,
+    cyclomatic_complexity: u32,
+    source_lines: u32,
+    function_mass: Decimal,
 }
 
 #[derive(Debug, Serialize)]
@@ -225,6 +247,61 @@ impl FindingKind for CloneGroupFinding {
 
 impl FindingKind for FlaggedLineRow {
     const LIST_KEY: &'static str = "findings";
+}
+
+impl SourceSetSections {
+    fn new(
+        source_sets: &SourceSets,
+        ranges: &ReferenceRangeScope,
+        findings: FindingsShown,
+    ) -> SourceSetSections {
+        let mut sections = SourceSetSections::default();
+        for (source_set, model) in source_sets.iter() {
+            if !model.files.is_empty() {
+                *sections.slot(source_set) = Some(SourceSetSection::new(model, ranges, findings));
+            }
+        }
+        sections
+    }
+
+    fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {
+        match source_set {
+            SourceSet::Production => &mut self.production,
+            SourceSet::Test => &mut self.test,
+            SourceSet::Generated => &mut self.generated,
+            SourceSet::Vendored => &mut self.vendored,
+        }
+    }
+}
+
+impl SourceSetSection {
+    fn new(
+        model: &CodeModel,
+        ranges: &ReferenceRangeScope,
+        findings: FindingsShown,
+    ) -> SourceSetSection {
+        let measured = Measured {
+            erosion: Erosion::measure(model),
+            duplication: Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
+            verbosity: Verbosity::measure(model),
+        };
+        SourceSetSection {
+            files: model.files.len(),
+            source_lines: source_lines(model),
+            erosion: ErosionSection::new(&measured.erosion, ranges, findings),
+            duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
+            verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
+            packages: package_sections(model, &measured),
+        }
+    }
+}
+
+fn source_lines(model: &CodeModel) -> u64 {
+    model
+        .files
+        .iter()
+        .map(|file| u64::from(file.model.source_lines))
+        .sum()
 }
 
 impl ErosionSection {
@@ -384,32 +461,20 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
 
 impl Report {
     pub fn summarize(
-        model: &CodeModel,
+        model: CodeModel,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
     ) -> Report {
-        let measured = Measured {
-            erosion: Erosion::measure(model),
-            duplication: Duplication::measure(model, MinimumCloneTokens::PROVISIONAL_DEFAULT),
-            verbosity: Verbosity::measure(model),
-        };
         Report {
             files: model.files.len(),
-            source_lines: model
-                .files
-                .iter()
-                .map(|file| u64::from(file.model.source_lines))
-                .sum(),
-            packages: package_sections(model, &measured),
-            erosion: ErosionSection::new(&measured.erosion, ranges, findings),
-            duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
-            verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
+            source_lines: source_lines(&model),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only
                 .iter()
                 .map(RepoPath::to_string)
                 .collect(),
+            source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
         }
     }
 

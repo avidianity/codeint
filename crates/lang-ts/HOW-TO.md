@@ -1,6 +1,6 @@
-# How to add a Flagged-line rule to the TypeScript and JavaScript Language plugin
+# How to change the rules of the TypeScript and JavaScript Language plugin
 
-## Write the rule
+## Write a Flagged-line rule
 
 ```rust
 use oxc_ast::ast::{Program, Statement};
@@ -40,3 +40,10 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - A passing fixture is code that looks close to the pattern but must not be flagged, such as a case that would change behavior if collapsed.
 - The test `every_flagged_line_rule_ships_flagged_and_passing_fixtures` fails until every rule in `RULES` has both kinds of fixture.
 - Keep fixtures as string literals in the test, never as files under `tests/fixtures/`, while the no-comments check scans fixture files.
+
+## Change the Test rules
+
+- `src/source_set.rs` puts a file in the Test Source set when its name ends in `.test.{extension}` or `.spec.{extension}` after a non-empty stem, or when any of its folders is named `__tests__`.
+  Every other file is Production.
+- A file named only `test.ts` or `spec.ts` has an empty stem, so it stays Production.
+- Prove a change with `tests/conformance.rs`: list each path that must be Test and each look-alike path that must stay Production.

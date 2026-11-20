@@ -48,7 +48,7 @@ fn check_with(
 ) -> Result<String, CheckError> {
     let tree = WorkingTree::discover(folder)?;
     let Measurement { model, ranges } = measure(&tree, plugins)?;
-    Ok(Report::summarize(&model, &ranges, findings).to_toon()?)
+    Ok(Report::summarize(model, &ranges, findings).to_toon()?)
 }
 
 fn reference_range_scope(

@@ -91,36 +91,72 @@ fn assert_success(output: &Output) {
     );
 }
 
-fn section(output: &Output, name: &str) -> String {
-    let heading = format!("{name}:");
+const METRIC_INDENT: usize = 4;
+
+fn metric_section(output: &Output, source_set: &str, metric: &str) -> String {
+    let source_set_heading = format!("  {source_set}:");
+    let metric_heading = format!("{}{metric}:", " ".repeat(METRIC_INDENT));
     stdout(output)
         .lines()
-        .skip_while(|line| *line != heading)
+        .skip_while(|line| *line != source_set_heading)
+        .skip_while(|line| *line != metric_heading)
         .enumerate()
-        .take_while(|(index, line)| *index == 0 || line.starts_with(' '))
-        .map(|(_, line)| format!("{line}\n"))
+        .take_while(|(index, line)| *index == 0 || indent(line) > METRIC_INDENT)
+        .map(|(_, line)| format!("{}\n", &line[METRIC_INDENT..]))
         .collect()
+}
+
+fn production_section(output: &Output, metric: &str) -> String {
+    metric_section(output, "production", metric)
+}
+
+fn indent(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+fn source_set_sizes(output: &Output) -> Vec<String> {
+    let mut sizes = Vec::new();
+    for line in stdout(output).lines() {
+        match indent(line) {
+            2 => sizes.push(line.trim().to_owned()),
+            METRIC_INDENT
+                if line.trim_start().starts_with("files")
+                    || line.trim_start().starts_with("source_lines") =>
+            {
+                if let Some(last) = sizes.last_mut() {
+                    last.push(' ');
+                    last.push_str(line.trim());
+                }
+            }
+            _ => {}
+        }
+    }
+    sizes
 }
 
 fn report_without_findings(files: usize, source_lines: u64) -> String {
     format!(
         "files: {files}\n\
          source_lines: {source_lines}\n\
-         erosion:\n  \
-         ratio: 0\n  \
-         reference_range: no published Reference range for this language\n  \
-         eroded_function_mass: 0\n  \
-         total_function_mass: 0\n  \
-         findings: []\n\
-         duplication:\n  \
-         ratio: 0\n  \
-         reference_range: no published Reference range for this language\n  \
-         clone_lines: 0\n  \
-         clone_groups: []\n\
-         verbosity:\n  \
-         ratio: 0\n  \
-         reference_range: no published Reference range for this language\n  \
-         verbose_lines: 0\n  \
+         source_sets:\n  \
+         production:\n    \
+         files: {files}\n    \
+         source_lines: {source_lines}\n    \
+         erosion:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         eroded_function_mass: 0\n      \
+         total_function_mass: 0\n      \
+         findings: []\n    \
+         duplication:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         clone_lines: 0\n      \
+         clone_groups: []\n    \
+         verbosity:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         verbose_lines: 0\n      \
          findings: []\n"
     )
 }
@@ -165,7 +201,7 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
     assert_success(&output);
     assert_eq!(summary(&output), "files: 3\nsource_lines: 20\n");
     assert_eq!(
-        section(&output, "verbosity"),
+        production_section(&output, "verbosity"),
         "verbosity:\n  \
          ratio: 0.15\n  \
          reference_range: no published Reference range for this language\n  \
@@ -375,7 +411,7 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 1\nsource_lines: 25\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0.8889\n",
@@ -401,7 +437,7 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 3\nsource_lines: 39\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0.7094\n",
@@ -426,7 +462,7 @@ fn a_repository_without_functions_reports_erosion_0() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 1\nsource_lines: 1\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0\n",
@@ -444,6 +480,7 @@ fn the_typescript_and_javascript_report_says_that_no_published_reference_range_e
     let repository = Repository::new();
     repository.write("src/eleven.ts", &function_with_if_statements("eleven", 11));
     repository.write("src/sum.js", "export const sum = (a, b) => a + b;\n");
+    repository.write("src/sum.test.js", "export const one = 1;\n");
     repository.commit_all();
 
     let output = repository.codeint(&["check"]);
@@ -452,13 +489,15 @@ fn the_typescript_and_javascript_report_says_that_no_published_reference_range_e
     let report = stdout(&output);
     let metric_sections = report
         .lines()
-        .filter(|line| !line.starts_with(' ') && line.ends_with(':'))
+        .filter(|line| indent(line) == METRIC_INDENT && line.ends_with(':'))
         .count();
     let unpublished = report
         .lines()
-        .filter(|line| *line == "  reference_range: no published Reference range for this language")
+        .filter(|line| {
+            *line == "      reference_range: no published Reference range for this language"
+        })
         .count();
-    assert!(metric_sections >= 3, "unexpected report: {report}");
+    assert!(metric_sections >= 6, "unexpected report: {report}");
     assert_eq!(unpublished, metric_sections, "unexpected report: {report}");
     assert!(!report.contains("low:"), "unexpected report: {report}");
 }
@@ -482,7 +521,7 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 1\nsource_lines: 15\n");
     assert_eq!(
-        section(&output, "erosion"),
+        production_section(&output, "erosion"),
         concat!(
             "erosion:\n",
             "  ratio: 0.9683\n",
@@ -512,7 +551,7 @@ fn erosion_findings_header(count: usize) -> String {
 }
 
 fn erosion_findings_lines(output: &Output) -> Vec<String> {
-    section(output, "erosion")
+    production_section(output, "erosion")
         .lines()
         .skip_while(|line| !line.starts_with("  findings"))
         .map(|line| match line.strip_prefix("    ") {
@@ -587,6 +626,97 @@ fn eroded_functions_of_equal_function_mass_are_listed_by_path_then_line_and_the_
     expected.extend((1..=18).map(|index| format!("    src/t{index:02}.ts,1")));
     expected.push("  findings_left_out: 2".to_string());
     assert_eq!(erosion_findings_lines(&output), expected);
+}
+
+#[test]
+fn functions_of_test_files_count_toward_the_test_source_set_only() {
+    let repository = Repository::new();
+    repository.write("src/nine.ts", &function_with_if_statements("nine", 9));
+    repository.write("src/ten.ts", &function_with_if_statements("ten", 10));
+    repository.write(
+        "src/eleven.test.ts",
+        &function_with_if_statements("eleven", 11),
+    );
+    repository.write("src/__tests__/setup.ts", "export const ready = true;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(summary(&output), "files: 4\nsource_lines: 40\n");
+    assert_eq!(
+        source_set_sizes(&output),
+        [
+            "production: files: 2 source_lines: 25",
+            "test: files: 2 source_lines: 15",
+        ]
+    );
+    assert_eq!(
+        metric_section(&output, "production", "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0.5338\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  eroded_function_mass: 39.6611\n",
+            "  total_function_mass: 74.3021\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/ten.ts,1,11,13,39.6611\n",
+        )
+    );
+    assert_eq!(
+        metric_section(&output, "test", "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 1\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  eroded_function_mass: 44.8999\n",
+            "  total_function_mass: 44.8999\n",
+            "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+            "    src/eleven.test.ts,1,12,14,44.8999\n",
+        )
+    );
+}
+
+#[test]
+fn a_source_set_without_files_is_left_out_of_the_report() {
+    let repository = Repository::new();
+    repository.write(
+        "src/greet.spec.ts",
+        "export function greet(): string {\n  return 'Hello';\n}\n",
+    );
+    repository.write("README.md", "# Fixture\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        source_set_sizes(&output),
+        ["test: files: 1 source_lines: 3"]
+    );
+    assert_eq!(
+        metric_section(&output, "test", "erosion"),
+        concat!(
+            "erosion:\n",
+            "  ratio: 0\n",
+            "  reference_range: no published Reference range for this language\n",
+            "  eroded_function_mass: 0\n",
+            "  total_function_mass: 1.7321\n",
+            "  findings: []\n",
+        )
+    );
+}
+
+#[test]
+fn a_repository_without_measured_files_reports_no_source_set() {
+    let repository = Repository::new();
+    repository.write("README.md", "# Fixture\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(stdout(&output), "files: 0\nsource_lines: 0\nsource_sets:\n");
 }
 
 fn not_in_a_repository_message(folder: &Path) -> String {
@@ -859,7 +989,7 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 20\n");
     assert_eq!(
-        section(&output, "duplication"),
+        production_section(&output, "duplication"),
         concat!(
             "duplication:\n",
             "  ratio: 0.9\n",
@@ -886,7 +1016,7 @@ fn copies_of_a_fragment_below_the_minimum_clone_size_are_ignored() {
 
     assert_success(&output);
     assert_eq!(summary(&output), "files: 2\nsource_lines: 6\n");
-    assert_eq!(section(&output, "duplication"), NO_DUPLICATION);
+    assert_eq!(production_section(&output, "duplication"), NO_DUPLICATION);
 }
 
 fn write_21_clone_groups_of_equal_size(repository: &Repository) {
@@ -901,7 +1031,7 @@ fn write_21_clone_groups_of_equal_size(repository: &Repository) {
 }
 
 fn clone_groups_by_first_location(output: &Output) -> Vec<String> {
-    section(output, "duplication")
+    production_section(output, "duplication")
         .lines()
         .map(str::trim_start)
         .filter(|line| {
@@ -964,29 +1094,33 @@ fn write_two_package_workspace(repository: &Repository, root_manifest: &str) {
 const TWO_PACKAGE_REPORT: &str = concat!(
     "files: 3\n",
     "source_lines: 21\n",
-    "erosion:\n",
-    "  ratio: 0.8209\n",
-    "  reference_range: no published Reference range for this language\n",
-    "  eroded_function_mass: 44.8999\n",
-    "  total_function_mass: 54.6978\n",
-    "  findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-    "    packages/eroded/src/branches.ts,1,12,14,44.8999\n",
-    "duplication:\n",
-    "  ratio: 0\n",
-    "  reference_range: no published Reference range for this language\n",
-    "  clone_lines: 0\n",
-    "  clone_groups: []\n",
-    "verbosity:\n",
-    "  ratio: 0\n",
-    "  reference_range: no published Reference range for this language\n",
-    "  verbose_lines: 0\n",
-    "  findings: []\n",
-    "packages[3]{path,files,source_lines,",
+    "source_sets:\n",
+    "  production:\n",
+    "    files: 3\n",
+    "    source_lines: 21\n",
+    "    erosion:\n",
+    "      ratio: 0.8209\n",
+    "      reference_range: no published Reference range for this language\n",
+    "      eroded_function_mass: 44.8999\n",
+    "      total_function_mass: 54.6978\n",
+    "      findings[1]{path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
+    "        packages/eroded/src/branches.ts,1,12,14,44.8999\n",
+    "    duplication:\n",
+    "      ratio: 0\n",
+    "      reference_range: no published Reference range for this language\n",
+    "      clone_lines: 0\n",
+    "      clone_groups: []\n",
+    "    verbosity:\n",
+    "      ratio: 0\n",
+    "      reference_range: no published Reference range for this language\n",
+    "      verbose_lines: 0\n",
+    "      findings: []\n",
+    "    packages[3]{path,files,source_lines,",
     "erosion{ratio,eroded_function_mass,total_function_mass},",
     "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines}}:\n",
-    "  .,1,1,0,0,0,0,0,0,0\n",
-    "  packages/eroded,1,14,1,44.8999,44.8999,0,0,0,0\n",
-    "  packages/small,1,6,0,0,9.798,0,0,0,0\n",
+    "      .,1,1,0,0,0,0,0,0,0\n",
+    "      packages/eroded,1,14,1,44.8999,44.8999,0,0,0,0\n",
+    "      packages/small,1,6,0,0,9.798,0,0,0,0\n",
 );
 
 #[test]
@@ -1038,13 +1172,21 @@ fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
     );
 }
 
-fn packages_table(output: &Output) -> String {
+const PACKAGES_HEADER: &str = concat!(
+    "packages[3]{path,files,source_lines,",
+    "erosion{ratio,eroded_function_mass,total_function_mass},",
+    "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines}}:\n",
+);
+
+fn packages_table(output: &Output, source_set: &str) -> String {
+    let source_set_heading = format!("  {source_set}:");
     stdout(output)
         .lines()
-        .skip_while(|line| !line.starts_with("packages["))
+        .skip_while(|line| *line != source_set_heading)
+        .skip_while(|line| !line.starts_with("    packages["))
         .enumerate()
-        .take_while(|(index, line)| *index == 0 || line.starts_with(' '))
-        .map(|(_, line)| format!("{line}\n"))
+        .take_while(|(index, line)| *index == 0 || indent(line) > METRIC_INDENT)
+        .map(|(_, line)| format!("{}\n", &line[METRIC_INDENT..]))
         .collect()
 }
 
@@ -1078,16 +1220,51 @@ fn each_workspace_package_reports_its_own_clone_lines_and_verbose_lines() {
     assert_success(&output);
     assert_eq!(summary(&output), "files: 3\nsource_lines: 27\n");
     assert_eq!(
-        packages_table(&output),
-        concat!(
-            "packages[3]{path,files,source_lines,",
-            "erosion{ratio,eroded_function_mass,total_function_mass},",
-            "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines}}:\n",
-            "  .,0,0,0,0,0,0,0,0,0\n",
-            "  packages/cart,1,9,0,0,9,1,9,0,0\n",
-            "  packages/invoice,2,18,0,0,14.2915,0.5,9,0.0556,1\n",
-        )
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0\n",
+                "  packages/cart,1,9,0,0,9,1,9,0,0\n",
+                "  packages/invoice,2,18,0,0,14.2915,0.5,9,0.0556,1\n",
+            )
     );
-    assert!(section(&output, "duplication").contains("  clone_lines: 18\n"));
-    assert!(section(&output, "verbosity").contains("  verbose_lines: 1\n"));
+    assert!(production_section(&output, "duplication").contains("  clone_lines: 18\n"));
+    assert!(production_section(&output, "verbosity").contains("  verbose_lines: 1\n"));
+}
+
+#[test]
+fn each_source_set_splits_into_every_workspace_package() {
+    let repository = Repository::new();
+    repository.write("package.json", "{\"workspaces\": [\"packages/*\"]}\n");
+    repository.write("packages/app/package.json", "{}\n");
+    repository.write("packages/app/src/main.ts", "export const main = 1;\n");
+    repository.write(
+        "packages/app/src/main.test.ts",
+        "export const checked = 1;\nexport const twice = 2;\n",
+    );
+    repository.write("packages/lib/package.json", "{}\n");
+    repository.write("packages/lib/src/lib.ts", "export const lib = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_success(&output);
+    assert_eq!(
+        packages_table(&output, "production"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,1,0,0,0,0,0,0,0\n",
+                "  packages/lib,1,1,0,0,0,0,0,0,0\n",
+            )
+    );
+    assert_eq!(
+        packages_table(&output, "test"),
+        PACKAGES_HEADER.to_owned()
+            + concat!(
+                "  .,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,2,0,0,0,0,0,0,0\n",
+                "  packages/lib,0,0,0,0,0,0,0,0,0\n",
+            )
+    );
 }

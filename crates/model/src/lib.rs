@@ -19,7 +19,7 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, Manifest, ReferenceRange, Token};
+pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token};
 pub use workspace::{Package, Workspace, WorkspaceError};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -91,6 +91,63 @@ pub struct CodeModel {
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
     pub workspace: Workspace,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceSets {
+    production: CodeModel,
+    test: CodeModel,
+    generated: CodeModel,
+    vendored: CodeModel,
+}
+
+impl CodeModel {
+    pub fn into_source_sets(self) -> SourceSets {
+        let mut source_sets = SourceSets::default();
+        for source_set in [
+            &mut source_sets.production,
+            &mut source_sets.test,
+            &mut source_sets.generated,
+            &mut source_sets.vendored,
+        ] {
+            source_set.workspace = self.workspace.clone();
+        }
+        for file in self.files {
+            source_sets.get_mut(file.model.source_set).files.push(file);
+        }
+        source_sets
+    }
+}
+
+impl SourceSets {
+    pub fn get(&self, source_set: SourceSet) -> &CodeModel {
+        match source_set {
+            SourceSet::Production => &self.production,
+            SourceSet::Test => &self.test,
+            SourceSet::Generated => &self.generated,
+            SourceSet::Vendored => &self.vendored,
+        }
+    }
+
+    fn get_mut(&mut self, source_set: SourceSet) -> &mut CodeModel {
+        match source_set {
+            SourceSet::Production => &mut self.production,
+            SourceSet::Test => &mut self.test,
+            SourceSet::Generated => &mut self.generated,
+            SourceSet::Vendored => &mut self.vendored,
+        }
+    }
+
+    pub fn iter(&self) -> std::array::IntoIter<(SourceSet, &CodeModel), 4> {
+        [
+            SourceSet::Production,
+            SourceSet::Test,
+            SourceSet::Generated,
+            SourceSet::Vendored,
+        ]
+        .map(|source_set| (source_set, self.get(source_set)))
+        .into_iter()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

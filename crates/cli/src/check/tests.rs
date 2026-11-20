@@ -4,7 +4,7 @@ use std::process::Command;
 use codeint_config::FindingsShown;
 use codeint_model::LanguagePlugin;
 use codeint_model::language::{
-    FileModel, Guest, LowerError, Manifest, ReferenceRange, WorkspaceError,
+    FileModel, Guest, LowerError, Manifest, ReferenceRange, SourceSet, WorkspaceError,
 };
 use tempfile::TempDir;
 
@@ -16,8 +16,15 @@ struct Beta;
 
 struct Malformed;
 
+struct ChecksFolderIsTest;
+
 fn lines_of(text: &str) -> Result<FileModel, LowerError> {
+    lines_in(SourceSet::Production, text)
+}
+
+fn lines_in(source_set: SourceSet, text: &str) -> Result<FileModel, LowerError> {
     Ok(FileModel {
+        source_set,
         source_lines: u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?,
         functions: Vec::new(),
         tokens: Vec::new(),
@@ -34,12 +41,8 @@ fn erosion_range(low: f64, high: f64, source: &str) -> Vec<ReferenceRange> {
     }]
 }
 
-macro_rules! lines_without_workspaces {
+macro_rules! without_workspaces {
     () => {
-        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-            lines_of(&text)
-        }
-
         fn workspace_manifests() -> Vec<String> {
             Vec::new()
         }
@@ -55,7 +58,11 @@ impl Guest for Alpha {
         vec!["alpha".to_owned()]
     }
 
-    lines_without_workspaces!();
+    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        lines_of(&text)
+    }
+
+    without_workspaces!();
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
@@ -67,7 +74,11 @@ impl Guest for Beta {
         vec!["beta".to_owned()]
     }
 
-    lines_without_workspaces!();
+    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        lines_of(&text)
+    }
+
+    without_workspaces!();
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
@@ -79,10 +90,34 @@ impl Guest for Malformed {
         vec!["malformed".to_owned()]
     }
 
-    lines_without_workspaces!();
+    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        lines_of(&text)
+    }
+
+    without_workspaces!();
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.7, 0.2, "Reversed")
+    }
+}
+
+impl Guest for ChecksFolderIsTest {
+    fn extensions() -> Vec<String> {
+        vec!["checked".to_owned()]
+    }
+
+    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+        if path.starts_with("checks/") {
+            lines_in(SourceSet::Test, &text)
+        } else {
+            lines_of(&text)
+        }
+    }
+
+    without_workspaces!();
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
     }
 }
 
@@ -97,7 +132,11 @@ fn repository(files: &[(&str, &str)]) -> TempDir {
         .expect("run git");
     assert!(status.success(), "git init exited with {status}");
     for (path, text) in files {
-        fs::write(folder.path().join(path), text).expect("write the file");
+        let full = folder.path().join(path);
+        if let Some(parent) = full.parent() {
+            fs::create_dir_all(parent).expect("create the parent folder");
+        }
+        fs::write(full, text).expect("write the file");
     }
     folder
 }
@@ -115,26 +154,31 @@ fn a_reference_range_that_the_only_measured_language_supplies_is_shown_with_its_
         report.starts_with(concat!(
             "files: 1\n",
             "source_lines: 2\n",
-            "erosion:\n",
-            "  ratio: 0\n",
-            "  reference_range:\n",
-            "    low: 0.12\n",
-            "    high: 0.56\n",
-            "    source: \"Alpha panel of 40 repositories, Table 3\"\n",
-            "  eroded_function_mass: 0\n",
+            "source_sets:\n",
+            "  production:\n",
+            "    files: 1\n",
+            "    source_lines: 2\n",
+            "    erosion:\n",
+            "      ratio: 0\n",
+            "      reference_range:\n",
+            "        low: 0.12\n",
+            "        high: 0.56\n",
+            "        source: \"Alpha panel of 40 repositories, Table 3\"\n",
+            "      eroded_function_mass: 0\n",
         )),
         "unexpected report: {report}"
     );
     let other_metrics = report
         .lines()
-        .filter(|line| line.starts_with("  reference_range:"))
+        .filter(|line| line.starts_with("      reference_range:"))
         .skip(1)
         .collect::<Vec<_>>();
     assert!(!other_metrics.is_empty(), "unexpected report: {report}");
     assert!(
-        other_metrics.iter().all(
-            |line| *line == "  reference_range: no published Reference range for this language"
-        ),
+        other_metrics
+            .iter()
+            .all(|line| *line
+                == "      reference_range: no published Reference range for this language"),
         "unexpected report: {report}"
     );
 }
@@ -144,7 +188,8 @@ fn a_reference_range_of_one_language_is_never_shown_for_files_of_another_languag
     let report = report(&[("main.beta", "one\n")], &[&Alpha, &Beta]);
 
     assert!(
-        report.contains("\n  reference_range: no published Reference range for this language\n"),
+        report
+            .contains("\n      reference_range: no published Reference range for this language\n"),
         "unexpected report: {report}"
     );
     assert!(
@@ -162,7 +207,7 @@ fn no_reference_range_is_shown_when_the_measured_files_are_in_several_languages(
 
     assert!(
         report.contains(
-            "\n  reference_range: \"not shown, because the measured files are in more than one language\"\n"
+            "\n      reference_range: \"not shown, because the measured files are in more than one language\"\n"
         ),
         "unexpected report: {report}"
     );
@@ -181,5 +226,42 @@ fn an_invalid_reference_range_from_a_language_plugin_stops_the_check() {
     assert!(
         matches!(result, Err(CheckError::ReferenceRange(_))),
         "unexpected result: {result:?}"
+    );
+}
+
+#[test]
+fn the_core_puts_each_file_in_the_source_set_that_its_language_plugin_names() {
+    let report = report(
+        &[
+            ("checks/first.checked", "one\n"),
+            ("checks/nested/second.checked", "one\ntwo\n"),
+            ("src/main.checked", "one\ntwo\nthree\n"),
+            ("src/main.test.checked", "one\ntwo\nthree\nfour\n"),
+        ],
+        &[&ChecksFolderIsTest],
+    );
+
+    let source_sets = report
+        .lines()
+        .filter(|line| {
+            let code = line.trim_start();
+            match line.len() - code.len() {
+                2 => true,
+                4 => code.starts_with("files:") || code.starts_with("source_lines:"),
+                _ => false,
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        source_sets,
+        [
+            "  production:",
+            "    files: 2",
+            "    source_lines: 7",
+            "  test:",
+            "    files: 2",
+            "    source_lines: 3",
+        ],
+        "unexpected report: {report}"
     );
 }

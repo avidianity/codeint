@@ -4,7 +4,7 @@
 
 ```rust
 use codeint_model::language::{
-    FileModel, Guest, LowerError, Manifest, ReferenceRange, Token, WorkspaceError,
+    FileModel, Guest, LowerError, Manifest, ReferenceRange, SourceSet, Token, WorkspaceError,
 };
 
 pub struct Plain;
@@ -16,6 +16,11 @@ impl Guest for Plain {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
+        let source_set = if path.starts_with("drafts/") {
+            SourceSet::Test
+        } else {
+            SourceSet::Production
+        };
         let tokens = text
             .lines()
             .zip(1..)
@@ -27,6 +32,7 @@ impl Guest for Plain {
             })
             .collect();
         Ok(FileModel {
+            source_set,
             source_lines,
             functions: Vec::new(),
             tokens,
@@ -70,6 +76,10 @@ impl Guest for Plain {
   An empty list means the repository is one package.
 - Return a `WorkspaceError` that names the manifest and what is wrong with it when a manifest that decides the packages is invalid.
   Which manifest decides the packages, and how its patterns match folders, is a rule of the Language plugin, never of the core.
+- Set `source_set` of each `FileModel` with the rules of the Language plugin, such as the TypeScript `*.test.ts`, `*.spec.ts`, and `__tests__` rules.
+  `SourceSet` is the closed set of four Source sets: Production, Test, Generated, and Vendored.
+  Return Production for a file that no rule claims.
+  Which files are Test is a rule of the Language plugin, never of the core.
 - `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each with a `source` label that names where it was published.
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
@@ -124,6 +134,25 @@ let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.t
   `Package::Root` holds every file outside all member packages, and displays as `.`.
 - `Workspace::package_of` gives the deepest member package whose root folder holds the file, or `Package::Root`.
 - A `Workspace` without members is one package; `has_members` tells the report whether to list packages.
+
+## Split the Code model by Source set
+
+```rust
+use codeint_model::{CodeModel, SourceSet};
+
+let source_sets = model.into_source_sets();
+let test_model: &CodeModel = source_sets.get(SourceSet::Test);
+for (source_set, files) in source_sets.iter() {
+    println!("{source_set:?} has {} files", files.files.len());
+}
+```
+
+- `into_source_sets` moves each file into the `CodeModel` of its Source set.
+- Every Source set gets a `CodeModel`, empty when no file belongs to it.
+- Every Source set's `CodeModel` keeps the whole `workspace`, so each Source set splits into the same workspace packages.
+- `iter` yields the Source sets in the order Production, Test, Generated, Vendored.
+- A skipped or declaration-only file belongs to no Source set.
+  Read `skipped` and `declaration_only` before the split; the split leaves them out.
 
 ## Show Reference ranges only for the language they were measured in
 

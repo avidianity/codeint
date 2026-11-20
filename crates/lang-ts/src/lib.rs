@@ -2,6 +2,7 @@
 
 mod functions;
 mod rules;
+mod source_set;
 mod workspaces;
 
 use codeint_model::language::{
@@ -13,6 +14,7 @@ use oxc_parser::{Kind, Parser};
 use oxc_span::SourceType;
 
 use crate::functions::{CodeLines, functions};
+use crate::source_set::source_set;
 
 pub use rules::flagged_line_rules;
 
@@ -53,6 +55,7 @@ impl Guest for TypeScriptAndJavaScript {
         let code = blank_out(&text, comment_spans);
         let code_lines = CodeLines::new(&code);
         Ok(FileModel {
+            source_set: source_set(&path),
             source_lines: u32::try_from(code_lines.count()).map_err(|_| LowerError::TooLarge)?,
             functions: functions(&parsed.program, &code_lines),
             tokens: tokens(&text, &parsed.tokens)?,
