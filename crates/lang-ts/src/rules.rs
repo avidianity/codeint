@@ -6,6 +6,7 @@ use oxc_span::Span;
 
 use crate::functions::CodeLines;
 
+mod conditional_yields_boolean;
 mod else_after_return;
 mod if_else_returns_boolean;
 
@@ -14,7 +15,11 @@ struct Rule {
     find: fn(&Program<'_>, &str) -> Vec<Span>,
 }
 
-const RULES: [Rule; 2] = [else_after_return::RULE, if_else_returns_boolean::RULE];
+const RULES: [Rule; 3] = [
+    else_after_return::RULE,
+    if_else_returns_boolean::RULE,
+    conditional_yields_boolean::RULE,
+];
 
 pub fn flagged_line_rules() -> impl Iterator<Item = &'static str> {
     RULES.iter().map(|rule| rule.id)
