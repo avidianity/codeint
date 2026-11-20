@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 
 use codeint_metrics::{
-    CloneGroup, Duplication, ErodedFunction, Erosion, Fragment, MinimumCloneTokens,
+    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
+    MinimumCloneTokens, Verbosity,
 };
 use codeint_model::{CodeModel, RepoPath, SkippedFile};
 use serde::Serialize;
@@ -18,6 +19,7 @@ pub struct Report {
     source_lines: u64,
     erosion: ErosionSection,
     duplication: DuplicationSection,
+    verbosity: VerbositySection,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -59,6 +61,20 @@ struct CloneLocation {
     path: String,
     start_line: u32,
     end_line: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct VerbositySection {
+    ratio: Decimal,
+    verbose_lines: u64,
+    findings: Vec<FlaggedLineRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct FlaggedLineRow {
+    path: String,
+    line: u32,
+    rule: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -137,6 +153,30 @@ impl CloneLocation {
     }
 }
 
+impl VerbositySection {
+    fn new(verbosity: &Verbosity) -> VerbositySection {
+        VerbositySection {
+            ratio: Decimal::rounded(verbosity.ratio()),
+            verbose_lines: verbosity.verbose_lines(),
+            findings: verbosity
+                .flagged_lines()
+                .iter()
+                .map(FlaggedLineRow::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&FlaggedLineFinding> for FlaggedLineRow {
+    fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
+        FlaggedLineRow {
+            path: finding.path.to_string(),
+            line: finding.line,
+            rule: finding.rule.clone(),
+        }
+    }
+}
+
 impl From<&SkippedFile> for SkippedEntry {
     fn from(file: &SkippedFile) -> SkippedEntry {
         SkippedEntry {
@@ -160,6 +200,7 @@ impl Report {
                 model,
                 MinimumCloneTokens::PROVISIONAL_DEFAULT,
             )),
+            verbosity: VerbositySection::new(&Verbosity::measure(model)),
             skipped: model.skipped.iter().map(SkippedEntry::from).collect(),
             declaration_only: model
                 .declaration_only
