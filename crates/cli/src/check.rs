@@ -1,6 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
-use std::string::FromUtf8Error;
 
 use codeint_config::{
     ConfigurationFileError, FindingsShown, SourceSetOverrides, read_configuration,
@@ -9,8 +8,8 @@ use codeint_git::{GitError, WorkingTree};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
-    RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
-    resolve_runtime_imports, settle_source_set,
+    ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError, resolve_runtime_imports,
+    settle_source_set,
 };
 use codeint_report::{ReferenceRangeScope, Report, ReportError};
 
@@ -23,12 +22,6 @@ pub(crate) enum CheckError {
     Git(#[from] GitError),
     #[error(transparent)]
     Configuration(#[from] ConfigurationFileError),
-    #[error("{path} is not valid UTF-8")]
-    NotUtf8 {
-        path: RepoPath,
-        #[source]
-        source: FromUtf8Error,
-    },
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
@@ -95,6 +88,7 @@ fn measure(
         .collect();
     let mut model = CodeModel {
         workspace: find_workspace(tree, plugins)?,
+        submodules: tree.submodules().to_vec(),
         ..CodeModel::default()
     };
     let mut measured = BTreeSet::new();
@@ -106,7 +100,17 @@ fn measure(
         else {
             continue;
         };
-        let text = read_text(tree, path)?;
+        let bytes = tree.read(path)?;
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => {
+                model.skipped.push(SkippedFile {
+                    path: path.clone(),
+                    reason: format!("not valid UTF-8: {}", error.utf8_error()),
+                });
+                continue;
+            }
+        };
         match plugins[index].lower(path, &text) {
             Ok(mut file) => {
                 measured.insert(index);
@@ -155,19 +159,11 @@ fn find_workspace(
             .map(|path| {
                 Ok(Manifest {
                     path: path.to_string(),
-                    text: read_text(tree, path)?,
+                    text: String::from_utf8_lossy(&tree.read(path)?).into_owned(),
                 })
             })
-            .collect::<Result<Vec<Manifest>, CheckError>>()?;
+            .collect::<Result<Vec<Manifest>, GitError>>()?;
         member_roots.extend(plugin.workspace_packages(manifests)?);
     }
     Ok(Workspace::new(member_roots))
-}
-
-fn read_text(tree: &WorkingTree, path: &RepoPath) -> Result<String, CheckError> {
-    let bytes = tree.read(path)?;
-    String::from_utf8(bytes).map_err(|source| CheckError::NotUtf8 {
-        path: path.clone(),
-        source,
-    })
 }

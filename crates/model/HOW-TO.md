@@ -128,6 +128,9 @@ assert_eq!(model.source_lines, 2);
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
   A skipped or declaration-only file adds no source lines and no file to the Metrics.
+- Push a file that is not valid UTF-8 onto `CodeModel::skipped` without lowering it, with a `reason` that starts with `not valid UTF-8`.
+- Hand the text to `lower` with its line endings as written; a CRLF line ending counts like LF in every line a Language plugin reports.
+- Put each Git submodule of the working tree in `CodeModel::submodules`; codeint never measures a submodule's files.
 
 ## Find workspace packages in the core
 
@@ -149,6 +152,7 @@ let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.t
 ```
 
 - The host reads every file whose name a Language plugin lists in `workspace_manifests` and passes them to that plugin; the plugin reads no files itself.
+- The host decodes a manifest that is not valid UTF-8 lossily, so its folder can still be a package.
 - A `WorkspaceError` stops the run with exit code 2, because the package of every file depends on it.
 - `Workspace::packages` yields `Package::Root` first, then each member package by root folder.
   `Package::Root` holds every file outside all member packages, and displays as `.`.

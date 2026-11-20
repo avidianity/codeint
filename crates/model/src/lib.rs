@@ -103,6 +103,7 @@ pub struct CodeModel {
     pub skipped: Vec<SkippedFile>,
     pub declaration_only: Vec<RepoPath>,
     pub workspace: Workspace,
+    pub submodules: Vec<RepoPath>,
     pub runtime_imports: Vec<RuntimeImport>,
 }
 
