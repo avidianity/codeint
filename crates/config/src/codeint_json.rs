@@ -168,6 +168,10 @@ impl Languages {
 }
 
 impl LanguageCoverage<'_> {
+    pub fn covers_all(&self) -> bool {
+        self.entries.is_none()
+    }
+
     pub fn covers(&self, path: &RepoPath) -> bool {
         let Some(entries) = &self.entries else {
             return true;
