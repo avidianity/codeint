@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::string::FromUtf8Error;
 
@@ -43,12 +44,19 @@ pub(crate) enum CheckError {
 }
 
 fn format_extension_conflict(
-    _first: &str,
-    _second: &str,
-    _extension: &str,
-    _path: Option<&RepoPath>,
+    first: &str,
+    second: &str,
+    extension: &str,
+    path: Option<&RepoPath>,
 ) -> String {
-    todo!()
+    match path {
+        Some(path) => format!(
+            "Language plugins {first} and {second} both claim extension .{extension} for {path}; assign separate directories in the languages setting of codeint.json"
+        ),
+        None => format!(
+            "Language plugins {first} and {second} both claim extension .{extension}; assign separate directories in the languages setting of codeint.json"
+        ),
+    }
 }
 
 pub(crate) struct NamedLanguagePlugin<'plugin> {
@@ -220,19 +228,75 @@ fn measure(
 }
 
 fn assign_files_to_plugins<'tree>(
-    _tree: &'tree Snapshot,
+    tree: &'tree Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
-    _coverage: &[LanguageCoverage<'_>],
+    coverage: &[LanguageCoverage<'_>],
 ) -> Result<Vec<(&'tree RepoPath, usize)>, CheckError> {
-    if plugins.is_empty() {
-        return Err(CheckError::ExtensionConflict {
-            first: String::new(),
-            second: String::new(),
-            extension: String::new(),
-            path: None,
-        });
+    let mut plugins_by_extension: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (index, named) in plugins.iter().enumerate() {
+        for extension in named.plugin.extensions() {
+            let claimants = plugins_by_extension.entry(extension).or_default();
+            if !claimants.contains(&index) {
+                claimants.push(index);
+            }
+        }
     }
-    todo!()
+    for (extension, claimants) in &plugins_by_extension {
+        if claimants.len() < 2 {
+            continue;
+        }
+        let unrestricted: Vec<usize> = claimants
+            .iter()
+            .copied()
+            .filter(|&index| coverage[index].covers_all())
+            .collect();
+        if unrestricted.len() >= 2 {
+            let (first, second) = first_two_plugin_names(plugins, &unrestricted);
+            return Err(CheckError::ExtensionConflict {
+                first,
+                second,
+                extension: extension.clone(),
+                path: None,
+            });
+        }
+    }
+    let mut covered_files = Vec::new();
+    for path in tree.files() {
+        let Some(extension) = path.extension() else {
+            continue;
+        };
+        let Some(claimants) = plugins_by_extension.get(extension) else {
+            continue;
+        };
+        let matching: Vec<usize> = claimants
+            .iter()
+            .copied()
+            .filter(|&index| coverage[index].covers(path))
+            .collect();
+        match matching.as_slice() {
+            [] => {}
+            [index] => covered_files.push((path, *index)),
+            many => {
+                let (first, second) = first_two_plugin_names(plugins, many);
+                return Err(CheckError::ExtensionConflict {
+                    first,
+                    second,
+                    extension: extension.to_owned(),
+                    path: Some(path.clone()),
+                });
+            }
+        }
+    }
+    Ok(covered_files)
+}
+
+fn first_two_plugin_names(
+    plugins: &[NamedLanguagePlugin<'_>],
+    indices: &[usize],
+) -> (String, String) {
+    let mut names: Vec<&str> = indices.iter().map(|&index| plugins[index].name).collect();
+    names.sort_unstable();
+    (names[0].to_owned(), names[1].to_owned())
 }
 
 fn read_manifests(

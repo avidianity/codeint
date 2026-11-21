@@ -169,7 +169,7 @@ impl Languages {
 
 impl LanguageCoverage<'_> {
     pub fn covers_all(&self) -> bool {
-        todo!()
+        self.entries.is_none()
     }
 
     pub fn covers(&self, path: &RepoPath) -> bool {

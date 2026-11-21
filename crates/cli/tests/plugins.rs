@@ -200,3 +200,190 @@ fn sample_external_plugin_measures_its_fixture_language_end_to_end_through_codei
         "sample mini language fixture"
     );
 }
+
+fn commit_all(dir: &Path, message: &str) {
+    let add = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .expect("git add");
+    assert!(add.success(), "git add exited with {add}");
+    let commit = Command::new("git")
+        .args(["commit", "--quiet", "-m", message])
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .status()
+        .expect("git commit");
+    assert!(commit.success(), "git commit exited with {commit}");
+}
+
+#[test]
+fn two_external_plugins_claiming_one_extension_without_languages_exit_2_across_commands() {
+    let repo = init_repo();
+    let hash = copy_plugin_into(repo.path(), "plugins/sample.wasm");
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "zeta-mini",
+                  "path": "plugins/sample.wasm",
+                  "sha256": "{hash}"
+                }},
+                {{
+                  "name": "alpha-mini",
+                  "path": "plugins/sample.wasm",
+                  "sha256": "{hash}"
+                }}
+              ]
+            }}"#
+        ),
+    );
+    write_file(repo.path(), "src/app.mini", "fn main() {\n  return 1\n}\n");
+    commit_all(repo.path(), "initial");
+
+    for args in [&["check"][..], &["diff", "HEAD"][..], &["trend"][..]] {
+        let output = run_codeint(repo.path(), args);
+        assert_eq!(output.status.code(), Some(2), "args {args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let alpha_pos = stderr
+            .find("alpha-mini")
+            .unwrap_or_else(|| panic!("expected alpha-mini in stderr for {args:?}, got: {stderr}"));
+        let zeta_pos = stderr
+            .find("zeta-mini")
+            .unwrap_or_else(|| panic!("expected zeta-mini in stderr for {args:?}, got: {stderr}"));
+        assert!(
+            alpha_pos < zeta_pos,
+            "expected sorted plugin names for {args:?}, got: {stderr}"
+        );
+        assert!(
+            stderr.contains(".mini") && stderr.contains("languages"),
+            "expected extension and languages setting for {args:?}, got: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn two_external_plugins_claiming_one_extension_in_overlapping_languages_folders_exit_2() {
+    let repo = init_repo();
+    let hash = copy_plugin_into(repo.path(), "plugins/sample.wasm");
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "zeta-mini",
+                  "path": "plugins/sample.wasm",
+                  "sha256": "{hash}"
+                }},
+                {{
+                  "name": "alpha-mini",
+                  "path": "plugins/sample.wasm",
+                  "sha256": "{hash}"
+                }}
+              ],
+              "languages": [
+                {{ "plugin": "zeta-mini", "include": ["src"] }},
+                {{ "plugin": "alpha-mini", "include": ["src/sub"] }}
+              ]
+            }}"#
+        ),
+    );
+    write_file(
+        repo.path(),
+        "src/sub/app.mini",
+        "fn main() {\n  return 1\n}\n",
+    );
+
+    let output = run_codeint(repo.path(), &["check"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("alpha-mini")
+            && stderr.contains("zeta-mini")
+            && stderr.contains(".mini")
+            && stderr.contains("src/sub/app.mini")
+            && stderr.contains("languages"),
+        "expected extension conflict error, got: {stderr}"
+    );
+}
+
+#[test]
+fn assigning_separate_directories_in_languages_resolves_external_plugin_extension_conflict() {
+    let repo = init_repo();
+    let hash = copy_plugin_into(repo.path(), "plugins/sample.wasm");
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "zeta-mini",
+                  "path": "plugins/sample.wasm",
+                  "sha256": "{hash}"
+                }},
+                {{
+                  "name": "alpha-mini",
+                  "path": "plugins/sample.wasm",
+                  "sha256": "{hash}"
+                }}
+              ],
+              "languages": [
+                {{ "plugin": "alpha-mini", "include": ["service-a"] }},
+                {{ "plugin": "zeta-mini", "include": ["service-b"] }}
+              ]
+            }}"#
+        ),
+    );
+    write_file(
+        repo.path(),
+        "service-a/a.mini",
+        "fn alpha() {\n  return 1\n}\n",
+    );
+    write_file(
+        repo.path(),
+        "service-b/b.mini",
+        "fn zeta() {\n  pass;\n  return 2\n}\n",
+    );
+
+    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value =
+        serde_json::from_slice(&output.stdout).expect("codeint check prints valid JSON");
+    assert_eq!(report["files"], 2, "unexpected report: {report}");
+    assert_eq!(
+        report["languages"]["alpha-mini"]["files"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["alpha-mini"]["source_lines"], 3,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["zeta-mini"]["files"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["zeta-mini"]["source_lines"], 4,
+        "unexpected report: {report}"
+    );
+}
