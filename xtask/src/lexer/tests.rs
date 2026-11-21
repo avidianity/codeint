@@ -109,3 +109,47 @@ fn a_hash_inside_a_yaml_block_scalar_is_text_unless_it_starts_the_line() {
     assert!(!result.is_comment(5));
     assert!(result.is_comment(6));
 }
+
+#[test]
+fn script_regex_literals_hide_slashes_and_block_comment_markers() {
+    let text = "\
+const url = /https?:\\/\\//;
+return /a\\/\\*b/;
+const cls = /[//]/;
+const blockCls = /[/*]/;
+const escapedBracket = /[\\]]\\/\\//;
+const arrow = (s) => /https?:\\/\\//.test(s);
+/https?:\\/\\//.test(url);
+const trailing = /a\\/\\/b/g; // real comment
+";
+    let result = scan(Language::Script, text);
+    assert!(!result.is_comment(1));
+    assert!(!result.is_comment(2));
+    assert!(!result.is_comment(3));
+    assert!(!result.is_comment(4));
+    assert!(!result.is_comment(5));
+    assert!(!result.is_comment(6));
+    assert!(!result.is_comment(7));
+    assert!(result.is_comment(8));
+}
+
+#[test]
+fn script_division_and_jsx_closing_tags_still_detect_real_comments() {
+    let text = "\
+const x = a / b // comment after division
+const y = (a + b) / c /* block after division */
+const z = i++ / 2 // comment after postfix
+const w = obj.return / 2 // comment after property
+const el = <div>/text</div> // comment after jsx
+const multi = a
+  / b // comment after multiline division
+";
+    let result = scan(Language::Script, text);
+    assert!(result.is_comment(1));
+    assert!(result.is_comment(2));
+    assert!(result.is_comment(3));
+    assert!(result.is_comment(4));
+    assert!(result.is_comment(5));
+    assert!(!result.is_comment(6));
+    assert!(result.is_comment(7));
+}
