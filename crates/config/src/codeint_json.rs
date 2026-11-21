@@ -1,5 +1,5 @@
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use codeint_model::{Metric, RepoPath, SourceSet};
 
@@ -26,7 +26,57 @@ pub struct Configuration {
     pub budgets: Budgets,
     pub languages: Languages,
     pub regression_limits: RegressionLimits,
+    pub plugins: Vec<PluginDeclaration>,
     effective: ConfigurationFile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sha256Digest([u8; 32]);
+
+impl Sha256Digest {
+    pub fn parse_hex(hex: &str) -> Option<Sha256Digest> {
+        let bytes = hex.as_bytes();
+        if bytes.len() != 64 {
+            return None;
+        }
+        let mut digest = [0u8; 32];
+        for (slot, pair) in digest.iter_mut().zip(bytes.chunks_exact(2)) {
+            let high = hex_nibble(pair[0])?;
+            let low = hex_nibble(pair[1])?;
+            *slot = (high << 4) | low;
+        }
+        Some(Sha256Digest(digest))
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    pub fn to_hex(&self) -> String {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut out = String::with_capacity(64);
+        for &byte in &self.0 {
+            out.push(HEX[(byte >> 4) as usize] as char);
+            out.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+        out
+    }
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginDeclaration {
+    pub name: String,
+    pub path: PathBuf,
+    pub sha256: Sha256Digest,
 }
 
 impl Serialize for Configuration {
@@ -228,6 +278,12 @@ pub enum ConfigurationFileError {
         #[source]
         source: globset::Error,
     },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} must be a 64-character hexadecimal SHA-256 digest, not {found:?}"
+    )]
+    InvalidSha256 { key: KeyPath, found: String },
+    #[error("{CONFIGURATION_FILE_NAME}: {key} must not be empty")]
+    EmptyPluginField { key: KeyPath },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -262,6 +318,26 @@ struct ConfigurationFile {
         description = "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
     )]
     languages: Option<Vec<LanguageGlobs>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "External WebAssembly component Language plugins to load from local paths. Each entry names the plugin, its path relative to the repository root or absolute, and its required SHA-256 hex digest."
+    )]
+    plugins: Vec<PluginEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PluginEntry {
+    #[schemars(description = "The name of the external Language plugin.")]
+    name: String,
+    #[schemars(
+        description = "Path to the WebAssembly component file, relative to the repository root or absolute."
+    )]
+    path: String,
+    #[schemars(
+        description = "The required 64-character hexadecimal SHA-256 digest of the plugin file."
+    )]
+    sha256: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -449,7 +525,40 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         budgets: budgets(file.budgets),
         languages: languages(file.languages)?,
         regression_limits: regression_limits(file.regression_limits),
+        plugins: plugins(file.plugins)?,
     })
+}
+
+fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, ConfigurationFileError> {
+    let plugins_key = KeyPath::default().child(KeySegment::Key("plugins".to_owned()));
+    entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let entry_key = plugins_key.child(KeySegment::Index(index));
+            if entry.name.trim().is_empty() {
+                return Err(ConfigurationFileError::EmptyPluginField {
+                    key: entry_key.child(KeySegment::Key("name".to_owned())),
+                });
+            }
+            if entry.path.trim().is_empty() {
+                return Err(ConfigurationFileError::EmptyPluginField {
+                    key: entry_key.child(KeySegment::Key("path".to_owned())),
+                });
+            }
+            let sha256 = Sha256Digest::parse_hex(&entry.sha256).ok_or_else(|| {
+                ConfigurationFileError::InvalidSha256 {
+                    key: entry_key.child(KeySegment::Key("sha256".to_owned())),
+                    found: entry.sha256,
+                }
+            })?;
+            Ok(PluginDeclaration {
+                name: entry.name,
+                path: PathBuf::from(entry.path),
+                sha256,
+            })
+        })
+        .collect()
 }
 
 fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {

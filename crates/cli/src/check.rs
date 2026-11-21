@@ -13,6 +13,7 @@ use codeint_model::{
     SkippedFile, SourceFile, Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports,
     settle_source_set,
 };
+use codeint_plugin_host::{PluginHostError, WasmLanguagePlugin, load_language_plugins};
 use codeint_report::{MeasuredLanguage, Report};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -31,10 +32,12 @@ pub(crate) enum CheckError {
     ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
+    #[error(transparent)]
+    PluginHost(#[from] PluginHostError),
 }
 
 pub(crate) struct NamedLanguagePlugin<'plugin> {
-    pub(crate) name: &'static str,
+    pub(crate) name: &'plugin str,
     pub(crate) plugin: &'plugin dyn LanguagePlugin,
 }
 
@@ -44,10 +47,51 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] =
         plugin: &TypeScriptAndJavaScript,
     }];
 
-pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
-    check_with(folder, &BUILT_IN_LANGUAGE_PLUGINS, findings)
+pub(crate) struct LoadedPlugins {
+    external: Vec<(String, WasmLanguagePlugin)>,
 }
 
+impl LoadedPlugins {
+    pub(crate) fn load(
+        repository_root: &Path,
+        configuration: &Configuration,
+    ) -> Result<LoadedPlugins, CheckError> {
+        let reserved: Vec<&str> = BUILT_IN_LANGUAGE_PLUGINS
+            .iter()
+            .map(|plugin| plugin.name)
+            .collect();
+        let external = load_language_plugins(repository_root, &configuration.plugins, &reserved)?;
+        Ok(LoadedPlugins { external })
+    }
+
+    pub(crate) fn as_named(&self) -> Vec<NamedLanguagePlugin<'_>> {
+        BUILT_IN_LANGUAGE_PLUGINS
+            .iter()
+            .map(|named| NamedLanguagePlugin {
+                name: named.name,
+                plugin: named.plugin,
+            })
+            .chain(
+                self.external
+                    .iter()
+                    .map(|(name, plugin)| NamedLanguagePlugin {
+                        name: name.as_str(),
+                        plugin: plugin as &dyn LanguagePlugin,
+                    }),
+            )
+            .collect()
+    }
+}
+
+pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
+    let repository = Repository::discover(folder)?;
+    let configuration = read_configuration(repository.root())?;
+    let loaded = LoadedPlugins::load(repository.root(), &configuration)?;
+    let plugins = loaded.as_named();
+    check_loaded(&repository, &configuration, &plugins, findings)
+}
+
+#[cfg(test)]
 fn check_with(
     folder: &Path,
     plugins: &[NamedLanguagePlugin<'_>],
@@ -55,8 +99,17 @@ fn check_with(
 ) -> Result<Report, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
+    check_loaded(&repository, &configuration, plugins, findings)
+}
+
+fn check_loaded(
+    repository: &Repository,
+    configuration: &Configuration,
+    plugins: &[NamedLanguagePlugin<'_>],
+    findings: FindingsShown,
+) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
-    let languages = measure_with(&tree, plugins, &configuration)?;
+    let languages = measure_with(&tree, plugins, configuration)?;
     Ok(Report::summarize(
         languages,
         tree.submodules().to_vec(),

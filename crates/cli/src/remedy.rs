@@ -1,6 +1,7 @@
 use codeint_config::{ConfigError, ConfigurationFileError, StarterConfigurationError};
 use codeint_git::GitError;
 use codeint_model::WorkspaceError;
+use codeint_plugin_host::PluginHostError;
 
 use crate::CliError;
 use crate::check::CheckError;
@@ -18,6 +19,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Check(CheckError::ReferenceRange(_)) => {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
+        CliError::Check(CheckError::PluginHost(error)) => plugin_host_remedy(error),
         CliError::Init(InitError::Git(GitError::NotInRepository { .. })) => {
             "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
         }
@@ -130,6 +132,35 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         }
         ConfigurationFileError::InvalidGlob { .. } => {
             "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
+        }
+        ConfigurationFileError::InvalidSha256 { .. } => {
+            "Set sha256 to the 64-character hexadecimal SHA-256 digest of the plugin file."
+        }
+        ConfigurationFileError::EmptyPluginField { .. } => {
+            "Set a non-empty value for the plugin field in codeint.json."
+        }
+    }
+}
+
+fn plugin_host_remedy(error: &PluginHostError) -> &'static str {
+    match error {
+        PluginHostError::Read { .. } => {
+            "Check that the plugin path in codeint.json points to an existing readable WebAssembly component file."
+        }
+        PluginHostError::HashMismatch { .. } => {
+            "Verify the plugin file has not been modified, then update sha256 in codeint.json to match the trusted file."
+        }
+        PluginHostError::Compile { .. } => {
+            "Build the plugin as a WebAssembly component targeting codeint:plugin@0.1.0."
+        }
+        PluginHostError::Instantiate { .. } => {
+            "Ensure the plugin exports codeint:plugin/language@0.1.0 and imports no host capabilities."
+        }
+        PluginHostError::Call { .. } => {
+            "Fix the defect in the external Language plugin, or report it to the plugin's author."
+        }
+        PluginHostError::DuplicatePluginName { .. } => {
+            "Give each external plugin in codeint.json a unique name that does not collide with built-in plugins."
         }
     }
 }
