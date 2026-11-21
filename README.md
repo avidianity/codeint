@@ -43,6 +43,7 @@ codeint trend
 `codeint trend` prints each Metric for each commit of the main line.
 
 [docs/reference.md](./docs/reference.md) documents every command, option, exit code, report format, and `codeint.json` key, with an example for each.
+[docs/plugins.md](./docs/plugins.md) explains how to build, hash, declare, and test Language plugins and Metric plugins against the versioned WIT contract.
 
 ## Development
 
