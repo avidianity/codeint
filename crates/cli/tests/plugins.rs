@@ -144,7 +144,7 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cannot instantiate Language plugin")
+        stderr.contains("cannot instantiate Plugin")
             && stderr.contains(plugin_name)
             && stderr.contains(denied_interface)
             && stderr.contains("imports no host capabilities"),
