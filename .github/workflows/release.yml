@@ -1,0 +1,152 @@
+name: release
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            archive_ext: tar.gz
+            musl: false
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            archive_ext: tar.gz
+            musl: false
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            archive_ext: tar.gz
+            musl: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            archive_ext: tar.gz
+            musl: true
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+            archive_ext: zip
+            musl: false
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            archive_ext: zip
+            musl: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: ${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Add Rust target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: rustup target add "$TARGET"
+      - name: Build release binary
+        env:
+          TARGET: ${{ matrix.target }}
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: cargo build --release --locked --bin codeint --target "$TARGET"
+      - name: Verify binary on Unix
+        if: runner.os != 'Windows'
+        env:
+          TARGET: ${{ matrix.target }}
+          IS_MUSL: ${{ matrix.musl }}
+        run: |
+          binary="target/$TARGET/release/codeint"
+          "$binary" --version
+          if [ "$IS_MUSL" = true ]; then
+            file "$binary" | grep -qE "statically linked|static-pie linked"
+          fi
+      - name: Verify binary on Windows
+        if: runner.os == 'Windows'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: ./target/"$TARGET"/release/codeint.exe --version
+      - name: Package Unix archive
+        if: matrix.archive_ext == 'tar.gz'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p dist
+          tar -C "target/$TARGET/release" -czf "dist/codeint-$TARGET.tar.gz" codeint
+      - name: Package Windows archive
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "target/$env:TARGET/release/codeint.exe" -DestinationPath "dist/codeint-$env:TARGET.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: codeint-${{ matrix.target }}
+          path: dist/codeint-${{ matrix.target }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
+          retention-days: 14
+
+  checksums-and-attestations:
+    name: checksums and attestations
+    needs: [build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: codeint-*
+          path: dist
+          merge-multiple: true
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          expected=(
+            codeint-aarch64-apple-darwin.tar.gz
+            codeint-x86_64-apple-darwin.tar.gz
+            codeint-x86_64-unknown-linux-musl.tar.gz
+            codeint-aarch64-unknown-linux-musl.tar.gz
+            codeint-x86_64-pc-windows-msvc.zip
+            codeint-aarch64-pc-windows-msvc.zip
+          )
+          for file in "${expected[@]}"; do
+            test -f "$file"
+          done
+          LC_ALL=C sha256sum "${expected[@]}" > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: SHA256SUMS
+          path: dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+      - id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: dist/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: attestations
+          path: ${{ steps.attest.outputs.bundle-path }}
+          if-no-files-found: error
+          retention-days: 14
