@@ -4,7 +4,7 @@ use codeint_config::{FindingsShown, read_configuration};
 use codeint_git::{CommitId, GitError, Repository, ResultCache};
 use codeint_report::{BaseCommit, DiffReport, Head, HeadCommit};
 
-use crate::check::CheckError;
+use crate::check::{CheckError, LoadedPlugins};
 use crate::commit_measurement::{CommitMeasurer, measure_all_languages};
 
 pub(crate) struct Refs<'a> {
@@ -26,16 +26,17 @@ pub(crate) fn diff(
 ) -> Result<DiffReport, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
+    let plugins = LoadedPlugins::load(repository.root(), &configuration)?;
     let Sides {
         merge_base,
         head,
         head_commit,
     } = sides(&repository, &refs)?;
-    let measurer = CommitMeasurer::new(&repository, &configuration, result_cache);
+    let measurer = CommitMeasurer::new(&repository, &configuration, &plugins, result_cache);
     let base_measurement = measurer.measure(merge_base)?;
     let head_measurement = match head_commit {
         Some(commit) => measurer.measure(commit)?,
-        None => measure_all_languages(&repository.working_tree()?, &configuration)?,
+        None => measure_all_languages(&repository.working_tree()?, &plugins, &configuration)?,
     };
     Ok(DiffReport::compare(
         BaseCommit {

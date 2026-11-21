@@ -497,6 +497,10 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
 | `languages[].exclude` | list of strings | Globs inside the included folders that the Language plugin leaves out; empty by default |
+| `plugins` | list of objects | External WebAssembly component Language plugins to load from local paths; see [Plugins](#plugins) |
+| `plugins[].name` | string | The name of the external Language plugin |
+| `plugins[].path` | string | Path to the WebAssembly component file, relative to the repository root or absolute |
+| `plugins[].sha256` | string | The required 64-character hexadecimal SHA-256 digest of the plugin file |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -512,7 +516,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -630,6 +634,29 @@ v1 ships one Language plugin, `typescript-javascript`.
 ```
 
 ```sh exit=0
+codeint check
+```
+
+### Plugins
+
+Each entry of `plugins` declares an external WebAssembly component Language plugin loaded from a local path, with a required 64-character hexadecimal SHA-256 digest.
+Relative paths resolve from the root of the repository.
+codeint verifies the SHA-256 digest before compiling or instantiating the component, and grants the component no host capabilities (no file system, network, environment, or clock access).
+A missing `sha256`, an invalid digest, a missing file, or a hash mismatch stops the run with exit code 2:
+
+```json codeint.json
+{
+  "plugins": [
+    {
+      "name": "sample",
+      "path": "plugins/sample.wasm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}
+```
+
+```sh exit=2
 codeint check
 ```
 

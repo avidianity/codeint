@@ -13,8 +13,9 @@ pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
     Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError,
     DetectedLanguage, JsonType, KeyPath, KeySegment, LanguageCoverage, Languages,
-    SourceSetOverrides, StarterConfigurationError, configuration_schema, published_schema_address,
-    read_configuration, write_starter_configuration,
+    PluginDeclaration, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
+    configuration_schema, published_schema_address, read_configuration,
+    write_starter_configuration,
 };
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 

@@ -4,7 +4,7 @@ use codeint_config::{CalendarDay, TrendRange, read_configuration};
 use codeint_git::{CommitRange, Repository, ResultCache};
 use codeint_report::{TrendPoint, TrendReport};
 
-use crate::check::CheckError;
+use crate::check::{CheckError, LoadedPlugins};
 use crate::commit_measurement::CommitMeasurer;
 
 pub(crate) fn trend(
@@ -14,7 +14,8 @@ pub(crate) fn trend(
 ) -> Result<TrendReport, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
-    let measurer = CommitMeasurer::new(&repository, &configuration, result_cache);
+    let plugins = LoadedPlugins::load(repository.root(), &configuration)?;
+    let measurer = CommitMeasurer::new(&repository, &configuration, &plugins, result_cache);
     let points = repository
         .first_parent_history(commit_range(range))?
         .into_iter()

@@ -4,7 +4,7 @@ use codeint_model::CodeModel;
 use codeint_report::CommitMeasurement;
 use serde::Serialize;
 
-use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, CheckError, measure_with};
+use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, measure_with};
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -18,13 +18,14 @@ struct MeasurementSettings<'configuration> {
 
 #[derive(Serialize)]
 struct PluginIdentity {
-    name: &'static str,
-    version: &'static str,
+    name: String,
+    version: String,
 }
 
 pub(crate) struct CommitMeasurer<'run> {
     repository: &'run Repository,
     configuration: &'run Configuration,
+    plugins: &'run LoadedPlugins,
     settings: MeasurementSettings<'run>,
     result_cache: Option<&'run ResultCache>,
 }
@@ -33,20 +34,29 @@ impl<'run> CommitMeasurer<'run> {
     pub(crate) fn new(
         repository: &'run Repository,
         configuration: &'run Configuration,
+        plugins: &'run LoadedPlugins,
         result_cache: Option<&'run ResultCache>,
     ) -> CommitMeasurer<'run> {
+        let mut language_plugins: Vec<PluginIdentity> = BUILT_IN_LANGUAGE_PLUGINS
+            .iter()
+            .map(|named| PluginIdentity {
+                name: named.name.to_owned(),
+                version: CODEINT_VERSION.to_owned(),
+            })
+            .collect();
+        for declared in &configuration.plugins {
+            language_plugins.push(PluginIdentity {
+                name: declared.name.clone(),
+                version: declared.sha256.to_hex(),
+            });
+        }
         CommitMeasurer {
             repository,
             configuration,
+            plugins,
             settings: MeasurementSettings {
                 codeint_version: CODEINT_VERSION,
-                language_plugins: BUILT_IN_LANGUAGE_PLUGINS
-                    .iter()
-                    .map(|named| PluginIdentity {
-                        name: named.name,
-                        version: CODEINT_VERSION,
-                    })
-                    .collect(),
+                language_plugins,
                 configuration,
             },
             result_cache,
@@ -60,8 +70,11 @@ impl<'run> CommitMeasurer<'run> {
         {
             return Ok(cached);
         }
-        let measurement =
-            measure_all_languages(&self.repository.commit(commit)?, self.configuration)?;
+        let measurement = measure_all_languages(
+            &self.repository.commit(commit)?,
+            self.plugins,
+            self.configuration,
+        )?;
         if let Some(cache) = self.result_cache
             && let Err(error) = cache.write(commit, &self.settings, &measurement)
         {
@@ -76,9 +89,11 @@ impl<'run> CommitMeasurer<'run> {
 
 pub(crate) fn measure_all_languages(
     tree: &Snapshot,
+    plugins: &LoadedPlugins,
     configuration: &Configuration,
 ) -> Result<CommitMeasurement, CheckError> {
-    let languages = measure_with(tree, &BUILT_IN_LANGUAGE_PLUGINS, configuration)?;
+    let named = plugins.as_named();
+    let languages = measure_with(tree, &named, configuration)?;
     Ok(CommitMeasurement::of(CodeModel::merge(
         languages.into_iter().map(|language| language.model),
     )))
