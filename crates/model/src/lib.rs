@@ -236,6 +236,10 @@ pub enum LowerError {
     TooLarge,
     #[error("the file only declares types and holds no code to measure")]
     DeclarationOnly,
+    #[error("Plugin {plugin:?} exceeded its memory cap of {memory_mb} MiB")]
+    MemoryLimitExceeded { plugin: String, memory_mb: u64 },
+    #[error("Plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
+    TimeLimitExceeded { plugin: String, timeout_ms: u64 },
 }
 
 impl From<language::LowerError> for LowerError {

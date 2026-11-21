@@ -51,6 +51,10 @@
         "$ref": "#/$defs/PluginEntry"
       },
       "description": "External WebAssembly component Language and Metric plugins to load from local paths. Each entry names the plugin, its optional kind (language by default, or metric), its path relative to the repository root or absolute, and its required SHA-256 hex digest."
+    },
+    "plugin_limits": {
+      "$ref": "#/$defs/PluginLimitsFile",
+      "description": "Memory cap and time limit enforced on each WebAssembly Plugin. Defaults are 64 MiB and 5000 ms."
     }
   },
   "title": "codeint.json",
@@ -315,6 +319,26 @@
         "language",
         "metric"
       ]
+    },
+    "PluginLimitsFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memory_mb": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "description": "Maximum linear memory in MiB that a WebAssembly Plugin may allocate; 64 by default.",
+          "maximum": 4096
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "description": "Maximum wall-clock time in milliseconds for each WebAssembly Plugin call; 5000 by default.",
+          "maximum": 300000
+        }
+      }
     }
   }
 }

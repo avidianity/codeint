@@ -12,6 +12,7 @@ let external = load_language_plugins(repository.root(), &configuration.plugins, 
 - `load_language_plugins` reads each plugin file once, verifies its SHA-256 digest against the declared `sha256` before compiling or instantiating it, and returns `Vec<(String, WasmLanguagePlugin)>`.
 - Relative paths in `PluginDeclaration::path` resolve against `repository_root`; absolute paths are used as given.
 - Every `WasmLanguagePlugin` is instantiated with an empty `wasmtime::component::Linker` with zero host capabilities (no WASI, no filesystem, no network, no environment variables, no clocks). A component that imports any host interface fails to instantiate with `PluginHostError::Instantiate`.
+- Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter` and wall-clock time limit via `wasmtime` epoch interruption). Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from `codeint.json`.
 - `WasmLanguagePlugin` implements `codeint_model::LanguagePlugin: Sync` using an internal pool of pre-instantiated component instances, so callers can invoke `lower` concurrently across threads.
 
 ## Verify a single plugin or compute a digest

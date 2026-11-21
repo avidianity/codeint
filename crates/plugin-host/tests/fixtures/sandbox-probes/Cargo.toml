@@ -1,6 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["probe-runtime", "file-reader", "socket-opener", "clock-reader"]
+members = [
+    "probe-runtime",
+    "file-reader",
+    "socket-opener",
+    "clock-reader",
+    "loop-language",
+    "memory-hog-language",
+    "loop-metric",
+]
 
 [workspace.package]
 version = "0.1.0"

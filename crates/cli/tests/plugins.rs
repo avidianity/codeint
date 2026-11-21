@@ -715,3 +715,213 @@ fn external_metric_plugin_findings_work_with_diff_budgets_and_regression_limits(
     assert!(budget_report.get("regressions").is_none());
     assert_eq!(budget_report["over_budget"][0]["metric"], "long_functions");
 }
+
+#[test]
+fn language_plugin_that_loops_forever_skips_the_file_and_finishes_the_run() {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("loop_language_plugin.wasm"),
+        repo.path(),
+        "plugins/loop_lang.wasm",
+    );
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "loop-lang",
+                  "path": "plugins/loop_lang.wasm",
+                  "sha256": "{hash}"
+                }}
+              ],
+              "plugin_limits": {{
+                "timeout_ms": 50
+              }}
+            }}"#
+        ),
+    );
+    write_file(repo.path(), "src/hang.loop", "LOOP_FOREVER\n");
+    write_file(repo.path(), "src/healthy.loop", "ok line 1\nok line 2\n");
+
+    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value =
+        serde_json::from_slice(&output.stdout).expect("codeint check prints valid JSON");
+    assert_eq!(report["files"], 1);
+    assert_eq!(report["source_lines"], 2);
+    assert_eq!(report["skipped"][0]["path"], "src/hang.loop");
+    let reason = report["skipped"][0]["reason"]
+        .as_str()
+        .expect("skipped reason string");
+    assert!(
+        reason.contains("loop-lang") && reason.contains("time limit") && reason.contains("50 ms"),
+        "unexpected skipped reason: {reason}"
+    );
+}
+
+#[test]
+fn language_plugin_that_grows_memory_past_cap_skips_the_file_and_raised_limit_takes_effect() {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("memory_hog_language_plugin.wasm"),
+        repo.path(),
+        "plugins/hog_lang.wasm",
+    );
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "hog-lang",
+                  "path": "plugins/hog_lang.wasm",
+                  "sha256": "{hash}"
+                }}
+              ],
+              "plugin_limits": {{
+                "memory_mb": 2
+              }}
+            }}"#
+        ),
+    );
+    write_file(repo.path(), "src/heavy.hog", "ALLOC_2MB\n");
+    write_file(repo.path(), "src/light.hog", "ok\n");
+
+    let tight_output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        tight_output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&tight_output.stderr)
+    );
+    let tight_report: Value =
+        serde_json::from_slice(&tight_output.stdout).expect("codeint check prints valid JSON");
+    assert_eq!(tight_report["files"], 1);
+    assert_eq!(tight_report["skipped"][0]["path"], "src/heavy.hog");
+    let reason = tight_report["skipped"][0]["reason"]
+        .as_str()
+        .expect("skipped reason string");
+    assert!(
+        reason.contains("hog-lang") && reason.contains("memory cap") && reason.contains("2 MiB"),
+        "unexpected skipped reason: {reason}"
+    );
+
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "hog-lang",
+                  "path": "plugins/hog_lang.wasm",
+                  "sha256": "{hash}"
+                }}
+              ],
+              "plugin_limits": {{
+                "memory_mb": 8
+              }}
+            }}"#
+        ),
+    );
+
+    let raised_output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        raised_output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&raised_output.stderr)
+    );
+    let raised_report: Value =
+        serde_json::from_slice(&raised_output.stdout).expect("codeint check prints valid JSON");
+    assert_eq!(raised_report["files"], 2);
+    assert!(raised_report.get("skipped").is_none());
+}
+
+#[test]
+fn metric_plugin_that_loops_forever_stops_the_run_with_exit_2_and_names_the_plugin() {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("loop_metric_plugin.wasm"),
+        repo.path(),
+        "plugins/loop_metric.wasm",
+    );
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "runaway-metric",
+                  "kind": "metric",
+                  "path": "plugins/loop_metric.wasm",
+                  "sha256": "{hash}"
+                }}
+              ],
+              "plugin_limits": {{
+                "timeout_ms": 50
+              }}
+            }}"#
+        ),
+    );
+    write_file(repo.path(), "src/app.ts", "export const ok = 1;\n");
+
+    let output = run_codeint(repo.path(), &["check"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("runaway-metric")
+            && stderr.contains("time limit")
+            && stderr.contains("50 ms"),
+        "expected time limit error naming runaway-metric, got: {stderr}"
+    );
+}
+
+#[test]
+fn invalid_plugin_limits_print_the_offending_key_and_exit_2() {
+    let cases = [
+        (
+            r#"{ "plugin_limits": { "memory_mb": 0 } }"#,
+            "plugin_limits.memory_mb",
+        ),
+        (
+            r#"{ "plugin_limits": { "timeout_ms": -10 } }"#,
+            "plugin_limits.timeout_ms",
+        ),
+        (
+            r#"{ "plugin_limits": { "timeout_ms": "fast" } }"#,
+            "plugin_limits.timeout_ms",
+        ),
+        (
+            r#"{ "plugin_limits": { "memory_gb": 1 } }"#,
+            "plugin_limits.memory_gb",
+        ),
+    ];
+
+    for (config_json, expected_key) in cases {
+        let repo = init_repo();
+        write_file(repo.path(), "codeint.json", config_json);
+        let output = run_codeint(repo.path(), &["check"]);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "config {config_json} should exit 2"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected_key),
+            "expected stderr to name {expected_key} for {config_json}, got: {stderr}"
+        );
+    }
+}

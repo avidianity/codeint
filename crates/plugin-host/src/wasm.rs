@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use codeint_config::PluginLimits;
 use codeint_model::{
     FileModel, InvalidReferenceRange, LowerError, Manifest, ReferenceRange, ReferenceRanges,
     RepoPath, SourceSet, Token, TokenKind, WorkspaceError, language,
@@ -9,6 +11,9 @@ use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
 
 use crate::PluginHostError;
+use crate::limits::{
+    EpochTicker, LimitTrap, PluginStoreState, arm_call_deadline, classify_trap, new_limited_store,
+};
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -20,25 +25,29 @@ mod bindings {
 use bindings::exports::codeint::plugin::language as guest;
 
 struct PluginInstance {
-    store: Store<()>,
+    store: Store<PluginStoreState>,
     bindings: bindings::LanguagePlugin,
 }
 
 pub struct WasmLanguagePlugin {
     name: String,
+    limits: PluginLimits,
     engine: Engine,
-    pre: bindings::LanguagePluginPre<()>,
+    _ticker: EpochTicker,
+    pre: bindings::LanguagePluginPre<PluginStoreState>,
     extensions: Vec<String>,
     pool: Mutex<Vec<PluginInstance>>,
+    peak_memory_bytes: AtomicUsize,
 }
 
 pub(crate) fn compile_sandboxed_component(
     name: &str,
     path: &Path,
     bytes: &[u8],
-) -> Result<(Engine, wasmtime::component::InstancePre<()>), PluginHostError> {
+) -> Result<(Engine, wasmtime::component::InstancePre<PluginStoreState>), PluginHostError> {
     let mut config = Config::new();
     config.wasm_component_model(true);
+    config.epoch_interruption(true);
     let engine = Engine::new(&config).map_err(|error| PluginHostError::Compile {
         name: name.to_owned(),
         path: path.to_path_buf(),
@@ -50,7 +59,7 @@ pub(crate) fn compile_sandboxed_component(
             path: path.to_path_buf(),
             reason: error.to_string(),
         })?;
-    let linker: Linker<()> = Linker::new(&engine);
+    let linker: Linker<PluginStoreState> = Linker::new(&engine);
     let instance_pre =
         linker
             .instantiate_pre(&component)
@@ -67,8 +76,10 @@ impl WasmLanguagePlugin {
         name: String,
         path: &Path,
         bytes: &[u8],
+        limits: PluginLimits,
     ) -> Result<WasmLanguagePlugin, PluginHostError> {
         let (engine, instance_pre) = compile_sandboxed_component(&name, path, bytes)?;
+        let ticker = EpochTicker::start(engine.clone());
         let pre = bindings::LanguagePluginPre::new(instance_pre).map_err(|error| {
             PluginHostError::Instantiate {
                 name: name.clone(),
@@ -76,43 +87,55 @@ impl WasmLanguagePlugin {
                 reason: error.to_string(),
             }
         })?;
-        let mut store = Store::new(&engine, ());
-        let bindings =
-            pre.instantiate(&mut store)
-                .map_err(|error| PluginHostError::Instantiate {
-                    name: name.clone(),
-                    path: path.to_path_buf(),
-                    reason: error.to_string(),
-                })?;
+        let mut store = new_limited_store(&engine, limits);
+        let bindings = pre
+            .instantiate(&mut store)
+            .map_err(|error| map_host_trap(&name, path, None, limits, &store, error))?;
+        arm_call_deadline(&mut store, limits);
         let extensions = bindings
             .codeint_plugin_language()
             .call_extensions(&mut store)
-            .map_err(|error| PluginHostError::Call {
-                name: name.clone(),
-                call: "extensions",
-                reason: error.to_string(),
+            .map_err(|error| {
+                map_host_trap(&name, path, Some("extensions"), limits, &store, error)
             })?;
+        let peak_memory_bytes = AtomicUsize::new(store.data().peak_memory_bytes());
         Ok(WasmLanguagePlugin {
             name,
+            limits,
             engine,
+            _ticker: ticker,
             pre,
             extensions,
             pool: Mutex::new(vec![PluginInstance { store, bindings }]),
+            peak_memory_bytes,
         })
     }
 
-    fn checkout(&self) -> Result<PluginInstance, wasmtime::Error> {
+    pub fn peak_memory_bytes(&self) -> usize {
+        self.peak_memory_bytes.load(Ordering::Relaxed)
+    }
+
+    fn record_peak_memory(&self, store: &Store<PluginStoreState>) {
+        self.peak_memory_bytes
+            .fetch_max(store.data().peak_memory_bytes(), Ordering::Relaxed);
+    }
+
+    fn checkout(&self) -> Result<PluginInstance, PluginHostError> {
         if let Ok(mut guard) = self.pool.lock()
             && let Some(instance) = guard.pop()
         {
             return Ok(instance);
         }
-        let mut store = Store::new(&self.engine, ());
-        let bindings = self.pre.instantiate(&mut store)?;
+        let mut store = new_limited_store(&self.engine, self.limits);
+        let bindings = self.pre.instantiate(&mut store).map_err(|error| {
+            map_call_trap(&self.name, "instantiate", self.limits, &store, error)
+        })?;
+        self.record_peak_memory(&store);
         Ok(PluginInstance { store, bindings })
     }
 
     fn checkin(&self, instance: PluginInstance) {
+        self.record_peak_memory(&instance.store);
         if let Ok(mut guard) = self.pool.lock() {
             guard.push(instance);
         }
@@ -121,27 +144,30 @@ impl WasmLanguagePlugin {
     fn with_instance<T>(
         &self,
         call: &'static str,
-        operation: impl FnOnce(&guest::Guest, &mut Store<()>) -> Result<T, wasmtime::Error>,
+        operation: impl FnOnce(
+            &guest::Guest,
+            &mut Store<PluginStoreState>,
+        ) -> Result<T, wasmtime::Error>,
     ) -> Result<T, PluginHostError> {
-        let mut instance = self.checkout().map_err(|error| PluginHostError::Call {
-            name: self.name.clone(),
-            call,
-            reason: error.to_string(),
-        })?;
+        let mut instance = self.checkout()?;
+        arm_call_deadline(&mut instance.store, self.limits);
         let result = operation(
             instance.bindings.codeint_plugin_language(),
             &mut instance.store,
         );
+        self.record_peak_memory(&instance.store);
         match result {
             Ok(value) => {
                 self.checkin(instance);
                 Ok(value)
             }
-            Err(error) => Err(PluginHostError::Call {
-                name: self.name.clone(),
+            Err(error) => Err(map_call_trap(
+                &self.name,
                 call,
-                reason: error.to_string(),
-            }),
+                self.limits,
+                &instance.store,
+                error,
+            )),
         }
     }
 
@@ -154,8 +180,22 @@ impl WasmLanguagePlugin {
             .with_instance("lower", |api, store| {
                 api.call_lower(store, path.as_str(), text)
             })
-            .map_err(|error| LowerError::Unparsable {
-                message: error.to_string(),
+            .map_err(|error| match error {
+                PluginHostError::MemoryLimitExceeded { name, memory_mb } => {
+                    LowerError::MemoryLimitExceeded {
+                        plugin: name,
+                        memory_mb,
+                    }
+                }
+                PluginHostError::TimeLimitExceeded { name, timeout_ms } => {
+                    LowerError::TimeLimitExceeded {
+                        plugin: name,
+                        timeout_ms,
+                    }
+                }
+                other => LowerError::Unparsable {
+                    message: other.to_string(),
+                },
             })?;
         lowered.map(convert_file_model).map_err(convert_lower_error)
     }
@@ -317,5 +357,61 @@ fn convert_resolution(resolution: guest::Resolution) -> language::Resolution {
         guest::Resolution::Resolved(path) => language::Resolution::Resolved(path),
         guest::Resolution::External => language::Resolution::External,
         guest::Resolution::Unresolved(reason) => language::Resolution::Unresolved(reason),
+    }
+}
+
+pub(crate) fn map_host_trap(
+    name: &str,
+    path: &Path,
+    call: Option<&'static str>,
+    limits: PluginLimits,
+    store: &Store<PluginStoreState>,
+    error: wasmtime::Error,
+) -> PluginHostError {
+    match classify_trap(store, &error) {
+        LimitTrap::Memory => PluginHostError::MemoryLimitExceeded {
+            name: name.to_owned(),
+            memory_mb: limits.memory_mb,
+        },
+        LimitTrap::Time => PluginHostError::TimeLimitExceeded {
+            name: name.to_owned(),
+            timeout_ms: limits.timeout_ms,
+        },
+        LimitTrap::Other => match call {
+            Some(call) => PluginHostError::Call {
+                name: name.to_owned(),
+                call,
+                reason: error.to_string(),
+            },
+            None => PluginHostError::Instantiate {
+                name: name.to_owned(),
+                path: path.to_path_buf(),
+                reason: error.to_string(),
+            },
+        },
+    }
+}
+
+fn map_call_trap(
+    name: &str,
+    call: &'static str,
+    limits: PluginLimits,
+    store: &Store<PluginStoreState>,
+    error: wasmtime::Error,
+) -> PluginHostError {
+    match classify_trap(store, &error) {
+        LimitTrap::Memory => PluginHostError::MemoryLimitExceeded {
+            name: name.to_owned(),
+            memory_mb: limits.memory_mb,
+        },
+        LimitTrap::Time => PluginHostError::TimeLimitExceeded {
+            name: name.to_owned(),
+            timeout_ms: limits.timeout_ms,
+        },
+        LimitTrap::Other => PluginHostError::Call {
+            name: name.to_owned(),
+            call,
+            reason: error.to_string(),
+        },
     }
 }

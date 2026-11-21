@@ -20,6 +20,33 @@ pub use starter::{
 };
 
 pub const CONFIGURATION_FILE_NAME: &str = "codeint.json";
+pub const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
+pub const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
+pub const MIN_PLUGIN_MEMORY_MB: u64 = 1;
+pub const MAX_PLUGIN_MEMORY_MB: u64 = 4_096;
+pub const MIN_PLUGIN_TIMEOUT_MS: u64 = 1;
+pub const MAX_PLUGIN_TIMEOUT_MS: u64 = 300_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PluginLimits {
+    pub memory_mb: u64,
+    pub timeout_ms: u64,
+}
+
+impl Default for PluginLimits {
+    fn default() -> PluginLimits {
+        PluginLimits {
+            memory_mb: DEFAULT_PLUGIN_MEMORY_MB,
+            timeout_ms: DEFAULT_PLUGIN_TIMEOUT_MS,
+        }
+    }
+}
+
+impl PluginLimits {
+    pub fn memory_bytes(self) -> usize {
+        usize::try_from(self.memory_mb.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX)
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Configuration {
@@ -28,6 +55,7 @@ pub struct Configuration {
     pub languages: Languages,
     pub regression_limits: RegressionLimits,
     pub plugins: Vec<PluginDeclaration>,
+    pub plugin_limits: PluginLimits,
     effective: ConfigurationFile,
 }
 
@@ -391,6 +419,36 @@ struct ConfigurationFile {
         description = "External WebAssembly component Language and Metric plugins to load from local paths. Each entry names the plugin, its optional kind (language by default, or metric), its path relative to the repository root or absolute, and its required SHA-256 hex digest."
     )]
     plugins: Vec<PluginEntry>,
+    #[serde(default, skip_serializing_if = "PluginLimitsFile::is_unset")]
+    #[schemars(
+        description = "Memory cap and time limit enforced on each WebAssembly Plugin. Defaults are 64 MiB and 5000 ms."
+    )]
+    plugin_limits: PluginLimitsFile,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PluginLimitsFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "u64",
+        range(min = 1, max = 4096),
+        description = "Maximum linear memory in MiB that a WebAssembly Plugin may allocate; 64 by default."
+    )]
+    memory_mb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "u64",
+        range(min = 1, max = 300000),
+        description = "Maximum wall-clock time in milliseconds for each WebAssembly Plugin call; 5000 by default."
+    )]
+    timeout_ms: Option<u64>,
+}
+
+impl PluginLimitsFile {
+    fn is_unset(&self) -> bool {
+        self.memory_mb.is_none() && self.timeout_ms.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -605,7 +663,15 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         languages: languages(file.languages)?,
         regression_limits: regression_limits(file.regression_limits),
         plugins: plugins(file.plugins)?,
+        plugin_limits: plugin_limits(file.plugin_limits),
     })
+}
+
+fn plugin_limits(file: PluginLimitsFile) -> PluginLimits {
+    PluginLimits {
+        memory_mb: file.memory_mb.unwrap_or(DEFAULT_PLUGIN_MEMORY_MB),
+        timeout_ms: file.timeout_ms.unwrap_or(DEFAULT_PLUGIN_TIMEOUT_MS),
+    }
 }
 
 fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, ConfigurationFileError> {

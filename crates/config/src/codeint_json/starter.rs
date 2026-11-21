@@ -67,6 +67,7 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
         budgets: Default::default(),
         regression_limits: Default::default(),
         plugins: Vec::new(),
+        plugin_limits: Default::default(),
         languages: (!languages.is_empty()).then(|| {
             languages
                 .iter()

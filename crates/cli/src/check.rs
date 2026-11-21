@@ -14,8 +14,8 @@ use codeint_model::{
     choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
-    PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins,
-    load_metric_plugins,
+    PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
+    load_metric_plugins_with_limits,
 };
 use codeint_report::{MeasuredLanguage, Report};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -89,10 +89,18 @@ impl LoadedPlugins {
             .iter()
             .map(|plugin| plugin.name)
             .collect();
-        let external_languages =
-            load_language_plugins(repository_root, &configuration.plugins, &reserved)?;
-        let external_metrics =
-            load_metric_plugins(repository_root, &configuration.plugins, &reserved)?;
+        let external_languages = load_language_plugins_with_limits(
+            repository_root,
+            &configuration.plugins,
+            &reserved,
+            configuration.plugin_limits,
+        )?;
+        let external_metrics = load_metric_plugins_with_limits(
+            repository_root,
+            &configuration.plugins,
+            &reserved,
+            configuration.plugin_limits,
+        )?;
         let metric_keys: Vec<&str> = external_metrics
             .iter()
             .map(|(_, plugin)| plugin.key())

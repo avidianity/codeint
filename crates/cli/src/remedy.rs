@@ -1,6 +1,6 @@
 use codeint_config::{ConfigError, ConfigurationFileError, StarterConfigurationError};
 use codeint_git::GitError;
-use codeint_model::WorkspaceError;
+use codeint_model::{MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
 
 use crate::CliError;
@@ -20,9 +20,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
         CliError::Check(CheckError::PluginHost(error)) => plugin_host_remedy(error),
-        CliError::Check(CheckError::MetricPlugin(_)) => {
-            "Fix the defect in the external Metric plugin, or report it to the plugin's author."
-        }
+        CliError::Check(CheckError::MetricPlugin(error)) => metric_plugin_remedy(error),
         CliError::Check(CheckError::ExtensionConflict { .. }) => {
             "Assign separate directories to each Language plugin in the languages setting of codeint.json."
         }
@@ -124,8 +122,13 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         ConfigurationFileError::WrongType { .. } => {
             "Change the value to the expected type; the JSON schema that $schema links to describes every key."
         }
-        ConfigurationFileError::OutOfRange { .. } => {
+        ConfigurationFileError::OutOfRange {
+            minimum, maximum, ..
+        } if *minimum == 0.0 && *maximum == 1.0 => {
             "Set the value to a ratio from 0 to 1, as the report shows ratios."
+        }
+        ConfigurationFileError::OutOfRange { .. } => {
+            "Set the value within the allowed range; the JSON schema that $schema links to describes every key."
         }
         ConfigurationFileError::NotOneOf { .. } => {
             "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one."
@@ -165,6 +168,9 @@ fn plugin_host_remedy(error: &PluginHostError) -> &'static str {
         PluginHostError::Call { .. } => {
             "Fix the defect in the external Plugin, or report it to the plugin's author."
         }
+        PluginHostError::MemoryLimitExceeded { .. } | PluginHostError::TimeLimitExceeded { .. } => {
+            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the plugin needs more resources, or fix the defect in the plugin."
+        }
         PluginHostError::DuplicatePluginName { .. } => {
             "Give each external plugin in codeint.json a unique name that does not collide with built-in plugins."
         }
@@ -174,6 +180,16 @@ fn plugin_host_remedy(error: &PluginHostError) -> &'static str {
         PluginHostError::DuplicateMetricKey { .. } => {
             "Remove one of the Metric plugins that declare the same Metric key."
         }
+    }
+}
+
+fn metric_plugin_remedy(error: &MetricPluginError) -> &'static str {
+    match error {
+        MetricPluginError::MemoryLimitExceeded { .. }
+        | MetricPluginError::TimeLimitExceeded { .. } => {
+            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Metric plugin needs more resources, or fix the defect in the plugin."
+        }
+        _ => "Fix the defect in the external Metric plugin, or report it to the plugin's author.",
     }
 }
 

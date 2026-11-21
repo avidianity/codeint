@@ -54,6 +54,10 @@ pub struct ExternalMetricMeasurement {
 pub enum MetricPluginError {
     #[error("Metric plugin {plugin:?} failed during measure: {reason}")]
     Call { plugin: String, reason: String },
+    #[error("Metric plugin {plugin:?} exceeded its memory cap of {memory_mb} MiB")]
+    MemoryLimitExceeded { plugin: String, memory_mb: u64 },
+    #[error("Metric plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
+    TimeLimitExceeded { plugin: String, timeout_ms: u64 },
     #[error(
         "Metric plugin {plugin:?} returned an invalid ratio {ratio}; it must be finite and between 0 and 1"
     )]

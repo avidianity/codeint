@@ -3,13 +3,14 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use codeint_config::{PluginDeclaration, PluginKind};
+use codeint_config::{PluginDeclaration, PluginKind, PluginLimits};
 use codeint_model::{
     CodeModel, ExternalMetricMeasurement, FileModel, InvalidReferenceRange, LanguagePlugin,
     LowerError, Manifest, MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath,
     WorkspaceError, language,
 };
 
+mod limits;
 mod sha256;
 mod wasm;
 mod wasm_metric;
@@ -55,6 +56,10 @@ pub enum PluginHostError {
         call: &'static str,
         reason: String,
     },
+    #[error("Plugin {name:?} exceeded its memory cap of {memory_mb} MiB")]
+    MemoryLimitExceeded { name: String, memory_mb: u64 },
+    #[error("Plugin {name:?} exceeded its time limit of {timeout_ms} ms")]
+    TimeLimitExceeded { name: String, timeout_ms: u64 },
     #[error("Plugin {name:?} duplicates an existing Plugin name")]
     DuplicatePluginName { name: String },
     #[error("Metric plugin {name:?} declared an invalid Metric key {key:?}: {reason}")]
@@ -71,22 +76,57 @@ pub fn load_language_plugin(
     repository_root: &Path,
     declaration: &PluginDeclaration,
 ) -> Result<WasmLanguagePlugin, PluginHostError> {
+    load_language_plugin_with_limits(repository_root, declaration, PluginLimits::default())
+}
+
+pub fn load_language_plugin_with_limits(
+    repository_root: &Path,
+    declaration: &PluginDeclaration,
+    limits: PluginLimits,
+) -> Result<WasmLanguagePlugin, PluginHostError> {
     let (resolved_path, bytes) = read_verified_bytes(repository_root, declaration)?;
-    WasmLanguagePlugin::from_verified_bytes(declaration.name.clone(), &resolved_path, &bytes)
+    WasmLanguagePlugin::from_verified_bytes(
+        declaration.name.clone(),
+        &resolved_path,
+        &bytes,
+        limits,
+    )
 }
 
 pub fn load_metric_plugin(
     repository_root: &Path,
     declaration: &PluginDeclaration,
 ) -> Result<WasmMetricPlugin, PluginHostError> {
+    load_metric_plugin_with_limits(repository_root, declaration, PluginLimits::default())
+}
+
+pub fn load_metric_plugin_with_limits(
+    repository_root: &Path,
+    declaration: &PluginDeclaration,
+    limits: PluginLimits,
+) -> Result<WasmMetricPlugin, PluginHostError> {
     let (resolved_path, bytes) = read_verified_bytes(repository_root, declaration)?;
-    WasmMetricPlugin::from_verified_bytes(declaration.name.clone(), &resolved_path, &bytes)
+    WasmMetricPlugin::from_verified_bytes(declaration.name.clone(), &resolved_path, &bytes, limits)
 }
 
 pub fn load_language_plugins(
     repository_root: &Path,
     declarations: &[PluginDeclaration],
     reserved_names: &[&str],
+) -> Result<Vec<(String, WasmLanguagePlugin)>, PluginHostError> {
+    load_language_plugins_with_limits(
+        repository_root,
+        declarations,
+        reserved_names,
+        PluginLimits::default(),
+    )
+}
+
+pub fn load_language_plugins_with_limits(
+    repository_root: &Path,
+    declarations: &[PluginDeclaration],
+    reserved_names: &[&str],
+    limits: PluginLimits,
 ) -> Result<Vec<(String, WasmLanguagePlugin)>, PluginHostError> {
     let mut loaded = Vec::new();
     for declaration in declarations
@@ -100,7 +140,7 @@ pub fn load_language_plugins(
                 name: declaration.name.clone(),
             });
         }
-        let plugin = load_language_plugin(repository_root, declaration)?;
+        let plugin = load_language_plugin_with_limits(repository_root, declaration, limits)?;
         loaded.push((declaration.name.clone(), plugin));
     }
     Ok(loaded)
@@ -110,6 +150,20 @@ pub fn load_metric_plugins(
     repository_root: &Path,
     declarations: &[PluginDeclaration],
     reserved_names: &[&str],
+) -> Result<Vec<(String, WasmMetricPlugin)>, PluginHostError> {
+    load_metric_plugins_with_limits(
+        repository_root,
+        declarations,
+        reserved_names,
+        PluginLimits::default(),
+    )
+}
+
+pub fn load_metric_plugins_with_limits(
+    repository_root: &Path,
+    declarations: &[PluginDeclaration],
+    reserved_names: &[&str],
+    limits: PluginLimits,
 ) -> Result<Vec<(String, WasmMetricPlugin)>, PluginHostError> {
     let mut loaded: Vec<(String, WasmMetricPlugin)> = Vec::new();
     let mut seen_keys = BTreeSet::new();
@@ -124,7 +178,7 @@ pub fn load_metric_plugins(
                 name: declaration.name.clone(),
             });
         }
-        let plugin = load_metric_plugin(repository_root, declaration)?;
+        let plugin = load_metric_plugin_with_limits(repository_root, declaration, limits)?;
         if !seen_keys.insert(plugin.key().to_owned()) {
             return Err(PluginHostError::DuplicateMetricKey {
                 name: declaration.name.clone(),

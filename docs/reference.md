@@ -502,6 +502,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `plugins[].kind` | string | Whether the external Plugin is a Language plugin or a Metric plugin: `language` (the default) or `metric` |
 | `plugins[].path` | string | Path to the WebAssembly component file, relative to the repository root or absolute |
 | `plugins[].sha256` | string | The required 64-character hexadecimal SHA-256 digest of the plugin file |
+| `plugin_limits` | object | Memory cap and time limit enforced on each WebAssembly Plugin; see [Plugins](#plugins) |
+| `plugin_limits.memory_mb` | integer from 1 to 4096 | Maximum linear memory in MiB that a WebAssembly Plugin may allocate; `64` by default |
+| `plugin_limits.timeout_ms` | integer from 1 to 300000 | Maximum wall-clock time in milliseconds for each WebAssembly Plugin call; `5000` by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -517,7 +520,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -662,6 +665,24 @@ A missing `sha256`, an invalid digest, a missing file, or a hash mismatch stops 
 ```
 
 ```sh exit=2
+codeint check
+```
+
+Every WebAssembly Plugin runs under a memory cap (`64` MiB by default) and a per-call time limit (`5000` ms by default).
+When a Language plugin hits a limit on a file, codeint skips that file and lists it under `skipped`, and finishes the run.
+When a Metric plugin hits a limit, codeint stops the run with exit code 2 and names the Plugin.
+Use `plugin_limits` to raise or adjust these limits:
+
+```json codeint.json
+{
+  "plugin_limits": {
+    "memory_mb": 128,
+    "timeout_ms": 10000
+  }
+}
+```
+
+```sh exit=0
 codeint check
 ```
 
