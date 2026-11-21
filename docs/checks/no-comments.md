@@ -28,6 +28,14 @@ Rust doc comments are not on the allow-list, because no Rust crate is published.
 The test input paths are `test_input.paths` in [checks.toml](../../checks.toml); [no-duplicate-code](./no-duplicate-code.md) reads the same list.
 This page is the allow-list file; a change to it is Tier 3.
 
+**Scanner design**:
+The check uses a zero-dependency line lexer in `xtask/src/lexer.rs` instead of per-language parsers.
+Full parsers for every supported language would add build dependencies and threaten the 30-second hook and 120-second relevant-tier [feedback budgets](./feedback-budget.md).
+The lexer tracks strings, Rust raw strings, PowerShell block comments, YAML block scalars, and script regular expression literals.
+In JavaScript and TypeScript, a slash opens a regular expression literal only after an expression-start token.
+Inside a regular expression literal, the lexer tracks backslash escapes and `[...]` character classes until the closing slash or line end.
+Known trade-offs remain where full parsing is needed, such as a regular expression literal directly after a closing parenthesis or brace.
+
 **Runs in**:
 Hook (`cargo xtask hook`) and CI (`repository` job).
 
