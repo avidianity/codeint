@@ -25,3 +25,15 @@ Blocked: the hook bypass guard needs jq. Install jq and try again.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-hook-bypass.md).
+
+## Codex and OpenCode
+
+Codex CLI runs [no-hook-bypass.sh](../../.codex/hooks/no-hook-bypass.sh) from [hooks.json](../../.codex/hooks.json) on `PreToolUse` for `Bash` and `apply_patch`.
+That adapter forwards `Bash` payloads and `apply_patch` target file paths to [no-hook-bypass.sh](../../.claude/hooks/no-hook-bypass.sh).
+Codex requires the repository and its project hooks to be trusted before `.codex/hooks.json` executes.
+
+OpenCode loads [no-hook-bypass.js](../../.opencode/plugins/no-hook-bypass.js) as a project plugin under `.opencode/plugins/`.
+Its `execute.before` tool hook forwards `bash`, `write`, `edit`, and `apply_patch` calls to [no-hook-bypass.sh](../../.claude/hooks/no-hook-bypass.sh) and throws on any refusal.
+
+[agent_hook_guards.rs](../../xtask/tests/agent_hook_guards.rs) tests both adapters against every case from [hook_guard.rs](../../xtask/tests/hook_guard.rs).
+CI parity stays the authoritative gate when a session runs without trusted local hooks.
