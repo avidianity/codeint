@@ -389,7 +389,7 @@ fn feedback_budget(
             .parse::<f64>()
             .map_err(|_| format!("--seconds must be a number, not {seconds}"))?,
         Err(_) => {
-            let jobs = budget::fetch_jobs(root, &flag(args, "--run-id")?)?;
+            let jobs = budget::fetch_ci_gate_jobs(root, &flag(args, "--run-id")?)?;
             budget::ci_gate_seconds(&jobs, &flag(args, "--exclude-job")?)
                 .ok_or("the run has no completed jobs")?
         }
