@@ -114,6 +114,11 @@ enum Contents {
     },
 }
 
+#[derive(Clone, Copy)]
+pub struct WorkingTreeReader<'snapshot> {
+    root: &'snapshot Path,
+}
+
 impl std::fmt::Display for CommitId {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{}", self.0)
@@ -230,14 +235,16 @@ impl Snapshot {
         &self.submodules
     }
 
+    pub fn working_tree_reader(&self) -> Option<WorkingTreeReader<'_>> {
+        match &self.contents {
+            Contents::WorkingTree { root } => Some(WorkingTreeReader { root }),
+            Contents::Commit { .. } => None,
+        }
+    }
+
     pub fn read(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
         match &self.contents {
-            Contents::WorkingTree { root } => {
-                std::fs::read(root.join(path.as_str())).map_err(|source| GitError::Read {
-                    path: path.clone(),
-                    source,
-                })
-            }
+            Contents::WorkingTree { root } => WorkingTreeReader { root }.read(path),
             Contents::Commit {
                 repository,
                 commit,
@@ -257,6 +264,15 @@ impl Snapshot {
                     })
             }
         }
+    }
+}
+
+impl WorkingTreeReader<'_> {
+    pub fn read(self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
+        std::fs::read(self.root.join(path.as_str())).map_err(|source| GitError::Read {
+            path: path.clone(),
+            source,
+        })
     }
 }
 

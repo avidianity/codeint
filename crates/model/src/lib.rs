@@ -294,7 +294,7 @@ impl ReferenceRanges {
     }
 }
 
-pub trait LanguagePlugin {
+pub trait LanguagePlugin: Sync {
     fn extensions(&self) -> Vec<String>;
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
@@ -314,7 +314,7 @@ pub trait LanguagePlugin {
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
 }
 
-impl<Plugin: language::Guest> LanguagePlugin for Plugin {
+impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
     fn extensions(&self) -> Vec<String> {
         Plugin::extensions()
     }

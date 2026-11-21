@@ -15,6 +15,7 @@ codeint-git = { workspace = true }
 codeint-lang-ts = { workspace = true }
 codeint-model = { workspace = true }
 codeint-report = { workspace = true }
+rayon = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

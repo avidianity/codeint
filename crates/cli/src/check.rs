@@ -14,6 +14,7 @@ use codeint_model::{
     settle_source_set,
 };
 use codeint_report::{MeasuredLanguage, Report};
+use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
 mod tests;
@@ -105,39 +106,48 @@ fn measure(
             ..CodeModel::default()
         })
         .collect();
-    for path in tree.files() {
-        let Some(&index) = path
-            .extension()
-            .and_then(|extension| plugins_by_extension.get(extension))
-        else {
-            continue;
-        };
-        if !coverage[index].covers(path) {
-            continue;
-        }
+    let covered_files: Vec<(&RepoPath, usize)> = tree
+        .files()
+        .iter()
+        .filter_map(|path| {
+            let &index = path
+                .extension()
+                .and_then(|extension| plugins_by_extension.get(extension))?;
+            coverage[index].covers(path).then_some((path, index))
+        })
+        .collect();
+    let outcomes = if let Some(reader) = tree.working_tree_reader() {
+        covered_files
+            .par_iter()
+            .map(|&(path, index)| {
+                let bytes = reader.read(path)?;
+                Ok((
+                    index,
+                    lower_bytes(bytes, path, plugins[index].plugin, overrides),
+                ))
+            })
+            .collect::<Result<Vec<_>, CheckError>>()?
+    } else {
+        let loaded = covered_files
+            .iter()
+            .map(|&(path, index)| Ok((path, index, tree.read(path)?)))
+            .collect::<Result<Vec<_>, CheckError>>()?;
+        loaded
+            .into_par_iter()
+            .map(|(path, index, bytes)| {
+                (
+                    index,
+                    lower_bytes(bytes, path, plugins[index].plugin, overrides),
+                )
+            })
+            .collect()
+    };
+    for (index, outcome) in outcomes {
         let model = &mut models[index];
-        let bytes = tree.read(path)?;
-        let text = match String::from_utf8(bytes) {
-            Ok(text) => text,
-            Err(error) => {
-                model.skipped.push(not_utf8(path.clone(), &error));
-                continue;
-            }
-        };
-        match plugins[index].plugin.lower(path, &text) {
-            Ok(mut file) => {
-                file.source_set =
-                    overrides.source_set(path, settle_source_set(path, &text, file.source_set));
-                model.files.push(SourceFile {
-                    path: path.clone(),
-                    model: file,
-                });
-            }
-            Err(LowerError::DeclarationOnly) => model.declaration_only.push(path.clone()),
-            Err(reason) => model.skipped.push(SkippedFile {
-                path: path.clone(),
-                reason: reason.to_string(),
-            }),
+        match outcome {
+            LoweredFile::Measured(file) => model.files.push(file),
+            LoweredFile::DeclarationOnly(path) => model.declaration_only.push(path),
+            LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
         }
     }
     plugins
@@ -191,6 +201,39 @@ fn find_workspace(
         member_roots.extend(named.plugin.workspace_packages(manifests.clone())?);
     }
     Ok(Workspace::new(member_roots))
+}
+
+enum LoweredFile {
+    Measured(SourceFile),
+    DeclarationOnly(RepoPath),
+    Skipped(SkippedFile),
+}
+
+fn lower_bytes(
+    bytes: Vec<u8>,
+    path: &RepoPath,
+    plugin: &dyn LanguagePlugin,
+    overrides: &SourceSetOverrides,
+) -> LoweredFile {
+    let text = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => return LoweredFile::Skipped(not_utf8(path.clone(), &error)),
+    };
+    match plugin.lower(path, &text) {
+        Ok(mut file) => {
+            file.source_set =
+                overrides.source_set(path, settle_source_set(path, &text, file.source_set));
+            LoweredFile::Measured(SourceFile {
+                path: path.clone(),
+                model: file,
+            })
+        }
+        Err(LowerError::DeclarationOnly) => LoweredFile::DeclarationOnly(path.clone()),
+        Err(reason) => LoweredFile::Skipped(SkippedFile {
+            path: path.clone(),
+            reason: reason.to_string(),
+        }),
+    }
 }
 
 fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {
