@@ -13,7 +13,7 @@ The merge step of a request to land, as [git.md](../agents/git.md#mandatory-chec
 **Error text**:
 
 ```text
-The error text of the whole-repository check that failed.
+[{check}] {violation}
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/merged-result.md).

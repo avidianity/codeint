@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -96,40 +97,133 @@ pub(crate) fn parse_timestamp(text: &str) -> Option<i64> {
     }
 }
 
-pub(crate) fn ci_gate_seconds(jobs: &serde_json::Value, excluded_job: &str) -> Option<f64> {
-    let jobs = jobs.get("jobs")?.as_array()?;
+pub(crate) fn ci_gate_seconds(runs_jobs: &[serde_json::Value], excluded_job: &str) -> Option<f64> {
     let mut start: Option<i64> = None;
     let mut end: Option<i64> = None;
-    for job in jobs {
-        if job.get("name").and_then(serde_json::Value::as_str) == Some(excluded_job) {
+    for response in runs_jobs {
+        let Some(jobs) = response.get("jobs").and_then(serde_json::Value::as_array) else {
             continue;
-        }
-        let started = job
-            .get("started_at")
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse_timestamp);
-        let completed = job
-            .get("completed_at")
-            .and_then(serde_json::Value::as_str)
-            .and_then(parse_timestamp);
-        if let (Some(started), Some(completed)) = (started, completed) {
-            start = Some(start.map_or(started, |current| current.min(started)));
-            end = Some(end.map_or(completed, |current| current.max(completed)));
+        };
+        for job in jobs {
+            if job.get("name").and_then(serde_json::Value::as_str) == Some(excluded_job) {
+                continue;
+            }
+            let started = job
+                .get("started_at")
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse_timestamp);
+            let completed = job
+                .get("completed_at")
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse_timestamp);
+            if let (Some(started), Some(completed)) = (started, completed) {
+                start = Some(start.map_or(started, |current| current.min(started)));
+                end = Some(end.map_or(completed, |current| current.max(completed)));
+            }
         }
     }
     Some((end? - start?) as f64)
 }
 
-pub(crate) fn fetch_jobs(root: &Path, run_id: &str) -> Result<serde_json::Value, String> {
-    let output = gh(
+pub(crate) fn pull_request_head_sha(run: &serde_json::Value) -> Option<&str> {
+    if run.get("event").and_then(serde_json::Value::as_str) != Some("pull_request") {
+        return None;
+    }
+    run.get("head_sha")
+        .and_then(serde_json::Value::as_str)
+        .filter(|sha| !sha.is_empty())
+}
+
+fn workflow_key(run: &serde_json::Value) -> Option<String> {
+    run.get("workflow_id")
+        .and_then(serde_json::Value::as_u64)
+        .map(|id| id.to_string())
+        .or_else(|| {
+            run.get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+}
+
+pub(crate) fn gating_run_ids(
+    primary_run: &serde_json::Value,
+    sha_runs: Option<&serde_json::Value>,
+    primary_run_id: &str,
+) -> Vec<String> {
+    let mut run_ids = vec![primary_run_id.to_string()];
+    if pull_request_head_sha(primary_run).is_none() {
+        return run_ids;
+    }
+    let Some(runs) = sha_runs
+        .and_then(|value| value.get("workflow_runs"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return run_ids;
+    };
+    let primary_workflow = workflow_key(primary_run);
+    let mut latest_by_workflow: BTreeMap<String, u64> = BTreeMap::new();
+    for run in runs {
+        if run.get("event").and_then(serde_json::Value::as_str) != Some("pull_request") {
+            continue;
+        }
+        if run.get("conclusion").and_then(serde_json::Value::as_str) == Some("cancelled") {
+            continue;
+        }
+        let Some(id) = run.get("id").and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        if id.to_string() == primary_run_id {
+            continue;
+        }
+        let Some(key) = workflow_key(run) else {
+            continue;
+        };
+        if primary_workflow.as_deref() == Some(key.as_str()) {
+            continue;
+        }
+        latest_by_workflow
+            .entry(key)
+            .and_modify(|current| *current = (*current).max(id))
+            .or_insert(id);
+    }
+    run_ids.extend(latest_by_workflow.into_values().map(|id| id.to_string()));
+    run_ids
+}
+
+fn fetch_json(root: &Path, endpoint: &str, description: &str) -> Result<serde_json::Value, String> {
+    let output = gh(root, &["api", endpoint])?;
+    serde_json::from_str(&output).map_err(|error| format!("cannot parse {description}: {error}"))
+}
+
+pub(crate) fn fetch_ci_gate_jobs(
+    root: &Path,
+    run_id: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let primary_run = fetch_json(
         root,
-        &[
-            "api",
-            &format!("repos/{{owner}}/{{repo}}/actions/runs/{run_id}/jobs?per_page=100"),
-        ],
+        &format!("repos/{{owner}}/{{repo}}/actions/runs/{run_id}"),
+        &format!("run {run_id}"),
     )?;
-    serde_json::from_str(&output)
-        .map_err(|error| format!("cannot parse the jobs of run {run_id}: {error}"))
+    let sha_runs = match pull_request_head_sha(&primary_run) {
+        Some(head_sha) => Some(fetch_json(
+            root,
+            &format!(
+                "repos/{{owner}}/{{repo}}/actions/runs?head_sha={head_sha}&event=pull_request&per_page=100"
+            ),
+            &format!("workflow runs for {head_sha}"),
+        )?),
+        None => None,
+    };
+    gating_run_ids(&primary_run, sha_runs.as_ref(), run_id)
+        .iter()
+        .map(|id| {
+            fetch_json(
+                root,
+                &format!("repos/{{owner}}/{{repo}}/actions/runs/{id}/jobs?per_page=100"),
+                &format!("the jobs of run {id}"),
+            )
+        })
+        .collect()
 }
 
 fn gh(root: &Path, args: &[&str]) -> Result<String, String> {
