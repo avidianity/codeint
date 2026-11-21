@@ -36,7 +36,7 @@ fn built_sample_plugin() -> &'static Path {
     BUILT_SAMPLE_PLUGIN.get_or_init(|| {
         build_wasm_fixture(
             "crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml",
-            "sample-mini-plugin",
+            "wasm-fixtures",
             false,
         )
         .join("sample_mini_plugin.wasm")
@@ -47,7 +47,7 @@ fn built_sample_metric_plugin() -> &'static Path {
     BUILT_SAMPLE_METRIC_PLUGIN.get_or_init(|| {
         build_wasm_fixture(
             "crates/plugin-host/tests/fixtures/sample-metric-plugin/Cargo.toml",
-            "sample-long-functions-plugin",
+            "wasm-fixtures",
             false,
         )
         .join("sample_long_functions_plugin.wasm")
@@ -59,7 +59,7 @@ fn built_sandbox_probe(file_name: &str) -> PathBuf {
         .get_or_init(|| {
             build_wasm_fixture(
                 "crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml",
-                "sandbox-probes",
+                "wasm-fixtures",
                 true,
             )
         })

@@ -23,7 +23,7 @@ fn sample_metric_plugin_wasm() -> &'static Path {
     SAMPLE_METRIC_WASM.get_or_init(|| {
         build_fixture_workspace(
             "tests/fixtures/sample-metric-plugin/Cargo.toml",
-            "sample-long-functions-plugin",
+            "wasm-fixtures",
             false,
         )
         .join("sample_long_functions_plugin.wasm")
@@ -35,7 +35,7 @@ fn sandbox_probe_wasm(file_name: &str) -> PathBuf {
         .get_or_init(|| {
             build_fixture_workspace(
                 "tests/fixtures/sandbox-probes/Cargo.toml",
-                "sandbox-probes",
+                "wasm-fixtures",
                 true,
             )
         })

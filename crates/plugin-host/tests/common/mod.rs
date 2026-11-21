@@ -46,7 +46,7 @@ pub(crate) fn sample_plugin_wasm() -> &'static Path {
     SAMPLE_WASM.get_or_init(|| {
         build_fixture_workspace(
             "tests/fixtures/sample-plugin/Cargo.toml",
-            "sample-mini-plugin",
+            "wasm-fixtures",
             false,
         )
         .join("sample_mini_plugin.wasm")
