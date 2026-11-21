@@ -5,7 +5,7 @@ The whole-repository checks run on the tree that a merge will produce, right bef
 
 **Implemented by**:
 `cargo xtask merged-result`.
-It runs every whole-repository check: agent-entry-links, skills-link, doc-size, doc-style, no-placeholders, record-numbers, dependency-pinning, config-access, and no-suppressions.
+It runs every whole-repository check: agent-entry-links, skills-link, doc-size, doc-style, no-placeholders, record-numbers, dependency-pinning, config-access, no-suppressions, and version-sync.
 
 **Runs in**:
 The merge step of a request to land, as [git.md](../agents/git.md#mandatory-check-the-merged-result-before-a-merge) says, and CI (`repository` job).
