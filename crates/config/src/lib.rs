@@ -12,9 +12,11 @@ mod result_cache_folder;
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
     Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError,
-    DetectedLanguage, JsonType, KeyPath, KeySegment, LanguageCoverage, Languages,
-    PluginDeclaration, PluginKind, PluginSource, Sha256Digest, SourceSetOverrides,
-    StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
+    DEFAULT_PLUGIN_MEMORY_MB, DEFAULT_PLUGIN_TIMEOUT_MS, DetectedLanguage, JsonType, KeyPath,
+    KeySegment, LanguageCoverage, Languages, MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS,
+    MIN_PLUGIN_MEMORY_MB, MIN_PLUGIN_TIMEOUT_MS, PluginDeclaration, PluginKind, PluginLimits,
+    PluginSource, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
+    configuration_schema, published_schema_address, read_configuration,
     write_starter_configuration,
 };
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};

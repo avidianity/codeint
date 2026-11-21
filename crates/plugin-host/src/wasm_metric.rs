@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use codeint_config::PluginLimits;
 use codeint_model::{
     CodeModel, ExternalFinding, ExternalMetricMeasurement, FileModel, ImportResolution, Metric,
     MetricPluginError, RepoPath, SourceSet, TokenKind,
@@ -8,7 +10,10 @@ use codeint_model::{
 use wasmtime::{Engine, Store};
 
 use crate::PluginHostError;
-use crate::wasm::compile_sandboxed_component;
+use crate::limits::{
+    EpochTicker, LimitTrap, PluginStoreState, arm_call_deadline, classify_trap, new_limited_store,
+};
+use crate::wasm::{compile_sandboxed_component, map_host_trap};
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -23,18 +28,21 @@ use bindings::exports::codeint::plugin::metric as guest_metric;
 const RESERVED_KEYS: [&str; 3] = ["files", "source_lines", "packages"];
 
 struct MetricPluginInstance {
-    store: Store<()>,
+    store: Store<PluginStoreState>,
     bindings: bindings::MetricPlugin,
 }
 
 pub struct WasmMetricPlugin {
     plugin_name: String,
+    limits: PluginLimits,
     key: String,
     display_name: String,
     description: String,
     engine: Engine,
-    pre: bindings::MetricPluginPre<()>,
+    _ticker: EpochTicker,
+    pre: bindings::MetricPluginPre<PluginStoreState>,
     pool: Mutex<Vec<MetricPluginInstance>>,
+    peak_memory_bytes: AtomicUsize,
 }
 
 impl WasmMetricPlugin {
@@ -42,8 +50,10 @@ impl WasmMetricPlugin {
         plugin_name: String,
         path: &Path,
         bytes: &[u8],
+        limits: PluginLimits,
     ) -> Result<WasmMetricPlugin, PluginHostError> {
         let (engine, instance_pre) = compile_sandboxed_component(&plugin_name, path, bytes)?;
+        let ticker = EpochTicker::start(engine.clone());
         let pre = bindings::MetricPluginPre::new(instance_pre).map_err(|error| {
             PluginHostError::Instantiate {
                 name: plugin_name.clone(),
@@ -51,65 +61,77 @@ impl WasmMetricPlugin {
                 reason: error.to_string(),
             }
         })?;
-        let mut store = Store::new(&engine, ());
-        let bindings =
-            pre.instantiate(&mut store)
-                .map_err(|error| PluginHostError::Instantiate {
-                    name: plugin_name.clone(),
-                    path: path.to_path_buf(),
-                    reason: error.to_string(),
-                })?;
+        let mut store = new_limited_store(&engine, limits);
+        let bindings = pre
+            .instantiate(&mut store)
+            .map_err(|error| map_host_trap(&plugin_name, path, None, limits, &store, error))?;
         let api = bindings.codeint_plugin_metric();
-        let key = api
-            .call_key(&mut store)
-            .map_err(|error| PluginHostError::Call {
-                name: plugin_name.clone(),
-                call: "key",
-                reason: error.to_string(),
-            })?;
+        arm_call_deadline(&mut store, limits);
+        let key = api.call_key(&mut store).map_err(|error| {
+            map_host_trap(&plugin_name, path, Some("key"), limits, &store, error)
+        })?;
         validate_metric_key(&plugin_name, &key)?;
-        let display_name = api
-            .call_name(&mut store)
-            .map_err(|error| PluginHostError::Call {
-                name: plugin_name.clone(),
-                call: "name",
-                reason: error.to_string(),
-            })?;
-        let description =
-            api.call_description(&mut store)
-                .map_err(|error| PluginHostError::Call {
-                    name: plugin_name.clone(),
-                    call: "description",
-                    reason: error.to_string(),
-                })?;
+        arm_call_deadline(&mut store, limits);
+        let display_name = api.call_name(&mut store).map_err(|error| {
+            map_host_trap(&plugin_name, path, Some("name"), limits, &store, error)
+        })?;
+        arm_call_deadline(&mut store, limits);
+        let description = api.call_description(&mut store).map_err(|error| {
+            map_host_trap(
+                &plugin_name,
+                path,
+                Some("description"),
+                limits,
+                &store,
+                error,
+            )
+        })?;
         let display_name = if display_name.trim().is_empty() {
             key.clone()
         } else {
             display_name
         };
+        let peak_memory_bytes = AtomicUsize::new(store.data().peak_memory_bytes());
         Ok(WasmMetricPlugin {
             plugin_name,
+            limits,
             key,
             display_name,
             description,
             engine,
+            _ticker: ticker,
             pre,
             pool: Mutex::new(vec![MetricPluginInstance { store, bindings }]),
+            peak_memory_bytes,
         })
     }
 
-    fn checkout(&self) -> Result<MetricPluginInstance, wasmtime::Error> {
+    pub fn peak_memory_bytes(&self) -> usize {
+        self.peak_memory_bytes.load(Ordering::Relaxed)
+    }
+
+    fn record_peak_memory(&self, store: &Store<PluginStoreState>) {
+        self.peak_memory_bytes
+            .fetch_max(store.data().peak_memory_bytes(), Ordering::Relaxed);
+    }
+
+    fn checkout(&self) -> Result<MetricPluginInstance, MetricPluginError> {
         if let Ok(mut guard) = self.pool.lock()
             && let Some(instance) = guard.pop()
         {
             return Ok(instance);
         }
-        let mut store = Store::new(&self.engine, ());
-        let bindings = self.pre.instantiate(&mut store)?;
+        let mut store = new_limited_store(&self.engine, self.limits);
+        let bindings = self
+            .pre
+            .instantiate(&mut store)
+            .map_err(|error| map_metric_trap(&self.plugin_name, self.limits, &store, error))?;
+        self.record_peak_memory(&store);
         Ok(MetricPluginInstance { store, bindings })
     }
 
     fn checkin(&self, instance: MetricPluginInstance) {
+        self.record_peak_memory(&instance.store);
         if let Ok(mut guard) = self.pool.lock() {
             guard.push(instance);
         }
@@ -132,24 +154,47 @@ impl WasmMetricPlugin {
         model: &CodeModel,
     ) -> Result<ExternalMetricMeasurement, MetricPluginError> {
         let guest_model = to_guest_code_model(model);
-        let mut instance = self.checkout().map_err(|error| MetricPluginError::Call {
-            plugin: self.plugin_name.clone(),
-            reason: error.to_string(),
-        })?;
+        let mut instance = self.checkout()?;
+        arm_call_deadline(&mut instance.store, self.limits);
         let result = instance
             .bindings
             .codeint_plugin_metric()
             .call_measure(&mut instance.store, &guest_model);
+        self.record_peak_memory(&instance.store);
         match result {
             Ok(measurement) => {
                 self.checkin(instance);
                 convert_measurement(&self.plugin_name, measurement)
             }
-            Err(error) => Err(MetricPluginError::Call {
-                plugin: self.plugin_name.clone(),
-                reason: error.to_string(),
-            }),
+            Err(error) => Err(map_metric_trap(
+                &self.plugin_name,
+                self.limits,
+                &instance.store,
+                error,
+            )),
         }
+    }
+}
+
+fn map_metric_trap(
+    plugin: &str,
+    limits: PluginLimits,
+    store: &Store<PluginStoreState>,
+    error: wasmtime::Error,
+) -> MetricPluginError {
+    match classify_trap(store, &error) {
+        LimitTrap::Memory => MetricPluginError::MemoryLimitExceeded {
+            plugin: plugin.to_owned(),
+            memory_mb: limits.memory_mb,
+        },
+        LimitTrap::Time => MetricPluginError::TimeLimitExceeded {
+            plugin: plugin.to_owned(),
+            timeout_ms: limits.timeout_ms,
+        },
+        LimitTrap::Other => MetricPluginError::Call {
+            plugin: plugin.to_owned(),
+            reason: error.to_string(),
+        },
     }
 }
 

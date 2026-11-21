@@ -3,15 +3,17 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use codeint_config::{PluginDeclaration, PluginHostConfig, PluginKind, PluginSource, Sha256Digest};
+use codeint_config::{
+    PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource, Sha256Digest,
+};
 use codeint_model::language::{Function, ImportRequest, Resolution};
 use codeint_model::{
-    CodeModel, FileModel, LanguagePlugin, LowerError, Manifest, MetricPlugin, RepoPath, SourceFile,
-    SourceSet, Token, TokenKind, token_text_hash,
+    CodeModel, FileModel, LanguagePlugin, LowerError, Manifest, MetricPlugin, MetricPluginError,
+    RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
 };
 use codeint_plugin_host::{
-    PluginHostError, load_language_plugin, load_language_plugins, load_metric_plugin,
-    load_metric_plugins,
+    PluginHostError, load_language_plugin, load_language_plugin_with_limits, load_language_plugins,
+    load_metric_plugin, load_metric_plugin_with_limits, load_metric_plugins,
 };
 
 use common::{build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm};
@@ -321,4 +323,239 @@ fn refuses_non_https_url_and_missing_cache_dir_for_url_plugins() {
         matches!(cache_error, PluginHostError::MissingCacheDir { ref name, .. } if name == "no-cache"),
         "unexpected error: {cache_error}"
     );
+}
+
+#[test]
+fn language_plugin_that_loops_forever_hits_time_limit_and_still_lowers_other_files() {
+    let wasm_path = sandbox_probe_wasm("loop_language_plugin.wasm");
+    let declaration = declaration_for("loop-lang", &wasm_path);
+    let limits = PluginLimits {
+        memory_mb: 4,
+        timeout_ms: 50,
+    };
+    let plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        limits,
+    )
+    .expect("loop language plugin loads");
+
+    let error = plugin
+        .lower(
+            &RepoPath::new("src/hang.loop").expect("valid repo path"),
+            "LOOP_FOREVER\n",
+        )
+        .expect_err("infinite loop must hit time limit");
+    assert!(
+        matches!(
+            error,
+            LowerError::TimeLimitExceeded {
+                ref plugin,
+                timeout_ms: 50
+            } if plugin == "loop-lang"
+        ),
+        "unexpected error: {error}"
+    );
+
+    let ok = plugin
+        .lower(
+            &RepoPath::new("src/ok.loop").expect("valid repo path"),
+            "line 1\nline 2\n",
+        )
+        .expect("healthy file lowers after time-limit trap");
+    assert_eq!(ok.source_lines, 2);
+}
+
+#[test]
+fn language_plugin_that_exceeds_memory_cap_fails_under_tight_cap_and_succeeds_when_raised() {
+    let wasm_path = sandbox_probe_wasm("memory_hog_language_plugin.wasm");
+    let declaration = declaration_for("hog-lang", &wasm_path);
+
+    let tight = PluginLimits {
+        memory_mb: 2,
+        timeout_ms: 1_000,
+    };
+    let tight_plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        tight,
+    )
+    .expect("memory hog plugin loads under 2 MiB cap");
+    let error = tight_plugin
+        .lower(
+            &RepoPath::new("src/big.hog").expect("valid repo path"),
+            "ALLOC_2MB\n",
+        )
+        .expect_err("2 MiB allocation must exceed 2 MiB cap");
+    assert!(
+        matches!(
+            error,
+            LowerError::MemoryLimitExceeded {
+                ref plugin,
+                memory_mb: 2
+            } if plugin == "hog-lang"
+        ),
+        "unexpected error: {error}"
+    );
+    let ok = tight_plugin
+        .lower(
+            &RepoPath::new("src/small.hog").expect("valid repo path"),
+            "small\n",
+        )
+        .expect("small file lowers after memory-limit trap");
+    assert_eq!(ok.source_lines, 1);
+
+    let raised = PluginLimits {
+        memory_mb: 8,
+        timeout_ms: 1_000,
+    };
+    let raised_plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        raised,
+    )
+    .expect("memory hog plugin loads under 8 MiB cap");
+    let measured = raised_plugin
+        .lower(
+            &RepoPath::new("src/big.hog").expect("valid repo path"),
+            "ALLOC_2MB\n",
+        )
+        .expect("2 MiB allocation succeeds when memory cap is raised to 8 MiB");
+    assert_eq!(measured.source_lines, 1);
+}
+
+#[test]
+fn metric_plugin_that_loops_forever_or_exceeds_memory_cap_returns_limit_error() {
+    let wasm_path = sandbox_probe_wasm("loop_metric_plugin.wasm");
+    let declaration = declaration_with_kind("loop-metric", PluginKind::Metric, &wasm_path);
+    let limits = PluginLimits {
+        memory_mb: 2,
+        timeout_ms: 50,
+    };
+    let plugin = load_metric_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        limits,
+    )
+    .expect("loop metric plugin loads");
+
+    let timeout_error = plugin
+        .measure(&CodeModel::default())
+        .expect_err("infinite-loop Metric plugin must time out");
+    assert!(
+        matches!(
+            timeout_error,
+            MetricPluginError::TimeLimitExceeded {
+                ref plugin,
+                timeout_ms: 50
+            } if plugin == "loop-metric"
+        ),
+        "unexpected error: {timeout_error}"
+    );
+
+    let hog_model = CodeModel {
+        files: vec![SourceFile {
+            path: RepoPath::new("src/hog_metric.ts").expect("valid repo path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 1,
+                functions: Vec::new(),
+                tokens: Vec::new(),
+                flagged_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+            },
+        }],
+        ..CodeModel::default()
+    };
+    let memory_error = plugin
+        .measure(&hog_model)
+        .expect_err("memory-hog Metric plugin must hit memory cap");
+    assert!(
+        matches!(
+            memory_error,
+            MetricPluginError::MemoryLimitExceeded {
+                ref plugin,
+                memory_mb: 2
+            } if plugin == "loop-metric"
+        ),
+        "unexpected error: {memory_error}"
+    );
+}
+
+#[test]
+fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
+    use std::time::Instant;
+
+    use codeint_lang_ts::TypeScriptAndJavaScript;
+
+    let defaults = PluginLimits::default();
+
+    let mut large_ts = String::new();
+    for index in 0..100 {
+        large_ts.push_str(&format!(
+            "export function fn_{index}(x: number): number {{\n  if (x > {index}) {{\n    return x + 1;\n  }}\n  let sum = 0;\n  for (let i = 0; i < 4; i++) {{\n    sum += i;\n  }}\n  return sum;\n}}\n"
+        ));
+    }
+    let ts_path = RepoPath::new("src/large.ts").expect("valid repo path");
+    let ts_start = Instant::now();
+    let ts_model = TypeScriptAndJavaScript
+        .lower(&ts_path, &large_ts)
+        .expect("built-in TS/JS lowers 1000-line file");
+    let ts_elapsed = ts_start.elapsed();
+    assert_eq!(ts_model.functions.len(), 100);
+    assert!(ts_elapsed.as_millis() < u128::from(defaults.timeout_ms));
+
+    let mut large_mini = String::new();
+    for index in 0..100 {
+        large_mini.push_str(&format!(
+            "fn fn_{index}(x) {{\n  if x {{\n    pass;\n  }}\n  return x\n}}\n"
+        ));
+    }
+    let mini_path = RepoPath::new("src/large.mini").expect("valid repo path");
+    let mini_wasm = sample_plugin_wasm();
+    let mini_plugin = load_language_plugin(
+        Path::new("."),
+        &declaration_for("sample-mini", mini_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("sample language plugin loads under default limits");
+    let mini_start = Instant::now();
+    let mini_model = mini_plugin
+        .lower(&mini_path, &large_mini)
+        .expect("sample language plugin lowers 600-line file under default limits");
+    let mini_elapsed = mini_start.elapsed();
+    let mini_peak = mini_plugin.peak_memory_bytes();
+    assert_eq!(mini_model.functions.len(), 100);
+    assert!(mini_peak < defaults.memory_bytes());
+    assert!(mini_elapsed.as_millis() < u128::from(defaults.timeout_ms));
+
+    let metric_wasm = sample_metric_plugin_wasm();
+    let metric_plugin = load_metric_plugin(
+        Path::new("."),
+        &declaration_with_kind("long-functions", PluginKind::Metric, metric_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("sample metric plugin loads under default limits");
+    let large_code_model = CodeModel {
+        files: (0..100)
+            .map(|index| SourceFile {
+                path: RepoPath::new(format!("src/file_{index}.ts")).expect("valid repo path"),
+                model: ts_model.clone(),
+            })
+            .collect(),
+        ..CodeModel::default()
+    };
+    let metric_start = Instant::now();
+    let metric_result = metric_plugin
+        .measure(&large_code_model)
+        .expect("sample metric plugin measures 100-file Code model under default limits");
+    let metric_elapsed = metric_start.elapsed();
+    let metric_peak = metric_plugin.peak_memory_bytes();
+    assert!((metric_result.denominator - 10_000.0).abs() < 1e-9);
+    assert!(metric_peak < defaults.memory_bytes());
+    assert!(metric_elapsed.as_millis() < u128::from(defaults.timeout_ms));
 }
