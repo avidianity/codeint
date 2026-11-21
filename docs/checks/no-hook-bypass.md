@@ -20,6 +20,8 @@ CI for parity; the Claude Code command guard for refusal.
 
 ```text
 Blocked: this command skips Git hooks. Fix the hook failure and commit again; see docs/checks/no-hook-bypass.md.
+Blocked: this file change skips Git hooks. Fix the hook failure and commit again; see docs/checks/no-hook-bypass.md.
+Blocked: the hook bypass guard needs jq. Install jq and try again.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/no-hook-bypass.md).
