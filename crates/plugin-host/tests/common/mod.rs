@@ -19,7 +19,6 @@ pub(crate) fn sample_plugin_wasm() -> &'static Path {
                 manifest.to_str().expect("UTF-8 manifest path"),
                 "--target",
                 "wasm32-wasip2",
-                "--release",
                 "--locked",
                 "--offline",
                 "--target-dir",
@@ -33,7 +32,7 @@ pub(crate) fn sample_plugin_wasm() -> &'static Path {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        target_dir.join("wasm32-wasip2/release/sample_mini_plugin.wasm")
+        target_dir.join("wasm32-wasip2/debug/sample_mini_plugin.wasm")
     })
 }
 

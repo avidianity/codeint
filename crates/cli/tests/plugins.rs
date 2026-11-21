@@ -17,7 +17,6 @@ fn built_sample_plugin() -> &'static Path {
         let status = Command::new("cargo")
             .args([
                 "build",
-                "--release",
                 "--locked",
                 "--offline",
                 "--target",
@@ -30,7 +29,7 @@ fn built_sample_plugin() -> &'static Path {
             .status()
             .expect("run cargo build for sample plugin");
         assert!(status.success(), "sample plugin build exited with {status}");
-        target.join("wasm32-wasip2/release/sample_mini_plugin.wasm")
+        target.join("wasm32-wasip2/debug/sample_mini_plugin.wasm")
     })
 }
 
