@@ -46,6 +46,10 @@ impl Workspace {
         !self.member_roots.is_empty()
     }
 
+    pub fn member_roots(&self) -> impl Iterator<Item = &RepoPath> {
+        self.member_roots.iter()
+    }
+
     pub fn packages(&self) -> impl Iterator<Item = Package<'_>> {
         std::iter::once(Package::Root).chain(self.member_roots.iter().map(Package::Member))
     }

@@ -9,11 +9,14 @@ use codeint_config::{
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, RepoPath, ResolveError,
-    SkippedFile, SourceFile, Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports,
-    settle_source_set,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, MetricPlugin,
+    MetricPluginError, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
+    choose_manifests, resolve_runtime_imports, settle_source_set,
 };
-use codeint_plugin_host::{PluginHostError, WasmLanguagePlugin, load_language_plugins};
+use codeint_plugin_host::{
+    PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins,
+    load_metric_plugins,
+};
 use codeint_report::{MeasuredLanguage, Report};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -34,6 +37,8 @@ pub(crate) enum CheckError {
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     PluginHost(#[from] PluginHostError),
+    #[error(transparent)]
+    MetricPlugin(#[from] MetricPluginError),
     #[error("{}", format_extension_conflict(first, second, extension, path.as_ref()))]
     ExtensionConflict {
         first: String,
@@ -71,7 +76,8 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 1] =
     }];
 
 pub(crate) struct LoadedPlugins {
-    external: Vec<(String, WasmLanguagePlugin)>,
+    external_languages: Vec<(String, WasmLanguagePlugin)>,
+    external_metrics: Vec<(String, WasmMetricPlugin)>,
 }
 
 impl LoadedPlugins {
@@ -83,8 +89,19 @@ impl LoadedPlugins {
             .iter()
             .map(|plugin| plugin.name)
             .collect();
-        let external = load_language_plugins(repository_root, &configuration.plugins, &reserved)?;
-        Ok(LoadedPlugins { external })
+        let external_languages =
+            load_language_plugins(repository_root, &configuration.plugins, &reserved)?;
+        let external_metrics =
+            load_metric_plugins(repository_root, &configuration.plugins, &reserved)?;
+        let metric_keys: Vec<&str> = external_metrics
+            .iter()
+            .map(|(_, plugin)| plugin.key())
+            .collect();
+        configuration.validate_metrics(&metric_keys)?;
+        Ok(LoadedPlugins {
+            external_languages,
+            external_metrics,
+        })
     }
 
     pub(crate) fn as_named(&self) -> Vec<NamedLanguagePlugin<'_>> {
@@ -95,13 +112,20 @@ impl LoadedPlugins {
                 plugin: named.plugin,
             })
             .chain(
-                self.external
+                self.external_languages
                     .iter()
                     .map(|(name, plugin)| NamedLanguagePlugin {
                         name: name.as_str(),
                         plugin: plugin as &dyn LanguagePlugin,
                     }),
             )
+            .collect()
+    }
+
+    pub(crate) fn metric_plugins(&self) -> Vec<&dyn MetricPlugin> {
+        self.external_metrics
+            .iter()
+            .map(|(_, plugin)| plugin as &dyn MetricPlugin)
             .collect()
     }
 }
@@ -111,7 +135,14 @@ pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, Ch
     let configuration = read_configuration(repository.root())?;
     let loaded = LoadedPlugins::load(repository.root(), &configuration)?;
     let plugins = loaded.as_named();
-    check_loaded(&repository, &configuration, &plugins, findings)
+    let metric_plugins = loaded.metric_plugins();
+    check_loaded(
+        &repository,
+        &configuration,
+        &plugins,
+        &metric_plugins,
+        findings,
+    )
 }
 
 #[cfg(test)]
@@ -122,23 +153,26 @@ fn check_with(
 ) -> Result<Report, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
-    check_loaded(&repository, &configuration, plugins, findings)
+    configuration.validate_metrics(&[])?;
+    check_loaded(&repository, &configuration, plugins, &[], findings)
 }
 
 fn check_loaded(
     repository: &Repository,
     configuration: &Configuration,
     plugins: &[NamedLanguagePlugin<'_>],
+    metric_plugins: &[&dyn MetricPlugin],
     findings: FindingsShown,
 ) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
     let languages = measure_with(&tree, plugins, configuration)?;
-    Ok(Report::summarize(
+    Ok(Report::summarize_with_metrics(
         languages,
         tree.submodules().to_vec(),
         findings,
         &configuration.budgets,
-    ))
+        metric_plugins,
+    )?)
 }
 
 pub(crate) fn measure_with(

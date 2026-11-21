@@ -1,9 +1,10 @@
 use super::{DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges};
 use crate::Findings;
 use crate::markdown::{
-    CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, FLAGGED_LINE, FLAGGED_LINE_COLUMNS,
-    IMPORT_CYCLE, Noun, clone_group_item, code, eroded_function_row, flagged_line_row,
-    import_cycle_item, list, push_findings, sentence_item, table,
+    CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, EXTERNAL_FINDING_COLUMNS, FINDING,
+    FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun, clone_group_item, code,
+    eroded_function_row, external_finding_row, flagged_line_row, import_cycle_item, list,
+    push_findings, sentence_item, table,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -65,12 +66,16 @@ fn comparison_sentence(report: &DiffReport) -> String {
 }
 
 fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>> {
-    vec![
+    let mut rows = vec![
         metric_row(source_set, "Erosion", &changes.erosion),
         metric_row(source_set, "Duplication", &changes.duplication),
         metric_row(source_set, "Verbosity", &changes.verbosity),
         metric_row(source_set, "Import cycles", &changes.import_cycles),
-    ]
+    ];
+    for external in changes.external_metrics.values() {
+        rows.push(metric_row(source_set, &external.name, &external.changes));
+    }
+    rows
 }
 
 fn metric_row<T>(source_set: &str, metric: &str, changes: &MetricChanges<T>) -> Vec<String> {
@@ -129,6 +134,20 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
         &IMPORT_CYCLE,
         |listed| list(listed.iter().map(import_cycle_item)),
     );
+    for external in changes.external_metrics.values() {
+        push_changes(
+            &mut blocks,
+            &external.name,
+            &external.changes,
+            &FINDING,
+            |listed| {
+                table(
+                    &EXTERNAL_FINDING_COLUMNS,
+                    listed.iter().map(external_finding_row).collect(),
+                )
+            },
+        );
+    }
     blocks
 }
 

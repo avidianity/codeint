@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use codeint_config::{PluginDeclaration, Sha256Digest};
+use codeint_config::{PluginDeclaration, PluginKind, Sha256Digest};
 use codeint_plugin_host::{sha256, sha256_hex};
 
 static SAMPLE_WASM: OnceLock<PathBuf> = OnceLock::new();
@@ -46,7 +46,7 @@ pub(crate) fn sample_plugin_wasm() -> &'static Path {
     SAMPLE_WASM.get_or_init(|| {
         build_fixture_workspace(
             "tests/fixtures/sample-plugin/Cargo.toml",
-            "sample-mini-plugin",
+            "wasm-fixtures",
             false,
         )
         .join("sample_mini_plugin.wasm")
@@ -54,10 +54,19 @@ pub(crate) fn sample_plugin_wasm() -> &'static Path {
 }
 
 pub(crate) fn declaration_for(name: &str, path: &Path) -> PluginDeclaration {
+    declaration_with_kind(name, PluginKind::Language, path)
+}
+
+pub(crate) fn declaration_with_kind(
+    name: &str,
+    kind: PluginKind,
+    path: &Path,
+) -> PluginDeclaration {
     let bytes = std::fs::read(path).expect("read wasm file");
     let hex = sha256_hex(&sha256(&bytes));
     PluginDeclaration {
         name: name.to_owned(),
+        kind,
         path: path.to_path_buf(),
         sha256: Sha256Digest::parse_hex(&hex).expect("valid sha256 hex"),
     }

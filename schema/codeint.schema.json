@@ -50,7 +50,7 @@
       "items": {
         "$ref": "#/$defs/PluginEntry"
       },
-      "description": "External WebAssembly component Language plugins to load from local paths. Each entry names the plugin, its path relative to the repository root or absolute, and its required SHA-256 hex digest."
+      "description": "External WebAssembly component Language and Metric plugins to load from local paths. Each entry names the plugin, its optional kind (language by default, or metric), its path relative to the repository root or absolute, and its required SHA-256 hex digest."
     }
   },
   "title": "codeint.json",
@@ -123,7 +123,6 @@
     },
     "MetricBudgets": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "erosion": {
           "type": "number",
@@ -153,11 +152,19 @@
           "minimum": 0,
           "maximum": 1
         }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Budget"
       }
+    },
+    "Budget": {
+      "type": "number",
+      "format": "double",
+      "minimum": 0,
+      "maximum": 1
     },
     "RegressionLimitsFile": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "erosion": {
           "$ref": "#/$defs/RegressionLimitSetting",
@@ -191,6 +198,9 @@
           "$ref": "#/$defs/MetricRegressionLimits",
           "description": "The Regression limits of the Vendored Source set."
         }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/RegressionLimitSetting"
       }
     },
     "RegressionLimitSetting": {
@@ -220,7 +230,6 @@
     },
     "MetricRegressionLimits": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "erosion": {
           "$ref": "#/$defs/RegressionLimitSetting",
@@ -238,6 +247,9 @@
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Import cycles in this Source set."
         }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/RegressionLimitSetting"
       }
     },
     "LanguageGlobs": {
@@ -275,7 +287,12 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "The name of the external Language plugin."
+          "description": "The name of the external Plugin."
+        },
+        "kind": {
+          "$ref": "#/$defs/PluginKind",
+          "description": "Whether the external Plugin is a Language plugin or a Metric plugin; language by default.",
+          "default": "language"
         },
         "path": {
           "type": "string",
@@ -290,6 +307,13 @@
         "name",
         "path",
         "sha256"
+      ]
+    },
+    "PluginKind": {
+      "type": "string",
+      "enum": [
+        "language",
+        "metric"
       ]
     }
   }

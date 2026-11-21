@@ -20,6 +20,9 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
         CliError::Check(CheckError::PluginHost(error)) => plugin_host_remedy(error),
+        CliError::Check(CheckError::MetricPlugin(_)) => {
+            "Fix the defect in the external Metric plugin, or report it to the plugin's author."
+        }
         CliError::Check(CheckError::ExtensionConflict { .. }) => {
             "Assign separate directories to each Language plugin in the languages setting of codeint.json."
         }
@@ -157,13 +160,19 @@ fn plugin_host_remedy(error: &PluginHostError) -> &'static str {
             "Build the plugin as a WebAssembly component targeting codeint:plugin@0.1.0."
         }
         PluginHostError::Instantiate { .. } => {
-            "Ensure the plugin exports codeint:plugin/language@0.1.0 and imports no host capabilities."
+            "Ensure the plugin exports codeint:plugin/language@0.1.0 or codeint:plugin/metric@0.1.0 and imports no host capabilities."
         }
         PluginHostError::Call { .. } => {
-            "Fix the defect in the external Language plugin, or report it to the plugin's author."
+            "Fix the defect in the external Plugin, or report it to the plugin's author."
         }
         PluginHostError::DuplicatePluginName { .. } => {
             "Give each external plugin in codeint.json a unique name that does not collide with built-in plugins."
+        }
+        PluginHostError::InvalidMetricKey { .. } => {
+            "Return a valid Metric key that does not collide with built-in report keys from the Metric plugin."
+        }
+        PluginHostError::DuplicateMetricKey { .. } => {
+            "Remove one of the Metric plugins that declare the same Metric key."
         }
     }
 }

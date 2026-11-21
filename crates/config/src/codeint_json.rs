@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -73,11 +74,69 @@ fn hex_nibble(byte: u8) -> Option<u8> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginKind {
+    #[default]
+    Language,
+    Metric,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginDeclaration {
     pub name: String,
+    pub kind: PluginKind,
     pub path: PathBuf,
     pub sha256: Sha256Digest,
+}
+
+impl Configuration {
+    pub fn validate_metrics(
+        &self,
+        external_metric_keys: &[&str],
+    ) -> Result<(), ConfigurationFileError> {
+        let allowed_metrics = || -> Vec<String> {
+            Metric::BUILT_IN_KEYS
+                .iter()
+                .chain(external_metric_keys.iter())
+                .map(|key| (*key).to_owned())
+                .collect()
+        };
+        let is_known =
+            |key: &str| Metric::BUILT_IN_KEYS.contains(&key) || external_metric_keys.contains(&key);
+        for (source_set, metric_key, _) in &self.budgets.set {
+            if !is_known(metric_key) {
+                return Err(ConfigurationFileError::UnknownKey {
+                    key: KeyPath::default()
+                        .child(KeySegment::Key("budgets".to_owned()))
+                        .child(KeySegment::Key(source_set.key().to_owned()))
+                        .child(KeySegment::Key(metric_key.clone())),
+                    allowed: allowed_metrics(),
+                });
+            }
+        }
+        for (source_set, metric_key) in self.regression_limits.metric_keys() {
+            if !is_known(metric_key) {
+                let mut path =
+                    KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
+                let mut allowed = allowed_metrics();
+                if let Some(source_set) = source_set {
+                    path = path.child(KeySegment::Key(source_set.key().to_owned()));
+                } else {
+                    allowed.extend(
+                        ["production", "test", "generated", "vendored"]
+                            .into_iter()
+                            .map(str::to_owned),
+                    );
+                }
+                return Err(ConfigurationFileError::UnknownKey {
+                    key: path.child(KeySegment::Key(metric_key.to_owned())),
+                    allowed,
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Serialize for Configuration {
@@ -88,18 +147,22 @@ impl Serialize for Configuration {
 
 #[derive(Debug, Default)]
 pub struct Budgets {
-    set: Vec<(SourceSet, Metric, Budget)>,
+    set: Vec<(SourceSet, String, Budget)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(transparent)]
-pub struct Budget(f64);
+pub struct Budget(#[schemars(range(min = 0, max = 1))] f64);
 
 impl Budgets {
     pub fn budget(&self, source_set: SourceSet, metric: Metric) -> Option<Budget> {
+        self.budget_for_key(source_set, metric.key())
+    }
+
+    pub fn budget_for_key(&self, source_set: SourceSet, metric_key: &str) -> Option<Budget> {
         self.set
             .iter()
-            .find(|(set, measured, _)| *set == source_set && *measured == metric)
+            .find(|(set, measured, _)| *set == source_set && measured == metric_key)
             .map(|(_, _, budget)| *budget)
     }
 }
@@ -325,7 +388,7 @@ struct ConfigurationFile {
     languages: Option<Vec<LanguageGlobs>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
-        description = "External WebAssembly component Language plugins to load from local paths. Each entry names the plugin, its path relative to the repository root or absolute, and its required SHA-256 hex digest."
+        description = "External WebAssembly component Language and Metric plugins to load from local paths. Each entry names the plugin, its optional kind (language by default, or metric), its path relative to the repository root or absolute, and its required SHA-256 hex digest."
     )]
     plugins: Vec<PluginEntry>,
 }
@@ -333,8 +396,13 @@ struct ConfigurationFile {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct PluginEntry {
-    #[schemars(description = "The name of the external Language plugin.")]
+    #[schemars(description = "The name of the external Plugin.")]
     name: String,
+    #[serde(default)]
+    #[schemars(
+        description = "Whether the external Plugin is a Language plugin or a Metric plugin; language by default."
+    )]
+    kind: PluginKind,
     #[schemars(
         description = "Path to the WebAssembly component file, relative to the repository root or absolute."
     )]
@@ -346,7 +414,6 @@ struct PluginEntry {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 struct RegressionLimitsFile {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Erosion in every Source set.")]
@@ -372,10 +439,11 @@ struct RegressionLimitsFile {
     #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
     #[schemars(description = "The Regression limits of the Vendored Source set.")]
     vendored: MetricRegressionLimits,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    external: BTreeMap<String, RegressionLimitSetting>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 struct MetricRegressionLimits {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Erosion in this Source set.")]
@@ -389,6 +457,8 @@ struct MetricRegressionLimits {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Import cycles in this Source set.")]
     import_cycles: RegressionLimitSetting,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    external: BTreeMap<String, RegressionLimitSetting>,
 }
 
 impl MetricRegressionLimits {
@@ -400,23 +470,26 @@ impl MetricRegressionLimits {
             &self.import_cycles,
         ]
         .into_iter()
+        .chain(self.external.values())
         .all(RegressionLimitSetting::is_unset)
     }
 
-    fn by_metric(self) -> impl Iterator<Item = (Metric, RegressionLimitSetting)> {
+    fn by_metric(self) -> impl Iterator<Item = (String, RegressionLimitSetting)> {
         let MetricRegressionLimits {
             erosion,
             duplication,
             verbosity,
             import_cycles,
+            external,
         } = self;
         [
-            (Metric::Erosion, erosion),
-            (Metric::Duplication, duplication),
-            (Metric::Verbosity, verbosity),
-            (Metric::ImportCycles, import_cycles),
+            (Metric::Erosion.key().to_owned(), erosion),
+            (Metric::Duplication.key().to_owned(), duplication),
+            (Metric::Verbosity.key().to_owned(), verbosity),
+            (Metric::ImportCycles.key().to_owned(), import_cycles),
         ]
         .into_iter()
+        .chain(external)
         .filter(|(_, setting)| !setting.is_unset())
     }
 }
@@ -439,7 +512,6 @@ struct SourceSetBudgets {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 struct MetricBudgets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -469,6 +541,8 @@ struct MetricBudgets {
         description = "The highest Import cycles ratio, from 0 to 1."
     )]
     import_cycles: Option<Budget>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    external: BTreeMap<String, Budget>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -559,6 +633,7 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
             })?;
             Ok(PluginDeclaration {
                 name: entry.name,
+                kind: entry.kind,
                 path: PathBuf::from(entry.path),
                 sha256,
             })
@@ -576,12 +651,14 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         test,
         generated,
         vendored,
+        external,
     } = file;
     let every_source_set = MetricRegressionLimits {
         erosion,
         duplication,
         verbosity,
         import_cycles,
+        external,
     }
     .by_metric()
     .collect();
@@ -630,15 +707,21 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             duplication,
             verbosity,
             import_cycles,
+            external,
         } = metric_budgets;
         [
-            (Metric::Erosion, erosion),
-            (Metric::Duplication, duplication),
-            (Metric::Verbosity, verbosity),
-            (Metric::ImportCycles, import_cycles),
+            (Metric::Erosion.key().to_owned(), erosion),
+            (Metric::Duplication.key().to_owned(), duplication),
+            (Metric::Verbosity.key().to_owned(), verbosity),
+            (Metric::ImportCycles.key().to_owned(), import_cycles),
         ]
         .into_iter()
         .filter_map(move |(metric, ratio)| Some((source_set, metric, ratio?)))
+        .chain(
+            external
+                .into_iter()
+                .map(move |(metric, ratio)| (source_set, metric, ratio)),
+        )
     })
     .collect();
     Budgets { set }

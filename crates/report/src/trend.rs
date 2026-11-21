@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use codeint_config::{CalendarDay, TrendFormat};
 use codeint_model::SourceSet;
 use serde::Serialize;
@@ -40,6 +42,8 @@ struct TrendRow {
     duplication: Decimal,
     verbosity: Decimal,
     import_cycles: Decimal,
+    #[serde(flatten)]
+    external_metrics: BTreeMap<String, Decimal>,
 }
 
 impl TrendReport {
@@ -118,6 +122,11 @@ impl TrendRow {
             duplication: Decimal::rounded(measured.duplication.ratio),
             verbosity: Decimal::rounded(measured.verbosity.ratio),
             import_cycles: Decimal::rounded(measured.import_cycles.ratio),
+            external_metrics: measured
+                .external_metrics
+                .iter()
+                .map(|(key, entry)| (key.clone(), Decimal::rounded(entry.measurement.ratio)))
+                .collect(),
         }
     }
 }

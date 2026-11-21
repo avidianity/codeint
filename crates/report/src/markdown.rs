@@ -1,8 +1,8 @@
 use crate::{
     CloneGroupFinding, CloneLocation, DuplicationSection, ErodedFunctionFinding, ErosionSection,
-    Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection, MeasuredSection,
-    PackageSection, ReferenceRangeEntry, Report, SourceSetSection, SourceSetSections,
-    UnresolvedImportRow, VerbositySection,
+    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection,
+    MeasuredSection, PackageSection, ReferenceRangeEntry, Report, SourceSetSection,
+    SourceSetSections, UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -33,6 +33,7 @@ const PACKAGE_COLUMNS: [&str; 8] = [
     "Import cycles",
 ];
 pub(crate) const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
+pub(crate) const EXTERNAL_FINDING_COLUMNS: [&str; 2] = ["Location", "Message"];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
 
 pub(crate) struct Noun {
@@ -75,6 +76,10 @@ pub(crate) const CLONE_GROUP: Noun = Noun {
 pub(crate) const IMPORT_CYCLE: Noun = Noun {
     one: "Import cycle",
     many: "Import cycles",
+};
+pub(crate) const FINDING: Noun = Noun {
+    one: "Finding",
+    many: "Findings",
 };
 const UNRESOLVED_IMPORT: Noun = Noun {
     one: "unresolved import",
@@ -250,7 +255,7 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         ..
     } = &section.verbosity;
     let import_cycles = &section.import_cycles;
-    vec![
+    let mut rows = vec![
         row(
             "Erosion",
             ratio.0,
@@ -288,7 +293,16 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
             import_cycles_behind_the_value(import_cycles),
             &import_cycles.reference_range,
         ),
-    ]
+    ];
+    for external in section.external_metrics.values() {
+        rows.push(row(
+            &external.name,
+            external.ratio.0,
+            format!("{} of {}", external.numerator.0, external.denominator.0),
+            &external.reference_range,
+        ));
+    }
+    rows
 }
 
 fn import_cycles_behind_the_value(section: &ImportCyclesSection) -> String {
@@ -368,6 +382,20 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             )
         },
     );
+    for external in section.external_metrics.values() {
+        push_findings(
+            &mut blocks,
+            &external.name,
+            &external.findings,
+            &FINDING,
+            |listed| {
+                table(
+                    &EXTERNAL_FINDING_COLUMNS,
+                    listed.iter().map(external_finding_row).collect(),
+                )
+            },
+        );
+    }
     blocks
 }
 
@@ -424,6 +452,16 @@ pub(crate) fn flagged_line_row(row: &FlaggedLineRow) -> Vec<String> {
         code(&format!("{}:{}", row.path, row.line)),
         prose(&row.rule),
     ]
+}
+
+pub(crate) fn external_finding_row(finding: &ExternalMetricFinding) -> Vec<String> {
+    let location = match finding.end_line {
+        Some(end_line) if end_line != finding.line => {
+            format!("{}:{}-{}", finding.path, finding.line, end_line)
+        }
+        _ => format!("{}:{}", finding.path, finding.line),
+    };
+    vec![code(&location), prose(&finding.message)]
 }
 
 pub(crate) fn import_cycle_item(cycle: &ImportCycleFinding) -> String {
