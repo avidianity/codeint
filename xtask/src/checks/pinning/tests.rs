@@ -1,4 +1,6 @@
-use super::{cargo_manifest_problems, is_exact_version, npm_manifest_problems};
+use super::{
+    cargo_manifest_problems, is_exact_version, npm_manifest_problems, requires_npm_lockfile,
+};
 
 #[test]
 fn caret_requirement_fails() {
@@ -49,4 +51,13 @@ fn a_range_that_starts_like_an_exact_version_fails() {
     assert!(!is_exact_version("1.0.0 - 2.0.0"));
     assert!(is_exact_version("1.0.0-rc.1+build.5"));
     assert!(is_exact_version("0.24.2"));
+}
+
+#[test]
+fn published_npm_packages_do_not_require_a_committed_lockfile() {
+    assert!(requires_npm_lockfile("package.json"));
+    assert!(!requires_npm_lockfile("npm/codeint/package.json"));
+    assert!(!requires_npm_lockfile(
+        "npm/platforms/darwin-arm64/package.json"
+    ));
 }

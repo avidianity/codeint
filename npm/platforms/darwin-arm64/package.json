@@ -1,0 +1,24 @@
+{
+  "name": "@avidian/codeint-darwin-arm64",
+  "version": "0.1.0",
+  "description": "macOS arm64 binary for codeint",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avidianity/codeint.git",
+    "directory": "npm/platforms/darwin-arm64"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
