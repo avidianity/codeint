@@ -98,9 +98,10 @@ for declaration in &configuration.plugins {
 }
 ```
 
-- Each entry of `plugins` in `codeint.json` requires `name`, `path`, and `sha256`.
+- Each entry of `plugins` in `codeint.json` requires `name`, `sha256`, and either `path` or `url` (mutually exclusive).
 - A missing `sha256` fails the shape check with `ConfigurationFileError::MissingKey` (exit code 2).
 - A `sha256` that is not 64 hexadecimal characters fails with `ConfigurationFileError::InvalidSha256` (exit code 2).
+- A `url` that does not use `https://` fails with `ConfigurationFileError::NonHttpsPluginUrl` (exit code 2).
 - `plugins` is empty by default and omitted when serialized as empty, so `codeint init` leaves it out.
 
 ## Add a setting

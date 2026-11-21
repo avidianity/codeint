@@ -3,13 +3,14 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use codeint_config::{PluginDeclaration, PluginKind};
+use codeint_config::{PluginDeclaration, PluginHostConfig, PluginKind, PluginSource};
 use codeint_model::{
     CodeModel, ExternalMetricMeasurement, FileModel, InvalidReferenceRange, LanguagePlugin,
     LowerError, Manifest, MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath,
     WorkspaceError, language,
 };
 
+mod fetch;
 mod sha256;
 mod wasm;
 mod wasm_metric;
@@ -65,21 +66,49 @@ pub enum PluginHostError {
     },
     #[error("Metric plugin {name:?} declared a duplicate Metric key {key:?}")]
     DuplicateMetricKey { name: String, key: String },
+    #[error("Plugin {name:?} URL {url:?} must use HTTPS (https://)")]
+    NonHttpsUrl { name: String, url: String },
+    #[error("cannot cache Plugin {name:?} from {url}: no cache directory is configured")]
+    MissingCacheDir { name: String, url: String },
+    #[error("cannot write cached Plugin {name:?} at {}", path.display())]
+    CacheWrite {
+        name: String,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("cannot download Plugin {name:?} from {url}: {reason}")]
+    Download {
+        name: String,
+        url: String,
+        reason: String,
+    },
+    #[error(
+        "SHA-256 hash mismatch for Plugin {name:?} downloaded from {url}: expected {expected}, found {actual}"
+    )]
+    DownloadHashMismatch {
+        name: String,
+        url: String,
+        expected: String,
+        actual: String,
+    },
 }
 
 pub fn load_language_plugin(
     repository_root: &Path,
     declaration: &PluginDeclaration,
+    host_config: &PluginHostConfig,
 ) -> Result<WasmLanguagePlugin, PluginHostError> {
-    let (resolved_path, bytes) = read_verified_bytes(repository_root, declaration)?;
+    let (resolved_path, bytes) = read_verified_bytes(repository_root, declaration, host_config)?;
     WasmLanguagePlugin::from_verified_bytes(declaration.name.clone(), &resolved_path, &bytes)
 }
 
 pub fn load_metric_plugin(
     repository_root: &Path,
     declaration: &PluginDeclaration,
+    host_config: &PluginHostConfig,
 ) -> Result<WasmMetricPlugin, PluginHostError> {
-    let (resolved_path, bytes) = read_verified_bytes(repository_root, declaration)?;
+    let (resolved_path, bytes) = read_verified_bytes(repository_root, declaration, host_config)?;
     WasmMetricPlugin::from_verified_bytes(declaration.name.clone(), &resolved_path, &bytes)
 }
 
@@ -87,6 +116,7 @@ pub fn load_language_plugins(
     repository_root: &Path,
     declarations: &[PluginDeclaration],
     reserved_names: &[&str],
+    host_config: &PluginHostConfig,
 ) -> Result<Vec<(String, WasmLanguagePlugin)>, PluginHostError> {
     let mut loaded = Vec::new();
     for declaration in declarations
@@ -100,7 +130,7 @@ pub fn load_language_plugins(
                 name: declaration.name.clone(),
             });
         }
-        let plugin = load_language_plugin(repository_root, declaration)?;
+        let plugin = load_language_plugin(repository_root, declaration, host_config)?;
         loaded.push((declaration.name.clone(), plugin));
     }
     Ok(loaded)
@@ -110,6 +140,7 @@ pub fn load_metric_plugins(
     repository_root: &Path,
     declarations: &[PluginDeclaration],
     reserved_names: &[&str],
+    host_config: &PluginHostConfig,
 ) -> Result<Vec<(String, WasmMetricPlugin)>, PluginHostError> {
     let mut loaded: Vec<(String, WasmMetricPlugin)> = Vec::new();
     let mut seen_keys = BTreeSet::new();
@@ -124,7 +155,7 @@ pub fn load_metric_plugins(
                 name: declaration.name.clone(),
             });
         }
-        let plugin = load_metric_plugin(repository_root, declaration)?;
+        let plugin = load_metric_plugin(repository_root, declaration, host_config)?;
         if !seen_keys.insert(plugin.key().to_owned()) {
             return Err(PluginHostError::DuplicateMetricKey {
                 name: declaration.name.clone(),
@@ -191,23 +222,29 @@ impl MetricPlugin for WasmMetricPlugin {
 fn read_verified_bytes(
     repository_root: &Path,
     declaration: &PluginDeclaration,
+    host_config: &PluginHostConfig,
 ) -> Result<(PathBuf, Vec<u8>), PluginHostError> {
-    let resolved_path = resolve_plugin_path(repository_root, &declaration.path);
-    let bytes = std::fs::read(&resolved_path).map_err(|source| PluginHostError::Read {
-        name: declaration.name.clone(),
-        path: resolved_path.clone(),
-        source,
-    })?;
-    let actual = sha256(&bytes);
-    if !constant_time_equal(&actual, declaration.sha256.as_bytes()) {
-        return Err(PluginHostError::HashMismatch {
-            name: declaration.name.clone(),
-            path: resolved_path,
-            expected: declaration.sha256.to_hex(),
-            actual: sha256_hex(&actual),
-        });
+    match &declaration.source {
+        PluginSource::Path(declared_path) => {
+            let resolved_path = resolve_plugin_path(repository_root, declared_path);
+            let bytes = std::fs::read(&resolved_path).map_err(|source| PluginHostError::Read {
+                name: declaration.name.clone(),
+                path: resolved_path.clone(),
+                source,
+            })?;
+            let actual = sha256(&bytes);
+            if !constant_time_equal(&actual, declaration.sha256.as_bytes()) {
+                return Err(PluginHostError::HashMismatch {
+                    name: declaration.name.clone(),
+                    path: resolved_path,
+                    expected: declaration.sha256.to_hex(),
+                    actual: sha256_hex(&actual),
+                });
+            }
+            Ok((resolved_path, bytes))
+        }
+        PluginSource::HttpsUrl(url) => fetch::load_https_plugin(declaration, url, host_config),
     }
-    Ok((resolved_path, bytes))
 }
 
 fn resolve_plugin_path(repository_root: &Path, declared: &Path) -> PathBuf {
@@ -218,7 +255,7 @@ fn resolve_plugin_path(repository_root: &Path, declared: &Path) -> PathBuf {
     }
 }
 
-fn constant_time_equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
+pub(crate) fn constant_time_equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
     let mut diff = 0u8;
     for (a, b) in left.iter().zip(right.iter()) {
         diff |= a ^ b;

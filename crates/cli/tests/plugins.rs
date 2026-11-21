@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::OnceLock;
 
 use codeint_plugin_host::{sha256, sha256_hex};
@@ -714,4 +715,327 @@ fn external_metric_plugin_findings_work_with_diff_budgets_and_regression_limits(
         serde_json::from_slice(&budget_diff.stdout).expect("budget diff prints valid JSON");
     assert!(budget_report.get("regressions").is_none());
     assert_eq!(budget_report["over_budget"][0]["metric"], "long_functions");
+}
+
+struct LocalHttpsServer {
+    _dir: TempDir,
+    cert_path: PathBuf,
+    port: u16,
+    child: Option<Child>,
+}
+
+impl LocalHttpsServer {
+    fn start(files: &[(&str, &Path)]) -> LocalHttpsServer {
+        let dir = tempfile::tempdir().expect("tempdir for https server");
+        let www = dir.path().join("www");
+        fs::create_dir_all(&www).expect("create www dir");
+        for (name, source) in files {
+            fs::copy(source, www.join(name)).expect("copy served file");
+        }
+        let cert_path = dir.path().join("cert.pem");
+        let key_path = dir.path().join("key.pem");
+        let config_path = dir.path().join("openssl.cnf");
+        fs::write(
+            &config_path,
+            concat!(
+                "[req]\n",
+                "distinguished_name = dn\n",
+                "x509_extensions = v3_req\n",
+                "prompt = no\n",
+                "[dn]\n",
+                "CN = 127.0.0.1\n",
+                "[v3_req]\n",
+                "subjectAltName = IP:127.0.0.1\n",
+            ),
+        )
+        .expect("write openssl config");
+
+        let openssl = Command::new("openssl")
+            .args([
+                "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-keyout",
+            ])
+            .arg(&key_path)
+            .arg("-out")
+            .arg(&cert_path)
+            .arg("-config")
+            .arg(&config_path)
+            .output()
+            .expect("run openssl to generate self-signed test certificate");
+        assert!(
+            openssl.status.success(),
+            "openssl failed: {}",
+            String::from_utf8_lossy(&openssl.stderr)
+        );
+
+        let script = concat!(
+            "import http.server, os, ssl, sys\n",
+            "os.chdir(sys.argv[1])\n",
+            "class QuietHandler(http.server.SimpleHTTPRequestHandler):\n",
+            "    def log_message(self, fmt, *args):\n",
+            "        pass\n",
+            "server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), QuietHandler)\n",
+            "ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\n",
+            "ctx.load_cert_chain(certfile=sys.argv[2], keyfile=sys.argv[3])\n",
+            "server.socket = ctx.wrap_socket(server.socket, server_side=True)\n",
+            "print(server.server_address[1], flush=True)\n",
+            "server.serve_forever()\n",
+        );
+
+        let mut child = Command::new("python3")
+            .args(["-c", script])
+            .arg(&www)
+            .arg(&cert_path)
+            .arg(&key_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn local python3 HTTPS server");
+        let stdout = child.stdout.take().expect("server stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .expect("read bound port from local HTTPS server");
+        let port: u16 = line.trim().parse().unwrap_or_else(|error| {
+            panic!("expected port number from local HTTPS server, got {line:?}: {error}")
+        });
+
+        LocalHttpsServer {
+            _dir: dir,
+            cert_path,
+            port,
+            child: Some(child),
+        }
+    }
+
+    fn url(&self, file_name: &str) -> String {
+        format!("https://127.0.0.1:{}/{file_name}", self.port)
+    }
+
+    fn cert_path(&self) -> &Path {
+        &self.cert_path
+    }
+
+    fn stop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for LocalHttpsServer {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn run_codeint_with_env(dir: &Path, args: &[&str], envs: &[(&str, &Path)]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_codeint"));
+    command.args(args).current_dir(dir);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command.output().expect("run codeint")
+}
+
+fn write_url_plugin_config(repo_root: &Path, name: &str, url: &str, hash: &str) {
+    write_file(
+        repo_root,
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "{name}",
+                  "url": "{url}",
+                  "sha256": "{hash}"
+                }}
+              ]
+            }}"#
+        ),
+    );
+}
+
+#[test]
+fn https_url_plugin_downloads_once_caches_by_sha256_and_runs_offline_after_server_stops() {
+    let wasm = built_sample_plugin();
+    let hash = sha256_hex(&sha256(&fs::read(wasm).expect("read sample wasm")));
+    let mut server = LocalHttpsServer::start(&[("sample.wasm", wasm)]);
+    let cache_dir = tempfile::tempdir().expect("cache tempdir");
+    let repo = init_repo();
+    write_url_plugin_config(
+        repo.path(),
+        "sample-mini",
+        &server.url("sample.wasm"),
+        &hash,
+    );
+    write_file(
+        repo.path(),
+        "src/app.mini",
+        "fn alpha() {\n  pass;\n  return 1\n}\n",
+    );
+
+    let envs = [
+        ("CODEINT_CACHE_DIR", cache_dir.path()),
+        ("CODEINT_TEST_CA_CERT", server.cert_path()),
+    ];
+    let first = run_codeint_with_env(repo.path(), &["check", "--format", "json"], &envs);
+    assert_eq!(
+        first.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let report: Value = serde_json::from_slice(&first.stdout).expect("valid JSON report");
+    assert_eq!(report["files"], 1);
+    assert_eq!(
+        report["source_sets"]["production"]["verbosity"]["flagged_lines"],
+        1
+    );
+
+    let cached_file = cache_dir
+        .path()
+        .join("plugins")
+        .join(format!("{hash}.wasm"));
+    assert!(
+        cached_file.is_file(),
+        "expected cached plugin at {}",
+        cached_file.display()
+    );
+
+    server.stop();
+
+    let second = run_codeint_with_env(
+        repo.path(),
+        &["check", "--format", "json"],
+        &[("CODEINT_CACHE_DIR", cache_dir.path())],
+    );
+    assert_eq!(
+        second.status.code(),
+        Some(0),
+        "expected cache hit after server stopped, stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_report: Value =
+        serde_json::from_slice(&second.stdout).expect("valid JSON report from cache");
+    assert_eq!(second_report["files"], 1);
+    assert_eq!(
+        second_report["source_sets"]["production"]["verbosity"]["flagged_lines"],
+        1
+    );
+}
+
+#[test]
+fn https_url_plugin_hash_mismatch_refuses_download_leaves_cache_empty_and_exits_2() {
+    let wasm = built_sample_plugin();
+    let server = LocalHttpsServer::start(&[("sample.wasm", wasm)]);
+    let cache_dir = tempfile::tempdir().expect("cache tempdir");
+    let repo = init_repo();
+    write_url_plugin_config(
+        repo.path(),
+        "tampered-mini",
+        &server.url("sample.wasm"),
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    );
+    write_file(repo.path(), "src/app.mini", "fn main() {\n  return 1\n}\n");
+
+    let output = run_codeint_with_env(
+        repo.path(),
+        &["check"],
+        &[
+            ("CODEINT_CACHE_DIR", cache_dir.path()),
+            ("CODEINT_TEST_CA_CERT", server.cert_path()),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("SHA-256 hash mismatch") && stderr.contains("tampered-mini"),
+        "expected hash mismatch error naming plugin, got: {stderr}"
+    );
+    let plugins_cache = cache_dir.path().join("plugins");
+    let remaining: Vec<_> = fs::read_dir(&plugins_cache)
+        .map(|entries| entries.filter_map(Result::ok).collect())
+        .unwrap_or_default();
+    assert!(
+        remaining.is_empty(),
+        "expected no cached or temp files after hash mismatch, found: {remaining:?}"
+    );
+}
+
+#[test]
+fn plain_http_and_non_https_plugin_urls_are_refused_with_exit_2() {
+    for bad_url in [
+        "http://127.0.0.1:8080/sample.wasm",
+        "file:///tmp/sample.wasm",
+        "ftp://example.com/sample.wasm",
+    ] {
+        let repo = init_repo();
+        write_url_plugin_config(
+            repo.path(),
+            "insecure-mini",
+            bad_url,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        );
+
+        let output = run_codeint(repo.path(), &["check"]);
+
+        assert_eq!(output.status.code(), Some(2), "url {bad_url}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("insecure-mini") && stderr.contains("HTTPS"),
+            "expected HTTPS-required error naming plugin for {bad_url}, got: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn plugin_entry_must_specify_either_path_or_url_not_neither_or_both() {
+    let neither_repo = init_repo();
+    write_file(
+        neither_repo.path(),
+        "codeint.json",
+        r#"{
+          "plugins": [
+            {
+              "name": "missing-source",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ]
+        }"#,
+    );
+    let neither = run_codeint(neither_repo.path(), &["check"]);
+    assert_eq!(neither.status.code(), Some(2));
+    let neither_stderr = String::from_utf8_lossy(&neither.stderr);
+    assert!(
+        neither_stderr.contains("missing-source")
+            && neither_stderr.contains("path")
+            && neither_stderr.contains("url"),
+        "expected missing source error, got: {neither_stderr}"
+    );
+
+    let both_repo = init_repo();
+    write_file(
+        both_repo.path(),
+        "codeint.json",
+        r#"{
+          "plugins": [
+            {
+              "name": "both-sources",
+              "path": "plugins/sample.wasm",
+              "url": "https://example.com/sample.wasm",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ]
+        }"#,
+    );
+    let both = run_codeint(both_repo.path(), &["check"]);
+    assert_eq!(both.status.code(), Some(2));
+    let both_stderr = String::from_utf8_lossy(&both.stderr);
+    assert!(
+        both_stderr.contains("both-sources") && both_stderr.contains("not both"),
+        "expected ambiguous source error, got: {both_stderr}"
+    );
 }

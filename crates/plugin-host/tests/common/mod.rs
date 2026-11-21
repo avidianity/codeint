@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use codeint_config::{PluginDeclaration, PluginKind, Sha256Digest};
+use codeint_config::{PluginDeclaration, PluginKind, PluginSource, Sha256Digest};
 use codeint_plugin_host::{sha256, sha256_hex};
 
 static SAMPLE_WASM: OnceLock<PathBuf> = OnceLock::new();
@@ -67,7 +67,7 @@ pub(crate) fn declaration_with_kind(
     PluginDeclaration {
         name: name.to_owned(),
         kind,
-        path: path.to_path_buf(),
+        source: PluginSource::Path(path.to_path_buf()),
         sha256: Sha256Digest::parse_hex(&hex).expect("valid sha256 hex"),
     }
 }

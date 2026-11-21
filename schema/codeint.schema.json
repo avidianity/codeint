@@ -50,7 +50,7 @@
       "items": {
         "$ref": "#/$defs/PluginEntry"
       },
-      "description": "External WebAssembly component Language and Metric plugins to load from local paths. Each entry names the plugin, its optional kind (language by default, or metric), its path relative to the repository root or absolute, and its required SHA-256 hex digest."
+      "description": "External WebAssembly component Language and Metric plugins to load from local paths or HTTPS URLs. Each entry names the plugin, its optional kind (language by default, or metric), either its local path or its HTTPS url, and its required SHA-256 hex digest."
     }
   },
   "title": "codeint.json",
@@ -295,8 +295,18 @@
           "default": "language"
         },
         "path": {
-          "type": "string",
-          "description": "Path to the WebAssembly component file, relative to the repository root or absolute."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Path to the WebAssembly component file, relative to the repository root or absolute. Set either path or url, not both."
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "HTTPS URL of the WebAssembly component file. Set either path or url, not both."
         },
         "sha256": {
           "type": "string",
@@ -305,7 +315,6 @@
       },
       "required": [
         "name",
-        "path",
         "sha256"
       ]
     },

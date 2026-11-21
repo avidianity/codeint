@@ -3,8 +3,8 @@ use std::path::Path;
 use std::string::FromUtf8Error;
 
 use codeint_config::{
-    Configuration, ConfigurationFileError, FindingsShown, LanguageCoverage, SourceSetOverrides,
-    read_configuration,
+    Configuration, ConfigurationFileError, FindingsShown, LanguageCoverage, PluginHostConfig,
+    SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_ts::TypeScriptAndJavaScript;
@@ -84,15 +84,24 @@ impl LoadedPlugins {
     pub(crate) fn load(
         repository_root: &Path,
         configuration: &Configuration,
+        plugin_host: &PluginHostConfig,
     ) -> Result<LoadedPlugins, CheckError> {
         let reserved: Vec<&str> = BUILT_IN_LANGUAGE_PLUGINS
             .iter()
             .map(|plugin| plugin.name)
             .collect();
-        let external_languages =
-            load_language_plugins(repository_root, &configuration.plugins, &reserved)?;
-        let external_metrics =
-            load_metric_plugins(repository_root, &configuration.plugins, &reserved)?;
+        let external_languages = load_language_plugins(
+            repository_root,
+            &configuration.plugins,
+            &reserved,
+            plugin_host,
+        )?;
+        let external_metrics = load_metric_plugins(
+            repository_root,
+            &configuration.plugins,
+            &reserved,
+            plugin_host,
+        )?;
         let metric_keys: Vec<&str> = external_metrics
             .iter()
             .map(|(_, plugin)| plugin.key())
@@ -130,10 +139,14 @@ impl LoadedPlugins {
     }
 }
 
-pub(crate) fn check(folder: &Path, findings: FindingsShown) -> Result<Report, CheckError> {
+pub(crate) fn check(
+    folder: &Path,
+    findings: FindingsShown,
+    plugin_host: &PluginHostConfig,
+) -> Result<Report, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
-    let loaded = LoadedPlugins::load(repository.root(), &configuration)?;
+    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
     let plugins = loaded.as_named();
     let metric_plugins = loaded.metric_plugins();
     check_loaded(

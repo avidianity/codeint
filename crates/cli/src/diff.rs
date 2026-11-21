@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use codeint_config::{FindingsShown, read_configuration};
+use codeint_config::{FindingsShown, PluginHostConfig, read_configuration};
 use codeint_git::{CommitId, GitError, Repository, ResultCache};
 use codeint_report::{BaseCommit, DiffReport, Head, HeadCommit};
 
@@ -23,10 +23,11 @@ pub(crate) fn diff(
     refs: Refs<'_>,
     findings: FindingsShown,
     result_cache: Option<&ResultCache>,
+    plugin_host: &PluginHostConfig,
 ) -> Result<DiffReport, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
-    let plugins = LoadedPlugins::load(repository.root(), &configuration)?;
+    let plugins = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
     let Sides {
         merge_base,
         head,

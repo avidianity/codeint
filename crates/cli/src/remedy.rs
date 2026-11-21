@@ -145,6 +145,15 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         ConfigurationFileError::EmptyPluginField { .. } => {
             "Set a non-empty value for the plugin field in codeint.json."
         }
+        ConfigurationFileError::MissingPluginSource { .. } => {
+            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.json."
+        }
+        ConfigurationFileError::AmbiguousPluginSource { .. } => {
+            "Keep either path or url on the plugin entry in codeint.json and remove the other."
+        }
+        ConfigurationFileError::NonHttpsPluginUrl { .. } => {
+            "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused."
+        }
     }
 }
 
@@ -153,7 +162,7 @@ fn plugin_host_remedy(error: &PluginHostError) -> &'static str {
         PluginHostError::Read { .. } => {
             "Check that the plugin path in codeint.json points to an existing readable WebAssembly component file."
         }
-        PluginHostError::HashMismatch { .. } => {
+        PluginHostError::HashMismatch { .. } | PluginHostError::DownloadHashMismatch { .. } => {
             "Verify the plugin file has not been modified, then update sha256 in codeint.json to match the trusted file."
         }
         PluginHostError::Compile { .. } => {
@@ -173,6 +182,18 @@ fn plugin_host_remedy(error: &PluginHostError) -> &'static str {
         }
         PluginHostError::DuplicateMetricKey { .. } => {
             "Remove one of the Metric plugins that declare the same Metric key."
+        }
+        PluginHostError::NonHttpsUrl { .. } => {
+            "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused."
+        }
+        PluginHostError::MissingCacheDir { .. } => {
+            "Set CODEINT_CACHE_DIR, XDG_CACHE_HOME, HOME, or LOCALAPPDATA so codeint can cache downloaded plugins."
+        }
+        PluginHostError::CacheWrite { .. } => {
+            "Check that you have permission to write to the codeint plugin cache directory, or set CODEINT_CACHE_DIR to a writable folder."
+        }
+        PluginHostError::Download { .. } => {
+            "Check that curl is installed, the HTTPS URL is reachable, and its TLS certificate is valid."
         }
     }
 }
