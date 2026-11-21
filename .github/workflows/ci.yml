@@ -44,6 +44,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
       - run: cargo test --locked --package codeint-cli --test check repository_root
 
+  performance:
+    name: performance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - run: cargo build --release --locked --bin codeint
+      - run: cargo xtask perf-check
+
   repository:
     name: repository
     runs-on: ubuntu-24.04
@@ -114,7 +123,7 @@ jobs:
   budget:
     name: budget
     if: always() && github.event_name == 'pull_request'
-    needs: [rust, windows, repository, risk-tier]
+    needs: [rust, windows, performance, repository, risk-tier]
     runs-on: ubuntu-24.04
     permissions:
       actions: read

@@ -90,3 +90,10 @@ hook_seconds = 30
 relevant_seconds = 120
 ci_gate_seconds = 600
 warn_ratio = 0.8
+
+[performance_budget]
+seed = 42
+packages = 12
+files_per_package = 60
+functions_per_file = 15
+budget_seconds = 20.0

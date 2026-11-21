@@ -11,7 +11,7 @@ pre-commit:
       run: npx --no-install markdownlint-cli2 {staged_files}
     links:
       glob: "*.md"
-      run: lychee --config lychee.toml {staged_files}
+      run: sh -c 'if [ "$#" -gt 0 ]; then lychee --config lychee.toml "$@"; fi' _ {staged_files}
     duplicates:
       run: npm run --silent duplicates
     secrets:

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::checks::budget::{self, FeedbackLoop, Verdict};
-use crate::checks::{Violations, duplicates, layout, pinning, pull_request, source, tier};
+use crate::checks::{Violations, duplicates, layout, perf, pinning, pull_request, source, tier};
 use crate::config::{self, Settings};
 use crate::git::{self, DiffSource};
 
@@ -27,7 +27,8 @@ Loops:
   hook                     the pre-commit checks on staged files
   affected-tests [--base {ref}]
   full                     every check and every test
-  feedback-budget --loop {hook|relevant|ci-gate} (--seconds {n} | --run-id {id} --exclude-job {name}) [--report]";
+  feedback-budget --loop {hook|relevant|ci-gate} (--seconds {n} | --run-id {id} --exclude-job {name}) [--report]
+  perf-check [--binary {path}]";
 
 pub(crate) fn run(command: &str, args: &[String]) -> Result<Violations, String> {
     let root = git::repository_root()?;
@@ -56,6 +57,7 @@ pub(crate) fn run(command: &str, args: &[String]) -> Result<Violations, String> 
         "affected-tests" => affected_tests(&root, args),
         "full" => full(&root),
         "feedback-budget" => feedback_budget(&root, &settings, args),
+        "perf-check" => perf_check(&root, &settings, args),
         _ => Err(USAGE.to_string()),
     }
 }
@@ -403,6 +405,11 @@ fn feedback_budget(
             )],
         },
     )
+}
+
+fn perf_check(root: &Path, settings: &Settings, args: &[String]) -> Result<Violations, String> {
+    let binary = flag(args, "--binary").ok().map(PathBuf::from);
+    perf::run_perf_check(root, settings, binary.as_deref())
 }
 
 #[cfg(test)]
