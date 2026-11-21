@@ -1,11 +1,14 @@
 use std::fs;
 use std::process::Command;
+use std::sync::Barrier;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use codeint_config::{FindingsShown, ReportFormat};
 use codeint_model::language::{
     FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
     SourceSet, WorkspaceError,
 };
+use codeint_model::{InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -653,4 +656,132 @@ fn the_sarif_log_lists_each_finding_once_when_the_report_has_a_section_per_langu
         .collect();
 
     assert_eq!(lines, [1, 2], "unexpected SARIF log: {log}");
+}
+
+struct ParallelProofPlugin {
+    arrivals: AtomicUsize,
+    barrier: Barrier,
+    expected: usize,
+}
+
+impl ParallelProofPlugin {
+    fn new(expected: usize) -> ParallelProofPlugin {
+        ParallelProofPlugin {
+            arrivals: AtomicUsize::new(0),
+            barrier: Barrier::new(expected),
+            expected,
+        }
+    }
+}
+
+impl LanguagePlugin for ParallelProofPlugin {
+    fn extensions(&self) -> Vec<String> {
+        vec!["parallel".to_owned()]
+    }
+
+    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
+        if self.arrivals.fetch_add(1, Ordering::SeqCst) < self.expected {
+            self.barrier.wait();
+        }
+        if path.as_str().starts_with("decl_") {
+            return Err(codeint_model::LowerError::DeclarationOnly);
+        }
+        if path.as_str().starts_with("bad_") {
+            return Err(codeint_model::LowerError::Unparsable {
+                message: format!("syntax error in {path}"),
+            });
+        }
+        let mut model = lines_of(text).map_err(codeint_model::LowerError::from)?;
+        model.flagged_lines.push(FlaggedLine {
+            line: 1,
+            rule: "parallel-marker".to_owned(),
+        });
+        Ok(model)
+    }
+
+    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn workspace_packages(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, codeint_model::WorkspaceError> {
+        Ok(Vec::new())
+    }
+
+    fn resolve_imports(
+        &self,
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+        requests: Vec<ImportRequest>,
+    ) -> Vec<Resolution> {
+        requests.iter().map(|_| Resolution::External).collect()
+    }
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        Ok(ReferenceRanges::default())
+    }
+}
+
+#[test]
+fn check_lowers_files_in_parallel_and_preserves_deterministic_order() {
+    let plugin = ParallelProofPlugin::new(2);
+    let named = [NamedLanguagePlugin {
+        name: "parallel",
+        plugin: &plugin,
+    }];
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .expect("build two-thread rayon pool");
+    let report = pool.install(|| {
+        json_report(
+            &[
+                ("z_file.parallel", "one\n"),
+                ("a_file.parallel", "one\n"),
+                ("m_file.parallel", "one\n"),
+                ("decl_b.parallel", "one\n"),
+                ("decl_a.parallel", "one\n"),
+                ("bad_b.parallel", "one\n"),
+                ("bad_a.parallel", "one\n"),
+            ],
+            &named,
+        )
+    });
+
+    assert_eq!(report["files"], 3, "unexpected report: {report}");
+    let finding_files: Vec<&str> = report["source_sets"]["production"]["verbosity"]["findings"]
+        .as_array()
+        .expect("verbosity findings array")
+        .iter()
+        .filter_map(|finding| finding["path"].as_str())
+        .collect();
+    assert_eq!(
+        finding_files,
+        ["a_file.parallel", "m_file.parallel", "z_file.parallel"],
+        "unexpected findings order: {report}"
+    );
+    let skipped_files: Vec<&str> = report["skipped"]
+        .as_array()
+        .expect("skipped array")
+        .iter()
+        .filter_map(|skipped| skipped["path"].as_str())
+        .collect();
+    assert_eq!(
+        skipped_files,
+        ["bad_a.parallel", "bad_b.parallel"],
+        "unexpected skipped order: {report}"
+    );
+    let declaration_only: Vec<&str> = report["declaration_only"]
+        .as_array()
+        .expect("declaration_only array")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(
+        declaration_only,
+        ["decl_a.parallel", "decl_b.parallel"],
+        "unexpected declaration_only order: {report}"
+    );
 }
