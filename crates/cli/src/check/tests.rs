@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
-use std::sync::{Condvar, Mutex};
-use std::time::Duration;
+use std::sync::Barrier;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use codeint_config::{FindingsShown, ReportFormat};
 use codeint_model::language::{
@@ -659,16 +659,16 @@ fn the_sarif_log_lists_each_finding_once_when_the_report_has_a_section_per_langu
 }
 
 struct ParallelProofPlugin {
-    arrived: Mutex<usize>,
-    both_arrived: Condvar,
+    arrivals: AtomicUsize,
+    barrier: Barrier,
     expected: usize,
 }
 
 impl ParallelProofPlugin {
     fn new(expected: usize) -> ParallelProofPlugin {
         ParallelProofPlugin {
-            arrived: Mutex::new(0),
-            both_arrived: Condvar::new(),
+            arrivals: AtomicUsize::new(0),
+            barrier: Barrier::new(expected),
             expected,
         }
     }
@@ -680,23 +680,8 @@ impl LanguagePlugin for ParallelProofPlugin {
     }
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
-        let mut arrived = self.arrived.lock().expect("lock arrival counter");
-        *arrived += 1;
-        if *arrived >= self.expected {
-            self.both_arrived.notify_all();
-        } else {
-            let (guard, timeout) = self
-                .both_arrived
-                .wait_timeout_while(arrived, Duration::from_secs(5), |count| {
-                    *count < self.expected
-                })
-                .expect("wait for parallel arrival");
-            assert!(
-                !timeout.timed_out(),
-                "expected parallel lowering: only {} of {} files entered lower() within 5s",
-                *guard,
-                self.expected
-            );
+        if self.arrivals.fetch_add(1, Ordering::SeqCst) < self.expected {
+            self.barrier.wait();
         }
         if path.as_str().starts_with("decl_") {
             return Err(codeint_model::LowerError::DeclarationOnly);
@@ -746,18 +731,24 @@ fn check_lowers_files_in_parallel_and_preserves_deterministic_order() {
         name: "parallel",
         plugin: &plugin,
     }];
-    let report = json_report(
-        &[
-            ("z_file.parallel", "one\n"),
-            ("a_file.parallel", "one\n"),
-            ("m_file.parallel", "one\n"),
-            ("decl_b.parallel", "one\n"),
-            ("decl_a.parallel", "one\n"),
-            ("bad_b.parallel", "one\n"),
-            ("bad_a.parallel", "one\n"),
-        ],
-        &named,
-    );
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .expect("build two-thread rayon pool");
+    let report = pool.install(|| {
+        json_report(
+            &[
+                ("z_file.parallel", "one\n"),
+                ("a_file.parallel", "one\n"),
+                ("m_file.parallel", "one\n"),
+                ("decl_b.parallel", "one\n"),
+                ("decl_a.parallel", "one\n"),
+                ("bad_b.parallel", "one\n"),
+                ("bad_a.parallel", "one\n"),
+            ],
+            &named,
+        )
+    });
 
     assert_eq!(report["files"], 3, "unexpected report: {report}");
     let finding_files: Vec<&str> = report["source_sets"]["production"]["verbosity"]["findings"]
