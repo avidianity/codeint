@@ -3,25 +3,29 @@
 ## Load plugins declared in codeint.json
 
 ```rust
+use codeint_config::PluginHostConfig;
 use codeint_plugin_host::load_language_plugins;
 
 let reserved = ["typescript-javascript"];
-let external = load_language_plugins(repository.root(), &configuration.plugins, &reserved)?;
+let host_config = PluginHostConfig::default();
+let external = load_language_plugins(repository.root(), &configuration.plugins, &reserved, &host_config)?;
 ```
 
-- `load_language_plugins` reads each plugin file once, verifies its SHA-256 digest against the declared `sha256` before compiling or instantiating it, and returns `Vec<(String, WasmLanguagePlugin)>`.
-- Relative paths in `PluginDeclaration::path` resolve against `repository_root`; absolute paths are used as given.
+- `load_language_plugins` reads each local plugin file or fetches and caches each HTTPS plugin once, verifies its SHA-256 digest against the declared `sha256` before caching, compiling, or instantiating it, and returns `Vec<(String, WasmLanguagePlugin)>`.
+- Relative paths in `PluginSource::Path` resolve against `repository_root`; absolute paths are used as given.
+- `PluginSource::HttpsUrl` downloads through `curl` with `--proto =https --tlsv1.2 --proto-redir =https`, verifies the SHA-256 digest of the downloaded bytes before atomically renaming into `<cache_dir>/<sha256>.wasm`, and reuses a valid cached entry without network I/O.
 - Every `WasmLanguagePlugin` is instantiated with an empty `wasmtime::component::Linker` with zero host capabilities (no WASI, no filesystem, no network, no environment variables, no clocks). A component that imports any host interface fails to instantiate with `PluginHostError::Instantiate`.
 - `WasmLanguagePlugin` implements `codeint_model::LanguagePlugin: Sync` using an internal pool of pre-instantiated component instances, so callers can invoke `lower` concurrently across threads.
 
 ## Verify a single plugin or compute a digest
 
 ```rust
+use codeint_config::PluginHostConfig;
 use codeint_plugin_host::{load_language_plugin, sha256, sha256_hex};
 
 let digest = sha256_hex(&sha256(&wasm_bytes));
-let plugin = load_language_plugin(repository.root(), &declaration)?;
+let plugin = load_language_plugin(repository.root(), &declaration, &PluginHostConfig::default())?;
 ```
 
 - `sha256` is a pure-Rust, `#![forbid(unsafe_code)]`, std-only FIPS 180-4 SHA-256 implementation.
-- On a hash mismatch, `load_language_plugin` returns `PluginHostError::HashMismatch` naming the plugin, its resolved path, and both expected and actual digests, without passing the bytes to `wasmtime`.
+- On a hash mismatch, `load_language_plugin` returns `PluginHostError::HashMismatch` (local path) or `PluginHostError::DownloadHashMismatch` (HTTPS URL) naming the plugin, its path or URL, and both expected and actual digests, without caching or passing the bytes to `wasmtime`.

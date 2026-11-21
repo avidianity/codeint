@@ -2,6 +2,7 @@ mod common;
 
 use std::path::Path;
 
+use codeint_config::PluginHostConfig;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError};
@@ -293,7 +294,7 @@ fn built_in_typescript_javascript_plugin_passes_seam_2_conformance() {
 fn sample_external_wasm_plugin_passes_seam_2_conformance() {
     let wasm_path = sample_plugin_wasm();
     let declaration = declaration_for("sample-mini", wasm_path);
-    let plugin = load_language_plugin(Path::new("."), &declaration)
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .expect("sample external wasm plugin loads");
 
     let fixture = ConformanceFixture {
