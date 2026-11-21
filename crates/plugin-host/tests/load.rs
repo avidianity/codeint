@@ -1,13 +1,55 @@
 mod common;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use codeint_config::{PluginDeclaration, Sha256Digest};
 use codeint_model::language::{ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet};
 use codeint_plugin_host::{PluginHostError, load_language_plugin, load_language_plugins};
 
-use common::{declaration_for, sample_plugin_wasm};
+use common::{build_fixture_workspace, declaration_for, sample_plugin_wasm};
+
+static SANDBOX_PROBES_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+fn sandbox_probe_wasm(file_name: &str) -> PathBuf {
+    SANDBOX_PROBES_DIR
+        .get_or_init(|| {
+            build_fixture_workspace(
+                "tests/fixtures/sandbox-probes/Cargo.toml",
+                "sandbox-probes",
+                true,
+            )
+        })
+        .join(file_name)
+}
+
+fn assert_sandbox_blocks(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let declaration = declaration_for(plugin_name, &wasm_path);
+
+    let error = load_language_plugin(Path::new("."), &declaration)
+        .err()
+        .expect("plugin importing host capability must fail to instantiate");
+
+    match &error {
+        PluginHostError::Instantiate { name, path, reason } => {
+            assert_eq!(name, plugin_name);
+            assert_eq!(path, &wasm_path);
+            assert!(
+                reason.contains(denied_interface),
+                "expected instantiation error to name {denied_interface}, got: {reason}"
+            );
+        }
+        other => panic!("expected PluginHostError::Instantiate, got: {other}"),
+    }
+
+    let rendered = error.to_string();
+    assert!(
+        rendered.contains(plugin_name) && rendered.contains(denied_interface),
+        "expected rendered error to name {plugin_name} and {denied_interface}, got: {rendered}"
+    );
+}
 
 #[test]
 fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
@@ -107,5 +149,32 @@ fn refuses_duplicate_plugin_names_and_reserved_names() {
     assert!(
         matches!(error, PluginHostError::DuplicatePluginName { ref name } if name == "typescript-javascript"),
         "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn external_plugin_cannot_read_files() {
+    assert_sandbox_blocks(
+        "rogue-file-reader",
+        "file_reader_plugin.wasm",
+        "wasi:filesystem/",
+    );
+}
+
+#[test]
+fn external_plugin_cannot_open_sockets() {
+    assert_sandbox_blocks(
+        "rogue-socket-opener",
+        "socket_opener_plugin.wasm",
+        "wasi:sockets/",
+    );
+}
+
+#[test]
+fn external_plugin_cannot_read_the_clock() {
+    assert_sandbox_blocks(
+        "rogue-clock-reader",
+        "clock_reader_plugin.wasm",
+        "wasi:clocks/",
     );
 }
