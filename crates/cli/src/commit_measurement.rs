@@ -93,8 +93,10 @@ pub(crate) fn measure_all_languages(
     configuration: &Configuration,
 ) -> Result<CommitMeasurement, CheckError> {
     let named = plugins.as_named();
+    let metric_plugins = plugins.metric_plugins();
     let languages = measure_with(tree, &named, configuration)?;
-    Ok(CommitMeasurement::of(CodeModel::merge(
-        languages.into_iter().map(|language| language.model),
-    )))
+    Ok(CommitMeasurement::of_with_metrics(
+        CodeModel::merge(languages.into_iter().map(|language| language.model)),
+        &metric_plugins,
+    )?)
 }

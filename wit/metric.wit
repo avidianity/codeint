@@ -1,0 +1,77 @@
+package codeint:plugin@0.1.0;
+
+/// The interface a Metric plugin exports: metadata for one Metric and a function that measures a Code model.
+interface metric {
+    use language.{file-model, resolution};
+
+    /// One lowered source file in the Code model.
+    record source-file {
+        /// The path of the file, relative to the repository root, with forward slashes.
+        path: string,
+        /// The lowered Code model of the file.
+        model: file-model,
+    }
+
+    /// One resolved runtime import in the Code model.
+    record runtime-import {
+        /// The importing file, relative to the repository root, with forward slashes.
+        importer: string,
+        /// The module specifier exactly as written in the importing file.
+        specifier: string,
+        /// Where the runtime import leads.
+        resolution: resolution,
+    }
+
+    /// The language-neutral Code model of one Source set that a Metric plugin reads.
+    record code-model {
+        /// Every measured source file in this Source set, sorted by path.
+        files: list<source-file>,
+        /// Every runtime import of the files in this Source set.
+        runtime-imports: list<runtime-import>,
+        /// The workspace package roots of the repository, relative to the repository root.
+        workspace-packages: list<string>,
+    }
+
+    /// One located piece of evidence behind a Metric value.
+    record finding {
+        /// A stable identifier for this Finding across runs, used by `codeint diff` to classify new, resolved, and unchanged Findings.
+        id: string,
+        /// The primary file of the Finding, relative to the repository root, with forward slashes.
+        path: string,
+        /// The 1-based line where the Finding starts.
+        line: u32,
+        /// The optional 1-based line where the Finding ends.
+        end-line: option<u32>,
+        /// A human-readable description of the Finding.
+        message: string,
+    }
+
+    /// The measurement of one Metric for a Code model.
+    record measurement {
+        /// The Metric value, a ratio from 0 to 1.
+        ratio: f64,
+        /// The numerator behind the ratio, used by Regression checks.
+        numerator: f64,
+        /// The denominator behind the ratio.
+        denominator: f64,
+        /// The Findings behind the Metric value, ordered worst first.
+        findings: list<finding>,
+    }
+
+    /// The key of the Metric in reports, Budgets, and Regression limits, such as `long_functions`.
+    key: func() -> string;
+
+    /// The display name of the Metric in human-readable reports, such as `Long functions`.
+    name: func() -> string;
+
+    /// A short description of what the Metric measures, used in SARIF rule metadata.
+    description: func() -> string;
+
+    /// Measures the Code model of one Source set and returns the Metric value and its Findings.
+    measure: func(model: code-model) -> measurement;
+}
+
+/// A Metric plugin exports `metric` and imports nothing.
+world metric-plugin {
+    export metric;
+}

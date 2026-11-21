@@ -32,34 +32,43 @@ pub struct WasmLanguagePlugin {
     pool: Mutex<Vec<PluginInstance>>,
 }
 
+pub(crate) fn compile_sandboxed_component(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(Engine, wasmtime::component::InstancePre<()>), PluginHostError> {
+    let mut config = Config::new();
+    config.wasm_component_model(true);
+    let engine = Engine::new(&config).map_err(|error| PluginHostError::Compile {
+        name: name.to_owned(),
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
+    let component =
+        Component::from_binary(&engine, bytes).map_err(|error| PluginHostError::Compile {
+            name: name.to_owned(),
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        })?;
+    let linker: Linker<()> = Linker::new(&engine);
+    let instance_pre =
+        linker
+            .instantiate_pre(&component)
+            .map_err(|error| PluginHostError::Instantiate {
+                name: name.to_owned(),
+                path: path.to_path_buf(),
+                reason: error.to_string(),
+            })?;
+    Ok((engine, instance_pre))
+}
+
 impl WasmLanguagePlugin {
     pub(crate) fn from_verified_bytes(
         name: String,
         path: &Path,
         bytes: &[u8],
     ) -> Result<WasmLanguagePlugin, PluginHostError> {
-        let mut config = Config::new();
-        config.wasm_component_model(true);
-        let engine = Engine::new(&config).map_err(|error| PluginHostError::Compile {
-            name: name.clone(),
-            path: path.to_path_buf(),
-            reason: error.to_string(),
-        })?;
-        let component =
-            Component::from_binary(&engine, bytes).map_err(|error| PluginHostError::Compile {
-                name: name.clone(),
-                path: path.to_path_buf(),
-                reason: error.to_string(),
-            })?;
-        let linker: Linker<()> = Linker::new(&engine);
-        let instance_pre =
-            linker
-                .instantiate_pre(&component)
-                .map_err(|error| PluginHostError::Instantiate {
-                    name: name.clone(),
-                    path: path.to_path_buf(),
-                    reason: error.to_string(),
-                })?;
+        let (engine, instance_pre) = compile_sandboxed_component(&name, path, bytes)?;
         let pre = bindings::LanguagePluginPre::new(instance_pre).map_err(|error| {
             PluginHostError::Instantiate {
                 name: name.clone(),

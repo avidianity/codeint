@@ -8,28 +8,47 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 static BUILT_SAMPLE_PLUGIN: OnceLock<PathBuf> = OnceLock::new();
+static BUILT_SAMPLE_METRIC_PLUGIN: OnceLock<PathBuf> = OnceLock::new();
+
+fn build_fixture_wasm(manifest_rel: &str, target_rel: &str, wasm_name: &str) -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest = root.join(manifest_rel);
+    let target = root.join(target_rel);
+    let status = Command::new("cargo")
+        .args([
+            "build",
+            "--locked",
+            "--offline",
+            "--target",
+            "wasm32-wasip2",
+        ])
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .arg("--target-dir")
+        .arg(&target)
+        .status()
+        .expect("run cargo build for sample plugin");
+    assert!(status.success(), "{wasm_name} build exited with {status}");
+    target.join("wasm32-wasip2/debug").join(wasm_name)
+}
 
 fn built_sample_plugin() -> &'static Path {
     BUILT_SAMPLE_PLUGIN.get_or_init(|| {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let manifest = root.join("crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml");
-        let target = root.join("target/sample-mini-plugin");
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "--locked",
-                "--offline",
-                "--target",
-                "wasm32-wasip2",
-            ])
-            .arg("--manifest-path")
-            .arg(&manifest)
-            .arg("--target-dir")
-            .arg(&target)
-            .status()
-            .expect("run cargo build for sample plugin");
-        assert!(status.success(), "sample plugin build exited with {status}");
-        target.join("wasm32-wasip2/debug/sample_mini_plugin.wasm")
+        build_fixture_wasm(
+            "crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml",
+            "target/sample-mini-plugin",
+            "sample_mini_plugin.wasm",
+        )
+    })
+}
+
+fn built_sample_metric_plugin() -> &'static Path {
+    BUILT_SAMPLE_METRIC_PLUGIN.get_or_init(|| {
+        build_fixture_wasm(
+            "crates/plugin-host/tests/fixtures/sample-metric-plugin/Cargo.toml",
+            "target/sample-long-functions-plugin",
+            "sample_long_functions_plugin.wasm",
+        )
     })
 }
 
@@ -61,7 +80,15 @@ fn run_codeint(dir: &Path, args: &[&str]) -> Output {
 }
 
 fn copy_plugin_into(repo_root: &Path, relative: &str) -> String {
-    let bytes = fs::read(built_sample_plugin()).expect("read sample plugin");
+    copy_wasm_into(built_sample_plugin(), repo_root, relative)
+}
+
+fn copy_metric_plugin_into(repo_root: &Path, relative: &str) -> String {
+    copy_wasm_into(built_sample_metric_plugin(), repo_root, relative)
+}
+
+fn copy_wasm_into(source: &Path, repo_root: &Path, relative: &str) -> String {
+    let bytes = fs::read(source).expect("read sample plugin");
     let full = repo_root.join(relative);
     fs::create_dir_all(full.parent().expect("parent")).expect("create parent");
     fs::write(&full, &bytes).expect("copy plugin");
@@ -386,4 +413,221 @@ fn assigning_separate_directories_in_languages_resolves_external_plugin_extensio
         report["languages"]["zeta-mini"]["source_lines"], 4,
         "unexpected report: {report}"
     );
+}
+
+fn long_ts_function(name: &str, seed: u32) -> String {
+    let mut body = format!("export function {name}(x: number): number {{\n");
+    for step in 1..=9 {
+        body.push_str(&format!("  x += {};\n", seed + step));
+    }
+    body.push_str("  return x;\n}\n");
+    body
+}
+
+fn short_ts_function(name: &str) -> String {
+    format!("export function {name}(x: number): number {{\n  return x + 1;\n}}\n")
+}
+
+fn write_metric_plugin_config(repo_root: &Path, hash: &str, extra_fields: &str) {
+    let trailing = if extra_fields.is_empty() {
+        String::new()
+    } else {
+        format!(",\n{extra_fields}")
+    };
+    write_file(
+        repo_root,
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "long-functions",
+                  "kind": "metric",
+                  "path": "plugins/long_functions.wasm",
+                  "sha256": "{hash}"
+                }}
+              ]{trailing}
+            }}"#
+        ),
+    );
+}
+
+#[test]
+fn sample_external_metric_plugin_appears_next_to_builtin_metrics_in_check_reports() {
+    let repo = init_repo();
+    let hash = copy_metric_plugin_into(repo.path(), "plugins/long_functions.wasm");
+    write_metric_plugin_config(repo.path(), &hash, "");
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        &format!(
+            "{}\n{}",
+            short_ts_function("brief"),
+            long_ts_function("verbose", 10)
+        ),
+    );
+
+    let json_output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        json_output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&json_output.stderr)
+    );
+    let report: Value =
+        serde_json::from_slice(&json_output.stdout).expect("codeint check prints valid JSON");
+    let prod = &report["source_sets"]["production"];
+    assert!(prod.get("erosion").is_some());
+    assert!(prod.get("duplication").is_some());
+    assert!(prod.get("verbosity").is_some());
+    assert!(prod.get("import_cycles").is_some());
+    let metric = &prod["long_functions"];
+    assert_eq!(metric["ratio"], 0.5);
+    assert_eq!(metric["numerator"], 1.0);
+    assert_eq!(metric["denominator"], 2.0);
+    assert_eq!(metric["findings"].as_array().map(Vec::len), Some(1));
+    assert_eq!(metric["findings"][0]["path"], "src/app.ts");
+    assert_eq!(metric["findings"][0]["line"], 5);
+    assert_eq!(metric["findings"][0]["end_line"], 16);
+
+    let md_output = run_codeint(repo.path(), &["check", "--format", "markdown"]);
+    assert_eq!(md_output.status.code(), Some(0));
+    let md = String::from_utf8_lossy(&md_output.stdout);
+    assert!(md.contains("| Production | Long functions | 0.5 | 1 of 2 |"));
+    assert!(md.contains("### Long functions"));
+    assert!(md.contains("`src/app.ts:5-16`"));
+
+    let sarif_output = run_codeint(repo.path(), &["check", "--format", "sarif"]);
+    assert_eq!(sarif_output.status.code(), Some(0));
+    let sarif: Value =
+        serde_json::from_slice(&sarif_output.stdout).expect("codeint check prints valid SARIF");
+    let rules = sarif["runs"][0]["tool"]["driver"]["rules"]
+        .as_array()
+        .expect("sarif rules");
+    assert!(rules.iter().any(|rule| rule["id"] == "long_functions"));
+    let results = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("sarif results");
+    assert!(results.iter().any(|result| {
+        result["ruleId"] == "long_functions"
+            && result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "src/app.ts"
+    }));
+}
+
+#[test]
+fn external_metric_plugin_works_with_budgets_in_check() {
+    let repo = init_repo();
+    let hash = copy_metric_plugin_into(repo.path(), "plugins/long_functions.wasm");
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        &format!(
+            "{}\n{}",
+            short_ts_function("brief"),
+            long_ts_function("verbose", 10)
+        ),
+    );
+    write_metric_plugin_config(
+        repo.path(),
+        &hash,
+        r#""budgets": { "production": { "long_functions": 0.25 } }"#,
+    );
+
+    let over_output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(over_output.status.code(), Some(1));
+    let report: Value =
+        serde_json::from_slice(&over_output.stdout).expect("over-budget report is valid JSON");
+    assert_eq!(report["over_budget"][0]["source_set"], "production");
+    assert_eq!(report["over_budget"][0]["metric"], "long_functions");
+    assert_eq!(report["over_budget"][0]["ratio"], 0.5);
+    assert_eq!(report["over_budget"][0]["budget"], 0.25);
+    let stderr = String::from_utf8_lossy(&over_output.stderr);
+    assert!(
+        stderr.contains("production long_functions ratio 0.5 is over its Budget 0.25"),
+        "unexpected stderr: {stderr}"
+    );
+
+    write_metric_plugin_config(
+        repo.path(),
+        &hash,
+        r#""budgets": { "production": { "long_functions": 0.5 } }"#,
+    );
+
+    let passing_output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        passing_output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&passing_output.stderr)
+    );
+}
+
+#[test]
+fn external_metric_plugin_findings_work_with_diff_budgets_and_regression_limits() {
+    let repo = init_repo();
+    let hash = copy_metric_plugin_into(repo.path(), "plugins/long_functions.wasm");
+    write_metric_plugin_config(repo.path(), &hash, "");
+    write_file(
+        repo.path(),
+        "src/keep.ts",
+        &format!(
+            "{}\n{}",
+            short_ts_function("tiny"),
+            long_ts_function("stays", 10)
+        ),
+    );
+    write_file(repo.path(), "src/remove.ts", &long_ts_function("gone", 40));
+    commit_all(repo.path(), "base");
+
+    write_file(repo.path(), "src/remove.ts", &short_ts_function("gone"));
+    write_file(repo.path(), "src/added.ts", &long_ts_function("fresh", 80));
+    write_file(
+        repo.path(),
+        "src/extra.ts",
+        &long_ts_function("second", 120),
+    );
+
+    let diff_output = run_codeint(repo.path(), &["diff", "HEAD", "--format", "json"]);
+    assert_eq!(diff_output.status.code(), Some(1));
+    let report: Value =
+        serde_json::from_slice(&diff_output.stdout).expect("codeint diff prints valid JSON");
+    let changes = &report["source_sets"]["production"]["long_functions"];
+    assert_eq!(changes["base_ratio"], 0.6667);
+    assert_eq!(changes["head_ratio"], 0.6);
+    assert_eq!(changes["unchanged"], 1);
+    assert_eq!(changes["resolved"].as_array().map(Vec::len), Some(1));
+    assert_eq!(changes["resolved"][0]["path"], "src/remove.ts");
+    assert_eq!(changes["new"].as_array().map(Vec::len), Some(2));
+    assert!(
+        report["regressions"]
+            .as_array()
+            .expect("regressions")
+            .iter()
+            .any(|reg| reg["metric"] == "long_functions")
+    );
+
+    let sarif_output = run_codeint(repo.path(), &["diff", "HEAD", "--format", "sarif"]);
+    assert_eq!(sarif_output.status.code(), Some(1));
+    let sarif: Value =
+        serde_json::from_slice(&sarif_output.stdout).expect("codeint diff prints valid SARIF");
+    let new_metric_results: Vec<&Value> = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("sarif results")
+        .iter()
+        .filter(|result| result["ruleId"] == "long_functions")
+        .collect();
+    assert_eq!(new_metric_results.len(), 2);
+
+    write_metric_plugin_config(
+        repo.path(),
+        &hash,
+        r#""budgets": { "production": { "long_functions": 0.5 } }, "regression_limits": { "long_functions": { "ratio_rise": 1, "new_findings": "never" } }"#,
+    );
+
+    let budget_diff = run_codeint(repo.path(), &["diff", "HEAD", "--format", "json"]);
+    assert_eq!(budget_diff.status.code(), Some(1));
+    let budget_report: Value =
+        serde_json::from_slice(&budget_diff.stdout).expect("budget diff prints valid JSON");
+    assert!(budget_report.get("regressions").is_none());
+    assert_eq!(budget_report["over_budget"][0]["metric"], "long_functions");
 }
