@@ -20,6 +20,10 @@ pub(crate) fn github_output_file() -> Option<PathBuf> {
     std::env::var_os("GITHUB_OUTPUT").map(PathBuf::from)
 }
 
+pub(crate) fn temp_dir() -> PathBuf {
+    std::env::temp_dir()
+}
+
 pub(crate) struct TierRule {
     pub(crate) tier: u8,
     pub(crate) paths: Vec<String>,
@@ -35,6 +39,15 @@ pub(crate) struct FeedbackBudgets {
     pub(crate) relevant_seconds: f64,
     pub(crate) ci_gate_seconds: f64,
     pub(crate) warn_ratio: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PerformanceBudget {
+    pub(crate) seed: u64,
+    pub(crate) packages: usize,
+    pub(crate) files_per_package: usize,
+    pub(crate) functions_per_file: usize,
+    pub(crate) budget_seconds: f64,
 }
 
 pub(crate) struct Settings {
@@ -58,6 +71,7 @@ pub(crate) struct Settings {
     pub(crate) tier_default: u8,
     pub(crate) tier_rules: Vec<TierRule>,
     pub(crate) budgets: FeedbackBudgets,
+    pub(crate) performance: PerformanceBudget,
 }
 
 impl Settings {
@@ -136,7 +150,38 @@ pub(crate) fn load_settings(root: &Path) -> Result<Settings, String> {
             ci_gate_seconds: float(&table, "feedback_budget.ci_gate_seconds")?,
             warn_ratio: float(&table, "feedback_budget.warn_ratio")?,
         },
+        performance: load_performance_budget(&table)?,
     })
+}
+
+fn load_performance_budget(table: &Table) -> Result<PerformanceBudget, String> {
+    let seed = integer(table, "performance_budget.seed")?;
+    let packages = positive_usize(table, "performance_budget.packages")?;
+    let files_per_package = positive_usize(table, "performance_budget.files_per_package")?;
+    let functions_per_file = positive_usize(table, "performance_budget.functions_per_file")?;
+    let budget_seconds = float(table, "performance_budget.budget_seconds")?;
+    if !budget_seconds.is_finite() || budget_seconds <= 0.0 {
+        return Err(
+            "checks.toml: performance_budget.budget_seconds must be a positive number".to_string(),
+        );
+    }
+    Ok(PerformanceBudget {
+        seed,
+        packages,
+        files_per_package,
+        functions_per_file,
+        budget_seconds,
+    })
+}
+
+fn positive_usize(table: &Table, dotted: &str) -> Result<usize, String> {
+    let value = integer(table, dotted)?;
+    let count = usize::try_from(value)
+        .map_err(|_| format!("checks.toml: {dotted} does not fit in usize"))?;
+    if count == 0 {
+        return Err(format!("checks.toml: {dotted} must be greater than zero"));
+    }
+    Ok(count)
 }
 
 fn lookup<'a>(table: &'a Table, dotted: &str) -> Result<&'a Value, String> {
