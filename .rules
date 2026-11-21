@@ -43,6 +43,7 @@ Read a large reference page one section at a time.
 | Write docs, ADRs, or glossary terms | `docs/agents/documentation.md` | `docs/agents/domain.md` before you add or change a term |
 | Create or update issues or pull requests | `docs/agents/issue-tracker.md` | |
 | Handle a repeated agent mistake or an escaped defect | `docs/agents/corrections.md` | |
+| Prepare or publish a release | `docs/agents/release.md`, `docs/agents/security.md` | |
 | Touch secrets, credentials, production, releases, or untrusted input | `docs/agents/security.md` | |
 
 Read a module's `GLOSSARY.md` and `HOW-TO.md`, when its folder has them, before you edit an implementation file in its folder.
