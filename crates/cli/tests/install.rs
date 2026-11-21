@@ -4,6 +4,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 
 use tempfile::TempDir;
 
@@ -13,7 +14,13 @@ struct ReleaseArtifacts {
     archive_sha256: String,
 }
 
+static SHARED_RELEASE_ARTIFACTS: OnceLock<ReleaseArtifacts> = OnceLock::new();
+
 impl ReleaseArtifacts {
+    fn shared() -> &'static ReleaseArtifacts {
+        SHARED_RELEASE_ARTIFACTS.get_or_init(ReleaseArtifacts::new)
+    }
+
     fn new() -> ReleaseArtifacts {
         let folder = tempfile::tempdir().expect("create release artifacts folder");
         let stage = tempfile::tempdir().expect("create staging folder");
@@ -22,16 +29,27 @@ impl ReleaseArtifacts {
 
         let archive_name = format!("codeint-{}.tar.gz", host_target());
         let archive_path = folder.path().join(&archive_name);
-        let tar_status = Command::new("tar")
-            .args(["-C"])
+        let tar_status = Command::new("sh")
+            .args(["-c", r#"tar -C "$1" -cf - codeint | gzip -1 > "$2""#, "_"])
             .arg(stage.path())
-            .args(["-czf"])
             .arg(&archive_path)
-            .arg("codeint")
             .status()
             .expect("create release tar.gz archive");
-        assert!(tar_status.success(), "tar exited with {tar_status}");
+        assert!(tar_status.success(), "tar | gzip exited with {tar_status}");
 
+        ReleaseArtifacts::with_checksums(folder, archive_name)
+    }
+
+    fn tiny_for_checksum_test() -> ReleaseArtifacts {
+        let folder = tempfile::tempdir().expect("create tiny release artifacts folder");
+        let archive_name = format!("codeint-{}.tar.gz", host_target());
+        let archive_path = folder.path().join(&archive_name);
+        fs::write(&archive_path, b"not-a-real-release-archive").expect("write tiny archive");
+        ReleaseArtifacts::with_checksums(folder, archive_name)
+    }
+
+    fn with_checksums(folder: TempDir, archive_name: String) -> ReleaseArtifacts {
+        let archive_path = folder.path().join(&archive_name);
         let archive_sha256 = sha256_of(&archive_path);
         let checksums = format!(
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  codeint-other-target.tar.gz\n\
@@ -131,7 +149,7 @@ fn run_with_fake_uname(
 
 #[test]
 fn install_from_local_release_artifacts_verifies_checksum_and_installs_codeint() {
-    let artifacts = ReleaseArtifacts::new();
+    let artifacts = ReleaseArtifacts::shared();
     let target_root = tempfile::tempdir().expect("create target root");
     let install_dir = target_root.path().join("bin");
 
@@ -174,7 +192,7 @@ fn install_from_local_release_artifacts_verifies_checksum_and_installs_codeint()
 
 #[test]
 fn install_defaults_to_home_local_bin_when_codeint_install_dir_is_unset() {
-    let artifacts = ReleaseArtifacts::new();
+    let artifacts = ReleaseArtifacts::shared();
     let home = tempfile::tempdir().expect("create temporary HOME");
 
     let output = Command::new("sh")
@@ -208,7 +226,7 @@ fn install_defaults_to_home_local_bin_when_codeint_install_dir_is_unset() {
 
 #[test]
 fn install_stops_on_checksum_mismatch_and_leaves_no_binary_installed() {
-    let artifacts = ReleaseArtifacts::new();
+    let artifacts = ReleaseArtifacts::tiny_for_checksum_test();
     let mut tampered = fs::read(artifacts.archive_path()).expect("read release archive");
     tampered.push(0xFF);
     fs::write(artifacts.archive_path(), tampered).expect("write tampered archive");
@@ -249,11 +267,10 @@ fn install_stops_on_checksum_mismatch_and_leaves_no_binary_installed() {
 
 #[test]
 fn install_rejects_unsupported_os_and_architecture() {
-    let artifacts = ReleaseArtifacts::new();
     let target_root = tempfile::tempdir().expect("create target root");
     let install_dir = target_root.path().join("bin");
 
-    let os_output = run_with_fake_uname("FreeBSD", "x86_64", &artifacts.file_url(), &install_dir);
+    let os_output = run_with_fake_uname("FreeBSD", "x86_64", "file:///nonexistent", &install_dir);
     assert!(!os_output.status.success());
     assert!(
         text(&os_output.stderr).contains("unsupported operating system: FreeBSD"),
@@ -261,7 +278,7 @@ fn install_rejects_unsupported_os_and_architecture() {
         text(&os_output.stderr)
     );
 
-    let arch_output = run_with_fake_uname("Linux", "riscv64", &artifacts.file_url(), &install_dir);
+    let arch_output = run_with_fake_uname("Linux", "riscv64", "file:///nonexistent", &install_dir);
     assert!(!arch_output.status.success());
     assert!(
         text(&arch_output.stderr).contains("unsupported architecture: riscv64"),
