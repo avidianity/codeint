@@ -1,0 +1,176 @@
+/// The Plugin interface of codeint.
+/// A change that breaks a Plugin built against this version needs a new version.
+package codeint:plugin@0.1.0;
+
+/// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
+interface language {
+    /// One function of a source file.
+    /// A nested function is a function of its own and adds no decision points to the function around it.
+    record function {
+        /// The line where the function starts, counted from 1.
+        line: u32,
+        /// The line where the function ends, counted from 1; the same as `line` for a function on one line.
+        end-line: u32,
+        /// The decision points of the function, not counting those of nested functions.
+        decision-points: u32,
+        /// The source lines of the function, not counting lines of nested functions.
+        source-lines: u32,
+    }
+
+    /// What a token is to clone detection, by the rules of the Language plugin.
+    enum token-kind {
+        /// A name the code chooses, such as a variable, function, parameter, type, or property name.
+        /// Clone detection treats every identifier as the same token.
+        identifier,
+        /// A literal value, such as a string, number, boolean, null, regular expression, or template text.
+        /// Clone detection treats every literal as the same token.
+        literal,
+        /// Any other token, such as a keyword, an operator, or punctuation.
+        /// Clone detection compares these by their text hash.
+        other,
+        /// Any token of a declaration that only imports or exports names, such as a TypeScript `import`, `export { a } from`, or `export { a }` declaration.
+        /// Which declarations count is a rule of the Language plugin.
+        /// Clone detection never matches these tokens, because a list of names repeats only its shape.
+        import-or-export,
+    }
+
+    /// The group a source file belongs to.
+    /// Every source file belongs to exactly one Source set, and every Metric reports each Source set separately.
+    enum source-set {
+        /// Code that ships, the default for a file that no other rule claims.
+        production,
+        /// Code that only tests run, such as a TypeScript `*.test.ts` file.
+        test,
+        /// Code that a tool writes, such as build output.
+        generated,
+        /// Third-party code copied into the repository.
+        vendored,
+    }
+
+    /// One token of a source file, so never whitespace or a comment.
+    record token {
+        /// Whether the token is an identifier, a literal, another token, or a token of an import or export declaration.
+        kind: token-kind,
+        /// The 64-bit FNV-1a hash of the token's UTF-8 text as written.
+        text-hash: u64,
+        /// The 1-based line on which the token starts.
+        line: u32,
+    }
+
+    /// A source line that matches a Flagged-line rule of the Language plugin.
+    record flagged-line {
+        /// The line number, counted from 1.
+        line: u32,
+        /// The stable identifier of the rule the line matched, such as `else-after-return`.
+        rule: string,
+    }
+
+    /// The Code model of one source file.
+    record file-model {
+        /// The Source set of the file, chosen by the rules of the Language plugin.
+        source-set: source-set,
+        /// The lines that hold code, so not a blank line or a line with only comments.
+        source-lines: u32,
+        /// Every function of the file, in the order their first lines appear.
+        functions: list<function>,
+        /// Every token of the file, in source order.
+        tokens: list<token>,
+        /// Each Flagged line with the rule it matched; a line that matches two rules appears once per rule.
+        flagged-lines: list<flagged-line>,
+        /// The module specifiers of the imports that run when the file runs, in source order, such as `./greet`.
+        /// Type-only imports are left out.
+        runtime-imports: list<string>,
+    }
+
+    /// One runtime import to resolve: the file that imports, and the specifier it names.
+    record import-request {
+        /// The importing file, relative to the repository root, with forward slashes.
+        importer: string,
+        /// The module specifier exactly as the file writes it.
+        specifier: string,
+    }
+
+    /// Where a runtime import leads.
+    variant resolution {
+        /// The import names this file of the repository, relative to the root, with forward slashes.
+        resolved(string),
+        /// The import names a module outside the repository, such as a package or a built-in module.
+        external,
+        /// The import should name a file of the repository, but none matches; the payload says why.
+        unresolved(string),
+    }
+
+    /// Why a Language plugin cannot lower a file.
+    variant lower-error {
+        /// The file does not parse; the payload is the parser's message.
+        unparsable(string),
+        /// No rule of the Language plugin covers the file; the payload says why.
+        unsupported-file(string),
+        /// The file has more source lines than a `u32` holds.
+        too-large,
+        /// The file only declares types and holds no code to measure, such as a TypeScript `.d.ts` file.
+        declaration-only,
+    }
+
+    /// A file that a Language plugin reads to find workspace packages and resolve imports, such as a `package.json` or `tsconfig.json` file, as the host read it.
+    record manifest {
+        /// The path of the file, relative to the repository root, with forward slashes.
+        path: string,
+        /// The whole file.
+        text: string,
+    }
+
+    /// Why a Language plugin cannot find the workspace packages of a repository.
+    record workspace-error {
+        /// The path of the manifest that holds the problem, relative to the repository root.
+        path: string,
+        /// What is wrong with the manifest.
+        message: string,
+    }
+
+    /// The file extensions the Language plugin reads, each without its leading dot, such as `ts`.
+    extensions: func() -> list<string>;
+
+    /// Lowers one file into its Code model.
+    /// `path` is relative to the repository root and uses forward slashes.
+    /// `text` is the whole file.
+    lower: func(path: string, text: string) -> result<file-model, lower-error>;
+
+    /// Chooses the files of one repository snapshot that the host reads once and passes to `workspace-packages` and `resolve-imports`, because a Plugin cannot read files.
+    /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
+    /// The result names only paths from `repository-paths`, such as each `package.json` and `tsconfig.json` file.
+    manifest-paths: func(repository-paths: list<string>) -> list<string>;
+
+    /// Finds the workspace packages of a repository.
+    /// `manifests` holds each file that `manifest-paths` chose, with its text.
+    /// Returns the root folder of each workspace package, relative to the repository root, with forward slashes.
+    /// The repository root is never in the list; an empty list means the repository is one package.
+    workspace-packages: func(manifests: list<manifest>) -> result<list<string>, workspace-error>;
+
+    /// Resolves runtime imports against the files of one repository snapshot.
+    /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
+    /// `manifests` holds each file that `manifest-paths` chose, with its text.
+    /// The result holds one resolution per request, in request order.
+    resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>) -> list<resolution>;
+    /// The published typical value of one Metric for codebases in the language of the Language plugin.
+    record reference-range {
+        /// The Metric, by its key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
+        metric: string,
+        /// The lowest typical ratio, from 0 to 1.
+        low: f64,
+        /// The highest typical ratio, from `low` to 1.
+        high: f64,
+        /// Where the range was published and what it measured, shown next to the range.
+        source: string,
+    }
+
+    /// The Reference ranges measured in the language of this Language plugin, at most one per Metric.
+    /// A Metric without an entry has no published Reference range for this language.
+    /// codeint shows a range only next to values that this Language plugin measured.
+    reference-ranges: func() -> list<reference-range>;
+}
+
+/// A Language plugin exports `language` and imports nothing.
+world language-plugin {
+    export language;
+}

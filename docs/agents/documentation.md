@@ -13,6 +13,7 @@ When you change behavior, update the document that owns it in the same change.
 | Universal agent constraint | `.rules` |
 | Task-specific agent instruction | `docs/agents/{task}.md` |
 | How to call a module now | That module's `HOW-TO.md` |
+| How a user runs codeint: commands, options, exit codes, report formats, `codeint.json` keys | [docs/reference.md](../reference.md) |
 | A decision and its reasons | An ADR in `docs/adr/` |
 | The reason behind code | Never a code comment; see [engineering.md](./engineering.md#mandatory-no-code-comments) |
 | A domain term | The `GLOSSARY.md` that owns it; see [domain.md](./domain.md) |
@@ -20,6 +21,30 @@ When you change behavior, update the document that owns it in the same change.
 | A user-visible feature's verification | Its Feature map; see [verification.md](./verification.md) |
 | A finding from outside research | `docs/research/` |
 | Release notes of a published package | That package's changelog |
+
+## Mandatory: the user reference
+
+`docs/reference.md` is the user reference, and `README.md` only introduces codeint and links to it.
+The test `crates/cli/tests/reference` keeps it true: it compares the reference with `--help` and with the JSON schema, and runs every example.
+Give every fenced block in the reference one attribute after its language:
+
+````markdown
+```sh exit=1
+codeint diff main
+```
+
+```text stdout
+```
+````
+
+- `sh exit={code}`: an example; each line is one `codeint` command, optionally after `NAME=value` variables, and each exits with `{code}`.
+- `stdout`, `stderr`, or `file={path}`: what the example before it prints or writes; that example holds one command.
+- `codeint.json`: the `codeint.json` of the examples that follow it, up to the next heading.
+- `illustration`: a sample the test does not run.
+
+Never write expected output by hand.
+Leave an output block empty and run `cargo test --package codeint-cli --test reference`; the test writes what codeint prints and fails, so review the diff and run it again.
+The examples run in the sample repository that `crates/cli/tests/reference/fixture.rs` builds; the reference shows its root as `/home/me/shop`.
 
 ## Mandatory: HOW-TO pages
 

@@ -26,6 +26,24 @@ irm https://github.com/avidianity/codeint/releases/latest/download/install.ps1 |
 npx codeint check
 ```
 
+## Use
+
+Run codeint inside a Git repository:
+
+```sh
+codeint init
+codeint check
+codeint diff main
+codeint trend
+```
+
+`codeint init` writes a starter `codeint.json`.
+`codeint check` measures the working tree and prints each Metric with its Findings.
+`codeint diff main` compares the working tree with the merge-base of `main`, and fails on a Regression.
+`codeint trend` prints each Metric for each commit of the main line.
+
+[docs/reference.md](./docs/reference.md) documents every command, option, exit code, report format, and `codeint.json` key, with an example for each.
+
 ## Development
 
 You need:

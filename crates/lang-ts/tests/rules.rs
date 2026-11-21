@@ -1,0 +1,892 @@
+use std::collections::BTreeSet;
+
+use codeint_lang_ts::{TypeScriptAndJavaScript, flagged_line_rules};
+use codeint_model::{LanguagePlugin, RepoPath};
+
+struct RuleFixtures {
+    rule: &'static str,
+    flagged: &'static [Flagged],
+    passing: &'static [&'static str],
+}
+
+struct Flagged {
+    text: &'static str,
+    lines: &'static [u32],
+}
+
+const FIXTURES: &[RuleFixtures] = &[
+    RuleFixtures {
+        rule: "else-after-return",
+        flagged: &[
+            Flagged {
+                text: "export function sign(value: number): string {
+  if (value < 0) {
+    return 'negative';
+  } else {
+    return 'positive';
+  }
+}
+",
+                lines: &[4],
+            },
+            Flagged {
+                text: "export function label(done: boolean) {
+  if (done) return 'done';
+  else return 'open';
+}
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export function size(count: number): string {
+  if (count === 0) {
+    return 'none';
+  } else if (count === 1) {
+    return 'one';
+  } else {
+    return 'many';
+  }
+}
+",
+                lines: &[6],
+            },
+            Flagged {
+                text: "export function pick(first: boolean, second: boolean) {
+  if (first) {
+    if (second) {
+      return 1;
+    } else {
+      return 2;
+    }
+  } else {
+    return 3;
+  }
+}
+",
+                lines: &[5, 8],
+            },
+            Flagged {
+                text: "export class Gate {
+  open(key: string) {
+    if (!key) {
+      return false;
+    } else {
+      this.unlock(key);
+    }
+    return true;
+  }
+  unlock(key: string) {
+    console.log(key);
+  }
+}
+",
+                lines: &[5],
+            },
+            Flagged {
+                text: "export const parity = (value) => {
+  switch (value % 2) {
+    case 0:
+      if (value === 0) {
+        console.log('zero');
+        return 'zero';
+      } else {
+        var even = 'even';
+        return even;
+      }
+    default:
+      return 'odd';
+  }
+};
+",
+                lines: &[7],
+            },
+            Flagged {
+                text: "export function decide(ready) {
+  if (ready) {
+    return 'go';
+  } else
+  // or else wait
+  {
+    return 'wait';
+  }
+}
+",
+                lines: &[4],
+            },
+            Flagged {
+                text: "export function finish(done) {\r\n  if (done) {\r\n    return 1;\r\n  } else {\r\n    return 0;\r\n  }\r\n}\r\n",
+                lines: &[4],
+            },
+        ],
+        passing: &[
+            "export function sign(value: number): string {
+  if (value < 0) {
+    return 'negative';
+  }
+  return 'positive';
+}
+",
+            "export function log(value: number): number {
+  if (value < 0) {
+    console.log('negative');
+  } else {
+    return 0;
+  }
+  return value;
+}
+",
+            "export function size(count: number): string {
+  if (count === 0) {
+    return 'none';
+  } else if (count === 1) {
+    return 'one';
+  }
+  return 'many';
+}
+",
+            "export function size(count: number): string {
+  if (count === 0) {
+    return 'none';
+  } else if (count === 1) {
+    console.log('one');
+  } else {
+    return 'many';
+  }
+  return 'one';
+}
+",
+            "export function first(items: number[]) {
+  if (items.length > 0) {
+    for (const item of items) {
+      return item;
+    }
+  } else {
+    console.log('empty');
+  }
+  return undefined;
+}
+",
+            "export function maybe(first: boolean, second: boolean) {
+  if (first) {
+    if (second) {
+      return 1;
+    }
+  } else {
+    return 2;
+  }
+  return 3;
+}
+",
+            "const total = 1;
+export function shadow(empty: boolean) {
+  if (empty) {
+    return 0;
+  } else {
+    const total = 2;
+    console.log(total);
+  }
+  return total;
+}
+",
+            "export function scan(items: number[]) {
+  for (const item of items)
+    if (item > 0) return item;
+    else console.log(item);
+  return 0;
+}
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "catch-only-rethrows",
+        flagged: &[
+            Flagged {
+                text: "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  }
+}
+",
+                lines: &[4, 5, 6],
+            },
+            Flagged {
+                text: "export async function fetchUser(id: string) {
+  try { return await get(id); } catch (e) { throw e; }
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export class Store {
+  save(record: object) {
+    try {
+      this.write(record);
+    }
+    catch (failure: unknown) {
+      throw (failure);
+    }
+  }
+  write(record: object) {
+    console.log(record);
+  }
+}
+",
+                lines: &[6, 7, 8],
+            },
+            Flagged {
+                text: "export const parse = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    // let the caller decide
+    throw error;
+  }
+};
+",
+                lines: &[4, 6, 7],
+            },
+            Flagged {
+                text: "export function outer() {
+  try {
+    try {
+      inner();
+    } catch (first) {
+      throw first;
+    }
+  } catch (second) {
+    throw second;
+  }
+}
+",
+                lines: &[5, 6, 7, 8, 9, 10],
+            },
+        ],
+        passing: &[
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw new Error(`cannot load ${path}`, { cause: error });
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error;
+  } finally {
+    close(path);
+  }
+}
+",
+            "export function load(path: string, fallback: Error) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw fallback;
+  }
+}
+",
+            "const failure = new Error('unavailable');
+export function load(path: string) {
+  try {
+    return read(path);
+  } catch {
+    throw failure;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch ({ message }) {
+    throw message;
+  }
+}
+",
+            "export function load(path: string) {
+  try {
+    return read(path);
+  } catch (error) {
+    throw error.cause;
+  }
+}
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "if-else-returns-boolean",
+        flagged: &[
+            Flagged {
+                text: "export function isAdult(age: number): boolean {
+  if (age >= 18) return true;
+  else return false;
+}
+",
+                lines: &[2, 3],
+            },
+            Flagged {
+                text: "export function isEmpty(items: string[]): boolean {
+  if (items.length > 0) {
+    return false;
+  } else {
+    return true;
+  }
+}
+",
+                lines: &[2, 3, 4, 5, 6],
+            },
+            Flagged {
+                text: "export function rank(score: number): string | boolean {
+  if (score > 90) {
+    return 'top';
+  } else if (score > 50) {
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+                lines: &[4, 5, 6, 7, 8],
+            },
+            Flagged {
+                text: "export function ready(state) {
+  if (state.loaded) {
+    // loaded means ready
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+                lines: &[2, 4, 5, 6, 7],
+            },
+        ],
+        passing: &[
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    console.log('adult');
+    return true;
+  } else {
+    return false;
+  }
+}
+",
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    return true;
+  } else {
+    audit(age);
+    return false;
+  }
+}
+function audit(age: number) {
+  console.log(age);
+}
+",
+            "export function always(flag: boolean): boolean {
+  if (flag) {
+    return true;
+  } else {
+    return true;
+  }
+}
+",
+            "export function isAdult(age: number): boolean {
+  if (age >= 18) {
+    return true;
+  }
+  return false;
+}
+",
+            "export function check(flag: boolean): string | boolean {
+  if (flag) {
+    return 'yes';
+  } else {
+    return false;
+  }
+}
+",
+            "export function* toggle(flag: boolean) {
+  if (flag) {
+    yield true;
+  } else {
+    yield false;
+  }
+}
+",
+            "export function isSet(flag: boolean): boolean {
+  if (flag) return true;
+  else if (!flag) return false;
+  return false;
+}
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "trailing-bare-return",
+        flagged: &[
+            Flagged {
+                text: "export function log(message: string) {
+  console.log(message);
+  return;
+}
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const log = function (message) {
+  console.log(message);
+  return;
+};
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const log = (message: string) => {
+  console.log(message);
+  return;
+};
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export class Logger {
+  #lines: string[] = [];
+  constructor(first: string) {
+    this.#lines.push(first);
+    return;
+  }
+  write(line: string) {
+    this.#lines.push(line);
+    return;
+  }
+  static reset(logger: Logger) {
+    logger.#lines = [];
+    return;
+  }
+  get size() {
+    console.log(this.#lines.length);
+    return;
+  }
+  set last(line: string) {
+    this.#lines.push(line);
+    return;
+  }
+}
+",
+                lines: &[5, 9, 13, 17, 21],
+            },
+            Flagged {
+                text: "export function* count(limit: number) {
+  for (let index = 0; index < limit; index++) {
+    yield index;
+  }
+  return;
+}
+",
+                lines: &[5],
+            },
+            Flagged {
+                text: "export async function save(record: object) {
+  await write(record);
+  return;
+}
+",
+                lines: &[3],
+            },
+            Flagged {
+                text: "export const handlers = {
+  open() {
+    console.log('open');
+    return;
+  },
+  async *stream(items) {
+    yield* items;
+    return;
+  },
+};
+",
+                lines: &[4, 8],
+            },
+            Flagged {
+                text: "export function outer(items: number[]) {
+  items.forEach((item) => {
+    if (item < 0) {
+      return;
+    }
+    console.log(item);
+    return;
+  });
+  return;
+}
+",
+                lines: &[7, 9],
+            },
+            Flagged {
+                text: "export function done() {
+  console.log('done');
+  // nothing to return
+  return; // explicit end
+}
+",
+                lines: &[4],
+            },
+            Flagged {
+                text: "export function noop() { return; }
+",
+                lines: &[1],
+            },
+        ],
+        passing: &[
+            "export function log(message: string) {
+  if (!message) {
+    return;
+  }
+  console.log(message);
+}
+",
+            "export function total(items: number[]) {
+  console.log(items);
+  return items.length;
+}
+",
+            "export function total(items: number[]) {
+  console.log(items);
+  return undefined;
+}
+",
+            "export function check(ready: boolean) {
+  if (ready) {
+    console.log('ready');
+    return;
+  }
+}
+",
+            "export function first(items: number[]) {
+  for (const item of items) {
+    console.log(item);
+    return;
+  }
+}
+",
+            "export function run(task: () => void) {
+  return;
+  task();
+}
+",
+            "export const noop = () => undefined;
+",
+            "export function handle(kind: string) {
+  switch (kind) {
+    case 'a':
+      console.log(kind);
+      return;
+  }
+}
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "conditional-yields-boolean",
+        flagged: &[
+            Flagged {
+                text: "export const isAdult = (age: number) => age >= 18 ? true : false;
+",
+                lines: &[1],
+            },
+            Flagged {
+                text: "export function isEmpty(items: string[]) {
+  const empty = items.length > 0 ? false : true;
+  return empty;
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export function visible(user, page) {
+  return user.signedIn && page.public
+    // a signed-in user on a public page
+    ? true
+    : false;
+}
+",
+                lines: &[2, 4, 5],
+            },
+            Flagged {
+                text: "export const access = (admin, owner) =>
+  admin
+    ? 'all'
+    : owner
+      ? true
+      : false;
+",
+                lines: &[4, 5, 6],
+            },
+            Flagged {
+                text: "export function show(flag) {
+  if (flag ? true : false) {
+    console.log('shown');
+  }
+}
+",
+                lines: &[2],
+            },
+        ],
+        passing: &[
+            "export const label = (done: boolean) => done ? 'done' : 'open';
+",
+            "export const always = (flag: boolean) => flag ? true : true;
+",
+            "export const never = (flag: boolean) => flag ? false : false;
+",
+            "export const bit = (flag: boolean) => flag ? 1 : 0;
+",
+            "export const text = (flag: boolean) => flag ? 'true' : 'false';
+",
+            "export const either = (flag: boolean, other: boolean) => flag ? true : other;
+",
+            "export const both = (flag: boolean, other: boolean) => flag ? other : false;
+",
+            "export const unset = (flag: boolean) => flag ? undefined : null;
+",
+        ],
+    },
+    RuleFixtures {
+        rule: "constructor-only-forwards",
+        flagged: &[
+            Flagged {
+                text: "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(name, role);
+  }
+}
+",
+                lines: &[2, 3, 4],
+            },
+            Flagged {
+                text: "export class Empty extends Base {
+  constructor() { super(); }
+  describe() {
+    return 'empty';
+  }
+}
+",
+                lines: &[2],
+            },
+            Flagged {
+                text: "export class Logger extends Sink {
+  public constructor(target: string, ...options: string[]) {
+    super(target, ...options);
+  }
+}
+",
+                lines: &[2, 3, 4],
+            },
+            Flagged {
+                text: "export const Child = class extends Parent {
+  constructor(value?: number) {
+    // the parent does the work
+    (super(value));
+  }
+};
+",
+                lines: &[2, 4, 5],
+            },
+            Flagged {
+                text: "export function make() {
+  return class Outer extends Base {
+    build() {
+      return class Inner extends Base {
+        constructor(...parts) {
+          super(...parts);
+        }
+      };
+    }
+  };
+}
+",
+                lines: &[5, 6, 7],
+            },
+        ],
+        passing: &[
+            "export class Admin extends User {
+  constructor(private name: string, role: string) {
+    super(name, role);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(readonly name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(role, name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name, 'admin');
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, role: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name.trim());
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name = 'root') {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor({ name }: { name: string }) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    super(name);
+    this.audit();
+  }
+  audit() {
+    console.log('created');
+  }
+}
+",
+            "export class Admin extends User {
+  private constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  protected constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string);
+  constructor(name: string, role?: string);
+  constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(@Inject(NAME) name: string) {
+    super(name);
+  }
+}
+",
+            "@Injectable()
+export class Admin extends User {
+  constructor(name: string) {
+    super(name);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, roles: string[]) {
+    super(name, ...roles);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string, ...roles: string[]) {
+    super(name, roles);
+  }
+}
+",
+            "export class Admin extends User {
+  constructor(name: string) {
+    'use strict';
+    super(name);
+  }
+}
+",
+        ],
+    },
+];
+
+fn flagged_lines(rule: &str, text: &str) -> Vec<u32> {
+    let path = RepoPath::new("src/fixture.ts").expect("a valid path");
+    let model = TypeScriptAndJavaScript
+        .lower(&path, text)
+        .unwrap_or_else(|error| panic!("the fixture did not lower: {error}\n{text}"));
+    model
+        .flagged_lines
+        .into_iter()
+        .filter(|flagged| flagged.rule == rule)
+        .map(|flagged| flagged.line)
+        .collect()
+}
+
+#[test]
+fn every_flagged_line_rule_ships_flagged_and_passing_fixtures() {
+    let declared: BTreeSet<&str> = flagged_line_rules().collect();
+    let with_fixtures: BTreeSet<&str> = FIXTURES
+        .iter()
+        .filter(|fixtures| !fixtures.flagged.is_empty() && !fixtures.passing.is_empty())
+        .map(|fixtures| fixtures.rule)
+        .collect();
+
+    assert!(!declared.is_empty());
+    assert_eq!(declared, with_fixtures);
+}
+
+#[test]
+fn each_flagged_fixture_flags_exactly_its_expected_lines() {
+    for fixtures in FIXTURES {
+        for flagged in fixtures.flagged {
+            assert_eq!(
+                flagged_lines(fixtures.rule, flagged.text),
+                flagged.lines,
+                "{}:\n{}",
+                fixtures.rule,
+                flagged.text
+            );
+        }
+    }
+}
+
+#[test]
+fn each_passing_fixture_has_no_line_flagged_by_its_rule() {
+    for fixtures in FIXTURES {
+        for text in fixtures.passing {
+            assert_eq!(
+                flagged_lines(fixtures.rule, text),
+                [0_u32; 0],
+                "{}:\n{text}",
+                fixtures.rule
+            );
+        }
+    }
+}

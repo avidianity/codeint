@@ -38,12 +38,21 @@ _Avoid_: copy-paste, redundancy
 
 **Clone group**:
 Two or more code fragments with the same token sequence once identifiers and literals are normalized.
+The fragments leave out import and export declarations, and use enough different tokens to be logic rather than a list of the same shape.
 _Avoid_: duplicate, copy
 
 **Import cycle**:
 A group of modules in which every module can reach every other module through runtime imports.
 The Import cycles Metric is the share of modules that belong to at least one Import cycle.
 _Avoid_: circular dependency, dependency loop
+
+**Unresolved import**:
+A runtime import that the Language plugin could not match to a repository file or classify as external.
+_Avoid_: broken import, missing import
+
+**Workspace package**:
+A package declared by a repository workspace, measured on its own alongside the repository total.
+_Avoid_: subpackage, member package, workspace member
 
 **Finding**:
 One located piece of evidence behind a Metric value, such as an eroded function, a Clone group, a Flagged line, or an Import cycle.

@@ -1,0 +1,279 @@
+use std::num::NonZeroUsize;
+
+use codeint_model::{
+    CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
+};
+
+use super::{Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens};
+
+fn file(path: &str, lines: &[&str]) -> SourceFile {
+    let tokens = lines
+        .iter()
+        .zip(1u32..)
+        .flat_map(|(line, number)| {
+            line.split_whitespace().map(move |text| Token {
+                kind: kind_of(text),
+                text_hash: token_text_hash(text),
+                line: number,
+            })
+        })
+        .collect();
+    SourceFile {
+        path: RepoPath::new(path).expect("a valid path"),
+        model: FileModel {
+            source_set: SourceSet::Production,
+            source_lines: u32::try_from(lines.len()).expect("few lines"),
+            functions: Vec::new(),
+            tokens,
+            flagged_lines: Vec::new(),
+            runtime_imports: Vec::new(),
+        },
+    }
+}
+
+fn kind_of(text: &str) -> TokenKind {
+    if text.starts_with('$') {
+        TokenKind::Identifier
+    } else if text.starts_with('"') {
+        TokenKind::Literal
+    } else if text.starts_with('@') {
+        TokenKind::ImportOrExport
+    } else {
+        TokenKind::Other
+    }
+}
+
+fn model(files: Vec<SourceFile>) -> CodeModel {
+    CodeModel {
+        files,
+        ..CodeModel::default()
+    }
+}
+
+fn minimum(tokens: usize) -> MinimumCloneTokens {
+    MinimumCloneTokens::new(NonZeroUsize::new(tokens).expect("not zero"))
+}
+
+fn measure(model: &CodeModel, minimum: MinimumCloneTokens) -> Duplication {
+    Duplication::measure(model, minimum, MinimumDistinctTokens::new(0))
+}
+
+fn groups(duplication: &Duplication) -> Vec<(usize, Vec<Fragment>)> {
+    duplication
+        .clone_groups
+        .iter()
+        .map(|group| (group.tokens, group.fragments.clone()))
+        .collect()
+}
+
+fn fragment(path: &str, start_line: u32, end_line: u32) -> Fragment {
+    Fragment {
+        path: RepoPath::new(path).expect("a valid path"),
+        start_line,
+        end_line,
+    }
+}
+
+#[test]
+fn three_copies_form_one_clone_group_with_three_fragments() {
+    let lines = ["a b c", "d e f"];
+    let model = model(vec![
+        file("one.ts", &lines),
+        file("two.ts", &["x", "a b c", "d e f", "y"]),
+        file("three.ts", &lines),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(
+        groups(&duplication),
+        [(
+            6,
+            vec![
+                fragment("one.ts", 1, 2),
+                fragment("three.ts", 1, 2),
+                fragment("two.ts", 2, 3),
+            ]
+        )]
+    );
+    assert_eq!(duplication.clone_lines.count(), 6);
+    assert_eq!(duplication.source_lines, 8);
+    assert_eq!(duplication.ratio(), 0.75);
+}
+
+#[test]
+fn a_copy_inside_one_file_is_a_clone_group() {
+    let model = model(vec![file("one.ts", &["a b c d", "x", "a b c d"])]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(
+        groups(&duplication),
+        [(4, vec![fragment("one.ts", 1, 1), fragment("one.ts", 3, 3)])]
+    );
+    assert_eq!(duplication.clone_lines.count(), 2);
+}
+
+#[test]
+fn a_repeated_token_run_does_not_form_a_clone_group_with_itself() {
+    let model = model(vec![file("zeros.ts", &["0 0 0 0 0"])]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(groups(&duplication), []);
+    assert_eq!(duplication.clone_lines.count(), 0);
+}
+
+#[test]
+fn fragments_that_share_fewer_tokens_than_the_minimum_are_not_clones() {
+    let model = model(vec![
+        file("one.ts", &["a b c x"]),
+        file("two.ts", &["a b c y"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn a_fragment_of_exactly_the_minimum_size_is_a_clone() {
+    let model = model(vec![
+        file("one.ts", &["a b c d"]),
+        file("two.ts", &["a b c d"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(duplication.clone_groups.len(), 1);
+    assert_eq!(duplication.clone_groups[0].tokens, 4);
+}
+
+#[test]
+fn a_model_without_source_lines_has_a_ratio_of_zero() {
+    let duplication = measure(&CodeModel::default(), minimum(4));
+
+    assert_eq!(duplication.ratio(), 0.0);
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn larger_clone_groups_come_first() {
+    let model = model(vec![
+        file("one.ts", &["a b c d", "p q r s t"]),
+        file("two.ts", &["a b c d", "x", "p q r s t"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(
+        duplication
+            .clone_groups
+            .iter()
+            .map(|group| group.tokens)
+            .collect::<Vec<_>>(),
+        [5, 4]
+    );
+}
+
+#[test]
+fn copies_with_other_identifiers_and_literals_form_one_clone_group() {
+    let model = model(vec![
+        file("one.ts", &["a $first = \"x\" ;"]),
+        file("two.ts", &["a $second = \"y\" ;"]),
+    ]);
+
+    let duplication = measure(&model, minimum(5));
+
+    assert_eq!(
+        groups(&duplication),
+        [(5, vec![fragment("one.ts", 1, 1), fragment("two.ts", 1, 1)])]
+    );
+}
+
+#[test]
+fn an_identifier_and_a_literal_in_the_same_place_are_not_a_clone() {
+    let model = model(vec![
+        file("one.ts", &["a $name = b ;"]),
+        file("two.ts", &["a \"name\" = b ;"]),
+    ]);
+
+    let duplication = measure(&model, minimum(5));
+
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn copies_with_other_keywords_or_operators_are_not_a_clone() {
+    let model = model(vec![
+        file("one.ts", &["if $a < \"x\" ;"]),
+        file("two.ts", &["while $a > \"x\" ;"]),
+    ]);
+
+    let duplication = measure(&model, minimum(3));
+
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn a_fragment_of_exactly_the_minimum_distinct_tokens_is_a_clone_and_one_fewer_is_not() {
+    let fourteen = "$a = \"x\" ; $b + $c - ( $d * $e ) / $f < > ! ?";
+    let thirteen = "$a = \"x\" ; $b + $c - ( $d * $e ) / $f < > ! !";
+    let at = model(vec![
+        file("one.ts", &[fourteen]),
+        file("two.ts", &[fourteen]),
+    ]);
+    let below = model(vec![
+        file("one.ts", &[thirteen]),
+        file("two.ts", &[thirteen]),
+    ]);
+
+    let at = Duplication::measure(&at, minimum(4), MinimumDistinctTokens::DEFAULT);
+    let below = Duplication::measure(&below, minimum(4), MinimumDistinctTokens::DEFAULT);
+
+    assert_eq!(
+        groups(&at),
+        [(19, vec![fragment("one.ts", 1, 1), fragment("two.ts", 1, 1)])]
+    );
+    assert_eq!(groups(&below), []);
+    assert_eq!(below.clone_lines.count(), 0);
+}
+
+#[test]
+fn a_fragment_never_spans_an_import_or_export_token() {
+    let model = model(vec![
+        file("one.ts", &["a b c", "@import", "d e f"]),
+        file("two.ts", &["a b c", "@import", "d e f"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn import_or_export_tokens_never_form_a_clone_group() {
+    let model = model(vec![
+        file("one.ts", &["@a @b @c @d @e"]),
+        file("two.ts", &["@a @b @c @d @e"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(groups(&duplication), []);
+}
+
+#[test]
+fn a_copy_after_import_or_export_tokens_keeps_its_place_in_the_file() {
+    let model = model(vec![
+        file("one.ts", &["@a @b", "a b c d"]),
+        file("two.ts", &["@a", "@b @c", "a b c d"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(
+        groups(&duplication),
+        [(4, vec![fragment("one.ts", 2, 2), fragment("two.ts", 3, 3)])]
+    );
+}

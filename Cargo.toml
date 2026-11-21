@@ -1,16 +1,38 @@
 [workspace]
 resolver = "3"
-members = ["xtask"]
+members = ["crates/*", "xtask"]
 
 [workspace.package]
+version = "0.1.0"
 edition = "2024"
 license = "MIT"
 publish = false
 
 [workspace.dependencies]
+clap = { version = "=4.6.9", features = ["derive"] }
+codeint-config = { path = "crates/config" }
+codeint-git = { path = "crates/git" }
+codeint-lang-ts = { path = "crates/lang-ts" }
+codeint-metrics = { path = "crates/metrics" }
+codeint-model = { path = "crates/model" }
+codeint-report = { path = "crates/report" }
+gix = { version = "=0.90.0", default-features = false, features = ["dirwalk", "revision", "sha1"] }
 globset = "=0.4.21"
+oxc_allocator = "=0.159.0"
+oxc_ast = "=0.159.0"
+oxc_ast_visit = "=0.159.0"
+oxc_parser = "=0.159.0"
+oxc_resolver = "=11.24.3"
+oxc_span = "=0.159.0"
+schemars = "=1.2.3"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde-saphyr = { version = "=2.1.1", default-features = false, features = ["deserialize"] }
 serde_json = "=1.0.154"
+tempfile = "=3.27.0"
+thiserror = "=2.0.21"
 toml = "=1.2.1"
+toon-format = { version = "=0.7.0", default-features = false }
+wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros"] }
 
 [workspace.lints.rust]
 unused = { level = "deny", priority = -1 }
