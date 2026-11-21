@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod functions;
+mod nesting;
 mod resolution;
 mod rules;
 mod runtime_imports;
@@ -41,6 +42,7 @@ impl Guest for TypeScriptAndJavaScript {
         if source_type.is_typescript_definition() {
             return Err(LowerError::DeclarationOnly);
         }
+        nesting::check_nesting_depth(&text)?;
         let allocator = Allocator::default();
         let parsed = Parser::new(&allocator, &text, source_type)
             .with_config(TokensParserConfig)

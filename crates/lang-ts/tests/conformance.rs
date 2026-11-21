@@ -1810,3 +1810,61 @@ fn a_pnpm_package_pattern_that_is_not_a_glob_is_an_error_that_names_it() {
         "cannot find the workspace packages from pnpm-workspace.yaml: has the package pattern \"packages/[app\", which is not a valid glob: error parsing glob '[app': unclosed character class; missing ']'"
     );
 }
+
+#[test]
+fn deeply_nested_code_is_unparsable_instead_of_overflowing_the_stack() {
+    let nested_ifs = format!(
+        "export function f(a: boolean) {{\n{}return 1;\n{}}}\n",
+        "if (a) {\n".repeat(10_000),
+        "}\n".repeat(10_000)
+    );
+    let nested_objects = format!(
+        "export const x = {}1{};\n",
+        "{ a: ".repeat(10_000),
+        " }".repeat(10_000)
+    );
+    let nested_arrays = format!(
+        "export const x = {}1{};\n",
+        "[".repeat(20_000),
+        "]".repeat(20_000)
+    );
+    let nested_parens = format!(
+        "export const x = {}1{};\n",
+        "(".repeat(20_000),
+        ")".repeat(20_000)
+    );
+    let nested_ternaries = format!(
+        "export const x = {}1{};\n",
+        "a ? ".repeat(4_000),
+        " : 0".repeat(4_000)
+    );
+    for (name, text) in [
+        ("if_blocks", nested_ifs),
+        ("objects", nested_objects),
+        ("arrays", nested_arrays),
+        ("parens", nested_parens),
+        ("ternaries", nested_ternaries),
+    ] {
+        assert!(
+            matches!(
+                lower("src/deep.ts", &text),
+                Err(LowerError::Unparsable { message: _ })
+            ),
+            "{name} should be unparsable"
+        );
+    }
+}
+
+#[test]
+fn brackets_in_strings_and_many_optional_operators_still_lower() {
+    let text = format!(
+        "export const braces = \"{}\";\nexport type Opt = {{ {} }};\nexport const chain = {};\n",
+        "{".repeat(500),
+        (0..500)
+            .map(|i| format!("f{i}?: number;"))
+            .collect::<Vec<_>>()
+            .join(" "),
+        (0..500).map(|_| "a?.b").collect::<Vec<_>>().join(" ?? ")
+    );
+    assert!(lower("src/normal.ts", &text).is_ok());
+}
