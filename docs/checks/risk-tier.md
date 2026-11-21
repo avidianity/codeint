@@ -22,6 +22,8 @@ CI, `risk-tier` job of the `ci` workflow, on every pull request event, then the 
 ```text
 Tier {highest}. See docs/agents/review-and-merge.md for the approval this Tier needs.
 Tier {tier}: {path} matches tier map rule "{pattern}".
+Tier {tier}: {path} matches no tier map rule, so the default applies.
+Tier 3: {path} weakens a test or check: it {reason}.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/risk-tier.md).
