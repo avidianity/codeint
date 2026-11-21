@@ -14,18 +14,59 @@ use codeint_plugin_host::{
     load_metric_plugins,
 };
 
-use common::{build_fixture_wasm, declaration_for, declaration_with_kind, sample_plugin_wasm};
+use common::{build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm};
 
 static SAMPLE_METRIC_WASM: OnceLock<PathBuf> = OnceLock::new();
+static SANDBOX_PROBES_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn sample_metric_plugin_wasm() -> &'static Path {
     SAMPLE_METRIC_WASM.get_or_init(|| {
-        build_fixture_wasm(
+        build_fixture_workspace(
             "tests/fixtures/sample-metric-plugin/Cargo.toml",
-            "../../target/sample-long-functions-plugin",
-            "sample_long_functions_plugin.wasm",
+            "sample-long-functions-plugin",
+            false,
         )
+        .join("sample_long_functions_plugin.wasm")
     })
+}
+
+fn sandbox_probe_wasm(file_name: &str) -> PathBuf {
+    SANDBOX_PROBES_DIR
+        .get_or_init(|| {
+            build_fixture_workspace(
+                "tests/fixtures/sandbox-probes/Cargo.toml",
+                "sandbox-probes",
+                true,
+            )
+        })
+        .join(file_name)
+}
+
+fn assert_sandbox_blocks(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let declaration = declaration_for(plugin_name, &wasm_path);
+
+    let error = load_language_plugin(Path::new("."), &declaration)
+        .err()
+        .expect("plugin importing host capability must fail to instantiate");
+
+    match &error {
+        PluginHostError::Instantiate { name, path, reason } => {
+            assert_eq!(name, plugin_name);
+            assert_eq!(path, &wasm_path);
+            assert!(
+                reason.contains(denied_interface),
+                "expected instantiation error to name {denied_interface}, got: {reason}"
+            );
+        }
+        other => panic!("expected PluginHostError::Instantiate, got: {other}"),
+    }
+
+    let rendered = error.to_string();
+    assert!(
+        rendered.contains(plugin_name) && rendered.contains(denied_interface),
+        "expected rendered error to name {plugin_name} and {denied_interface}, got: {rendered}"
+    );
 }
 
 #[test]
@@ -202,5 +243,32 @@ fn refuses_duplicate_metric_keys_across_external_metric_plugins() {
     assert!(
         matches!(error, PluginHostError::DuplicateMetricKey { ref key, .. } if key == "long_functions"),
         "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn external_plugin_cannot_read_files() {
+    assert_sandbox_blocks(
+        "rogue-file-reader",
+        "file_reader_plugin.wasm",
+        "wasi:filesystem/",
+    );
+}
+
+#[test]
+fn external_plugin_cannot_open_sockets() {
+    assert_sandbox_blocks(
+        "rogue-socket-opener",
+        "socket_opener_plugin.wasm",
+        "wasi:sockets/",
+    );
+}
+
+#[test]
+fn external_plugin_cannot_read_the_clock() {
+    assert_sandbox_blocks(
+        "rogue-clock-reader",
+        "clock_reader_plugin.wasm",
+        "wasi:clocks/",
     );
 }
