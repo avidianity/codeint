@@ -80,14 +80,15 @@ It must be able to:
 codeint has agent merges from the start, because its Review mode is Never.
 The procedure:
 
-1. Stop agent merges: in GitHub, open Settings, Rules, Rulesets, `main`, and turn on "Require a pull request before merging" with 1 required approval.
+1. Stop agent merges: in GitHub, open Settings, Rules, Rulesets, `main`, and change "Required approvals" from 0 to 1 in the live `main` ruleset.
+   The `main` ruleset already requires a pull request and green CI (`rust`, `repository`, `risk-tier`, `budget`, `body`, and `windows`).
    Agents act as `avidianity`, and GitHub never lets an account approve its own pull request, so no agent merge can pass.
    This needs no code change.
 2. Stop running work: end each agent session, and keep its worktree and branch for review.
 3. Revoke agent credentials: run `gh auth logout --user avidianity` on each machine that runs agents, and revoke the session's SSH key in GitHub if needed.
 4. Keep evidence: do not delete worktrees, branches, CI runs, or pull requests until the cause is found.
 
-To resume, the Owner turns the approval rule off again.
+To resume, the Owner sets "Required approvals" back to 0.
 Rehearse step 1 once before the first agent merge.
 
 Reverting code does not undo a sent email, an external API call, leaked data, a migration, or a payment.
