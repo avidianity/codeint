@@ -360,7 +360,6 @@ dependencies = [
  "codeint-config",
  "codeint-lang-ts",
  "codeint-model",
- "tempfile",
  "thiserror",
  "wasmtime",
 ]

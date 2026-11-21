@@ -141,6 +141,7 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/gitleaks
       - uses: ./.github/actions/lychee
+      - run: rustup target add wasm32-wasip2
       - run: cargo build --locked --package xtask
       - name: Git hook loop
         run: |
