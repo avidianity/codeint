@@ -18,6 +18,8 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 ```text
 {name} in {path} is not pinned to an exact version: it {problem}. Pin it with "=x.y.z" and update Cargo.lock.
 {name} in {path} is not pinned to an exact version. Pin it to x.y.z and update package-lock.json.
+{manifest_path} has no committed {lock_path}. Run npm install and commit the lockfile.
+{lock_path} is stale for {manifest_path}. Run npm install and commit the lockfile.
 Cargo.lock is missing or stale. Run cargo update --workspace --offline or cargo build, and commit Cargo.lock.
 ```
 
