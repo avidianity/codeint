@@ -173,6 +173,9 @@ fn codex_guard_refuses_bypasses_and_allows_ordinary_tools() {
     let blocked_patches = [
         "*** Begin Patch\n*** Add File: lefthook-local.yml\n+pre-commit:\n*** End Patch",
         "*** Begin Patch\n*** Update File: .git/hooks/pre-commit\n@@\n+exit 0\n*** End Patch",
+        "*** Begin Patch\n*** Update File: src/lib.rs\n*** Move to: lefthook-local.yml\n@@\n+pre-commit:\n*** End Patch",
+        "*** Begin Patch\n*** Update File: src/lib.rs\n*** Move to: .git/hooks/pre-commit\n@@\n+exit 0\n*** End Patch",
+        "*** Begin Patch\r\n*** Update File:  .git/hooks/pre-commit  \r\n@@\r\n+exit 0\r\n*** End Patch",
     ];
     for patch in blocked_patches {
         let payload = serde_json::json!({
@@ -231,11 +234,31 @@ fn opencode_plugin_refuses_bypasses_and_allows_ordinary_tools() {
     }));
     expected.push((true, "edit .git/hooks/pre-commit".to_string()));
 
-    events.push(serde_json::json!({
-        "tool": "apply_patch",
-        "args": { "patchText": "*** Begin Patch\n*** Add File: lefthook-local.yml\n+x\n*** End Patch" }
-    }));
-    expected.push((true, "apply_patch lefthook-local.yml".to_string()));
+    let blocked_patches = [
+        (
+            "apply_patch lefthook-local.yml",
+            "*** Begin Patch\n*** Add File: lefthook-local.yml\n+x\n*** End Patch",
+        ),
+        (
+            "apply_patch Move to lefthook-local.yml",
+            "*** Begin Patch\n*** Update File: src/lib.rs\n*** Move to: lefthook-local.yml\n@@\n+x\n*** End Patch",
+        ),
+        (
+            "apply_patch Move to .git/hooks/pre-commit",
+            "*** Begin Patch\n*** Update File: src/lib.rs\n*** Move to: .git/hooks/pre-commit\n@@\n+exit 0\n*** End Patch",
+        ),
+        (
+            "apply_patch Update File with extra spaces and CR",
+            "*** Begin Patch\r\n*** Update File:  .git/hooks/pre-commit  \r\n@@\r\n+exit 0\r\n*** End Patch",
+        ),
+    ];
+    for (label, patch) in blocked_patches {
+        events.push(serde_json::json!({
+            "tool": "apply_patch",
+            "args": { "patchText": patch }
+        }));
+        expected.push((true, label.to_string()));
+    }
 
     for cmd in safe_commands() {
         events.push(serde_json::json!({

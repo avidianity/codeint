@@ -10,7 +10,9 @@ const guardPath = resolve(
 function extractPatchPaths(patchText) {
   const paths = [];
   for (const line of String(patchText).split(/\r?\n/)) {
-    const match = line.match(/^\*\*\* (?:Add|Update|Delete) File:\s*(.+)$/);
+    const match = line.match(
+      /^\*\*\* (?:(?:Add|Update|Delete) File|Move to):\s*(.+)$/,
+    );
     if (match) {
       paths.push(match[1].trim());
     }

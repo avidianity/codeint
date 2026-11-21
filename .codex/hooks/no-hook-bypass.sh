@@ -14,9 +14,12 @@ tool_name="$(printf '%s' "$input" | jq -r '.tool_name // ""')"
 if [ "$tool_name" = "apply_patch" ]; then
   patch_text="$(printf '%s' "$input" | jq -r '.tool_input.command // .tool_input.patch // .tool_input.input // ""')"
   while IFS= read -r line; do
+    line="${line%$'\r'}"
     case "$line" in
-      "*** Add File: "* | "*** Update File: "* | "*** Delete File: "*)
-        target_path="${line#*: }"
+      "*** Add File:"* | "*** Update File:"* | "*** Delete File:"* | "*** Move to:"*)
+        target_path="${line#*:}"
+        target_path="${target_path#"${target_path%%[![:space:]]*}"}"
+        target_path="${target_path%"${target_path##*[![:space:]]}"}"
         payload="$(jq -nc --arg path "$target_path" '{ tool_input: { file_path: $path } }')"
         printf '%s' "$payload" | bash "$guard"
         ;;

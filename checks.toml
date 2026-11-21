@@ -53,6 +53,8 @@ paths = [
   "CLAUDE.md",
   ".agents/**",
   ".claude/**",
+  ".codex/**",
+  ".opencode/**",
   "skills-lock.json",
   ".github/**",
   "**/.cargo/**",

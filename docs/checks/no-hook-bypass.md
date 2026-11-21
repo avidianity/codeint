@@ -11,10 +11,10 @@ It blocks any prefix of the no-verify flag, a short `-n` flag in a commit's opti
 It can also block a harmless command whose message text contains one of these strings; reword the message.
 [hook_guard.rs](../../xtask/tests/hook_guard.rs) proves each case both ways.
 CI also runs on every push to `main`, so a commit that reached `main` without its hooks is still checked.
-Codex and OpenCode have no guard yet; CI parity is the first line for them.
+Codex and OpenCode forward tool calls to the same guard through their project adapters; see [Codex and OpenCode](#codex-and-opencode).
 
 **Runs in**:
-CI for parity; the Claude Code command guard for refusal.
+CI for parity; the Claude Code, Codex, and OpenCode hook guards for refusal.
 
 **Error text**:
 
