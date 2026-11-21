@@ -14,7 +14,17 @@ The workspace lints in [Cargo.toml](../../Cargo.toml) deny `unused`, which inclu
 CI runs Clippy with `-D warnings`.
 A function that only tests use is dead, because the build without tests does not use it.
 `cargo shear` (cargo-shear 1.14.1) finds unused dependencies.
-Known gap: the compiler does not report a `pub` item of one workspace crate that no other crate uses.
+
+**Accepted gap**:
+The Rust compiler checks `dead_code` one crate at a time.
+It does not report a `pub` item of one workspace library crate that no other crate uses.
+The Project accepts this gap for three reasons:
+
+- `unreachable_pub = "deny"` already forces every crate-internal item to be private or `pub(crate)`, so `dead_code` catches it.
+- `cargo shear` already catches every unused crate dependency across the workspace.
+- Exact cross-crate `pub` analysis requires whole-workspace type resolution.
+  A syntax-only check gives false positives on integration-test helpers, types in public signatures, and macro-generated items.
+  Whole-workspace analysis tools exceed the Feedback budget in [feedback-budget](./feedback-budget.md).
 
 **Runs in**:
 CI (`rust` job for Clippy, `repository` job for `cargo shear`), and every local build.
