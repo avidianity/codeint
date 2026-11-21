@@ -643,6 +643,7 @@ codeint check
 ### Plugins
 
 Each entry of `plugins` declares an external WebAssembly component Language plugin or Metric plugin loaded from either a local `path` or an HTTPS `url`, with a required 64-character hexadecimal SHA-256 digest.
+See [docs/plugins.md](./plugins.md) to build, hash, test, and version external Plugins.
 Set `kind` to `"language"` (the default) for a Language plugin, or `"metric"` for a Metric plugin.
 Set either `path` or `url` on each entry, never both.
 External Metric plugins appear alongside the built-in Metrics in `codeint check`, `codeint diff`, and `codeint trend`, and support `budgets` and `regression_limits` under their Metric key.

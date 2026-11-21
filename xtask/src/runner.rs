@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::checks::budget::{self, FeedbackLoop, Verdict};
-use crate::checks::{Violations, duplicates, layout, perf, pinning, pull_request, source, tier};
+use crate::checks::{
+    Violations, duplicates, layout, perf, pinning, pull_request, release, source, tier,
+};
 use crate::config::{self, Settings};
 use crate::git::{self, DiffSource};
 
@@ -13,6 +15,7 @@ const USAGE: &str = "usage: cargo xtask {command}
 Whole-repository checks:
   agent-entry-links | skills-link | doc-size | doc-style | no-placeholders
   record-numbers | dependency-pinning | config-access | no-suppressions
+  version-sync [--tag {tag}]
   no-duplicate-code        run jscpd and report clones outside test input
   merged-result            run every whole-repository check
 
@@ -22,6 +25,10 @@ Change checks:
   behavior-has-test --base {ref} --body-file {path}
   evidence-bundle --body-file {path}
   risk-tier --base {ref}
+
+Release:
+  release-notes [--since {ref}] [--output {path}]
+  prepare-release --version {x.y.z} [--since {ref}] [--dry-run]
 
 Loops:
   hook                     the pre-commit checks on staged files
@@ -43,6 +50,9 @@ pub(crate) fn run(command: &str, args: &[String]) -> Result<Violations, String> 
         "dependency-pinning" => pinning::dependency_pinning(&root),
         "config-access" => source::config_access(&root, &settings),
         "no-suppressions" => source::no_suppressions(&root, &settings),
+        "version-sync" => version_sync(&root, args),
+        "release-notes" => release_notes(&root, args),
+        "prepare-release" => prepare_release(&root, args),
         "no-duplicate-code" => duplicates::no_duplicate_code(&root, &settings),
         "no-comments" => source::no_comments(&root, &settings, &DiffSource::from_args(args)?),
         "commit-message" => commit_message(&root, &settings, args),
@@ -169,6 +179,7 @@ fn whole_repository_checks() -> Vec<(&'static str, Check)> {
         }),
         ("config-access", source::config_access),
         ("no-suppressions", source::no_suppressions),
+        ("version-sync", |root, _| release::version_sync(root, None)),
     ]
 }
 
@@ -410,6 +421,37 @@ fn feedback_budget(
 fn perf_check(root: &Path, settings: &Settings, args: &[String]) -> Result<Violations, String> {
     let binary = flag(args, "--binary").ok().map(PathBuf::from);
     perf::run_perf_check(root, settings, binary.as_deref())
+}
+
+fn version_sync(root: &Path, args: &[String]) -> Result<Violations, String> {
+    let tag = flag(args, "--tag").ok();
+    release::version_sync(root, tag.as_deref())
+}
+
+fn release_notes(root: &Path, args: &[String]) -> Result<Violations, String> {
+    let since = flag(args, "--since").ok();
+    let output = flag(args, "--output").ok();
+    let (_, notes) = release::draft_release_notes(root, since.as_deref())?;
+    if let Some(path) = output {
+        let target = PathBuf::from(&path);
+        if let Some(parent) = target.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("cannot create parent directory for {path}: {error}"))?;
+        }
+        fs::write(&target, &notes).map_err(|error| format!("cannot write {path}: {error}"))?;
+    } else {
+        print!("{notes}");
+    }
+    Ok(Vec::new())
+}
+
+fn prepare_release(root: &Path, args: &[String]) -> Result<Violations, String> {
+    let version = flag(args, "--version")?;
+    let since = flag(args, "--since").ok();
+    let dry_run = args.iter().any(|arg| arg == "--dry-run");
+    release::prepare_release(root, &version, since.as_deref(), dry_run)
 }
 
 #[cfg(test)]
