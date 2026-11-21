@@ -1,8 +1,11 @@
-use codeint_model::{CodeModel, SourceSet};
+use std::collections::BTreeMap;
+
+use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CloneGroupFinding, ErodedFunctionFinding, FlaggedLineRow, ImportCycleFinding, Measured,
+    CloneGroupFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
+    ImportCycleFinding, Measured,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,6 +23,15 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
     pub(crate) import_cycles: MetricMeasurement<ImportCycleFinding>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) external_metrics: BTreeMap<String, ExternalMetricCommitMeasurement>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct ExternalMetricCommitMeasurement {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) measurement: MetricMeasurement<ExternalMetricFinding>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,16 +41,41 @@ pub(crate) struct MetricMeasurement<T> {
     pub(crate) findings_worst_first: Vec<T>,
 }
 
+impl<T> Default for MetricMeasurement<T> {
+    fn default() -> MetricMeasurement<T> {
+        MetricMeasurement {
+            ratio: 0.0,
+            numerator: 0.0,
+            findings_worst_first: Vec::new(),
+        }
+    }
+}
+
 impl CommitMeasurement {
     pub fn of(model: CodeModel) -> CommitMeasurement {
+        CommitMeasurement::of_with_metrics(model, &[]).expect("built-in metrics cannot fail")
+    }
+
+    pub fn of_with_metrics(
+        model: CodeModel,
+        metric_plugins: &[&dyn MetricPlugin],
+    ) -> Result<CommitMeasurement, MetricPluginError> {
         let source_sets = model.into_source_sets();
-        let measure = |source_set| SourceSetMeasurement::of(source_sets.get(source_set));
-        CommitMeasurement {
-            production: measure(SourceSet::Production),
-            test: measure(SourceSet::Test),
-            generated: measure(SourceSet::Generated),
-            vendored: measure(SourceSet::Vendored),
-        }
+        Ok(CommitMeasurement {
+            production: SourceSetMeasurement::of(
+                source_sets.get(SourceSet::Production),
+                metric_plugins,
+            )?,
+            test: SourceSetMeasurement::of(source_sets.get(SourceSet::Test), metric_plugins)?,
+            generated: SourceSetMeasurement::of(
+                source_sets.get(SourceSet::Generated),
+                metric_plugins,
+            )?,
+            vendored: SourceSetMeasurement::of(
+                source_sets.get(SourceSet::Vendored),
+                metric_plugins,
+            )?,
+        })
     }
 
     pub(crate) fn into_source_sets(self) -> [(SourceSet, SourceSetMeasurement); 4] {
@@ -52,15 +89,39 @@ impl CommitMeasurement {
 }
 
 impl SourceSetMeasurement {
-    fn of(model: &CodeModel) -> SourceSetMeasurement {
+    fn of(
+        model: &CodeModel,
+        metric_plugins: &[&dyn MetricPlugin],
+    ) -> Result<SourceSetMeasurement, MetricPluginError> {
         let measured = Measured::new(model);
-        SourceSetMeasurement {
+        let mut external_metrics = BTreeMap::new();
+        for plugin in metric_plugins {
+            let result = plugin.measure(model)?;
+            external_metrics.insert(
+                plugin.key().to_owned(),
+                ExternalMetricCommitMeasurement {
+                    name: plugin.name().to_owned(),
+                    description: plugin.description().to_owned(),
+                    measurement: MetricMeasurement {
+                        ratio: result.ratio,
+                        numerator: result.numerator,
+                        findings_worst_first: result
+                            .findings
+                            .iter()
+                            .map(ExternalMetricFinding::from_model)
+                            .collect(),
+                    },
+                },
+            );
+        }
+        Ok(SourceSetMeasurement {
             files: model.files.len(),
             erosion: erosion(&measured),
             duplication: duplication(&measured),
             verbosity: verbosity(&measured),
             import_cycles: import_cycles(&measured),
-        }
+            external_metrics,
+        })
     }
 }
 

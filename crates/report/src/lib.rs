@@ -8,8 +8,8 @@ use codeint_metrics::{
     ImportCycles, MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
-    CodeModel, Metric, Package, ReferenceRange, ReferenceRanges, RepoPath, SkippedFile, SourceSet,
-    SourceSets,
+    CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
+    ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
 };
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
@@ -60,7 +60,7 @@ pub struct Report {
 #[derive(Debug, Serialize)]
 pub struct BudgetFailure {
     source_set: &'static str,
-    metric: &'static str,
+    metric: String,
     ratio: Decimal,
     budget: f64,
 }
@@ -114,8 +114,34 @@ struct SourceSetSection {
     duplication: DuplicationSection,
     verbosity: VerbositySection,
     import_cycles: ImportCyclesSection,
+    #[serde(flatten)]
+    external_metrics: BTreeMap<String, ExternalMetricSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExternalMetricSection {
+    #[serde(skip)]
+    name: String,
+    #[serde(skip)]
+    description: String,
+    ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
+    numerator: Decimal,
+    denominator: Decimal,
+    #[serde(flatten)]
+    findings: Findings<ExternalMetricFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExternalMetricFinding {
+    id: String,
+    path: String,
+    line: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_line: Option<u32>,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -278,16 +304,16 @@ impl std::fmt::Display for BudgetFailure {
     }
 }
 
-fn over_budget(
+fn over_budget<'a>(
     budgets: &Budgets,
-    displayed_ratios: impl Iterator<Item = (SourceSet, Metric, f64)>,
+    displayed_ratios: impl Iterator<Item = (SourceSet, &'a str, f64)>,
 ) -> Vec<BudgetFailure> {
     displayed_ratios
         .filter_map(|(source_set, metric, ratio)| {
-            let budget = budgets.budget(source_set, metric)?;
+            let budget = budgets.budget_for_key(source_set, metric)?;
             (!budget.admits(ratio)).then(|| BudgetFailure {
                 source_set: source_set.key(),
-                metric: metric.key(),
+                metric: metric.to_owned(),
                 ratio: Decimal(ratio),
                 budget: budget.ratio(),
             })
@@ -376,19 +402,41 @@ impl FindingKind for UnresolvedImportRow {
     const LEFT_OUT_KEY: &'static str = "imports_left_out";
 }
 
+impl FindingKind for ExternalMetricFinding {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl ExternalMetricFinding {
+    fn from_model(finding: &ExternalFinding) -> ExternalMetricFinding {
+        ExternalMetricFinding {
+            id: finding.id.clone(),
+            path: finding.path.to_string(),
+            line: finding.line,
+            end_line: finding.end_line,
+            message: finding.message.clone(),
+        }
+    }
+}
+
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
-    ) -> SourceSetSections {
+        metric_plugins: &[&dyn MetricPlugin],
+    ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
-                *sections.slot(source_set) = Some(SourceSetSection::new(model, ranges, findings));
+                *sections.slot(source_set) = Some(SourceSetSection::new(
+                    model,
+                    ranges,
+                    findings,
+                    metric_plugins,
+                )?);
             }
         }
-        sections
+        Ok(sections)
     }
 
     fn iter(&self) -> impl Iterator<Item = (SourceSet, &SourceSetSection)> {
@@ -407,15 +455,30 @@ impl SourceSetSections {
             budgets,
             self.iter().flat_map(|(source_set, section)| {
                 [
-                    (source_set, Metric::Erosion, section.erosion.ratio.0),
-                    (source_set, Metric::Duplication, section.duplication.ratio.0),
-                    (source_set, Metric::Verbosity, section.verbosity.ratio.0),
+                    (source_set, Metric::Erosion.key(), section.erosion.ratio.0),
                     (
                         source_set,
-                        Metric::ImportCycles,
+                        Metric::Duplication.key(),
+                        section.duplication.ratio.0,
+                    ),
+                    (
+                        source_set,
+                        Metric::Verbosity.key(),
+                        section.verbosity.ratio.0,
+                    ),
+                    (
+                        source_set,
+                        Metric::ImportCycles.key(),
                         section.import_cycles.ratio.0,
                     ),
                 ]
+                .into_iter()
+                .chain(
+                    section
+                        .external_metrics
+                        .iter()
+                        .map(move |(key, metric)| (source_set, key.as_str(), metric.ratio.0)),
+                )
             }),
         )
     }
@@ -435,17 +498,41 @@ impl SourceSetSection {
         model: &CodeModel,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
-    ) -> SourceSetSection {
+        metric_plugins: &[&dyn MetricPlugin],
+    ) -> Result<SourceSetSection, MetricPluginError> {
         let measured = Measured::new(model);
-        SourceSetSection {
+        let mut external_metrics = BTreeMap::new();
+        for plugin in metric_plugins {
+            let result = plugin.measure(model)?;
+            external_metrics.insert(
+                plugin.key().to_owned(),
+                ExternalMetricSection {
+                    name: plugin.name().to_owned(),
+                    description: plugin.description().to_owned(),
+                    ratio: Decimal::rounded(result.ratio),
+                    reference_range: ranges.entry(plugin.key()),
+                    numerator: Decimal::rounded(result.numerator),
+                    denominator: Decimal::rounded(result.denominator),
+                    findings: Findings::worst_first(
+                        result
+                            .findings
+                            .iter()
+                            .map(ExternalMetricFinding::from_model),
+                        findings,
+                    ),
+                },
+            );
+        }
+        Ok(SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: ErosionSection::new(&measured.erosion, ranges, findings),
             duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
             verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
             import_cycles: ImportCyclesSection::new(&measured.import_cycles, ranges, findings),
+            external_metrics,
             packages: package_sections(model, &measured),
-        }
+        })
     }
 }
 
@@ -694,12 +781,17 @@ impl MeasuredSection {
         model: CodeModel,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
-    ) -> MeasuredSection {
-        MeasuredSection {
-            files: model.files.len(),
-            source_lines: source_lines(&model),
-            source_sets: SourceSetSections::new(&model.into_source_sets(), ranges, findings),
-        }
+        metric_plugins: &[&dyn MetricPlugin],
+    ) -> Result<MeasuredSection, MetricPluginError> {
+        let files = model.files.len();
+        let lines = source_lines(&model);
+        let source_sets =
+            SourceSetSections::new(&model.into_source_sets(), ranges, findings, metric_plugins)?;
+        Ok(MeasuredSection {
+            files,
+            source_lines: lines,
+            source_sets,
+        })
     }
 }
 
@@ -710,6 +802,17 @@ impl Report {
         findings: FindingsShown,
         budgets: &Budgets,
     ) -> Report {
+        Report::summarize_with_metrics(languages, submodules, findings, budgets, &[])
+            .expect("built-in metrics cannot fail")
+    }
+
+    pub fn summarize_with_metrics(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
+        budgets: &Budgets,
+        metric_plugins: &[&dyn MetricPlugin],
+    ) -> Result<Report, MetricPluginError> {
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -722,24 +825,21 @@ impl Report {
                 ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
                 BTreeMap::new(),
             ),
-            _ => (
-                ReferenceRangeScope::SeveralLanguages,
-                measured
-                    .iter()
-                    .map(|language| {
-                        (
-                            language.plugin.clone(),
-                            MeasuredSection::new(
-                                language.model.clone(),
-                                &ReferenceRangeScope::OneLanguage(
-                                    language.reference_ranges.clone(),
-                                ),
-                                findings,
-                            ),
-                        )
-                    })
-                    .collect(),
-            ),
+            _ => {
+                let mut per_language = BTreeMap::new();
+                for language in &measured {
+                    per_language.insert(
+                        language.plugin.clone(),
+                        MeasuredSection::new(
+                            language.model.clone(),
+                            &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
+                            findings,
+                            metric_plugins,
+                        )?,
+                    );
+                }
+                (ReferenceRangeScope::SeveralLanguages, per_language)
+            }
         };
         let model = CodeModel::merge(
             measured
@@ -753,15 +853,15 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(model, &total_ranges, findings);
-        Report {
+        let measured = MeasuredSection::new(model, &total_ranges, findings, metric_plugins)?;
+        Ok(Report {
             over_budget: measured.source_sets.over_budget(budgets),
             skipped,
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),
             measured,
             languages: sections_per_language,
-        }
+        })
     }
 
     pub fn over_budget(&self) -> &[BudgetFailure] {

@@ -22,8 +22,8 @@ pub struct RegressionLimit {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RegressionLimits {
-    every_source_set: Vec<(Metric, RegressionLimitSetting)>,
-    one_source_set: Vec<(SourceSet, Metric, RegressionLimitSetting)>,
+    every_source_set: Vec<(String, RegressionLimitSetting)>,
+    one_source_set: Vec<(SourceSet, String, RegressionLimitSetting)>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
@@ -67,10 +67,11 @@ impl RegressionLimit {
         new_findings: NewFindingsRule::AnyNewFinding,
     };
 
-    fn default_for(metric: Metric) -> RegressionLimit {
-        match metric {
-            Metric::ImportCycles => RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES,
-            Metric::Erosion | Metric::Duplication | Metric::Verbosity => RegressionLimit::DEFAULT,
+    fn default_for_key(metric_key: &str) -> RegressionLimit {
+        if metric_key == Metric::ImportCycles.key() {
+            RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES
+        } else {
+            RegressionLimit::DEFAULT
         }
     }
 
@@ -93,8 +94,8 @@ impl RegressionLimitSetting {
 
 impl RegressionLimits {
     pub(crate) fn new(
-        every_source_set: Vec<(Metric, RegressionLimitSetting)>,
-        one_source_set: Vec<(SourceSet, Metric, RegressionLimitSetting)>,
+        every_source_set: Vec<(String, RegressionLimitSetting)>,
+        one_source_set: Vec<(SourceSet, String, RegressionLimitSetting)>,
     ) -> RegressionLimits {
         RegressionLimits {
             every_source_set,
@@ -103,18 +104,33 @@ impl RegressionLimits {
     }
 
     pub fn limit(&self, source_set: SourceSet, metric: Metric) -> RegressionLimit {
+        self.limit_for_key(source_set, metric.key())
+    }
+
+    pub fn limit_for_key(&self, source_set: SourceSet, metric_key: &str) -> RegressionLimit {
         let for_every_source_set = self
             .every_source_set
             .iter()
-            .find(|(set_for, _)| *set_for == metric)
+            .find(|(set_for, _)| set_for == metric_key)
             .map(|(_, setting)| *setting);
         let for_this_source_set = self
             .one_source_set
             .iter()
-            .find(|(set_in, set_for, _)| *set_in == source_set && *set_for == metric)
+            .find(|(set_in, set_for, _)| *set_in == source_set && set_for == metric_key)
             .map(|(_, _, setting)| *setting);
-        RegressionLimit::default_for(metric)
+        RegressionLimit::default_for_key(metric_key)
             .overridden_by(for_every_source_set)
             .overridden_by(for_this_source_set)
+    }
+
+    pub(crate) fn metric_keys(&self) -> impl Iterator<Item = (Option<SourceSet>, &str)> {
+        self.every_source_set
+            .iter()
+            .map(|(metric, _)| (None, metric.as_str()))
+            .chain(
+                self.one_source_set
+                    .iter()
+                    .map(|(source_set, metric, _)| (Some(*source_set), metric.as_str())),
+            )
     }
 }
