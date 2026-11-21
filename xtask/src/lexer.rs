@@ -101,6 +101,64 @@ impl Builder {
         }
         self.scan
     }
+
+    fn precedes_regex(&self) -> bool {
+        let last_line = std::iter::once(self.current.as_str())
+            .chain(self.scan.code_lines.iter().rev().map(String::as_str))
+            .map(str::trim_end)
+            .find(|line| !line.is_empty());
+        let Some(prefix) = last_line else {
+            return true;
+        };
+        let Some(last) = prefix.chars().last() else {
+            return true;
+        };
+        if matches!(
+            last,
+            '=' | '(' | ',' | ':' | '[' | '!' | '&' | '|' | '?' | '{' | ';' | '~' | '^' | '%' | '*'
+        ) {
+            return true;
+        }
+        if last == '>' {
+            return prefix.ends_with("=>");
+        }
+        if last == '+' {
+            return !prefix.ends_with("++");
+        }
+        if last == '-' {
+            return !prefix.ends_with("--");
+        }
+        if last.is_alphanumeric() || last == '_' || last == '$' {
+            let start = prefix
+                .char_indices()
+                .rfind(|(_, character)| {
+                    !(character.is_alphanumeric() || *character == '_' || *character == '$')
+                })
+                .map_or(0, |(position, character)| position + character.len_utf8());
+            if start > 0 && prefix[..start].ends_with('.') {
+                return false;
+            }
+            return matches!(
+                &prefix[start..],
+                "return"
+                    | "case"
+                    | "throw"
+                    | "in"
+                    | "of"
+                    | "typeof"
+                    | "void"
+                    | "delete"
+                    | "yield"
+                    | "await"
+                    | "new"
+                    | "else"
+                    | "do"
+                    | "export"
+                    | "default"
+            );
+        }
+        false
+    }
 }
 
 struct CLikeScanner {
@@ -135,6 +193,7 @@ impl CLikeScanner {
                     self.line_comment(doc);
                 }
                 ('/', Some('*')) => self.block_comment(),
+                ('/', _) if self.regex_can_start() => self.regex(),
                 ('\'', _) if self.language == Language::Rust => self.rust_quote(),
                 ('"', _) | ('\'', _) | ('`', _) if self.is_quote(character) => {
                     self.string(character)
@@ -232,6 +291,49 @@ impl CLikeScanner {
 
     fn string_ends_at_line_end(&self, quote: char) -> bool {
         self.language == Language::Script && quote != '`'
+    }
+
+    fn regex_can_start(&self) -> bool {
+        self.language == Language::Script
+            && !matches!(self.at(1), None | Some('\n' | '\r'))
+            && self.out.precedes_regex()
+    }
+
+    fn regex(&mut self) {
+        self.out.code('/');
+        self.index += 1;
+        let mut in_class = false;
+        while let Some(character) = self.at(0) {
+            if matches!(character, '\n' | '\r') {
+                return;
+            }
+            if character == '\\' {
+                self.out.hidden(character);
+                if let Some(escaped) = self.at(1)
+                    && !matches!(escaped, '\n' | '\r')
+                {
+                    self.out.hidden(escaped);
+                    self.index += 2;
+                } else {
+                    self.index += 1;
+                }
+            } else if character == '[' && !in_class {
+                in_class = true;
+                self.out.hidden(character);
+                self.index += 1;
+            } else if character == ']' && in_class {
+                in_class = false;
+                self.out.hidden(character);
+                self.index += 1;
+            } else if character == '/' && !in_class {
+                self.out.code('/');
+                self.index += 1;
+                return;
+            } else {
+                self.out.hidden(character);
+                self.index += 1;
+            }
+        }
     }
 
     fn rust_quote(&mut self) {

@@ -4,6 +4,7 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const CHECKS_TOML: &str = include_str!("../../checks.toml");
+const MARKDOWNLINT_CONFIG: &str = include_str!("../../.markdownlint-cli2.jsonc");
 static NEXT_REPOSITORY: AtomicUsize = AtomicUsize::new(0);
 
 struct Repository {
@@ -469,6 +470,65 @@ fn version_sync_and_prepare_release_enforce_manifest_and_tag_agreement() {
     assert_passes(&apply);
     assert_passes(&repository.xtask(&["version-sync", "--tag", "v0.2.0"]));
     assert!(!repository.path.join("CHANGELOG.md").exists());
+}
+
+#[test]
+fn markdownlint_skips_gitignored_markdown_and_lints_tracked_markdown() {
+    let config: serde_json::Value =
+        serde_json::from_str(MARKDOWNLINT_CONFIG).expect("parse .markdownlint-cli2.jsonc");
+    assert_eq!(
+        config.get("gitignore"),
+        Some(&serde_json::Value::Bool(true))
+    );
+
+    let binary_name = if cfg!(windows) {
+        "markdownlint-cli2.cmd"
+    } else {
+        "markdownlint-cli2"
+    };
+    let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("node_modules/.bin")
+        .join(binary_name);
+    if !binary.exists() {
+        return;
+    }
+
+    let repository = Repository::new();
+    repository.write(".markdownlint-cli2.jsonc", MARKDOWNLINT_CONFIG);
+    repository.write(".gitignore", "ignored/\n");
+    repository.commit_all("chore(checks): add markdownlint config and gitignore");
+    repository.write("ignored/untracked.md", "no top-level heading\n");
+
+    let ignored_only = Command::new(&binary)
+        .current_dir(&repository.path)
+        .output()
+        .expect("run markdownlint-cli2 on ignored file");
+    assert_passes(&ignored_only);
+
+    repository.write("tracked.md", "no top-level heading\n");
+    repository.commit_all("docs: add tracked markdown without heading");
+
+    let with_tracked = Command::new(&binary)
+        .current_dir(&repository.path)
+        .output()
+        .expect("run markdownlint-cli2 on tracked file");
+    assert_eq!(
+        with_tracked.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        stdout(&with_tracked),
+        stderr(&with_tracked)
+    );
+    let combined = format!("{}\n{}", stdout(&with_tracked), stderr(&with_tracked));
+    assert!(
+        combined.contains("tracked.md") && combined.contains("MD041"),
+        "expected tracked.md MD041 failure, got:\n{combined}"
+    );
+    assert!(
+        !combined.contains("ignored/untracked.md"),
+        "expected ignored/untracked.md to be skipped, got:\n{combined}"
+    );
 }
 
 #[cfg(unix)]

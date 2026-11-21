@@ -1185,21 +1185,49 @@ fn an_unknown_command_prints_the_usage_error_and_exits_2() {
     );
 }
 
+#[cfg(unix)]
+fn run_codeint_with_closed_stdout(directory: &Path, args: &[&str]) -> Output {
+    let script = concat!(
+        "import os, subprocess, sys\n",
+        "reader, writer = os.pipe()\n",
+        "os.close(reader)\n",
+        "try:\n",
+        "    completed = subprocess.run(sys.argv[1:], stdout=writer, stderr=subprocess.PIPE)\n",
+        "finally:\n",
+        "    os.close(writer)\n",
+        "sys.stderr.buffer.write(completed.stderr)\n",
+        "sys.exit(completed.returncode)\n",
+    );
+    Command::new("python3")
+        .args(["-c", script])
+        .arg(env!("CARGO_BIN_EXE_codeint"))
+        .args(args)
+        .current_dir(directory)
+        .env("RUST_BACKTRACE", "1")
+        .output()
+        .expect("run codeint with closed standard output")
+}
+
+#[cfg(not(unix))]
+fn run_codeint_with_closed_stdout(directory: &Path, args: &[&str]) -> Output {
+    let (reader, writer) = std::io::pipe().expect("create a pipe");
+    drop(reader);
+    Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .args(args)
+        .current_dir(directory)
+        .env("RUST_BACKTRACE", "1")
+        .stdout(writer)
+        .output()
+        .expect("run codeint with closed standard output")
+}
+
 #[test]
 fn a_closed_standard_output_is_an_operational_error_and_not_a_panic() {
     let repository = Repository::new();
     repository.write("src/main.ts", "export const main = 1;\n");
     repository.commit_all();
-    let (reader, writer) = std::io::pipe().expect("create a pipe");
-    drop(reader);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_codeint"))
-        .arg("check")
-        .current_dir(repository.path())
-        .env("RUST_BACKTRACE", "1")
-        .stdout(writer)
-        .output()
-        .expect("run codeint");
+    let output = run_codeint_with_closed_stdout(repository.path(), &["check"]);
 
     assert_eq!(output.status.code(), Some(2));
     let message = String::from_utf8_lossy(&output.stderr);

@@ -12,6 +12,7 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 **Error text**:
 
 ```text
+{rules} must exist as a regular file. It is the one rules file.
 {entry} must be a link to {rules}. Edit {rules} only, then recreate the link.
 ```
 
