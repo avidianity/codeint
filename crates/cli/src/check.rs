@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 use std::string::FromUtf8Error;
 
@@ -34,6 +33,22 @@ pub(crate) enum CheckError {
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     PluginHost(#[from] PluginHostError),
+    #[error("{}", format_extension_conflict(first, second, extension, path.as_ref()))]
+    ExtensionConflict {
+        first: String,
+        second: String,
+        extension: String,
+        path: Option<RepoPath>,
+    },
+}
+
+fn format_extension_conflict(
+    _first: &str,
+    _second: &str,
+    _extension: &str,
+    _path: Option<&RepoPath>,
+) -> String {
+    todo!()
 }
 
 pub(crate) struct NamedLanguagePlugin<'plugin> {
@@ -139,17 +154,7 @@ fn measure(
     coverage: &[LanguageCoverage<'_>],
     overrides: &SourceSetOverrides,
 ) -> Result<Vec<MeasuredLanguage>, CheckError> {
-    let plugins_by_extension: HashMap<String, usize> = plugins
-        .iter()
-        .enumerate()
-        .flat_map(|(index, named)| {
-            named
-                .plugin
-                .extensions()
-                .into_iter()
-                .map(move |extension| (extension, index))
-        })
-        .collect();
+    let covered_files = assign_files_to_plugins(tree, plugins, coverage)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let workspace = find_workspace(plugins, &manifests_by_plugin)?;
     let mut models: Vec<CodeModel> = plugins
@@ -157,16 +162,6 @@ fn measure(
         .map(|_| CodeModel {
             workspace: workspace.clone(),
             ..CodeModel::default()
-        })
-        .collect();
-    let covered_files: Vec<(&RepoPath, usize)> = tree
-        .files()
-        .iter()
-        .filter_map(|path| {
-            let &index = path
-                .extension()
-                .and_then(|extension| plugins_by_extension.get(extension))?;
-            coverage[index].covers(path).then_some((path, index))
         })
         .collect();
     let outcomes = if let Some(reader) = tree.working_tree_reader() {
@@ -222,6 +217,22 @@ fn measure(
             })
         })
         .collect()
+}
+
+fn assign_files_to_plugins<'tree>(
+    _tree: &'tree Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    _coverage: &[LanguageCoverage<'_>],
+) -> Result<Vec<(&'tree RepoPath, usize)>, CheckError> {
+    if plugins.is_empty() {
+        return Err(CheckError::ExtensionConflict {
+            first: String::new(),
+            second: String::new(),
+            extension: String::new(),
+            path: None,
+        });
+    }
+    todo!()
 }
 
 fn read_manifests(

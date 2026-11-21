@@ -20,6 +20,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
         CliError::Check(CheckError::PluginHost(error)) => plugin_host_remedy(error),
+        CliError::Check(CheckError::ExtensionConflict { .. }) => todo!(),
         CliError::Init(InitError::Git(GitError::NotInRepository { .. })) => {
             "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
         }
