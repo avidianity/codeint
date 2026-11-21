@@ -44,6 +44,13 @@
         "$ref": "#/$defs/LanguageGlobs"
       },
       "description": "Which Language plugin measures which folders. Each entry names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out. Several entries may name one Language plugin; it measures what any of them includes. Without this key, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include."
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PluginEntry"
+      },
+      "description": "External WebAssembly component Language plugins to load from local paths. Each entry names the plugin, its path relative to the repository root or absolute, and its required SHA-256 hex digest."
     }
   },
   "title": "codeint.json",
@@ -260,6 +267,29 @@
       "required": [
         "plugin",
         "include"
+      ]
+    },
+    "PluginEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the external Language plugin."
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to the WebAssembly component file, relative to the repository root or absolute."
+        },
+        "sha256": {
+          "type": "string",
+          "description": "The required 64-character hexadecimal SHA-256 digest of the plugin file."
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "sha256"
       ]
     }
   }

@@ -40,7 +40,8 @@ impl Sha256Digest {
             return None;
         }
         let mut digest = [0u8; 32];
-        for (slot, pair) in digest.iter_mut().zip(bytes.chunks_exact(2)) {
+        let (pairs, _) = bytes.as_chunks::<2>();
+        for (slot, pair) in digest.iter_mut().zip(pairs) {
             let high = hex_nibble(pair[0])?;
             let low = hex_nibble(pair[1])?;
             *slot = (high << 4) | low;

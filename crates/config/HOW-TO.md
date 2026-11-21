@@ -90,6 +90,19 @@ if !coverage[index].covers(&path) {
 - Several entries for one plugin add up: the plugin covers what any of its entries covers.
 - Call `covers` before reading a file; a file that its Language plugin does not cover is not measured and not listed.
 
+## Declare external Language plugins
+
+```rust
+for declaration in &configuration.plugins {
+    let hex = declaration.sha256.to_hex();
+}
+```
+
+- Each entry of `plugins` in `codeint.json` requires `name`, `path`, and `sha256`.
+- A missing `sha256` fails the shape check with `ConfigurationFileError::MissingKey` (exit code 2).
+- A `sha256` that is not 64 hexadecimal characters fails with `ConfigurationFileError::InvalidSha256` (exit code 2).
+- `plugins` is empty by default and omitted when serialized as empty, so `codeint init` leaves it out.
+
 ## Add a setting
 
 - Add a field to `ConfigurationFile` in `src/codeint_json.rs`, with `#[serde(default)]` and a `#[schemars(description = ...)]` that tells the user what it does.

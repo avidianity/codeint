@@ -12,6 +12,7 @@ thiserror = { workspace = true }
 wasmtime = { workspace = true }
 
 [dev-dependencies]
+codeint-lang-ts = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

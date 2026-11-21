@@ -358,6 +358,7 @@ name = "codeint-plugin-host"
 version = "0.1.0"
 dependencies = [
  "codeint-config",
+ "codeint-lang-ts",
  "codeint-model",
  "tempfile",
  "thiserror",
