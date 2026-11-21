@@ -70,20 +70,25 @@ impl<'schema> Shape<'schema> {
         key: &KeyPath,
     ) -> Result<(), ConfigurationFileError> {
         let properties = schema.get("properties").and_then(Value::as_object);
-        let closed = schema.get("additionalProperties") == Some(&Value::Bool(false));
+        let additional = schema.get("additionalProperties");
         for (name, member) in members {
             let member_key = key.child(KeySegment::Key(name.clone()));
             match properties.and_then(|properties| properties.get(name)) {
                 Some(member_schema) => self.check(member, member_schema, &member_key)?,
-                None if closed => {
-                    return Err(ConfigurationFileError::UnknownKey {
-                        key: member_key,
-                        allowed: properties
-                            .map(|properties| properties.keys().cloned().collect())
-                            .unwrap_or_default(),
-                    });
-                }
-                None => {}
+                None => match additional {
+                    Some(Value::Bool(false)) => {
+                        return Err(ConfigurationFileError::UnknownKey {
+                            key: member_key,
+                            allowed: properties
+                                .map(|properties| properties.keys().cloned().collect())
+                                .unwrap_or_default(),
+                        });
+                    }
+                    Some(additional_schema) if additional_schema.is_object() => {
+                        self.check(member, additional_schema, &member_key)?;
+                    }
+                    _ => {}
+                },
             }
         }
         let missing = schema

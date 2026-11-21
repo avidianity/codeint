@@ -29,7 +29,13 @@ fn keywords_outside_the_checked_subset(schema: &Value, found: &mut Vec<String>) 
                 }
             }
             "items" => keywords_outside_the_checked_subset(value, found),
-            "additionalProperties" if value != &Value::Bool(false) => found.push(keyword.clone()),
+            "additionalProperties" => {
+                if value.is_object() {
+                    keywords_outside_the_checked_subset(value, found);
+                } else if value != &Value::Bool(false) {
+                    found.push(keyword.clone());
+                }
+            }
             keyword if CHECKED_KEYWORDS.contains(&keyword) => {}
             keyword if ANNOTATION_KEYWORDS.contains(&keyword) => {}
             keyword => found.push(keyword.to_owned()),

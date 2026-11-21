@@ -1,17 +1,18 @@
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+
 use codeint_config::{
     Budgets, FindingsShown, NewFindingsRule, RegressionLimit, RegressionLimits, ReportFormat,
 };
 use codeint_model::{Metric, SourceSet};
-use std::collections::HashSet;
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurement};
-use crate::sarif::{ListedFindings, SarifLog};
+use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
-    BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding, Findings, FlaggedLineRow,
-    ImportCycleFinding, ReportError,
+    BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding, ExternalMetricFinding,
+    Findings, FlaggedLineRow, ImportCycleFinding, ReportError,
 };
 
 mod markdown;
@@ -49,7 +50,7 @@ pub struct DiffReport {
 #[derive(Debug, Serialize)]
 pub(crate) struct Regression {
     source_set: &'static str,
-    metric: &'static str,
+    metric: String,
     rule: RegressionRule,
     base: Decimal,
     head: Decimal,
@@ -103,6 +104,18 @@ struct SourceSetChanges {
     duplication: MetricChanges<CloneGroupFinding>,
     verbosity: MetricChanges<FlaggedLineRow>,
     import_cycles: MetricChanges<ImportCycleFinding>,
+    #[serde(flatten)]
+    external_metrics: BTreeMap<String, ExternalMetricChanges>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExternalMetricChanges {
+    #[serde(skip)]
+    name: String,
+    #[serde(skip)]
+    description: String,
+    #[serde(flatten)]
+    changes: MetricChanges<ExternalMetricFinding>,
 }
 
 #[derive(Debug)]
@@ -186,6 +199,16 @@ impl DiffReport {
                     clone_groups: &changes.duplication.new.listed,
                     flagged_lines: &changes.verbosity.new.listed,
                     import_cycles: &changes.import_cycles.new.listed,
+                    external_metrics: changes
+                        .external_metrics
+                        .iter()
+                        .map(|(key, external)| ListedExternalMetric {
+                            key: key.as_str(),
+                            name: external.name.as_str(),
+                            description: external.description.as_str(),
+                            findings: &external.changes.new.listed,
+                        })
+                        .collect(),
                 },
             )
         }))
@@ -239,23 +262,33 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
         budgets,
         source_sets.iter().flat_map(|(source_set, changes)| {
             [
-                (source_set, Metric::Erosion, changes.erosion.head_ratio.0),
                 (
                     source_set,
-                    Metric::Duplication,
+                    Metric::Erosion.key(),
+                    changes.erosion.head_ratio.0,
+                ),
+                (
+                    source_set,
+                    Metric::Duplication.key(),
                     changes.duplication.head_ratio.0,
                 ),
                 (
                     source_set,
-                    Metric::Verbosity,
+                    Metric::Verbosity.key(),
                     changes.verbosity.head_ratio.0,
                 ),
                 (
                     source_set,
-                    Metric::ImportCycles,
+                    Metric::ImportCycles.key(),
                     changes.import_cycles.head_ratio.0,
                 ),
             ]
+            .into_iter()
+            .chain(
+                changes.external_metrics.iter().map(move |(key, metric)| {
+                    (source_set, key.as_str(), metric.changes.head_ratio.0)
+                }),
+            )
         }),
     )
 }
@@ -272,19 +305,23 @@ fn regressions(
 
 impl SourceSetChanges {
     fn regressions(&self, source_set: SourceSet, limits: &RegressionLimits) -> Vec<Regression> {
-        [
+        let mut found: Vec<Regression> = [
             self.erosion
-                .regressions(source_set, Metric::Erosion, limits),
+                .regressions(source_set, Metric::Erosion.key(), limits),
             self.duplication
-                .regressions(source_set, Metric::Duplication, limits),
+                .regressions(source_set, Metric::Duplication.key(), limits),
             self.verbosity
-                .regressions(source_set, Metric::Verbosity, limits),
+                .regressions(source_set, Metric::Verbosity.key(), limits),
             self.import_cycles
-                .regressions(source_set, Metric::ImportCycles, limits),
+                .regressions(source_set, Metric::ImportCycles.key(), limits),
         ]
         .into_iter()
         .flatten()
-        .collect()
+        .collect();
+        for (key, external) in &self.external_metrics {
+            found.extend(external.changes.regressions(source_set, key, limits));
+        }
+        found
     }
 }
 
@@ -292,10 +329,10 @@ impl<T> MetricChanges<T> {
     fn regressions(
         &self,
         source_set: SourceSet,
-        metric: Metric,
+        metric_key: &str,
         limits: &RegressionLimits,
     ) -> Vec<Regression> {
-        let limit = limits.limit(source_set, metric);
+        let limit = limits.limit_for_key(source_set, metric_key);
         REGRESSION_RULES
             .into_iter()
             .filter(|rule| self.breaks(*rule, limit))
@@ -303,13 +340,13 @@ impl<T> MetricChanges<T> {
                 let (base, head) = self.compared_values(rule);
                 Regression {
                     source_set: source_set.key(),
-                    metric: metric.key(),
+                    metric: metric_key.to_owned(),
                     rule,
                     base,
                     head,
                     new_findings: self.new_findings(),
                     ratio_rise_limit: limit.ratio_rise.ratio(),
-                    numerator_key: numerator_key(metric),
+                    numerator_key: numerator_key(metric_key),
                 }
             })
             .collect()
@@ -358,7 +395,7 @@ impl Regression {
             RegressionRule::NumeratorRiseWithNewFindings => format!(
                 "The {} {} numerator {} rose from {} to {} with {}.",
                 crate::markdown::prose(self.source_set),
-                crate::markdown::prose(self.metric),
+                crate::markdown::prose(&self.metric),
                 crate::markdown::code(self.numerator_key),
                 self.base.0,
                 self.head.0,
@@ -400,12 +437,13 @@ impl std::fmt::Display for Regression {
     }
 }
 
-fn numerator_key(metric: Metric) -> &'static str {
-    match metric {
-        Metric::Erosion => "eroded_function_mass",
-        Metric::Duplication => "clone_lines",
-        Metric::Verbosity => "verbose_lines",
-        Metric::ImportCycles => "modules_in_import_cycles",
+fn numerator_key(metric_key: &str) -> &'static str {
+    match metric_key {
+        "erosion" => "eroded_function_mass",
+        "duplication" => "clone_lines",
+        "verbosity" => "verbose_lines",
+        "import_cycles" => "modules_in_import_cycles",
+        _ => "numerator",
     }
 }
 
@@ -437,15 +475,45 @@ fn missing_from<T: Identified>(
 }
 
 fn source_set_changes(
-    base: SourceSetMeasurement,
-    head: SourceSetMeasurement,
+    mut base: SourceSetMeasurement,
+    mut head: SourceSetMeasurement,
     shown: FindingsShown,
 ) -> SourceSetChanges {
+    let keys: BTreeSet<String> = base
+        .external_metrics
+        .keys()
+        .chain(head.external_metrics.keys())
+        .cloned()
+        .collect();
+    let mut external_metrics = BTreeMap::new();
+    for key in keys {
+        let base_entry = base.external_metrics.remove(&key);
+        let head_entry = head.external_metrics.remove(&key);
+        let (name, description) = match (&head_entry, &base_entry) {
+            (Some(entry), _) | (None, Some(entry)) => {
+                (entry.name.clone(), entry.description.clone())
+            }
+            (None, None) => (key.clone(), String::new()),
+        };
+        let base_measurement =
+            base_entry.map_or_else(MetricMeasurement::default, |e| e.measurement);
+        let head_measurement =
+            head_entry.map_or_else(MetricMeasurement::default, |e| e.measurement);
+        external_metrics.insert(
+            key,
+            ExternalMetricChanges {
+                name,
+                description,
+                changes: classify(base_measurement, head_measurement, shown),
+            },
+        );
+    }
     SourceSetChanges {
         erosion: classify(base.erosion, head.erosion, shown),
         duplication: classify(base.duplication, head.duplication, shown),
         verbosity: classify(base.verbosity, head.verbosity, shown),
         import_cycles: classify(base.import_cycles, head.import_cycles, shown),
+        external_metrics,
     }
 }
 
@@ -496,6 +564,12 @@ impl Identified for FlaggedLineRow {
 }
 
 impl Identified for ImportCycleFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for ExternalMetricFinding {
     fn id(&self) -> &str {
         &self.id
     }

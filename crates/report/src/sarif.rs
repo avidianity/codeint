@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use codeint_model::{Metric, SourceSet};
 
 use crate::{
-    CloneGroupFinding, CloneLocation, ErodedFunctionFinding, FlaggedLineRow, ImportCycleFinding,
-    Report, SourceSetSection,
+    CloneGroupFinding, CloneLocation, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
+    ImportCycleFinding, Report, SourceSetSection,
 };
 
 #[cfg(test)]
@@ -48,8 +50,8 @@ struct Driver {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Rule {
-    id: &'static str,
-    name: &'static str,
+    id: String,
+    name: String,
     short_description: Text,
     full_description: Text,
     help: Text,
@@ -74,7 +76,7 @@ struct Text {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SarifResult {
-    rule_id: &'static str,
+    rule_id: String,
     rule_index: usize,
     level: &'static str,
     message: Text,
@@ -127,11 +129,19 @@ struct Region {
     end_line: Option<u32>,
 }
 
+pub(crate) struct ListedExternalMetric<'findings> {
+    pub(crate) key: &'findings str,
+    pub(crate) name: &'findings str,
+    pub(crate) description: &'findings str,
+    pub(crate) findings: &'findings [ExternalMetricFinding],
+}
+
 pub(crate) struct ListedFindings<'findings> {
     pub(crate) eroded_functions: &'findings [ErodedFunctionFinding],
     pub(crate) clone_groups: &'findings [CloneGroupFinding],
     pub(crate) flagged_lines: &'findings [FlaggedLineRow],
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
+    pub(crate) external_metrics: Vec<ListedExternalMetric<'findings>>,
 }
 
 impl SarifLog {
@@ -148,6 +158,28 @@ impl SarifLog {
     pub(crate) fn listing<'findings>(
         findings: impl Iterator<Item = (SourceSet, ListedFindings<'findings>)>,
     ) -> SarifLog {
+        let collected: Vec<(SourceSet, ListedFindings<'findings>)> = findings.collect();
+        let mut external_rules: BTreeMap<String, (&str, &str)> = BTreeMap::new();
+        for (_, listed) in &collected {
+            for external in &listed.external_metrics {
+                external_rules
+                    .entry(external.key.to_owned())
+                    .or_insert((external.name, external.description));
+            }
+        }
+        let mut rules: Vec<Rule> = RULES.map(descriptor).into();
+        let mut external_rule_indices: BTreeMap<String, usize> = BTreeMap::new();
+        for (key, (name, description)) in external_rules {
+            let index = rules.len();
+            external_rule_indices.insert(key.clone(), index);
+            rules.push(Rule {
+                id: key,
+                name: name.to_owned(),
+                short_description: Text::from(description),
+                full_description: Text::from(description),
+                help: Text::from(description),
+            });
+        }
         SarifLog {
             schema: SARIF_SCHEMA,
             version: SARIF_VERSION,
@@ -157,7 +189,7 @@ impl SarifLog {
                         name: "codeint",
                         version: env!("CARGO_PKG_VERSION"),
                         information_uri: "https://github.com/avidianity/codeint",
-                        rules: RULES.map(descriptor).into(),
+                        rules,
                     },
                 },
                 original_uri_base_ids: OriginalUriBaseIds {
@@ -167,8 +199,11 @@ impl SarifLog {
                         },
                     },
                 },
-                results: findings
-                    .flat_map(|(source_set, listed)| results(source_set, &listed))
+                results: collected
+                    .iter()
+                    .flat_map(|(source_set, listed)| {
+                        results(*source_set, listed, &external_rule_indices)
+                    })
                     .collect(),
             }],
         }
@@ -210,8 +245,8 @@ fn descriptor(metric: Metric) -> Rule {
         ),
     };
     Rule {
-        id: metric.key(),
-        name,
+        id: metric.key().to_owned(),
+        name: name.to_owned(),
         short_description: Text::from(short_description),
         full_description: Text::from(full_description),
         help: Text::from(help),
@@ -227,7 +262,7 @@ fn metric_result(
     related_locations: Vec<Location>,
 ) -> SarifResult {
     SarifResult {
-        rule_id: metric.key(),
+        rule_id: metric.key().to_owned(),
         rule_index: RULES
             .iter()
             .position(|rule| *rule == metric)
@@ -285,11 +320,25 @@ impl<'findings> ListedFindings<'findings> {
             clone_groups: &section.duplication.clone_groups.listed,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
+            external_metrics: section
+                .external_metrics
+                .iter()
+                .map(|(key, external)| ListedExternalMetric {
+                    key: key.as_str(),
+                    name: external.name.as_str(),
+                    description: external.description.as_str(),
+                    findings: &external.findings.listed,
+                })
+                .collect(),
         }
     }
 }
 
-fn results(source_set: SourceSet, listed: &ListedFindings<'_>) -> Vec<SarifResult> {
+fn results(
+    source_set: SourceSet,
+    listed: &ListedFindings<'_>,
+    external_rule_indices: &BTreeMap<String, usize>,
+) -> Vec<SarifResult> {
     let eroded_functions = listed.eroded_functions.iter().map(|function| {
         metric_result(
             Metric::Erosion,
@@ -321,10 +370,37 @@ fn results(source_set: SourceSet, listed: &ListedFindings<'_>) -> Vec<SarifResul
         .import_cycles
         .iter()
         .filter_map(|cycle| import_cycle_result(source_set, cycle));
+    let external_findings = listed.external_metrics.iter().flat_map(|external| {
+        let rule_index = external_rule_indices
+            .get(external.key)
+            .copied()
+            .unwrap_or_default();
+        external.findings.iter().map(move |finding| SarifResult {
+            rule_id: external.key.to_owned(),
+            rule_index,
+            level: "note",
+            message: Text {
+                text: finding.message.clone(),
+            },
+            locations: [Location::in_repository(
+                &finding.path,
+                finding.line,
+                finding.end_line,
+            )],
+            related_locations: Vec::new(),
+            partial_fingerprints: PartialFingerprints {
+                codeint_finding_id: finding.id.clone(),
+            },
+            properties: ResultProperties {
+                source_set: source_set.key(),
+            },
+        })
+    });
     eroded_functions
         .chain(clone_groups)
         .chain(flagged_lines)
         .chain(import_cycles)
+        .chain(external_findings)
         .collect()
 }
 
