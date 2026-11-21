@@ -1,0 +1,24 @@
+{
+  "name": "@avidian/codeint-win32-arm64",
+  "version": "0.1.0",
+  "description": "Windows arm64 binary for codeint",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avidianity/codeint.git",
+    "directory": "npm/platforms/win32-arm64"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
