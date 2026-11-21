@@ -178,6 +178,10 @@ fn cargo_lock_is_current(root: &Path) -> Result<bool, String> {
     Ok(status.success())
 }
 
+pub(crate) fn requires_npm_lockfile(manifest_path: &str) -> bool {
+    !manifest_path.starts_with("npm/")
+}
+
 pub(crate) fn dependency_pinning(root: &Path) -> Result<Violations, String> {
     let mut violations = Violations::new();
     let mut has_cargo_manifest = false;
@@ -193,7 +197,9 @@ pub(crate) fn dependency_pinning(root: &Path) -> Result<Violations, String> {
         } else if name == "package.json" {
             let manifest_text = text()?;
             violations.extend(npm_manifest_problems(&path, &manifest_text)?);
-            violations.extend(npm_lock_problems(root, &path, &manifest_text)?);
+            if requires_npm_lockfile(&path) {
+                violations.extend(npm_lock_problems(root, &path, &manifest_text)?);
+            }
         }
     }
     if has_cargo_manifest && !cargo_lock_is_current(root)? {
