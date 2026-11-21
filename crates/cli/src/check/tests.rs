@@ -16,7 +16,11 @@ use super::{CheckError, NamedLanguagePlugin, check_with};
 
 struct Alpha;
 
+struct AlphaTwo;
+
 struct Beta;
+
+struct DuplicateExtension;
 
 struct Malformed;
 
@@ -29,9 +33,19 @@ const ALPHA: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
     plugin: &Alpha,
 };
 
+const ALPHA_TWO: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+    name: "alpha-two",
+    plugin: &AlphaTwo,
+};
+
 const BETA: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
     name: "beta",
     plugin: &Beta,
+};
+
+const DUPLICATE_EXTENSION: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+    name: "duplicate-extension",
+    plugin: &DuplicateExtension,
 };
 
 const MALFORMED: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
@@ -110,6 +124,42 @@ impl Guest for Alpha {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
+    }
+
+    every_import_is_external!();
+}
+
+impl Guest for AlphaTwo {
+    fn extensions() -> Vec<String> {
+        vec!["alpha".to_owned()]
+    }
+
+    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        lines_of(&text)
+    }
+
+    without_workspaces!();
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
+    }
+
+    every_import_is_external!();
+}
+
+impl Guest for DuplicateExtension {
+    fn extensions() -> Vec<String> {
+        vec!["dup".to_owned(), "dup".to_owned()]
+    }
+
+    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        lines_of(&text)
+    }
+
+    without_workspaces!();
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
     }
 
     every_import_is_external!();
@@ -783,5 +833,145 @@ fn check_lowers_files_in_parallel_and_preserves_deterministic_order() {
         declaration_only,
         ["decl_a.parallel", "decl_b.parallel"],
         "unexpected declaration_only order: {report}"
+    );
+}
+
+#[test]
+fn two_language_plugins_claiming_one_extension_without_languages_stops_with_an_error() {
+    let folder = repository(&[("main.alpha", "one\n")]);
+
+    let error = check_with(folder.path(), &[ALPHA_TWO, ALPHA], FindingsShown::All)
+        .expect_err("two plugins claiming .alpha without languages must fail");
+
+    assert!(
+        matches!(error, CheckError::ExtensionConflict { .. }),
+        "unexpected error: {error:?}"
+    );
+    let message = error.to_string();
+    let alpha_pos = message.find("alpha").expect("error names the first plugin");
+    let alpha_two_pos = message
+        .find("alpha-two")
+        .expect("error names the second plugin");
+    assert!(
+        alpha_pos < alpha_two_pos,
+        "expected deterministic sorted plugin order, got: {message}"
+    );
+    assert!(
+        message.contains(".alpha") && message.contains("languages"),
+        "expected extension and languages setting in error, got: {message}"
+    );
+}
+
+#[test]
+fn two_language_plugins_claiming_one_extension_in_overlapping_languages_directories_stops_with_an_error()
+ {
+    let folder = repository(&[
+        (
+            "codeint.json",
+            r#"{ "languages": [
+                { "plugin": "alpha-two", "include": ["src"] },
+                { "plugin": "alpha", "include": ["src/sub"] }
+            ] }"#,
+        ),
+        ("src/sub/main.alpha", "one\n"),
+    ]);
+
+    let error = check_with(folder.path(), &[ALPHA_TWO, ALPHA], FindingsShown::All)
+        .expect_err("overlapping languages entries claiming .alpha must fail");
+
+    assert!(
+        matches!(error, CheckError::ExtensionConflict { .. }),
+        "unexpected error: {error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("alpha")
+            && message.contains("alpha-two")
+            && message.contains(".alpha")
+            && message.contains("src/sub/main.alpha")
+            && message.contains("languages"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
+fn assigning_separate_directories_in_languages_resolves_an_extension_conflict() {
+    let report = json_report(
+        &[
+            (
+                "codeint.json",
+                r#"{ "languages": [
+                    { "plugin": "alpha", "include": ["web"] },
+                    { "plugin": "alpha-two", "include": ["tools"] }
+                ] }"#,
+            ),
+            ("web/main.alpha", "one\n"),
+            ("tools/main.alpha", "one\ntwo\n"),
+        ],
+        &[ALPHA, ALPHA_TWO],
+    );
+
+    assert_eq!(report["files"], 2, "unexpected report: {report}");
+    assert_eq!(
+        report["languages"]["alpha"]["files"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["alpha"]["source_lines"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["alpha-two"]["files"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["alpha-two"]["source_lines"], 2,
+        "unexpected report: {report}"
+    );
+}
+
+#[test]
+fn excluding_a_nested_directory_from_one_plugin_resolves_an_extension_conflict() {
+    let report = json_report(
+        &[
+            (
+                "codeint.json",
+                r#"{ "languages": [
+                    { "plugin": "alpha", "include": ["src"], "exclude": ["src/legacy"] },
+                    { "plugin": "alpha-two", "include": ["src/legacy"] }
+                ] }"#,
+            ),
+            ("src/app.alpha", "one\n"),
+            ("src/legacy/old.alpha", "one\ntwo\nthree\n"),
+        ],
+        &[ALPHA, ALPHA_TWO],
+    );
+
+    assert_eq!(report["files"], 2, "unexpected report: {report}");
+    assert_eq!(
+        report["languages"]["alpha"]["files"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["alpha"]["source_lines"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["alpha-two"]["files"], 1,
+        "unexpected report: {report}"
+    );
+    assert_eq!(
+        report["languages"]["alpha-two"]["source_lines"], 3,
+        "unexpected report: {report}"
+    );
+}
+
+#[test]
+fn a_single_plugin_listing_one_extension_twice_does_not_conflict_with_itself() {
+    let report = report(&[("main.dup", "one\n")], &[DUPLICATE_EXTENSION]);
+
+    assert!(
+        report.starts_with("files: 1\nsource_lines: 1\n"),
+        "unexpected report: {report}"
     );
 }

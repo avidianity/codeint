@@ -623,6 +623,7 @@ Set the value to a ratio from 0 to 1, as the report shows ratios.
 Each entry of `languages` names a Language plugin, the globs of the folders or files it measures, and the globs it leaves out.
 Several entries may name one Language plugin; it measures what any of them includes.
 Without `languages`, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include.
+When two Language plugins claim the same file extension for the same folder, codeint stops with exit code 2 until `languages` assigns separate folders to each plugin.
 v1 ships one Language plugin, `typescript-javascript`.
 
 ```json codeint.json
