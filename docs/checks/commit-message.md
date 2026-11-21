@@ -18,7 +18,8 @@ The `commit-msg` hook in [lefthook.yml](../../lefthook.yml), and CI (`repository
 **Error text**:
 
 ```text
-Commit message: {problem}. Use "{type}({scope}): {summary}" with no co-author or attribution lines.
+message: Commit message: {problem}. Use "{type}({scope}): {summary}" with no co-author or attribution lines.
+{commit}: Commit message: {problem}. Use "{type}({scope}): {summary}" with no co-author or attribution lines.
 ```
 
 Spec: [Factory Kit v0.4.0](https://github.com/avidianity/factory/blob/v0.4.0/checks/commit-message.md).

@@ -14,6 +14,7 @@ Hook (`cargo xtask hook`) and CI (`cargo xtask merged-result`).
 **Error text**:
 
 ```text
+{skills folder} must be a real folder. It is the one skills folder.
 {link} must be a link to {skills folder}.
 {skill} is not pinned in the skills lock file. Install it with the skills installer.
 {skill} is pinned in {lock file} but missing from {skills folder}. Restore it with the skills installer.
