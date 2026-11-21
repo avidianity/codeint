@@ -15,10 +15,33 @@ pub use codeint_json::{
     DEFAULT_PLUGIN_MEMORY_MB, DEFAULT_PLUGIN_TIMEOUT_MS, DetectedLanguage, JsonType, KeyPath,
     KeySegment, LanguageCoverage, Languages, MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS,
     MIN_PLUGIN_MEMORY_MB, MIN_PLUGIN_TIMEOUT_MS, PluginDeclaration, PluginKind, PluginLimits,
-    Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
-    published_schema_address, read_configuration, write_starter_configuration,
+    PluginSource, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
+    configuration_schema, published_schema_address, read_configuration,
+    write_starter_configuration,
 };
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
+
+pub const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
+
+const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
+const PLUGIN_CACHE_SUBDIR: &str = "plugins";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginHostConfig {
+    pub cache_dir: Option<PathBuf>,
+    pub ca_cert: Option<PathBuf>,
+    pub download_timeout_seconds: u64,
+}
+
+impl Default for PluginHostConfig {
+    fn default() -> PluginHostConfig {
+        PluginHostConfig {
+            cache_dir: None,
+            ca_cert: None,
+            download_timeout_seconds: DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -86,6 +109,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        plugin_host: PluginHostConfig,
     },
     Diff {
         folder: PathBuf,
@@ -95,6 +119,7 @@ pub enum Command {
         findings: FindingsShown,
         format: ReportFormat,
         result_cache: Option<PathBuf>,
+        plugin_host: PluginHostConfig,
     },
     Trend {
         folder: PathBuf,
@@ -102,6 +127,7 @@ pub enum Command {
         destination: ReportDestination,
         format: TrendFormat,
         result_cache: Option<PathBuf>,
+        plugin_host: PluginHostConfig,
     },
     Init {
         folder: PathBuf,
@@ -211,6 +237,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             destination: report_destination(&current_folder, report.output)?,
             findings: findings_shown(report.all),
             format: report.format,
+            plugin_host: plugin_host_config_of_this_process(&current_folder),
         },
         CommandArguments::Diff {
             base_ref,
@@ -224,6 +251,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             findings: findings_shown(report.all),
             format: report.format,
             result_cache: result_cache_folder_of_this_process(&current_folder),
+            plugin_host: plugin_host_config_of_this_process(&current_folder),
         },
         CommandArguments::Trend {
             since,
@@ -238,6 +266,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             destination: report_destination(&current_folder, output)?,
             format,
             result_cache: result_cache_folder_of_this_process(&current_folder),
+            plugin_host: plugin_host_config_of_this_process(&current_folder),
         },
         CommandArguments::Init => Command::Init {
             folder: current_folder,
@@ -252,6 +281,19 @@ fn result_cache_folder_of_this_process(current_folder: &Path) -> Option<PathBuf>
         result_cache_folder::CacheFolderConvention::of_this_platform(),
         |name| std::env::var_os(name),
     )
+}
+
+fn plugin_host_config_of_this_process(current_folder: &Path) -> PluginHostConfig {
+    let cache_dir = result_cache_folder_of_this_process(current_folder)
+        .map(|dir| dir.join(PLUGIN_CACHE_SUBDIR));
+    let ca_cert = std::env::var_os(TEST_CA_CERT_VARIABLE)
+        .filter(|value| !value.is_empty())
+        .map(|value| current_folder.join(value));
+    PluginHostConfig {
+        cache_dir,
+        ca_cert,
+        download_timeout_seconds: DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
+    }
 }
 
 fn existing_folder(current_folder: &Path, path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use codeint_config::{CalendarDay, TrendRange, read_configuration};
+use codeint_config::{CalendarDay, PluginHostConfig, TrendRange, read_configuration};
 use codeint_git::{CommitRange, Repository, ResultCache};
 use codeint_report::{TrendPoint, TrendReport};
 
@@ -11,10 +11,11 @@ pub(crate) fn trend(
     folder: &Path,
     range: TrendRange,
     result_cache: Option<&ResultCache>,
+    plugin_host: &PluginHostConfig,
 ) -> Result<TrendReport, CheckError> {
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
-    let plugins = LoadedPlugins::load(repository.root(), &configuration)?;
+    let plugins = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
     let measurer = CommitMeasurer::new(&repository, &configuration, &plugins, result_cache);
     let points = repository
         .first_parent_history(commit_range(range))?

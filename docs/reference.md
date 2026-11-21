@@ -497,10 +497,11 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
 | `languages[].exclude` | list of strings | Globs inside the included folders that the Language plugin leaves out; empty by default |
-| `plugins` | list of objects | External WebAssembly component Language and Metric plugins to load from local paths; see [Plugins](#plugins) |
+| `plugins` | list of objects | External WebAssembly component Language and Metric plugins to load from local paths or HTTPS URLs; see [Plugins](#plugins) |
 | `plugins[].name` | string | The name of the external Plugin |
 | `plugins[].kind` | string | Whether the external Plugin is a Language plugin or a Metric plugin: `language` (the default) or `metric` |
-| `plugins[].path` | string | Path to the WebAssembly component file, relative to the repository root or absolute |
+| `plugins[].path` | string | Path to the WebAssembly component file, relative to the repository root or absolute; set either `path` or `url`, not both |
+| `plugins[].url` | string | HTTPS URL of the WebAssembly component file; set either `path` or `url`, not both |
 | `plugins[].sha256` | string | The required 64-character hexadecimal SHA-256 digest of the plugin file |
 | `plugin_limits` | object | Memory cap and time limit enforced on each WebAssembly Plugin; see [Plugins](#plugins) |
 | `plugin_limits.memory_mb` | integer from 1 to 4096 | Maximum linear memory in MiB that a WebAssembly Plugin may allocate; `64` by default |
@@ -644,12 +645,15 @@ codeint check
 
 ### Plugins
 
-Each entry of `plugins` declares an external WebAssembly component Language plugin or Metric plugin loaded from a local path, with a required 64-character hexadecimal SHA-256 digest.
+Each entry of `plugins` declares an external WebAssembly component Language plugin or Metric plugin loaded from either a local `path` or an HTTPS `url`, with a required 64-character hexadecimal SHA-256 digest.
+See [docs/plugins.md](./plugins.md) to build, hash, test, and version external Plugins.
 Set `kind` to `"language"` (the default) for a Language plugin, or `"metric"` for a Metric plugin.
+Set either `path` or `url` on each entry, never both.
 External Metric plugins appear alongside the built-in Metrics in `codeint check`, `codeint diff`, and `codeint trend`, and support `budgets` and `regression_limits` under their Metric key.
 Relative paths resolve from the root of the repository.
-codeint verifies the SHA-256 digest before compiling or instantiating the component, and grants the component no host capabilities (no file system, network, environment, or clock access).
-A missing `sha256`, an invalid digest, a missing file, or a hash mismatch stops the run with exit code 2:
+Remote plugins require an `https://` URL (plain `http://` and other schemes are refused), are downloaded once into the `plugins` subfolder of the [result cache](#result-cache) keyed by `<sha256>.wasm`, and are reused from the cache on later runs without touching the network.
+codeint verifies the SHA-256 digest before caching, compiling, or instantiating the component, and grants the component no host capabilities (no file system, network, environment, or clock access).
+A missing `sha256`, an invalid digest, a missing file, a non-HTTPS URL, or a hash mismatch stops the run with exit code 2:
 
 ```json codeint.json
 {
@@ -658,6 +662,12 @@ A missing `sha256`, an invalid digest, a missing file, or a hash mismatch stops 
       "name": "sample",
       "kind": "language",
       "path": "plugins/sample.wasm",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "remote-metric",
+      "kind": "metric",
+      "url": "https://example.com/plugins/remote-metric.wasm",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
   ]

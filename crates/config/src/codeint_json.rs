@@ -111,10 +111,16 @@ pub enum PluginKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginSource {
+    Path(PathBuf),
+    HttpsUrl(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginDeclaration {
     pub name: String,
     pub kind: PluginKind,
-    pub path: PathBuf,
+    pub source: PluginSource,
     pub sha256: Sha256Digest,
 }
 
@@ -380,6 +386,20 @@ pub enum ConfigurationFileError {
     InvalidSha256 { key: KeyPath, found: String },
     #[error("{CONFIGURATION_FILE_NAME}: {key} must not be empty")]
     EmptyPluginField { key: KeyPath },
+    #[error("{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must set either path or url")]
+    MissingPluginSource { key: KeyPath, name: String },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must set either path or url, not both"
+    )]
+    AmbiguousPluginSource { key: KeyPath, name: String },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must use an HTTPS URL (https://), not {url:?}"
+    )]
+    NonHttpsPluginUrl {
+        key: KeyPath,
+        name: String,
+        url: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -416,7 +436,7 @@ struct ConfigurationFile {
     languages: Option<Vec<LanguageGlobs>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
-        description = "External WebAssembly component Language and Metric plugins to load from local paths. Each entry names the plugin, its optional kind (language by default, or metric), its path relative to the repository root or absolute, and its required SHA-256 hex digest."
+        description = "External WebAssembly component Language and Metric plugins to load from local paths or HTTPS URLs. Each entry names the plugin, its optional kind (language by default, or metric), either its local path or its HTTPS url, and its required SHA-256 hex digest."
     )]
     plugins: Vec<PluginEntry>,
     #[serde(default, skip_serializing_if = "PluginLimitsFile::is_unset")]
@@ -461,10 +481,16 @@ struct PluginEntry {
         description = "Whether the external Plugin is a Language plugin or a Metric plugin; language by default."
     )]
     kind: PluginKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Path to the WebAssembly component file, relative to the repository root or absolute."
+        description = "Path to the WebAssembly component file, relative to the repository root or absolute. Set either path or url, not both."
     )]
-    path: String,
+    path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "HTTPS URL of the WebAssembly component file. Set either path or url, not both."
+    )]
+    url: Option<String>,
     #[schemars(
         description = "The required 64-character hexadecimal SHA-256 digest of the plugin file."
     )]
@@ -686,11 +712,42 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
                     key: entry_key.child(KeySegment::Key("name".to_owned())),
                 });
             }
-            if entry.path.trim().is_empty() {
-                return Err(ConfigurationFileError::EmptyPluginField {
-                    key: entry_key.child(KeySegment::Key("path".to_owned())),
-                });
-            }
+            let source = match (entry.path, entry.url) {
+                (Some(path), None) => {
+                    if path.trim().is_empty() {
+                        return Err(ConfigurationFileError::EmptyPluginField {
+                            key: entry_key.child(KeySegment::Key("path".to_owned())),
+                        });
+                    }
+                    PluginSource::Path(PathBuf::from(path))
+                }
+                (None, Some(url)) => {
+                    let url_key = entry_key.child(KeySegment::Key("url".to_owned()));
+                    if url.trim().is_empty() {
+                        return Err(ConfigurationFileError::EmptyPluginField { key: url_key });
+                    }
+                    let normalized = normalize_https_url(&url).ok_or_else(|| {
+                        ConfigurationFileError::NonHttpsPluginUrl {
+                            key: url_key,
+                            name: entry.name.clone(),
+                            url,
+                        }
+                    })?;
+                    PluginSource::HttpsUrl(normalized)
+                }
+                (None, None) => {
+                    return Err(ConfigurationFileError::MissingPluginSource {
+                        key: entry_key,
+                        name: entry.name,
+                    });
+                }
+                (Some(_), Some(_)) => {
+                    return Err(ConfigurationFileError::AmbiguousPluginSource {
+                        key: entry_key,
+                        name: entry.name,
+                    });
+                }
+            };
             let sha256 = Sha256Digest::parse_hex(&entry.sha256).ok_or_else(|| {
                 ConfigurationFileError::InvalidSha256 {
                     key: entry_key.child(KeySegment::Key("sha256".to_owned())),
@@ -700,11 +757,23 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
             Ok(PluginDeclaration {
                 name: entry.name,
                 kind: entry.kind,
-                path: PathBuf::from(entry.path),
+                source,
                 sha256,
             })
         })
         .collect()
+}
+
+fn normalize_https_url(url: &str) -> Option<String> {
+    let prefix = url.get(..8)?;
+    if !prefix.eq_ignore_ascii_case("https://") {
+        return None;
+    }
+    let rest = &url[8..];
+    if rest.is_empty() || rest.starts_with('/') || url.chars().any(char::is_whitespace) {
+        return None;
+    }
+    Some(format!("https://{rest}"))
 }
 
 fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {

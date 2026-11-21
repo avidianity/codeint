@@ -3,7 +3,9 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use codeint_config::{PluginDeclaration, PluginKind, PluginLimits, Sha256Digest};
+use codeint_config::{
+    PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource, Sha256Digest,
+};
 use codeint_model::language::{Function, ImportRequest, Resolution};
 use codeint_model::{
     CodeModel, FileModel, LanguagePlugin, LowerError, Manifest, MetricPlugin, MetricPluginError,
@@ -46,7 +48,7 @@ fn assert_sandbox_blocks(plugin_name: &str, wasm_file: &str, denied_interface: &
     let wasm_path = sandbox_probe_wasm(wasm_file);
     let declaration = declaration_for(plugin_name, &wasm_path);
 
-    let error = load_language_plugin(Path::new("."), &declaration)
+    let error = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
         .expect("plugin importing host capability must fail to instantiate");
 
@@ -74,7 +76,7 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
     let wasm_path = sample_plugin_wasm();
     let declaration = declaration_for("sample-mini", wasm_path);
 
-    let plugin = load_language_plugin(Path::new("."), &declaration)
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .expect("sample external plugin loads with zero capabilities");
 
     assert_eq!(plugin.extensions(), vec!["mini"]);
@@ -141,14 +143,14 @@ fn refuses_to_load_plugin_when_sha256_mismatches() {
     let declaration = PluginDeclaration {
         name: "sample-mini".to_owned(),
         kind: PluginKind::Language,
-        path: wasm_path.to_path_buf(),
+        source: PluginSource::Path(wasm_path.to_path_buf()),
         sha256: Sha256Digest::parse_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .expect("valid hex"),
     };
 
-    let error = load_language_plugin(Path::new("."), &declaration)
+    let error = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
         .expect("hash mismatch must fail");
     assert!(
@@ -162,9 +164,14 @@ fn refuses_duplicate_plugin_names_and_reserved_names() {
     let wasm_path = sample_plugin_wasm();
     let declaration = declaration_for("typescript-javascript", wasm_path);
 
-    let error = load_language_plugins(Path::new("."), &[declaration], &["typescript-javascript"])
-        .err()
-        .expect("reserved name must fail");
+    let error = load_language_plugins(
+        Path::new("."),
+        &[declaration],
+        &["typescript-javascript"],
+        &PluginHostConfig::default(),
+    )
+    .err()
+    .expect("reserved name must fail");
     assert!(
         matches!(error, PluginHostError::DuplicatePluginName { ref name } if name == "typescript-javascript"),
         "unexpected error: {error}"
@@ -176,7 +183,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
     let wasm_path = sample_metric_plugin_wasm();
     let declaration = declaration_with_kind("long-functions", PluginKind::Metric, wasm_path);
 
-    let plugin = load_metric_plugin(Path::new("."), &declaration)
+    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .expect("sample external Metric plugin loads with zero capabilities");
 
     assert_eq!(plugin.key(), "long_functions");
@@ -237,9 +244,14 @@ fn refuses_duplicate_metric_keys_across_external_metric_plugins() {
     let first = declaration_with_kind("first-long-functions", PluginKind::Metric, wasm_path);
     let second = declaration_with_kind("second-long-functions", PluginKind::Metric, wasm_path);
 
-    let error = load_metric_plugins(Path::new("."), &[first, second], &[])
-        .err()
-        .expect("duplicate metric key must fail");
+    let error = load_metric_plugins(
+        Path::new("."),
+        &[first, second],
+        &[],
+        &PluginHostConfig::default(),
+    )
+    .err()
+    .expect("duplicate metric key must fail");
     assert!(
         matches!(error, PluginHostError::DuplicateMetricKey { ref key, .. } if key == "long_functions"),
         "unexpected error: {error}"
@@ -274,6 +286,46 @@ fn external_plugin_cannot_read_the_clock() {
 }
 
 #[test]
+fn refuses_non_https_url_and_missing_cache_dir_for_url_plugins() {
+    let valid_sha =
+        Sha256Digest::parse_hex("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+            .expect("valid hex");
+
+    let plain_http = PluginDeclaration {
+        name: "plain-http".to_owned(),
+        kind: PluginKind::Language,
+        source: PluginSource::HttpsUrl("http://127.0.0.1:8080/sample.wasm".to_owned()),
+        sha256: valid_sha.clone(),
+    };
+    let http_error =
+        load_language_plugin(Path::new("."), &plain_http, &PluginHostConfig::default())
+            .err()
+            .expect("plain http URL must be refused");
+    assert!(
+        matches!(http_error, PluginHostError::NonHttpsUrl { ref name, .. } if name == "plain-http"),
+        "unexpected error: {http_error}"
+    );
+
+    let https_without_cache = PluginDeclaration {
+        name: "no-cache".to_owned(),
+        kind: PluginKind::Language,
+        source: PluginSource::HttpsUrl("https://127.0.0.1:8443/sample.wasm".to_owned()),
+        sha256: valid_sha,
+    };
+    let cache_error = load_language_plugin(
+        Path::new("."),
+        &https_without_cache,
+        &PluginHostConfig::default(),
+    )
+    .err()
+    .expect("missing cache dir must fail");
+    assert!(
+        matches!(cache_error, PluginHostError::MissingCacheDir { ref name, .. } if name == "no-cache"),
+        "unexpected error: {cache_error}"
+    );
+}
+
+#[test]
 fn language_plugin_that_loops_forever_hits_time_limit_and_still_lowers_other_files() {
     let wasm_path = sandbox_probe_wasm("loop_language_plugin.wasm");
     let declaration = declaration_for("loop-lang", &wasm_path);
@@ -281,8 +333,13 @@ fn language_plugin_that_loops_forever_hits_time_limit_and_still_lowers_other_fil
         memory_mb: 4,
         timeout_ms: 50,
     };
-    let plugin = load_language_plugin_with_limits(Path::new("."), &declaration, limits)
-        .expect("loop language plugin loads");
+    let plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        limits,
+    )
+    .expect("loop language plugin loads");
 
     let error = plugin
         .lower(
@@ -319,8 +376,13 @@ fn language_plugin_that_exceeds_memory_cap_fails_under_tight_cap_and_succeeds_wh
         memory_mb: 2,
         timeout_ms: 1_000,
     };
-    let tight_plugin = load_language_plugin_with_limits(Path::new("."), &declaration, tight)
-        .expect("memory hog plugin loads under 2 MiB cap");
+    let tight_plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        tight,
+    )
+    .expect("memory hog plugin loads under 2 MiB cap");
     let error = tight_plugin
         .lower(
             &RepoPath::new("src/big.hog").expect("valid repo path"),
@@ -349,8 +411,13 @@ fn language_plugin_that_exceeds_memory_cap_fails_under_tight_cap_and_succeeds_wh
         memory_mb: 8,
         timeout_ms: 1_000,
     };
-    let raised_plugin = load_language_plugin_with_limits(Path::new("."), &declaration, raised)
-        .expect("memory hog plugin loads under 8 MiB cap");
+    let raised_plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        raised,
+    )
+    .expect("memory hog plugin loads under 8 MiB cap");
     let measured = raised_plugin
         .lower(
             &RepoPath::new("src/big.hog").expect("valid repo path"),
@@ -368,8 +435,13 @@ fn metric_plugin_that_loops_forever_or_exceeds_memory_cap_returns_limit_error() 
         memory_mb: 2,
         timeout_ms: 50,
     };
-    let plugin = load_metric_plugin_with_limits(Path::new("."), &declaration, limits)
-        .expect("loop metric plugin loads");
+    let plugin = load_metric_plugin_with_limits(
+        Path::new("."),
+        &declaration,
+        &PluginHostConfig::default(),
+        limits,
+    )
+    .expect("loop metric plugin loads");
 
     let timeout_error = plugin
         .measure(&CodeModel::default())
@@ -445,9 +517,12 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
     }
     let mini_path = RepoPath::new("src/large.mini").expect("valid repo path");
     let mini_wasm = sample_plugin_wasm();
-    let mini_plugin =
-        load_language_plugin(Path::new("."), &declaration_for("sample-mini", mini_wasm))
-            .expect("sample language plugin loads under default limits");
+    let mini_plugin = load_language_plugin(
+        Path::new("."),
+        &declaration_for("sample-mini", mini_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("sample language plugin loads under default limits");
     let mini_start = Instant::now();
     let mini_model = mini_plugin
         .lower(&mini_path, &large_mini)
@@ -462,6 +537,7 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
     let metric_plugin = load_metric_plugin(
         Path::new("."),
         &declaration_with_kind("long-functions", PluginKind::Metric, metric_wasm),
+        &PluginHostConfig::default(),
     )
     .expect("sample metric plugin loads under default limits");
     let large_code_model = CodeModel {

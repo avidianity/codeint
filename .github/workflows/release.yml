@@ -2,6 +2,9 @@ name: release
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions: {}
 
@@ -13,8 +16,41 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
+  verify:
+    name: verify release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - name: Verify manifest versions
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            cargo xtask version-sync --tag "$REF_NAME"
+          else
+            cargo xtask version-sync
+          fi
+      - name: Draft release notes
+        run: |
+          mkdir -p dist
+          cargo xtask release-notes --output dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-notes
+          path: dist/RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14
+
   build:
     name: build (${{ matrix.target }})
+    needs: [verify]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -150,3 +186,139 @@ jobs:
           path: ${{ steps.attest.outputs.bundle-path }}
           if-no-files-found: error
           retention-days: 14
+
+  stage-npm:
+    name: stage npm packages
+    needs: [build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: codeint-*
+          path: dist
+          merge-multiple: true
+      - name: Stage platform binaries and pack npm tarballs
+        run: |
+          mkdir -p npm-tarballs
+          stage_unix() {
+            local platform="$1"
+            local target="$2"
+            local dir="npm/platforms/$platform/bin"
+            mkdir -p "$dir"
+            tar -xzf "dist/codeint-$target.tar.gz" -C "$dir"
+            chmod +x "$dir/codeint"
+          }
+          stage_windows() {
+            local platform="$1"
+            local target="$2"
+            local dir="npm/platforms/$platform/bin"
+            mkdir -p "$dir"
+            unzip -qo "dist/codeint-$target.zip" -d "$dir"
+          }
+          stage_unix darwin-arm64 aarch64-apple-darwin
+          stage_unix darwin-x64 x86_64-apple-darwin
+          stage_unix linux-arm64 aarch64-unknown-linux-musl
+          stage_unix linux-x64 x86_64-unknown-linux-musl
+          stage_windows win32-arm64 aarch64-pc-windows-msvc
+          stage_windows win32-x64 x86_64-pc-windows-msvc
+          pack_dir="$PWD/npm-tarballs"
+          version="$(node -p "require('./npm/codeint/package.json').version")"
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
+            npm pack "./npm/platforms/$platform" --pack-destination "$pack_dir"
+            test -f "$pack_dir/avidian-codeint-$platform-$version.tgz"
+          done
+          npm pack ./npm/codeint --pack-destination "$pack_dir"
+          test -f "$pack_dir/codeint-$version.tgz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-tarballs
+          path: npm-tarballs/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-github-release:
+    name: publish GitHub Release
+    needs: [verify, checksums-and-attestations]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: codeint-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: SHA256SUMS
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: release-notes
+          path: notes
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          assets=(
+            dist/codeint-aarch64-apple-darwin.tar.gz
+            dist/codeint-x86_64-apple-darwin.tar.gz
+            dist/codeint-x86_64-unknown-linux-musl.tar.gz
+            dist/codeint-aarch64-unknown-linux-musl.tar.gz
+            dist/codeint-x86_64-pc-windows-msvc.zip
+            dist/codeint-aarch64-pc-windows-msvc.zip
+            dist/SHA256SUMS
+          )
+          if [ -f install.sh ]; then
+            assets+=(install.sh)
+          fi
+          if [ -f install.ps1 ]; then
+            assets+=(install.ps1)
+          fi
+          extra_flags=()
+          if [[ "$TAG" == *-* ]]; then
+            extra_flags+=(--prerelease)
+          fi
+          gh release create "$TAG" "${assets[@]}" \
+            --title "$TAG" \
+            --notes-file notes/RELEASE_NOTES.md \
+            --verify-tag \
+            "${extra_flags[@]}"
+
+  publish-npm:
+    name: publish npm packages
+    needs: [verify, checksums-and-attestations, stage-npm]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: npm-tarballs
+          path: npm-tarballs
+      - name: Publish platform packages and wrapper to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
+            npm publish "npm-tarballs/avidian-codeint-$platform-$version.tgz" --provenance --access public
+          done
+          npm publish "npm-tarballs/codeint-$version.tgz" --provenance --access public

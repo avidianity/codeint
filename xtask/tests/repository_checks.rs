@@ -41,6 +41,8 @@ impl Repository {
                 "user.email=check@example.invalid",
                 "-c",
                 "commit.gpgsign=false",
+                "-c",
+                "tag.gpgsign=false",
             ])
             .args(args)
             .current_dir(&self.path)
@@ -393,6 +395,80 @@ fn evidence_bundle_rejects_a_summary_only_body() {
         &repository.xtask(&["evidence-bundle", "--body-file", "body.md"]),
         "lacks the Tier section",
     );
+}
+
+fn seed_release_manifests(repository: &Repository, version: &str) {
+    repository.write(
+        "Cargo.toml",
+        &format!(
+            "[workspace]\nmembers = []\n\n[workspace.package]\nversion = \"{version}\"\nedition = \"2024\"\n"
+        ),
+    );
+    let platforms = [
+        "darwin-arm64",
+        "darwin-x64",
+        "linux-arm64",
+        "linux-x64",
+        "win32-arm64",
+        "win32-x64",
+    ];
+    let optional_deps: Vec<String> = platforms
+        .iter()
+        .map(|platform| format!("    \"@avidian/codeint-{platform}\": \"{version}\""))
+        .collect();
+    repository.write(
+        "npm/codeint/package.json",
+        &format!(
+            "{{\n  \"name\": \"codeint\",\n  \"version\": \"{version}\",\n  \"optionalDependencies\": {{\n{}\n  }}\n}}\n",
+            optional_deps.join(",\n")
+        ),
+    );
+    for platform in platforms {
+        repository.write(
+            &format!("npm/platforms/{platform}/package.json"),
+            &format!(
+                "{{\n  \"name\": \"@avidian/codeint-{platform}\",\n  \"version\": \"{version}\"\n}}\n"
+            ),
+        );
+    }
+}
+
+#[test]
+fn version_sync_and_prepare_release_enforce_manifest_and_tag_agreement() {
+    let repository = Repository::new();
+    seed_release_manifests(&repository, "0.1.0");
+    repository.commit_all("chore(release): seed manifests");
+    repository.git(&["tag", "v0.1.0"]);
+    repository.write("README.md", "# codeint\n");
+    repository.commit_all("feat(cli): add summary output");
+    repository.write("NOTES.txt", "fix\n");
+    repository.commit_all("fix(metrics): handle empty file");
+
+    assert_passes(&repository.xtask(&["version-sync"]));
+    assert_passes(&repository.xtask(&["version-sync", "--tag", "v0.1.0"]));
+    assert_fails_with(
+        &repository.xtask(&["version-sync", "--tag", "v0.2.0"]),
+        "Release tag \"v0.2.0\" disagrees with manifest version \"0.1.0\"",
+    );
+
+    let dry_run = repository.xtask(&["prepare-release", "--version", "0.2.0", "--dry-run"]);
+    assert_passes(&dry_run);
+    assert!(stdout(&dry_run).contains("Dry run: would update version 0.1.0 -> 0.2.0"));
+    assert!(stdout(&dry_run).contains("### Features"));
+    assert!(stdout(&dry_run).contains("- **cli:** add summary output"));
+    assert!(stdout(&dry_run).contains("### Fixes"));
+    assert!(stdout(&dry_run).contains("- **metrics:** handle empty file"));
+    assert!(
+        fs::read_to_string(repository.path.join("Cargo.toml"))
+            .unwrap()
+            .contains("version = \"0.1.0\"")
+    );
+    assert!(!repository.path.join("CHANGELOG.md").exists());
+
+    let apply = repository.xtask(&["prepare-release", "--version", "0.2.0"]);
+    assert_passes(&apply);
+    assert_passes(&repository.xtask(&["version-sync", "--tag", "v0.2.0"]));
+    assert!(!repository.path.join("CHANGELOG.md").exists());
 }
 
 #[cfg(unix)]

@@ -43,6 +43,46 @@ codeint trend
 `codeint trend` prints each Metric for each commit of the main line.
 
 [docs/reference.md](./docs/reference.md) documents every command, option, exit code, report format, and `codeint.json` key, with an example for each.
+[docs/plugins.md](./docs/plugins.md) explains how to build, hash, declare, and test Language plugins and Metric plugins against the versioned WIT contract.
+
+## GitHub Actions
+
+Add `.github/workflows/codeint.yml` to run `codeint diff` on each pull request and upload its SARIF report to GitHub code scanning:
+
+```yaml
+name: codeint
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  codeint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Install codeint
+        run: |
+          curl -fsSL https://github.com/avidianity/codeint/releases/latest/download/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Diff against pull request base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: codeint diff "origin/$BASE_REF" --format sarif --output codeint.sarif
+      - name: Upload SARIF
+        if: always() && hashFiles('codeint.sarif') != ''
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
+        with:
+          sarif_file: codeint.sarif
+```
+
+`fetch-depth: 0` fetches the base branch history so `codeint diff` can find the merge-base.
+`if: always() && hashFiles('codeint.sarif') != ''` uploads annotations even when a Budget or a Regression fails.
 
 ## Development
 

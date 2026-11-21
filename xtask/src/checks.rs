@@ -4,6 +4,7 @@ pub(crate) mod layout;
 pub(crate) mod perf;
 pub(crate) mod pinning;
 pub(crate) mod pull_request;
+pub(crate) mod release;
 pub(crate) mod source;
 pub(crate) mod tier;
 

@@ -77,8 +77,9 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             findings,
             format,
+            plugin_host,
         } => {
-            let report = check::check(&folder, findings)?;
+            let report = check::check(&folder, findings, &plugin_host)?;
             write_report(&report.render(format)?, &destination)?;
             Ok(Outcome::from_failures(
                 report
@@ -96,13 +97,14 @@ fn run() -> Result<Outcome, CliError> {
             findings,
             format,
             result_cache,
+            plugin_host,
         } => {
             let refs = diff::Refs {
                 base: &base_ref,
                 head: head_ref.as_deref(),
             };
             let result_cache = result_cache.map(ResultCache::in_folder);
-            let report = diff::diff(&folder, refs, findings, result_cache.as_ref())?;
+            let report = diff::diff(&folder, refs, findings, result_cache.as_ref(), &plugin_host)?;
             write_report(&report.render(format)?, &destination)?;
             Ok(Outcome::from_failures(report.failure_messages()))
         }
@@ -112,9 +114,10 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             format,
             result_cache,
+            plugin_host,
         } => {
             let result_cache = result_cache.map(ResultCache::in_folder);
-            let report = trend::trend(&folder, range, result_cache.as_ref())?;
+            let report = trend::trend(&folder, range, result_cache.as_ref(), &plugin_host)?;
             write_report(&report.render(format)?, &destination)?;
             Ok(Outcome::Passed)
         }
