@@ -47,7 +47,15 @@ fn classify_token(raw: &RawToken, is_import: bool) -> TokenKind {
 
 impl Guest for Php {
     fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
+        codeint_model::scan::build_reference_ranges(
+            "codeint panel of 20 PHP repositories, ADR 0011, codeint 0.2.1",
+            [
+                ("erosion", 0.055, 0.677),
+                ("verbosity", 0.042, 0.292),
+                ("duplication", 0.041, 0.290),
+                ("import_cycles", 0.000, 0.107),
+            ],
+        )
     }
 
     fn extensions() -> Vec<String> {

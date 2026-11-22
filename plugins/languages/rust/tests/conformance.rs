@@ -13,11 +13,11 @@ fn lower(path: &str, text: &str) -> Result<FileModel, LowerError> {
 }
 
 #[test]
-fn declares_rs_extension_and_empty_reference_ranges() {
+fn declares_rs_extension_and_calibrated_reference_ranges() {
     assert_eq!(plugin().extensions(), vec!["rs"]);
     let ranges = plugin().reference_ranges().expect("valid");
     for metric in ["erosion", "verbosity", "duplication", "import_cycles"] {
-        assert!(ranges.for_metric(metric).is_none(), "{metric}");
+        assert!(ranges.for_metric(metric).is_some(), "{metric}");
     }
 }
 

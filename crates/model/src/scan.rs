@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashSet};
 
-use crate::language::{FlaggedLine, Function, LowerError, Resolution};
+use crate::language::{FlaggedLine, Function, LowerError, ReferenceRange, Resolution};
 
 pub trait ScanToken {
     fn text(&self) -> &str;
@@ -306,4 +306,16 @@ pub fn resolve_relative_file(
     } else {
         Resolution::Unresolved(format!("no file of the repository matches {rel_uri:?}"))
     }
+}
+
+pub fn build_reference_ranges(source: &str, entries: [(&str, f64, f64); 4]) -> Vec<ReferenceRange> {
+    entries
+        .into_iter()
+        .map(|(metric, low, high)| ReferenceRange {
+            metric: metric.to_owned(),
+            low,
+            high,
+            source: source.to_owned(),
+        })
+        .collect()
 }

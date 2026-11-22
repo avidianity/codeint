@@ -13,7 +13,7 @@ fn dart_contract_basics() {
         Dart.reference_ranges()
             .unwrap()
             .for_metric("erosion")
-            .is_none()
+            .is_some()
     );
     assert!(matches!(
         lower("a.rs", "fn f() {}"),

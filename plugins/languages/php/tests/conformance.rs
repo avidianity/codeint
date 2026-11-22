@@ -10,10 +10,10 @@ fn lower_php(path: &str, text: &str) -> Result<codeint_model::FileModel, LowerEr
 fn php_extension_and_reference_ranges_match_contract() {
     assert_eq!(Php.extensions(), ["php"]);
     let ranges = Php.reference_ranges().expect("reference ranges");
-    assert!(ranges.for_metric("erosion").is_none());
-    assert!(ranges.for_metric("verbosity").is_none());
-    assert!(ranges.for_metric("duplication").is_none());
-    assert!(ranges.for_metric("import_cycles").is_none());
+    assert!(ranges.for_metric("erosion").is_some());
+    assert!(ranges.for_metric("verbosity").is_some());
+    assert!(ranges.for_metric("duplication").is_some());
+    assert!(ranges.for_metric("import_cycles").is_some());
 }
 
 #[test]
