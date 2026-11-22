@@ -11,11 +11,11 @@ use codeint_lang_dart::Dart;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
-use codeint_lang_ts::TypeScriptAndJavaScript;
+use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, MetricPlugin,
-    MetricPluginError, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
-    choose_manifests, resolve_runtime_imports, settle_source_set,
+    MetricPluginError, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace,
+    WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
@@ -282,19 +282,37 @@ fn measure(
         .zip(manifests_by_plugin)
         .map(|((named, mut model), manifests)| {
             let importers: Vec<&SourceFile> = model.files.iter().collect();
+            let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
             model.runtime_imports =
                 resolve_runtime_imports(named.plugin, tree.files(), manifests, &importers)
                     .map_err(CheckError::Resolve)?;
             Ok(MeasuredLanguage {
                 plugin: named.name.to_owned(),
                 model,
-                reference_ranges: named
-                    .plugin
-                    .reference_ranges()
-                    .map_err(CheckError::ReferenceRange)?,
+                reference_ranges,
             })
         })
         .collect()
+}
+
+fn select_reference_ranges(
+    named: &NamedLanguagePlugin<'_>,
+    model: &CodeModel,
+    manifests: &[Manifest],
+) -> Result<ReferenceRanges, CheckError> {
+    if named.name == "typescript-javascript"
+        && model
+            .files
+            .iter()
+            .any(|f| f.path.as_str().ends_with(".vue"))
+        && let Some(ranges) = vue_reference_ranges(manifests)
+    {
+        return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
+    }
+    named
+        .plugin
+        .reference_ranges()
+        .map_err(CheckError::ReferenceRange)
 }
 
 fn assign_files_to_plugins<'tree>(

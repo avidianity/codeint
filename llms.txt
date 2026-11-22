@@ -31,3 +31,5 @@
 - [ADR 0011: PHP Reference ranges](docs/adr/0011-php-reference-ranges.md)
 - [ADR 0012: Dart Reference ranges](docs/adr/0012-dart-reference-ranges.md)
 - [ADR 0013: Python Reference ranges](docs/adr/0013-python-reference-ranges.md)
+- [ADR 0014: Vue 2 Reference ranges](docs/adr/0014-vue2-reference-ranges.md)
+- [ADR 0015: Vue 3 Reference ranges](docs/adr/0015-vue3-reference-ranges.md)

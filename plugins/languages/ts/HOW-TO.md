@@ -98,5 +98,7 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 
 - `reference_ranges` in `src/lib.rs` returns the 10th to 90th percentile ranges from [ADR 0008](../../../docs/adr/0008-typescript-reference-ranges.md).
   Its source label is `codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0`.
-- Measure the panel again and amend ADR 0008 whenever Metric rules, the default rule set, or Source set rules change.
-- Prove a change in `tests/conformance.rs` and `crates/cli/tests/check.rs`.
+- `vue_reference_ranges` in `src/sfc.rs` selects the calibrated Vue 2 Reference ranges ([ADR 0014](../../../docs/adr/0014-vue2-reference-ranges.md)) or Vue 3 Reference ranges ([ADR 0015](../../../docs/adr/0015-vue3-reference-ranges.md)) when `.vue` files are measured and `package.json` declares `vue` major version 2 or 3.
+- `src/sfc.rs` extracts `<script>`, `<script setup>`, `<script context="module">`, and `<script module>` blocks from `.vue` and `.svelte` Single-File Components while preserving original 1-based line numbers and skipping HTML templates and CSS styles.
+- Measure the panel again and amend the relevant ADR whenever Metric rules, the default rule set, or Source set rules change.
+- Prove a change in `tests/conformance.rs`, `tests/sfc.rs`, and `crates/cli/tests/check.rs`.
