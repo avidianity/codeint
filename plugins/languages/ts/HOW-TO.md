@@ -95,7 +95,7 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 
 ## Reference ranges
 
-- `reference_ranges` in `src/lib.rs` returns the 10th to 90th percentile ranges from [ADR 0008](../../docs/adr/0008-typescript-reference-ranges.md).
+- `reference_ranges` in `src/lib.rs` returns the 10th to 90th percentile ranges from [ADR 0008](../../../docs/adr/0008-typescript-reference-ranges.md).
   Its source label is `codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0`.
 - Measure the panel again and amend ADR 0008 whenever Metric rules, the default rule set, or Source set rules change.
 - Prove a change in `tests/conformance.rs` and `crates/cli/tests/check.rs`.

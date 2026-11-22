@@ -26,7 +26,7 @@ modules = ["crates/config/**", "xtask/src/config.rs"]
 approved = []
 
 [test_input]
-paths = ["crates/*/tests/fixtures/**"]
+paths = ["crates/*/tests/fixtures/**", "plugins/*/*/tests/fixtures/**"]
 
 [duplicates]
 passes = [
@@ -35,7 +35,7 @@ passes = [
 ]
 
 [behavior]
-source = ["crates/**/*.rs", "xtask/src/**/*.rs", "wit/**/*.wit", "npm/**/*.js", "npm/**/*.mjs", "npm/**/*.cjs", "install.sh", "install.ps1"]
+source = ["crates/**/*.rs", "plugins/**/*.rs", "xtask/src/**/*.rs", "wit/**/*.wit", "npm/**/*.js", "npm/**/*.mjs", "npm/**/*.cjs", "install.sh", "install.ps1"]
 tests = ["**/tests.rs", "**/tests/**", "**/*.test.js", "**/*.test.mjs"]
 
 [tier]

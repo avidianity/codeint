@@ -18,7 +18,10 @@ fn report(pairs: &[(&str, &str)]) -> String {
 }
 
 fn clones(pairs: &[(&str, &str)]) -> Vec<String> {
-    let test_input = match glob_set(&["crates/*/tests/fixtures/**".to_string()]) {
+    let test_input = match glob_set(&[
+        "crates/*/tests/fixtures/**".to_string(),
+        "plugins/*/*/tests/fixtures/**".to_string(),
+    ]) {
         Ok(set) => set,
         Err(error) => panic!("{error}"),
     };
@@ -31,10 +34,16 @@ fn clones(pairs: &[(&str, &str)]) -> Vec<String> {
 #[test]
 fn a_clone_between_two_test_input_files_is_not_reported() {
     assert!(
-        clones(&[(
-            "crates/lang-ts/tests/fixtures/one.ts",
-            "crates/lang-ts/tests/fixtures/deep/two.ts"
-        )])
+        clones(&[
+            (
+                "crates/lang-ts/tests/fixtures/one.ts",
+                "crates/lang-ts/tests/fixtures/deep/two.ts"
+            ),
+            (
+                "plugins/languages/ts/tests/fixtures/one.ts",
+                "plugins/languages/ts/tests/fixtures/deep/two.ts"
+            ),
+        ])
         .is_empty()
     );
 }
