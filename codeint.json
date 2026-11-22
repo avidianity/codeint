@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
+  "source_sets": {
+    "production": [],
+    "test": [],
+    "generated": [],
+    "vendored": []
+  },
+  "budgets": {
+    "production": {
+      "erosion": 0.35,
+      "duplication": 0.08,
+      "verbosity": 0.08,
+      "import_cycles": 0.05
+    },
+    "test": {},
+    "generated": {},
+    "vendored": {}
+  },
+  "regression_limits": {},
+  "languages": [
+    {
+      "plugin": "typescript-javascript",
+      "include": [
+        ".opencode",
+        "npm"
+      ],
+      "exclude": []
+    },
+    {
+      "plugin": "rust",
+      "include": [
+        "crates",
+        "plugins",
+        "xtask"
+      ],
+      "exclude": []
+    }
+  ]
+}
