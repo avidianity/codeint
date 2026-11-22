@@ -26,6 +26,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `diff` | Compare the working tree, or a head Git ref, with the merge-base of a base Git ref; see [`codeint diff`](#codeint-diff) |
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
+| `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -455,6 +456,25 @@ For more information, try '--help'.
 codeint reads each commit from Git objects, so it never checks out a commit and never touches the working tree; uncommitted changes are not part of a trend.
 Every commit uses the `codeint.json` of the working tree, as `codeint diff` does.
 Each commit goes through the [result cache](#result-cache), so a repeated trend measures only the commits that are new since the last run.
+
+### `codeint update`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--check` | Check whether a newer release is available without modifying the binary |
+| `--version <TAG>` | Install this release tag, such as `v0.1.0`, instead of the latest release |
+| `-h, --help` | Print the help of `codeint update` |
+
+`codeint update` downloads the matching platform archive and `SHA256SUMS` from GitHub Releases, verifies the SHA-256 digest before touching the binary, and atomically replaces a standalone `codeint` executable in place.
+If the running binary lives inside `node_modules`, `codeint update` refuses to overwrite it and exits `2` with the package-manager update command instead.
+
+```sh exit=0
+codeint update --check --version v0.1.0
+```
+
+```text stdout
+codeint 0.1.0 is already up to date (v0.1.0)
+```
 
 ## Exit codes
 

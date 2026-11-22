@@ -22,6 +22,7 @@ pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, Regress
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
 
 const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
+const RELEASE_BASE_URL_VARIABLE: &str = "CODEINT_RELEASE_BASE_URL";
 const PLUGIN_CACHE_SUBDIR: &str = "plugins";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +131,11 @@ pub enum Command {
     Init {
         folder: PathBuf,
     },
+    Update {
+        check_only: bool,
+        version: Option<String>,
+        release_base_url: Option<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -205,6 +211,20 @@ enum CommandArguments {
         about = "Write a starter codeint.json at the root of the Git repository that contains the current folder"
     )]
     Init,
+    #[command(about = "Update a standalone codeint binary in place from GitHub Releases")]
+    Update {
+        #[arg(
+            long,
+            help = "Check whether a newer release is available without modifying the binary"
+        )]
+        check: bool,
+        #[arg(
+            long,
+            value_name = "TAG",
+            help = "Install this release tag, such as v0.1.0, instead of the latest release"
+        )]
+        version: Option<String>,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -268,6 +288,13 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
         },
         CommandArguments::Init => Command::Init {
             folder: current_folder,
+        },
+        CommandArguments::Update { check, version } => Command::Update {
+            check_only: check,
+            version,
+            release_base_url: std::env::var(RELEASE_BASE_URL_VARIABLE)
+                .ok()
+                .filter(|value| !value.is_empty()),
         },
     };
     Ok(Invocation { command })

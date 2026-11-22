@@ -340,8 +340,8 @@ fn built_in_rust_plugin_passes_seam_2_conformance() {
     let fixture = ConformanceFixture {
         name: "rust",
         production_path: "crates/app/src/lib.rs",
-        production_source: "mod helper;\n\n// comment\npub fn run(flag: bool) -> i32 {\n    if flag {\n        return helper::value();\n    } else {\n        return 0;\n    }\n}\n",
-        production_source_crlf: "mod helper;\r\n\r\n// comment\r\npub fn run(flag: bool) -> i32 {\r\n    if flag {\r\n        return helper::value();\r\n    } else {\r\n        return 0;\r\n    }\r\n}\r\n",
+        production_source: "mod helper;\nuse crate::helper::value;\n\n// comment\npub fn run(flag: bool) -> i32 {\n    if flag {\n        return value();\n    } else {\n        return 0;\n    }\n}\n",
+        production_source_crlf: "mod helper;\r\nuse crate::helper::value;\r\n\r\n// comment\r\npub fn run(flag: bool) -> i32 {\r\n    if flag {\r\n        return value();\r\n    } else {\r\n        return 0;\r\n    }\r\n}\r\n",
         test_path: "crates/app/tests/integration.rs",
         test_source: "fn check() -> i32 {\n    1\n}\n",
         empty_path: "crates/app/src/empty.rs",

@@ -34,10 +34,7 @@ impl<'ast> Visit<'ast> for ImportCollector {
         if self.exclude_cfg_test && has_cfg_test(&node.attrs) {
             return;
         }
-        if node.content.is_none() {
-            self.specifiers
-                .insert(format!("{MOD_PREFIX}{}", node.ident));
-        } else {
+        if node.content.is_some() {
             visit::visit_item_mod(self, node);
         }
     }
