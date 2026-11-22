@@ -26,3 +26,18 @@ Measured across 20 pre-2023 public repositories per language (10th to 90th perce
 | Dart | 4.7% to 41.9% | 7.3% to 25.6% | 8.0% to 25.9% | 7.3% to 52.4% | [ADR 0012](../adr/0012-dart-reference-ranges.md) |
 
 To add another language as an external WebAssembly plugin, see [docs/plugins.md](../plugins.md).
+
+## Sample repository measurements and speed
+
+Sample Production measurements from `codeint check` (release build, Apple Silicon):
+
+| Language | Repository | Files | Prod lines | Erosion | Duplication | Verbosity | Import cycles | Time |
+| -------- | ---------- | ----- | ---------- | ------- | ----------- | --------- | ------------- | ---- |
+| Rust | `avidianity/codeint` | 154 | 16,400 | 31.0% | 5.2% | 5.3% | 2.3% | 0.06s |
+| Rust | `BurntSushi/ripgrep` | 105 | 24,961 | 36.4% | 31.1% | 31.3% | 29.3% | 0.07s |
+| Rust | `sharkdp/fd` | 25 | 3,423 | 44.6% | 0.0% | 0.1% | 56.5% | 0.02s |
+| Rust | `dtolnay/serde` | 189 | 19,425 | 45.7% | 40.2% | 40.2% | 0.0% | 0.06s |
+| PHP | `laravel/laravel` | 29 | 762 | 0.0% | 0.0% | 0.0% | 8.0% | 0.03s |
+| PHP | `laravel/framework` | 3,208 | 132,791 | 16.9% | 8.1% | 8.2% | 4.4% | 0.47s |
+| Dart | `dart-lang/pub` | 547 | 26,170 | 44.4% | 0.5% | 1.7% | 78.6% | 0.88s |
+| Dart | `flutter/packages` | 4,137 | 434,407 | 45.9% | 23.1% | 23.3% | 18.5% | 3.68s |
