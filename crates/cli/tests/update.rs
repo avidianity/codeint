@@ -11,6 +11,9 @@ fn run_exe(exe: &Path, args: &[&str], release_base: Option<&Path>) -> Output {
     for attempt in 0..20 {
         let mut command = Command::new(exe);
         command.args(args);
+        if let Some(dir) = exe.parent() {
+            command.current_dir(dir);
+        }
         if let Some(base) = release_base {
             command.env("CODEINT_RELEASE_BASE_URL", base);
         }
