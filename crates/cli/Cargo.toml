@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 codeint-config = { workspace = true }
 codeint-git = { workspace = true }
+codeint-lang-rust = { workspace = true }
 codeint-lang-ts = { workspace = true }
 codeint-model = { workspace = true }
 codeint-plugin-host = { workspace = true }

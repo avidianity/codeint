@@ -3,6 +3,7 @@ mod common;
 use std::path::Path;
 
 use codeint_config::PluginHostConfig;
+use codeint_lang_rust::Rust;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError};
@@ -18,8 +19,7 @@ struct ConformanceFixture<'a> {
     test_path: &'a str,
     test_source: &'a str,
     empty_path: &'a str,
-    declaration_only_path: &'a str,
-    declaration_only_source: &'a str,
+    declaration_only: Option<(&'a str, &'a str)>,
     unparsable_path: &'a str,
     unparsable_source: &'a str,
     unsupported_path: &'a str,
@@ -30,6 +30,7 @@ struct ConformanceFixture<'a> {
     invalid_manifest_text: &'a str,
     import_requests: &'a [(&'a str, &'a str)],
     expected_resolved_target: &'a str,
+    expect_reference_ranges: bool,
 }
 
 fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceFixture<'_>) {
@@ -71,14 +72,13 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         "{label}: empty runtime_imports"
     );
 
-    let decl = plugin.lower(
-        &RepoPath::new(fixture.declaration_only_path).unwrap(),
-        fixture.declaration_only_source,
-    );
-    assert!(
-        matches!(decl, Err(LowerError::DeclarationOnly)),
-        "{label}: expected DeclarationOnly, got {decl:?}"
-    );
+    if let Some((decl_path, decl_source)) = fixture.declaration_only {
+        let decl = plugin.lower(&RepoPath::new(decl_path).unwrap(), decl_source);
+        assert!(
+            matches!(decl, Err(LowerError::DeclarationOnly)),
+            "{label}: expected DeclarationOnly, got {decl:?}"
+        );
+    }
 
     let unparsable = plugin.lower(
         &RepoPath::new(fixture.unparsable_path).unwrap(),
@@ -226,10 +226,12 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
     let ranges = plugin
         .reference_ranges()
         .unwrap_or_else(|error| panic!("{label}: reference_ranges failed: {error}"));
-    assert!(
-        ranges.for_metric("erosion").is_some(),
-        "{label}: expected erosion reference range"
-    );
+    if fixture.expect_reference_ranges {
+        assert!(
+            ranges.for_metric("erosion").is_some(),
+            "{label}: expected erosion reference range"
+        );
+    }
 
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
@@ -261,8 +263,10 @@ fn built_in_typescript_javascript_plugin_passes_seam_2_conformance() {
         test_path: "packages/app/src/main.test.ts",
         test_source: "export function check() {\n  return 1;\n}\n",
         empty_path: "packages/app/src/empty.ts",
-        declaration_only_path: "packages/app/src/types.d.ts",
-        declaration_only_source: "export declare const version: string;\n",
+        declaration_only: Some((
+            "packages/app/src/types.d.ts",
+            "export declare const version: string;\n",
+        )),
         unparsable_path: "packages/app/src/broken.ts",
         unparsable_source: "export const = ;\n",
         unsupported_path: "scripts/tool.unknown",
@@ -285,6 +289,7 @@ fn built_in_typescript_javascript_plugin_passes_seam_2_conformance() {
             ("packages/app/src/main.ts", "./missing"),
         ],
         expected_resolved_target: "packages/app/src/helper.ts",
+        expect_reference_ranges: true,
     };
 
     assert_seam_2_conformance(&TypeScriptAndJavaScript, &fixture);
@@ -305,8 +310,7 @@ fn sample_external_wasm_plugin_passes_seam_2_conformance() {
         test_path: "packages/app/src/main.test.mini",
         test_source: "fn check() {\n  return 1\n}\n",
         empty_path: "packages/app/src/empty.mini",
-        declaration_only_path: "packages/app/src/types.d.mini",
-        declaration_only_source: "fn extern_only() {}\n",
+        declaration_only: Some(("packages/app/src/types.d.mini", "fn extern_only() {}\n")),
         unparsable_path: "packages/app/src/broken.mini",
         unparsable_source: "SYNTAX_ERROR\n",
         unsupported_path: "scripts/tool.unknown",
@@ -325,7 +329,47 @@ fn sample_external_wasm_plugin_passes_seam_2_conformance() {
             ("packages/app/src/main.mini", "./missing"),
         ],
         expected_resolved_target: "packages/app/src/helper.mini",
+        expect_reference_ranges: true,
     };
 
     assert_seam_2_conformance(&plugin, &fixture);
+}
+
+#[test]
+fn built_in_rust_plugin_passes_seam_2_conformance() {
+    let fixture = ConformanceFixture {
+        name: "rust",
+        production_path: "crates/app/src/lib.rs",
+        production_source: "mod helper;\n\n// comment\npub fn run(flag: bool) -> i32 {\n    if flag {\n        return helper::value();\n    } else {\n        return 0;\n    }\n}\n",
+        production_source_crlf: "mod helper;\r\n\r\n// comment\r\npub fn run(flag: bool) -> i32 {\r\n    if flag {\r\n        return helper::value();\r\n    } else {\r\n        return 0;\r\n    }\r\n}\r\n",
+        test_path: "crates/app/tests/integration.rs",
+        test_source: "fn check() -> i32 {\n    1\n}\n",
+        empty_path: "crates/app/src/empty.rs",
+        declaration_only: None,
+        unparsable_path: "crates/app/src/broken.rs",
+        unparsable_source: "fn broken( {\n",
+        unsupported_path: "scripts/tool.unknown",
+        repository_paths: &[
+            "Cargo.toml",
+            "crates/app/Cargo.toml",
+            "crates/app/src/lib.rs",
+            "crates/app/src/helper.rs",
+        ],
+        expected_manifest_path: "Cargo.toml",
+        valid_manifests: &[
+            ("Cargo.toml", "[workspace]\nmembers = [\"crates/app\"]\n"),
+            ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+        ],
+        expected_workspace_package: "crates/app",
+        invalid_manifest_text: "[workspace\nmembers = [",
+        import_requests: &[
+            ("crates/app/src/lib.rs", "mod:helper"),
+            ("crates/app/src/lib.rs", "use:std::fmt"),
+            ("crates/app/src/lib.rs", "mod:missing"),
+        ],
+        expected_resolved_target: "crates/app/src/helper.rs",
+        expect_reference_ranges: false,
+    };
+
+    assert_seam_2_conformance(&Rust, &fixture);
 }
