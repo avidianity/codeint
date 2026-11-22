@@ -2875,7 +2875,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "python", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin python at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust",
+         the Language plugins are typescript-javascript, rust, php",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -4629,6 +4629,22 @@ fn the_sarif_log_holds_every_property_and_value_that_sarif_2_1_0_requires() {
     }
 }
 
+fn assert_built_in_workspace_cycle_report(
+    repository: &Repository,
+    expected_files: u64,
+    expected_package: &str,
+) {
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    let prod = &report["source_sets"]["production"];
+    assert_eq!(prod["files"], expected_files);
+    assert!(prod["verbosity"]["flagged_lines"].as_u64().unwrap_or(0) >= 1);
+    assert_eq!(prod["import_cycles"]["modules_in_import_cycles"], 2);
+    let packages = prod["packages"].as_array().expect("packages");
+    assert!(packages.iter().any(|p| p["path"] == expected_package));
+}
+
 #[test]
 fn built_in_rust_plugin_measures_cargo_workspace_metrics_and_cycles() {
     let repository = Repository::new();
@@ -4659,14 +4675,28 @@ fn built_in_rust_plugin_measures_cargo_workspace_metrics_and_cycles() {
         "use crate::a::first;\npub fn second() -> i32 { first() }\n",
     );
     repository.commit_all();
+    assert_built_in_workspace_cycle_report(&repository, 3, "crates/app");
+}
 
-    let output = repository.codeint(&["check", "--format", "json"]);
-    assert_success(&output);
-    let report: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
-    let prod = &report["source_sets"]["production"];
-    assert_eq!(prod["files"], 3);
-    assert!(prod["verbosity"]["flagged_lines"].as_u64().unwrap_or(0) >= 1);
-    assert_eq!(prod["import_cycles"]["modules_in_import_cycles"], 2);
-    let packages = prod["packages"].as_array().expect("packages");
-    assert!(packages.iter().any(|p| p["path"] == "crates/app"));
+#[test]
+fn built_in_php_plugin_measures_composer_workspace_metrics_and_psr4_cycles() {
+    let repository = Repository::new();
+    repository.write(
+        "composer.json",
+        r#"{"repositories":[{"type":"path","url":"modules/*"}]}"#,
+    );
+    repository.write(
+        "modules/core/composer.json",
+        r#"{"name":"demo/core","autoload":{"psr-4":{"Demo\\Core\\":"src/"}}}"#,
+    );
+    repository.write(
+        "modules/core/src/Alpha.php",
+        "<?php\nnamespace Demo\\Core;\nuse Demo\\Core\\Beta;\nclass Alpha { public function check(bool $x): bool { if ($x) { return true; } else { return false; } } }\n",
+    );
+    repository.write(
+        "modules/core/src/Beta.php",
+        "<?php\nnamespace Demo\\Core;\nuse Demo\\Core\\Alpha;\nclass Beta { public function run(): int { return 1; } }\n",
+    );
+    repository.commit_all();
+    assert_built_in_workspace_cycle_report(&repository, 2, "modules/core");
 }

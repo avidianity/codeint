@@ -3,6 +3,7 @@ mod common;
 use std::path::Path;
 
 use codeint_config::PluginHostConfig;
+use codeint_lang_php::Php;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
@@ -372,4 +373,53 @@ fn built_in_rust_plugin_passes_seam_2_conformance() {
     };
 
     assert_seam_2_conformance(&Rust, &fixture);
+}
+
+#[test]
+fn built_in_php_plugin_passes_seam_2_conformance() {
+    const REPO: [&str; 4] = [
+        "composer.json",
+        "packages/app/composer.json",
+        "packages/app/src/Main.php",
+        "packages/app/src/Helper.php",
+    ];
+    const MANIFESTS: [(&str, &str); 2] = [
+        (
+            "composer.json",
+            r#"{"repositories": [{"type": "path", "url": "packages/*"}]}"#,
+        ),
+        (
+            "packages/app/composer.json",
+            r#"{"name": "sample/app", "autoload": {"psr-4": {"Sample\\App\\": "src/"}}}"#,
+        ),
+    ];
+    const REQUESTS: [(&str, &str); 3] = [
+        ("packages/app/src/Main.php", "use:Sample\\App\\Helper"),
+        ("packages/app/src/Main.php", "use:Illuminate\\Support\\Str"),
+        ("packages/app/src/Main.php", "req:./Missing.php"),
+    ];
+    let prod_lf = "<?php\nnamespace Sample\\App;\nuse Sample\\App\\Helper;\n\n// comment\nfunction run(bool $flag): int {\n    if ($flag) {\n        return Helper::value();\n    } else {\n        return 0;\n    }\n}\n";
+    let prod_crlf = prod_lf.replace('\n', "\r\n");
+    let fixture = ConformanceFixture {
+        name: "php",
+        production_path: REPO[2],
+        production_source: prod_lf,
+        production_source_crlf: &prod_crlf,
+        test_path: "packages/app/tests/MainTest.php",
+        test_source: "<?php\nfunction check(): int { return 1; }\n",
+        empty_path: "packages/app/src/Empty.php",
+        declaration_only: None,
+        unparsable_path: "packages/app/src/Broken.php",
+        unparsable_source: "<?php\nfunction broken() { $x = 'unclosed; }\n",
+        unsupported_path: "scripts/tool.unknown",
+        repository_paths: &REPO,
+        expected_manifest_path: REPO[0],
+        valid_manifests: &MANIFESTS,
+        expected_workspace_package: "packages/app",
+        invalid_manifest_text: "{not json",
+        import_requests: &REQUESTS,
+        expected_resolved_target: REPO[3],
+        expect_reference_ranges: false,
+    };
+    assert_seam_2_conformance(&Php, &fixture);
 }
