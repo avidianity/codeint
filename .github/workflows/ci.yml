@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
-          shared-key: "ubuntu-rust"
+          shared-key: "ubuntu-rust-test"
       - run: rustup target add wasm32-wasip2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -142,6 +142,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
+        with:
+          rust-cache-key: "ubuntu-rust-test"
       - uses: ./.github/actions/gitleaks
       - uses: ./.github/actions/lychee
       - run: rustup target add wasm32-wasip2
