@@ -68,12 +68,13 @@ codeint update
 
 ## Configure
 
-Run `codeint init` at the root of your Git repository to create a starter `codeint.json` with editor autocomplete via `$schema`.
+Run `codeint init` at the root of your Git repository to create a starter `codeint.json` pinned to your installed version's `$schema` for editor autocomplete.
+`codeint update` keeps that versioned `$schema` URL in sync when you upgrade.
 Without `codeint.json`, codeint measures every supported language with default settings and no hard Budgets.
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/main/schema/codeint.schema.json",
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json",
   "source_sets": {
     "generated": ["src/**/*.generated.ts"],
     "vendored": ["vendor/**"]

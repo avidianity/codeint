@@ -466,6 +466,7 @@ Each commit goes through the [result cache](#result-cache), so a repeated trend 
 | `-h, --help` | Print the help of `codeint update` |
 
 `codeint update` downloads the matching platform archive and `SHA256SUMS` from GitHub Releases, verifies the SHA-256 digest before touching the binary, and atomically replaces a standalone `codeint` executable in place.
+When run inside a repository whose `codeint.json` uses the codeint `$schema` URL, `codeint update` also updates that `$schema` tag to match the installed release.
 If the running binary lives inside `node_modules`, `codeint update` refuses to overwrite it and exits `2` with the package-manager update command instead.
 
 ```sh exit=0

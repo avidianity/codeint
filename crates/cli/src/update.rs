@@ -6,6 +6,8 @@ const LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/avidianity/codeint/releases/latest";
 const DEFAULT_RELEASE_DOWNLOAD_BASE: &str =
     "https://github.com/avidianity/codeint/releases/download";
+const SCHEMA_URL_PREFIX: &str = "https://raw.githubusercontent.com/avidianity/codeint/";
+const SCHEMA_URL_SUFFIX: &str = "/schema/codeint.schema.json";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UpdateError {
@@ -55,27 +57,83 @@ pub(crate) fn update(
         None => resolve_latest_tag(release_base_url)?,
     };
     if target_tag == current_tag && (requested_version.is_none() || check_only) {
-        return Ok(format!(
-            "codeint {current} is already up to date ({target_tag})"
-        ));
+        let base = format!("codeint {current} is already up to date ({target_tag})");
+        return Ok(if check_only {
+            base
+        } else {
+            append_schema_sync(base, &target_tag)
+        });
     }
     if check_only {
         return Ok(format!("Update available: {current_tag} -> {target_tag}"));
     }
+    perform_binary_update(&exe_path, &target_tag, release_base_url)
+}
 
+fn perform_binary_update(
+    exe_path: &Path,
+    target_tag: &str,
+    release_base_url: Option<&str>,
+) -> Result<String, UpdateError> {
     let (target, ext) = detect_target()?;
     let archive_name = format!("codeint-{target}.{ext}");
-    let download_base = resolve_download_base(release_base_url, &target_tag);
-
-    let stage_dir = create_stage_dir(&exe_path)?;
-    let result =
-        install_verified_archive(&stage_dir, &exe_path, &download_base, &archive_name, ext);
+    let download_base = resolve_download_base(release_base_url, target_tag);
+    let stage_dir = create_stage_dir(exe_path)?;
+    let result = install_verified_archive(&stage_dir, exe_path, &download_base, &archive_name, ext);
     let _ = fs::remove_dir_all(&stage_dir);
     result?;
+    let base = format!("Updated codeint to {target_tag} ({})", exe_path.display());
+    Ok(append_schema_sync(base, target_tag))
+}
 
-    Ok(format!(
-        "Updated codeint to {target_tag} ({})",
-        exe_path.display()
+fn append_schema_sync(mut message: String, target_tag: &str) -> String {
+    if let Some(updated) = sync_codeint_json_schema(target_tag) {
+        message.push_str(&format!("\n{updated}"));
+    }
+    message
+}
+
+fn find_codeint_json(start: &Path) -> Option<PathBuf> {
+    let mut dir = Some(start);
+    while let Some(current) = dir {
+        let candidate = current.join("codeint.json");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        if current.join(".git").exists() {
+            return None;
+        }
+        dir = current.parent();
+    }
+    None
+}
+
+fn replace_schema_tag(text: &str, target_tag: &str) -> Option<(String, String)> {
+    let start = text.find(SCHEMA_URL_PREFIX)?;
+    let rest = &text[start + SCHEMA_URL_PREFIX.len()..];
+    let end_offset = rest.find(SCHEMA_URL_SUFFIX)?;
+    let current_ref = &rest[..end_offset];
+    if current_ref.is_empty() || current_ref.contains('/') || current_ref == target_tag {
+        return None;
+    }
+    let old_end = start + SCHEMA_URL_PREFIX.len() + end_offset + SCHEMA_URL_SUFFIX.len();
+    let new_url = format!("{SCHEMA_URL_PREFIX}{target_tag}{SCHEMA_URL_SUFFIX}");
+    let mut updated = String::with_capacity(text.len() + target_tag.len());
+    updated.push_str(&text[..start]);
+    updated.push_str(&new_url);
+    updated.push_str(&text[old_end..]);
+    Some((updated, new_url))
+}
+
+fn sync_codeint_json_schema(target_tag: &str) -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let config_path = find_codeint_json(&cwd)?;
+    let text = fs::read_to_string(&config_path).ok()?;
+    let (updated, new_url) = replace_schema_tag(&text, target_tag)?;
+    fs::write(&config_path, updated).ok()?;
+    Some(format!(
+        "Updated $schema in {} to {new_url}",
+        config_path.display()
     ))
 }
 
