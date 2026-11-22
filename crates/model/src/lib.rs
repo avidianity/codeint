@@ -7,6 +7,7 @@ use std::fmt;
 
 mod metric;
 mod runtime_imports;
+pub mod scan;
 mod source_set;
 #[cfg(test)]
 mod tests;

@@ -285,6 +285,7 @@ version = "0.2.1"
 dependencies = [
  "codeint-config",
  "codeint-git",
+ "codeint-lang-dart",
  "codeint-lang-php",
  "codeint-lang-rust",
  "codeint-lang-ts",
@@ -321,6 +322,16 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "codeint-lang-dart"
+version = "0.2.1"
+dependencies = [
+ "codeint-model",
+ "globset",
+ "serde",
+ "serde-saphyr",
 ]
 
 [[package]]
@@ -381,6 +392,7 @@ name = "codeint-plugin-host"
 version = "0.2.1"
 dependencies = [
  "codeint-config",
+ "codeint-lang-dart",
  "codeint-lang-php",
  "codeint-lang-rust",
  "codeint-lang-ts",

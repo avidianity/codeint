@@ -4700,3 +4700,31 @@ fn built_in_php_plugin_measures_composer_workspace_metrics_and_psr4_cycles() {
     repository.commit_all();
     assert_built_in_workspace_cycle_report(&repository, 2, "modules/core");
 }
+
+#[test]
+fn built_in_dart_plugin_measures_pub_workspace_metrics_and_cycles() {
+    let repository = Repository::new();
+    for (path, body) in [
+        (
+            "pubspec.yaml",
+            "name: ws\nworkspace:\n  - packages/mobile\n",
+        ),
+        ("packages/mobile/pubspec.yaml", "name: mobile\n"),
+        (
+            "packages/mobile/lib/alpha.dart",
+            "import 'package:mobile/beta.dart';\nbool check(bool x) { if (x) { return true; } else { return false; } }\n",
+        ),
+        (
+            "packages/mobile/lib/beta.dart",
+            "import 'package:mobile/alpha.dart';\nint run() => 1;\n",
+        ),
+        (
+            "packages/mobile/lib/alpha.g.dart",
+            "int generatedHelper() => 42;\n",
+        ),
+    ] {
+        repository.write(path, body);
+    }
+    repository.commit_all();
+    assert_built_in_workspace_cycle_report(&repository, 2, "packages/mobile");
+}

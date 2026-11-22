@@ -7,6 +7,7 @@ use codeint_config::{
     SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
+use codeint_lang_dart::Dart;
 use codeint_lang_php::Php;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::TypeScriptAndJavaScript;
@@ -71,7 +72,7 @@ pub(crate) struct NamedLanguagePlugin<'plugin> {
     pub(crate) plugin: &'plugin dyn LanguagePlugin,
 }
 
-pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 3] = [
+pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 4] = [
     NamedLanguagePlugin {
         name: "typescript-javascript",
         plugin: &TypeScriptAndJavaScript,
@@ -83,6 +84,10 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 3] = 
     NamedLanguagePlugin {
         name: "php",
         plugin: &Php,
+    },
+    NamedLanguagePlugin {
+        name: "dart",
+        plugin: &Dart,
     },
 ];
 

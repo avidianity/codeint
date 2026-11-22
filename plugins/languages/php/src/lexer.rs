@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
 use codeint_model::language::LowerError;
+use codeint_model::scan::{
+    ScanToken, find_matching_delim as shared_matching_delim, track_delim as shared_track_delim,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RawKind {
@@ -18,6 +21,20 @@ pub(crate) struct RawToken {
     pub(crate) text: String,
     pub(crate) lower: String,
     pub(crate) line: u32,
+}
+
+impl ScanToken for RawToken {
+    fn text(&self) -> &str {
+        &self.text
+    }
+
+    fn is_keyword(&self, kw: &str) -> bool {
+        self.kind == RawKind::Keyword && self.lower == kw
+    }
+
+    fn line(&self) -> u32 {
+        self.line
+    }
 }
 
 pub(crate) struct LexedFile {
@@ -456,26 +473,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn track_delim(&mut self, punct: &str) -> Result<(), LowerError> {
-        match punct {
-            "#[" | "[" => self.delim_stack.push((b'[', self.line)),
-            "{" => self.delim_stack.push((b'{', self.line)),
-            "(" => self.delim_stack.push((b'(', self.line)),
-            "}" | ")" | "]" => {
-                let expected = match punct {
-                    "}" => b'{',
-                    ")" => b'(',
-                    _ => b'[',
-                };
-                if !matches!(self.delim_stack.pop(), Some((open, _)) if open == expected) {
-                    return Err(LowerError::Unparsable(format!(
-                        "unexpected {punct:?} at line {}",
-                        self.line
-                    )));
-                }
-            }
-            _ => {}
-        }
-        Ok(())
+        shared_track_delim(&mut self.delim_stack, punct, self.line)
     }
 
     fn record_lines(&mut self, from: u32, to: u32) {
@@ -502,29 +500,8 @@ fn match_multi_punct(bytes: &[u8]) -> Option<&'static str> {
         .find(|candidate| bytes.starts_with(candidate.as_bytes()))
 }
 
-fn delim_pair(open: &str) -> Option<(&'static str, &'static str)> {
-    match open {
-        "(" => Some(("(", ")")),
-        "{" => Some(("{", "}")),
-        "[" | "#[" => Some(("[", "]")),
-        _ => None,
-    }
-}
-
 pub(crate) fn find_matching_delim(tokens: &[RawToken], open_idx: usize) -> Option<usize> {
-    let (inc, dec) = delim_pair(tokens.get(open_idx)?.text.as_str())?;
-    let mut depth = 0usize;
-    for (idx, token) in tokens.iter().enumerate().skip(open_idx) {
-        if token.text == inc || (inc == "[" && token.text == "#[") {
-            depth += 1;
-        } else if token.text == dec {
-            depth -= 1;
-            if depth == 0 {
-                return Some(idx);
-            }
-        }
-    }
-    None
+    shared_matching_delim(tokens, open_idx)
 }
 
 pub(crate) fn find_next_brace(tokens: &[RawToken], mut pos: usize) -> Option<usize> {

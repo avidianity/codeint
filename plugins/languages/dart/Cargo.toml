@@ -1,0 +1,15 @@
+[package]
+name = "codeint-lang-dart"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+codeint-model = { workspace = true }
+globset = { workspace = true }
+serde = { workspace = true }
+serde-saphyr = { workspace = true }

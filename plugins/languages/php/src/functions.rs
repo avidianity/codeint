@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use codeint_model::language::Function;
+use codeint_model::scan::{find_arrow_expr_end, paren_then_brace, score_function_spans};
 
 use crate::lexer::{RawKind, RawToken, find_matching_delim};
 
@@ -8,13 +9,7 @@ type FunctionSpan = (usize, usize, u32, u32);
 
 pub(crate) fn functions(tokens: &[RawToken], code_lines: &BTreeSet<u32>) -> Vec<Function> {
     let spans = collect_function_spans(tokens);
-    let mut result: Vec<Function> = spans
-        .iter()
-        .enumerate()
-        .map(|(idx, &span)| build_function_metric(tokens, code_lines, &spans, idx, span))
-        .collect();
-    result.sort_by_key(|f| (f.line, f.end_line));
-    result
+    score_function_spans(tokens, code_lines, &spans, decision_increment)
 }
 
 fn collect_function_spans(tokens: &[RawToken]) -> Vec<FunctionSpan> {
@@ -33,39 +28,6 @@ fn collect_function_spans(tokens: &[RawToken]) -> Vec<FunctionSpan> {
         }
     }
     spans
-}
-
-fn build_function_metric(
-    tokens: &[RawToken],
-    code_lines: &BTreeSet<u32>,
-    spans: &[FunctionSpan],
-    owner: usize,
-    (body_start, body_end, start_line, end_line): FunctionSpan,
-) -> Function {
-    let mut decisions = 0u32;
-    let mut cursor = body_start;
-    while cursor <= body_end {
-        if let Some(nested_end) = nested_function_end(spans, owner, cursor) {
-            cursor = nested_end + 1;
-            continue;
-        }
-        decisions += decision_increment(tokens, cursor);
-        cursor += 1;
-    }
-    Function {
-        line: start_line,
-        end_line,
-        decision_points: decisions,
-        source_lines: code_lines.range(start_line..=end_line).count() as u32,
-    }
-}
-
-fn nested_function_end(spans: &[FunctionSpan], owner: usize, cursor: usize) -> Option<usize> {
-    spans
-        .iter()
-        .enumerate()
-        .find(|&(idx, &(start, _, _, _))| idx != owner && start == cursor)
-        .map(|(_, &(_, end, _, _))| end)
 }
 
 fn skip_fn_params(tokens: &[RawToken], fn_idx: usize, allow_name: bool) -> Option<usize> {
@@ -111,21 +73,7 @@ fn find_arrow_fn_body(tokens: &[RawToken], fn_idx: usize) -> Option<(usize, usiz
         return None;
     }
     let body_start = after + 1;
-    Some((body_start, find_arrow_end(tokens, body_start)))
-}
-
-fn find_arrow_end(tokens: &[RawToken], body_start: usize) -> usize {
-    let mut depth = 0usize;
-    for (idx, token) in tokens.iter().enumerate().skip(body_start) {
-        match token.text.as_str() {
-            "(" | "[" | "{" | "#[" => depth += 1,
-            ")" | "]" | "}" if depth == 0 => return idx.saturating_sub(1),
-            ")" | "]" | "}" => depth -= 1,
-            ";" | "," if depth == 0 => return idx.saturating_sub(1),
-            _ => {}
-        }
-    }
-    tokens.len().saturating_sub(1)
+    Some((body_start, find_arrow_expr_end(tokens, body_start)))
 }
 
 fn decision_increment(tokens: &[RawToken], idx: usize) -> u32 {
@@ -158,19 +106,7 @@ fn is_ternary_question(tokens: &[RawToken], idx: usize) -> bool {
 }
 
 fn count_match_arms(tokens: &[RawToken], match_idx: usize) -> u32 {
-    let Some(close_paren) = tokens
-        .get(match_idx + 1)
-        .filter(|t| t.text == "(")
-        .and_then(|_| find_matching_delim(tokens, match_idx + 1))
-    else {
-        return 0;
-    };
-    let brace_open = close_paren + 1;
-    let Some(close_brace) = tokens
-        .get(brace_open)
-        .filter(|t| t.text == "{")
-        .and_then(|_| find_matching_delim(tokens, brace_open))
-    else {
+    let Some((_, _, brace_open, close_brace)) = paren_then_brace(tokens, match_idx) else {
         return 0;
     };
     let mut arms = 0u32;
