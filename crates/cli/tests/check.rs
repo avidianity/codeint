@@ -2875,7 +2875,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "python", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin python at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php",
+         the Language plugins are typescript-javascript, rust, php, dart",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
