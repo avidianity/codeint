@@ -2875,7 +2875,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "python", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin python at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust",
+         the Language plugins are typescript-javascript, rust, php",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -4669,4 +4669,36 @@ fn built_in_rust_plugin_measures_cargo_workspace_metrics_and_cycles() {
     assert_eq!(prod["import_cycles"]["modules_in_import_cycles"], 2);
     let packages = prod["packages"].as_array().expect("packages");
     assert!(packages.iter().any(|p| p["path"] == "crates/app"));
+}
+
+#[test]
+fn built_in_php_plugin_measures_composer_workspace_metrics_and_psr4_cycles() {
+    let repository = Repository::new();
+    repository.write(
+        "composer.json",
+        r#"{"repositories": [{"type": "path", "url": "packages/*"}]}"#,
+    );
+    repository.write(
+        "packages/app/composer.json",
+        r#"{"name": "acme/app", "autoload": {"psr-4": {"Acme\\App\\": "src/"}}}"#,
+    );
+    repository.write(
+        "packages/app/src/Alpha.php",
+        "<?php\nnamespace Acme\\App;\nuse Acme\\App\\Beta;\nclass Alpha { public function check(bool $x): bool { if ($x) { return true; } else { return false; } } }\n",
+    );
+    repository.write(
+        "packages/app/src/Beta.php",
+        "<?php\nnamespace Acme\\App;\nuse Acme\\App\\Alpha;\nclass Beta { public function run(): int { return 1; } }\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    let prod = &report["source_sets"]["production"];
+    assert_eq!(prod["files"], 2);
+    assert!(prod["verbosity"]["flagged_lines"].as_u64().unwrap_or(0) >= 1);
+    assert_eq!(prod["import_cycles"]["modules_in_import_cycles"], 2);
+    let packages = prod["packages"].as_array().expect("packages");
+    assert!(packages.iter().any(|p| p["path"] == "packages/app"));
 }

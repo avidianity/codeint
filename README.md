@@ -14,7 +14,7 @@ It is for developers whose code is increasingly written by coding agents, so the
 
 codeint reports each Metric on its own, with the Findings behind it, and never blends them into one score.
 It gates CI on per-Metric Budgets and on Regressions against a base Git ref.
-Languages and Metrics are Plugins: TypeScript/JavaScript and Rust ship as built-in Language plugins, and third-party languages and Metrics load as WebAssembly Plugins.
+Languages and Metrics are Plugins: TypeScript/JavaScript, Rust, and PHP ship as built-in Language plugins, and third-party languages and Metrics load as WebAssembly Plugins.
 
 <p align="center">
   <a href="#install">Install</a> ·
@@ -95,6 +95,15 @@ Sample Production measurements from `codeint check` (release build, Apple Silico
 | `BurntSushi/ripgrep` | 105 | 24,961 | 36.4% | 31.1% | 31.3% | 29.3% | 0.07s |
 | `sharkdp/fd` | 25 | 3,423 | 44.6% | 0.0% | 0.1% | 56.5% | 0.02s |
 | `dtolnay/serde` | 189 | 19,425 | 45.7% | 40.2% | 40.2% | 0.0% | 0.06s |
+
+### PHP measurements and speed
+
+Sample Production measurements from `codeint check` (release build, Apple Silicon):
+
+| Repository | Files | Prod lines | Erosion | Duplication | Verbosity | Import cycles | Time |
+| ---------- | ----- | ---------- | ------- | ----------- | --------- | ------------- | ---- |
+| `laravel/laravel` | 29 | 762 | 0.0% | 0.0% | 0.0% | 8.0% | 0.03s |
+| `laravel/framework` | 3,208 | 132,791 | 16.9% | 8.1% | 8.2% | 4.4% | 0.47s |
 
 ## GitHub Actions
 
