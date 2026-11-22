@@ -1,6 +1,6 @@
 {
   "name": "@avidian/codeint-linux-arm64",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Linux arm64 binary for codeint",
   "license": "MIT",
   "repository": {

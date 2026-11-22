@@ -40,7 +40,7 @@ codeint --version
 ```
 
 ```text stdout
-codeint 0.3.0
+codeint 0.4.0
 ```
 
 ```sh exit=0
@@ -72,7 +72,7 @@ It sets every key to its default, and lists under `languages` each top-level fol
 
 ```json file=codeint.json
 {
-  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.3.0/schema/codeint.schema.json",
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.4.0/schema/codeint.schema.json",
   "source_sets": {
     "production": [],
     "test": [],
@@ -471,11 +471,11 @@ When run inside a repository whose `codeint.json` uses the codeint `$schema` URL
 If the running binary lives inside `node_modules`, `codeint update` refuses to overwrite it and exits `2` with the package-manager update command instead.
 
 ```sh exit=0
-codeint update --check --version v0.3.0
+codeint update --check --version v0.4.0
 ```
 
 ```text stdout
-codeint 0.3.0 is already up to date (v0.3.0)
+codeint 0.4.0 is already up to date (v0.4.0)
 ```
 
 ## Exit codes
@@ -975,7 +975,7 @@ codeint check --format sarif
       "tool": {
         "driver": {
           "name": "codeint",
-          "version": "0.3.0",
+          "version": "0.4.0",
           "informationUri": "https://github.com/avidianity/codeint",
           "rules": [
             {

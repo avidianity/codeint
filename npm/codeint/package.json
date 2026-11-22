@@ -1,6 +1,6 @@
 {
   "name": "codeint",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Measures the Software entropy of a codebase",
   "license": "MIT",
   "repository": {
@@ -29,12 +29,12 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@avidian/codeint-darwin-arm64": "0.3.0",
-    "@avidian/codeint-darwin-x64": "0.3.0",
-    "@avidian/codeint-linux-arm64": "0.3.0",
-    "@avidian/codeint-linux-x64": "0.3.0",
-    "@avidian/codeint-win32-arm64": "0.3.0",
-    "@avidian/codeint-win32-x64": "0.3.0"
+    "@avidian/codeint-darwin-arm64": "0.4.0",
+    "@avidian/codeint-darwin-x64": "0.4.0",
+    "@avidian/codeint-linux-arm64": "0.4.0",
+    "@avidian/codeint-linux-x64": "0.4.0",
+    "@avidian/codeint-win32-arm64": "0.4.0",
+    "@avidian/codeint-win32-x64": "0.4.0"
   },
   "publishConfig": {
     "access": "public",
