@@ -5,7 +5,7 @@ A change adds no block of code that duplicates another block in the Project.
 A duplicate is a block of 11 or more lines, or 100 or more tokens, that appears twice when formatting is ignored.
 Test files count.
 Generated files are exempt.
-A clone whose every copy lies under `crates/*/tests/fixtures/` is exempt, because clone-detection fixtures must hold duplicates on purpose.
+A clone whose every copy lies under `crates/*/tests/fixtures/` or `plugins/*/*/tests/fixtures/` is exempt, because clone-detection fixtures must hold duplicates on purpose.
 A clone between a fixture and any other file still fails.
 
 The thresholds are Defaults.

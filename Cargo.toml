@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "xtask"]
+members = ["crates/*", "plugins/languages/*", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,7 +12,7 @@ publish = false
 clap = { version = "=4.6.9", features = ["derive"] }
 codeint-config = { path = "crates/config" }
 codeint-git = { path = "crates/git" }
-codeint-lang-ts = { path = "crates/lang-ts" }
+codeint-lang-ts = { path = "plugins/languages/ts" }
 codeint-metrics = { path = "crates/metrics" }
 codeint-model = { path = "crates/model" }
 codeint-plugin-host = { path = "crates/plugin-host" }

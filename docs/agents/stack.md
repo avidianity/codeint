@@ -23,6 +23,7 @@ A rule that differs between languages, such as decision points, import resolutio
 | Path | Holds |
 | ---- | ----- |
 | `crates/{name}/` | One product crate per folder; the folder name is the package name without the `codeint-` prefix |
+| `plugins/languages/{name}/` | One built-in Language plugin crate per folder (package name `codeint-lang-{name}`) |
 | `crates/config/` | The only crate that reads environment variables, process arguments, or files of configuration |
 | `crates/plugin-host/` | The WebAssembly Plugin host and its capability grants; changes are Tier 3 |
 | `wit/` | The published WIT interface of Plugins |

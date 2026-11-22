@@ -145,7 +145,15 @@ fn no_comments_skips_test_fixtures_but_not_other_test_or_source_files() {
         "crates/lang-ts/tests/fixtures/commented.ts",
         "// a comment-only line is test input\nexport const one = 1;\n",
     );
-    repository.git(&["add", "crates/lang-ts/tests/fixtures/commented.ts"]);
+    repository.write(
+        "plugins/languages/ts/tests/fixtures/commented.ts",
+        "// a plugin fixture comment is test input\nexport const pluginOne = 1;\n",
+    );
+    repository.git(&[
+        "add",
+        "crates/lang-ts/tests/fixtures/commented.ts",
+        "plugins/languages/ts/tests/fixtures/commented.ts",
+    ]);
     assert_passes(&repository.xtask(&["no-comments", "--staged"]));
     repository.commit_all("test: add a commented fixture");
     assert_passes(&repository.xtask(&["no-comments", "--base", "main"]));
