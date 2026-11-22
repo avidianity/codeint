@@ -6,6 +6,7 @@ mod diff;
 mod init;
 mod remedy;
 mod trend;
+mod update;
 
 use std::error::Error;
 use std::io::Write;
@@ -24,6 +25,8 @@ enum CliError {
     Check(#[from] check::CheckError),
     #[error(transparent)]
     Init(#[from] init::InitError),
+    #[error(transparent)]
+    Update(#[from] update::UpdateError),
     #[error(transparent)]
     Report(#[from] ReportError),
     #[error("cannot write the report to standard output")]
@@ -124,6 +127,16 @@ fn run() -> Result<Outcome, CliError> {
         Command::Init { folder } => {
             let written = init::init(&folder)?;
             print_report(&format!("Wrote {}\n", written.display()))?;
+            Ok(Outcome::Passed)
+        }
+        Command::Update {
+            check_only,
+            version,
+            release_base_url,
+        } => {
+            let message =
+                update::update(check_only, version.as_deref(), release_base_url.as_deref())?;
+            print_report(&format!("{message}\n"))?;
             Ok(Outcome::Passed)
         }
     }

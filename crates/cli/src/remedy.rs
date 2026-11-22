@@ -6,6 +6,7 @@ use codeint_plugin_host::PluginHostError;
 use crate::CliError;
 use crate::check::CheckError;
 use crate::init::InitError;
+use crate::update::UpdateError;
 
 pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
@@ -31,12 +32,36 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Init(InitError::StarterConfiguration(error)) => {
             starter_configuration_remedy(error)
         }
+        CliError::Update(error) => update_remedy(error),
         CliError::Report(_) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
         CliError::Output(_) => "Keep standard output open until codeint exits.",
         CliError::OutputFile { .. } => {
             "Pass --output a file path that you have permission to write, not a folder."
+        }
+    }
+}
+
+fn update_remedy(error: &UpdateError) -> &'static str {
+    match error {
+        UpdateError::ManagedByPackageManager { .. } => {
+            "Update codeint through your package manager instead, such as npm update -g codeint or npx codeint@latest."
+        }
+        UpdateError::ChecksumMismatch { .. } | UpdateError::MissingChecksum { .. } => {
+            "Do not use the downloaded archive; retry codeint update or verify the release on GitHub."
+        }
+        UpdateError::LatestRelease { .. } | UpdateError::Download { .. } => {
+            "Check your network connection and GitHub Releases availability, then run codeint update again."
+        }
+        UpdateError::Replace { .. } => {
+            "Ensure you have write permission to the folder containing codeint and retry."
+        }
+        UpdateError::CurrentExecutable(_)
+        | UpdateError::UnsupportedPlatform
+        | UpdateError::ChecksumTool { .. }
+        | UpdateError::Extract { .. } => {
+            "Reinstall codeint from https://github.com/avidianity/codeint/releases."
         }
     }
 }

@@ -317,6 +317,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN secret is not configured; skipping npm publish for $TAG."
+            exit 0
+          fi
           version="${TAG#v}"
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
             npm publish "npm-tarballs/avidian-codeint-$platform-$version.tgz" --provenance --access public
