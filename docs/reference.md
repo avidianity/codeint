@@ -2,6 +2,7 @@
 
 This page documents every command, option, exit code, report format, and `codeint.json` key of codeint.
 [GLOSSARY.md](../GLOSSARY.md) defines every term on this page.
+For calling codeint from JavaScript, TypeScript, or Rust, see [docs/programmatic.md](./programmatic.md).
 
 ## Sample repository
 

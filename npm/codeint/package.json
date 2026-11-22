@@ -8,11 +8,22 @@
     "url": "https://github.com/avidianity/codeint.git",
     "directory": "npm/codeint"
   },
+  "main": "./lib/index.cjs",
+  "module": "./lib/index.mjs",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.mjs",
+      "require": "./lib/index.cjs"
+    }
+  },
   "bin": {
     "codeint": "bin/codeint.js"
   },
   "files": [
-    "bin/codeint.js"
+    "bin/codeint.js",
+    "lib/"
   ],
   "engines": {
     "node": ">=18"
