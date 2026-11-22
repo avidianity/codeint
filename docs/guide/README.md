@@ -9,9 +9,10 @@ Each page below focuses on one topic and links to [docs/reference.md](../referen
 2. [Getting Started](./getting-started.md): install codeint, initialize `codeint.json`, and run your first `check`, `diff`, and `trend`.
 3. [Configuration (`codeint.json`)](./configuration.md): set Budgets, Regression limits, Source-set globs, and multi-language folders.
 4. [Built-in Languages](./languages.md): how TypeScript/JavaScript, Rust, PHP, Dart, and Python are measured, plus their calibrated Reference ranges.
-5. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with `codeint diff` and upload SARIF findings to GitHub code scanning.
-6. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
-7. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
+5. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action or `codeint diff` and SARIF upload.
+6. [Coding-Agent Integration (MCP Server)](./mcp.md): connect `codeint mcp` to Claude Code, Cursor, Codex, or Antigravity.
+7. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
+8. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
 
 ## Reference and domain docs
 

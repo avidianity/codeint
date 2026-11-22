@@ -28,6 +28,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, and `trend` tools; see [`codeint mcp`](#codeint-mcp) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -476,6 +477,20 @@ codeint update --check --version v0.4.0
 
 ```text stdout
 codeint 0.4.0 is already up to date (v0.4.0)
+```
+
+### `codeint mcp`
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint mcp` |
+
+`codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
+It exposes three read-only tools (`check`, `diff`, and `trend`) so coding agents can measure Software entropy and fix Regressions before opening a pull request.
+When standard input closes, the server exits with code 0:
+
+```sh exit=0
+codeint mcp
 ```
 
 ## Exit codes

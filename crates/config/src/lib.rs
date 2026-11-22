@@ -136,6 +136,11 @@ pub enum Command {
         version: Option<String>,
         release_base_url: Option<String>,
     },
+    Mcp {
+        folder: PathBuf,
+        result_cache: Option<PathBuf>,
+        plugin_host: PluginHostConfig,
+    },
 }
 
 #[derive(Debug)]
@@ -225,6 +230,10 @@ enum CommandArguments {
         )]
         version: Option<String>,
     },
+    #[command(
+        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, and trend tools"
+    )]
+    Mcp,
 }
 
 #[derive(Debug, clap::Args)]
@@ -250,27 +259,14 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
     let arguments = Arguments::parse();
     let current_folder = std::env::current_dir().map_err(ConfigError::CurrentFolder)?;
     let command = match arguments.command {
-        CommandArguments::Check { path, report } => Command::Check {
-            folder: existing_folder(&current_folder, path)?,
-            destination: report_destination(&current_folder, report.output)?,
-            findings: findings_shown(report.all),
-            format: report.format,
-            plugin_host: plugin_host_config_of_this_process(&current_folder),
-        },
+        CommandArguments::Check { path, report } => {
+            build_check_command(&current_folder, path, report)?
+        }
         CommandArguments::Diff {
             base_ref,
             head_ref,
             report,
-        } => Command::Diff {
-            folder: current_folder.clone(),
-            base_ref,
-            head_ref,
-            destination: report_destination(&current_folder, report.output)?,
-            findings: findings_shown(report.all),
-            format: report.format,
-            result_cache: result_cache_folder_of_this_process(&current_folder),
-            plugin_host: plugin_host_config_of_this_process(&current_folder),
-        },
+        } => build_diff_command(&current_folder, base_ref, head_ref, report)?,
         CommandArguments::Trend {
             since,
             output,
@@ -289,15 +285,56 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
         CommandArguments::Init => Command::Init {
             folder: current_folder,
         },
-        CommandArguments::Update { check, version } => Command::Update {
-            check_only: check,
-            version,
-            release_base_url: std::env::var(RELEASE_BASE_URL_VARIABLE)
-                .ok()
-                .filter(|value| !value.is_empty()),
+        CommandArguments::Update { check, version } => build_update_command(check, version),
+        CommandArguments::Mcp => Command::Mcp {
+            result_cache: result_cache_folder_of_this_process(&current_folder),
+            plugin_host: plugin_host_config_of_this_process(&current_folder),
+            folder: current_folder,
         },
     };
     Ok(Invocation { command })
+}
+
+fn build_check_command(
+    current_folder: &Path,
+    path: Option<PathBuf>,
+    report: ReportArguments,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Check {
+        folder: existing_folder(current_folder, path)?,
+        destination: report_destination(current_folder, report.output)?,
+        findings: findings_shown(report.all),
+        format: report.format,
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
+}
+
+fn build_diff_command(
+    current_folder: &Path,
+    base_ref: String,
+    head_ref: Option<String>,
+    report: ReportArguments,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Diff {
+        folder: current_folder.to_path_buf(),
+        base_ref,
+        head_ref,
+        destination: report_destination(current_folder, report.output)?,
+        findings: findings_shown(report.all),
+        format: report.format,
+        result_cache: result_cache_folder_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
+}
+
+fn build_update_command(check_only: bool, version: Option<String>) -> Command {
+    Command::Update {
+        check_only,
+        version,
+        release_base_url: std::env::var(RELEASE_BASE_URL_VARIABLE)
+            .ok()
+            .filter(|value| !value.is_empty()),
+    }
 }
 
 fn result_cache_folder_of_this_process(current_folder: &Path) -> Option<PathBuf> {
