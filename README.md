@@ -1,11 +1,18 @@
 <h1 align="center">
-  <img src="./assets/branding/banner.png" alt="codeint: see Software entropy grow before it compounds" width="100%">
+  <img src="./assets/branding/banner.webp" alt="codeint: see Software entropy grow before it compounds" width="100%">
 </h1>
 
 <p align="center">
   <a href="https://github.com/avidianity/codeint/actions/workflows/ci.yml"><img src="https://github.com/avidianity/codeint/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/avidianity/codeint?color=275e5e" alt="License: MIT"></a>
 </p>
+
+codeint measures the Software entropy of a codebase: duplication, needless verbosity, and complexity concentrated in a few large functions.
+It is for developers whose code is increasingly written by coding agents, so they see Software entropy grow before it compounds.
+
+codeint reports each Metric on its own, with the Findings behind it, and never blends them into one score.
+It gates CI on per-Metric Budgets and on Regressions against a base Git ref.
+Languages and Metrics are Plugins: TypeScript and JavaScript are the first built-in Language plugin, and more languages follow.
 
 <p align="center">
   <a href="#status">Status</a> ·
@@ -15,13 +22,6 @@
   <a href="./docs/plugins.md">Plugins</a> ·
   <a href="#development">Development</a>
 </p>
-
-codeint measures the Software entropy of a codebase: duplication, needless verbosity, and complexity concentrated in a few large functions.
-It is for developers whose code is increasingly written by coding agents, so they see Software entropy grow before it compounds.
-
-codeint reports each Metric on its own, with the Findings behind it, and never blends them into one score.
-It gates CI on per-Metric Budgets and on Regressions against a base Git ref.
-Languages and Metrics are Plugins: TypeScript and JavaScript are the first built-in Language plugin, and more languages follow.
 
 [GLOSSARY.md](./GLOSSARY.md) defines every term on this page.
 
