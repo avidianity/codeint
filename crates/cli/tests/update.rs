@@ -227,3 +227,45 @@ fn update_refuses_to_overwrite_node_modules_install() {
     assert!(stderr.contains("managed by a package manager"), "{stderr}");
     assert!(stderr.contains("npm update -g codeint"), "{stderr}");
 }
+
+#[test]
+fn update_syncs_versioned_schema_in_codeint_json() {
+    let temp = TempDir::new().expect("temp");
+    let install_dir = temp.path().join("bin");
+    let release_dir = temp.path().join("release");
+    let repo_dir = temp.path().join("repo");
+    fs::create_dir_all(&install_dir).expect("install dir");
+    fs::create_dir_all(&release_dir).expect("release dir");
+    fs::create_dir_all(repo_dir.join(".git")).expect("git dir");
+    let config_path = repo_dir.join("codeint.json");
+    fs::write(
+        &config_path,
+        "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n  \"budgets\": {}\n}\n",
+    )
+    .expect("write codeint.json");
+
+    let exe = copy_codeint_to(&install_dir);
+    let digest = stage_release_archive(&release_dir, b"#!/bin/sh\necho ok\n");
+    fs::write(release_dir.join("LATEST"), "v9.9.9\n").expect("latest");
+    fs::write(
+        release_dir.join("SHA256SUMS"),
+        format!("{digest}  {}\n", host_archive_name()),
+    )
+    .expect("sums");
+
+    let output = Command::new(&exe)
+        .arg("update")
+        .current_dir(&repo_dir)
+        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
+        .output()
+        .expect("run update");
+    assert!(output.status.success(), "{output:?}");
+    let updated_json = fs::read_to_string(&config_path).expect("read codeint.json");
+    assert!(
+        updated_json.contains(
+            "https://raw.githubusercontent.com/avidianity/codeint/v9.9.9/schema/codeint.schema.json"
+        ),
+        "{updated_json}"
+    );
+    assert!(updated_json.contains("\"budgets\": {}"), "{updated_json}");
+}
