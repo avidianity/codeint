@@ -7,7 +7,7 @@ Each plugin parses the modern superset of its language family with no language-v
 
 | Plugin name | Extensions | Workspace manifest | Default Test / Generated rules |
 | ----------- | ---------- | ------------------ | ------------------------------ |
-| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` | `package.json` / `pnpm-workspace.yaml` | `*.test.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/` |
+| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/` |
 | `rust` | `.rs` | `Cargo.toml` | `tests/`, `benches/`, `examples/`, `tests.rs`, `*_test.rs`, `*_tests.rs`; inline `#[cfg(test)]` excluded from Production |
 | `php` | `.php` | `composer.json` (`repositories` of type `path`) | `tests/`, `test/`, `*Test.php`, `*.test.php` |
 | `dart` | `.dart` | `pubspec.yaml` (`workspace`) | `test/`, `tests/`, `integration_test/`, `*_test.dart`; `*.g.dart`, `*.freezed.dart`, `*.gr.dart`, `*.mocks.dart`, `*.pb*.dart` -> Generated |
