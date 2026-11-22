@@ -33,7 +33,7 @@ Test fixtures, generated code (`*.g.dart`, `*.pb.dart`, `@generated`), and third
 ### 3. Pre-2023 human-written Reference ranges
 
 Raw ratios are hard to interpret without context.
-For each built-in language, codeint measures a panel of 20 public repositories pinned before `2023-01-01` (predating widespread coding-agent adoption) and publishes the 10th to 90th percentile as its **Reference range** ([ADR 0008](../adr/0008-typescript-reference-ranges.md), [ADR 0010](../adr/0010-rust-reference-ranges.md), [ADR 0011](../adr/0011-php-reference-ranges.md), [ADR 0012](../adr/0012-dart-reference-ranges.md)).
+For each built-in language, codeint measures a panel of 20 public repositories pinned before `2023-01-01` (predating widespread coding-agent adoption) and publishes the 10th to 90th percentile as its **Reference range** ([ADR 0008](../adr/0008-typescript-reference-ranges.md), [ADR 0010](../adr/0010-rust-reference-ranges.md), [ADR 0011](../adr/0011-php-reference-ranges.md), [ADR 0012](../adr/0012-dart-reference-ranges.md), [ADR 0013](../adr/0013-python-reference-ranges.md)).
 
 ### 4. Budgets and Regressions
 
@@ -65,6 +65,6 @@ CLI + Rust SDK (crates/cli)  &  JS/TS SDK (npm/codeint)
 
 - **Git-native measurement (`crates/git`)**: reads tracked working-tree files and historical commits directly from Git objects via `gix`, never modifying the working tree during `diff` or `trend`, with a content-addressed result cache for fast repeated runs.
 - **Language plugins (`plugins/languages/*`)**: own every language-specific rule (parsing, functions, decision points, tokens, Flagged lines, imports, workspaces, Source-set defaults) and lower files into the language-neutral **Code model** (`crates/model`).
-  TypeScript/JavaScript uses `oxc_parser`; Rust uses `syn` and `proc-macro2`; PHP and Dart use pure-Rust zero-FFI lexers sharing common helpers in `crates/model/src/scan.rs`.
+  TypeScript/JavaScript uses `oxc_parser`; Rust uses `syn` and `proc-macro2`; PHP, Dart, and Python use pure-Rust zero-FFI lexers sharing common helpers in `crates/model/src/scan.rs`.
 - **WebAssembly plugin host (`crates/plugin-host`)**: loads third-party Language and Metric plugins as WebAssembly components ([ADR 0002](../adr/0002-plugins-as-wasm-components.md)) with mandatory SHA-256 verification, zero host capabilities (no filesystem, network, env, or clock access), and configurable memory/timeout caps.
 - **Zero-duplication programmatic surfaces**: `crates/cli/src/lib.rs` exposes the Rust library API directly, and `npm/codeint` wraps the bundled native binary with zero-dependency ESM, CommonJS, and TypeScript declarations.

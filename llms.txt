@@ -1,6 +1,6 @@
 # codeint
 
-> codeint is a command-line tool and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Duplication, Verbosity, and Import cycles) across TypeScript/JavaScript, Rust, PHP, Dart, and external WebAssembly Language and Metric plugins.
+> codeint is a command-line tool and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Duplication, Verbosity, and Import cycles) across TypeScript/JavaScript, Rust, PHP, Dart, Python, and external WebAssembly Language and Metric plugins.
 
 ## Guide
 
@@ -8,7 +8,7 @@
 - [Philosophy and Architecture](docs/guide/philosophy-and-architecture.md): why Software entropy matters, how the four Metrics work, and how the codebase is structured.
 - [Getting Started](docs/guide/getting-started.md): install codeint, initialize `codeint.json`, and run `check`, `diff`, `trend`, and `update`.
 - [Configuration](docs/guide/configuration.md): configure `codeint.json` Budgets, Regression limits, Source sets, and multi-language folders.
-- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript, Rust, PHP, and Dart rules and calibrated Reference ranges.
+- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript, Rust, PHP, Dart, and Python rules and calibrated Reference ranges.
 - [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): pull-request diff gating and SARIF code scanning setup.
 
 ## Reference and APIs
@@ -30,3 +30,4 @@
 - [ADR 0010: Rust Reference ranges](docs/adr/0010-rust-reference-ranges.md)
 - [ADR 0011: PHP Reference ranges](docs/adr/0011-php-reference-ranges.md)
 - [ADR 0012: Dart Reference ranges](docs/adr/0012-dart-reference-ranges.md)
+- [ADR 0013: Python Reference ranges](docs/adr/0013-python-reference-ranges.md)

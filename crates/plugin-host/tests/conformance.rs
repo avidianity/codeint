@@ -5,6 +5,7 @@ use std::path::Path;
 use codeint_config::PluginHostConfig;
 use codeint_lang_dart::Dart;
 use codeint_lang_php::Php;
+use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
@@ -511,4 +512,46 @@ fn built_in_dart_plugin_passes_seam_2_conformance() {
             expected_resolved_target: paths[3],
         },
     );
+}
+
+#[test]
+fn built_in_python_plugin_passes_seam_2_conformance() {
+    let prod = "from app.helper import value\n\n# comment\ndef run(flag):\n    if flag:\n        return value()\n    else:\n        return 0\n";
+    let prod_crlf = prod.replace('\n', "\r\n");
+    let fixture = ConformanceFixture {
+        expected_resolved_target: "packages/app/src/app/helper.py",
+        import_requests: &[
+            ("packages/app/src/app/main.py", "app.helper"),
+            ("packages/app/src/app/main.py", "os"),
+            ("packages/app/src/app/main.py", ".missing"),
+        ],
+        invalid_manifest_text: "[tool.uv.workspace\n",
+        expected_workspace_package: "packages/app",
+        valid_manifests: &[
+            (
+                "pyproject.toml",
+                "[tool.uv.workspace]\nmembers = [\"packages/*\"]\n",
+            ),
+            ("packages/app/pyproject.toml", "[project]\nname = \"app\"\n"),
+        ],
+        expected_manifest_path: "pyproject.toml",
+        repository_paths: &[
+            "pyproject.toml",
+            "packages/app/pyproject.toml",
+            "packages/app/src/app/main.py",
+            "packages/app/src/app/helper.py",
+        ],
+        unsupported_path: "scripts/tool.unknown",
+        unparsable_source: "def broken():\n    s = 'unclosed\n",
+        unparsable_path: "packages/app/src/app/broken.py",
+        declaration_only: None,
+        empty_path: "packages/app/src/app/empty.py",
+        test_source: "def check():\n    return 1\n",
+        test_path: "packages/app/tests/test_main.py",
+        production_source_crlf: &prod_crlf,
+        production_source: prod,
+        production_path: "packages/app/src/app/main.py",
+        name: "python",
+    };
+    assert_seam_2_conformance(&Python, &fixture);
 }
