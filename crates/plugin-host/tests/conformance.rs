@@ -3,6 +3,7 @@ mod common;
 use std::path::Path;
 
 use codeint_config::PluginHostConfig;
+use codeint_lang_dart::Dart;
 use codeint_lang_php::Php;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::TypeScriptAndJavaScript;
@@ -422,4 +423,49 @@ fn built_in_php_plugin_passes_seam_2_conformance() {
         expect_reference_ranges: false,
     };
     assert_seam_2_conformance(&Php, &fixture);
+}
+
+#[test]
+fn built_in_dart_plugin_passes_seam_2_conformance() {
+    let paths = [
+        "pubspec.yaml",
+        "packages/app/pubspec.yaml",
+        "packages/app/lib/main.dart",
+        "packages/app/lib/helper.dart",
+    ];
+    let manifests = [
+        ("pubspec.yaml", "name: root\nworkspace:\n  - packages/app\n"),
+        ("packages/app/pubspec.yaml", "name: app\n"),
+    ];
+    let requests = [
+        ("packages/app/lib/main.dart", "package:app/helper.dart"),
+        ("packages/app/lib/main.dart", "dart:core"),
+        ("packages/app/lib/main.dart", "missing.dart"),
+    ];
+    let src = "import 'package:app/helper.dart';\n\n// comment\nint run(bool flag) {\n  if (flag) {\n    return value();\n  } else {\n    return 0;\n  }\n}\n";
+    let src_crlf = src.replace('\n', "\r\n");
+    assert_seam_2_conformance(
+        &Dart,
+        &ConformanceFixture {
+            name: "dart",
+            production_path: paths[2],
+            production_source: src,
+            production_source_crlf: &src_crlf,
+            test_path: "packages/app/test/main_test.dart",
+            test_source: "int check() => 1;\n",
+            empty_path: "packages/app/lib/empty.dart",
+            declaration_only: None,
+            unparsable_path: "packages/app/lib/broken.dart",
+            unparsable_source: "void broken() { final s = 'unclosed; }\n",
+            unsupported_path: "scripts/tool.unknown",
+            repository_paths: &paths,
+            expected_manifest_path: paths[0],
+            valid_manifests: &manifests,
+            expected_workspace_package: "packages/app",
+            invalid_manifest_text: "workspace: [\n",
+            import_requests: &requests,
+            expected_resolved_target: paths[3],
+            expect_reference_ranges: false,
+        },
+    );
 }

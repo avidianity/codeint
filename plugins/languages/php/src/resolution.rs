@@ -2,17 +2,13 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use codeint_model::scan::{find_manifests, resolve_relative_file};
 use serde_json::Value;
 
 use crate::workspaces::COMPOSER_MANIFEST;
 
 pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
-    let nested = format!("/{COMPOSER_MANIFEST}");
-    repository_paths
-        .iter()
-        .filter(|p| p.as_str() == COMPOSER_MANIFEST || p.ends_with(&nested))
-        .cloned()
-        .collect()
+    find_manifests(repository_paths, COMPOSER_MANIFEST)
 }
 
 struct Psr4Rule {
@@ -91,27 +87,7 @@ impl PhpResolver {
     }
 
     fn resolve_require(&self, importer: &str, req_path: &str) -> Resolution {
-        if req_path.starts_with('/') {
-            return Resolution::Unresolved(format!(
-                "{req_path:?} is an absolute path, which depends on the machine"
-            ));
-        }
-        let dir = importer.rsplit_once('/').map_or("", |(parent, _)| parent);
-        let Some(joined) = normalize_relative(dir, req_path) else {
-            return Resolution::Unresolved(format!("{req_path:?} leads outside the repository"));
-        };
-        if joined.split('/').any(|segment| segment == "vendor") {
-            return Resolution::External;
-        }
-        if self.files.contains(&joined) {
-            if joined == importer {
-                Resolution::External
-            } else {
-                Resolution::Resolved(joined)
-            }
-        } else {
-            Resolution::Unresolved(format!("no file of the repository matches {req_path:?}"))
-        }
+        resolve_relative_file(&self.files, importer, req_path, true)
     }
 }
 
@@ -161,22 +137,4 @@ fn join_dir(base: &str, sub: &str) -> String {
         (false, true) => base.to_owned(),
         (false, false) => format!("{base}/{sub}"),
     }
-}
-
-fn normalize_relative(base_dir: &str, rel: &str) -> Option<String> {
-    let mut segments: Vec<&str> = if base_dir.is_empty() {
-        Vec::new()
-    } else {
-        base_dir.split('/').collect()
-    };
-    for seg in rel.split('/') {
-        match seg {
-            "" | "." => {}
-            ".." => {
-                segments.pop()?;
-            }
-            other => segments.push(other),
-        }
-    }
-    Some(segments.join("/"))
 }

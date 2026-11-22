@@ -12,6 +12,7 @@ publish = false
 clap = { version = "=4.6.9", features = ["derive"] }
 codeint-config = { path = "crates/config" }
 codeint-git = { path = "crates/git" }
+codeint-lang-dart = { path = "plugins/languages/dart" }
 codeint-lang-php = { path = "plugins/languages/php" }
 codeint-lang-rust = { path = "plugins/languages/rust" }
 codeint-lang-ts = { path = "plugins/languages/ts" }

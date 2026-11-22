@@ -14,7 +14,7 @@ It is for developers whose code is increasingly written by coding agents, so the
 
 codeint reports each Metric on its own, with the Findings behind it, and never blends them into one score.
 It gates CI on per-Metric Budgets and on Regressions against a base Git ref.
-Languages and Metrics are Plugins: TypeScript/JavaScript, Rust, and PHP ship as built-in Language plugins, and third-party languages and Metrics load as WebAssembly Plugins.
+Languages and Metrics are Plugins: TypeScript/JavaScript, Rust, PHP, and Dart ship as built-in Language plugins, and third-party languages and Metrics load as WebAssembly Plugins.
 
 <p align="center">
   <a href="#install">Install</a> ·
@@ -95,7 +95,8 @@ Without `codeint.json`, codeint measures every supported language with default s
   "languages": [
     { "plugin": "typescript-javascript", "include": ["web"], "exclude": ["web/dist"] },
     { "plugin": "rust", "include": ["crates"], "exclude": [] },
-    { "plugin": "php", "include": ["app", "src"], "exclude": [] }
+    { "plugin": "php", "include": ["app", "src"], "exclude": [] },
+    { "plugin": "dart", "include": ["lib"], "exclude": [] }
   ]
 }
 ```
@@ -103,7 +104,7 @@ Without `codeint.json`, codeint measures every supported language with default s
 - **`source_sets`**: classify paths into `production`, `test`, `generated`, or `vendored` using globs (overrides built-in rules).
 - **`budgets`**: hard maximum ratios (`0` to `1`) per Source set and Metric; `codeint check` and `codeint diff` exit `1` when exceeded.
 - **`regression_limits`**: per-Metric or per-Source-set limits for `codeint diff` (`ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise_with_new_findings`, or `never`).
-- **`languages`**: scope built-in Language plugins (`typescript-javascript`, `rust`, `php`) or external plugins to specific folders and exclusions.
+- **`languages`**: scope built-in Language plugins (`typescript-javascript`, `rust`, `php`, `dart`) or external plugins to specific folders and exclusions.
 - **`plugins`** and **`plugin_limits`**: load external WebAssembly Language or Metric plugins with SHA-256 verification and memory/time caps.
 
 See [docs/reference.md#codeintjson](./docs/reference.md#codeintjson) for every key, default value, and tested example.
@@ -147,6 +148,15 @@ Sample Production measurements from `codeint check` (release build, Apple Silico
 | ---------- | ----- | ---------- | ------- | ----------- | --------- | ------------- | ---- |
 | `laravel/laravel` | 29 | 762 | 0.0% | 0.0% | 0.0% | 8.0% | 0.03s |
 | `laravel/framework` | 3,208 | 132,791 | 16.9% | 8.1% | 8.2% | 4.4% | 0.47s |
+
+### Dart measurements and speed
+
+Sample Production measurements from `codeint check` (release build, Apple Silicon):
+
+| Repository | Files | Prod lines | Erosion | Duplication | Verbosity | Import cycles | Time |
+| ---------- | ----- | ---------- | ------- | ----------- | --------- | ------------- | ---- |
+| `dart-lang/pub` | 547 | 26,170 | 44.4% | 0.5% | 1.7% | 78.6% | 0.88s |
+| `flutter/packages` | 4,137 | 434,407 | 45.9% | 23.1% | 23.3% | 18.5% | 3.68s |
 
 ## GitHub Actions
 
