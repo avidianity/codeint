@@ -1,8 +1,29 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
+use std::thread;
+use std::time::Duration;
 
 use tempfile::TempDir;
+
+fn run_exe(exe: &Path, args: &[&str], release_base: Option<&Path>) -> Output {
+    for attempt in 0..20 {
+        let mut command = Command::new(exe);
+        command.args(args);
+        if let Some(base) = release_base {
+            command.env("CODEINT_RELEASE_BASE_URL", base);
+        }
+        match command.output() {
+            Ok(output) => return output,
+            Err(error) if error.kind() == ErrorKind::ExecutableFileBusy && attempt < 19 => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("run: {error:?}"),
+        }
+    }
+    unreachable!()
+}
 
 fn codeint_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_codeint"))
@@ -115,11 +136,7 @@ fn update_check_reports_up_to_date_and_available_update_without_modifying_binary
         format!("v{}\n", env!("CARGO_PKG_VERSION")),
     )
     .expect("latest");
-    let up_to_date = Command::new(&exe)
-        .args(["update", "--check"])
-        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
-        .output()
-        .expect("run");
+    let up_to_date = run_exe(&exe, &["update", "--check"], Some(&release_dir));
     assert!(up_to_date.status.success(), "{up_to_date:?}");
     assert!(
         String::from_utf8_lossy(&up_to_date.stdout).contains("already up to date"),
@@ -128,11 +145,7 @@ fn update_check_reports_up_to_date_and_available_update_without_modifying_binary
     );
 
     fs::write(release_dir.join("LATEST"), "v9.9.9\n").expect("latest");
-    let available = Command::new(&exe)
-        .args(["update", "--check"])
-        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
-        .output()
-        .expect("run");
+    let available = run_exe(&exe, &["update", "--check"], Some(&release_dir));
     assert!(available.status.success(), "{available:?}");
     assert!(
         String::from_utf8_lossy(&available.stdout).contains("Update available"),
@@ -159,11 +172,7 @@ fn update_verifies_checksum_and_replaces_standalone_binary_in_place() {
     )
     .expect("sums");
 
-    let output = Command::new(&exe)
-        .arg("update")
-        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
-        .output()
-        .expect("run");
+    let output = run_exe(&exe, &["update"], Some(&release_dir));
     assert!(output.status.success(), "{output:?}");
     assert!(
         String::from_utf8_lossy(&output.stdout).contains("Updated codeint to v9.9.9"),
@@ -193,11 +202,7 @@ fn update_refuses_checksum_mismatch_and_keeps_original_binary() {
     )
     .expect("sums");
 
-    let output = Command::new(&exe)
-        .arg("update")
-        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
-        .output()
-        .expect("run");
+    let output = run_exe(&exe, &["update"], Some(&release_dir));
     assert_eq!(output.status.code(), Some(2));
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("checksum verification failed"),
@@ -216,10 +221,7 @@ fn update_refuses_to_overwrite_node_modules_install() {
     fs::create_dir_all(&nm_bin).expect("nm dir");
     let exe = copy_codeint_to(&nm_bin);
 
-    let output = Command::new(&exe)
-        .args(["update", "--check"])
-        .output()
-        .expect("run");
+    let output = run_exe(&exe, &["update", "--check"], None);
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("managed by a package manager"), "{stderr}");
