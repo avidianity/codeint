@@ -19,6 +19,7 @@ Languages and Metrics are Plugins: TypeScript/JavaScript, Rust, and PHP ship as 
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#use">Use</a> ·
+  <a href="#configure">Configure</a> ·
   <a href="#what-to-expect">What to expect</a> ·
   <a href="#github-actions">GitHub Actions</a> ·
   <a href="./docs/reference.md">Reference</a> ·
@@ -64,6 +65,47 @@ codeint update
 
 [docs/reference.md](./docs/reference.md) documents every command, option, exit code, report format, and `codeint.json` key, with an example for each.
 [docs/plugins.md](./docs/plugins.md) explains how to build, hash, declare, and test Language plugins and Metric plugins against the versioned WIT contract.
+
+## Configure
+
+Run `codeint init` at the root of your Git repository to create a starter `codeint.json` with editor autocomplete via `$schema`.
+Without `codeint.json`, codeint measures every supported language with default settings and no hard Budgets.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/main/schema/codeint.schema.json",
+  "source_sets": {
+    "generated": ["src/**/*.generated.ts"],
+    "vendored": ["vendor/**"]
+  },
+  "budgets": {
+    "production": {
+      "erosion": 0.35,
+      "duplication": 0.08,
+      "verbosity": 0.08,
+      "import_cycles": 0.05
+    }
+  },
+  "regression_limits": {
+    "generated": {
+      "duplication": { "ratio_rise": 1, "new_findings": "never" }
+    }
+  },
+  "languages": [
+    { "plugin": "typescript-javascript", "include": ["web"], "exclude": ["web/dist"] },
+    { "plugin": "rust", "include": ["crates"], "exclude": [] },
+    { "plugin": "php", "include": ["app", "src"], "exclude": [] }
+  ]
+}
+```
+
+- **`source_sets`**: classify paths into `production`, `test`, `generated`, or `vendored` using globs (overrides built-in rules).
+- **`budgets`**: hard maximum ratios (`0` to `1`) per Source set and Metric; `codeint check` and `codeint diff` exit `1` when exceeded.
+- **`regression_limits`**: per-Metric or per-Source-set limits for `codeint diff` (`ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise_with_new_findings`, or `never`).
+- **`languages`**: scope built-in Language plugins (`typescript-javascript`, `rust`, `php`) or external plugins to specific folders and exclusions.
+- **`plugins`** and **`plugin_limits`**: load external WebAssembly Language or Metric plugins with SHA-256 verification and memory/time caps.
+
+See [docs/reference.md#codeintjson](./docs/reference.md#codeintjson) for every key, default value, and tested example.
 
 ## What to expect
 

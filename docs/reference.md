@@ -549,8 +549,14 @@ Remove the key, or correct its spelling to one of the allowed keys.
 
 Each file belongs to one Source set: `production`, `test`, `generated`, or `vendored`.
 The Language plugin and the core rules settle the Source set of each file.
-The `typescript-javascript` Language plugin puts a file in `test` when its name ends in `.test.{extension}` or `.spec.{extension}`, such as `src/greet.test.ts`, or when any of its folders, at any depth, is named `__tests__`, `test`, or `tests`, such as `test/greet.ts` or `packages/app/tests/setup.ts`.
-A file named `test.ts` or `tests.ts` outside such a folder stays in `production`.
+
+- `typescript-javascript` puts a file in `test` when its name ends in `.test.{extension}` or `.spec.{extension}`, such as `src/greet.test.ts`, or when any folder in its path is named `__tests__`, `test`, or `tests`, such as `test/greet.ts` or `packages/app/tests/setup.ts`.
+  A file named `test.ts` or `tests.ts` outside such a folder stays in `production`.
+- `rust` puts a file in `test` when any folder in its path is named `tests` or `benches`, when its name ends in `_test.rs` or `_tests.rs`, or when its name is `tests.rs`.
+  Inline `#[cfg(test)]` modules inside a production file are skipped from `production` metrics.
+- `php` puts a file in `test` when any folder in its path is named `tests` or `test`, or when its name ends in `Test.php`.
+- Core rules put files under `vendor/` or `third_party/` into `vendored`, and files with generated-file markers (such as `@generated`) into `generated`.
+
 Globs under `source_sets` win over every rule.
 Globs match the repository-relative path with forward slashes: `*` matches within one folder, and `**` matches across folders.
 When globs of several Source sets match one file, the first of `vendored`, `generated`, `test`, and `production` wins.
@@ -649,7 +655,13 @@ Each entry of `languages` names a Language plugin, the globs of the folders or f
 Several entries may name one Language plugin; it measures what any of them includes.
 Without `languages`, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include.
 When two Language plugins claim the same file extension for the same folder, codeint stops with exit code 2 until `languages` assigns separate folders to each plugin.
-v1 ships one Language plugin, `typescript-javascript`.
+codeint ships three built-in Language plugins:
+
+| Plugin name | Extensions | Workspace manifest |
+| ----------- | ---------- | ------------------ |
+| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` | `package.json` / `pnpm-workspace.yaml` |
+| `rust` | `.rs` | `Cargo.toml` |
+| `php` | `.php` | `composer.json` |
 
 ```json codeint.json
 {
@@ -661,6 +673,18 @@ v1 ships one Language plugin, `typescript-javascript`.
 
 ```sh exit=0
 codeint check
+```
+
+In a multi-language repository, list each built-in Language plugin with its own folders:
+
+```json illustration
+{
+  "languages": [
+    { "plugin": "typescript-javascript", "include": ["web"], "exclude": ["web/dist"] },
+    { "plugin": "rust", "include": ["crates"], "exclude": [] },
+    { "plugin": "php", "include": ["app", "src"], "exclude": [] }
+  ]
+}
 ```
 
 ### Plugins
