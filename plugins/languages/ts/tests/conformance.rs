@@ -29,7 +29,9 @@ fn the_plugin_declares_every_typescript_and_javascript_extension_without_a_leadi
 
     assert_eq!(
         extensions,
-        ["cjs", "cts", "js", "jsx", "mjs", "mts", "ts", "tsx"]
+        [
+            "cjs", "cts", "js", "jsx", "mjs", "mts", "svelte", "ts", "tsx", "vue"
+        ]
     );
 }
 
