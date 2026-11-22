@@ -11,5 +11,4 @@ workspace = true
 [dependencies]
 codeint-model = { workspace = true }
 globset = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }

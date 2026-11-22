@@ -329,7 +329,6 @@ version = "0.1.0"
 dependencies = [
  "codeint-model",
  "globset",
- "serde",
  "serde_json",
 ]
 
