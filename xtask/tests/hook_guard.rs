@@ -87,3 +87,99 @@ fn the_guard_allows_ordinary_commands_and_files() {
     let write = serde_json::json!({ "file_path": "/repo/src/lib.rs", "content": "x" });
     assert_eq!(exit_code(write), Some(0));
 }
+
+#[test]
+fn the_guard_refuses_git_commit_tree_and_allows_it_in_commit_messages() {
+    let refused = [
+        "git commit-tree HEAD^{tree} -m \"x\"",
+        "git -C /repo commit-tree HEAD^{tree} -m \"x\"",
+        "git --git-dir=.git commit-tree HEAD^{tree}",
+        "/usr/bin/git commit-tree HEAD^{tree} -m \"x\"",
+        "env git commit-tree HEAD^{tree} -m \"x\"",
+        "GIT_AUTHOR_NAME=x git commit-tree HEAD^{tree} -m \"x\"",
+        "echo $(git commit-tree HEAD^{tree} -m \"x\")",
+        "(git commit-tree HEAD^{tree} -m \"x\")",
+        "git commit -m \"ok\" && git commit-tree HEAD^{tree} -m \"x\"",
+    ];
+    for bypass in refused {
+        assert_eq!(command(bypass), Some(2), "the guard let through: {bypass}");
+    }
+
+    let allowed = [
+        "git commit -m \"fix(checks): refuse git commit-tree\"",
+        "git commit -m 'fix(checks): refuse git commit-tree'",
+        "git commit --message=\"mention commit-tree in docs\"",
+        "git commit -m \"docs: explain commit-tree\"",
+    ];
+    for safe in allowed {
+        assert_eq!(command(safe), Some(0), "the guard blocked: {safe}");
+    }
+}
+
+#[test]
+fn the_guard_refuses_git_hooks_reached_across_cd_commands_and_allows_other_cd_chains() {
+    let refused = [
+        "cd .git && cd hooks && : > pre-commit",
+        "cd .git && cd hooks && rm pre-commit",
+        "cd .git && cd hooks && chmod -x pre-commit",
+        "cd .git/hooks && : > commit-msg",
+        "cd subdir && cd ../.git && cd hooks && rm pre-commit",
+        "cd a/b && cd ../../.git && cd hooks && : > pre-push",
+        "cd /repo/.git && cd hooks && touch pre-commit",
+        "pushd .git && pushd hooks && rm pre-commit",
+        "cd .git && (cd hooks && : > pre-commit)",
+        "cd subdir && cd ../.git/hooks && rm pre-commit",
+        "cd .git && rm ./hooks/pre-commit",
+        "cd .git && cp /dev/null hooks/commit-msg",
+    ];
+    for bypass in refused {
+        assert_eq!(command(bypass), Some(2), "the guard let through: {bypass}");
+    }
+
+    let allowed = [
+        "cd subdir && cd .. && cargo test",
+        "cd .claude && cd hooks && ls",
+        "cd docs && cd checks && ls",
+        "cd .git && cd .. && cd hooks && ls",
+        "cd src && cd hooks && cat index.ts",
+    ];
+    for safe in allowed {
+        assert_eq!(command(safe), Some(0), "the guard blocked: {safe}");
+    }
+}
+
+#[test]
+fn the_guard_allows_blocked_strings_inside_commit_messages_but_refuses_real_flags() {
+    let allowed = [
+        "git commit -m \"fix(checks): allow -n in commit messages\"",
+        "git commit -m 'fix(checks): allow -n in commit messages'",
+        "git commit -m \"fix(checks): refuse --no-verify and LEFTHOOK=0\"",
+        "git commit -m 'fix(checks): refuse --no-verify and LEFTHOOK=0'",
+        "git commit -m \"fix(checks): refuse git commit-tree and core.hooksPath\"",
+        "git commit -m \"fix(checks): refuse GIT_CONFIG_COUNT=1 and lefthook-local.yml\"",
+        "git commit -m \"fix(checks): block .git/hooks and hooks/pre-commit\"",
+        "git commit --message=\"fix(checks): block --no-verify -n LEFTHOOK=0 commit-tree\"",
+        "git commit --message 'fix(checks): block --no-verify -n LEFTHOOK=0 commit-tree'",
+        "git commit -am \"fix(checks): mention -n and --no-verify\"",
+        "git commit -m \"title\" -m \"body with -n, --no-verify, LEFTHOOK=0, and git commit-tree\"",
+        "git commit -m \"$(cat <<'EOF'\nfix(checks): block --no-verify, -n, LEFTHOOK=0, git commit-tree\nEOF\n)\"",
+    ];
+    for safe in allowed {
+        assert_eq!(command(safe), Some(0), "the guard blocked: {safe}");
+    }
+
+    let refused = [
+        "git commit -n -m \"fix: harmless\"",
+        "git commit -m \"fix: harmless\" -n",
+        "git commit --no-verify -m \"fix: harmless\"",
+        "git commit -m \"fix: harmless\" --no-verify",
+        "LEFTHOOK=0 git commit -m \"fix: harmless\"",
+        "git commit -m \"fix: $(git commit --no-verify -m inner)\"",
+        "git commit -m \"fix: $(git commit-tree HEAD^{tree} -m inner)\"",
+        "git commit -m \"fix: harmless\" && git commit --no-verify -m \"second\"",
+        "git commit -m \"fix: harmless\" && LEFTHOOK=0 git push",
+    ];
+    for bypass in refused {
+        assert_eq!(command(bypass), Some(2), "the guard let through: {bypass}");
+    }
+}

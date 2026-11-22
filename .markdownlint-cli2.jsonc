@@ -8,6 +8,7 @@
     "MD041": true,
     "MD060": false
   },
+  "gitignore": true,
   "globs": ["**/*.md"],
   "ignores": [".github/pull_request_template.md", "**/node_modules/**", ".claude/worktrees/**", "target/**", ".agents/skills/**", ".claude/skills/**"]
 }

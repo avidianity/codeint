@@ -19,13 +19,9 @@ pub use starter::{
     write_starter_configuration,
 };
 
-pub const CONFIGURATION_FILE_NAME: &str = "codeint.json";
-pub const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
-pub const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
-pub const MIN_PLUGIN_MEMORY_MB: u64 = 1;
-pub const MAX_PLUGIN_MEMORY_MB: u64 = 4_096;
-pub const MIN_PLUGIN_TIMEOUT_MS: u64 = 1;
-pub const MAX_PLUGIN_TIMEOUT_MS: u64 = 300_000;
+const CONFIGURATION_FILE_NAME: &str = "codeint.json";
+const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
+const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PluginLimits {
