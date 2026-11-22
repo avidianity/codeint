@@ -285,6 +285,7 @@ version = "0.1.0"
 dependencies = [
  "codeint-config",
  "codeint-git",
+ "codeint-lang-rust",
  "codeint-lang-ts",
  "codeint-model",
  "codeint-plugin-host",
@@ -319,6 +320,18 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "codeint-lang-rust"
+version = "0.1.0"
+dependencies = [
+ "codeint-model",
+ "globset",
+ "proc-macro2",
+ "serde",
+ "syn 2.0.119",
+ "toml",
 ]
 
 [[package]]
@@ -358,6 +371,7 @@ name = "codeint-plugin-host"
 version = "0.1.0"
 dependencies = [
  "codeint-config",
+ "codeint-lang-rust",
  "codeint-lang-ts",
  "codeint-model",
  "thiserror",

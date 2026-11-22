@@ -12,6 +12,7 @@ publish = false
 clap = { version = "=4.6.9", features = ["derive"] }
 codeint-config = { path = "crates/config" }
 codeint-git = { path = "crates/git" }
+codeint-lang-rust = { path = "plugins/languages/rust" }
 codeint-lang-ts = { path = "plugins/languages/ts" }
 codeint-metrics = { path = "crates/metrics" }
 codeint-model = { path = "crates/model" }
@@ -25,11 +26,13 @@ oxc_ast_visit = "=0.159.0"
 oxc_parser = "=0.159.0"
 oxc_resolver = "=11.24.3"
 oxc_span = "=0.159.0"
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
 rayon = "=1.12.0"
 schemars = "=1.2.3"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde-saphyr = { version = "=2.1.1", default-features = false, features = ["deserialize"] }
 serde_json = "=1.0.154"
+syn = { version = "=2.0.119", features = ["full", "visit"] }
 tempfile = "=3.27.0"
 thiserror = "=2.0.21"
 toml = "=1.2.1"
