@@ -11,17 +11,15 @@ mod result_cache_folder;
 
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
-    Budget, Budgets, CONFIGURATION_FILE_NAME, Configuration, ConfigurationFileError,
-    DEFAULT_PLUGIN_MEMORY_MB, DEFAULT_PLUGIN_TIMEOUT_MS, DetectedLanguage, JsonType, KeyPath,
-    KeySegment, LanguageCoverage, Languages, MAX_PLUGIN_MEMORY_MB, MAX_PLUGIN_TIMEOUT_MS,
-    MIN_PLUGIN_MEMORY_MB, MIN_PLUGIN_TIMEOUT_MS, PluginDeclaration, PluginKind, PluginLimits,
+    Budget, Budgets, Configuration, ConfigurationFileError, DetectedLanguage, JsonType, KeyPath,
+    KeySegment, LanguageCoverage, Languages, PluginDeclaration, PluginKind, PluginLimits,
     PluginSource, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
     configuration_schema, published_schema_address, read_configuration,
     write_starter_configuration,
 };
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 
-pub const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
+const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
 
 const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
 const PLUGIN_CACHE_SUBDIR: &str = "plugins";
