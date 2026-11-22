@@ -18,7 +18,7 @@ const TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT: [(&str, &[&str]); 4] = [
     (".cjs", &[".cjs", ".cts"]),
 ];
 
-const CONDITIONS: [&str; 5] = ["types", "import", "require", "node", "default"];
+const CONDITIONS: [&str; 6] = ["types", "bun", "import", "require", "node", "default"];
 
 pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
     repository_paths
@@ -84,6 +84,9 @@ impl ProjectResolver {
         if is_relative(specifier) && leaves_the_repository(&request.importer, specifier) {
             return Resolution::Unresolved(format!("{specifier:?} leads outside the repository"));
         }
+        if is_bun_builtin(specifier) {
+            return Resolution::External;
+        }
         let importer = snapshot::absolute(&request.importer);
         let resolved = match self.resolver.resolve_file(&importer, specifier) {
             Err(error) if is_project_configuration_error(&error) => {
@@ -138,6 +141,10 @@ fn is_project_configuration_error(error: &ResolveError) -> bool {
             | ResolveError::TsconfigCircularExtend(_)
             | ResolveError::TsconfigLoadFailed { .. }
     )
+}
+
+fn is_bun_builtin(specifier: &str) -> bool {
+    specifier == "bun" || specifier.starts_with("bun:")
 }
 
 fn is_relative(specifier: &str) -> bool {

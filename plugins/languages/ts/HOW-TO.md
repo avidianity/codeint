@@ -72,7 +72,8 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
   It finds the workspace packages with `src/workspaces.rs`, the same rule that splits the report by package.
   A named package outside the declared workspaces, or in a repository without workspaces, is not linked, because npm, Yarn, and Bun do not install it in `node_modules`.
   Two packages with the same name are both left unlinked.
-- The `exports` conditions are `types`, `import`, `require`, `node`, and `default`, so an export whose `types` entry names a source file resolves to that file.
+- The `exports` conditions are `types`, `bun`, `import`, `require`, `node`, and `default`, so an export whose `types` or `bun` entry names a source file resolves to that file.
+- `bun` and `bun:*` specifiers are always `External` built-in runtime modules.
 - A bare specifier that fails to resolve is `External`, unless it names a linked package or matches a tsconfig `paths` key of the importer; then it is `Unresolved`.
 - Prove a change with `tests/conformance.rs` through `manifest_paths` and `resolve_imports`, and with a cycle test in `crates/cli/tests/check.rs`.
 
