@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a new Language plugin, Metric, CLI option, or SDK capability.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve for teams measuring Software entropy?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe how you expect codeint to behave from a user's perspective.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Language plugin
+        - Metric or reporting
+        - CLI or configuration
+        - Programmatic API (JS/TS or Rust)
+        - WebAssembly plugins
+        - Documentation
+    validations:
+      required: false

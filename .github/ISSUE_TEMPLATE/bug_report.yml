@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a bug, crash, or incorrect measurement in codeint.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior clearly.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: codeint version and platform
+      description: Run `codeint --version` and include your OS and architecture.
+      placeholder: "codeint 0.4.0 (macOS arm64)"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, minimal code snippet, or repository setup that triggers the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual output
+      description: Paste literal command output or error lines when available.
+    validations:
+      required: false
