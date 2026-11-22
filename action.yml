@@ -1,0 +1,129 @@
+name: codeint
+description: Measure Software entropy, gate pull requests on Regressions, post a sticky PR summary comment, and optionally upload SARIF.
+
+branding:
+  icon: activity
+  color: green
+
+inputs:
+  base-ref:
+    description: Base Git ref to diff against (defaults to origin/<github.base_ref> on pull requests).
+    required: false
+    default: ""
+  path:
+    description: Directory to measure inside the repository.
+    required: false
+    default: "."
+  version:
+    description: Release tag to install (for example v0.4.0) or latest.
+    required: false
+    default: "latest"
+  comment:
+    description: Post or update a sticky pull-request summary comment.
+    required: false
+    default: "true"
+  upload-sarif:
+    description: Upload codeint.sarif to GitHub code scanning (requires security-events write permission).
+    required: false
+    default: "false"
+  fail-on-regression:
+    description: Fail the workflow step when codeint diff exits 1 on a Budget or Regression failure.
+    required: false
+    default: "true"
+  token:
+    description: GitHub token used to post or update the sticky pull-request comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  exit-code:
+    description: Exit code returned by codeint diff.
+    value: ${{ steps.diff.outputs.exit-code }}
+  sarif-file:
+    description: Path to the generated SARIF report when upload-sarif is enabled.
+    value: ${{ steps.diff.outputs.sarif-file }}
+  markdown-file:
+    description: Path to the generated Markdown report.
+    value: ${{ steps.diff.outputs.markdown-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install codeint
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ "$INPUT_VERSION" = "latest" ]; then
+          URL="https://github.com/avidianity/codeint/releases/latest/download/install.sh"
+        else
+          URL="https://github.com/avidianity/codeint/releases/download/${INPUT_VERSION}/install.sh"
+        fi
+        curl -fsSL "$URL" | bash
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Run codeint diff
+      id: diff
+      shell: bash
+      env:
+        INPUT_BASE_REF: ${{ inputs.base-ref }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_UPLOAD_SARIF: ${{ inputs.upload-sarif }}
+        GITHUB_BASE_REF: ${{ github.base_ref }}
+      run: |
+        set -euo pipefail
+        BASE="$INPUT_BASE_REF"
+        if [ -z "$BASE" ]; then
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            BASE="origin/$GITHUB_BASE_REF"
+          else
+            BASE="HEAD~1"
+          fi
+        fi
+        MD_FILE="codeint-report.md"
+        SARIF_FILE="codeint.sarif"
+        set +e
+        codeint diff "$BASE" "$INPUT_PATH" --format markdown --output "$MD_FILE"
+        EXIT_CODE=$?
+        set -e
+        echo "exit-code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+        echo "markdown-file=$MD_FILE" >> "$GITHUB_OUTPUT"
+        if [ "$INPUT_UPLOAD_SARIF" = "true" ]; then
+          set +e
+          codeint diff "$BASE" "$INPUT_PATH" --format sarif --output "$SARIF_FILE"
+          set -e
+          echo "sarif-file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Post or update sticky pull-request comment
+      if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPORT_FILE: ${{ steps.diff.outputs.markdown-file }}
+        DIFF_EXIT_CODE: ${{ steps.diff.outputs.exit-code }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/scripts/action-comment.mjs"
+
+    - name: Upload SARIF
+      if: inputs.upload-sarif == 'true' && hashFiles('codeint.sarif') != ''
+      uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
+      with:
+        sarif_file: codeint.sarif
+
+    - name: Enforce exit code
+      shell: bash
+      env:
+        DIFF_EXIT_CODE: ${{ steps.diff.outputs.exit-code }}
+        FAIL_ON_REGRESSION: ${{ inputs.fail-on-regression }}
+      run: |
+        set -euo pipefail
+        if [ "$DIFF_EXIT_CODE" = "2" ]; then
+          exit 2
+        fi
+        if [ "$DIFF_EXIT_CODE" = "1" ] && [ "$FAIL_ON_REGRESSION" = "true" ]; then
+          exit 1
+        fi
