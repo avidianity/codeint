@@ -4,6 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/avidianity/codeint/actions/workflows/ci.yml"><img src="https://github.com/avidianity/codeint/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://github.com/avidianity/codeint/releases/latest"><img src="https://img.shields.io/github/v/release/avidianity/codeint?color=275e5e" alt="GitHub Release"></a>
+  <a href="https://www.npmjs.com/package/codeint"><img src="https://img.shields.io/npm/v/codeint?color=275e5e" alt="npm version"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/avidianity/codeint?color=275e5e" alt="License: MIT"></a>
 </p>
 
@@ -15,7 +17,7 @@ It gates CI on per-Metric Budgets and on Regressions against a base Git ref.
 Languages and Metrics are Plugins: TypeScript/JavaScript and Rust ship as built-in Language plugins, and third-party languages and Metrics load as WebAssembly Plugins.
 
 <p align="center">
-  <a href="#status">Status</a> ·
+  <a href="#install">Install</a> ·
   <a href="#use">Use</a> ·
   <a href="#what-to-expect">What to expect</a> ·
   <a href="#github-actions">GitHub Actions</a> ·
@@ -26,10 +28,9 @@ Languages and Metrics are Plugins: TypeScript/JavaScript and Rust ship as built-
 
 [GLOSSARY.md](./GLOSSARY.md) defines every term on this page.
 
-## Status
+## Install
 
-codeint is in early development and has no release yet.
-After the first release, it installs with one command:
+Install the standalone binary (macOS, Linux, Windows) or run directly with `npx`:
 
 ```sh
 curl -fsSL https://github.com/avidianity/codeint/releases/latest/download/install.sh | bash

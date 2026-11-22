@@ -78,4 +78,4 @@ After the version pull request merges into `main`:
    - `checksums-and-attestations` writes `SHA256SUMS` and generates build provenance attestations.
    - `stage-npm` packs the six `@avidian/codeint-{os}-{arch}` platform tarballs and the `codeint` wrapper tarball.
    - `publish-github-release` creates the GitHub Release for `v{version}` with the drafted notes, the six archives, `SHA256SUMS`, `install.sh`, and `install.ps1`.
-   - `publish-npm` publishes the six `@avidian/codeint-{os}-{arch}` platform packages first, then the `codeint` wrapper, with `--provenance --access public`.
+   - `publish-npm` publishes the six `@avidian/codeint-{os}-{arch}` platform packages first, then the `codeint` wrapper, using GitHub Actions OIDC Trusted Publishing (`id-token: write`, no `NPM_TOKEN` secret) with `--provenance --access public`.
