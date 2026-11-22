@@ -1,0 +1,32 @@
+# codeint
+
+> codeint is a command-line tool and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Duplication, Verbosity, and Import cycles) across TypeScript/JavaScript, Rust, PHP, Dart, and external WebAssembly Language and Metric plugins.
+
+## Guide
+
+- [Guide Index](docs/guide/README.md): reading map for all user documentation.
+- [Philosophy and Architecture](docs/guide/philosophy-and-architecture.md): why Software entropy matters, how the four Metrics work, and how the codebase is structured.
+- [Getting Started](docs/guide/getting-started.md): install codeint, initialize `codeint.json`, and run `check`, `diff`, `trend`, and `update`.
+- [Configuration](docs/guide/configuration.md): configure `codeint.json` Budgets, Regression limits, Source sets, and multi-language folders.
+- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript, Rust, PHP, and Dart rules and calibrated Reference ranges.
+- [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): pull-request diff gating and SARIF code scanning setup.
+
+## Reference and APIs
+
+- [CLI and `codeint.json` Reference](docs/reference.md): tested reference for every command, flag, exit code, report format, and schema key.
+- [Programmatic API](docs/programmatic.md): JavaScript/TypeScript SDK (`codeint` npm package) and Rust library API (`codeint-cli`).
+- [Plugins](docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins against the versioned WIT contract.
+- [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint.json`.
+- [Glossary](GLOSSARY.md): canonical domain terminology.
+
+## Architecture Decision Records
+
+- [ADR 0002: Plugins as WebAssembly components](docs/adr/0002-plugins-as-wasm-components.md)
+- [ADR 0003: No combined score](docs/adr/0003-no-combined-score.md)
+- [ADR 0004: Forbid unsafe code](docs/adr/0004-forbid-unsafe-code.md)
+- [ADR 0007: Default minimum clone size](docs/adr/0007-default-minimum-clone-size.md)
+- [ADR 0008: TypeScript and JavaScript Reference ranges](docs/adr/0008-typescript-reference-ranges.md)
+- [ADR 0009: Rust inline test exclusion](docs/adr/0009-rust-inline-test-exclusion.md)
+- [ADR 0010: Rust Reference ranges](docs/adr/0010-rust-reference-ranges.md)
+- [ADR 0011: PHP Reference ranges](docs/adr/0011-php-reference-ranges.md)
+- [ADR 0012: Dart Reference ranges](docs/adr/0012-dart-reference-ranges.md)
