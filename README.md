@@ -17,15 +17,14 @@ It gates CI on per-Metric Budgets and on Regressions against a base Git ref.
 Languages and Metrics are Plugins: TypeScript/JavaScript, Rust, PHP, and Dart ship as built-in Language plugins, and third-party languages and Metrics load as WebAssembly Plugins.
 
 <p align="center">
+  <a href="./docs/guide/README.md">Guide</a> ·
+  <a href="./docs/guide/philosophy-and-architecture.md">Philosophy</a> ·
   <a href="#install">Install</a> ·
-  <a href="#use">Use</a> ·
   <a href="#configure">Configure</a> ·
-  <a href="#what-to-expect">What to expect</a> ·
-  <a href="#github-actions">GitHub Actions</a> ·
   <a href="./docs/reference.md">Reference</a> ·
   <a href="./docs/programmatic.md">Programmatic API</a> ·
   <a href="./docs/plugins.md">Plugins</a> ·
-  <a href="#development">Development</a>
+  <a href="./llms.txt">llms.txt</a>
 </p>
 
 [GLOSSARY.md](./GLOSSARY.md) defines every term on this page.
