@@ -370,12 +370,30 @@ fn built_in_rust_plugin_passes_seam_2_conformance() {
     );
 }
 
+type SimpleFiles<'a> = (
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+);
+type SimpleWorkspace<'a> = (
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a [&'a str],
+    &'a [(&'a str, &'a str)],
+    &'a [(&'a str, &'a str)],
+);
+
 fn run_simple_conformance(
     plugin: &dyn LanguagePlugin,
     name: &str,
     src: &str,
-    files: (&str, &str, &str, &str, &str, &str, &str),
-    workspace: (&str, &str, &str, &[&str], &[(&str, &str)], &[(&str, &str)]),
+    files: SimpleFiles<'_>,
+    workspace: SimpleWorkspace<'_>,
 ) {
     let crlf = src.replace('\n', "\r\n");
     assert_seam_2_conformance(
