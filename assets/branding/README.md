@@ -7,7 +7,7 @@ This folder holds the codeint mascot, its lockup, the README banner, and the rep
 [mascot.png](./mascot.png) is the codeint mascot: an amber owl that watches Software entropy grow before it compounds.
 It is the unchanged 1254 × 1254 output of one draw from the Codex CLI built-in `image_gen` tool.
 The tool did not report its model name.
-[mascot-prompt.txt](./mascot-prompt.txt) is the exact prompt, written with the IP as Logo skill.
+The prompt followed the [IP as Logo skill](https://github.com/s1dashu/ip-as-logo-skill) for simple square characters.
 
 ## Banner, lockup, and social preview
 
@@ -17,11 +17,16 @@ The banner panel is a rendering of the `codeint check` report for the sample rep
 Each Metric row takes its ratio and Reference range from `data-` attributes, so update those when the reference example changes.
 
 Render the images with [source/render.sh](./source/render.sh).
-It needs Google Chrome, `cwebp`, and a network connection for Google Fonts.
-Set `CHROME` to the Chrome binary when it is not at the macOS default path:
+It needs Google Chrome, `cwebp`, and a network connection for Google Fonts:
 
 ```sh
 assets/branding/source/render.sh
+```
+
+Set `CHROME` when Chrome is not at the macOS default path:
+
+```sh
+CHROME=/usr/bin/google-chrome assets/branding/source/render.sh
 ```
 
 The script writes these files into this folder:

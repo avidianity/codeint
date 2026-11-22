@@ -15,7 +15,7 @@ shot() {
   fi
 }
 shot banner.html 1600,700 banner.png
-shot banner.html?social 1600,800 social-preview.png
+shot banner.html?variant=social 1600,800 social-preview.png
 shot lockup.html 880,260 lockup-dark.png
 shot lockup.html?theme=light 880,260 lockup-light.png
 cwebp -quiet -q 90 "$work/banner.png" -o ../banner.webp
