@@ -2890,6 +2890,18 @@ fn a_languages_entry_without_include_names_the_missing_key_and_exits_2() {
 }
 
 #[test]
+fn a_codeint_json_with_a_newer_schema_version_exits_2() {
+    assert_codeint_json_is_rejected(
+        r#"{ "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v99.0.0/schema/codeint.schema.json", "future_key": true }"#,
+        &format!(
+            "codeint.json targets codeint v99.0.0 via $schema, which is newer than this binary (v{})",
+            env!("CARGO_PKG_VERSION")
+        ),
+        "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.",
+    );
+}
+
+#[test]
 fn an_invalid_exclude_glob_names_its_key_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "languages": [{ "plugin": "typescript-javascript", "include": ["**"], "exclude": ["web/[abc"] }] }"#,
