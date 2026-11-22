@@ -22,10 +22,10 @@ codeint-plugin-host = { workspace = true }
 codeint-report = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
 tempfile = { workspace = true }
 toon-format = { workspace = true }
 

@@ -4,6 +4,7 @@ mod check;
 mod commit_measurement;
 mod diff;
 mod init;
+mod mcp;
 mod remedy;
 mod trend;
 mod update;
@@ -141,19 +142,8 @@ pub fn diff(
     base_ref: &str,
     options: &DiffOptions,
 ) -> Result<DiffOutcome, CodeintError> {
-    let refs = diff::Refs {
-        base: base_ref,
-        head: options.head_ref.as_deref(),
-    };
-    let cache = options.result_cache.clone().map(ResultCache::in_folder);
-    let report = diff::diff(
-        folder,
-        refs,
-        options.findings,
-        cache.as_ref(),
-        &options.plugin_host,
-    )
-    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    let report = measure_diff(folder, base_ref, options)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
     let passed = failures.is_empty();
     Ok(DiffOutcome {
@@ -161,6 +151,25 @@ pub fn diff(
         failures,
         report,
     })
+}
+
+fn measure_diff(
+    folder: &Path,
+    base_ref: &str,
+    options: &DiffOptions,
+) -> Result<DiffReport, check::CheckError> {
+    let refs = diff::Refs {
+        base: base_ref,
+        head: options.head_ref.as_deref(),
+    };
+    let cache = options.result_cache.clone().map(ResultCache::in_folder);
+    diff::diff(
+        folder,
+        refs,
+        options.findings,
+        cache.as_ref(),
+        &options.plugin_host,
+    )
 }
 
 pub fn trend(folder: &Path, options: &TrendOptions) -> Result<TrendReport, CodeintError> {
@@ -237,17 +246,7 @@ fn run() -> Result<Outcome, CliError> {
             findings,
             format,
             plugin_host,
-        } => {
-            let report = check::check(&folder, findings, &plugin_host)?;
-            write_report(&report.render(format)?, &destination)?;
-            Ok(Outcome::from_failures(
-                report
-                    .over_budget()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-            ))
-        }
+        } => run_check(&folder, &destination, findings, format, &plugin_host),
         Command::Diff {
             folder,
             base_ref,
@@ -258,14 +257,13 @@ fn run() -> Result<Outcome, CliError> {
             result_cache,
             plugin_host,
         } => {
-            let refs = diff::Refs {
-                base: &base_ref,
-                head: head_ref.as_deref(),
+            let options = DiffOptions {
+                head_ref,
+                findings,
+                result_cache,
+                plugin_host,
             };
-            let result_cache = result_cache.map(ResultCache::in_folder);
-            let report = diff::diff(&folder, refs, findings, result_cache.as_ref(), &plugin_host)?;
-            write_report(&report.render(format)?, &destination)?;
-            Ok(Outcome::from_failures(report.failure_messages()))
+            run_diff(&folder, &base_ref, &destination, format, &options)
         }
         Command::Trend {
             folder,
@@ -274,28 +272,95 @@ fn run() -> Result<Outcome, CliError> {
             format,
             result_cache,
             plugin_host,
-        } => {
-            let result_cache = result_cache.map(ResultCache::in_folder);
-            let report = trend::trend(&folder, range, result_cache.as_ref(), &plugin_host)?;
-            write_report(&report.render(format)?, &destination)?;
-            Ok(Outcome::Passed)
-        }
-        Command::Init { folder } => {
-            let written = init::init(&folder)?;
-            print_report(&format!("Wrote {}\n", written.display()))?;
-            Ok(Outcome::Passed)
-        }
+        } => run_trend(
+            &folder,
+            range,
+            &destination,
+            format,
+            result_cache,
+            &plugin_host,
+        ),
+        Command::Init { folder } => run_init(&folder),
         Command::Update {
             check_only,
             version,
             release_base_url,
-        } => {
-            let message =
-                update::update(check_only, version.as_deref(), release_base_url.as_deref())?;
-            print_report(&format!("{message}\n"))?;
-            Ok(Outcome::Passed)
-        }
+        } => run_update(check_only, version.as_deref(), release_base_url.as_deref()),
+        Command::Mcp {
+            folder,
+            result_cache,
+            plugin_host,
+        } => run_mcp(&folder, result_cache, plugin_host),
     }
+}
+
+fn run_init(folder: &Path) -> Result<Outcome, CliError> {
+    let written = init::init(folder)?;
+    print_report(&format!("Wrote {}\n", written.display()))?;
+    Ok(Outcome::Passed)
+}
+
+fn run_update(
+    check_only: bool,
+    version: Option<&str>,
+    release_base_url: Option<&str>,
+) -> Result<Outcome, CliError> {
+    let message = update::update(check_only, version, release_base_url)?;
+    print_report(&format!("{message}\n"))?;
+    Ok(Outcome::Passed)
+}
+
+fn run_mcp(
+    folder: &Path,
+    result_cache: Option<PathBuf>,
+    plugin_host: PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    mcp::serve_stdio(folder, result_cache, plugin_host).map_err(CliError::Output)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_check(
+    folder: &Path,
+    destination: &ReportDestination,
+    findings: FindingsShown,
+    format: ReportFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = check::check(folder, findings, plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::from_failures(
+        report
+            .over_budget()
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+    ))
+}
+
+fn run_diff(
+    folder: &Path,
+    base_ref: &str,
+    destination: &ReportDestination,
+    format: ReportFormat,
+    options: &DiffOptions,
+) -> Result<Outcome, CliError> {
+    let report = measure_diff(folder, base_ref, options)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::from_failures(report.failure_messages()))
+}
+
+fn run_trend(
+    folder: &Path,
+    range: TrendRange,
+    destination: &ReportDestination,
+    format: TrendFormat,
+    result_cache: Option<PathBuf>,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let result_cache = result_cache.map(ResultCache::in_folder);
+    let report = trend::trend(folder, range, result_cache.as_ref(), plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
 }
 
 fn write_report(report: &str, destination: &ReportDestination) -> Result<(), CliError> {

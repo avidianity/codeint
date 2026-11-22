@@ -9,7 +9,8 @@
 - [Getting Started](docs/guide/getting-started.md): install codeint, initialize `codeint.json`, and run `check`, `diff`, `trend`, and `update`.
 - [Configuration](docs/guide/configuration.md): configure `codeint.json` Budgets, Regression limits, Source sets, and multi-language folders.
 - [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript, Rust, PHP, Dart, and Python rules and calibrated Reference ranges.
-- [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): pull-request diff gating and SARIF code scanning setup.
+- [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): reusable GitHub Action with sticky pull-request comment and SARIF code scanning setup.
+- [Coding-Agent Integration (MCP Server)](docs/guide/mcp.md): local stdio MCP server (`codeint mcp`) exposing read-only `check`, `diff`, and `trend` tools.
 
 ## Reference and APIs
 
