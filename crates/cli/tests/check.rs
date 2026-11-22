@@ -2875,7 +2875,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "python", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin python at languages[1].plugin; \
-         the Language plugins are typescript-javascript",
+         the Language plugins are typescript-javascript, rust",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -4627,4 +4627,46 @@ fn the_sarif_log_holds_every_property_and_value_that_sarif_2_1_0_requires() {
             assert_valid_sarif_location(location, base_ids);
         }
     }
+}
+
+#[test]
+fn built_in_rust_plugin_measures_cargo_workspace_metrics_and_cycles() {
+    let repository = Repository::new();
+    repository.write("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n");
+    repository.write("crates/app/Cargo.toml", "[package]\nname = \"app\"\n");
+    repository.write(
+        "crates/app/src/lib.rs",
+        concat!(
+            "mod a;\n",
+            "mod b;\n",
+            "pub fn verbose(x: bool) -> bool {\n",
+            "    if x { true } else { false }\n",
+            "}\n",
+            "#[cfg(test)]\n",
+            "mod tests {\n",
+            "    fn inline_test() {\n",
+            "        if true { return; } else { return; }\n",
+            "    }\n",
+            "}\n",
+        ),
+    );
+    repository.write(
+        "crates/app/src/a.rs",
+        "use crate::b::second;\npub fn first() -> i32 { second() }\n",
+    );
+    repository.write(
+        "crates/app/src/b.rs",
+        "use crate::a::first;\npub fn second() -> i32 { first() }\n",
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    let prod = &report["source_sets"]["production"];
+    assert_eq!(prod["files"], 3);
+    assert!(prod["verbosity"]["flagged_lines"].as_u64().unwrap_or(0) >= 1);
+    assert_eq!(prod["import_cycles"]["modules_in_import_cycles"], 2);
+    let packages = prod["packages"].as_array().expect("packages");
+    assert!(packages.iter().any(|p| p["path"] == "crates/app"));
 }

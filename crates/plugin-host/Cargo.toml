@@ -12,6 +12,7 @@ thiserror = { workspace = true }
 wasmtime = { workspace = true }
 
 [dev-dependencies]
+codeint-lang-rust = { workspace = true }
 codeint-lang-ts = { workspace = true }
 
 [lints]
