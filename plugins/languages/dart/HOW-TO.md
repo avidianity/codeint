@@ -21,4 +21,4 @@
 
 ## Reference ranges
 
-- `reference_ranges` returns an empty list until an empirical Dart repository panel is measured and recorded in an ADR.
+- `reference_ranges` returns the 10th to 90th percentile bands from the 20-repository pre-2023 Dart panel recorded in [ADR 0012](../../../docs/adr/0012-dart-reference-ranges.md).

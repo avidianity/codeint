@@ -21,4 +21,4 @@
 
 ## Reference ranges
 
-- `reference_ranges` returns an empty list until an empirical PHP repository panel is measured and recorded in an ADR.
+- `reference_ranges` returns the 10th to 90th percentile bands from the 20-repository pre-2023 PHP panel recorded in [ADR 0011](../../../docs/adr/0011-php-reference-ranges.md).

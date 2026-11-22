@@ -118,16 +118,16 @@ codeint measures four independent Production Metrics without blending them into 
 - **Verbosity**: share of source lines in Flagged lines or Clone groups
 - **Import cycles**: share of modules in an Import cycle
 
-### TypeScript and JavaScript Reference ranges
+### Calibrated Reference ranges
 
-Measured across a panel of 20 open-source TypeScript and JavaScript repositories (10th–90th percentile, [ADR 0008](./docs/adr/0008-typescript-reference-ranges.md)):
+Measured across 20 pre-2023 open-source repositories per language (10th–90th percentile; [ADR 0008](./docs/adr/0008-typescript-reference-ranges.md), [ADR 0010](./docs/adr/0010-rust-reference-ranges.md), [ADR 0011](./docs/adr/0011-php-reference-ranges.md), [ADR 0012](./docs/adr/0012-dart-reference-ranges.md)):
 
-| Metric | Typical range (p10–p90) |
-| ------ | ----------------------- |
-| Erosion | 35.2%–60.0% |
-| Duplication | 1.7%–34.6% |
-| Verbosity | 1.8%–34.7% |
-| Import cycles | 0.0%–30.8% |
+| Language | Erosion | Duplication | Verbosity | Import cycles |
+| -------- | ------- | ----------- | --------- | ------------- |
+| TypeScript / JavaScript | 35.2%–60.0% | 1.7%–34.6% | 1.8%–34.7% | 0.0%–30.8% |
+| Rust | 38.0%–64.2% | 5.0%–32.5% | 6.0%–32.9% | 2.1%–50.6% |
+| PHP | 5.5%–67.7% | 4.1%–29.0% | 4.2%–29.2% | 0.0%–10.7% |
+| Dart | 4.7%–41.9% | 7.3%–25.6% | 8.0%–25.9% | 7.3%–52.4% |
 
 ### Rust measurements and speed
 

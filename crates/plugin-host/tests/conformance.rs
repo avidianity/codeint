@@ -32,7 +32,6 @@ struct ConformanceFixture<'a> {
     invalid_manifest_text: &'a str,
     import_requests: &'a [(&'a str, &'a str)],
     expected_resolved_target: &'a str,
-    expect_reference_ranges: bool,
 }
 
 fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceFixture<'_>) {
@@ -228,12 +227,10 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
     let ranges = plugin
         .reference_ranges()
         .unwrap_or_else(|error| panic!("{label}: reference_ranges failed: {error}"));
-    if fixture.expect_reference_ranges {
-        assert!(
-            ranges.for_metric("erosion").is_some(),
-            "{label}: expected erosion reference range"
-        );
-    }
+    assert!(
+        ranges.for_metric("erosion").is_some(),
+        "{label}: expected erosion reference range"
+    );
 
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
@@ -291,7 +288,6 @@ fn built_in_typescript_javascript_plugin_passes_seam_2_conformance() {
             ("packages/app/src/main.ts", "./missing"),
         ],
         expected_resolved_target: "packages/app/src/helper.ts",
-        expect_reference_ranges: true,
     };
 
     assert_seam_2_conformance(&TypeScriptAndJavaScript, &fixture);
@@ -331,7 +327,6 @@ fn sample_external_wasm_plugin_passes_seam_2_conformance() {
             ("packages/app/src/main.mini", "./missing"),
         ],
         expected_resolved_target: "packages/app/src/helper.mini",
-        expect_reference_ranges: true,
     };
 
     assert_seam_2_conformance(&plugin, &fixture);
@@ -339,41 +334,91 @@ fn sample_external_wasm_plugin_passes_seam_2_conformance() {
 
 #[test]
 fn built_in_rust_plugin_passes_seam_2_conformance() {
-    let fixture = ConformanceFixture {
-        name: "rust",
-        production_path: "crates/app/src/lib.rs",
-        production_source: "mod helper;\nuse crate::helper::value;\n\n// comment\npub fn run(flag: bool) -> i32 {\n    if flag {\n        return value();\n    } else {\n        return 0;\n    }\n}\n",
-        production_source_crlf: "mod helper;\r\nuse crate::helper::value;\r\n\r\n// comment\r\npub fn run(flag: bool) -> i32 {\r\n    if flag {\r\n        return value();\r\n    } else {\r\n        return 0;\r\n    }\r\n}\r\n",
-        test_path: "crates/app/tests/integration.rs",
-        test_source: "fn check() -> i32 {\n    1\n}\n",
-        empty_path: "crates/app/src/empty.rs",
-        declaration_only: None,
-        unparsable_path: "crates/app/src/broken.rs",
-        unparsable_source: "fn broken( {\n",
-        unsupported_path: "scripts/tool.unknown",
-        repository_paths: &[
-            "Cargo.toml",
-            "crates/app/Cargo.toml",
+    run_simple_conformance(
+        &Rust,
+        "rust",
+        "mod helper;\nuse crate::helper::value;\n\n// comment\npub fn run(flag: bool) -> i32 {\n    if flag {\n        return value();\n    } else {\n        return 0;\n    }\n}\n",
+        (
             "crates/app/src/lib.rs",
             "crates/app/src/helper.rs",
-        ],
-        expected_manifest_path: "Cargo.toml",
-        valid_manifests: &[
-            ("Cargo.toml", "[workspace]\nmembers = [\"crates/app\"]\n"),
-            ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
-        ],
-        expected_workspace_package: "crates/app",
-        invalid_manifest_text: "[workspace\nmembers = [",
-        import_requests: &[
-            ("crates/app/src/lib.rs", "mod:helper"),
-            ("crates/app/src/lib.rs", "use:std::fmt"),
-            ("crates/app/src/lib.rs", "mod:missing"),
-        ],
-        expected_resolved_target: "crates/app/src/helper.rs",
-        expect_reference_ranges: false,
-    };
+            "crates/app/tests/integration.rs",
+            "fn check() -> i32 { 1 }\n",
+            "crates/app/src/empty.rs",
+            "crates/app/src/broken.rs",
+            "fn broken( {\n",
+        ),
+        (
+            "Cargo.toml",
+            "crates/app",
+            "[workspace\nmembers = [",
+            &[
+                "Cargo.toml",
+                "crates/app/Cargo.toml",
+                "crates/app/src/lib.rs",
+                "crates/app/src/helper.rs",
+            ],
+            &[
+                ("Cargo.toml", "[workspace]\nmembers = [\"crates/app\"]\n"),
+                ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+            ],
+            &[
+                ("crates/app/src/lib.rs", "mod:helper"),
+                ("crates/app/src/lib.rs", "use:std::fmt"),
+                ("crates/app/src/lib.rs", "mod:missing"),
+            ],
+        ),
+    );
+}
 
-    assert_seam_2_conformance(&Rust, &fixture);
+type SimpleFiles<'a> = (
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+);
+type SimpleWorkspace<'a> = (
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a [&'a str],
+    &'a [(&'a str, &'a str)],
+    &'a [(&'a str, &'a str)],
+);
+
+fn run_simple_conformance(
+    plugin: &dyn LanguagePlugin,
+    name: &str,
+    src: &str,
+    files: SimpleFiles<'_>,
+    workspace: SimpleWorkspace<'_>,
+) {
+    let crlf = src.replace('\n', "\r\n");
+    assert_seam_2_conformance(
+        plugin,
+        &ConformanceFixture {
+            name,
+            production_path: files.0,
+            production_source: src,
+            production_source_crlf: &crlf,
+            test_path: files.2,
+            test_source: files.3,
+            empty_path: files.4,
+            declaration_only: None,
+            unparsable_path: files.5,
+            unparsable_source: files.6,
+            unsupported_path: "scripts/tool.unknown",
+            repository_paths: workspace.3,
+            expected_manifest_path: workspace.0,
+            valid_manifests: workspace.4,
+            expected_workspace_package: workspace.1,
+            invalid_manifest_text: workspace.2,
+            import_requests: workspace.5,
+            expected_resolved_target: files.1,
+        },
+    );
 }
 
 #[test]
@@ -420,7 +465,6 @@ fn built_in_php_plugin_passes_seam_2_conformance() {
         invalid_manifest_text: "{not json",
         import_requests: &REQUESTS,
         expected_resolved_target: REPO[3],
-        expect_reference_ranges: false,
     };
     assert_seam_2_conformance(&Php, &fixture);
 }
@@ -465,7 +509,6 @@ fn built_in_dart_plugin_passes_seam_2_conformance() {
             invalid_manifest_text: "workspace: [\n",
             import_requests: &requests,
             expected_resolved_target: paths[3],
-            expect_reference_ranges: false,
         },
     );
 }
