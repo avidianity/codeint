@@ -1868,3 +1868,143 @@ fn brackets_in_strings_and_many_optional_operators_still_lower() {
     );
     assert!(lower("src/normal.ts", &text).is_ok());
 }
+
+fn resolve_for(
+    paths: &[&str],
+    manifests: &[(&str, &str)],
+    requests: &[(&str, &str)],
+) -> Vec<Resolution> {
+    let repo_paths: Vec<RepoPath> = paths
+        .iter()
+        .map(|p| RepoPath::new(*p).expect("valid path"))
+        .collect();
+    let manifest_list: Vec<Manifest> = manifests
+        .iter()
+        .map(|(path, text)| Manifest {
+            path: (*path).to_owned(),
+            text: (*text).to_owned(),
+        })
+        .collect();
+    let import_requests: Vec<ImportRequest> = requests
+        .iter()
+        .map(|(importer, specifier)| ImportRequest {
+            importer: (*importer).to_owned(),
+            specifier: (*specifier).to_owned(),
+        })
+        .collect();
+    plugin().resolve_imports(&repo_paths, manifest_list, import_requests)
+}
+
+#[test]
+fn bun_builtins_resolve_as_external_even_with_catch_all_tsconfig_paths() {
+    let resolutions = resolve_for(
+        &["tsconfig.json", "src/db.ts"],
+        &[(
+            "tsconfig.json",
+            r#"{"compilerOptions": {"baseUrl": ".", "paths": {"*": ["./src/*"]}}}"#,
+        )],
+        &[
+            ("src/db.ts", "bun"),
+            ("src/db.ts", "bun:sqlite"),
+            ("src/db.ts", "bun:test"),
+        ],
+    );
+    assert_eq!(resolutions, vec![Resolution::External; 3]);
+}
+
+#[test]
+fn bun_export_condition_resolves_workspace_source_file() {
+    let resolutions = resolve_for(
+        &[
+            "package.json",
+            "packages/app/package.json",
+            "packages/app/src/index.ts",
+            "packages/shared/package.json",
+            "packages/shared/src/bun.ts",
+        ],
+        &[
+            ("package.json", r#"{"workspaces": ["packages/*"]}"#),
+            ("packages/app/package.json", r#"{"name": "@acme/app"}"#),
+            (
+                "packages/shared/package.json",
+                r#"{"name": "@acme/shared", "exports": {".": {"bun": "./src/bun.ts", "default": "./dist/index.js"}}}"#,
+            ),
+        ],
+        &[("packages/app/src/index.ts", "@acme/shared")],
+    );
+    assert_eq!(
+        resolutions,
+        vec![Resolution::Resolved(
+            "packages/shared/src/bun.ts".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn workspaces_and_cross_package_imports_work_for_bun_npm_yarn_and_pnpm() {
+    for (name, root_path, root_text) in [
+        (
+            "bun_and_npm_array",
+            "package.json",
+            r#"{"workspaces": ["packages/*", "!packages/ignored"]}"#,
+        ),
+        (
+            "yarn_object_packages",
+            "package.json",
+            r#"{"workspaces": {"packages": ["packages/*", "!packages/ignored"]}}"#,
+        ),
+        (
+            "pnpm_yaml",
+            "pnpm-workspace.yaml",
+            "packages:\n  - 'packages/*'\n  - '!packages/ignored'\n",
+        ),
+    ] {
+        let manifests = [
+            (root_path, root_text),
+            ("packages/web/package.json", r#"{"name": "@demo/web"}"#),
+            (
+                "packages/core/package.json",
+                r#"{"name": "@demo/core", "exports": {".": "./src/index.ts"}}"#,
+            ),
+            (
+                "packages/ignored/package.json",
+                r#"{"name": "@demo/ignored"}"#,
+            ),
+        ];
+        let manifest_vec: Vec<Manifest> = manifests
+            .iter()
+            .map(|(path, text)| Manifest {
+                path: (*path).to_owned(),
+                text: (*text).to_owned(),
+            })
+            .collect();
+        let mut packages: Vec<String> = plugin()
+            .workspace_packages(manifest_vec)
+            .unwrap_or_else(|error| panic!("{name}: {error}"))
+            .into_iter()
+            .map(|p| p.as_str().to_owned())
+            .collect();
+        packages.sort();
+        assert_eq!(packages, vec!["packages/core", "packages/web"], "{name}");
+
+        let resolutions = resolve_for(
+            &[
+                root_path,
+                "packages/web/package.json",
+                "packages/web/src/index.ts",
+                "packages/core/package.json",
+                "packages/core/src/index.ts",
+                "packages/ignored/package.json",
+            ],
+            &manifests,
+            &[("packages/web/src/index.ts", "@demo/core")],
+        );
+        assert_eq!(
+            resolutions,
+            vec![Resolution::Resolved(
+                "packages/core/src/index.ts".to_owned()
+            )],
+            "{name}"
+        );
+    }
+}
