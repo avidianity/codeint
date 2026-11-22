@@ -32,7 +32,8 @@ When you upgrade via `codeint update`, codeint updates that `$schema` tag automa
     { "plugin": "typescript-javascript", "include": ["web"], "exclude": ["web/dist"] },
     { "plugin": "rust", "include": ["crates"], "exclude": [] },
     { "plugin": "php", "include": ["app", "src"], "exclude": [] },
-    { "plugin": "dart", "include": ["lib"], "exclude": [] }
+    { "plugin": "dart", "include": ["lib"], "exclude": [] },
+    { "plugin": "python", "include": ["services"], "exclude": [] }
   ]
 }
 ```

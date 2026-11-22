@@ -14,6 +14,7 @@ wasmtime = { workspace = true }
 [dev-dependencies]
 codeint-lang-dart = { workspace = true }
 codeint-lang-php = { workspace = true }
+codeint-lang-python = { workspace = true }
 codeint-lang-rust = { workspace = true }
 codeint-lang-ts = { workspace = true }
 

@@ -386,7 +386,7 @@ fn every_typescript_and_javascript_extension_is_measured_and_other_files_are_not
     }
     repository.write("README.md", "# Fixture\n");
     repository.write("src/data.json", "{\"one\": 1}\n");
-    repository.write("scripts/tool.py", "print('codeint')\n");
+    repository.write("scripts/tool.cob", "DISPLAY 'codeint'.\n");
     repository.commit_all();
 
     let output = repository.codeint(&["check"]);
@@ -2872,10 +2872,10 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
     assert_codeint_json_is_rejected(
         r#"{ "languages": [
             { "plugin": "typescript-javascript", "include": ["web"] },
-            { "plugin": "python", "include": ["scripts"] }
+            { "plugin": "cobol", "include": ["scripts"] }
         ] }"#,
-        "codeint.json names an unknown Language plugin python at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart",
+        "codeint.json names an unknown Language plugin cobol at languages[1].plugin; \
+         the Language plugins are typescript-javascript, rust, php, dart, python",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }

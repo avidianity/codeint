@@ -287,6 +287,7 @@ dependencies = [
  "codeint-git",
  "codeint-lang-dart",
  "codeint-lang-php",
+ "codeint-lang-python",
  "codeint-lang-rust",
  "codeint-lang-ts",
  "codeint-model",
@@ -344,6 +345,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeint-lang-python"
+version = "0.4.0"
+dependencies = [
+ "codeint-model",
+ "globset",
+ "toml",
+]
+
+[[package]]
 name = "codeint-lang-rust"
 version = "0.4.0"
 dependencies = [
@@ -394,6 +404,7 @@ dependencies = [
  "codeint-config",
  "codeint-lang-dart",
  "codeint-lang-php",
+ "codeint-lang-python",
  "codeint-lang-rust",
  "codeint-lang-ts",
  "codeint-model",
