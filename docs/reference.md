@@ -516,7 +516,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 
 | Key | Type | Meaning |
 | --- | ---- | ------- |
-| `$schema` | string | The address of the JSON schema, for editors; codeint does not read it |
+| `$schema` | string | The address of the JSON schema, for editors; when it points to a newer official codeint release tag than the running binary, codeint exits with code 2 |
 | `source_sets` | object | Globs that put files into a Source set; see [Source sets](#source-sets) |
 | `source_sets.{source_set}` | list of strings | Globs of repository-relative paths that belong to this Source set; empty by default |
 | `budgets` | object | The Budgets of each Source set; see [Budgets](#budgets) |

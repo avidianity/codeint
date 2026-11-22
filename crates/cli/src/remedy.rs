@@ -134,6 +134,9 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
 }
 
 fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
+    if let Some(message) = plugin_config_remedy(error) {
+        return message;
+    }
     match error {
         ConfigurationFileError::Unreadable(_) => {
             "Check that codeint.json is a file you have permission to read, then run codeint again."
@@ -161,6 +164,15 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         ConfigurationFileError::MissingKey { .. } => {
             "Add the key; the JSON schema that $schema links to describes every key."
         }
+        ConfigurationFileError::NewerSchemaVersion { .. } => {
+            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json."
+        }
+        _ => "Check codeint.json against the JSON schema that $schema links to.",
+    }
+}
+
+fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+    Some(match error {
         ConfigurationFileError::UnknownLanguagePlugin { .. } => {
             "Name one of the Language plugins listed, or remove the entry from languages."
         }
@@ -182,7 +194,8 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         ConfigurationFileError::NonHttpsPluginUrl { .. } => {
             "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused."
         }
-    }
+        _ => return None,
+    })
 }
 
 fn plugin_host_remedy(error: &PluginHostError) -> &'static str {

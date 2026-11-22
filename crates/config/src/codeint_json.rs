@@ -396,6 +396,13 @@ pub enum ConfigurationFileError {
         name: String,
         url: String,
     },
+    #[error(
+        "{CONFIGURATION_FILE_NAME} targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
+    )]
+    NewerSchemaVersion {
+        config_version: String,
+        binary_version: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -673,6 +680,7 @@ pub fn configuration_schema() -> String {
 
 fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
     let value: Value = serde_json::from_str(text).map_err(ConfigurationFileError::NotJson)?;
+    check_schema_version(&value, env!("CARGO_PKG_VERSION"))?;
     let schema = schemars::schema_for!(ConfigurationFile);
     shape::check_shape(&value, schema.as_value())?;
     let file: ConfigurationFile =
@@ -1006,4 +1014,80 @@ fn any_of(types: &[JsonType]) -> String {
         .map(|json_type| json_type.with_article())
         .collect::<Vec<_>>()
         .join(" or ")
+}
+
+const OFFICIAL_SCHEMA_PREFIX: &str = "https://raw.githubusercontent.com/avidianity/codeint/v";
+const OFFICIAL_SCHEMA_SUFFIX: &str = "/schema/codeint.schema.json";
+
+fn check_schema_version(value: &Value, binary_version: &str) -> Result<(), ConfigurationFileError> {
+    let Some(schema_url) = value.get("$schema").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let Some(config_version) = extract_official_schema_version(schema_url) else {
+        return Ok(());
+    };
+    let (Some(cfg), Some(bin)) = (parse_semver(config_version), parse_semver(binary_version))
+    else {
+        return Ok(());
+    };
+    if cfg > bin {
+        return Err(ConfigurationFileError::NewerSchemaVersion {
+            config_version: config_version.to_owned(),
+            binary_version: binary_version.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn extract_official_schema_version(url: &str) -> Option<&str> {
+    url.strip_prefix(OFFICIAL_SCHEMA_PREFIX)?
+        .strip_suffix(OFFICIAL_SCHEMA_SUFFIX)
+}
+
+fn parse_semver(raw: &str) -> Option<(u64, u64, u64)> {
+    let core = raw.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
+}
+
+#[cfg(test)]
+mod schema_version_tests {
+    use super::*;
+
+    fn schema_json(url: &str) -> Value {
+        serde_json::json!({ "$schema": url })
+    }
+
+    #[test]
+    fn rejects_newer_patch_minor_and_major_schema_versions() {
+        for newer in ["0.4.1", "0.5.0", "1.0.0"] {
+            let url = format!("{OFFICIAL_SCHEMA_PREFIX}{newer}{OFFICIAL_SCHEMA_SUFFIX}");
+            let err = check_schema_version(&schema_json(&url), "0.4.0").unwrap_err();
+            assert!(matches!(
+                err,
+                ConfigurationFileError::NewerSchemaVersion {
+                    ref config_version,
+                    ref binary_version
+                } if config_version == newer && binary_version == "0.4.0"
+            ));
+        }
+    }
+
+    #[test]
+    fn accepts_equal_older_missing_and_custom_schemas() {
+        for ok in ["0.4.0", "0.3.9", "0.1.0"] {
+            let url = format!("{OFFICIAL_SCHEMA_PREFIX}{ok}{OFFICIAL_SCHEMA_SUFFIX}");
+            assert!(check_schema_version(&schema_json(&url), "0.4.0").is_ok());
+        }
+        assert!(check_schema_version(&serde_json::json!({}), "0.4.0").is_ok());
+        assert!(
+            check_schema_version(&schema_json("./schema/codeint.schema.json"), "0.4.0").is_ok()
+        );
+    }
 }

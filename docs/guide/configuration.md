@@ -7,6 +7,7 @@ Without `codeint.json`, codeint measures every supported language with default s
 
 Run `codeint init` to generate a starter file with a versioned `$schema` URL for editor autocomplete.
 When you upgrade via `codeint update`, codeint updates that `$schema` tag automatically.
+If `codeint.json` pins an official `$schema` tag newer than the running binary, codeint stops with exit code `2` and instructs you to upgrade.
 
 ```json
 {
