@@ -100,333 +100,389 @@ fn is_keyword(lower: &str) -> bool {
     PHP_KEYWORDS.contains(&lower) || MORE_PHP_KEYWORDS.contains(&lower)
 }
 
+struct Lexer<'a> {
+    text: &'a str,
+    bytes: &'a [u8],
+    pos: usize,
+    line: u32,
+    in_php: bool,
+    tokens: Vec<RawToken>,
+    header_comments: String,
+    code_lines: BTreeSet<u32>,
+    delim_stack: Vec<(u8, u32)>,
+}
+
 pub(crate) fn lex(text: &str) -> Result<LexedFile, LowerError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let bytes = text.as_bytes();
-    let mut i = 0usize;
-    let mut line = 1u32;
-    let mut in_php = false;
-    let mut tokens = Vec::new();
-    let mut header_comments = String::new();
-    let mut code_lines = BTreeSet::new();
-    let mut delim_stack: Vec<(u8, u32)> = Vec::new();
-
-    while i < bytes.len() {
-        if !in_php {
-            if bytes[i..].starts_with(b"<?php")
-                && bytes.get(i + 5).is_none_or(|b| b.is_ascii_whitespace())
-            {
-                in_php = true;
-                i += 5;
-                continue;
-            }
-            if bytes[i..].starts_with(b"<?=") {
-                in_php = true;
-                i += 3;
-                continue;
-            }
-            if bytes[i..].starts_with(b"<?") && !bytes[i..].starts_with(b"<?xml") {
-                in_php = true;
-                i += 2;
-                continue;
-            }
-            if bytes[i] == b'\n' {
-                line += 1;
-            }
-            i += 1;
-            continue;
-        }
-
-        if bytes[i].is_ascii_whitespace() {
-            if bytes[i] == b'\n' {
-                line += 1;
-            }
-            i += 1;
-            continue;
-        }
-
-        if bytes[i..].starts_with(b"?>") {
-            in_php = false;
-            i += 2;
-            continue;
-        }
-
-        if bytes[i..].starts_with(b"//") || (bytes[i] == b'#' && !bytes[i..].starts_with(b"#[")) {
-            let start = i;
-            while i < bytes.len() && bytes[i] != b'\n' && !bytes[i..].starts_with(b"?>") {
-                i += 1;
-            }
-            if tokens.is_empty() {
-                header_comments.push_str(&text[start..i]);
-                header_comments.push('\n');
-            }
-            continue;
-        }
-
-        if bytes[i..].starts_with(b"/*") {
-            let start = i;
-            let start_line = line;
-            i += 2;
-            let mut closed = false;
-            while i + 1 < bytes.len() {
-                if bytes[i..].starts_with(b"*/") {
-                    i += 2;
-                    closed = true;
-                    break;
-                }
-                if bytes[i] == b'\n' {
-                    line += 1;
-                }
-                i += 1;
-            }
-            if !closed {
-                return Err(LowerError::Unparsable(format!(
-                    "unterminated block comment at line {start_line}"
-                )));
-            }
-            if tokens.is_empty() {
-                header_comments.push_str(&text[start..i]);
-                header_comments.push('\n');
-            }
-            continue;
-        }
-
-        if bytes[i..].starts_with(b"<<<") {
-            let start_line = line;
-            let (next_i, next_line, lit) = lex_heredoc(text, i, line)?;
-            for l in start_line..=next_line {
-                code_lines.insert(l);
-            }
-            tokens.push(RawToken {
-                kind: RawKind::StringLit,
-                text: lit,
-                lower: String::new(),
-                line: start_line,
-            });
-            i = next_i;
-            line = next_line;
-            continue;
-        }
-
-        if bytes[i] == b'\'' || bytes[i] == b'"' {
-            let quote = bytes[i];
-            let start = i;
-            let start_line = line;
-            i += 1;
-            let mut closed = false;
-            while i < bytes.len() {
-                if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                    if bytes[i + 1] == b'\n' {
-                        line += 1;
-                    }
-                    i += 2;
-                    continue;
-                }
-                if bytes[i] == quote {
-                    i += 1;
-                    closed = true;
-                    break;
-                }
-                if bytes[i] == b'\n' {
-                    line += 1;
-                }
-                i += 1;
-            }
-            if !closed {
-                return Err(LowerError::Unparsable(format!(
-                    "unterminated string literal at line {start_line}"
-                )));
-            }
-            for l in start_line..=line {
-                code_lines.insert(l);
-            }
-            tokens.push(RawToken {
-                kind: RawKind::StringLit,
-                text: text[start..i].to_owned(),
-                lower: String::new(),
-                line: start_line,
-            });
-            continue;
-        }
-
-        if bytes[i] == b'$' && bytes.get(i + 1).is_some_and(|b| is_ident_start(*b)) {
-            let start = i;
-            i += 2;
-            while i < bytes.len() && is_ident_continue(bytes[i]) {
-                i += 1;
-            }
-            code_lines.insert(line);
-            let slice = text[start..i].to_owned();
-            tokens.push(RawToken {
-                kind: RawKind::Variable,
-                lower: slice.clone(),
-                text: slice,
-                line,
-            });
-            continue;
-        }
-
-        if is_ident_start(bytes[i]) {
-            let start = i;
-            i += 1;
-            while i < bytes.len() && is_ident_continue(bytes[i]) {
-                i += 1;
-            }
-            code_lines.insert(line);
-            let slice = text[start..i].to_owned();
-            let lower = slice.to_ascii_lowercase();
-            let kind = if is_keyword(&lower) {
-                RawKind::Keyword
-            } else {
-                RawKind::Ident
-            };
-            tokens.push(RawToken {
-                kind,
-                text: slice,
-                lower,
-                line,
-            });
-            continue;
-        }
-
-        if bytes[i].is_ascii_digit() {
-            let start = i;
-            i += 1;
-            while i < bytes.len()
-                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'.')
-            {
-                i += 1;
-            }
-            code_lines.insert(line);
-            let slice = text[start..i].to_owned();
-            tokens.push(RawToken {
-                kind: RawKind::NumberLit,
-                lower: slice.clone(),
-                text: slice,
-                line,
-            });
-            continue;
-        }
-
-        let op = match_multi_punct(&bytes[i..]);
-        let punct = op.unwrap_or(&text[i..i + 1]);
-        if punct == "#[" {
-            delim_stack.push((b'[', line));
-        } else if punct.len() == 1 {
-            match punct.as_bytes()[0] {
-                b'{' | b'(' | b'[' => delim_stack.push((punct.as_bytes()[0], line)),
-                b'}' | b')' | b']' => {
-                    let expected = match punct.as_bytes()[0] {
-                        b'}' => b'{',
-                        b')' => b'(',
-                        _ => b'[',
-                    };
-                    match delim_stack.pop() {
-                        Some((open, _)) if open == expected => {}
-                        _ => {
-                            return Err(LowerError::Unparsable(format!(
-                                "unexpected {punct:?} at line {line}"
-                            )));
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        code_lines.insert(line);
-        tokens.push(RawToken {
-            kind: RawKind::Punct,
-            text: punct.to_owned(),
-            lower: punct.to_owned(),
-            line,
-        });
-        i += punct.len();
-    }
-
-    if let Some((open, open_line)) = delim_stack.last() {
-        return Err(LowerError::Unparsable(format!(
-            "unclosed {:?} opened at line {open_line}",
-            *open as char
-        )));
-    }
-
+    let mut lexer = Lexer {
+        text,
+        bytes: text.as_bytes(),
+        pos: 0,
+        line: 1,
+        in_php: false,
+        tokens: Vec::new(),
+        header_comments: String::new(),
+        code_lines: BTreeSet::new(),
+        delim_stack: Vec::new(),
+    };
+    lexer.run()?;
     Ok(LexedFile {
-        tokens,
-        header_comments,
-        code_lines,
+        tokens: lexer.tokens,
+        header_comments: lexer.header_comments,
+        code_lines: lexer.code_lines,
     })
 }
 
-fn lex_heredoc(
-    text: &str,
-    start: usize,
-    mut line: u32,
-) -> Result<(usize, u32, String), LowerError> {
-    let bytes = text.as_bytes();
-    let mut i = start + 3;
-    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
-        i += 1;
-    }
-    let quote = if i < bytes.len() && (bytes[i] == b'\'' || bytes[i] == b'"') {
-        let q = bytes[i];
-        i += 1;
-        Some(q)
-    } else {
-        None
-    };
-    let label_start = i;
-    while i < bytes.len() && is_ident_continue(bytes[i]) {
-        i += 1;
-    }
-    let label = &text[label_start..i];
-    if label.is_empty() {
-        return Err(LowerError::Unparsable(format!(
-            "missing heredoc label at line {line}"
-        )));
-    }
-    if let Some(q) = quote {
-        if i >= bytes.len() || bytes[i] != q {
+impl<'a> Lexer<'a> {
+    fn run(&mut self) -> Result<(), LowerError> {
+        while self.pos < self.bytes.len() {
+            if !self.in_php {
+                self.step_html();
+            } else {
+                self.step_php()?;
+            }
+        }
+        if let Some((open, open_line)) = self.delim_stack.last() {
             return Err(LowerError::Unparsable(format!(
-                "unclosed heredoc label quote at line {line}"
+                "unclosed {:?} opened at line {open_line}",
+                *open as char
             )));
         }
-        i += 1;
+        Ok(())
     }
-    while i < bytes.len() && bytes[i] != b'\n' {
-        i += 1;
-    }
-    if i >= bytes.len() {
-        return Err(LowerError::Unparsable(format!(
-            "unterminated heredoc {label:?} at line {line}"
-        )));
-    }
-    i += 1;
-    line += 1;
-    while i < bytes.len() {
-        let line_start = i;
-        while i < bytes.len() && bytes[i] != b'\n' {
-            i += 1;
+
+    fn step_html(&mut self) {
+        let rest = &self.bytes[self.pos..];
+        if rest.starts_with(b"<?php") && rest.get(5).is_none_or(|b| b.is_ascii_whitespace()) {
+            self.in_php = true;
+            self.pos += 5;
+            return;
         }
-        let line_slice = text[line_start..i].trim_start_matches([' ', '\t']);
-        if let Some(after_label) = line_slice.strip_prefix(label)
-            && after_label
-                .bytes()
-                .next()
-                .is_none_or(|b| !is_ident_continue(b))
+        if rest.starts_with(b"<?=") {
+            self.in_php = true;
+            self.pos += 3;
+            return;
+        }
+        if rest.starts_with(b"<?") && !rest.starts_with(b"<?xml") {
+            self.in_php = true;
+            self.pos += 2;
+            return;
+        }
+        if self.bytes[self.pos] == b'\n' {
+            self.line += 1;
+        }
+        self.pos += 1;
+    }
+
+    fn step_php(&mut self) -> Result<(), LowerError> {
+        let rest = &self.bytes[self.pos..];
+        if rest[0].is_ascii_whitespace() {
+            if rest[0] == b'\n' {
+                self.line += 1;
+            }
+            self.pos += 1;
+            return Ok(());
+        }
+        if rest.starts_with(b"?>") {
+            self.in_php = false;
+            self.pos += 2;
+            return Ok(());
+        }
+        if self.try_skip_comment(rest)? {
+            return Ok(());
+        }
+        if rest.starts_with(b"<<<") {
+            return self.lex_heredoc();
+        }
+        if matches!(rest[0], b'\'' | b'"') {
+            return self.lex_string();
+        }
+        self.step_php_atom()
+    }
+
+    fn try_skip_comment(&mut self, rest: &[u8]) -> Result<bool, LowerError> {
+        if rest.starts_with(b"//") || (rest[0] == b'#' && !rest.starts_with(b"#[")) {
+            self.skip_line_comment();
+            return Ok(true);
+        }
+        if rest.starts_with(b"/*") {
+            self.skip_block_comment()?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn step_php_atom(&mut self) -> Result<(), LowerError> {
+        let b = self.bytes[self.pos];
+        if b == b'$'
+            && self
+                .bytes
+                .get(self.pos + 1)
+                .is_some_and(|n| is_ident_start(*n))
         {
-            let offset_in_line =
-                line_slice.as_ptr() as usize - text[line_start..].as_ptr() as usize;
-            let end_pos = line_start + offset_in_line + label.len();
-            return Ok((end_pos, line, text[start..end_pos].to_owned()));
+            self.lex_variable();
+            return Ok(());
         }
-        if i < bytes.len() {
-            i += 1;
-            line += 1;
+        if is_ident_start(b) {
+            self.lex_word();
+            return Ok(());
+        }
+        if b.is_ascii_digit() {
+            self.lex_number();
+            return Ok(());
+        }
+        self.lex_punct()
+    }
+
+    fn skip_line_comment(&mut self) {
+        let start = self.pos;
+        while self.pos < self.bytes.len()
+            && self.bytes[self.pos] != b'\n'
+            && !self.bytes[self.pos..].starts_with(b"?>")
+        {
+            self.pos += 1;
+        }
+        if self.tokens.is_empty() {
+            self.header_comments.push_str(&self.text[start..self.pos]);
+            self.header_comments.push('\n');
         }
     }
-    Err(LowerError::Unparsable(format!(
-        "unterminated heredoc {label:?} at line {line}"
-    )))
+
+    fn skip_block_comment(&mut self) -> Result<(), LowerError> {
+        let start = self.pos;
+        let start_line = self.line;
+        self.pos += 2;
+        while self.pos + 1 < self.bytes.len() {
+            if self.bytes[self.pos..].starts_with(b"*/") {
+                self.pos += 2;
+                if self.tokens.is_empty() {
+                    self.header_comments.push_str(&self.text[start..self.pos]);
+                    self.header_comments.push('\n');
+                }
+                return Ok(());
+            }
+            if self.bytes[self.pos] == b'\n' {
+                self.line += 1;
+            }
+            self.pos += 1;
+        }
+        Err(LowerError::Unparsable(format!(
+            "unterminated block comment at line {start_line}"
+        )))
+    }
+
+    fn lex_heredoc(&mut self) -> Result<(), LowerError> {
+        let start = self.pos;
+        let start_line = self.line;
+        let label = self.parse_heredoc_header()?;
+        self.scan_heredoc_body(start, start_line, label)
+    }
+
+    fn parse_heredoc_header(&mut self) -> Result<&'a str, LowerError> {
+        self.pos += 3;
+        while self.pos < self.bytes.len() && matches!(self.bytes[self.pos], b' ' | b'\t') {
+            self.pos += 1;
+        }
+        let label = self.read_heredoc_label()?;
+        while self.pos < self.bytes.len() && self.bytes[self.pos] != b'\n' {
+            self.pos += 1;
+        }
+        if self.pos >= self.bytes.len() {
+            return Err(LowerError::Unparsable(format!(
+                "unterminated heredoc {label:?} at line {}",
+                self.line
+            )));
+        }
+        self.pos += 1;
+        self.line += 1;
+        Ok(label)
+    }
+
+    fn read_heredoc_label(&mut self) -> Result<&'a str, LowerError> {
+        let quote = self
+            .bytes
+            .get(self.pos)
+            .copied()
+            .filter(|b| matches!(b, b'\'' | b'"'));
+        if quote.is_some() {
+            self.pos += 1;
+        }
+        let label_start = self.pos;
+        while self.pos < self.bytes.len() && is_ident_continue(self.bytes[self.pos]) {
+            self.pos += 1;
+        }
+        let label = &self.text[label_start..self.pos];
+        if label.is_empty() {
+            return Err(LowerError::Unparsable(format!(
+                "missing heredoc label at line {}",
+                self.line
+            )));
+        }
+        if let Some(q) = quote {
+            if self.bytes.get(self.pos) != Some(&q) {
+                return Err(LowerError::Unparsable(format!(
+                    "unclosed heredoc label quote at line {}",
+                    self.line
+                )));
+            }
+            self.pos += 1;
+        }
+        Ok(label)
+    }
+
+    fn scan_heredoc_body(
+        &mut self,
+        start: usize,
+        start_line: u32,
+        label: &str,
+    ) -> Result<(), LowerError> {
+        while self.pos < self.bytes.len() {
+            let line_start = self.pos;
+            while self.pos < self.bytes.len() && self.bytes[self.pos] != b'\n' {
+                self.pos += 1;
+            }
+            let trimmed = self.text[line_start..self.pos].trim_start_matches([' ', '\t']);
+            if let Some(after) = trimmed.strip_prefix(label)
+                && after.bytes().next().is_none_or(|b| !is_ident_continue(b))
+            {
+                let indent = trimmed.as_ptr() as usize - self.text[line_start..].as_ptr() as usize;
+                self.pos = line_start + indent + label.len();
+                self.record_lines(start_line, self.line);
+                self.tokens.push(RawToken {
+                    kind: RawKind::StringLit,
+                    text: self.text[start..self.pos].to_owned(),
+                    lower: String::new(),
+                    line: start_line,
+                });
+                return Ok(());
+            }
+            if self.pos < self.bytes.len() {
+                self.pos += 1;
+                self.line += 1;
+            }
+        }
+        Err(LowerError::Unparsable(format!(
+            "unterminated heredoc {label:?} at line {}",
+            self.line
+        )))
+    }
+
+    fn lex_string(&mut self) -> Result<(), LowerError> {
+        let quote = self.bytes[self.pos];
+        let start = self.pos;
+        let start_line = self.line;
+        self.pos += 1;
+        while self.pos < self.bytes.len() {
+            let b = self.bytes[self.pos];
+            if b == b'\\' && self.pos + 1 < self.bytes.len() {
+                if self.bytes[self.pos + 1] == b'\n' {
+                    self.line += 1;
+                }
+                self.pos += 2;
+                continue;
+            }
+            if b == quote {
+                self.pos += 1;
+                self.record_lines(start_line, self.line);
+                self.tokens.push(RawToken {
+                    kind: RawKind::StringLit,
+                    text: self.text[start..self.pos].to_owned(),
+                    lower: String::new(),
+                    line: start_line,
+                });
+                return Ok(());
+            }
+            if b == b'\n' {
+                self.line += 1;
+            }
+            self.pos += 1;
+        }
+        Err(LowerError::Unparsable(format!(
+            "unterminated string literal at line {start_line}"
+        )))
+    }
+
+    fn push_simple_token(&mut self, kind: RawKind, slice: String, lower: String) {
+        self.code_lines.insert(self.line);
+        self.tokens.push(RawToken {
+            kind,
+            text: slice,
+            lower,
+            line: self.line,
+        });
+    }
+
+    fn consume_while(&mut self, pred: impl Fn(u8) -> bool) -> &str {
+        let start = self.pos;
+        while self.pos < self.bytes.len() && pred(self.bytes[self.pos]) {
+            self.pos += 1;
+        }
+        &self.text[start..self.pos]
+    }
+
+    fn lex_variable(&mut self) {
+        let start = self.pos;
+        self.pos += 2;
+        self.consume_while(is_ident_continue);
+        let slice = self.text[start..self.pos].to_owned();
+        self.push_simple_token(RawKind::Variable, slice.clone(), slice);
+    }
+
+    fn lex_word(&mut self) {
+        let slice = self.consume_while(is_ident_continue).to_owned();
+        let lower = slice.to_ascii_lowercase();
+        let kind = if is_keyword(&lower) {
+            RawKind::Keyword
+        } else {
+            RawKind::Ident
+        };
+        self.push_simple_token(kind, slice, lower);
+    }
+
+    fn lex_number(&mut self) {
+        let slice = self
+            .consume_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.'))
+            .to_owned();
+        self.push_simple_token(RawKind::NumberLit, slice.clone(), slice);
+    }
+
+    fn lex_punct(&mut self) -> Result<(), LowerError> {
+        let punct = match_multi_punct(&self.bytes[self.pos..])
+            .unwrap_or(&self.text[self.pos..self.pos + 1]);
+        self.track_delim(punct)?;
+        self.push_simple_token(RawKind::Punct, punct.to_owned(), punct.to_owned());
+        self.pos += punct.len();
+        Ok(())
+    }
+
+    fn track_delim(&mut self, punct: &str) -> Result<(), LowerError> {
+        match punct {
+            "#[" | "[" => self.delim_stack.push((b'[', self.line)),
+            "{" => self.delim_stack.push((b'{', self.line)),
+            "(" => self.delim_stack.push((b'(', self.line)),
+            "}" | ")" | "]" => {
+                let expected = match punct {
+                    "}" => b'{',
+                    ")" => b'(',
+                    _ => b'[',
+                };
+                if !matches!(self.delim_stack.pop(), Some((open, _)) if open == expected) {
+                    return Err(LowerError::Unparsable(format!(
+                        "unexpected {punct:?} at line {}",
+                        self.line
+                    )));
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn record_lines(&mut self, from: u32, to: u32) {
+        for line in from..=to {
+            self.code_lines.insert(line);
+        }
+    }
 }
 
 fn is_ident_start(b: u8) -> bool {
@@ -438,28 +494,25 @@ fn is_ident_continue(b: u8) -> bool {
 }
 
 fn match_multi_punct(bytes: &[u8]) -> Option<&'static str> {
-    const THREE: [&str; 6] = ["===", "!==", "<=>", "...", "??=", "**="];
-    for candidate in THREE {
-        if bytes.starts_with(candidate.as_bytes()) {
-            return Some(candidate);
-        }
-    }
-    const TWO: [&str; 17] = [
-        "&&", "||", "??", "=>", "->", "?->", "::", "==", "!=", "<=", ">=", "++", "--", "+=", "-=",
-        "*=", "#[",
+    const OPS: [&str; 23] = [
+        "===", "!==", "<=>", "...", "??=", "**=", "&&", "||", "??", "=>", "->", "?->", "::", "==",
+        "!=", "<=", ">=", "++", "--", "+=", "-=", "*=", "#[",
     ];
-    TWO.into_iter()
+    OPS.into_iter()
         .find(|candidate| bytes.starts_with(candidate.as_bytes()))
 }
 
+fn delim_pair(open: &str) -> Option<(&'static str, &'static str)> {
+    match open {
+        "(" => Some(("(", ")")),
+        "{" => Some(("{", "}")),
+        "[" | "#[" => Some(("[", "]")),
+        _ => None,
+    }
+}
+
 pub(crate) fn find_matching_delim(tokens: &[RawToken], open_idx: usize) -> Option<usize> {
-    let open = tokens.get(open_idx)?.text.as_str();
-    let (inc, dec) = match open {
-        "(" => ("(", ")"),
-        "{" => ("{", "}"),
-        "[" | "#[" => ("[", "]"),
-        _ => return None,
-    };
+    let (inc, dec) = delim_pair(tokens.get(open_idx)?.text.as_str())?;
     let mut depth = 0usize;
     for (idx, token) in tokens.iter().enumerate().skip(open_idx) {
         if token.text == inc || (inc == "[" && token.text == "#[") {
@@ -469,6 +522,18 @@ pub(crate) fn find_matching_delim(tokens: &[RawToken], open_idx: usize) -> Optio
             if depth == 0 {
                 return Some(idx);
             }
+        }
+    }
+    None
+}
+
+pub(crate) fn find_next_brace(tokens: &[RawToken], mut pos: usize) -> Option<usize> {
+    while pos < tokens.len() {
+        match tokens[pos].text.as_str() {
+            "{" => return Some(pos),
+            ";" => return None,
+            "(" => pos = find_matching_delim(tokens, pos)? + 1,
+            _ => pos += 1,
         }
     }
     None

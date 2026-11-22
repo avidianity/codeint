@@ -8,24 +8,58 @@ mod rules;
 mod source_set;
 mod workspaces;
 
+use std::collections::BTreeSet;
+
 use codeint_model::language::{
     FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token,
     TokenKind, WorkspaceError,
 };
 use codeint_model::token_text_hash;
 
-use crate::lexer::RawKind;
-use crate::resolution::{PhpResolver, manifest_paths};
+use crate::lexer::{RawKind, RawToken};
 
 pub use rules::flagged_line_rules;
 
-pub(crate) const EXTENSIONS: [&str; 1] = ["php"];
-
 pub struct Php;
 
+fn build_tokens(raw_tokens: &[RawToken], import_indices: &BTreeSet<usize>) -> Vec<Token> {
+    raw_tokens
+        .iter()
+        .enumerate()
+        .map(|(idx, raw)| Token {
+            kind: classify_token(raw, import_indices.contains(&idx)),
+            text_hash: token_text_hash(&raw.text),
+            line: raw.line,
+        })
+        .collect()
+}
+
+fn classify_token(raw: &RawToken, is_import: bool) -> TokenKind {
+    if is_import {
+        return TokenKind::ImportOrExport;
+    }
+    match raw.kind {
+        RawKind::Ident | RawKind::Variable => TokenKind::Identifier,
+        RawKind::StringLit | RawKind::NumberLit => TokenKind::Literal,
+        RawKind::Keyword | RawKind::Punct => TokenKind::Other,
+    }
+}
+
 impl Guest for Php {
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
+    }
+
     fn extensions() -> Vec<String> {
-        EXTENSIONS.iter().map(ToString::to_string).collect()
+        vec!["php".to_owned()]
+    }
+
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        resolution::manifest_paths(&repository_paths)
+    }
+
+    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        workspaces::workspace_packages(&manifests)
     }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
@@ -35,46 +69,17 @@ impl Guest for Php {
             )));
         }
         let lexed = lexer::lex(&text)?;
-        let source_set = source_set::classify(&path, &lexed.header_comments);
-        let extracted_imports = imports::extract(&lexed.tokens);
-        let tokens = lexed
-            .tokens
-            .iter()
-            .enumerate()
-            .map(|(idx, token)| {
-                let kind = if extracted_imports.import_token_indices.contains(&idx) {
-                    TokenKind::ImportOrExport
-                } else {
-                    match token.kind {
-                        RawKind::Ident | RawKind::Variable => TokenKind::Identifier,
-                        RawKind::StringLit | RawKind::NumberLit => TokenKind::Literal,
-                        RawKind::Keyword | RawKind::Punct => TokenKind::Other,
-                    }
-                };
-                Token {
-                    kind,
-                    text_hash: token_text_hash(&token.text),
-                    line: token.line,
-                }
-            })
-            .collect();
+        let extracted = imports::extract(&lexed.tokens);
+        let source_lines =
+            u32::try_from(lexed.code_lines.len()).map_err(|_| LowerError::TooLarge)?;
         Ok(FileModel {
-            source_set,
-            source_lines: u32::try_from(lexed.code_lines.len())
-                .map_err(|_| LowerError::TooLarge)?,
+            source_set: source_set::classify(&path, &lexed.header_comments),
+            source_lines,
             functions: functions::functions(&lexed.tokens, &lexed.code_lines),
-            tokens,
+            tokens: build_tokens(&lexed.tokens, &extracted.import_token_indices),
             flagged_lines: rules::flag(&lexed.tokens, &lexed.code_lines),
-            runtime_imports: extracted_imports.specifiers,
+            runtime_imports: extracted.specifiers,
         })
-    }
-
-    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        manifest_paths(&repository_paths)
-    }
-
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        workspaces::workspace_packages(&manifests)
     }
 
     fn resolve_imports(
@@ -82,14 +87,6 @@ impl Guest for Php {
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        let resolver = PhpResolver::new(&repository_paths, &manifests);
-        requests
-            .iter()
-            .map(|request| resolver.resolve(request))
-            .collect()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
+        resolution::resolve_batch(&repository_paths, &manifests, &requests)
     }
 }

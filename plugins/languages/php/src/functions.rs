@@ -4,58 +4,63 @@ use codeint_model::language::Function;
 
 use crate::lexer::{RawKind, RawToken, find_matching_delim};
 
-pub(crate) fn functions(tokens: &[RawToken], code_lines: &BTreeSet<u32>) -> Vec<Function> {
-    let mut spans: Vec<(usize, usize, u32, u32)> = Vec::new();
-    let mut i = 0usize;
-    while i < tokens.len() {
-        if tokens[i].kind == RawKind::Keyword
-            && tokens[i].lower == "function"
-            && let Some((body_open, body_close)) = find_function_body(tokens, i)
-        {
-            spans.push((
-                body_open,
-                body_close,
-                tokens[i].line,
-                tokens[body_close].line,
-            ));
-        } else if tokens[i].kind == RawKind::Keyword
-            && tokens[i].lower == "fn"
-            && let Some((body_start, body_end)) = find_arrow_fn_body(tokens, i)
-        {
-            spans.push((body_start, body_end, tokens[i].line, tokens[body_end].line));
-        }
-        i += 1;
-    }
+type FunctionSpan = (usize, usize, u32, u32);
 
-    let mut result = Vec::with_capacity(spans.len());
-    for (idx, &(body_start, body_end, start_line, end_line)) in spans.iter().enumerate() {
-        let mut decisions = 0u32;
-        let mut cursor = body_start;
-        while cursor <= body_end {
-            if let Some(nested_end) = nested_function_end(&spans, idx, cursor) {
-                cursor = nested_end + 1;
-                continue;
-            }
-            decisions += decision_increment(tokens, cursor);
-            cursor += 1;
-        }
-        let source_lines = code_lines.range(start_line..=end_line).count() as u32;
-        result.push(Function {
-            line: start_line,
-            end_line,
-            decision_points: decisions,
-            source_lines,
-        });
-    }
+pub(crate) fn functions(tokens: &[RawToken], code_lines: &BTreeSet<u32>) -> Vec<Function> {
+    let spans = collect_function_spans(tokens);
+    let mut result: Vec<Function> = spans
+        .iter()
+        .enumerate()
+        .map(|(idx, &span)| build_function_metric(tokens, code_lines, &spans, idx, span))
+        .collect();
     result.sort_by_key(|f| (f.line, f.end_line));
     result
 }
 
-fn nested_function_end(
-    spans: &[(usize, usize, u32, u32)],
+fn collect_function_spans(tokens: &[RawToken]) -> Vec<FunctionSpan> {
+    let mut spans = Vec::new();
+    for (i, token) in tokens.iter().enumerate() {
+        if token.kind != RawKind::Keyword {
+            continue;
+        }
+        let body = match token.lower.as_str() {
+            "function" => find_function_body(tokens, i),
+            "fn" => find_arrow_fn_body(tokens, i),
+            _ => None,
+        };
+        if let Some((start, end)) = body {
+            spans.push((start, end, token.line, tokens[end].line));
+        }
+    }
+    spans
+}
+
+fn build_function_metric(
+    tokens: &[RawToken],
+    code_lines: &BTreeSet<u32>,
+    spans: &[FunctionSpan],
     owner: usize,
-    cursor: usize,
-) -> Option<usize> {
+    (body_start, body_end, start_line, end_line): FunctionSpan,
+) -> Function {
+    let mut decisions = 0u32;
+    let mut cursor = body_start;
+    while cursor <= body_end {
+        if let Some(nested_end) = nested_function_end(spans, owner, cursor) {
+            cursor = nested_end + 1;
+            continue;
+        }
+        decisions += decision_increment(tokens, cursor);
+        cursor += 1;
+    }
+    Function {
+        line: start_line,
+        end_line,
+        decision_points: decisions,
+        source_lines: code_lines.range(start_line..=end_line).count() as u32,
+    }
+}
+
+fn nested_function_end(spans: &[FunctionSpan], owner: usize, cursor: usize) -> Option<usize> {
     spans
         .iter()
         .enumerate()
@@ -63,32 +68,31 @@ fn nested_function_end(
         .map(|(_, &(_, end, _, _))| end)
 }
 
-fn find_function_body(tokens: &[RawToken], fn_idx: usize) -> Option<(usize, usize)> {
+fn skip_fn_params(tokens: &[RawToken], fn_idx: usize, allow_name: bool) -> Option<usize> {
     let mut cursor = fn_idx + 1;
     if tokens.get(cursor).is_some_and(|t| t.text == "&") {
         cursor += 1;
     }
-    if tokens
-        .get(cursor)
-        .is_some_and(|t| matches!(t.kind, RawKind::Ident | RawKind::Keyword))
+    if allow_name
+        && tokens
+            .get(cursor)
+            .is_some_and(|t| matches!(t.kind, RawKind::Ident | RawKind::Keyword))
     {
         cursor += 1;
     }
     if tokens.get(cursor).map(|t| t.text.as_str()) != Some("(") {
         return None;
     }
-    let close_paren = find_matching_delim(tokens, cursor)?;
-    let mut after = close_paren + 1;
+    find_matching_delim(tokens, cursor)
+}
+
+fn find_function_body(tokens: &[RawToken], fn_idx: usize) -> Option<(usize, usize)> {
+    let mut after = skip_fn_params(tokens, fn_idx, true)? + 1;
     while after < tokens.len() {
         match tokens[after].text.as_str() {
-            "{" => {
-                let close_brace = find_matching_delim(tokens, after)?;
-                return Some((after, close_brace));
-            }
+            "{" => return Some((after, find_matching_delim(tokens, after)?)),
             ";" => return None,
-            "(" => {
-                after = find_matching_delim(tokens, after)? + 1;
-            }
+            "(" => after = find_matching_delim(tokens, after)? + 1,
             _ => after += 1,
         }
     }
@@ -96,17 +100,9 @@ fn find_function_body(tokens: &[RawToken], fn_idx: usize) -> Option<(usize, usiz
 }
 
 fn find_arrow_fn_body(tokens: &[RawToken], fn_idx: usize) -> Option<(usize, usize)> {
-    let mut cursor = fn_idx + 1;
-    if tokens.get(cursor).is_some_and(|t| t.text == "&") {
-        cursor += 1;
-    }
-    if tokens.get(cursor).map(|t| t.text.as_str()) != Some("(") {
-        return None;
-    }
-    let close_paren = find_matching_delim(tokens, cursor)?;
-    let mut after = close_paren + 1;
+    let mut after = skip_fn_params(tokens, fn_idx, false)? + 1;
     while after < tokens.len() && tokens[after].text != "=>" {
-        if tokens[after].text == ";" || tokens[after].text == "{" {
+        if matches!(tokens[after].text.as_str(), ";" | "{") {
             return None;
         }
         after += 1;
@@ -115,25 +111,21 @@ fn find_arrow_fn_body(tokens: &[RawToken], fn_idx: usize) -> Option<(usize, usiz
         return None;
     }
     let body_start = after + 1;
-    let mut end = body_start;
+    Some((body_start, find_arrow_end(tokens, body_start)))
+}
+
+fn find_arrow_end(tokens: &[RawToken], body_start: usize) -> usize {
     let mut depth = 0usize;
-    while end < tokens.len() {
-        match tokens[end].text.as_str() {
+    for (idx, token) in tokens.iter().enumerate().skip(body_start) {
+        match token.text.as_str() {
             "(" | "[" | "{" | "#[" => depth += 1,
-            ")" | "]" | "}" => {
-                if depth == 0 {
-                    return Some((body_start, end.saturating_sub(1)));
-                }
-                depth -= 1;
-            }
-            ";" | "," if depth == 0 => {
-                return Some((body_start, end.saturating_sub(1)));
-            }
+            ")" | "]" | "}" if depth == 0 => return idx.saturating_sub(1),
+            ")" | "]" | "}" => depth -= 1,
+            ";" | "," if depth == 0 => return idx.saturating_sub(1),
             _ => {}
         }
-        end += 1;
     }
-    Some((body_start, tokens.len().saturating_sub(1)))
+    tokens.len().saturating_sub(1)
 }
 
 fn decision_increment(tokens: &[RawToken], idx: usize) -> u32 {
@@ -166,23 +158,24 @@ fn is_ternary_question(tokens: &[RawToken], idx: usize) -> bool {
 }
 
 fn count_match_arms(tokens: &[RawToken], match_idx: usize) -> u32 {
-    let mut cursor = match_idx + 1;
-    if tokens.get(cursor).map(|t| t.text.as_str()) != Some("(") {
-        return 0;
-    }
-    let Some(close_paren) = find_matching_delim(tokens, cursor) else {
+    let Some(close_paren) = tokens
+        .get(match_idx + 1)
+        .filter(|t| t.text == "(")
+        .and_then(|_| find_matching_delim(tokens, match_idx + 1))
+    else {
         return 0;
     };
-    cursor = close_paren + 1;
-    if tokens.get(cursor).map(|t| t.text.as_str()) != Some("{") {
-        return 0;
-    }
-    let Some(close_brace) = find_matching_delim(tokens, cursor) else {
+    let brace_open = close_paren + 1;
+    let Some(close_brace) = tokens
+        .get(brace_open)
+        .filter(|t| t.text == "{")
+        .and_then(|_| find_matching_delim(tokens, brace_open))
+    else {
         return 0;
     };
     let mut arms = 0u32;
     let mut depth = 0usize;
-    for token in &tokens[cursor + 1..close_brace] {
+    for token in &tokens[brace_open + 1..close_brace] {
         match token.text.as_str() {
             "(" | "[" | "{" | "#[" => depth += 1,
             ")" | "]" | "}" => depth = depth.saturating_sub(1),

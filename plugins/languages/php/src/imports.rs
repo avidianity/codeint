@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::lexer::{RawKind, RawToken, find_matching_delim};
+use crate::lexer::{RawKind, RawToken, find_matching_delim, find_next_brace};
 
 pub(crate) const USE_PREFIX: &str = "use:";
 pub(crate) const REQ_PREFIX: &str = "req:";
@@ -13,52 +13,26 @@ pub(crate) struct ExtractedImports {
 pub(crate) fn extract(tokens: &[RawToken]) -> ExtractedImports {
     let mut specifiers = BTreeSet::new();
     let mut import_token_indices = BTreeSet::new();
-    let mut type_brace_depth = 0usize;
+    let mut brace_depth = 0usize;
     let mut i = 0usize;
 
     while i < tokens.len() {
+        if let Some(next) = scan_type_body(tokens, i, &mut specifiers) {
+            i = next;
+            continue;
+        }
         let token = &tokens[i];
-        if token.kind == RawKind::Keyword
-            && matches!(
-                token.lower.as_str(),
-                "class" | "interface" | "trait" | "enum"
-            )
-            && !tokens
-                .get(i.saturating_sub(1))
-                .is_some_and(|prev| prev.text == "::")
-            && let Some(brace) = find_next_brace(tokens, i + 1)
-            && let Some(close) = find_matching_delim(tokens, brace)
-        {
-            let mut inner = brace + 1;
-            while inner < close {
-                extract_require(tokens, inner, &mut specifiers);
-                inner += 1;
-            }
-            i = close + 1;
+        brace_depth = update_brace_depth(brace_depth, token.text.as_str());
+        if let Some(next) = scan_top_level_import(
+            tokens,
+            i,
+            brace_depth,
+            &mut specifiers,
+            &mut import_token_indices,
+        ) {
+            i = next;
             continue;
         }
-        if token.text == "{" {
-            type_brace_depth += 1;
-        } else if token.text == "}" {
-            type_brace_depth = type_brace_depth.saturating_sub(1);
-        }
-
-        if token.kind == RawKind::Keyword && token.lower == "namespace" {
-            let end = mark_statement(tokens, i, &mut import_token_indices);
-            i = end + 1;
-            continue;
-        }
-
-        if token.kind == RawKind::Keyword
-            && token.lower == "use"
-            && type_brace_depth == 0
-            && !is_closure_use(tokens, i)
-        {
-            let end = parse_use_statement(tokens, i, &mut specifiers, &mut import_token_indices);
-            i = end + 1;
-            continue;
-        }
-
         extract_require(tokens, i, &mut specifiers);
         i += 1;
     }
@@ -69,15 +43,56 @@ pub(crate) fn extract(tokens: &[RawToken]) -> ExtractedImports {
     }
 }
 
-fn find_next_brace(tokens: &[RawToken], start: usize) -> Option<usize> {
-    let mut i = start;
-    while i < tokens.len() {
-        match tokens[i].text.as_str() {
-            "{" => return Some(i),
-            ";" => return None,
-            "(" => i = find_matching_delim(tokens, i)? + 1,
-            _ => i += 1,
-        }
+fn update_brace_depth(depth: usize, text: &str) -> usize {
+    match text {
+        "{" => depth + 1,
+        "}" => depth.saturating_sub(1),
+        _ => depth,
+    }
+}
+
+fn scan_type_body(
+    tokens: &[RawToken],
+    idx: usize,
+    specifiers: &mut BTreeSet<String>,
+) -> Option<usize> {
+    let token = &tokens[idx];
+    let is_type_kw = token.kind == RawKind::Keyword
+        && matches!(
+            token.lower.as_str(),
+            "class" | "interface" | "trait" | "enum"
+        );
+    if !is_type_kw
+        || tokens
+            .get(idx.saturating_sub(1))
+            .is_some_and(|p| p.text == "::")
+    {
+        return None;
+    }
+    let brace = find_next_brace(tokens, idx + 1)?;
+    let close = find_matching_delim(tokens, brace)?;
+    for inner in brace + 1..close {
+        extract_require(tokens, inner, specifiers);
+    }
+    Some(close + 1)
+}
+
+fn scan_top_level_import(
+    tokens: &[RawToken],
+    idx: usize,
+    brace_depth: usize,
+    specifiers: &mut BTreeSet<String>,
+    marked: &mut BTreeSet<usize>,
+) -> Option<usize> {
+    let token = &tokens[idx];
+    if token.kind != RawKind::Keyword {
+        return None;
+    }
+    if token.lower == "namespace" {
+        return Some(mark_statement(tokens, idx, marked) + 1);
+    }
+    if token.lower == "use" && brace_depth == 0 && !is_closure_use(tokens, idx) {
+        return Some(parse_use_statement(tokens, idx, specifiers, marked) + 1);
     }
     None
 }
@@ -98,62 +113,84 @@ fn mark_statement(tokens: &[RawToken], start: usize, marked: &mut BTreeSet<usize
     tokens.len().saturating_sub(1)
 }
 
+struct UseAccumulator<'a> {
+    current: String,
+    group_prefix: Option<String>,
+    in_alias: bool,
+    specifiers: &'a mut BTreeSet<String>,
+}
+
+impl UseAccumulator<'_> {
+    fn feed(&mut self, token: &RawToken) -> bool {
+        match token.text.as_str() {
+            ";" => {
+                self.flush();
+                return true;
+            }
+            "{" => {
+                self.group_prefix = Some(std::mem::take(&mut self.current));
+                self.in_alias = false;
+            }
+            "}" => {
+                self.flush();
+                self.group_prefix = None;
+                self.in_alias = false;
+            }
+            "," => {
+                self.flush();
+                self.in_alias = false;
+            }
+            _ => self.append_part(token),
+        }
+        false
+    }
+
+    fn append_part(&mut self, token: &RawToken) {
+        if token.kind == RawKind::Keyword && token.lower == "as" {
+            self.in_alias = true;
+            return;
+        }
+        if self.in_alias {
+            return;
+        }
+        if token.text == "\\" {
+            if !self.current.is_empty() && !self.current.ends_with('\\') {
+                self.current.push('\\');
+            }
+        } else {
+            self.current.push_str(&token.text);
+        }
+    }
+
+    fn flush(&mut self) {
+        push_use_specifier(&self.group_prefix, &self.current, self.specifiers);
+        self.current.clear();
+    }
+}
+
 fn parse_use_statement(
     tokens: &[RawToken],
     start: usize,
     specifiers: &mut BTreeSet<String>,
     marked: &mut BTreeSet<usize>,
 ) -> usize {
-    let mut i = start;
-    marked.insert(i);
-    i += 1;
-    let skip_symbol = tokens.get(i).is_some_and(|t| {
+    marked.insert(start);
+    let mut i = start + 1;
+    if tokens.get(i).is_some_and(|t| {
         t.kind == RawKind::Keyword && matches!(t.lower.as_str(), "function" | "const")
-    });
-    if skip_symbol {
+    }) {
         return mark_statement(tokens, i, marked);
     }
-
-    let mut current = String::new();
-    let mut group_prefix: Option<String> = None;
-    let mut in_alias = false;
+    let mut acc = UseAccumulator {
+        current: String::new(),
+        group_prefix: None,
+        in_alias: false,
+        specifiers,
+    };
     while i < tokens.len() {
         marked.insert(i);
-        let t = &tokens[i];
-        match t.text.as_str() {
-            ";" => {
-                push_use_specifier(&group_prefix, &current, specifiers);
-                return i;
-            }
-            "{" => {
-                group_prefix = Some(current.clone());
-                current.clear();
-                in_alias = false;
-            }
-            "}" => {
-                push_use_specifier(&group_prefix, &current, specifiers);
-                current.clear();
-                group_prefix = None;
-                in_alias = false;
-            }
-            "," => {
-                push_use_specifier(&group_prefix, &current, specifiers);
-                current.clear();
-                in_alias = false;
-            }
-            _ if t.kind == RawKind::Keyword && t.lower == "as" => {
-                in_alias = true;
-            }
-            "\\" => {
-                if !in_alias && !current.is_empty() && !current.ends_with('\\') {
-                    current.push('\\');
-                }
-            }
-            _ => {
-                if !in_alias {
-                    current.push_str(&t.text);
-                }
-            }
+        if acc.feed(&tokens[i]) {
+            return i;
         }
         i += 1;
     }
