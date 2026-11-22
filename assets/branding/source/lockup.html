@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>codeint lockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&display=block" rel="stylesheet">
+<style>
+  :root { --word: #fbe9cb; }
+  :root[data-theme="light"] { --word: #0e1c1d; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 880px; height: 260px; overflow: hidden; background: transparent; }
+  .lockup { height: 260px; padding: 0 30px; display: flex; align-items: center; gap: 40px; }
+  .mascot { width: 200px; height: 200px; border-radius: 46px; display: block; }
+  .word { font-family: "Bricolage Grotesque", sans-serif; font-weight: 800; font-size: 176px; line-height: 1; letter-spacing: -0.028em; color: var(--word); font-variation-settings: "opsz" 96; transform: translateY(-8px); }
+</style>
+<script>
+  if (new URLSearchParams(location.search).get("theme") === "light") document.documentElement.dataset.theme = "light";
+</script>
+</head>
+<body>
+  <div class="lockup">
+    <img class="mascot" src="../mascot.png" alt="">
+    <div class="word">codeint</div>
+  </div>
+</body>
+</html>
