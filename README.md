@@ -23,6 +23,7 @@ Languages and Metrics are Plugins: TypeScript/JavaScript, Rust, PHP, and Dart sh
   <a href="#what-to-expect">What to expect</a> ·
   <a href="#github-actions">GitHub Actions</a> ·
   <a href="./docs/reference.md">Reference</a> ·
+  <a href="./docs/programmatic.md">Programmatic API</a> ·
   <a href="./docs/plugins.md">Plugins</a> ·
   <a href="#development">Development</a>
 </p>
@@ -64,6 +65,7 @@ codeint update
 `codeint update` verifies SHA-256 checksums and updates a standalone binary in place from GitHub Releases.
 
 [docs/reference.md](./docs/reference.md) documents every command, option, exit code, report format, and `codeint.json` key, with an example for each.
+[docs/programmatic.md](./docs/programmatic.md) documents the JavaScript/TypeScript SDK (`import { check, diff, trend, init } from "codeint"`) and the Rust library API.
 [docs/plugins.md](./docs/plugins.md) explains how to build, hash, declare, and test Language plugins and Metric plugins against the versioned WIT contract.
 
 ## Configure
