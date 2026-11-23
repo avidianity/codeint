@@ -4959,3 +4959,82 @@ fn cognitive_complexity_reports_independently_with_budgets_and_no_uncalibrated_r
     let stderr = String::from_utf8_lossy(&over.stderr);
     assert!(stderr.contains("cognitive_complexity"), "{stderr}");
 }
+
+fn finding_triples(section: &serde_json::Value) -> Vec<(&str, Option<&str>, u64)> {
+    let mut rows: Vec<(&str, Option<&str>, u64)> = section["findings"]
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .map(|item| {
+            (
+                item["path"].as_str().unwrap(),
+                item.get("name").and_then(|v| v.as_str()),
+                item["cognitive_complexity"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    rows.sort_unstable();
+    rows
+}
+
+#[test]
+fn scanner_languages_report_erosion_names_and_cognitive_complexity_end_to_end() {
+    let repo = Repository::new();
+    let py_arms: String = (1..=12)
+        .map(|i| format!("        case {i}:\n            return {i}\n"))
+        .collect();
+    let c_arms: String = (1..=12)
+        .map(|i| format!("    case {i}: return {i};\n"))
+        .collect();
+    let php_ifs: String = (1..=11)
+        .map(|i| format!("    if ($x == {i}) {{ $n += 1; }}\n"))
+        .collect();
+    let files = [
+        (
+            "src/py_logic.py",
+            format!(
+                "def py_flat_match(x):\n    match x:\n{py_arms}        case _:\n            return 0\n\
+                 def py_deep_check(a, b, c, d, e, f):\n    if a:\n        if b:\n            if c:\n                if d:\n                    if e:\n                        if f:\n                            return 1\n    return 0\n"
+            ),
+        ),
+        (
+            "src/PhpLogic.php",
+            format!(
+                "<?php\nfunction phpFlatSwitch(int $x): int {{\n  switch ($x) {{\n{c_arms}    default: return 0;\n  }}\n}}\n\
+                 function phpDeepCheck(bool $a, bool $b, bool $c, bool $d, bool $e, bool $f): int {{\n  if ($a) {{ if ($b) {{ if ($c) {{ if ($d) {{ if ($e) {{ if ($f) {{ return 1; }} }} }} }} }} }}\n  return 0;\n}}\n\
+                 $anon = function (int $x): int {{\n  $n = 0;\n{php_ifs}  return $n;\n}};\n"
+            ),
+        ),
+        (
+            "lib/dart_logic.dart",
+            format!(
+                "int dartFlatSwitch(int x) {{\n  switch (x) {{\n{c_arms}    default: return 0;\n  }}\n}}\n\
+                 int dartDeepCheck(bool a, bool b, bool c, bool d, bool e, bool f) {{\n  if (a) {{ if (b) {{ if (c) {{ if (d) {{ if (e) {{ if (f) {{ return 1; }} }} }} }} }} }}\n  return 0;\n}}\n"
+            ),
+        ),
+    ];
+    for (path, body) in &files {
+        repo.write(path, body);
+    }
+    repo.commit_all();
+
+    let payload = run_check_json(&repo, "json");
+    let production = &payload["source_sets"]["production"];
+    assert_eq!(
+        finding_triples(&production["erosion"]),
+        [
+            ("lib/dart_logic.dart", Some("dartFlatSwitch"), 1),
+            ("src/PhpLogic.php", None, 11),
+            ("src/PhpLogic.php", Some("phpFlatSwitch"), 1),
+            ("src/py_logic.py", Some("py_flat_match"), 1),
+        ]
+    );
+    assert_eq!(
+        finding_triples(&production["cognitive_complexity"]),
+        [
+            ("lib/dart_logic.dart", Some("dartDeepCheck"), 21),
+            ("src/PhpLogic.php", Some("phpDeepCheck"), 21),
+            ("src/py_logic.py", Some("py_deep_check"), 21),
+        ]
+    );
+}
