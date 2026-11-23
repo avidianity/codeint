@@ -135,7 +135,11 @@ fn python_imports_type_checking_resolution_and_workspaces() {
             },
             ImportRequest {
                 importer: "src/demo/main.py".into(),
-                specifier: ".missing".into(),
+                specifier: ".Flask".into(),
+            },
+            ImportRequest {
+                importer: "src/demo/main.py".into(),
+                specifier: "..missing".into(),
             },
         ],
     );
@@ -148,7 +152,11 @@ fn python_imports_type_checking_resolution_and_workspaces() {
         Resolution::Resolved("src/demo/utils.py".into())
     );
     assert_eq!(resolutions[2], Resolution::Builtin);
-    assert!(matches!(resolutions[3], Resolution::Unresolved(_)));
+    assert_eq!(
+        resolutions[3],
+        Resolution::Resolved("src/demo/__init__.py".into())
+    );
+    assert!(matches!(resolutions[4], Resolution::Unresolved(_)));
 
     let packages = Python
         .workspace_packages(vec![
@@ -450,4 +458,63 @@ fn python_cognitive_complexity_distinguishes_flat_vs_nested_and_isolates_inner_f
             (name, dp, cog)
         );
     }
+}
+
+#[test]
+fn relative_symbol_imports_fall_back_to_package_init_without_hiding_missing_submodules() {
+    let cli_src = "from . import Flask\nfrom . import *\ndef run():\n    return Flask\n";
+    let lowered = Python
+        .lower(&RepoPath::new("src/flask/cli.py").unwrap(), cli_src)
+        .unwrap();
+    assert_eq!(lowered.runtime_imports, [".", ".Flask"]);
+
+    let repo: Vec<RepoPath> = [
+        "pyproject.toml",
+        "src/flask/__init__.py",
+        "src/flask/cli.py",
+        "src/flask/helpers.py",
+        "src/flask/json/__init__.py",
+        "src/flask/json/provider.py",
+    ]
+    .into_iter()
+    .map(|p| RepoPath::new(p).unwrap())
+    .collect();
+    let manifests = vec![Manifest {
+        path: "pyproject.toml".into(),
+        text: "[project]\nname = \"Flask\"\n".into(),
+    }];
+    let requests: Vec<ImportRequest> = [
+        ("src/flask/cli.py", ".Flask"),
+        ("src/flask/cli.py", "."),
+        ("src/flask/cli.py", ".helpers"),
+        ("src/flask/json/provider.py", "..current_app"),
+        ("src/flask/cli.py", ".sub.missing"),
+        ("src/flask/__init__.py", ".missing"),
+    ]
+    .into_iter()
+    .map(|(importer, specifier)| ImportRequest {
+        importer: importer.to_owned(),
+        specifier: specifier.to_owned(),
+    })
+    .collect();
+
+    let resolutions = Python.resolve_imports(&repo, manifests, requests);
+    assert_eq!(
+        resolutions[0],
+        Resolution::Resolved("src/flask/__init__.py".into())
+    );
+    assert_eq!(
+        resolutions[1],
+        Resolution::Resolved("src/flask/__init__.py".into())
+    );
+    assert_eq!(
+        resolutions[2],
+        Resolution::Resolved("src/flask/helpers.py".into())
+    );
+    assert_eq!(
+        resolutions[3],
+        Resolution::Resolved("src/flask/__init__.py".into())
+    );
+    assert!(matches!(resolutions[4], Resolution::Unresolved(_)));
+    assert!(matches!(resolutions[5], Resolution::Unresolved(_)));
 }

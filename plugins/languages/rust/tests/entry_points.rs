@@ -153,3 +153,51 @@ fn includes_default_lib_when_autolib_is_false_and_lib_table_has_no_path() {
     );
     assert_eq!(entries, ["crates/explicit_lib/src/lib.rs"]);
 }
+
+#[test]
+fn extracts_build_scripts_custom_bin_paths_and_implicit_lib_alongside_bin() {
+    let ripgrep_entries = cargo_entries(
+        &[
+            "Cargo.toml",
+            "build.rs",
+            "crates/core/main.rs",
+            "crates/core/flags/mod.rs",
+        ],
+        "Cargo.toml",
+        "[package]\nname = \"ripgrep\"\nbuild = \"build.rs\"\n[[bin]]\nname = \"rg\"\npath = \"crates/core/main.rs\"\n",
+    );
+    assert_eq!(ripgrep_entries, ["build.rs", "crates/core/main.rs"]);
+
+    let implicit_build_and_lib = cargo_entries(
+        &[
+            "crates/cli/Cargo.toml",
+            "crates/cli/build.rs",
+            "crates/cli/src/lib.rs",
+            "crates/cli/src/main.rs",
+        ],
+        "crates/cli/Cargo.toml",
+        "[package]\nname = \"codeint-cli\"\n[[bin]]\nname = \"codeint\"\npath = \"src/main.rs\"\n",
+    );
+    assert_eq!(
+        implicit_build_and_lib,
+        [
+            "crates/cli/build.rs",
+            "crates/cli/src/lib.rs",
+            "crates/cli/src/main.rs",
+        ]
+    );
+
+    let disabled_build = cargo_entries(
+        &["Cargo.toml", "build.rs", "src/lib.rs"],
+        "Cargo.toml",
+        "[package]\nname = \"no_build\"\nbuild = false\n",
+    );
+    assert_eq!(disabled_build, ["src/lib.rs"]);
+
+    let escaped_build = cargo_entries(
+        &["crates/app/Cargo.toml", "build.rs", "crates/app/src/lib.rs"],
+        "crates/app/Cargo.toml",
+        "[package]\nname = \"app\"\nbuild = \"../build.rs\"\n",
+    );
+    assert_eq!(escaped_build, ["crates/app/src/lib.rs"]);
+}

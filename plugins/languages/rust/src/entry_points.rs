@@ -19,6 +19,14 @@ struct PackageMeta {
     name: Option<String>,
     autolib: Option<bool>,
     autobins: Option<bool>,
+    build: Option<BuildScript>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BuildScript {
+    Enabled(bool),
+    Path(String),
 }
 
 #[derive(Deserialize)]
@@ -121,6 +129,24 @@ impl CargoTargets {
         if package.autobins != Some(false) {
             index.record(base_dir, "src/main.rs", out);
             index.scan_auto_bins(base_dir, out);
+        }
+        record_build_script(index, base_dir, package.build.as_ref(), out);
+    }
+}
+
+fn record_build_script(
+    index: &CrateTargetIndex<'_>,
+    base_dir: &str,
+    build: Option<&BuildScript>,
+    out: &mut BTreeSet<String>,
+) {
+    match build {
+        None | Some(BuildScript::Enabled(true)) => {
+            index.record(base_dir, "build.rs", out);
+        }
+        Some(BuildScript::Enabled(false)) => {}
+        Some(BuildScript::Path(explicit)) => {
+            index.record(base_dir, explicit, out);
         }
     }
 }

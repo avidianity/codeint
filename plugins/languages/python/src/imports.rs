@@ -146,6 +146,9 @@ fn parse_relative_imported_names(slice: &[PyToken], dots: &str, out: &mut BTreeS
             } else {
                 1
             };
+        } else if tok.text == "*" {
+            out.insert(dots.to_owned());
+            idx += 1;
         } else {
             idx += 1;
         }
