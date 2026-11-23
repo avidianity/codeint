@@ -5,7 +5,7 @@ use globset::{GlobBuilder, GlobMatcher, GlobSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::config_error::{ConfigurationFileError, KeyPath, KeySegment, glob_set};
+use crate::config_error::{ConfigFileKind, ConfigurationFileError, KeyPath, KeySegment, glob_set};
 
 const WILDCARD_ZONE: &str = "*";
 
@@ -354,6 +354,7 @@ fn compile_zone(
     let zone_key = zones_key.child(KeySegment::Key(name.clone()));
     if name.trim().is_empty() || name == WILDCARD_ZONE {
         return Err(ConfigurationFileError::InvalidBoundaryZoneName {
+            file: ConfigFileKind::Json,
             key: zone_key,
             name,
         });
@@ -361,6 +362,7 @@ fn compile_zone(
     let patterns_key = zone_key.child(KeySegment::Key("patterns".to_owned()));
     if zone_file.patterns.is_empty() {
         return Err(ConfigurationFileError::EmptyBoundaryZonePatterns {
+            file: ConfigFileKind::Json,
             key: patterns_key,
             zone: name,
         });
@@ -414,6 +416,7 @@ fn compile_rule(
 ) -> Result<CompiledRule, ConfigurationFileError> {
     if rule.from != WILDCARD_ZONE && !zones.contains_key(&rule.from) {
         return Err(ConfigurationFileError::UnknownBoundaryZone {
+            file: ConfigFileKind::Json,
             key: rule_key.child(KeySegment::Key("from".to_owned())),
             zone: rule.from,
             known: known_zones.to_vec(),
@@ -425,6 +428,7 @@ fn compile_rule(
         && previous != directive
     {
         return Err(ConfigurationFileError::ConflictingBoundaryDirectives {
+            file: ConfigFileKind::Json,
             key: rule_key.clone(),
             from: rule.from,
         });
@@ -450,10 +454,12 @@ fn extract_rule_directive(
         (Some(allow), None) => Ok((BoundaryDirective::Allow, allow, "allow")),
         (None, Some(deny)) => Ok((BoundaryDirective::Deny, deny, "deny")),
         (Some(_), Some(_)) => Err(ConfigurationFileError::ConflictingBoundaryRule {
+            file: ConfigFileKind::Json,
             key: rule_key.clone(),
             from: from.to_owned(),
         }),
         (None, None) => Err(ConfigurationFileError::MissingBoundaryRuleDirective {
+            file: ConfigFileKind::Json,
             key: rule_key.clone(),
             from: from.to_owned(),
         }),
@@ -469,6 +475,7 @@ fn validate_rule_targets(
     for (target_index, target) in targets.iter().enumerate() {
         if target != WILDCARD_ZONE && !zones.contains_key(target) {
             return Err(ConfigurationFileError::UnknownBoundaryZone {
+                file: ConfigFileKind::Json,
                 key: targets_key.child(KeySegment::Index(target_index)),
                 zone: target.clone(),
                 known: known_zones.to_vec(),
@@ -499,6 +506,7 @@ fn compile_patterns(
                 .backslash_escape(true)
                 .build()
                 .map_err(|source| ConfigurationFileError::InvalidGlob {
+                    file: ConfigFileKind::Json,
                     key: key.child(KeySegment::Index(index)),
                     source,
                 })?;

@@ -13,25 +13,36 @@ use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, find_workspace, read_manifests};
 use crate::describe;
 use crate::remedy::{configuration_file_remedy, git_remedy};
 
-const NEWER_SCHEMA_REMEDY: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.";
+const NEWER_SCHEMA_REMEDY_JSON: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.";
+const NEWER_SCHEMA_REMEDY_JSONC: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.jsonc.";
+
+struct ActiveConfiguration {
+    file_name: &'static str,
+    configuration: Configuration,
+}
 
 pub(crate) fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
     let mut checks = Vec::new();
     let (git_check, repository, root) = check_git(folder);
     checks.push(git_check);
 
-    let (config_checks, configuration, config_missing) = check_configuration(&root);
+    let (config_checks, active_config, config_missing) = check_configuration(&root);
     checks.extend(config_checks);
 
     if let Some(repository) = &repository {
         checks.extend(check_repository_contents(
             repository,
-            configuration.as_ref(),
+            active_config.as_ref().map(|active| &active.configuration),
         ));
     }
 
-    if let Some(configuration) = &configuration {
-        checks.extend(check_plugins(&root, configuration, plugin_host));
+    if let Some(active) = &active_config {
+        checks.extend(check_plugins(
+            &root,
+            &active.configuration,
+            active.file_name,
+            plugin_host,
+        ));
     } else if repository.is_some() && config_missing {
         checks.push(DoctorCheck::pass(
             "plugins",
@@ -71,35 +82,59 @@ fn check_git(folder: &Path) -> (DoctorCheck, Option<Repository>, PathBuf) {
     }
 }
 
-fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>, bool) {
+fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfiguration>, bool) {
     match inspect_configuration(root) {
         ConfigurationInspection::Missing { .. } => {
-            let check =
-                DoctorCheck::warn("config", "No codeint.json found; using built-in defaults")
-                    .with_remedy("Run codeint init to write a starter codeint.json.");
+            let check = DoctorCheck::warn(
+                "config",
+                "No codeint.jsonc or codeint.json found; using built-in defaults",
+            )
+            .with_remedy("Run codeint init to write a starter codeint.jsonc.");
             (vec![check], None, true)
         }
         ConfigurationInspection::Valid {
+            path,
             schema,
             configuration,
-            ..
         } => {
-            let checks = valid_configuration_checks(&schema, &configuration);
-            (checks, Some(*configuration), false)
+            let file_name = config_file_label(&path);
+            let checks = valid_configuration_checks(file_name, &schema, &configuration);
+            (
+                checks,
+                Some(ActiveConfiguration {
+                    file_name,
+                    configuration: *configuration,
+                }),
+                false,
+            )
         }
-        ConfigurationInspection::Invalid { schema, error, .. } => {
+        ConfigurationInspection::Invalid {
+            path,
+            schema,
+            error,
+        } => {
+            let file_name = config_file_label(&path);
             let config_check = DoctorCheck::error("config", describe(&error))
                 .with_remedy(configuration_file_remedy(&error));
             let mut checks = vec![config_check];
             if let Some(schema_status) = schema {
-                checks.push(schema_check(&schema_status));
+                checks.push(schema_check(file_name, &schema_status));
             }
             (checks, None, false)
         }
     }
 }
 
+fn config_file_label(path: &Path) -> &'static str {
+    if path.file_name().and_then(|name| name.to_str()) == Some("codeint.jsonc") {
+        "codeint.jsonc"
+    } else {
+        "codeint.json"
+    }
+}
+
 fn valid_configuration_checks(
+    file_name: &'static str,
     schema: &SchemaVersionStatus,
     configuration: &Configuration,
 ) -> Vec<DoctorCheck> {
@@ -112,16 +147,16 @@ fn valid_configuration_checks(
             DoctorCheck::error("config", describe(&error))
                 .with_remedy(configuration_file_remedy(&error))
         } else {
-            DoctorCheck::pass("config", "codeint.json is valid")
+            DoctorCheck::pass("config", format!("{file_name} is valid"))
         };
-    vec![config_check, schema_check(schema)]
+    vec![config_check, schema_check(file_name, schema)]
 }
 
-fn schema_check(status: &SchemaVersionStatus) -> DoctorCheck {
+fn schema_check(file_name: &'static str, status: &SchemaVersionStatus) -> DoctorCheck {
     let binary_version = env!("CARGO_PKG_VERSION");
     match status {
         SchemaVersionStatus::Missing => {
-            DoctorCheck::pass("schema", "No $schema set in codeint.json (optional)")
+            DoctorCheck::pass("schema", format!("No $schema set in {file_name} (optional)"))
         }
         SchemaVersionStatus::Compatible {
             url,
@@ -141,11 +176,15 @@ fn schema_check(status: &SchemaVersionStatus) -> DoctorCheck {
         } => DoctorCheck::error(
             "schema",
             format!(
-                "codeint.json targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
+                "{file_name} targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
             ),
         )
         .with_detail(url.clone())
-        .with_remedy(NEWER_SCHEMA_REMEDY),
+        .with_remedy(if file_name == "codeint.jsonc" {
+            NEWER_SCHEMA_REMEDY_JSONC
+        } else {
+            NEWER_SCHEMA_REMEDY_JSON
+        }),
     }
 }
 
@@ -284,6 +323,7 @@ fn check_workspace(tree: &Snapshot) -> DoctorCheck {
 fn check_plugins(
     root: &Path,
     configuration: &Configuration,
+    file_name: &'static str,
     plugin_host: &PluginHostConfig,
 ) -> Vec<DoctorCheck> {
     if configuration.plugins.is_empty() {
@@ -299,7 +339,9 @@ fn check_plugins(
     configuration
         .plugins
         .iter()
-        .map(|declaration| check_single_plugin(root, declaration, &mut seen_names, plugin_host))
+        .map(|declaration| {
+            check_single_plugin(root, declaration, &mut seen_names, file_name, plugin_host)
+        })
         .collect()
 }
 
@@ -307,6 +349,7 @@ fn check_single_plugin(
     root: &Path,
     declaration: &PluginDeclaration,
     seen_names: &mut BTreeSet<String>,
+    file_name: &'static str,
     plugin_host: &PluginHostConfig,
 ) -> DoctorCheck {
     let id = format!("plugin:{}", declaration.name);
@@ -318,9 +361,9 @@ fn check_single_plugin(
                 declaration.name
             ),
         )
-        .with_remedy(
-            "Give each external plugin in codeint.json a unique name that does not collide with built-in plugins.",
-        );
+        .with_remedy(format!(
+            "Give each external plugin in {file_name} a unique name that does not collide with built-in plugins."
+        ));
     }
     match &declaration.source {
         PluginSource::Path(declared_path) => {
@@ -335,9 +378,12 @@ fn check_single_plugin(
                 &resolved,
                 &declaration.sha256.to_hex(),
                 &declared_path.display().to_string(),
+                file_name,
             )
         }
-        PluginSource::HttpsUrl(url) => check_remote_plugin(id, declaration, url, plugin_host),
+        PluginSource::HttpsUrl(url) => {
+            check_remote_plugin(id, declaration, url, file_name, plugin_host)
+        }
     }
 }
 
@@ -345,6 +391,7 @@ fn check_remote_plugin(
     id: String,
     declaration: &PluginDeclaration,
     url: &str,
+    file_name: &'static str,
     plugin_host: &PluginHostConfig,
 ) -> DoctorCheck {
     let expected = declaration.sha256.to_hex();
@@ -353,7 +400,8 @@ fn check_remote_plugin(
         .as_ref()
         .map(|dir| dir.join(format!("{expected}.wasm")));
     if let Some(path) = cached_path
-        && let Some(check) = inspect_cached_plugin(&id, declaration, url, &path, &expected)
+        && let Some(check) =
+            inspect_cached_plugin(&id, declaration, url, &path, &expected, file_name)
     {
         return check;
     }
@@ -376,6 +424,7 @@ fn inspect_cached_plugin(
     url: &str,
     path: &Path,
     expected: &str,
+    file_name: &'static str,
 ) -> Option<DoctorCheck> {
     match std::fs::symlink_metadata(path) {
         Ok(_) if is_broken_symlink(path) => Some(
@@ -397,6 +446,7 @@ fn inspect_cached_plugin(
             path,
             expected,
             &format!("cached from {url}"),
+            file_name,
         )),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => Some(
@@ -421,15 +471,16 @@ fn verify_plugin_file(
     resolved_path: &Path,
     expected_hex: &str,
     label: &str,
+    file_name: &'static str,
 ) -> DoctorCheck {
     if is_broken_symlink(resolved_path) {
         return DoctorCheck::error(
             id,
             format!("External Wasm Plugin {name:?} at {label} is a broken symlink"),
         )
-        .with_remedy(
-            "Point the plugin symlink to an existing WebAssembly component file, or fix the path in codeint.json.",
-        );
+        .with_remedy(format!(
+            "Point the plugin symlink to an existing WebAssembly component file, or fix the path in {file_name}."
+        ));
     }
     let bytes = match std::fs::read(resolved_path) {
         Ok(bytes) => bytes,
@@ -438,9 +489,9 @@ fn verify_plugin_file(
                 id,
                 format!("Cannot read external Wasm Plugin {name:?} at {label}: {error}"),
             )
-            .with_remedy(
-                "Check that the plugin path in codeint.json points to an existing readable WebAssembly component file.",
-            );
+            .with_remedy(format!(
+                "Check that the plugin path in {file_name} points to an existing readable WebAssembly component file."
+            ));
         }
     };
     let actual_hex = sha256_hex(&sha256(&bytes));
@@ -450,9 +501,9 @@ fn verify_plugin_file(
             format!("SHA-256 hash mismatch for external Wasm Plugin {name:?} at {label}"),
         )
         .with_detail(format!("expected {expected_hex}, found {actual_hex}"))
-        .with_remedy(
-            "Verify the plugin file has not been modified, then update sha256 in codeint.json to match the trusted file.",
-        );
+        .with_remedy(format!(
+            "Verify the plugin file has not been modified, then update sha256 in {file_name} to match the trusted file."
+        ));
     }
     DoctorCheck::pass(
         id,

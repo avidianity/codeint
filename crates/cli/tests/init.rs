@@ -34,7 +34,7 @@ impl Repository {
     }
 
     fn configuration(&self) -> String {
-        fs::read_to_string(self.folder.path().join("codeint.json")).expect("read codeint.json")
+        fs::read_to_string(self.folder.path().join("codeint.jsonc")).expect("read codeint.jsonc")
     }
 }
 
@@ -82,7 +82,7 @@ const DEFAULT_SOURCE_SETS_BUDGETS_AND_REGRESSION_LIMITS: &str = r#"  "source_set
   "regression_limits": {}"#;
 
 #[test]
-fn init_from_a_subfolder_writes_codeint_json_at_the_root_with_the_schema_link_defaults_and_each_folder_a_language_plugin_claims()
+fn init_from_a_subfolder_writes_codeint_jsonc_at_the_root_with_the_schema_link_defaults_and_each_folder_a_language_plugin_claims()
  {
     let repository = Repository::new();
     repository.add("index.js", "export const index = 1;\n");
@@ -98,9 +98,10 @@ fn init_from_a_subfolder_writes_codeint_json_at_the_root_with_the_schema_link_de
         text(&output.stdout),
         format!(
             "Wrote {}\n",
-            repository.root().join("codeint.json").display()
+            repository.root().join("codeint.jsonc").display()
         )
     );
+    assert!(!repository.root().join("codeint.json").exists());
     assert_eq!(
         repository.configuration(),
         format!(
@@ -124,7 +125,7 @@ fn init_from_a_subfolder_writes_codeint_json_at_the_root_with_the_schema_link_de
 }
 
 #[test]
-fn check_accepts_the_codeint_json_that_init_writes_and_measures_every_detected_file() {
+fn check_accepts_the_codeint_jsonc_that_init_writes_and_measures_every_detected_file() {
     let repository = Repository::new();
     repository.add("index.js", "export const index = 1;\n");
     repository.add("src/main.ts", "export const main = 1;\n");
@@ -185,11 +186,10 @@ fn init_in_a_repository_without_files_a_language_plugin_claims_leaves_languages_
     assert_exit_code(&codeint(&repository.root(), &["check"]), 0);
 }
 
-#[test]
-fn init_refuses_to_replace_an_existing_codeint_json_exits_2_and_keeps_the_file() {
+fn assert_init_refuses_existing_config(file_name: &str, body: &str) {
     let repository = Repository::new();
     repository.add("src/main.ts", "export const main = 1;\n");
-    repository.add("codeint.json", "{ \"budgets\": {} }\n");
+    repository.add(file_name, body);
 
     let output = codeint(&repository.root().join("src"), &["init"]);
 
@@ -199,11 +199,30 @@ fn init_refuses_to_replace_an_existing_codeint_json_exits_2_and_keeps_the_file()
         text(&output.stderr),
         format!(
             "codeint: {} already exists, and codeint init never replaces it\n\
-             Edit the existing codeint.json, or delete it and run codeint init again.\n",
-            repository.root().join("codeint.json").display()
+             Edit the existing {file_name}, or delete it and run codeint init again.\n",
+            repository.root().join(file_name).display()
         )
     );
-    assert_eq!(repository.configuration(), "{ \"budgets\": {} }\n");
+    assert_eq!(
+        fs::read_to_string(repository.root().join(file_name)).expect("read existing config"),
+        body
+    );
+    let other_file = if file_name == "codeint.json" {
+        "codeint.jsonc"
+    } else {
+        "codeint.json"
+    };
+    assert!(!repository.root().join(other_file).exists());
+}
+
+#[test]
+fn init_refuses_to_replace_an_existing_codeint_json_exits_2_and_keeps_the_file() {
+    assert_init_refuses_existing_config("codeint.json", "{ \"budgets\": {} }\n");
+}
+
+#[test]
+fn init_refuses_when_codeint_jsonc_already_exists_exits_2_and_keeps_the_file() {
+    assert_init_refuses_existing_config("codeint.jsonc", "// keep me\n{ \"budgets\": {}, }\n");
 }
 
 #[test]
@@ -218,9 +237,10 @@ fn init_outside_a_git_repository_names_the_folder_and_exits_2_without_writing() 
         text(&output.stderr),
         format!(
             "codeint: {} is not inside a Git repository\n\
-             Run codeint init inside a Git repository; it writes codeint.json at the root of the repository.\n",
+             Run codeint init inside a Git repository; it writes codeint.jsonc at the root of the repository.\n",
             canonical.display()
         )
     );
+    assert!(!canonical.join("codeint.jsonc").exists());
     assert!(!canonical.join("codeint.json").exists());
 }

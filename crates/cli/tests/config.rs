@@ -444,22 +444,70 @@ fn config_resolved_tracks_boundary_provenance_normalizes_negative_zero_and_valid
 }
 
 #[cfg(unix)]
-#[test]
-fn config_resolved_reports_broken_symlink_for_codeint_json() {
+fn assert_broken_config_symlink(file_name: &str, missing_target: &str) {
     use std::os::unix::fs::symlink;
 
     let repo = init_repo_with_config(None);
     symlink(
-        repo.path().join("missing-target.json"),
-        repo.path().join("codeint.json"),
+        repo.path().join(missing_target),
+        repo.path().join(file_name),
     )
-    .expect("create broken codeint.json symlink");
+    .expect("create broken config symlink");
 
     let output = invoke(repo.path(), &["config", "--resolved"]);
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let expected = format!("{file_name} is a broken symlink");
     assert!(
-        stderr.contains("broken symlink"),
-        "expected broken symlink error, got: {stderr}"
+        stderr.contains(&expected),
+        "expected {expected:?}, got: {stderr}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn config_resolved_reports_broken_symlink_for_codeint_json() {
+    assert_broken_config_symlink("codeint.json", "missing-target.json");
+}
+
+#[test]
+fn config_resolved_reads_codeint_jsonc_and_rejects_ambiguous_config_files() {
+    let repo = init_repo_with_config(None);
+    fs::write(
+        repo.path().join("codeint.jsonc"),
+        concat!(
+            "// jsonc config\n",
+            "{\n",
+            "  /* plugin memory override */\n",
+            "  \"plugin_limits\": {\n",
+            "    \"memory_mb\": 128,\n",
+            "  },\n",
+            "}\n",
+        ),
+    )
+    .expect("write codeint.jsonc");
+
+    let payload = resolved_json(repo.path(), &[]);
+    assert_eq!(payload["config_file_present"], true);
+    assert!(
+        payload["config_file"]
+            .as_str()
+            .expect("config_file string")
+            .ends_with("codeint.jsonc")
+    );
+    assert_setting(&payload, "plugin_limits.memory_mb", json!(128), "file");
+
+    fs::write(repo.path().join("codeint.json"), "{}\n").expect("write codeint.json");
+    assert_config_rejected(
+        repo.path(),
+        &["config", "--resolved"],
+        "both codeint.json and codeint.jsonc exist at the repository root",
+        None,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn config_resolved_reports_broken_symlink_for_codeint_jsonc() {
+    assert_broken_config_symlink("codeint.jsonc", "missing-target.jsonc");
 }

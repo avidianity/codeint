@@ -38,7 +38,7 @@ test("ESM and CJS exports expose check, diff, trend, init, and handle exit 1 vs 
   const repo = makeRepo();
   try {
     const initialized = await init({ cwd: repo, binaryPath });
-    assert.ok(initialized.configPath.endsWith("codeint.json"));
+    assert.ok(initialized.configPath.endsWith("codeint.jsonc"));
 
     const okCheck = await check({ cwd: repo, binaryPath });
     assert.equal(okCheck.passed, true);
@@ -46,7 +46,7 @@ test("ESM and CJS exports expose check, diff, trend, init, and handle exit 1 vs 
     assert.equal(okCheck.report.files, 1);
 
     fs.writeFileSync(
-      path.join(repo, "codeint.json"),
+      path.join(repo, "codeint.jsonc"),
       JSON.stringify({ budgets: { production: { verbosity: 0 } } })
     );
     fs.writeFileSync(

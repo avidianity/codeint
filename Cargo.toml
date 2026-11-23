@@ -23,6 +23,7 @@ codeint-plugin-host = { path = "crates/plugin-host" }
 codeint-report = { path = "crates/report" }
 gix = { version = "=0.90.0", default-features = false, features = ["dirwalk", "revision", "sha1"] }
 globset = "=0.4.21"
+jsonc-parser = { version = "=0.34.0", features = ["serde", "serde_json", "preserve_order"] }
 oxc_allocator = "=0.159.0"
 oxc_ast = "=0.159.0"
 oxc_ast_visit = "=0.159.0"

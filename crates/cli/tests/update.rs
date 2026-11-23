@@ -231,14 +231,31 @@ fn update_refuses_to_overwrite_node_modules_install() {
     assert!(stderr.contains("npm update -g codeint"), "{stderr}");
 }
 
+fn run_update_in_repo(temp: &TempDir, repo_dir: &Path, latest_tag: &str) -> Output {
+    let install_dir = temp.path().join("bin");
+    let release_dir = temp.path().join("release");
+    fs::create_dir_all(&install_dir).expect("install dir");
+    fs::create_dir_all(&release_dir).expect("release dir");
+    let exe = copy_codeint_to(&install_dir);
+    let digest = stage_release_archive(&release_dir, b"#!/bin/sh\necho ok\n");
+    fs::write(release_dir.join("LATEST"), format!("{latest_tag}\n")).expect("latest");
+    fs::write(
+        release_dir.join("SHA256SUMS"),
+        format!("{digest}  {}\n", host_archive_name()),
+    )
+    .expect("sums");
+    Command::new(&exe)
+        .arg("update")
+        .current_dir(repo_dir)
+        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
+        .output()
+        .expect("run update")
+}
+
 #[test]
 fn update_syncs_versioned_schema_in_codeint_json() {
     let temp = TempDir::new().expect("temp");
-    let install_dir = temp.path().join("bin");
-    let release_dir = temp.path().join("release");
     let repo_dir = temp.path().join("repo");
-    fs::create_dir_all(&install_dir).expect("install dir");
-    fs::create_dir_all(&release_dir).expect("release dir");
     fs::create_dir_all(repo_dir.join(".git")).expect("git dir");
     let config_path = repo_dir.join("codeint.json");
     fs::write(
@@ -247,21 +264,7 @@ fn update_syncs_versioned_schema_in_codeint_json() {
     )
     .expect("write codeint.json");
 
-    let exe = copy_codeint_to(&install_dir);
-    let digest = stage_release_archive(&release_dir, b"#!/bin/sh\necho ok\n");
-    fs::write(release_dir.join("LATEST"), "v9.9.9\n").expect("latest");
-    fs::write(
-        release_dir.join("SHA256SUMS"),
-        format!("{digest}  {}\n", host_archive_name()),
-    )
-    .expect("sums");
-
-    let output = Command::new(&exe)
-        .arg("update")
-        .current_dir(&repo_dir)
-        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
-        .output()
-        .expect("run update");
+    let output = run_update_in_repo(&temp, &repo_dir, "v9.9.9");
     assert!(output.status.success(), "{output:?}");
     let updated_json = fs::read_to_string(&config_path).expect("read codeint.json");
     assert!(
@@ -271,4 +274,97 @@ fn update_syncs_versioned_schema_in_codeint_json() {
         "{updated_json}"
     );
     assert!(updated_json.contains("\"budgets\": {}"), "{updated_json}");
+}
+
+fn assert_update_rewrites(config_name: &str, cases: &[(&str, &str)]) {
+    let temp = TempDir::new().expect("temp");
+    let repo_dir = temp.path().join("repo");
+    fs::create_dir_all(repo_dir.join(".git")).expect("git dir");
+    let config_path = repo_dir.join(config_name);
+    for (original, expected) in cases {
+        fs::write(&config_path, original).expect("write config");
+        let output = run_update_in_repo(&temp, &repo_dir, "v9.9.9");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            fs::read_to_string(&config_path).expect("read config"),
+            *expected
+        );
+    }
+}
+
+#[test]
+fn update_syncs_only_active_schema_in_codeint_jsonc_and_preserves_comments() {
+    let original = concat!(
+        "{\n",
+        "  // \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.1/schema/codeint.schema.json\",\n",
+        "  /* \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.2/schema/codeint.schema.json\" */\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"budgets\": {},\n",
+        "}\n",
+    );
+    let expected = concat!(
+        "{\n",
+        "  // \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.1/schema/codeint.schema.json\",\n",
+        "  /* \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.2/schema/codeint.schema.json\" */\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v9.9.9/schema/codeint.schema.json\",\n",
+        "  \"budgets\": {},\n",
+        "}\n",
+    );
+    assert_update_rewrites("codeint.jsonc", &[(original, expected)]);
+}
+
+#[cfg(unix)]
+#[test]
+fn update_refuses_to_mutate_codeint_jsonc_when_broken_codeint_json_symlink_exists() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temp");
+    let repo_dir = temp.path().join("repo");
+    fs::create_dir_all(repo_dir.join(".git")).expect("git dir");
+    let config_path = repo_dir.join("codeint.jsonc");
+    let original = "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n}\n";
+    fs::write(&config_path, original).expect("write codeint.jsonc");
+    symlink(repo_dir.join("missing.json"), repo_dir.join("codeint.json"))
+        .expect("create broken codeint.json symlink");
+
+    let output = run_update_in_repo(&temp, &repo_dir, "v9.9.9");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read codeint.jsonc"),
+        original
+    );
+}
+
+#[test]
+fn update_handles_duplicate_schema_keys_and_json_escapes() {
+    let duplicated = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.2.0/schema/codeint.schema.json\",\n",
+        "}\n",
+    );
+    let duplicated_expected = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v9.9.9/schema/codeint.schema.json\",\n",
+        "}\n",
+    );
+    let custom_last = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": \"https://example.invalid/custom.schema.json\",\n",
+        "}\n",
+    );
+    let escaped_slash_in_ref = "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0\\u002fextra/schema/codeint.schema.json\",\n}\n";
+    let escaped_valid_url = "{\n  \"$schema\": \"https:\\/\\/raw.githubusercontent.com\\/avidianity\\/codeint\\/v0.1.0\\/schema\\/codeint.schema.json\",\n}\n";
+    let escaped_valid_expected = "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v9.9.9/schema/codeint.schema.json\",\n}\n";
+    assert_update_rewrites(
+        "codeint.jsonc",
+        &[
+            (duplicated, duplicated_expected),
+            (custom_last, custom_last),
+            (escaped_slash_in_ref, escaped_slash_in_ref),
+            (escaped_valid_url, escaped_valid_expected),
+        ],
+    );
 }
