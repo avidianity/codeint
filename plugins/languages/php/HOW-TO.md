@@ -20,7 +20,7 @@
 - `src/imports.rs` and `src/resolution.rs` extract top-level `use` statements (including grouped and aliased imports) and static relative `require`/`include` paths.
   They resolve PSR-4 namespaces through `composer.json` `autoload.psr-4` and `autoload-dev.psr-4`, falling back to declared Composer sub-packages when no local file or directory matches.
   They classify PHP built-in classes, PHP 8.x built-in extension namespaces, Composer runtime API namespaces (`Composer\InstalledVersions`, `Composer\Autoload\...`), and single-segment global symbols as `Builtin`.
-  Multi-segment external namespaces match against the repository's declared `composer.json` dependencies across 2-segment, 3-segment joined, framework structural sub-layer (`Component`, `Contracts`, `Bridge`, `Bundle`, `Common`, `UX`), and unique package-name forms before falling back to `vendor/package` normalization.
+  Multi-segment external namespaces match against the repository's declared `composer.json` dependencies across 2-segment, 3-segment joined, PSR-17 factory and 3-segment class-word forms, framework structural sub-layer (`Component`, `Contracts`, `Bridge`, `Bundle`, `Common`, `UX`), and unique multi-word package-name forms before falling back to `vendor/package` normalization.
 - `src/dependencies.rs` parses `composer.json` `require` (`Runtime`), `require-dev` (`Dev`), and `suggest` (`Optional`) dependencies per Workspace package while excluding platform requirements (`php`, `ext-*`, `lib-*`) and local workspace package names.
 
 ## Reference ranges

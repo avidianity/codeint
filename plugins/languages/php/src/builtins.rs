@@ -1,7 +1,6 @@
 const BUILTIN_NAMESPACES: &[&str] = &[
-    "bcmath", "dba", "dom", "enchant", "ffi", "filter", "ftp", "imap", "intl", "ldap", "odbc",
-    "openssl", "pcntl", "pdo", "pgsql", "pspell", "random", "shmop", "soap", "sqlite", "sysvmsg",
-    "sysvsem", "sysvshm", "uri", "xml",
+    "bcmath", "dba", "dom", "enchant", "ffi", "filter", "ftp", "imap", "ldap", "odbc", "pcntl",
+    "pdo", "pgsql", "pspell", "random", "soap", "sysvmsg", "sysvsem", "sysvshm", "uri",
 ];
 
 const COMPOSER_RUNTIME_SEGMENTS: &[&str] = &["autoload", "installedversions"];
@@ -281,6 +280,14 @@ pub(crate) fn is_builtin_symbol(normalized_ns: &str) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) fn builtin_tables() -> (&'static [&'static str], &'static [&'static str]) {
-    (BUILTIN_NAMESPACES, BUILTIN_GLOBAL_TYPES)
+pub(crate) fn builtin_tables() -> (
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static [&'static str],
+) {
+    (
+        BUILTIN_NAMESPACES,
+        COMPOSER_RUNTIME_SEGMENTS,
+        BUILTIN_GLOBAL_TYPES,
+    )
 }

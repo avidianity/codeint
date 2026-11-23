@@ -275,7 +275,7 @@ fn collect_vendor_candidates(
     out: &mut Vec<String>,
 ) {
     if segments.len() >= 3 {
-        push_multi_segment_candidates(vendor, segments, out);
+        push_multi_segment_candidates(vendor, segments, scope, out);
     } else {
         push_segment_candidates(vendor, segments[1], out);
     }
@@ -284,19 +284,25 @@ fn collect_vendor_candidates(
     }
 }
 
-fn push_multi_segment_candidates(vendor: &str, segments: &[&str], out: &mut Vec<String>) {
+fn push_multi_segment_candidates(
+    vendor: &str,
+    segments: &[&str],
+    scope: DeclaredMatchScope,
+    out: &mut Vec<String>,
+) {
     let s1_lower = segments[1].to_ascii_lowercase();
     if STRUCTURAL_SEGMENTS.contains(&s1_lower.as_str()) {
         push_structural_candidates(vendor, segments, &s1_lower, out);
-        push_segment_candidates(vendor, segments[1], out);
         return;
     }
-    if segments.len() >= 4 {
-        push_class_word_candidates(vendor, segments, out);
+    if scope == DeclaredMatchScope::External {
+        push_psr17_factory_candidate(vendor, segments, out);
     }
     push_joined_candidates(vendor, segments[1], segments[2], out);
+    if scope == DeclaredMatchScope::External && segments.len() >= 4 {
+        push_class_word_candidates(vendor, segments, out);
+    }
     push_segment_candidates(vendor, segments[1], out);
-    push_segment_candidates(vendor, segments[2], out);
 }
 
 fn push_structural_candidates(
@@ -310,13 +316,35 @@ fn push_structural_candidates(
         out.push(format!("{vendor}/{s2}-{s1_lower}"));
         if let Some(singular) = s1_lower.strip_suffix('s') {
             out.push(format!("{vendor}/{s2}-{singular}"));
+        } else {
+            out.push(format!("{vendor}/{s2}-{s1_lower}s"));
         }
     }
     push_joined_candidates(vendor, segments[1], third, out);
+    let prefer_parent = matches!(s1_lower, "contract" | "contracts" | "common");
+    if prefer_parent {
+        push_segment_candidates(vendor, segments[1], out);
+    }
     if let Some(&fourth) = segments.get(3) {
         push_joined_candidates(vendor, third, fourth, out);
     }
     push_segment_candidates(vendor, third, out);
+    if !prefer_parent {
+        push_segment_candidates(vendor, segments[1], out);
+    }
+}
+
+fn push_psr17_factory_candidate(vendor: &str, segments: &[&str], out: &mut Vec<String>) {
+    if vendor == "psr"
+        && segments.len() == 4
+        && segments[1].eq_ignore_ascii_case("http")
+        && segments[2].eq_ignore_ascii_case("message")
+        && segments[3]
+            .to_ascii_lowercase()
+            .ends_with("factoryinterface")
+    {
+        out.push("psr/http-factory".to_owned());
+    }
 }
 
 fn push_class_word_candidates(vendor: &str, segments: &[&str], out: &mut Vec<String>) {
@@ -326,18 +354,9 @@ fn push_class_word_candidates(vendor: &str, segments: &[&str], out: &mut Vec<Str
     let words: Vec<&str> = last_kebab.split('-').filter(|w| !w.is_empty()).collect();
     for s1 in &s1_vars {
         for s2 in &s2_vars {
-            push_word_suffixes(&format!("{vendor}/{s1}-{s2}"), &words, &[], out);
-        }
-    }
-    for s1 in &s1_vars {
-        push_word_suffixes(&format!("{vendor}/{s1}"), &words, &s2_vars, out);
-    }
-}
-
-fn push_word_suffixes(prefix: &str, words: &[&str], skip: &[String], out: &mut Vec<String>) {
-    for &word in words {
-        if !skip.iter().any(|s| s == word) {
-            out.push(format!("{prefix}-{word}"));
+            for &word in &words {
+                out.push(format!("{vendor}/{s1}-{s2}-{word}"));
+            }
         }
     }
 }
@@ -364,17 +383,11 @@ fn push_plurals(vendor: &str, base: &str, out: &mut Vec<String>) {
 }
 
 fn match_unique_package_name(segments: &[&str], declared: &HashSet<String>) -> Option<String> {
+    let kebab_s0 = to_kebab_segment(segments[0]);
+    if !kebab_s0.contains('-') {
+        return None;
+    }
     let s0_vars = segment_variants(segments[0]);
-    let s1_vars = segment_variants(segments[1]);
-    let mut joined = Vec::with_capacity(s0_vars.len() * s1_vars.len());
-    for s0 in &s0_vars {
-        for s1 in &s1_vars {
-            joined.push(format!("{s0}-{s1}"));
-        }
-    }
-    if let Some(matched) = unique_declared_by_package_name(declared, &joined) {
-        return Some(matched);
-    }
     unique_declared_by_package_name(declared, &s0_vars)
 }
 
@@ -436,6 +449,7 @@ fn to_kebab_segment(segment: &str) -> String {
         }
         out.push(ch.to_ascii_lowercase());
     }
+    out.truncate(out.trim_end_matches('-').len());
     out
 }
 

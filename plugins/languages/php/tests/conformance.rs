@@ -584,8 +584,10 @@ fn php_multi_segment_composer_namespaces_and_runtime_builtins_resolve_cleanly() 
             "use:Composer\\InstalledVersions",
             "use:Composer\\Autoload\\ClassLoader",
             "use:Composer\\Semver\\Semver",
-            "use:Openssl\\Session",
+            "use:Pdo\\Sqlite",
             "use:Random\\Randomizer",
+            "use:Xml\\Parser\\Reader",
+            "use:OpenSSL\\Wrapper\\Cipher",
             "use:Vendor\\Unlisted\\Thing",
         ],
     );
@@ -604,6 +606,8 @@ fn php_multi_segment_composer_namespaces_and_runtime_builtins_resolve_cleanly() 
             Resolution::External("composer/semver".into()),
             Resolution::Builtin,
             Resolution::Builtin,
+            Resolution::External("xml/parser".into()),
+            Resolution::External("openssl/wrapper".into()),
             Resolution::External("vendor/unlisted".into()),
         ]
     );
