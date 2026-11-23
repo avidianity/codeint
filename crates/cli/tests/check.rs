@@ -189,6 +189,12 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          eroded_function_mass: 0\n      \
          total_function_mass: 0\n      \
          findings: []\n    \
+         cognitive_complexity:\n      \
+         ratio: 0\n      \
+         reference_range: no published Reference range for this language\n      \
+         complex_cognitive_complexity: 0\n      \
+         total_cognitive_complexity: 0\n      \
+         findings: []\n    \
          duplication:\n      \
          ratio: 0\n      \
          reference_range:\n        \
@@ -594,8 +600,8 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
             "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 48\n",
             "  total_function_mass: 54\n",
-            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    <id>,src/mixed.ts,1,12,16,48\n",
+            "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/mixed.ts,1,16,eroded,12,11,16,48\n",
         )
     );
 }
@@ -623,9 +629,9 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
             "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 84.561\n",
             "  total_function_mass: 119.202\n",
-            "  findings[2]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    <id>,src/eleven.ts,1,12,14,44.8999\n",
-            "    <id>,src/ten.ts,1,11,13,39.6611\n",
+            "  findings[2]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/eleven.ts,1,14,eleven,12,11,14,44.8999\n",
+            "    <id>,src/ten.ts,1,13,ten,11,10,13,39.6611\n",
         )
     );
 }
@@ -716,8 +722,8 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
             "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 43.2666\n",
             "  total_function_mass: 44.6808\n",
-            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    <id>,src/outer.ts,2,12,13,43.2666\n",
+            "  findings[1]{id,path,line,end_line,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/outer.ts,2,14,12,11,13,43.2666\n",
         )
     );
 }
@@ -735,7 +741,9 @@ fn write_eroded_functions_with_more_if_statements_in_later_files(
 }
 
 fn erosion_findings_header(count: usize) -> String {
-    format!("  findings[{count}]{{id,path,line,cyclomatic_complexity,source_lines,function_mass}}:")
+    format!(
+        "  findings[{count}]{{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}}:"
+    )
 }
 
 fn erosion_findings_lines(output: &Output) -> Vec<String> {
@@ -859,8 +867,8 @@ fn every_kind_of_decision_point_counts_toward_erosion() {
             "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 46.669\n",
             "  total_function_mass: 46.669\n",
-            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    <id>,src/route.ts,1,11,18,46.669\n",
+            "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/route.ts,1,18,route,11,7,18,46.669\n",
         )
     );
 }
@@ -899,8 +907,8 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
             "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 39.6611\n",
             "  total_function_mass: 74.3021\n",
-            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    <id>,src/ten.ts,1,11,13,39.6611\n",
+            "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/ten.ts,1,13,ten,11,10,13,39.6611\n",
         )
     );
     assert_eq!(
@@ -914,8 +922,8 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
             "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
             "  eroded_function_mass: 44.8999\n",
             "  total_function_mass: 44.8999\n",
-            "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-            "    <id>,src/eleven.test.ts,1,12,14,44.8999\n",
+            "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
+            "    <id>,src/eleven.test.ts,1,14,eleven,12,11,14,44.8999\n",
         )
     );
 }
@@ -2565,7 +2573,8 @@ fn generated_files_do_not_change_production_metrics() {
         ]
     );
     assert!(
-        metric_section(&output, "generated", "erosion").contains("public/app.min.js,1,13,1,13"),
+        metric_section(&output, "generated", "erosion")
+            .contains("public/app.min.js,1,1,render,13,12,1,13"),
         "the eroded function of the bundle counts toward the Generated Source set"
     );
 }
@@ -3151,6 +3160,13 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "total_function_mass": 5.2915,
         "findings": []
       },
+      "cognitive_complexity": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "complex_cognitive_complexity": 0,
+        "total_cognitive_complexity": 2,
+        "findings": []
+      },
       "duplication": {
         "ratio": 0.0,
         "reference_range": {
@@ -3406,7 +3422,7 @@ fn repository_root_relative_paths_with_forward_slashes_appear_in_the_toon_and_js
     assert_eq!(
         path_lines,
         [
-            "<id>,packages/app/src/deep/eroded.ts,1,12,14,44.8999",
+            "<id>,packages/app/src/deep/eroded.ts,1,14,route,12,11,14,44.8999",
             "packages/app/src/cart.ts,1,9",
             "packages/lib/src/invoice.ts,1,9",
             "modules[2]: packages/app/src/ring/a.ts,packages/lib/src/ring/b.ts",
@@ -3461,14 +3477,14 @@ const TWO_PACKAGE_EROSION: &str = concat!(
     "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
     "  eroded_function_mass: 44.8999\n",
     "  total_function_mass: 54.6978\n",
-    "  findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:\n",
-    "    <id>,packages/eroded/src/branches.ts,1,12,14,44.8999\n",
+    "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
+    "    <id>,packages/eroded/src/branches.ts,1,14,branches,12,11,14,44.8999\n",
 );
 
 const TWO_PACKAGE_ROWS: &str = concat!(
-    "  .,1,1,0,0,0,0,0,0,0,0,0\n",
-    "  packages/eroded,1,14,1,44.8999,44.8999,0,0,0,0,0,0\n",
-    "  packages/small,1,6,0,0,9.798,0,0,0,0,0,0\n",
+    "  .,1,1,0,0,0,0,0,0,0,0,0,0,0,0\n",
+    "  packages/eroded,1,14,1,44.8999,44.8999,0,0,11,0,0,0,0,0,0\n",
+    "  packages/small,1,6,0,0,9.798,0,0,3,0,0,0,0,0,0\n",
 );
 
 fn assert_two_package_report(output: &Output) {
@@ -3580,6 +3596,7 @@ fn a_pnpm_workspace_yaml_that_is_not_yaml_names_the_manifest_and_exits_2() {
 const PACKAGES_HEADER: &str = concat!(
     "packages[3]{path,files,source_lines,",
     "erosion{ratio,eroded_function_mass,total_function_mass},",
+    "cognitive_complexity{ratio,complex_cognitive_complexity,total_cognitive_complexity},",
     "duplication{ratio,clone_lines},verbosity{ratio,verbose_lines},",
     "import_cycles{ratio,modules_in_import_cycles}}:\n",
 );
@@ -3629,9 +3646,9 @@ fn each_workspace_package_reports_its_own_clone_lines_and_verbose_lines() {
         packages_table(&output, "production"),
         PACKAGES_HEADER.to_owned()
             + concat!(
-                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
-                "  packages/cart,1,9,0,0,9,1,9,1,9,0,0\n",
-                "  packages/invoice,2,18,0,0,14.2915,0.5,9,0.5556,10,0,0\n",
+                "  .,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/cart,1,9,0,0,9,0,0,3,1,9,1,9,0,0\n",
+                "  packages/invoice,2,18,0,0,14.2915,0,0,5,0.5,9,0.5556,10,0,0\n",
             )
     );
     assert!(production_section(&output, "duplication").contains("  clone_lines: 18\n"));
@@ -3659,18 +3676,18 @@ fn each_source_set_splits_into_every_workspace_package() {
         packages_table(&output, "production"),
         PACKAGES_HEADER.to_owned()
             + concat!(
-                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
-                "  packages/app,1,1,0,0,0,0,0,0,0,0,0\n",
-                "  packages/lib,1,1,0,0,0,0,0,0,0,0,0\n",
+                "  .,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,1,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/lib,1,1,0,0,0,0,0,0,0,0,0,0,0,0\n",
             )
     );
     assert_eq!(
         packages_table(&output, "test"),
         PACKAGES_HEADER.to_owned()
             + concat!(
-                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
-                "  packages/app,1,2,0,0,0,0,0,0,0,0,0\n",
-                "  packages/lib,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  .,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/app,1,2,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/lib,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
             )
     );
 }
@@ -3702,9 +3719,9 @@ fn an_import_cycle_across_two_workspace_packages_counts_each_module_in_its_own_p
         packages_table(&output, "production"),
         PACKAGES_HEADER.to_owned()
             + concat!(
-                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
-                "  packages/billing,2,3,0,0,1,0,0,0,0,0.5,1\n",
-                "  packages/orders,1,2,0,0,1,0,0,0,0,1,1\n",
+                "  .,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/billing,2,3,0,0,1,0,0,0,0,0,0,0,0.5,1\n",
+                "  packages/orders,1,2,0,0,1,0,0,0,0,0,0,0,1,1\n",
             )
     );
 }
@@ -3726,9 +3743,9 @@ fn a_member_manifest_that_is_not_utf_8_still_makes_its_folder_a_workspace_packag
         packages_table(&output, "production"),
         PACKAGES_HEADER.to_owned()
             + concat!(
-                "  .,0,0,0,0,0,0,0,0,0,0,0\n",
-                "  packages/cafe,1,1,0,0,0,0,0,0,0,0,0\n",
-                "  packages/shop,1,1,0,0,0,0,0,0,0,0,0\n",
+                "  .,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/cafe,1,1,0,0,0,0,0,0,0,0,0,0,0,0\n",
+                "  packages/shop,1,1,0,0,0,0,0,0,0,0,0,0,0,0\n",
             )
     );
 }
@@ -3755,6 +3772,11 @@ fn the_json_report_lists_each_workspace_package_with_its_numerators() {
                 "ratio": 1.0,
                 "eroded_function_mass": 44.8999,
                 "total_function_mass": 44.8999
+            },
+            "cognitive_complexity": {
+                "ratio": 0.0,
+                "complex_cognitive_complexity": 0,
+                "total_cognitive_complexity": 11
             },
             "duplication": { "ratio": 0.0, "clone_lines": 0 },
             "verbosity": { "ratio": 0.0, "verbose_lines": 0 },
@@ -3937,7 +3959,7 @@ fn a_budget_for_an_unknown_metric_names_the_metrics_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budgets": { "production": { "complexity": 0.1 } } }"#,
         "codeint.json has an unknown key budgets.production.complexity; \
-         the keys allowed there are erosion, duplication, verbosity, import_cycles, boundaries",
+         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -3988,11 +4010,11 @@ fn format_markdown_lists_the_ratios_of_each_workspace_package_after_the_metric_t
              \n\
              ## Workspace packages\n\
              \n\
-             | Source set | Package | Files | Source lines | Erosion | Duplication | Verbosity | Import cycles |\n\
-             | ---------- | ------- | ----- | ------------ | ------- | ----------- | --------- | ------------- |\n\
-             | Production | `.` | 1 | 1 | 0 | 0 | 0 | 0 |\n\
-             | Production | `packages/eroded` | 1 | 14 | 1 | 0 | 0 | 0 |\n\
-             | Production | `packages/small` | 1 | 6 | 0 | 0 | 0 | 0 |\n\
+             | Source set | Package | Files | Source lines | Erosion | Cognitive complexity | Duplication | Verbosity | Import cycles |\n\
+             | ---------- | ------- | ----- | ------------ | ------- | -------------------- | ----------- | --------- | ------------- |\n\
+             | Production | `.` | 1 | 1 | 0 | 0 | 0 | 0 | 0 |\n\
+             | Production | `packages/eroded` | 1 | 14 | 1 | 0 | 0 | 0 | 0 |\n\
+             | Production | `packages/small` | 1 | 6 | 0 | 0 | 0 | 0 | 0 |\n\
              \n\
              ## Production Findings\n"
         ),
@@ -4216,6 +4238,19 @@ const SARIF_RULES: &str = r#"          "rules": [
               },
               "help": {
                 "text": "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them."
+              }
+            },
+            {
+              "id": "cognitive_complexity",
+              "name": "Cognitive complexity",
+              "shortDescription": {
+                "text": "A function with cognitive complexity over 15"
+              },
+              "fullDescription": {
+                "text": "Cognitive complexity is the share of total cognitive complexity held by functions whose cognitive complexity is greater than 15. Cognitive complexity weights control-flow structures by nesting depth."
+              },
+              "help": {
+                "text": "Flatten nested control flow or split the function into smaller functions, each with a cognitive complexity of 15 or less."
               }
             }
           ]"#;
@@ -4483,7 +4518,7 @@ fn an_eroded_function_result_names_its_cyclomatic_complexity_source_lines_and_fu
         serde_json::from_str(&stdout(&output)).expect("the SARIF log parses");
     assert_eq!(
         log["runs"][0]["results"][0]["message"]["text"],
-        "Eroded function: cyclomatic complexity 13, over 10; 15 source lines; Function mass 50.3488."
+        "Eroded function eroded: cyclomatic complexity 13, over 10; 15 source lines; Function mass 50.3488."
     );
 }
 
@@ -4520,7 +4555,7 @@ fn a_repository_without_findings_prints_a_sarif_log_with_no_results() {
         log["runs"][0]["tool"]["driver"]["rules"]
             .as_array()
             .map(Vec::len),
-        Some(4)
+        Some(5)
     );
 }
 
@@ -4739,4 +4774,188 @@ fn built_in_dart_plugin_measures_pub_workspace_metrics_and_cycles() {
     }
     repository.commit_all();
     assert_built_in_workspace_cycle_report(&repository, 2, "packages/mobile");
+}
+
+#[test]
+fn erosion_findings_surface_function_names_and_omit_anonymous_callbacks_across_formats() {
+    let repository = Repository::new();
+    repository.write(
+        "src/named.ts",
+        &function_with_if_statements("routeOrder", 12),
+    );
+    let anon_body: String = (1..=12)
+        .map(|i| format!("    if (item === {i}) {{ total += {i}; }}\n"))
+        .collect();
+    repository.write(
+        "src/anon.ts",
+        &format!(
+            "export function run(items: number[]): number {{\n  let total = 0;\n  items.forEach((item) => {{\n{anon_body}  }});\n  return total;\n}}\n"
+        ),
+    );
+    let rust_ifs: String = (1..=12)
+        .map(|i| format!("    if x == {i} {{ return {i}; }}\n"))
+        .collect();
+    repository.write(
+        "src/rust_eroded.rs",
+        &format!("pub fn compute_tax(x: i32) -> i32 {{\n{rust_ifs}    0\n}}\n"),
+    );
+    repository.commit_all();
+
+    let json_out = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&json_out);
+    let report = parse_json(&json_out);
+    let findings = report["source_sets"]["production"]["erosion"]["findings"]
+        .as_array()
+        .expect("erosion findings");
+    assert_eq!(findings.len(), 3);
+    let named = findings
+        .iter()
+        .find(|f| f["path"] == "src/named.ts")
+        .expect("named ts finding");
+    assert_eq!(named["name"], "routeOrder");
+    assert!(named["end_line"].as_u64().unwrap() > named["line"].as_u64().unwrap());
+    assert!(named["cognitive_complexity"].is_u64());
+
+    let rust_finding = findings
+        .iter()
+        .find(|f| f["path"] == "src/rust_eroded.rs")
+        .expect("rust finding");
+    assert_eq!(rust_finding["name"], "compute_tax");
+
+    let anon = findings
+        .iter()
+        .find(|f| f["path"] == "src/anon.ts")
+        .expect("anonymous callback finding");
+    assert!(
+        anon.get("name").is_none(),
+        "anonymous callback should omit name: {anon}"
+    );
+
+    let toon_text = run_check_text(&repository, "toon");
+    assert!(toon_text.contains("routeOrder"), "{toon_text}");
+    assert!(toon_text.contains("compute_tax"), "{toon_text}");
+
+    let sarif = run_check_json(&repository, "sarif");
+    let messages: Vec<&str> = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("sarif results")
+        .iter()
+        .filter(|r| r["ruleId"] == "erosion")
+        .map(|r| r["message"]["text"].as_str().unwrap())
+        .collect();
+    for expected in [
+        "Eroded function routeOrder:",
+        "Eroded function compute_tax:",
+        "Eroded function: cyclomatic complexity",
+    ] {
+        assert!(
+            messages.iter().any(|m| m.starts_with(expected)),
+            "missing {expected} in {messages:?}"
+        );
+    }
+
+    let md = run_check_text(&repository, "markdown");
+    assert!(md.contains("`routeOrder` (`src/named.ts:1`)"), "{md}");
+    assert!(
+        md.contains("`compute_tax` (`src/rust_eroded.rs:1`)"),
+        "{md}"
+    );
+    assert!(md.contains("| `src/anon.ts:3` |"), "{md}");
+}
+
+fn run_check_text(repository: &Repository, format: &str) -> String {
+    let output = repository.codeint(&["check", "--format", format]);
+    assert_success(&output);
+    stdout(&output)
+}
+
+fn run_check_json(repository: &Repository, format: &str) -> serde_json::Value {
+    serde_json::from_str(&run_check_text(repository, format)).expect("valid json output")
+}
+
+fn parse_json(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_str(&stdout(output)).expect("valid json output")
+}
+
+#[test]
+fn cognitive_complexity_reports_independently_with_budgets_and_no_uncalibrated_reference_range() {
+    let repository = Repository::new();
+    let cases: String = (1..=14)
+        .map(|i| format!("    case {i}: return {i};\n"))
+        .collect();
+    repository.write(
+        "src/flat.ts",
+        &format!("export function flatSwitch(x: number): number {{\n  switch (x) {{\n{cases}    default: return 0;\n  }}\n}}\n"),
+    );
+    repository.write(
+        "src/deep.ts",
+        r#"export function deepCheck(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean, f: boolean): number {
+  if (a) {
+    if (b) {
+      if (c) {
+        if (d) {
+          if (e) {
+            if (f) { return 1; }
+          }
+        }
+      }
+    }
+  }
+  return 0;
+}
+"#,
+    );
+    repository.commit_all();
+
+    let report = run_check_json(&repository, "json");
+    let prod = &report["source_sets"]["production"];
+    assert!(prod.get("score").is_none());
+    let cog = &prod["cognitive_complexity"];
+    assert_eq!(cog["complex_cognitive_complexity"], 21);
+    assert_eq!(cog["total_cognitive_complexity"], 22);
+    assert_eq!(
+        cog["reference_range"],
+        "no published Reference range for this language"
+    );
+    let cog_findings = cog["findings"].as_array().expect("cog findings");
+    assert_eq!(cog_findings.len(), 1);
+    assert_eq!(cog_findings[0]["name"], "deepCheck");
+    assert_eq!(cog_findings[0]["cognitive_complexity"], 21);
+
+    let erosion_findings = prod["erosion"]["findings"]
+        .as_array()
+        .expect("erosion findings");
+    assert_eq!(erosion_findings.len(), 1);
+    assert_eq!(erosion_findings[0]["name"], "flatSwitch");
+
+    let sarif = run_check_json(&repository, "sarif");
+    assert!(
+        sarif["runs"][0]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| {
+                r["ruleId"] == "cognitive_complexity"
+                    && r["message"]["text"].as_str().unwrap().contains("deepCheck")
+            })
+    );
+
+    let md = run_check_text(&repository, "markdown");
+    assert!(md.contains("| Production | Cognitive complexity |"), "{md}");
+    assert!(md.contains("### Cognitive complexity"), "{md}");
+    assert!(md.contains("`deepCheck` (`src/deep.ts:1`)"), "{md}");
+
+    repository.write(
+        "codeint.json",
+        r#"{ "budgets": { "production": { "cognitive_complexity": 0.1 } } }"#,
+    );
+    let over = repository.codeint(&["check", "--format", "json"]);
+    assert_eq!(over.status.code(), Some(1));
+    let over_report = parse_json(&over);
+    assert_eq!(
+        over_report["over_budget"][0]["metric"],
+        "cognitive_complexity"
+    );
+    let stderr = String::from_utf8_lossy(&over.stderr);
+    assert!(stderr.contains("cognitive_complexity"), "{stderr}");
 }

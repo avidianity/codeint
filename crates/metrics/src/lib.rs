@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod boundaries;
+mod cognitive_complexity;
 mod duplication;
 mod erosion;
 mod finding_id;
@@ -13,6 +14,7 @@ mod verbosity;
 pub use boundaries::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryFindingKind, BoundaryPolicy,
 };
+pub use cognitive_complexity::{CognitiveComplexity, CognitiveComplexityTotals, ComplexFunction};
 pub use duplication::{
     CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens,
 };

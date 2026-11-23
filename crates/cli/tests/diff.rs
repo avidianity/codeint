@@ -550,6 +550,8 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
 
     let eroded_function_table = "| Function | Cyclomatic complexity | Source lines | Function mass |\n\
                                  | -------- | --------------------- | ------------ | ------------- |";
+    let complex_function_table = "| Function | Cognitive complexity | Source lines |\n\
+                                  | -------- | -------------------- | ------------ |";
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         String::from_utf8(output.stdout)
@@ -563,6 +565,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          | Source set | Metric | Base | Head | New | Resolved | Unchanged |\n\
          | ---------- | ------ | ---- | ---- | --- | -------- | --------- |\n\
          | Production | Erosion | 1 | 0.885 | 1 | 1 | 0 |\n\
+         | Production | Cognitive complexity | 0 | 0.9 | 1 | 0 | 0 |\n\
          | Production | Duplication | 0 | 0.4324 | 1 | 0 | 0 |\n\
          | Production | Verbosity | 0 | 0.4324 | 0 | 0 | 0 |\n\
          | Production | Import cycles | 0 | 0 | 0 | 0 | 0 |\n\
@@ -570,6 +573,8 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          ## Regressions\n\
          \n\
          - The production erosion numerator `eroded_function_mass` rose from 44.8999 to 87.0689 with 1 new Finding.\n\
+         - The production cognitive\\_complexity ratio rose from 0 to 0.9, more than its Regression limit 0.01.\n\
+         - The production cognitive\\_complexity numerator `complex_cognitive_complexity` rose from 0 to 18 with 1 new Finding.\n\
          - The production duplication ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
          - The production duplication numerator `clone_lines` rose from 0 to 16 with 1 new Finding.\n\
          - The production verbosity ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
@@ -579,12 +584,17 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          ### New Erosion Findings\n\
          \n\
          {eroded_function_table}\n\
-         | `src/b.ts:1` | 19 | 21 | 87.0689 |\n\
+         | `b` (`src/b.ts:1`) | 19 | 21 | 87.0689 |\n\
          \n\
          ### Resolved Erosion Findings\n\
          \n\
          {eroded_function_table}\n\
-         | `src/a.ts:1` | 12 | 14 | 44.8999 |\n\
+         | `a` (`src/a.ts:1`) | 12 | 14 | 44.8999 |\n\
+         \n\
+         ### New Cognitive complexity Findings\n\
+         \n\
+         {complex_function_table}\n\
+         | `b` (`src/b.ts:1`) | 18 | 21 |\n\
          \n\
          ### New Duplication Findings\n\
          \n\
@@ -1320,4 +1330,46 @@ fn a_second_diff_with_head_reads_both_commits_from_the_cache() {
     let second = fixture.successful_diff(&["main", "--head", "feature"]);
 
     assert_eq!(second, first);
+}
+
+#[test]
+fn diff_detects_cognitive_complexity_regression_on_new_deeply_nested_function() {
+    let fixture = Fixture::on_main();
+    fixture.put(
+        "src/flat.ts",
+        "export function simple(a: boolean): number {\n  if (a) { return 1; }\n  return 0;\n}\n",
+    );
+    fixture.commit("base");
+    fixture.put(
+        "src/deep.ts",
+        "export function deepNested(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean, f: boolean): number {\n  if (a) { if (b) { if (c) { if (d) { if (e) { if (f) { return 1; } } } } } }\n  return 0;\n}\n",
+    );
+
+    let output = fixture.codeint_diff(&["main", "--format", "json"]);
+    assert_eq!(output.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let cog = &report["source_sets"]["production"]["cognitive_complexity"];
+    assert_eq!(cog["new"].as_array().unwrap().len(), 1);
+    assert_eq!(cog["new"][0]["name"], "deepNested");
+    assert_eq!(cog["new"][0]["cognitive_complexity"], 21);
+    assert!(
+        report["regressions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["metric"] == "cognitive_complexity"),
+        "{report}"
+    );
+
+    fixture.put(
+        "codeint.json",
+        r#"{ "regression_limits": { "cognitive_complexity": { "ratio_rise": 1, "new_findings": "never" } } }"#,
+    );
+    let suppressed = fixture.codeint_diff(&["main", "--format", "json"]);
+    assert_eq!(
+        suppressed.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&suppressed.stderr)
+    );
 }

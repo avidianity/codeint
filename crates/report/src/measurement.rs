@@ -6,8 +6,8 @@ use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, ConfigBoundaryPolicy, ErodedFunctionFinding,
-    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
+    BoundaryFindingRow, CloneGroupFinding, CognitiveComplexityFinding, ConfigBoundaryPolicy,
+    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,6 +22,8 @@ pub struct CommitMeasurement {
 pub(crate) struct SourceSetMeasurement {
     pub(crate) files: usize,
     pub(crate) erosion: MetricMeasurement<ErodedFunctionFinding>,
+    #[serde(default)]
+    pub(crate) cognitive_complexity: MetricMeasurement<CognitiveComplexityFinding>,
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
     pub(crate) import_cycles: MetricMeasurement<ImportCycleFinding>,
@@ -148,64 +150,53 @@ impl SourceSetMeasurement {
         }
         Ok(SourceSetMeasurement {
             files: model.files.len(),
-            erosion: erosion(&measured),
-            duplication: duplication(&measured),
-            verbosity: verbosity(&measured),
-            import_cycles: import_cycles(&measured),
+            erosion: MetricMeasurement::from_items(
+                measured.erosion.ratio(),
+                measured.erosion.eroded_function_mass(),
+                measured.erosion.eroded_functions(),
+                ErodedFunctionFinding::new,
+            ),
+            cognitive_complexity: MetricMeasurement::from_items(
+                measured.cognitive_complexity.ratio(),
+                measured.cognitive_complexity.complex_cognitive_complexity() as f64,
+                measured.cognitive_complexity.complex_functions(),
+                CognitiveComplexityFinding::new,
+            ),
+            duplication: MetricMeasurement::from_items(
+                measured.duplication.ratio(),
+                measured.duplication.clone_lines.count() as f64,
+                &measured.duplication.clone_groups,
+                CloneGroupFinding::new,
+            ),
+            verbosity: MetricMeasurement::from_items(
+                measured.verbosity.ratio(),
+                measured.verbosity.verbose_lines() as f64,
+                measured.verbosity.flagged_lines(),
+                FlaggedLineRow::from,
+            ),
+            import_cycles: MetricMeasurement::from_items(
+                measured.import_cycles.ratio(),
+                measured.import_cycles.modules_in_import_cycles() as f64,
+                measured.import_cycles.cycles(),
+                ImportCycleFinding::new,
+            ),
             boundaries,
             external_metrics,
         })
     }
 }
 
-fn erosion(measured: &Measured) -> MetricMeasurement<ErodedFunctionFinding> {
-    MetricMeasurement {
-        ratio: measured.erosion.ratio(),
-        numerator: measured.erosion.eroded_function_mass(),
-        findings_worst_first: measured
-            .erosion
-            .eroded_functions()
-            .iter()
-            .map(ErodedFunctionFinding::new)
-            .collect(),
-    }
-}
-
-fn duplication(measured: &Measured) -> MetricMeasurement<CloneGroupFinding> {
-    MetricMeasurement {
-        ratio: measured.duplication.ratio(),
-        numerator: measured.duplication.clone_lines.count() as f64,
-        findings_worst_first: measured
-            .duplication
-            .clone_groups
-            .iter()
-            .map(CloneGroupFinding::new)
-            .collect(),
-    }
-}
-
-fn verbosity(measured: &Measured) -> MetricMeasurement<FlaggedLineRow> {
-    MetricMeasurement {
-        ratio: measured.verbosity.ratio(),
-        numerator: measured.verbosity.verbose_lines() as f64,
-        findings_worst_first: measured
-            .verbosity
-            .flagged_lines()
-            .iter()
-            .map(FlaggedLineRow::from)
-            .collect(),
-    }
-}
-
-fn import_cycles(measured: &Measured) -> MetricMeasurement<ImportCycleFinding> {
-    MetricMeasurement {
-        ratio: measured.import_cycles.ratio(),
-        numerator: measured.import_cycles.modules_in_import_cycles() as f64,
-        findings_worst_first: measured
-            .import_cycles
-            .cycles()
-            .iter()
-            .map(ImportCycleFinding::new)
-            .collect(),
+impl<F> MetricMeasurement<F> {
+    fn from_items<'a, T>(
+        ratio: f64,
+        numerator: f64,
+        items: &'a [T],
+        convert: impl Fn(&'a T) -> F,
+    ) -> MetricMeasurement<F> {
+        MetricMeasurement {
+            ratio,
+            numerator,
+            findings_worst_first: items.iter().map(convert).collect(),
+        }
     }
 }

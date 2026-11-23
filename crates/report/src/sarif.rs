@@ -5,8 +5,9 @@ use serde::Serialize;
 use codeint_model::{Metric, SourceSet};
 
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, CloneLocation, ErodedFunctionFinding,
-    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Report, SourceSetSection,
+    BoundaryFindingRow, COGNITIVE_COMPLEXITY_KEY, CloneGroupFinding, CloneLocation,
+    CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
+    ImportCycleFinding, Report, SourceSetSection,
 };
 
 #[cfg(test)]
@@ -138,6 +139,7 @@ pub(crate) struct ListedExternalMetric<'findings> {
 
 pub(crate) struct ListedFindings<'findings> {
     pub(crate) eroded_functions: &'findings [ErodedFunctionFinding],
+    pub(crate) cognitive_complexity: &'findings [CognitiveComplexityFinding],
     pub(crate) clone_groups: &'findings [CloneGroupFinding],
     pub(crate) flagged_lines: &'findings [FlaggedLineRow],
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
@@ -172,6 +174,7 @@ impl SarifLog {
             }
         }
         let mut rules: Vec<Rule> = RULES.map(descriptor).into();
+        rules.push(cognitive_complexity_descriptor());
         let boundaries_rule_index = has_boundaries.then(|| {
             let index = rules.len();
             rules.push(boundaries_descriptor());
@@ -230,6 +233,21 @@ const RULES: [Metric; 4] = [
     Metric::Verbosity,
     Metric::ImportCycles,
 ];
+const COGNITIVE_COMPLEXITY_RULE_INDEX: usize = RULES.len();
+
+fn cognitive_complexity_descriptor() -> Rule {
+    Rule {
+        id: COGNITIVE_COMPLEXITY_KEY.to_owned(),
+        name: "Cognitive complexity".to_owned(),
+        short_description: Text::from("A function with cognitive complexity over 15"),
+        full_description: Text::from(
+            "Cognitive complexity is the share of total cognitive complexity held by functions whose cognitive complexity is greater than 15. Cognitive complexity weights control-flow structures by nesting depth.",
+        ),
+        help: Text::from(
+            "Flatten nested control flow or split the function into smaller functions, each with a cognitive complexity of 15 or less.",
+        ),
+    }
+}
 
 fn descriptor(metric: Metric) -> Rule {
     let (name, short_description, full_description, help) = match metric {
@@ -347,6 +365,7 @@ impl<'findings> ListedFindings<'findings> {
     fn of_section(section: &'findings SourceSetSection) -> ListedFindings<'findings> {
         ListedFindings {
             eroded_functions: &section.erosion.findings.listed,
+            cognitive_complexity: &section.cognitive_complexity.findings.listed,
             clone_groups: &section.duplication.clone_groups.listed,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
@@ -379,14 +398,30 @@ fn results(
             Metric::Erosion,
             source_set,
             &function.id,
-            format!(
-                "Eroded function: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
-                function.cyclomatic_complexity, function.source_lines, function.function_mass.0
-            ),
+            eroded_function_message(function),
             Location::in_repository(&function.path, function.line, None),
             Vec::new(),
         )
     });
+    let cognitive_complexity = listed
+        .cognitive_complexity
+        .iter()
+        .map(|function| SarifResult {
+            rule_id: COGNITIVE_COMPLEXITY_KEY.to_owned(),
+            rule_index: COGNITIVE_COMPLEXITY_RULE_INDEX,
+            level: "note",
+            message: Text {
+                text: complex_function_message(function),
+            },
+            locations: [Location::in_repository(&function.path, function.line, None)],
+            related_locations: Vec::new(),
+            partial_fingerprints: PartialFingerprints {
+                codeint_finding_id: function.id.clone(),
+            },
+            properties: ResultProperties {
+                source_set: source_set.key(),
+            },
+        });
     let clone_groups = listed
         .clone_groups
         .iter()
@@ -455,12 +490,39 @@ fn results(
         })
     });
     eroded_functions
+        .chain(cognitive_complexity)
         .chain(clone_groups)
         .chain(flagged_lines)
         .chain(import_cycles)
         .chain(boundaries)
         .chain(external_findings)
         .collect()
+}
+
+fn eroded_function_message(function: &ErodedFunctionFinding) -> String {
+    match function.name.as_deref() {
+        Some(name) => format!(
+            "Eroded function {name}: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
+            function.cyclomatic_complexity, function.source_lines, function.function_mass.0
+        ),
+        None => format!(
+            "Eroded function: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
+            function.cyclomatic_complexity, function.source_lines, function.function_mass.0
+        ),
+    }
+}
+
+fn complex_function_message(function: &CognitiveComplexityFinding) -> String {
+    match function.name.as_deref() {
+        Some(name) => format!(
+            "Complex function {name}: cognitive complexity {}, over 15; {} source lines.",
+            function.cognitive_complexity, function.source_lines
+        ),
+        None => format!(
+            "Complex function: cognitive complexity {}, over 15; {} source lines.",
+            function.cognitive_complexity, function.source_lines
+        ),
+    }
 }
 
 fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {

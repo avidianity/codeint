@@ -4,11 +4,12 @@ use super::{TrendReport, TrendRow};
 use crate::markdown::{code, table};
 
 const TITLE: &str = "# codeint trend";
-const BASE_COLUMNS: [&str; 7] = [
+const BASE_COLUMNS: [&str; 8] = [
     "Commit",
     "Committed on",
     "Files",
     "Erosion",
+    "Cognitive complexity",
     "Duplication",
     "Verbosity",
     "Import cycles",
@@ -47,6 +48,7 @@ fn row_cells(row: &TrendRow, external_keys: &[String]) -> Vec<String> {
         row.committed_on.clone(),
         row.files.to_string(),
         row.erosion.0.to_string(),
+        row.cognitive_complexity.0.to_string(),
         row.duplication.0.to_string(),
         row.verbosity.0.to_string(),
         row.import_cycles.0.to_string(),

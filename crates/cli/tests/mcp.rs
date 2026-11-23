@@ -113,3 +113,56 @@ fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
     assert_eq!(unzoned["configured"], true);
     assert!(unzoned.get("zone").is_none());
 }
+
+#[test]
+fn mcp_check_and_diff_surface_function_names_and_cognitive_complexity() {
+    let source = concat!(
+        "export function processOrder(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean, f: boolean, x: number): number {\n",
+        "  if (a) {\n",
+        "    if (b) {\n",
+        "      if (c) {\n",
+        "        if (d) {\n",
+        "          if (e) {\n",
+        "            if (f) {\n",
+        "              if (x === 1 || x === 2 || x === 3 || x === 4 || x === 5) {\n",
+        "                return 1;\n",
+        "              }\n",
+        "            }\n",
+        "          }\n",
+        "        }\n",
+        "      }\n",
+        "    }\n",
+        "  }\n",
+        "  return 0;\n",
+        "}\n",
+    );
+    let repo = init_git_repo(&[("src/order.ts", source)]);
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            mcp_tool_call(1, "check", json!({})),
+            mcp_tool_call(2, "diff", json!({"base_ref": "main"})),
+        ],
+    );
+    let check_payload = mcp_payload(&responses[0]);
+    let prod = &check_payload["report"]["source_sets"]["production"];
+    assert_eq!(prod["erosion"]["findings"][0]["name"], "processOrder");
+    assert_eq!(prod["erosion"]["findings"][0]["line"], 1);
+    assert_eq!(prod["erosion"]["findings"][0]["end_line"], 18);
+    assert!(
+        prod["erosion"]["findings"][0]["cognitive_complexity"]
+            .as_u64()
+            .unwrap()
+            > 15
+    );
+    assert_eq!(
+        prod["cognitive_complexity"]["findings"][0]["name"],
+        "processOrder"
+    );
+
+    let diff_payload = mcp_payload(&responses[1]);
+    assert_eq!(
+        diff_payload["report"]["source_sets"]["production"]["cognitive_complexity"]["unchanged"],
+        1
+    );
+}

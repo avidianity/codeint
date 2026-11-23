@@ -6,6 +6,9 @@ use codeint_model::{CodeModel, Metric, Package, RepoPath, Token};
 use crate::FindingId;
 use crate::finding_id::FindingIds;
 
+#[cfg(test)]
+mod tests;
+
 const ERODED_ABOVE_CYCLOMATIC_COMPLEXITY: u32 = 10;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -13,7 +16,10 @@ pub struct ErodedFunction {
     pub id: FindingId,
     pub path: RepoPath,
     pub line: u32,
+    pub end_line: u32,
+    pub name: Option<String>,
     pub cyclomatic_complexity: u32,
+    pub cognitive_complexity: u32,
     pub source_lines: u32,
     pub function_mass: f64,
 }
@@ -62,15 +68,13 @@ impl Erosion {
                 if cyclomatic_complexity > ERODED_ABOVE_CYCLOMATIC_COMPLEXITY {
                     file_masses.eroded += function_mass;
                     eroded_functions.push(ErodedFunction {
-                        id: ids.next_in_source_order(
-                            [&file.path],
-                            tokens_of(function, &file.model.tokens)
-                                .iter()
-                                .map(|token| token.text_hash),
-                        ),
+                        id: function_finding_id(&mut ids, &file.path, function, &file.model.tokens),
                         path: file.path.clone(),
                         line: function.line,
+                        end_line: function.end_line,
+                        name: function.name.clone(),
                         cyclomatic_complexity,
+                        cognitive_complexity: function.cognitive_complexity,
                         source_lines: function.source_lines,
                         function_mass,
                     });
@@ -113,22 +117,47 @@ impl Erosion {
         &self,
         model: &'model CodeModel,
     ) -> BTreeMap<Package<'model>, FunctionMasses> {
-        let workspace = &model.workspace;
-        let mut masses: BTreeMap<Package<'model>, FunctionMasses> = workspace
-            .packages()
-            .map(|package| (package, FunctionMasses::default()))
-            .collect();
-        for (path, file_masses) in &self.masses_by_file {
-            masses
-                .entry(workspace.package_of(path))
-                .or_default()
-                .add(*file_masses);
-        }
-        masses
+        group_by_package(model, &self.masses_by_file, FunctionMasses::add)
     }
 }
 
-fn tokens_of<'tokens>(function: &Function, tokens: &'tokens [Token]) -> &'tokens [Token] {
+pub(crate) fn group_by_package<'model, T: Default + Copy>(
+    model: &'model CodeModel,
+    by_file: &BTreeMap<RepoPath, T>,
+    merge: fn(&mut T, T),
+) -> BTreeMap<Package<'model>, T> {
+    let workspace = &model.workspace;
+    let mut totals: BTreeMap<Package<'model>, T> = workspace
+        .packages()
+        .map(|package| (package, T::default()))
+        .collect();
+    for (path, file_value) in by_file {
+        merge(
+            totals.entry(workspace.package_of(path)).or_default(),
+            *file_value,
+        );
+    }
+    totals
+}
+
+pub(crate) fn function_finding_id(
+    ids: &mut FindingIds,
+    path: &RepoPath,
+    function: &Function,
+    tokens: &[Token],
+) -> FindingId {
+    ids.next_in_source_order(
+        [path],
+        tokens_of(function, tokens)
+            .iter()
+            .map(|token| token.text_hash),
+    )
+}
+
+pub(crate) fn tokens_of<'tokens>(
+    function: &Function,
+    tokens: &'tokens [Token],
+) -> &'tokens [Token] {
     let first = tokens.partition_point(|token| token.line < function.line);
     let after_last = tokens.partition_point(|token| token.line <= function.end_line);
     &tokens[first..after_last.max(first)]
