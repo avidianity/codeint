@@ -154,8 +154,11 @@ impl ProjectResolver {
     fn resolve_workspace_fallback(&self, specifier: &str) -> Option<Resolution> {
         let pkg = package_name(specifier);
         let folder = self.package_folders.get(pkg)?;
-        let pkg_dir = snapshot::absolute(folder);
         let subpath = package_subpath(specifier, pkg);
+        if subpath.split('/').any(|segment| segment == "..") {
+            return None;
+        }
+        let pkg_dir = snapshot::absolute(folder);
         let candidates = if subpath.is_empty() {
             vec!["./src/index".to_owned(), "./index".to_owned()]
         } else {
@@ -164,6 +167,7 @@ impl ProjectResolver {
         for candidate in candidates {
             if let Ok(resolution) = self.resolver.resolve(&pkg_dir, &candidate)
                 && let Some(repo_path) = snapshot::repository_path(resolution.path())
+                && is_within_package(folder, &repo_path)
             {
                 return Some(Resolution::Resolved(repo_path));
             }
@@ -250,6 +254,13 @@ fn leaves_the_repository(importer: &str, specifier: &str) -> bool {
     false
 }
 
+fn is_within_package(folder: &str, repo_path: &str) -> bool {
+    folder.is_empty()
+        || repo_path
+            .strip_prefix(folder)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 fn package_name(specifier: &str) -> &str {
     let clean = specifier
         .split_once(['?', '#'])
@@ -268,7 +279,12 @@ fn package_name(specifier: &str) -> &str {
         .map_or(body.len(), |(index, _)| index);
     let candidate = &body[..end];
     if has_registry_prefix {
-        strip_registry_version(candidate)
+        let stripped = strip_registry_version(candidate);
+        if packages::is_package_name(stripped) {
+            stripped
+        } else {
+            ""
+        }
     } else {
         candidate
     }

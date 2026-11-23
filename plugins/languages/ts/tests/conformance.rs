@@ -2409,6 +2409,31 @@ fn workspace_package_jsons_emit_per_package_deps_and_exclude_local_members() {
     );
 }
 
+const MONOREPO_WORKSPACE_FILES: &[(&str, &str)] = &[
+    ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
+    ("package.json", r#"{"name": "monorepo", "private": true}"#),
+    ("packages/index.ts", ""),
+    (
+        "packages/zod/package.json",
+        r#"{
+          "name": "zod",
+          "exports": {
+            ".": "./dist/index.js",
+            "./v4": "./dist/v4/index.js"
+          }
+        }"#,
+    ),
+    ("packages/zod/src/index.ts", ""),
+    ("packages/zod/src/v4/index.ts", ""),
+    (
+        "packages/pinia/package.json",
+        r#"{"name": "pinia", "main": "dist/pinia.cjs"}"#,
+    ),
+    ("packages/pinia/src/index.ts", ""),
+    ("packages/app/package.json", r#"{"name": "app"}"#),
+    ("packages/app/src/main.ts", ""),
+];
+
 #[test]
 fn root_workspace_package_and_unbuilt_member_exports_do_not_resolve_as_external() {
     let hono_files = [
@@ -2448,38 +2473,39 @@ fn root_workspace_package_and_unbuilt_member_exports_do_not_resolve_as_external(
         );
     }
 
-    let monorepo_files = [
-        ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
-        ("package.json", r#"{"name": "monorepo", "private": true}"#),
-        (
-            "packages/zod/package.json",
-            r#"{
-              "name": "zod",
-              "exports": {
-                ".": "./dist/index.js",
-                "./v4": "./dist/v4/index.js"
-              }
-            }"#,
-        ),
-        ("packages/zod/src/index.ts", ""),
-        ("packages/zod/src/v4/index.ts", ""),
-        (
-            "packages/pinia/package.json",
-            r#"{"name": "pinia", "main": "dist/pinia.cjs"}"#,
-        ),
-        ("packages/pinia/src/index.ts", ""),
-        ("packages/app/package.json", r#"{"name": "app"}"#),
-        ("packages/app/src/main.ts", ""),
-    ];
     for (specifier, expected) in [
         ("zod", resolved("packages/zod/src/index.ts")),
         ("zod/v4", resolved("packages/zod/src/v4/index.ts")),
         ("pinia", resolved("packages/pinia/src/index.ts")),
     ] {
         assert_eq!(
-            resolve_in_project(&monorepo_files, "packages/app/src/main.ts", specifier),
+            resolve_in_project(
+                MONOREPO_WORKSPACE_FILES,
+                "packages/app/src/main.ts",
+                specifier
+            ),
             expected,
             "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn workspace_fallback_cannot_escape_the_package_directory() {
+    for specifier in [
+        "zod/../../pinia/src/index",
+        "zod/..",
+        "pinia/../../zod/src/index",
+        "pinia/..",
+    ] {
+        let resolution = resolve_in_project(
+            MONOREPO_WORKSPACE_FILES,
+            "packages/app/src/main.ts",
+            specifier,
+        );
+        assert!(
+            matches!(resolution, Resolution::Unresolved(_)),
+            "{specifier} escaped workspace package: {resolution:?}"
         );
     }
 }

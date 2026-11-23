@@ -97,3 +97,28 @@ fn cloudflare_and_deno_protocol_specifiers_resolve_as_builtins() {
         );
     }
 }
+
+#[test]
+fn malformed_registry_specifiers_are_unresolved() {
+    for specifier in [
+        "npm:@",
+        "jsr:@",
+        "npm:@scope",
+        "npm:@scope/",
+        "npm:@/",
+        "npm:@/pkg",
+        "npm:./local",
+        "npm:../local",
+        "npm:.",
+        "npm:..",
+        "npm:/abs",
+        "jsr:@scope",
+        "jsr:@/pkg",
+    ] {
+        assert_eq!(package_name(specifier), "", "{specifier}");
+        assert!(
+            matches!(resolve_specifier(specifier), Resolution::Unresolved(_)),
+            "{specifier} must be unresolved"
+        );
+    }
+}

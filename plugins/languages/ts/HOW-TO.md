@@ -70,7 +70,7 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - `manifest_paths` is also how the plugin asks for the `package.json` files that `workspace_packages` reads, so the host reads each manifest once.
 - `src/resolution/packages.rs` links the `package.json` of each workspace package that the workspace declares, plus the root `package.json` when its `name` does not collide with a workspace member, so an import of a workspace package follows its `exports` field (falling back to source files or `Builtin` when build outputs are absent).
   It finds the workspace packages with `src/workspaces.rs`, the same rule that splits the report by package.
-  A named package outside the declared workspaces, or in a repository without workspaces, is not linked, because npm, Yarn, and Bun do not install it in `node_modules`.
+  A non-root package outside the declared workspaces (including subfolder packages in a repository without workspaces) is not linked, because npm, Yarn, and Bun do not install it in `node_modules`.
   Two packages with the same name are both left unlinked.
 - The `exports` conditions are `types`, `bun`, `import`, `require`, `node`, and `default`, so an export whose `types` or `bun` entry names a source file resolves to that file.
 - `bun`, `bun:*`, `node:*`, `cloudflare:*`, and `deno:*` specifiers are always `Builtin` runtime modules, and `npm:` / `jsr:` specifiers strip their registry prefix and optional `@version` before normalizing the external package name.

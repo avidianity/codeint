@@ -60,12 +60,12 @@ fn package_name(text: &str) -> Option<String> {
     is_package_name(name).then(|| name.to_owned())
 }
 
-fn is_package_name(name: &str) -> bool {
-    let segments: Vec<&str> = name.split('/').collect();
-    let valid = |segment: &&str| !segment.is_empty() && *segment != "." && *segment != "..";
-    match segments.as_slice() {
-        [scope, package] => scope.starts_with('@') && scope.len() > 1 && valid(package),
-        [package] => !package.starts_with('@') && valid(package),
-        _ => false,
+pub(super) fn is_package_name(name: &str) -> bool {
+    let valid = |segment: &str| !segment.is_empty() && segment != "." && segment != "..";
+    match name.split_once('/') {
+        Some((scope, package)) => {
+            !package.contains('/') && scope.starts_with('@') && valid(&scope[1..]) && valid(package)
+        }
+        None => !name.starts_with('@') && valid(name),
     }
 }
