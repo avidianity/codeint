@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use codeint_config::{PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource};
 use codeint_model::{
-    CodeModel, ExternalMetricMeasurement, FileModel, InvalidReferenceRange, LanguagePlugin,
-    LowerError, Manifest, MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath,
-    WorkspaceError, language,
+    CodeModel, DeclaredDep, ExternalMetricMeasurement, FileModel, InvalidReferenceRange,
+    LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
+    ReferenceRanges, RepoPath, WorkspaceError, language,
 };
 
 mod fetch;
@@ -50,6 +50,16 @@ pub enum PluginHostError {
         name: String,
         path: PathBuf,
         reason: String,
+    },
+    #[error(
+        "Plugin {name:?} at {} targets incompatible WIT contract {found}, but this version of codeint requires {expected}; rebuild the Plugin against {expected} and update its sha256 in codeint.json",
+        path.display()
+    )]
+    IncompatibleContractVersion {
+        name: String,
+        path: PathBuf,
+        expected: &'static str,
+        found: String,
     },
     #[error("Plugin {name:?} failed during {call}: {reason}")]
     Call {
@@ -266,6 +276,21 @@ impl LanguagePlugin for WasmLanguagePlugin {
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution> {
         self.resolve_imports_impl(repository_paths, manifests, requests)
+    }
+
+    fn declared_dependencies(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        self.declared_dependencies_impl(manifests)
+    }
+
+    fn entry_points(
+        &self,
+        repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        self.entry_points_impl(repository_paths, manifests)
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {

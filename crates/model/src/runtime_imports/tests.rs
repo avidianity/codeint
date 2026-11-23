@@ -1,7 +1,7 @@
-use crate::language::{ImportRequest, Resolution, SourceSet};
+use crate::language::{DeclaredDep, ImportRequest, Resolution, SourceSet};
 use crate::{
-    FileModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
-    RepoPath, SourceFile, WorkspaceError,
+    FileModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
+    ReferenceRanges, RepoPath, SourceFile, WorkspaceError,
 };
 
 use super::{
@@ -11,6 +11,21 @@ use super::{
 struct Answering(Vec<Resolution>);
 
 impl LanguagePlugin for Answering {
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        Ok(Vec::new())
+    }
+
+    fn entry_points(
+        &self,
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        Ok(Vec::new())
+    }
+
     fn extensions(&self) -> Vec<String> {
         vec!["ts".to_owned()]
     }
@@ -66,10 +81,11 @@ fn importer(name: &str, specifiers: &[&str]) -> SourceFile {
 fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
     let plugin = Answering(vec![
         Resolution::Resolved("b.ts".to_owned()),
-        Resolution::External,
+        Resolution::External("react".to_owned()),
+        Resolution::Builtin,
         Resolution::Unresolved("gone".to_owned()),
     ]);
-    let a = importer("a.ts", &["./b", "react"]);
+    let a = importer("a.ts", &["./b", "react", "node:fs"]);
     let b = importer("b.ts", &["./gone"]);
 
     let imports = resolve_runtime_imports(
@@ -91,7 +107,12 @@ fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
             RuntimeImport {
                 importer: path("a.ts"),
                 specifier: "react".to_owned(),
-                resolution: ImportResolution::External,
+                resolution: ImportResolution::External("react".to_owned()),
+            },
+            RuntimeImport {
+                importer: path("a.ts"),
+                specifier: "node:fs".to_owned(),
+                resolution: ImportResolution::Builtin,
             },
             RuntimeImport {
                 importer: path("b.ts"),
@@ -106,7 +127,7 @@ fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
 
 #[test]
 fn a_plugin_that_answers_the_wrong_number_of_requests_is_an_error() {
-    let plugin = Answering(vec![Resolution::External]);
+    let plugin = Answering(vec![Resolution::External("react".to_owned())]);
     let a = importer("a.ts", &["react", "vue"]);
 
     let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);

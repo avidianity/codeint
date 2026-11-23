@@ -74,11 +74,11 @@ fn resolve_one(
     }
     if let Some(target) = module_map.get(specifier) {
         if target == importer {
-            return Resolution::External;
+            return Resolution::External(String::new());
         }
         return Resolution::Resolved(target.clone());
     }
-    Resolution::External
+    Resolution::External(String::new())
 }
 
 fn resolve_relative(py_files: &HashSet<String>, importer: &str, specifier: &str) -> Resolution {
@@ -107,7 +107,7 @@ fn resolve_relative(py_files: &HashSet<String>, importer: &str, specifier: &str)
     for candidate in candidates {
         if py_files.contains(&candidate) {
             if candidate == importer {
-                return Resolution::External;
+                return Resolution::External(String::new());
             }
             return Resolution::Resolved(candidate);
         }

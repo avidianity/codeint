@@ -8,7 +8,8 @@ mod tests;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportResolution {
     Resolved(RepoPath),
-    External,
+    External(String),
+    Builtin,
     Unresolved { reason: String },
 }
 
@@ -101,7 +102,8 @@ pub fn resolve_runtime_imports(
                         target,
                     });
                 }
-                language::Resolution::External => ImportResolution::External,
+                language::Resolution::External(package) => ImportResolution::External(package),
+                language::Resolution::Builtin => ImportResolution::Builtin,
                 language::Resolution::Unresolved(reason) => ImportResolution::Unresolved { reason },
             };
             Ok(RuntimeImport {

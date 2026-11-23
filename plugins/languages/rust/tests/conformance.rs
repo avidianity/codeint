@@ -73,12 +73,16 @@ fn counts_decision_points_and_nested_functions_separately() {
                 end_line: 16,
                 decision_points: 7,
                 source_lines: 16,
+                name: None,
+                cognitive_complexity: 0,
             },
             Function {
                 line: 7,
                 end_line: 9,
                 decision_points: 2,
                 source_lines: 3,
+                name: None,
+                cognitive_complexity: 0,
             },
         ]
     );
@@ -251,8 +255,8 @@ fn resolves_intra_crate_mod_and_use_imports_and_marks_external_crates() {
             Resolution::Resolved("src/beta/mod.rs".to_owned()),
             Resolution::Resolved("src/beta/child.rs".to_owned()),
             Resolution::Resolved("src/alpha.rs".to_owned()),
-            Resolution::External,
-            Resolution::External,
+            Resolution::Builtin,
+            Resolution::External(String::new()),
         ]
     );
 }
