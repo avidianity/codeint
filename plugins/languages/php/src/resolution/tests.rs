@@ -290,19 +290,23 @@ fn single_word_roots_and_joined_pairs_do_not_cross_vendor_hijack() {
 }
 
 #[test]
-fn contracts_and_common_prefer_umbrella_package_and_strip_trailing_hyphens() {
+fn contracts_prefer_umbrella_while_common_prefers_split_packages_and_strips_trailing_hyphens() {
     assert_declared_normalizations(
         &[
             "symfony/contracts",
             "symfony/translation",
             "doctrine/common",
-            "doctrine/util",
+            "doctrine/collections",
             "acme/cache-contracts",
         ],
         &[
             (
                 "Symfony\\Contracts\\Translation\\TranslatorInterface",
                 "symfony/contracts",
+            ),
+            (
+                "Doctrine\\Common\\Collections\\ArrayCollection",
+                "doctrine/collections",
             ),
             ("Doctrine\\Common\\Util\\ClassUtils", "doctrine/common"),
             ("Acme\\Contract\\Cache\\Store", "acme/cache-contracts"),

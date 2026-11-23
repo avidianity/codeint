@@ -321,7 +321,7 @@ fn push_structural_candidates(
         }
     }
     push_joined_candidates(vendor, segments[1], third, out);
-    let prefer_parent = matches!(s1_lower, "contract" | "contracts" | "common");
+    let prefer_parent = matches!(s1_lower, "contract" | "contracts");
     if prefer_parent {
         push_segment_candidates(vendor, segments[1], out);
     }
