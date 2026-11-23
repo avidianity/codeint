@@ -1,5 +1,5 @@
 use codeint_lang_python::{Python, flagged_line_rules};
-use codeint_model::language::{Function, ImportRequest, Resolution};
+use codeint_model::language::{DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 #[test]
@@ -145,7 +145,7 @@ fn python_imports_type_checking_resolution_and_workspaces() {
         resolutions[1],
         Resolution::Resolved("src/demo/utils.py".into())
     );
-    assert_eq!(resolutions[2], Resolution::External(String::new()));
+    assert_eq!(resolutions[2], Resolution::Builtin);
     assert!(matches!(resolutions[3], Resolution::Unresolved(_)));
 
     let packages = Python
@@ -214,4 +214,78 @@ fn python_verbosity_rules() {
         assert!(bad_model.flagged_lines.iter().any(|l| l.rule == rule));
         assert!(!good_model.flagged_lines.iter().any(|l| l.rule == rule));
     }
+}
+
+#[test]
+fn python_stdlib_pep503_external_normalization_and_declared_dependencies() {
+    let client_path = "packages/core/src/acme_core/client.py";
+    let model = Python
+        .lower(
+            &RepoPath::new(client_path).unwrap(),
+            include_str!("fixtures/workspace/packages/core/src/acme_core/client.py"),
+        )
+        .unwrap();
+    let repo: Vec<RepoPath> = [
+        "pyproject.toml",
+        "packages/core/pyproject.toml",
+        "packages/core/src/acme_core/__init__.py",
+        client_path,
+    ]
+    .map(|p| RepoPath::new(p).unwrap())
+    .into();
+    let manifests = vec![
+        Manifest {
+            path: "pyproject.toml".into(),
+            text: include_str!("fixtures/workspace/pyproject.toml").into(),
+        },
+        Manifest {
+            path: "packages/core/pyproject.toml".into(),
+            text: include_str!("fixtures/workspace/packages/core/pyproject.toml").into(),
+        },
+    ];
+    let requests = model
+        .runtime_imports
+        .iter()
+        .map(|spec| ImportRequest {
+            importer: client_path.into(),
+            specifier: spec.clone(),
+        })
+        .collect();
+    let resolutions = Python.resolve_imports(&repo, manifests.clone(), requests);
+    let expected = [
+        ("collections.abc", Resolution::Builtin),
+        ("httpx", Resolution::External("httpx".into())),
+        ("os.path", Resolution::Builtin),
+        (
+            "pydantic_settings.sources",
+            Resolution::External("pydantic-settings".into()),
+        ),
+        ("tomllib", Resolution::Builtin),
+        ("zope.interface", Resolution::External("zope".into())),
+    ];
+    for ((spec, actual), (want_spec, want_res)) in
+        model.runtime_imports.iter().zip(resolutions).zip(expected)
+    {
+        assert_eq!((spec.as_str(), actual), (want_spec, want_res));
+    }
+
+    let deps = Python.declared_dependencies(manifests);
+    let mut declared = Vec::with_capacity(deps.len());
+    for dep in &deps {
+        declared.push((dep.package_root.as_str(), dep.name.as_str(), dep.kind));
+    }
+    assert_eq!(
+        declared,
+        [
+            ("", "pydantic-settings", DepKind::Runtime),
+            ("", "requests", DepKind::Runtime),
+            ("", "pytest", DepKind::Dev),
+            ("", "ruff", DepKind::Dev),
+            ("", "psycopg-pool", DepKind::Optional),
+            ("packages/core", "httpx", DepKind::Runtime),
+            ("packages/core", "zope-interface", DepKind::Runtime),
+            ("packages/core", "mypy", DepKind::Dev),
+            ("packages/core", "orjson", DepKind::Optional),
+        ]
+    );
 }

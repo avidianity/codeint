@@ -17,7 +17,8 @@
 
 ## Imports and Pub resolution
 
-- `src/imports.rs` and `src/resolution.rs` extract `import`, `export`, and `part` URIs (ignoring `part of` back-references to avoid false cycles), resolving relative URIs and `package:<name>/...` URIs through `pubspec.yaml` `name` -> `lib/`, while classifying `dart:*` and third-party `package:*` URIs as `External`.
+- `src/imports.rs` and `src/resolution.rs` extract `import`, `export`, and `part` URIs (ignoring `part of` back-references to avoid false cycles), resolving relative URIs and `package:<name>/...` URIs through `pubspec.yaml` `name` -> `lib/`, classifying `dart:*` URIs as `Builtin`, and classifying third-party `package:<name>/...` URIs as `External(<name>)`.
+- `src/dependencies.rs` parses `pubspec.yaml` `dependencies` (`Runtime`) and `dev_dependencies` (`Dev`) per Workspace package while excluding local workspace package names.
 
 ## Reference ranges
 

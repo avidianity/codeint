@@ -1,5 +1,5 @@
 use codeint_lang_php::{Php, flagged_line_rules};
-use codeint_model::language::{Function, ImportRequest, Resolution};
+use codeint_model::language::{DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 fn lower_php(path: &str, text: &str) -> Result<codeint_model::FileModel, LowerError> {
@@ -201,6 +201,118 @@ fn php_resolver_handles_psr4_and_static_require() {
         Resolution::Resolved("app/Models/Order.php".to_owned())
     );
     assert_eq!(out[1], Resolution::Resolved("app/helpers.php".to_owned()));
-    assert_eq!(out[2], Resolution::External(String::new()));
+    assert_eq!(out[2], Resolution::External("illuminate/support".into()));
     assert!(matches!(out[3], Resolution::Unresolved(_)));
+}
+
+#[test]
+fn php_builtins_composer_normalization_and_declared_dependencies() {
+    let manifests: Vec<Manifest> = [
+        (
+            "composer.json",
+            include_str!("fixtures/workspace/composer.json"),
+        ),
+        (
+            "packages/auth/composer.json",
+            include_str!("fixtures/workspace/packages/auth/composer.json"),
+        ),
+        (
+            "packages/billing/composer.json",
+            include_str!("fixtures/workspace/packages/billing/composer.json"),
+        ),
+        (
+            "vendor/ignored/pkg/composer.json",
+            r#"{"name":"ignored/pkg","require":{"foo/bar":"^1.0"}}"#,
+        ),
+    ]
+    .into_iter()
+    .map(|(path, text)| Manifest {
+        path: path.to_owned(),
+        text: text.to_owned(),
+    })
+    .collect();
+    let importer = "packages/billing/src/InvoiceService.php";
+    let lowered = lower_php(
+        importer,
+        include_str!("fixtures/workspace/packages/billing/src/InvoiceService.php"),
+    )
+    .unwrap();
+    let repo: Vec<RepoPath> = [
+        "composer.json",
+        "packages/auth/composer.json",
+        "packages/auth/src/Token.php",
+        "packages/billing/composer.json",
+        importer,
+    ]
+    .into_iter()
+    .map(|p| RepoPath::new(p).unwrap())
+    .collect();
+    let resolved = Php.resolve_imports(
+        &repo,
+        manifests.clone(),
+        lowered
+            .runtime_imports
+            .iter()
+            .map(|specifier| ImportRequest {
+                importer: importer.to_owned(),
+                specifier: specifier.clone(),
+            })
+            .collect(),
+    );
+    let by_spec: std::collections::BTreeMap<&str, Resolution> = lowered
+        .runtime_imports
+        .iter()
+        .map(String::as_str)
+        .zip(resolved)
+        .collect();
+    assert_eq!(
+        by_spec["use:Acme\\Auth\\Token"],
+        Resolution::Resolved("packages/auth/src/Token.php".into())
+    );
+    assert_eq!(by_spec["use:DateTimeImmutable"], Resolution::Builtin);
+    assert_eq!(by_spec["use:Random\\Randomizer"], Resolution::Builtin);
+    assert_eq!(by_spec["use:RuntimeException"], Resolution::Builtin);
+    assert_eq!(
+        by_spec["use:Acme\\HttpClient\\Client"],
+        Resolution::External("acme/http-client".into())
+    );
+    assert_eq!(
+        by_spec["use:Illuminate\\Support\\Collection"],
+        Resolution::External("illuminate/support".into())
+    );
+    assert_eq!(
+        by_spec["use:Monolog\\Logger"],
+        Resolution::External("monolog/monolog".into())
+    );
+    assert_eq!(
+        by_spec["use:Symfony\\Component\\HttpFoundation\\Request"],
+        Resolution::External("symfony/http-foundation".into())
+    );
+    assert_eq!(
+        by_spec["use:Unlisted\\CustomPkg\\Helper"],
+        Resolution::External("unlisted/custom-pkg".into())
+    );
+
+    let deps = Php.declared_dependencies(manifests);
+    let rows: Vec<(&str, &str, DepKind)> = deps
+        .iter()
+        .map(|d| (d.package_root.as_str(), d.name.as_str(), d.kind))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("", "acme/http-client", DepKind::Runtime),
+            ("", "illuminate/support", DepKind::Runtime),
+            ("", "monolog/monolog", DepKind::Runtime),
+            ("", "phpunit/phpunit", DepKind::Dev),
+            ("", "symfony/cache", DepKind::Optional),
+            ("packages/auth", "psr/log", DepKind::Runtime),
+            (
+                "packages/billing",
+                "symfony/http-foundation",
+                DepKind::Runtime
+            ),
+            ("packages/billing", "phpstan/phpstan", DepKind::Dev),
+        ]
+    );
 }

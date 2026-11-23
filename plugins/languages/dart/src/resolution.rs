@@ -4,7 +4,11 @@ use codeint_model::language::{ImportRequest, Manifest, Resolution};
 use codeint_model::scan::{find_manifests, resolve_relative_file};
 use serde::Deserialize;
 
+use crate::dependencies::normalize_pub_name;
 use crate::workspaces::PUBSPEC_MANIFEST;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Deserialize)]
 struct PackageHeader {
@@ -36,7 +40,7 @@ fn collect_package_roots(manifests: &[Manifest]) -> HashMap<String, String> {
         else {
             continue;
         };
-        let Some(name) = header.name.map(|n| n.trim().to_owned()) else {
+        let Some(name) = header.name.map(|n| normalize_pub_name(&n)) else {
             continue;
         };
         if name.is_empty() {
@@ -60,7 +64,10 @@ fn resolve_one(
     if let Some(pkg_rest) = spec.strip_prefix("package:") {
         return resolve_package_uri(files, packages, &request.importer, pkg_rest);
     }
-    resolve_relative_file(files, &request.importer, spec, false)
+    match resolve_relative_file(files, &request.importer, spec, false) {
+        Resolution::External(pkg) if pkg.is_empty() => Resolution::Builtin,
+        other => other,
+    }
 }
 
 fn resolve_package_uri(
@@ -69,11 +76,21 @@ fn resolve_package_uri(
     importer: &str,
     pkg_rest: &str,
 ) -> Resolution {
-    let Some((pkg_name, rel_path)) = pkg_rest.split_once('/') else {
-        return Resolution::External(String::new());
+    let (raw_pkg, rel_opt) = match pkg_rest.split_once('/') {
+        Some((pkg, rel)) => (pkg, Some(rel)),
+        None => (pkg_rest, None),
     };
-    let Some(pkg_dir) = packages.get(pkg_name) else {
-        return Resolution::External(String::new());
+    let pkg_name = normalize_pub_name(raw_pkg);
+    if pkg_name.is_empty() {
+        return Resolution::Unresolved(format!("malformed Dart package URI package:{pkg_rest:?}"));
+    }
+    let Some(pkg_dir) = packages.get(&pkg_name) else {
+        return Resolution::External(pkg_name);
+    };
+    let Some(rel_path) = rel_opt.filter(|rel| !rel.is_empty()) else {
+        return Resolution::Unresolved(format!(
+            "no file of the repository matches package:{pkg_rest:?}"
+        ));
     };
     let candidate = if pkg_dir.is_empty() {
         format!("lib/{rel_path}")
@@ -82,7 +99,7 @@ fn resolve_package_uri(
     };
     if files.contains(&candidate) {
         if candidate == importer {
-            Resolution::External(String::new())
+            Resolution::Builtin
         } else {
             Resolution::Resolved(candidate)
         }

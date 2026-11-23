@@ -3,6 +3,12 @@ use std::collections::{HashMap, HashSet};
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
 use codeint_model::scan::find_manifests;
 
+use crate::dependencies::normalize_pep503;
+use crate::stdlib::is_stdlib_module;
+
+#[cfg(test)]
+mod tests;
+
 pub(crate) fn find_pyprojects(repository_paths: &[String]) -> Vec<String> {
     find_manifests(repository_paths, "pyproject.toml")
 }
@@ -74,11 +80,18 @@ fn resolve_one(
     }
     if let Some(target) = module_map.get(specifier) {
         if target == importer {
-            return Resolution::External(String::new());
+            return Resolution::Builtin;
         }
         return Resolution::Resolved(target.clone());
     }
-    Resolution::External(String::new())
+    let top = specifier.split('.').next().unwrap_or("");
+    if top.is_empty() {
+        return Resolution::Unresolved(format!("empty Python import specifier {specifier:?}"));
+    }
+    if is_stdlib_module(top) {
+        return Resolution::Builtin;
+    }
+    Resolution::External(normalize_pep503(top))
 }
 
 fn resolve_relative(py_files: &HashSet<String>, importer: &str, specifier: &str) -> Resolution {
@@ -107,7 +120,7 @@ fn resolve_relative(py_files: &HashSet<String>, importer: &str, specifier: &str)
     for candidate in candidates {
         if py_files.contains(&candidate) {
             if candidate == importer {
-                return Resolution::External(String::new());
+                return Resolution::Builtin;
             }
             return Resolution::Resolved(candidate);
         }

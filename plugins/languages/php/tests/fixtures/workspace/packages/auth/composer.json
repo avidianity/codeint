@@ -1,0 +1,11 @@
+{
+  "name": "acme/auth",
+  "autoload": {
+    "psr-4": {
+      "Acme\\Auth\\": "src/"
+    }
+  },
+  "require": {
+    "psr/log": "^3.0"
+  }
+}

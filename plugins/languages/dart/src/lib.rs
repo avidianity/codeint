@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod dependencies;
 mod functions;
 mod imports;
 mod lexer;
@@ -71,8 +72,8 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
 }
 
 impl Guest for Dart {
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        dependencies::extract_declared(&manifests)
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {

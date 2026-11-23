@@ -1,0 +1,1 @@
+int coreValue() => 42;

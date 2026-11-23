@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
+mod dependencies;
 mod functions;
 mod imports;
 mod lexer;
 mod resolution;
 mod rules;
 mod source_set;
+mod stdlib;
 mod workspaces;
 
 use codeint_model::language::{
@@ -52,8 +54,8 @@ impl Guest for Python {
         resolution::resolve_all(&repository_paths, &manifests, &requests)
     }
 
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        dependencies::extract_declared(&manifests)
     }
 
     fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {

@@ -1,0 +1,9 @@
+name: acme_root
+workspace:
+  - packages/core
+  - packages/app
+dependencies:
+  http: ^1.2.0
+  intl:
+dev_dependencies:
+  lints: ^5.0.0

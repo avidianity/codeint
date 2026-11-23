@@ -102,7 +102,7 @@ fn dart_directives_and_resolution() {
     assert_eq!(res[0], Resolution::Resolved("lib/u.dart".into()));
     assert_eq!(res[1], Resolution::Resolved("lib/h.dart".into()));
     assert_eq!(res[2], Resolution::Builtin);
-    assert_eq!(res[3], Resolution::External(String::new()));
+    assert_eq!(res[3], Resolution::External("fl".into()));
     assert!(matches!(res[4], Resolution::Unresolved(_)));
 }
 
@@ -160,5 +160,75 @@ fn dart_verbosity_rules() {
         "trailing-bare-return",
         "void f(){w();return;}",
         "void f(bool x){if(x){return;}w();}",
+    );
+}
+
+#[test]
+fn dart_builtins_package_normalization_and_declared_dependencies() {
+    let pubspecs = vec![
+        Manifest {
+            path: "pubspec.yaml".into(),
+            text: include_str!("fixtures/workspace/pubspec.yaml").into(),
+        },
+        Manifest {
+            path: "packages/core/pubspec.yaml".into(),
+            text: include_str!("fixtures/workspace/packages/core/pubspec.yaml").into(),
+        },
+        Manifest {
+            path: "packages/app/pubspec.yaml".into(),
+            text: include_str!("fixtures/workspace/packages/app/pubspec.yaml").into(),
+        },
+    ];
+    let entry = "packages/app/lib/main.dart";
+    let model = lower(
+        entry,
+        include_str!("fixtures/workspace/packages/app/lib/main.dart"),
+    )
+    .unwrap();
+    let files = [
+        "pubspec.yaml",
+        "packages/core/pubspec.yaml",
+        "packages/core/lib/core.dart",
+        "packages/app/pubspec.yaml",
+        entry,
+    ]
+    .map(|p| RepoPath::new(p).unwrap());
+    let mut requests = Vec::new();
+    for specifier in &model.runtime_imports {
+        requests.push(ImportRequest {
+            importer: entry.to_owned(),
+            specifier: specifier.clone(),
+        });
+    }
+    let resolutions = Dart.resolve_imports(&files, pubspecs.clone(), requests);
+    assert_eq!(
+        resolutions,
+        [
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::Resolved("packages/core/lib/core.dart".into()),
+            Resolution::External("flutter".into()),
+            Resolution::External("path".into()),
+            Resolution::External("unlisted_pkg".into()),
+        ]
+    );
+
+    let deps = Dart.declared_dependencies(pubspecs);
+    let rendered: Vec<String> = deps
+        .iter()
+        .map(|d| format!("{}|{}|{:?}", d.package_root, d.name, d.kind))
+        .collect();
+    assert_eq!(
+        rendered,
+        [
+            "|http|DepKind::Runtime",
+            "|intl|DepKind::Runtime",
+            "|lints|DepKind::Dev",
+            "packages/app|flutter|DepKind::Runtime",
+            "packages/app|path|DepKind::Runtime",
+            "packages/app|flutter_test|DepKind::Dev",
+            "packages/app|test|DepKind::Dev",
+            "packages/core|collection|DepKind::Runtime",
+        ]
     );
 }
