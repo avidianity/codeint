@@ -75,12 +75,16 @@ fn php_decision_points_cover_control_flow_match_and_arrow_functions() {
                 end_line: 16,
                 decision_points: 8,
                 source_lines: 15,
+                name: None,
+                cognitive_complexity: 0,
             },
             Function {
                 line: 10,
                 end_line: 10,
                 decision_points: 1,
                 source_lines: 1,
+                name: None,
+                cognitive_complexity: 0,
             },
         ]
     );
@@ -197,6 +201,6 @@ fn php_resolver_handles_psr4_and_static_require() {
         Resolution::Resolved("app/Models/Order.php".to_owned())
     );
     assert_eq!(out[1], Resolution::Resolved("app/helpers.php".to_owned()));
-    assert_eq!(out[2], Resolution::External);
+    assert_eq!(out[2], Resolution::External(String::new()));
     assert!(matches!(out[3], Resolution::Unresolved(_)));
 }

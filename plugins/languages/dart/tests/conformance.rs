@@ -30,6 +30,17 @@ fn dart_contract_basics() {
     );
 }
 
+fn func(line: u32, end_line: u32, decision_points: u32, source_lines: u32) -> Function {
+    Function {
+        line,
+        end_line,
+        decision_points,
+        source_lines,
+        name: None,
+        cognitive_complexity: 0,
+    }
+}
+
 #[test]
 fn dart_functions_and_decisions() {
     let model = lower(
@@ -43,23 +54,7 @@ fn dart_functions_and_decisions() {
          }\n",
     )
     .unwrap();
-    assert_eq!(
-        model.functions,
-        [
-            Function {
-                line: 1,
-                end_line: 7,
-                decision_points: 6,
-                source_lines: 7
-            },
-            Function {
-                line: 5,
-                end_line: 5,
-                decision_points: 1,
-                source_lines: 1
-            },
-        ]
-    );
+    assert_eq!(model.functions, [func(1, 7, 6, 7), func(5, 5, 1, 1)]);
 }
 
 #[test]
@@ -106,8 +101,8 @@ fn dart_directives_and_resolution() {
     );
     assert_eq!(res[0], Resolution::Resolved("lib/u.dart".into()));
     assert_eq!(res[1], Resolution::Resolved("lib/h.dart".into()));
-    assert_eq!(res[2], Resolution::External);
-    assert_eq!(res[3], Resolution::External);
+    assert_eq!(res[2], Resolution::Builtin);
+    assert_eq!(res[3], Resolution::External(String::new()));
     assert!(matches!(res[4], Resolution::Unresolved(_)));
 }
 

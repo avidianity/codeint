@@ -4,8 +4,8 @@
 
 ```rust
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
-    Token, TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    SourceSet, Token, TokenKind, WorkspaceError,
 };
 use codeint_model::token_text_hash;
 
@@ -60,7 +60,18 @@ impl Guest for Plain {
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        requests.iter().map(|_| Resolution::External).collect()
+        requests
+            .iter()
+            .map(|request| Resolution::External(request.specifier.clone()))
+            .collect()
+    }
+
+    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Vec::new()
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+        Vec::new()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
@@ -74,7 +85,7 @@ impl Guest for Plain {
 }
 ```
 
-- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.1.0`.
+- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.2.0`.
 - `codeint_model::language` holds the Rust types that wit-bindgen generates from that file.
   Never write a second Rust copy of a WIT type.
 - A built-in Language plugin implements the generated `Guest` trait, so it compiles against the same interface as an external WebAssembly Plugin.
@@ -121,7 +132,9 @@ impl Guest for Plain {
   Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
   It is the one way a Language plugin asks the host for files, so the host reads each file once.
 - `resolve_imports` receives every file path of the repository snapshot and each file that `manifest_paths` chose as a `Manifest` with its text, because a Plugin cannot read the file system.
-  Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` for a package or built-in module, or `Unresolved` with the reason.
+  Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` with the canonical third-party package name, `Builtin` for a standard-library or runtime built-in module, or `Unresolved` with the reason.
+- `declared_dependencies` extracts external dependencies declared in `manifests`, each with its `package-root`, normalized `name`, and `kind` (`Runtime`, `Dev`, or `Optional`).
+- `entry_points` discovers standard entry-point source files from `repository_paths` and `manifests`, naming only paths from `repository_paths`.
 
 ## Lower files in the core
 

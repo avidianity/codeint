@@ -1,6 +1,6 @@
 /// The Plugin interface of codeint.
 /// A change that breaks a Plugin built against this version needs a new version.
-package codeint:plugin@0.1.0;
+package codeint:plugin@0.2.0;
 
 /// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
 interface language {
@@ -15,6 +15,10 @@ interface language {
         decision-points: u32,
         /// The source lines of the function, not counting lines of nested functions.
         source-lines: u32,
+        /// The optional name of the function or method; `none` for anonymous lambdas and closures.
+        name: option<string>,
+        /// The nesting-weighted cognitive complexity of the function, not counting nested functions.
+        cognitive-complexity: u32,
     }
 
     /// What a token is to clone detection, by the rules of the Language plugin.
@@ -94,10 +98,32 @@ interface language {
     variant resolution {
         /// The import names this file of the repository, relative to the root, with forward slashes.
         resolved(string),
-        /// The import names a module outside the repository, such as a package or a built-in module.
-        external,
+        /// The import names a third-party package outside the repository; the payload is the canonical package name.
+        external(string),
+        /// The import names a standard-library or runtime built-in module.
+        builtin,
         /// The import should name a file of the repository, but none matches; the payload says why.
         unresolved(string),
+    }
+
+    /// How a package manifest declares an external dependency.
+    enum dep-kind {
+        /// A dependency required at runtime in production.
+        runtime,
+        /// A dependency used only during development or testing.
+        dev,
+        /// An optional or peer dependency.
+        optional,
+    }
+
+    /// One external dependency declared in a package manifest.
+    record declared-dep {
+        /// The package root folder relative to the repository root, with forward slashes, or empty for the repository root.
+        package-root: string,
+        /// The normalized package name as declared by the manifest.
+        name: string,
+        /// Whether the dependency is declared as runtime, dev, or optional.
+        kind: dep-kind,
     }
 
     /// Why a Language plugin cannot lower a file.
@@ -136,7 +162,7 @@ interface language {
     /// `text` is the whole file.
     lower: func(path: string, text: string) -> result<file-model, lower-error>;
 
-    /// Chooses the files of one repository snapshot that the host reads once and passes to `workspace-packages` and `resolve-imports`, because a Plugin cannot read files.
+    /// Chooses the files of one repository snapshot that the host reads once and passes to `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points`, because a Plugin cannot read files.
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
     /// The result names only paths from `repository-paths`, such as each `package.json` and `tsconfig.json` file.
     manifest-paths: func(repository-paths: list<string>) -> list<string>;
@@ -152,6 +178,17 @@ interface language {
     /// `manifests` holds each file that `manifest-paths` chose, with its text.
     /// The result holds one resolution per request, in request order.
     resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>) -> list<resolution>;
+
+    /// Extracts external dependencies declared in the selected manifests.
+    /// `manifests` holds each file that `manifest-paths` chose, with its text.
+    declared-dependencies: func(manifests: list<manifest>) -> list<declared-dep>;
+
+    /// Discovers standard entry-point source files from the repository paths and selected manifests.
+    /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
+    /// `manifests` holds each file that `manifest-paths` chose, with its text.
+    /// Every returned path must come from `repository-paths`.
+    entry-points: func(repository-paths: list<string>, manifests: list<manifest>) -> list<string>;
+
     /// The published typical value of one Metric for codebases in the language of the Language plugin.
     record reference-range {
         /// The Metric, by its key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.

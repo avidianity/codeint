@@ -1,5 +1,7 @@
 mod packages;
 mod snapshot;
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashSet;
 
@@ -76,26 +78,35 @@ impl ProjectResolver {
 
     pub(crate) fn resolve(&self, request: &ImportRequest) -> Resolution {
         let specifier = request.specifier.as_str();
-        if specifier.starts_with('/') {
-            return Resolution::Unresolved(format!(
-                "{specifier:?} is an absolute path, which depends on the machine"
-            ));
-        }
-        if is_relative(specifier) && leaves_the_repository(&request.importer, specifier) {
-            return Resolution::Unresolved(format!("{specifier:?} leads outside the repository"));
-        }
-        if is_bun_builtin(specifier) {
-            return Resolution::External;
+        if let Some(early) = precheck_specifier(&request.importer, specifier) {
+            return early;
         }
         let importer = snapshot::absolute(&request.importer);
-        let resolved = match self.resolver.resolve_file(&importer, specifier) {
+        let resolved = self.resolve_with_fallback(&importer, specifier);
+        self.classify_resolution(&importer, specifier, resolved)
+    }
+
+    fn resolve_with_fallback(
+        &self,
+        importer: &std::path::Path,
+        specifier: &str,
+    ) -> Result<oxc_resolver::Resolution, ResolveError> {
+        match self.resolver.resolve_file(importer, specifier) {
             Err(error) if is_project_configuration_error(&error) => {
                 importer.parent().map_or(Err(error), |folder| {
                     self.resolver.resolve(folder, specifier)
                 })
             }
             result => result,
-        };
+        }
+    }
+
+    fn classify_resolution(
+        &self,
+        importer: &std::path::Path,
+        specifier: &str,
+        resolved: Result<oxc_resolver::Resolution, ResolveError>,
+    ) -> Resolution {
         match resolved {
             Ok(resolution) => snapshot::repository_path(resolution.path()).map_or_else(
                 || {
@@ -106,8 +117,10 @@ impl ProjectResolver {
                 },
                 Resolution::Resolved,
             ),
-            Err(ResolveError::Builtin { .. }) => Resolution::External,
-            Err(_) if self.names_an_outside_module(&importer, specifier) => Resolution::External,
+            Err(ResolveError::Builtin { .. }) => Resolution::Builtin,
+            Err(_) if self.names_an_outside_module(importer, specifier) => {
+                Resolution::External(package_name(specifier).to_owned())
+            }
             Err(ResolveError::NotFound(_)) => {
                 Resolution::Unresolved(format!("no file of the repository matches {specifier:?}"))
             }
@@ -119,7 +132,8 @@ impl ProjectResolver {
         if is_relative(specifier) || specifier.starts_with('#') {
             return false;
         }
-        if self.package_names.contains(package_name(specifier)) {
+        let name = package_name(specifier);
+        if name.is_empty() || self.package_names.contains(name) {
             return false;
         }
         let matches_path_alias = self
@@ -131,6 +145,25 @@ impl ProjectResolver {
             .is_some_and(|paths| paths.keys().any(|key| alias_matches(key, specifier)));
         !matches_path_alias
     }
+}
+
+fn precheck_specifier(importer: &str, specifier: &str) -> Option<Resolution> {
+    if specifier.is_empty() {
+        return Some(Resolution::Unresolved(
+            "import specifier is empty".to_owned(),
+        ));
+    }
+    if specifier.starts_with('/') {
+        return Some(Resolution::Unresolved(format!(
+            "{specifier:?} is an absolute path, which depends on the machine"
+        )));
+    }
+    if is_relative(specifier) && leaves_the_repository(importer, specifier) {
+        return Some(Resolution::Unresolved(format!(
+            "{specifier:?} leads outside the repository"
+        )));
+    }
+    is_bun_builtin(specifier).then_some(Resolution::Builtin)
 }
 
 fn is_project_configuration_error(error: &ResolveError) -> bool {
@@ -165,12 +198,15 @@ fn leaves_the_repository(importer: &str, specifier: &str) -> bool {
 }
 
 fn package_name(specifier: &str) -> &str {
-    let segments = if specifier.starts_with('@') { 2 } else { 1 };
-    let end = specifier
+    let clean = specifier
+        .split_once(['?', '#'])
+        .map_or(specifier, |(head, _)| head);
+    let segments = if clean.starts_with('@') { 2 } else { 1 };
+    let end = clean
         .match_indices('/')
         .nth(segments - 1)
-        .map_or(specifier.len(), |(index, _)| index);
-    &specifier[..end]
+        .map_or(clean.len(), |(index, _)| index);
+    &clean[..end]
 }
 
 fn alias_matches(key: &str, specifier: &str) -> bool {

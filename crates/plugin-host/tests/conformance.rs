@@ -203,7 +203,7 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             specifier: (*specifier).to_owned(),
         })
         .collect();
-    let resolutions = plugin.resolve_imports(&repo_paths, valid_manifest, requests);
+    let resolutions = plugin.resolve_imports(&repo_paths, valid_manifest.clone(), requests);
     assert_eq!(
         resolutions.len(),
         fixture.import_requests.len(),
@@ -214,16 +214,32 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         Resolution::Resolved(fixture.expected_resolved_target.to_owned()),
         "{label}: first import resolves"
     );
-    assert_eq!(
-        resolutions[1],
-        Resolution::External,
-        "{label}: second import is external"
+    assert!(
+        matches!(
+            resolutions[1],
+            Resolution::External(_) | Resolution::Builtin
+        ),
+        "{label}: second import is external or builtin, got {:?}",
+        resolutions[1]
     );
     assert!(
         matches!(resolutions[2], Resolution::Unresolved(_)),
         "{label}: third import is unresolved, got {:?}",
         resolutions[2]
     );
+
+    let _deps = plugin
+        .declared_dependencies(valid_manifest.clone())
+        .unwrap_or_else(|error| panic!("{label}: declared_dependencies failed: {error}"));
+    let entry_points = plugin
+        .entry_points(&repo_paths, valid_manifest)
+        .unwrap_or_else(|error| panic!("{label}: entry_points failed: {error}"));
+    for entry in &entry_points {
+        assert!(
+            fixture.repository_paths.contains(&entry.as_str()),
+            "{label}: entry_points returned {entry:?} outside repository_paths"
+        );
+    }
 
     let ranges = plugin
         .reference_ranges()

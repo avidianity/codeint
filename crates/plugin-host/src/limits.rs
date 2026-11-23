@@ -2,10 +2,16 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+#[cfg(test)]
+mod tests;
+
 use codeint_config::PluginLimits;
 use wasmtime::{Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder, Trap};
 
+use crate::PluginHostError;
+
 const EPOCH_TICK_MS: u64 = 10;
+const LIFTED_BYTES_PER_ELEMENT: usize = 32;
 
 pub(crate) struct EpochTicker {
     stop: Arc<(Mutex<bool>, Condvar)>,
@@ -140,6 +146,7 @@ pub(crate) enum LimitTrap {
 pub(crate) fn new_limited_store(engine: &Engine, limits: PluginLimits) -> Store<PluginStoreState> {
     let mut store = Store::new(engine, PluginStoreState::new(limits));
     store.limiter(|state| state);
+    store.set_hostcall_fuel(limits.memory_bytes());
     store.epoch_deadline_trap();
     arm_call_deadline(&mut store, limits);
     store
@@ -152,11 +159,30 @@ pub(crate) fn arm_call_deadline(store: &mut Store<PluginStoreState>, limits: Plu
 }
 
 pub(crate) fn classify_trap(store: &Store<PluginStoreState>, error: &wasmtime::Error) -> LimitTrap {
-    if store.data().memory_limit_hit() {
+    if store.data().memory_limit_hit()
+        || error.downcast_ref::<Trap>() == Some(&Trap::HostcallFuelExhausted)
+    {
         LimitTrap::Memory
     } else if error.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
         LimitTrap::Time
     } else {
         LimitTrap::Other
     }
+}
+
+pub(crate) fn enforce_lifted_budget(
+    name: &str,
+    limits: PluginLimits,
+    elements: usize,
+    bytes: usize,
+) -> Result<(), PluginHostError> {
+    let max_bytes = limits.memory_bytes();
+    let max_elements = (max_bytes / LIFTED_BYTES_PER_ELEMENT).max(1);
+    if elements > max_elements || bytes > max_bytes {
+        return Err(PluginHostError::MemoryLimitExceeded {
+            name: name.to_owned(),
+            memory_mb: limits.memory_mb,
+        });
+    }
+    Ok(())
 }

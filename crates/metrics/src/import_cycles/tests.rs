@@ -107,7 +107,7 @@ fn imports_of_files_that_are_not_modules_and_unresolved_imports_add_no_edge() {
     model.runtime_imports.push(RuntimeImport {
         importer: path("b.ts"),
         specifier: "a".to_owned(),
-        resolution: ImportResolution::External,
+        resolution: ImportResolution::External("a".to_owned()),
     });
 
     let cycles = ImportCycles::measure(&model);
@@ -161,7 +161,7 @@ fn unresolved_imports_are_listed_by_importer_in_source_order_and_others_are_not(
         RuntimeImport {
             importer: path("a.ts"),
             specifier: "lodash".to_owned(),
-            resolution: ImportResolution::External,
+            resolution: ImportResolution::External("lodash".to_owned()),
         },
         unresolved("b.ts", "./first"),
     ]);

@@ -31,7 +31,7 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
     WorkspaceError,
 };
 
@@ -62,6 +62,14 @@ impl Guest for ClockReaderPlugin {
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
+        Vec::new()
+    }
+
+    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Vec::new()
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
         Vec::new()
     }
 

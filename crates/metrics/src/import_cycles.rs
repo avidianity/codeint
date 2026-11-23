@@ -162,7 +162,9 @@ fn unresolved_imports(model: &CodeModel) -> Vec<UnresolvedImport> {
                 specifier: runtime_import.specifier.clone(),
                 reason: reason.clone(),
             }),
-            ImportResolution::Resolved(_) | ImportResolution::External => None,
+            ImportResolution::Resolved(_)
+            | ImportResolution::External(_)
+            | ImportResolution::Builtin => None,
         })
         .collect();
     unresolved.sort_by(|left, right| left.importer.cmp(&right.importer));

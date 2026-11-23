@@ -117,6 +117,8 @@ impl FunctionCollector<'_> {
                 self.code_lines
                     .count_between(first_line_index, last_line_index),
             ),
+            name: None,
+            cognitive_complexity: 0,
         });
     }
 
