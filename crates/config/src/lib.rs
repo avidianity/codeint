@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod agent_home;
 mod boundaries;
 mod calendar_day;
 mod cli_schema;
@@ -77,6 +78,8 @@ pub enum ConfigError {
         folder.display()
     )]
     MissingOutputFolder { path: PathBuf, folder: PathBuf },
+    #[error("cannot determine the home folder for agent configuration")]
+    MissingAgentHome,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,10 +158,63 @@ pub enum ConfigFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum AgentFormat {
+    Text,
+    Toon,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum DoctorFormat {
     Text,
     Json,
     Toon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum AgentClient {
+    ClaudeCode,
+    Cursor,
+    Codex,
+}
+
+impl AgentClient {
+    pub const ALL: [AgentClient; 3] = [
+        AgentClient::ClaudeCode,
+        AgentClient::Cursor,
+        AgentClient::Codex,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentClient::ClaudeCode => "claude-code",
+            AgentClient::Cursor => "cursor",
+            AgentClient::Codex => "codex",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            AgentClient::ClaudeCode => "Claude Code",
+            AgentClient::Cursor => "Cursor",
+            AgentClient::Codex => "Codex",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentCommand {
+    Status {
+        config_root: PathBuf,
+        client: Option<AgentClient>,
+        format: AgentFormat,
+    },
+    Install {
+        config_root: PathBuf,
+        client: Option<AgentClient>,
+        dry_run: bool,
+        format: AgentFormat,
+    },
 }
 
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
@@ -233,6 +289,7 @@ pub enum Command {
         format: DoctorFormat,
         plugin_host: PluginHostConfig,
     },
+    Agent(AgentCommand),
 }
 
 #[derive(Debug)]
@@ -446,6 +503,62 @@ enum CommandArguments {
         )]
         format: DoctorFormat,
     },
+    #[command(about = "Inspect and configure codeint MCP integration for local coding agents")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentSubcommandArguments,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentSubcommandArguments {
+    #[command(
+        about = "Report detected local coding agents and whether codeint mcp is registered for each"
+    )]
+    Status {
+        #[arg(long, value_enum, help = "Inspect only this coding agent")]
+        client: Option<AgentClient>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = AgentFormat::Text,
+            help = "The format of the output"
+        )]
+        format: AgentFormat,
+        #[arg(
+            long,
+            value_name = "DIR",
+            help = "Override the home folder containing agent configuration files"
+        )]
+        config_root: Option<PathBuf>,
+    },
+    #[command(about = "Register codeint mcp in supported local coding agent configuration files")]
+    Install {
+        #[arg(
+            long,
+            help = "Preview exact configuration changes without modifying any files"
+        )]
+        dry_run: bool,
+        #[arg(
+            long,
+            value_enum,
+            help = "Configure only this coding agent instead of all detected ones"
+        )]
+        client: Option<AgentClient>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = AgentFormat::Text,
+            help = "The format of the output"
+        )]
+        format: AgentFormat,
+        #[arg(
+            long,
+            value_name = "DIR",
+            help = "Override the home folder containing agent configuration files"
+        )]
+        config_root: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -538,6 +651,7 @@ fn build_command(
             format,
             plugin_host: plugin_host_config_of_this_process(current_folder),
         }),
+        CommandArguments::Agent { command } => build_agent_command(current_folder, command),
     }
 }
 
@@ -581,6 +695,42 @@ fn build_config_command(
         format,
         overrides,
     })
+}
+
+fn build_agent_command(
+    current_folder: &Path,
+    arguments: AgentSubcommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
+        AgentSubcommandArguments::Status {
+            client,
+            format,
+            config_root,
+        } => Ok(Command::Agent(AgentCommand::Status {
+            config_root: agent_home_of_this_process(current_folder, config_root.as_deref())?,
+            client,
+            format,
+        })),
+        AgentSubcommandArguments::Install {
+            dry_run,
+            client,
+            format,
+            config_root,
+        } => Ok(Command::Agent(AgentCommand::Install {
+            config_root: agent_home_of_this_process(current_folder, config_root.as_deref())?,
+            client,
+            dry_run,
+            format,
+        })),
+    }
+}
+
+fn agent_home_of_this_process(
+    current_folder: &Path,
+    explicit: Option<&Path>,
+) -> Result<PathBuf, ConfigError> {
+    agent_home::resolve_agent_home(current_folder, explicit, cfg!(windows), std::env::var_os)
+        .ok_or(ConfigError::MissingAgentHome)
 }
 fn build_trend_command(
     current_folder: &Path,

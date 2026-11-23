@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod agent;
 mod check;
 mod commit_measurement;
 mod config;
@@ -20,18 +21,19 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    Command, ConfigError, ReportDestination, ReportInput, ReportRenderFormat, cli_schema,
-    read_invocation,
+    AgentCommand, Command, ConfigError, ReportDestination, ReportInput, ReportRenderFormat,
+    cli_schema, read_invocation,
 };
 use codeint_git::ResultCache;
 use codeint_report::{ExitCodeSchema, ReportError};
 
 pub use codeint_config::{
-    BudgetOverride, CalendarDay, ConfigFormat, ConfigOverrides, DoctorFormat, FindingsShown,
-    GuardFormat, PluginHostConfig, ReportFormat, SchemaFormat, SourceSetOverride, TrendFormat,
-    TrendRange,
+    AgentClient, AgentFormat, BudgetOverride, CalendarDay, ConfigFormat, ConfigOverrides,
+    DoctorFormat, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, SchemaFormat,
+    SourceSetOverride, TrendFormat, TrendRange,
 };
 pub use codeint_report::{
+    AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
     ConfigReport, DiffReport, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary, GuardReport,
     Report, SavedReport, SchemaReport, TrendReport,
 };
@@ -219,6 +221,23 @@ pub fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
     doctor::doctor(folder, plugin_host)
 }
 
+pub fn agent_status(
+    config_root: &Path,
+    client: Option<AgentClient>,
+) -> Result<AgentStatusReport, CodeintError> {
+    agent::status(config_root, client)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Agent(err)))
+}
+
+pub fn agent_install(
+    config_root: &Path,
+    client: Option<AgentClient>,
+    dry_run: bool,
+) -> Result<AgentInstallReport, CodeintError> {
+    agent::install(config_root, client, dry_run)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Agent(err)))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
@@ -229,6 +248,8 @@ enum CliError {
     Check(#[from] check::CheckError),
     #[error(transparent)]
     Guard(#[from] guard::GuardError),
+    #[error(transparent)]
+    Agent(#[from] agent::AgentError),
     #[error(transparent)]
     Init(#[from] init::InitError),
     #[error(transparent)]
@@ -379,6 +400,31 @@ fn run() -> Result<Outcome, CliError> {
             format,
             plugin_host,
         } => run_doctor(&folder, format, &plugin_host),
+        Command::Agent(command) => run_agent(command),
+    }
+}
+
+fn run_agent(command: AgentCommand) -> Result<Outcome, CliError> {
+    match command {
+        AgentCommand::Status {
+            config_root,
+            client,
+            format,
+        } => {
+            let report = agent::status(&config_root, client)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
+        AgentCommand::Install {
+            config_root,
+            client,
+            dry_run,
+            format,
+        } => {
+            let report = agent::install(&config_root, client, dry_run)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
     }
 }
 

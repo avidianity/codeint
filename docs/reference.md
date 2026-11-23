@@ -34,6 +34,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
 | `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
 | `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
+| `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -611,6 +612,31 @@ codeint doctor src
 codeint doctor --format text
 codeint doctor --format json
 codeint doctor --format toon
+```
+
+### `codeint agent`
+
+| Command | Meaning |
+| ------- | ------- |
+| `status` | Report detected local coding agents and whether `codeint mcp` is registered for each |
+| `install` | Register `codeint mcp` in supported local coding agent configuration files |
+| `help` | Print the help of `codeint agent`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint agent` |
+
+`codeint agent` manages local `codeint mcp` registration for Claude Code (`claude-code`, `.claude.json`), Cursor (`cursor`, `.cursor/mcp.json`), and Codex (`codex`, `.codex/config.toml`).
+Both `status` and `install` accept `--client <claude-code|cursor|codex>`, `--format <text|toon|json>`, and `--config-root <DIR>` (or the `CODEINT_AGENT_HOME` environment variable) to override the home folder.
+`codeint agent install` also accepts `--dry-run` to preview the exact resulting configuration without modifying any file on disk.
+When writing a configuration file, `codeint agent install` preserves unrelated keys and existing MCP servers, writes atomically via a temporary file rename, and leaves already-registered configurations untouched on repeated runs.
+
+```sh exit=0
+CODEINT_AGENT_HOME=.agent-home codeint agent status
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format json
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format toon
+CODEINT_AGENT_HOME=.agent-home codeint agent install --dry-run --client claude-code
+codeint agent help
 ```
 
 ## Exit codes

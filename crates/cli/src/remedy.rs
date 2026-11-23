@@ -6,6 +6,7 @@ use codeint_plugin_host::PluginHostError;
 use codeint_report::SavedReportError;
 
 use crate::CliError;
+use crate::agent::AgentError;
 use crate::check::CheckError;
 use crate::config::ConfigCommandError;
 use crate::guard::GuardError;
@@ -19,6 +20,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::ConfigCommand(error) => config_command_remedy(error),
         CliError::Check(error) => check_remedy(error),
         CliError::Guard(error) => guard_remedy(error),
+        CliError::Agent(error) => agent_remedy(error),
         CliError::Init(error) => init_remedy(error),
         CliError::Update(error) => update_remedy(error),
         CliError::Report(_) => {
@@ -71,6 +73,25 @@ fn guard_remedy(error: &GuardError) -> &'static str {
     }
 }
 
+fn agent_remedy(error: &AgentError) -> &'static str {
+    use AgentError as E;
+    match error {
+        E::Read { .. } | E::CreateDir { .. } | E::Write { .. } => {
+            "Check file and folder permissions for the agent configuration path, then retry."
+        }
+        E::InvalidJson { .. }
+        | E::ExpectedRootObject { .. }
+        | E::InvalidToml { .. }
+        | E::InvalidMcpSection { .. }
+        | E::InvalidCodeintEntry { .. } => {
+            "Fix the agent configuration file syntax and ensure its MCP servers section maps names to objects."
+        }
+        E::SerializeJson { .. } | E::SerializeToml { .. } => {
+            "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
+        }
+    }
+}
+
 fn init_remedy(error: &InitError) -> &'static str {
     match error {
         InitError::Git(GitError::NotInRepository { .. }) => {
@@ -118,6 +139,9 @@ fn config_remedy(error: &ConfigError) -> &'static str {
         ConfigError::UnreadablePath { .. } => "Pass a folder that you have permission to open.",
         ConfigError::MissingOutputFolder { .. } => {
             "Create the folder first, or pass --output a file path in a folder that exists."
+        }
+        ConfigError::MissingAgentHome => {
+            "Pass --config-root <DIR>, or set CODEINT_AGENT_HOME or HOME."
         }
     }
 }

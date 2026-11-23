@@ -18,6 +18,7 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+mod agent;
 mod config;
 mod diff;
 mod doctor;
@@ -31,6 +32,9 @@ mod schema;
 mod tests;
 mod trend;
 
+pub use agent::{
+    AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
+};
 pub use config::ConfigReport;
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
