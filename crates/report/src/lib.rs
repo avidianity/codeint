@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use codeint_config::{
-    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets, Codeowners,
-    FindingsShown, ImpactFormat, ReportFormat, TraceFormat,
+    AgentFormat, Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
+    Codeowners, ConfigFormat, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, ReportFormat,
+    TraceFormat,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
@@ -16,30 +17,42 @@ use codeint_model::{
     ReferenceRanges, RepoPath, SkippedFile, SourceSet, SourceSets,
 };
 use serde::ser::SerializeMap;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+mod agent;
 mod churn;
+mod config;
 mod coupling;
 mod diff;
+mod doctor;
 mod guard;
 mod impact;
 mod markdown;
 mod measurement;
 mod ownership;
 mod sarif;
+mod saved;
+mod schema;
 #[cfg(test)]
 mod tests;
 mod trace;
 mod trend;
 
+pub use agent::{
+    AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
+};
 pub use churn::{ChurnHistoryInput, ChurnReport};
 pub use codeint_metrics::TraceError;
+pub use config::ConfigReport;
 pub use coupling::{CouplingHistoryInput, CouplingReport};
 pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
+pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::CommitMeasurement;
 pub use ownership::OwnershipOptions;
+pub use saved::{SavedReport, SavedReportError};
+pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
 pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
 
@@ -60,25 +73,25 @@ pub enum ReportError {
     Sarif(#[source] serde_json::Error),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Report {
     #[serde(flatten)]
     measured: MeasuredSection,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     languages: BTreeMap<String, MeasuredSection>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     submodules: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     over_budget: Vec<BudgetFailure>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BudgetFailure {
-    source_set: &'static str,
+    source_set: String,
     metric: String,
     ratio: Decimal,
     budget: f64,
@@ -90,7 +103,7 @@ pub struct MeasuredLanguage {
     pub reference_ranges: ReferenceRanges,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MeasuredSection {
     files: usize,
     source_lines: u64,
@@ -102,7 +115,7 @@ enum ReferenceRangeScope {
     SeveralLanguages,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum ReferenceRangeEntry {
     Published {
@@ -110,22 +123,84 @@ enum ReferenceRangeEntry {
         high: Decimal,
         source: String,
     },
-    NotShown(&'static str),
+    NotShown(String),
 }
 
-#[derive(Debug, Default, Serialize)]
-struct SourceSetSections {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    production: Option<SourceSetSection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    test: Option<SourceSetSection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    generated: Option<SourceSetSection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vendored: Option<SourceSetSection>,
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub(crate) struct PerSourceSet<T> {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    production: Option<T>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test: Option<T>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    generated: Option<T>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vendored: Option<T>,
 }
 
-#[derive(Debug, Serialize)]
+impl<T> Default for PerSourceSet<T> {
+    fn default() -> PerSourceSet<T> {
+        PerSourceSet {
+            production: None,
+            test: None,
+            generated: None,
+            vendored: None,
+        }
+    }
+}
+
+impl<T> PerSourceSet<T> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (SourceSet, &T)> {
+        [
+            (SourceSet::Production, &self.production),
+            (SourceSet::Test, &self.test),
+            (SourceSet::Generated, &self.generated),
+            (SourceSet::Vendored, &self.vendored),
+        ]
+        .into_iter()
+        .filter_map(|(source_set, section)| Some((source_set, section.as_ref()?)))
+    }
+
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        [
+            &mut self.production,
+            &mut self.test,
+            &mut self.generated,
+            &mut self.vendored,
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    pub(crate) fn named(&self) -> Vec<(&'static str, &T)> {
+        self.iter()
+            .map(|(source_set, section)| (source_set_label(source_set), section))
+            .collect()
+    }
+
+    pub(crate) fn slot(&mut self, source_set: SourceSet) -> &mut Option<T> {
+        match source_set {
+            SourceSet::Production => &mut self.production,
+            SourceSet::Test => &mut self.test,
+            SourceSet::Generated => &mut self.generated,
+            SourceSet::Vendored => &mut self.vendored,
+        }
+    }
+}
+
+fn source_set_label(source_set: SourceSet) -> &'static str {
+    match source_set {
+        SourceSet::Production => "Production",
+        SourceSet::Test => "Test",
+        SourceSet::Generated => "Generated",
+        SourceSet::Vendored => "Vendored",
+    }
+}
+
+type SourceSetSections = PerSourceSet<SourceSetSection>;
+
+#[derive(Debug, Serialize, Deserialize)]
 struct SourceSetSection {
     files: usize,
     source_lines: u64,
@@ -133,15 +208,15 @@ struct SourceSetSection {
     duplication: DuplicationSection,
     verbosity: VerbositySection,
     import_cycles: ImportCyclesSection,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<BoundariesSection>,
-    #[serde(flatten)]
+    #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricSection>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct BoundariesSection {
     ratio: Decimal,
     resolved_imports: usize,
@@ -169,7 +244,7 @@ struct BoundaryFindingRow {
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ExternalMetricSection {
     #[serde(skip)]
     name: String,
@@ -195,7 +270,7 @@ struct ExternalMetricFinding {
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PackageSection {
     path: String,
     files: usize,
@@ -206,32 +281,32 @@ struct PackageSection {
     import_cycles: PackageImportCycles,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PackageErosion {
     ratio: Decimal,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PackageDuplication {
     ratio: Decimal,
     clone_lines: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PackageVerbosity {
     ratio: Decimal,
     verbose_lines: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PackageImportCycles {
     ratio: Decimal,
     modules_in_import_cycles: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ErosionSection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
@@ -264,7 +339,7 @@ struct ErodedFunctionFinding {
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct DuplicationSection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
@@ -289,7 +364,7 @@ struct CloneLocation {
     end_line: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct VerbositySection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
@@ -310,7 +385,7 @@ struct FlaggedLineRow {
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ImportCyclesSection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
@@ -321,14 +396,14 @@ struct ImportCyclesSection {
     unresolved_imports: UnresolvedImportsSection,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct UnresolvedImportsSection {
     count: usize,
     #[serde(flatten)]
     imports: Findings<UnresolvedImportRow>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct UnresolvedImportRow {
     importer: String,
     specifier: String,
@@ -349,7 +424,7 @@ struct ImportCycleFinding {
 #[serde(transparent)]
 struct Decimal(f64);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct SkippedEntry {
     path: String,
     reason: String,
@@ -373,7 +448,7 @@ fn over_budget<'a>(
         .filter_map(|(source_set, metric, ratio)| {
             let budget = budgets.budget_for_key(source_set, metric)?;
             (!budget.admits(ratio)).then(|| BudgetFailure {
-                source_set: source_set.key(),
+                source_set: source_set.key().to_owned(),
                 metric: metric.to_owned(),
                 ratio: Decimal(ratio),
                 budget: budget.ratio(),
@@ -393,12 +468,12 @@ impl Decimal {
 impl ReferenceRangeScope {
     fn entry(&self, metric: &str) -> ReferenceRangeEntry {
         match self {
-            ReferenceRangeScope::OneLanguage(ranges) => ranges.for_metric(metric).map_or(
-                ReferenceRangeEntry::NotShown(NOT_PUBLISHED_FOR_THIS_LANGUAGE),
+            ReferenceRangeScope::OneLanguage(ranges) => ranges.for_metric(metric).map_or_else(
+                || ReferenceRangeEntry::NotShown(NOT_PUBLISHED_FOR_THIS_LANGUAGE.to_owned()),
                 ReferenceRangeEntry::from,
             ),
             ReferenceRangeScope::SeveralLanguages => {
-                ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_SEVERAL_LANGUAGES)
+                ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_SEVERAL_LANGUAGES.to_owned())
             }
         }
     }
@@ -451,6 +526,41 @@ impl<T: FindingKind> Serialize for Findings<T> {
             map.serialize_entry(T::LEFT_OUT_KEY, &self.left_out)?;
         }
         map.end()
+    }
+}
+
+impl<'de, T: FindingKind + Deserialize<'de>> Deserialize<'de> for Findings<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct FindingsVisitor<T>(std::marker::PhantomData<T>);
+
+        impl<'de, T: FindingKind + Deserialize<'de>> serde::de::Visitor<'de> for FindingsVisitor<T> {
+            type Value = Findings<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "findings map with {}", T::LIST_KEY)
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut listed = None;
+                let mut left_out = 0;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == T::LIST_KEY {
+                        listed = Some(map.next_value()?);
+                    } else if key == T::LEFT_OUT_KEY {
+                        left_out = map.next_value()?;
+                    } else {
+                        let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                let listed = listed.ok_or_else(|| serde::de::Error::missing_field(T::LIST_KEY))?;
+                Ok(Findings { listed, left_out })
+            }
+        }
+
+        deserializer.deserialize_map(FindingsVisitor(std::marker::PhantomData))
     }
 }
 
@@ -641,17 +751,6 @@ impl SourceSetSections {
         Ok(sections)
     }
 
-    fn iter(&self) -> impl Iterator<Item = (SourceSet, &SourceSetSection)> {
-        [
-            (SourceSet::Production, &self.production),
-            (SourceSet::Test, &self.test),
-            (SourceSet::Generated, &self.generated),
-            (SourceSet::Vendored, &self.vendored),
-        ]
-        .into_iter()
-        .filter_map(|(source_set, section)| Some((source_set, section.as_ref()?)))
-    }
-
     fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
         over_budget(
             budgets,
@@ -689,15 +788,6 @@ impl SourceSetSections {
                 )
             }),
         )
-    }
-
-    fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetSection> {
-        match source_set {
-            SourceSet::Production => &mut self.production,
-            SourceSet::Test => &mut self.test,
-            SourceSet::Generated => &mut self.generated,
-            SourceSet::Vendored => &mut self.vendored,
-        }
     }
 }
 
@@ -987,6 +1077,16 @@ impl MeasuredSection {
             source_sets,
         })
     }
+
+    fn populate_external_metric_names(&mut self) {
+        for slot in self.source_sets.iter_mut() {
+            for (key, metric) in &mut slot.external_metrics {
+                if metric.name.is_empty() {
+                    metric.name = key.clone();
+                }
+            }
+        }
+    }
 }
 
 impl Report {
@@ -1105,6 +1205,13 @@ impl Report {
         })
     }
 
+    pub(crate) fn populate_external_metric_names(&mut self) {
+        self.measured.populate_external_metric_names();
+        for section in self.languages.values_mut() {
+            section.populate_external_metric_names();
+        }
+    }
+
     pub fn over_budget(&self) -> &[BudgetFailure] {
         &self.over_budget
     }
@@ -1126,25 +1233,30 @@ pub(crate) enum TextReportFormat {
     Text,
 }
 
-impl From<ImpactFormat> for TextReportFormat {
-    fn from(format: ImpactFormat) -> TextReportFormat {
-        match format {
-            ImpactFormat::Toon => TextReportFormat::Toon,
-            ImpactFormat::Json => TextReportFormat::Json,
-            ImpactFormat::Text => TextReportFormat::Text,
-        }
-    }
+macro_rules! impl_text_report_format {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl From<$ty> for TextReportFormat {
+                fn from(format: $ty) -> TextReportFormat {
+                    match format {
+                        <$ty>::Toon => TextReportFormat::Toon,
+                        <$ty>::Json => TextReportFormat::Json,
+                        <$ty>::Text => TextReportFormat::Text,
+                    }
+                }
+            }
+        )+
+    };
 }
 
-impl From<TraceFormat> for TextReportFormat {
-    fn from(format: TraceFormat) -> TextReportFormat {
-        match format {
-            TraceFormat::Toon => TextReportFormat::Toon,
-            TraceFormat::Json => TextReportFormat::Json,
-            TraceFormat::Text => TextReportFormat::Text,
-        }
-    }
-}
+impl_text_report_format!(
+    AgentFormat,
+    ConfigFormat,
+    DoctorFormat,
+    GuardFormat,
+    ImpactFormat,
+    TraceFormat,
+);
 
 pub(crate) fn render_text_report<T: Serialize>(
     value: &T,

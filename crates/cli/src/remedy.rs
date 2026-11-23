@@ -5,31 +5,48 @@ use codeint_git::GitError;
 use codeint_metrics::ImpactError;
 use codeint_model::{MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
-use codeint_report::TraceError;
+use codeint_report::{SavedReportError, TraceError};
 
 use crate::CliError;
+use crate::agent::AgentError;
 use crate::check::CheckError;
+use crate::config::ConfigCommandError;
 use crate::guard::GuardError;
 use crate::impact::ImpactCommandError;
 use crate::init::InitError;
+use crate::report::RerenderError;
 use crate::trace::TraceCommandError;
 use crate::update::UpdateError;
 
 pub(crate) fn remedy(error: &CliError) -> &'static str {
+    use CliError::*;
     match error {
-        CliError::Config(error) => config_remedy(error),
-        CliError::Check(error) => check_remedy(error),
-        CliError::Guard(error) => guard_remedy(error),
-        CliError::Impact(error) => impact_remedy(error),
-        CliError::Trace(error) => trace_remedy(error),
-        CliError::Init(error) => init_remedy(error),
-        CliError::Update(error) => update_remedy(error),
-        CliError::Report(_) => {
+        Config(error) => config_remedy(error),
+        ConfigCommand(error) => config_command_remedy(error),
+        Check(error) => check_remedy(error),
+        Guard(error) => guard_remedy(error),
+        Impact(error) => impact_remedy(error),
+        Trace(error) => trace_remedy(error),
+        other => tooling_remedy(other),
+    }
+}
+
+fn tooling_remedy(error: &CliError) -> &'static str {
+    use CliError::*;
+    match error {
+        Agent(error) => agent_remedy(error),
+        Init(error) => init_remedy(error),
+        Update(error) => update_remedy(error),
+        Report(_) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
-        CliError::Output(_) => "Keep standard output open until codeint exits.",
-        CliError::OutputFile { .. } => {
+        Rerender(error) => rerender_remedy(error),
+        Output(_) => "Keep standard output open until codeint exits.",
+        OutputFile { .. } => {
             "Pass --output a file path that you have permission to write, not a folder."
+        }
+        Config(_) | ConfigCommand(_) | Check(_) | Guard(_) | Impact(_) | Trace(_) => {
+            unreachable!("handled by remedy")
         }
     }
 }
@@ -70,6 +87,13 @@ fn check_remedy(error: &CheckError) -> &'static str {
     }
 }
 
+fn config_command_remedy(error: &ConfigCommandError) -> &'static str {
+    match error {
+        ConfigCommandError::Git(error) => git_remedy(error),
+        ConfigCommandError::Configuration(error) => configuration_file_remedy(error),
+    }
+}
+
 fn guard_remedy(error: &GuardError) -> &'static str {
     match error {
         GuardError::Git(error) => git_remedy(error),
@@ -79,6 +103,28 @@ fn guard_remedy(error: &GuardError) -> &'static str {
         }
         GuardError::NonUtf8Path { .. } | GuardError::InvalidPath { .. } => {
             "Pass a valid UTF-8 file path inside the Git repository."
+        }
+    }
+}
+
+fn agent_remedy(error: &AgentError) -> &'static str {
+    use AgentError as E;
+    match error {
+        E::Read { .. } | E::CreateDir { .. } | E::Write { .. } => {
+            "Check file and folder permissions for the agent configuration path, then retry."
+        }
+        E::DanglingSymlink { .. } => {
+            "Point the symlink to an existing configuration file, or remove the dangling symlink and retry."
+        }
+        E::InvalidJson { .. }
+        | E::ExpectedRootObject { .. }
+        | E::InvalidToml { .. }
+        | E::InvalidMcpSection { .. }
+        | E::InvalidCodeintEntry { .. } => {
+            "Fix the agent configuration file syntax and ensure its MCP servers section maps names to objects."
+        }
+        E::SerializeJson { .. } | E::SerializeToml { .. } => {
+            "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
     }
 }
@@ -148,10 +194,13 @@ fn config_remedy(error: &ConfigError) -> &'static str {
         ConfigError::MissingOutputFolder { .. } => {
             "Create the folder first, or pass --output a file path in a folder that exists."
         }
+        ConfigError::MissingAgentHome => {
+            "Pass --config-root <DIR>, or set CODEINT_AGENT_HOME or HOME."
+        }
     }
 }
 
-fn git_remedy(error: &GitError) -> &'static str {
+pub(crate) fn git_remedy(error: &GitError) -> &'static str {
     match error {
         GitError::NotInRepository { .. } => {
             "Run codeint inside a Git repository, or pass a folder inside one: codeint check <path>"
@@ -200,7 +249,7 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
     }
 }
 
-fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
+pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
     plugin_config_remedy(error)
         .or_else(|| boundary_config_remedy(error))
         .or_else(|| file_access_remedy(error))
@@ -214,6 +263,9 @@ fn file_access_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
         E::Unreadable(_) => Some(
             "Check that codeint.json is a file you have permission to read, then run codeint again.",
         ),
+        E::BrokenSymlink => Some(
+            "Point the codeint.json symlink to an existing file, or remove the broken symlink and run codeint again.",
+        ),
         E::NotJson(_) => Some("Fix the JSON syntax of codeint.json at that line and column."),
         E::NewerSchemaVersion { .. } => Some(
             "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.",
@@ -226,6 +278,9 @@ fn json_shape_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
     use ConfigurationFileError::*;
     Some(match error {
         UnknownKey { .. } => "Remove the key, or correct its spelling to one of the allowed keys.",
+        UnknownCliBudgetMetric { .. } => {
+            "Pass one of the allowed Metric names to --budget, such as production.erosion=0.25."
+        }
         WrongType { .. } => {
             "Change the value to the expected type; the JSON schema that $schema links to describes every key."
         }
@@ -281,7 +336,7 @@ fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> 
         UnknownLanguagePlugin { .. } => {
             "Name one of the Language plugins listed, or remove the entry from languages."
         }
-        InvalidGlob { .. } => {
+        InvalidGlob { .. } | InvalidCliGlob { .. } => {
             "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
         }
         InvalidSha256 { .. } => {
@@ -366,6 +421,31 @@ fn metric_plugin_remedy(error: &MetricPluginError) -> &'static str {
             "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Metric plugin needs more resources, or fix the defect in the plugin."
         }
         _ => "Fix the defect in the external Metric plugin, or report it to the plugin's author.",
+    }
+}
+
+fn rerender_remedy(error: &RerenderError) -> &'static str {
+    match error {
+        RerenderError::ReadStdin(_) => {
+            "Pipe a valid UTF-8 JSON report into standard input when passing -."
+        }
+        RerenderError::ReadFile { .. } => {
+            "Pass a readable path to a saved check or diff JSON report, or pass - for standard input."
+        }
+        RerenderError::Parse(parse_error) => match parse_error {
+            SavedReportError::InvalidJson(_) | SavedReportError::NotAnObject => {
+                "Pass a JSON report generated by codeint check --format json or codeint diff --format json."
+            }
+            SavedReportError::UnsupportedSchemaVersion { .. } => {
+                "Generate the JSON report with a compatible codeint version, or upgrade codeint."
+            }
+            SavedReportError::UnrecognizedReport | SavedReportError::InvalidPayload { .. } => {
+                "Pass a JSON report generated by codeint check --format json or codeint diff --format json."
+            }
+        },
+        RerenderError::Render(_) => {
+            "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
+        }
     }
 }
 
