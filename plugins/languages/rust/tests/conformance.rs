@@ -931,3 +931,212 @@ fn resolves_custom_bin_crate_root_bin_to_lib_and_qualified_crate_paths() {
         ],
     );
 }
+
+fn unresolved_mod_path(importer: &str, rel: &str) -> Resolution {
+    Resolution::Unresolved(format!(
+        "no module file found for `#[path = {rel:?}]` from {importer}"
+    ))
+}
+
+#[test]
+fn mod_path_rejects_package_escape_and_absolute_paths() {
+    assert_eq!(
+        lower(
+            "crates/pkg_a/src/lib.rs",
+            r#"
+#[path = "../../outside.rs"]
+mod outside;
+#[path = "../../pkg_b/src/secret.rs"]
+mod secret;
+#[path = "/helper.rs"]
+mod abs;
+#[path = "../shared.rs"]
+mod shared;
+"#,
+        )
+        .expect("lower")
+        .runtime_imports,
+        [
+            "mod-path:../../outside.rs",
+            "mod-path:../../pkg_b/src/secret.rs",
+            "mod-path:../shared.rs",
+            "mod-path:/helper.rs",
+        ]
+    );
+    let importer = "crates/pkg_a/src/lib.rs";
+    assert_rust_resolutions(
+        &[
+            "Cargo.toml",
+            "outside.rs",
+            "helper.rs",
+            "crates/outside.rs",
+            "crates/pkg_a/Cargo.toml",
+            "crates/pkg_a/shared.rs",
+            importer,
+            "crates/pkg_a/src/helper.rs",
+            "crates/pkg_b/Cargo.toml",
+            "crates/pkg_b/src/secret.rs",
+        ],
+        &[
+            ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+            ("crates/pkg_a/Cargo.toml", "[package]\nname = \"pkg-a\"\n"),
+            ("crates/pkg_b/Cargo.toml", "[package]\nname = \"pkg-b\"\n"),
+        ],
+        &[
+            (
+                importer,
+                "mod-path:../../outside.rs",
+                unresolved_mod_path(importer, "../../outside.rs"),
+            ),
+            (
+                importer,
+                "mod-path:../../pkg_b/src/secret.rs",
+                unresolved_mod_path(importer, "../../pkg_b/src/secret.rs"),
+            ),
+            (
+                importer,
+                "mod-path:/helper.rs",
+                unresolved_mod_path(importer, "/helper.rs"),
+            ),
+            (
+                importer,
+                "mod-path:sub\\helper.rs",
+                unresolved_mod_path(importer, "sub\\helper.rs"),
+            ),
+            (importer, "mod-path:", unresolved_mod_path(importer, "")),
+            (
+                importer,
+                "mod-path:../shared.rs",
+                Resolution::Resolved("crates/pkg_a/shared.rs".to_owned()),
+            ),
+        ],
+    );
+}
+
+#[test]
+fn skips_cfg_all_test_and_cfg_attr_all_test_while_keeping_not_and_any() {
+    let source = r#"
+#[cfg(all(test, unix))]
+mod unix_tests;
+#[cfg(all(test, unix))]
+fn h() { let _ = tempfile::tempdir(); }
+#[cfg(all(unix, all(test, feature = "extra")))]
+fn nested() { let _ = proptest::prelude::any::<u8>(); }
+#[cfg_attr(all(test, unix), derive(proptest::Arbitrary))]
+#[cfg_attr(not(test), derive(serde::Serialize))]
+#[cfg_attr(any(test, unix), derive(serde::Deserialize))]
+pub struct Model;
+#[cfg(not(test))]
+mod prod_only;
+#[cfg(any(test, unix))]
+pub fn kept() { let _ = libc::getpid(); }
+"#;
+    let lowered = lower("src/lib.rs", source).expect("lower");
+    assert_eq!(
+        lowered.runtime_imports,
+        ["mod:prod_only", "path:libc", "path:serde"]
+    );
+    assert_eq!(lowered.functions.len(), 1);
+    assert_eq!(lowered.functions[0].name.as_deref(), Some("kept"));
+}
+
+#[test]
+fn skips_cfg_test_on_fields_variants_statements_expressions_and_match_arms() {
+    let source = r#"
+pub struct S {
+    #[cfg(test)]
+    spy: mockall::Sequence,
+    kept: serde_json::Value,
+}
+pub enum E {
+    #[cfg(test)]
+    Spy(mockall::Sequence),
+    Real,
+}
+pub fn prod(v: u8) {
+    #[cfg(test)]
+    let _ = insta::assert_snapshot!("x");
+    #[cfg(test)]
+    {
+        let _ = pretty_assertions::assert_eq!(1, 1);
+    }
+    #[cfg(test)]
+    wiremock::Mock::given();
+    #[cfg(test)]
+    proptest::prop_assert!(true);
+    let _ = S {
+        #[cfg(test)]
+        spy: mockall::Sequence::new(),
+        kept: serde_json::Value::Null,
+    };
+    let _ = match v {
+        #[cfg(test)]
+        1 => { let _ = tempfile::tempdir(); 1 }
+        _ => { let _ = tracing::info!("ok"); 0 }
+    };
+}
+"#;
+    let lowered = lower("src/lib.rs", source).expect("lower");
+    assert_eq!(lowered.runtime_imports, ["path:serde_json", "path:tracing"]);
+}
+
+#[test]
+fn qualified_path_matches_dev_dependencies_only_in_test_files() {
+    let prod_src = "use crate::*;\npub fn run() { time::now() }\n";
+    let test_src = "pub fn check() { time::now() }\n";
+    assert_eq!(
+        lower("src/service.rs", prod_src)
+            .expect("prod")
+            .runtime_imports,
+        ["path:time", "use:crate"]
+    );
+    assert_eq!(
+        lower("tests/integration.rs", test_src)
+            .expect("test")
+            .runtime_imports,
+        ["path:time"]
+    );
+    let manifest = r#"
+[package]
+name = "demo"
+[dependencies]
+serde = "1"
+[dev-dependencies]
+time = "0.3"
+[target.'cfg(unix)'.dev-dependencies]
+nix = "0.29"
+"#;
+    assert_rust_resolutions(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/service.rs",
+            "tests/integration.rs",
+        ],
+        &[("Cargo.toml", manifest)],
+        &[
+            ("src/service.rs", "path:time", Resolution::Builtin),
+            ("src/service.rs", "path:nix", Resolution::Builtin),
+            (
+                "src/service.rs",
+                "path:serde",
+                Resolution::External("serde".to_owned()),
+            ),
+            (
+                "src/service.rs",
+                "use:time::now",
+                Resolution::External("time".to_owned()),
+            ),
+            (
+                "tests/integration.rs",
+                "path:time",
+                Resolution::External("time".to_owned()),
+            ),
+            (
+                "tests/integration.rs",
+                "path:nix",
+                Resolution::External("nix".to_owned()),
+            ),
+        ],
+    );
+}

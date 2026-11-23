@@ -3,11 +3,12 @@ use std::collections::{BTreeSet, HashSet};
 use proc_macro2::{Spacing, TokenStream, TokenTree};
 use syn::visit::{self, Visit};
 use syn::{
-    Attribute, Expr, ExprLit, File, ImplItem, Item, ItemExternCrate, ItemMacro, ItemMod, ItemUse,
-    Lit, Macro, Meta, Path, TraitItem, UseTree,
+    Arm, Attribute, Expr, ExprLit, Field, FieldValue, File, ImplItem, Item, ItemExternCrate,
+    ItemMacro, ItemMod, ItemUse, Lit, Local, Macro, Meta, Path, StmtMacro, TraitItem, UseTree,
+    Variant,
 };
 
-use crate::cfg_test::{has_cfg_test, item_attrs};
+use crate::cfg_test::{has_cfg_test, is_cfg_attr_test, item_attrs};
 
 pub(crate) const MOD_PREFIX: &str = "mod:";
 pub(crate) const MOD_PATH_PREFIX: &str = "mod-path:";
@@ -90,6 +91,13 @@ impl<'ast> Visit<'ast> for LocalIdentCollector {
         if is_bindgen_macro(&node.mac.path) {
             self.idents.insert("exports".to_owned());
         }
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if self.exclude_cfg_test && has_cfg_test(expr_attrs(expr)) {
+            return;
+        }
+        visit::visit_expr(self, expr);
     }
 }
 
@@ -180,10 +188,44 @@ struct ImportCollector {
     specifiers: BTreeSet<String>,
 }
 
+macro_rules! visit_unless_cfg_test {
+    ($($method:ident($ty:ty, $attrs:ident);)*) => {
+        $(
+            fn $method(&mut self, node: &'ast $ty) {
+                if !self.skip_cfg_test($attrs(node)) {
+                    visit::$method(self, node);
+                }
+            }
+        )*
+    };
+    (field; $($method:ident($ty:ty);)*) => {
+        $(
+            fn $method(&mut self, node: &'ast $ty) {
+                if !self.skip_cfg_test(&node.attrs) {
+                    visit::$method(self, node);
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! match_expr_attrs {
+    ($expr:expr, [$($variant:ident),* $(,)?]) => {
+        match $expr {
+            $(Expr::$variant(node) => &node.attrs,)*
+            _ => &[],
+        }
+    };
+}
+
 impl ImportCollector {
+    fn skip_cfg_test(&self, attrs: &[Attribute]) -> bool {
+        self.exclude_cfg_test && has_cfg_test(attrs)
+    }
+
     fn record_external_mod(&mut self, node: &ItemMod) {
         if let Some(rel_path) = mod_path_attr(&node.attrs) {
-            let full = if self.inline_mod_stack.is_empty() {
+            let full = if self.inline_mod_stack.is_empty() || rel_path.starts_with('/') {
                 rel_path
             } else {
                 format!("{}/{rel_path}", self.inline_mod_stack.join("/"))
@@ -260,25 +302,21 @@ impl ImportCollector {
 }
 
 impl<'ast> Visit<'ast> for ImportCollector {
-    fn visit_item(&mut self, item: &'ast Item) {
-        if self.exclude_cfg_test && has_cfg_test(item_attrs(item)) {
-            return;
-        }
-        visit::visit_item(self, item);
+    visit_unless_cfg_test! {
+        visit_item(Item, item_attrs);
+        visit_impl_item(ImplItem, impl_item_attrs);
+        visit_trait_item(TraitItem, trait_item_attrs);
+        visit_expr(Expr, expr_attrs);
     }
 
-    fn visit_impl_item(&mut self, item: &'ast ImplItem) {
-        if self.exclude_cfg_test && has_cfg_test(impl_item_attrs(item)) {
-            return;
-        }
-        visit::visit_impl_item(self, item);
-    }
-
-    fn visit_trait_item(&mut self, item: &'ast TraitItem) {
-        if self.exclude_cfg_test && has_cfg_test(trait_item_attrs(item)) {
-            return;
-        }
-        visit::visit_trait_item(self, item);
+    visit_unless_cfg_test! {
+        field;
+        visit_field(Field);
+        visit_field_value(FieldValue);
+        visit_variant(Variant);
+        visit_local(Local);
+        visit_stmt_macro(StmtMacro);
+        visit_arm(Arm);
     }
 
     fn visit_item_mod(&mut self, node: &'ast ItemMod) {
@@ -384,16 +422,15 @@ fn is_path_continuation(tokens: &[TokenTree], idx: usize) -> bool {
     }
 }
 
-fn is_cfg_attr_test(attr: &Attribute) -> bool {
-    if !attr.path().is_ident("cfg_attr") {
-        return false;
-    }
-    let Meta::List(list) = &attr.meta else {
-        return false;
-    };
-    matches!(
-        list.tokens.clone().into_iter().next(),
-        Some(TokenTree::Ident(ident)) if ident == "test"
+fn expr_attrs(expr: &Expr) -> &[Attribute] {
+    match_expr_attrs!(
+        expr,
+        [
+            Array, Assign, Async, Await, Binary, Block, Break, Call, Cast, Closure, Const,
+            Continue, Field, ForLoop, Group, If, Index, Infer, Let, Lit, Loop, Macro, Match,
+            MethodCall, Paren, Path, Range, RawAddr, Reference, Repeat, Return, Struct, Try,
+            TryBlock, Tuple, Unary, Unsafe, While, Yield,
+        ]
     )
 }
 

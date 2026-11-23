@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use codeint_model::language::{ImportRequest, Manifest, Resolution, SourceSet};
 use codeint_model::scan::normalize_relative_path;
 use toml::Value;
 
@@ -9,7 +9,15 @@ use crate::imports::{MOD_PATH_PREFIX, MOD_PREFIX, PATH_PREFIX, USE_PREFIX};
 use crate::workspaces::{CARGO_MANIFEST, workspace_members_under};
 
 const STD_CRATES: [&str; 5] = ["std", "core", "alloc", "proc_macro", "test"];
+const PROD_DEP_SECTIONS: [&str; 2] = ["dependencies", "build-dependencies"];
+const DEV_DEP_SECTION: &str = "dev-dependencies";
 const DEP_SECTIONS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
+
+#[derive(Default)]
+struct PackageDeclaredDeps {
+    production: HashSet<String>,
+    dev: HashSet<String>,
+}
 
 pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
     repository_paths
@@ -27,7 +35,7 @@ pub(crate) struct RustResolver {
     target_root_dirs: Vec<String>,
     package_local_crates: HashMap<String, HashMap<String, Option<String>>>,
     workspace_local_crates: HashMap<String, HashMap<String, Option<String>>>,
-    package_declared_deps: HashMap<String, HashSet<String>>,
+    package_declared_deps: HashMap<String, PackageDeclaredDeps>,
 }
 
 impl RustResolver {
@@ -84,10 +92,17 @@ impl RustResolver {
     }
 
     fn resolve_mod_path(&self, importer: &str, rel_path: &str) -> Resolution {
+        if rel_path.is_empty() || rel_path.starts_with('/') || rel_path.contains('\\') {
+            return Resolution::Unresolved(format!(
+                "no module file found for `#[path = {rel_path:?}]` from {importer}"
+            ));
+        }
+        let pkg_root = self.owning_crate_root(importer);
         let child_dir = self.module_child_dir(importer);
         let parent = parent_dir(importer);
         for base in [child_dir.as_str(), parent.as_str()] {
             if let Some(candidate) = normalize_relative_path(base, rel_path)
+                && is_within_package_root(&candidate, pkg_root)
                 && self.files.contains(&candidate)
             {
                 return if candidate == importer {
@@ -182,9 +197,14 @@ impl RustResolver {
 
     fn is_declared_dependency(&self, importer: &str, crate_ident: &str) -> bool {
         let pkg_root = self.owning_crate_root(importer);
-        self.package_declared_deps
-            .get(pkg_root)
-            .is_some_and(|deps| deps.contains(crate_ident))
+        let Some(deps) = self.package_declared_deps.get(pkg_root) else {
+            return false;
+        };
+        if deps.production.contains(crate_ident) {
+            return true;
+        }
+        crate::source_set::classify(importer, "") == SourceSet::Test
+            && deps.dev.contains(crate_ident)
     }
 
     fn find_local_crate(&self, importer: &str, crate_ident: &str) -> Option<Option<&str>> {
@@ -412,37 +432,44 @@ fn safe_manifest_path(root: &str, rel: &str) -> Option<String> {
     normalize_relative_path(root, trimmed).filter(|path| !path.is_empty())
 }
 
+fn is_within_package_root(candidate: &str, pkg_root: &str) -> bool {
+    pkg_root.is_empty() || candidate.starts_with(&format!("{pkg_root}/"))
+}
+
 fn collect_package_declared_deps(
     parsed: &HashMap<String, (String, Value)>,
-) -> HashMap<String, HashSet<String>> {
+) -> HashMap<String, PackageDeclaredDeps> {
     let mut out = HashMap::new();
     for (root, (_, doc)) in parsed {
         if doc.get("package").is_none() {
             continue;
         }
-        let mut deps = HashSet::new();
+        let mut deps = PackageDeclaredDeps::default();
         collect_dep_names_from_doc(doc, &mut deps);
-        if !deps.is_empty() {
+        if !deps.production.is_empty() || !deps.dev.is_empty() {
             out.insert(root.clone(), deps);
         }
     }
     out
 }
 
-fn collect_dep_names_from_doc(doc: &Value, out: &mut HashSet<String>) {
-    for section in DEP_SECTIONS {
-        if let Some(table) = doc.get(section).and_then(Value::as_table) {
-            insert_dep_keys(table, out);
-        }
-    }
+fn collect_dep_names_from_doc(doc: &Value, out: &mut PackageDeclaredDeps) {
+    collect_dep_sections_from_table(doc, out);
     if let Some(targets) = doc.get("target").and_then(Value::as_table) {
         for cfg_table in targets.values() {
-            for section in DEP_SECTIONS {
-                if let Some(table) = cfg_table.get(section).and_then(Value::as_table) {
-                    insert_dep_keys(table, out);
-                }
-            }
+            collect_dep_sections_from_table(cfg_table, out);
         }
+    }
+}
+
+fn collect_dep_sections_from_table(table: &Value, out: &mut PackageDeclaredDeps) {
+    for section in PROD_DEP_SECTIONS {
+        if let Some(deps) = table.get(section).and_then(Value::as_table) {
+            insert_dep_keys(deps, &mut out.production);
+        }
+    }
+    if let Some(deps) = table.get(DEV_DEP_SECTION).and_then(Value::as_table) {
+        insert_dep_keys(deps, &mut out.dev);
     }
 }
 

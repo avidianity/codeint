@@ -1,11 +1,28 @@
 use std::collections::BTreeSet;
 
+use proc_macro2::{Delimiter, TokenTree};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{Attribute, File, Item, Meta};
 
 pub(crate) fn has_cfg_test(attrs: &[Attribute]) -> bool {
     attrs.iter().any(is_cfg_test_attr)
+}
+
+pub(crate) fn is_cfg_attr_test(attr: &Attribute) -> bool {
+    if !attr.path().is_ident("cfg_attr") {
+        return false;
+    }
+    let Meta::List(list) = &attr.meta else {
+        return false;
+    };
+    let condition: Vec<TokenTree> = list
+        .tokens
+        .clone()
+        .into_iter()
+        .take_while(|token| !is_comma(token))
+        .collect();
+    is_cfg_test_predicate(&condition)
 }
 
 fn is_cfg_test_attr(attr: &Attribute) -> bool {
@@ -15,14 +32,25 @@ fn is_cfg_test_attr(attr: &Attribute) -> bool {
     let Meta::List(list) = &attr.meta else {
         return false;
     };
-    let mut found_test = false;
-    let _ = list.parse_nested_meta(|meta| {
-        if meta.path.is_ident("test") {
-            found_test = true;
+    let tokens: Vec<TokenTree> = list.tokens.clone().into_iter().collect();
+    is_cfg_test_predicate(&tokens)
+}
+
+fn is_cfg_test_predicate(tokens: &[TokenTree]) -> bool {
+    match tokens {
+        [TokenTree::Ident(ident)] => ident == "test",
+        [TokenTree::Ident(ident), TokenTree::Group(group)]
+            if ident == "all" && group.delimiter() == Delimiter::Parenthesis =>
+        {
+            let inner: Vec<TokenTree> = group.stream().into_iter().collect();
+            inner.split(is_comma).any(is_cfg_test_predicate)
         }
-        Ok(())
-    });
-    found_test
+        _ => false,
+    }
+}
+
+fn is_comma(token: &TokenTree) -> bool {
+    matches!(token, TokenTree::Punct(punct) if punct.as_char() == ',')
 }
 
 pub(crate) fn excluded_cfg_test_lines(file: &File) -> BTreeSet<u32> {
