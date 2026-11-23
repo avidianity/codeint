@@ -6,6 +6,7 @@ mod diff;
 mod init;
 mod mcp;
 mod remedy;
+mod trace;
 mod trend;
 mod update;
 
@@ -15,14 +16,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
+use codeint_config::{
+    Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, ReportDestination, read_invocation,
+};
 use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TraceFormat, TrendFormat,
+    TrendRange,
 };
-pub use codeint_report::{DiffReport, Report, TrendReport};
+pub use codeint_report::{DiffReport, Report, TraceReport, TrendReport};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -73,6 +77,23 @@ impl Default for TrendOptions {
         TrendOptions {
             range: TrendRange::Latest(DEFAULT_TREND_COMMITS),
             result_cache: None,
+            plugin_host: PluginHostConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraceOptions {
+    pub all: bool,
+    pub max_paths: usize,
+    pub plugin_host: PluginHostConfig,
+}
+
+impl Default for TraceOptions {
+    fn default() -> TraceOptions {
+        TraceOptions {
+            all: false,
+            max_paths: DEFAULT_MAX_TRACE_PATHS,
             plugin_host: PluginHostConfig::default(),
         }
     }
@@ -178,6 +199,23 @@ pub fn trend(folder: &Path, options: &TrendOptions) -> Result<TrendReport, Codei
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
 }
 
+pub fn trace(
+    folder: &Path,
+    from: &str,
+    to: &str,
+    options: &TraceOptions,
+) -> Result<TraceReport, CodeintError> {
+    trace::trace(
+        folder,
+        from,
+        to,
+        options.all,
+        options.max_paths,
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Trace(err)))
+}
+
 pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
     init::init(folder).map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
 }
@@ -188,6 +226,8 @@ enum CliError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error(transparent)]
+    Trace(#[from] trace::TraceCommandError),
     #[error(transparent)]
     Init(#[from] init::InitError),
     #[error(transparent)]
@@ -280,6 +320,23 @@ fn run() -> Result<Outcome, CliError> {
             result_cache,
             &plugin_host,
         ),
+        Command::Trace {
+            folder,
+            from,
+            to,
+            all,
+            max_paths,
+            destination,
+            format,
+            plugin_host,
+        } => {
+            let options = TraceOptions {
+                all,
+                max_paths,
+                plugin_host,
+            };
+            run_trace(&folder, &from, &to, &destination, format, &options)
+        }
         Command::Init { folder } => run_init(&folder),
         Command::Update {
             check_only,
@@ -359,6 +416,26 @@ fn run_trend(
 ) -> Result<Outcome, CliError> {
     let result_cache = result_cache.map(ResultCache::in_folder);
     let report = trend::trend(folder, range, result_cache.as_ref(), plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_trace(
+    folder: &Path,
+    from: &str,
+    to: &str,
+    destination: &ReportDestination,
+    format: TraceFormat,
+    options: &TraceOptions,
+) -> Result<Outcome, CliError> {
+    let report = trace::trace(
+        folder,
+        from,
+        to,
+        options.all,
+        options.max_paths,
+        &options.plugin_host,
+    )?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::Passed)
 }

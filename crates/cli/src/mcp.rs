@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TraceFormat, TrendFormat,
+    TrendRange,
 };
 use serde_json::{Value, json};
 
-use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, trend};
+use crate::{CheckOptions, DiffOptions, TraceOptions, TrendOptions, check, diff, trace, trend};
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -157,6 +158,21 @@ fn handle_tools_list() -> Value {
                         "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
                     }
                 }
+            },
+            {
+                "name": "trace",
+                "description": "Find the shortest runtime import path(s) connecting two repository files.",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["from", "to"],
+                    "properties": {
+                        "from": { "type": "string", "description": "Repository-relative path of the starting module." },
+                        "to": { "type": "string", "description": "Repository-relative path of the target module." },
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "all": { "type": "boolean", "description": "Return all shortest paths up to max_paths instead of a single shortest path." },
+                        "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
+                    }
+                }
             }
         ]
     })
@@ -175,6 +191,7 @@ fn handle_tools_call(
         "check" => Ok(call_check(args, ctx)),
         "diff" => Ok(call_diff(args, ctx)),
         "trend" => Ok(call_trend(args, ctx)),
+        "trace" => Ok(call_trace(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
 }
@@ -253,6 +270,42 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     };
     match trend(&folder, &options) {
         Ok(report) => match report.render(TrendFormat::Json) {
+            Ok(rendered) => {
+                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
+                tool_ok(payload)
+            }
+            Err(err) => tool_err(&err.to_string()),
+        },
+        Err(err) => tool_err(&err.to_string()),
+    }
+}
+
+fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let Some(from) = args.and_then(|a| a.get("from")).and_then(Value::as_str) else {
+        return tool_err("Missing required argument: from");
+    };
+    let Some(to) = args.and_then(|a| a.get("to")).and_then(Value::as_str) else {
+        return tool_err("Missing required argument: to");
+    };
+    let folder = resolve_folder(args, ctx.default_folder);
+    let all = args
+        .and_then(|a| a.get("all"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let max_paths = match args.and_then(|a| a.get("max_paths")) {
+        Some(value) => match value.as_u64().and_then(|n| usize::try_from(n).ok()) {
+            Some(n) => n,
+            None => return tool_err("Invalid argument: max_paths must be a positive integer"),
+        },
+        None => TraceOptions::default().max_paths,
+    };
+    let options = TraceOptions {
+        all,
+        max_paths,
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    match trace(&folder, from, to, &options) {
+        Ok(report) => match report.render(TraceFormat::Json) {
             Ok(rendered) => {
                 let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
                 tool_ok(payload)

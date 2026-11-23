@@ -20,10 +20,13 @@ mod measurement;
 mod sarif;
 #[cfg(test)]
 mod tests;
+mod trace;
 mod trend;
 
+pub use codeint_metrics::TraceError;
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use measurement::CommitMeasurement;
+pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
 
 const DECIMAL_SCALE: f64 = 10_000.0;

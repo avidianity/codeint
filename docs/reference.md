@@ -26,9 +26,10 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `check` | Measure the working tree and print the report; see [`codeint check`](#codeint-check) |
 | `diff` | Compare the working tree, or a head Git ref, with the merge-base of a base Git ref; see [`codeint diff`](#codeint-diff) |
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
+| `trace` | Find the shortest runtime import path between two files in the repository; see [`codeint trace`](#codeint-trace) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
-| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, and `trend` tools; see [`codeint mcp`](#codeint-mcp) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `trace` tools; see [`codeint mcp`](#codeint-mcp) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -459,6 +460,45 @@ codeint reads each commit from Git objects, so it never checks out a commit and 
 Every commit uses the `codeint.json` of the working tree, as `codeint diff` does.
 Each commit goes through the [result cache](#result-cache), so a repeated trend measures only the commits that are new since the last run.
 
+### `codeint trace`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<FROM>` | Repository-relative path of the starting module |
+| `<TO>` | Repository-relative path of the target module |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--all` | List all shortest runtime import paths up to `--max-paths` |
+| `--max-paths <COUNT>` | Maximum number of shortest paths to list when `--all` is set |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `text` |
+| `-h, --help` | Print the help of `codeint trace` |
+
+`codeint trace` finds the shortest runtime import path connecting two measured files in the working tree.
+When no runtime import path connects them, it reports `connected: false` and exits with code 0:
+
+```sh exit=0
+codeint trace src/sign.ts src/parse.ts
+```
+
+```text stdout
+from: src/sign.ts
+to: src/parse.ts
+connected: false
+shortest_distance: null
+paths: []
+truncated: false
+```
+
+These commands exercise `--all`, `--max-paths`, `--output`, and each output format:
+
+```sh exit=0
+codeint trace src/sign.ts src/parse.ts --format toon
+codeint trace src/sign.ts src/parse.ts --format text
+codeint trace src/sign.ts src/parse.ts --all --max-paths 5 --format json --output trace.json
+```
+
 ### `codeint update`
 
 | Option | Meaning |
@@ -486,7 +526,7 @@ codeint 0.5.0 is already up to date (v0.5.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes three read-only tools (`check`, `diff`, and `trend`) so coding agents can measure Software entropy and fix Regressions before opening a pull request.
+It exposes four read-only tools (`check`, `diff`, `trend`, and `trace`) so coding agents can measure Software entropy, inspect import paths, and fix Regressions before opening a pull request.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0

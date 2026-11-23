@@ -93,6 +93,15 @@ pub enum TrendFormat {
     Markdown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TraceFormat {
+    Toon,
+    Json,
+    Text,
+}
+
+pub const DEFAULT_MAX_TRACE_PATHS: usize = 10;
+
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +135,16 @@ pub enum Command {
         destination: ReportDestination,
         format: TrendFormat,
         result_cache: Option<PathBuf>,
+        plugin_host: PluginHostConfig,
+    },
+    Trace {
+        folder: PathBuf,
+        from: String,
+        to: String,
+        all: bool,
+        max_paths: usize,
+        destination: ReportDestination,
+        format: TraceFormat,
         plugin_host: PluginHostConfig,
     },
     Init {
@@ -212,6 +231,44 @@ enum CommandArguments {
         )]
         format: TrendFormat,
     },
+    #[command(about = "Find the shortest runtime import path between two files in the repository")]
+    Trace {
+        #[arg(
+            value_name = "FROM",
+            help = "Repository-relative path of the starting module"
+        )]
+        from: String,
+        #[arg(
+            value_name = "TO",
+            help = "Repository-relative path of the target module"
+        )]
+        to: String,
+        #[arg(
+            long,
+            help = "List all shortest runtime import paths up to --max-paths"
+        )]
+        all: bool,
+        #[arg(
+            long = "max-paths",
+            value_name = "COUNT",
+            default_value_t = DEFAULT_MAX_TRACE_PATHS,
+            help = "Maximum number of shortest paths to list when --all is set"
+        )]
+        max_paths: usize,
+        #[arg(
+            long,
+            value_name = "FILE",
+            help = "Write the report to this file instead of standard output"
+        )]
+        output: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = TraceFormat::Toon,
+            help = "The format of the report"
+        )]
+        format: TraceFormat,
+    },
     #[command(
         about = "Write a starter codeint.json at the root of the Git repository that contains the current folder"
     )]
@@ -231,7 +288,7 @@ enum CommandArguments {
         version: Option<String>,
     },
     #[command(
-        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, and trend tools"
+        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, and trace tools"
     )]
     Mcp,
 }
@@ -280,6 +337,23 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             destination: report_destination(&current_folder, output)?,
             format,
             result_cache: result_cache_folder_of_this_process(&current_folder),
+            plugin_host: plugin_host_config_of_this_process(&current_folder),
+        },
+        CommandArguments::Trace {
+            from,
+            to,
+            all,
+            max_paths,
+            output,
+            format,
+        } => Command::Trace {
+            folder: current_folder.clone(),
+            from,
+            to,
+            all,
+            max_paths,
+            destination: report_destination(&current_folder, output)?,
+            format,
             plugin_host: plugin_host_config_of_this_process(&current_folder),
         },
         CommandArguments::Init => Command::Init {
