@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use codeint_config::{PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource};
 use codeint_model::{
     CodeModel, DeclaredDep, ExternalMetricMeasurement, FileModel, InvalidReferenceRange,
-    LanguagePlugin, LowerError, Manifest, MetricPlugin, MetricPluginError, ReferenceRanges,
-    RepoPath, WorkspaceError, language,
+    LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
+    ReferenceRanges, RepoPath, WorkspaceError, language,
 };
 
 mod fetch;
@@ -278,11 +278,18 @@ impl LanguagePlugin for WasmLanguagePlugin {
         self.resolve_imports_impl(repository_paths, manifests, requests)
     }
 
-    fn declared_dependencies(&self, manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+    fn declared_dependencies(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
         self.declared_dependencies_impl(manifests)
     }
 
-    fn entry_points(&self, repository_paths: &[RepoPath], manifests: Vec<Manifest>) -> Vec<String> {
+    fn entry_points(
+        &self,
+        repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
         self.entry_points_impl(repository_paths, manifests)
     }
 

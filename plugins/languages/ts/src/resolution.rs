@@ -1,5 +1,7 @@
 mod packages;
 mod snapshot;
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashSet;
 
@@ -130,7 +132,8 @@ impl ProjectResolver {
         if is_relative(specifier) || specifier.starts_with('#') {
             return false;
         }
-        if self.package_names.contains(package_name(specifier)) {
+        let name = package_name(specifier);
+        if name.is_empty() || self.package_names.contains(name) {
             return false;
         }
         let matches_path_alias = self
@@ -145,6 +148,11 @@ impl ProjectResolver {
 }
 
 fn precheck_specifier(importer: &str, specifier: &str) -> Option<Resolution> {
+    if specifier.is_empty() {
+        return Some(Resolution::Unresolved(
+            "import specifier is empty".to_owned(),
+        ));
+    }
     if specifier.starts_with('/') {
         return Some(Resolution::Unresolved(format!(
             "{specifier:?} is an absolute path, which depends on the machine"
@@ -190,12 +198,15 @@ fn leaves_the_repository(importer: &str, specifier: &str) -> bool {
 }
 
 fn package_name(specifier: &str) -> &str {
-    let segments = if specifier.starts_with('@') { 2 } else { 1 };
-    let end = specifier
+    let clean = specifier
+        .split_once(['?', '#'])
+        .map_or(specifier, |(head, _)| head);
+    let segments = if clean.starts_with('@') { 2 } else { 1 };
+    let end = clean
         .match_indices('/')
         .nth(segments - 1)
-        .map_or(specifier.len(), |(index, _)| index);
-    &specifier[..end]
+        .map_or(clean.len(), |(index, _)| index);
+    &clean[..end]
 }
 
 fn alias_matches(key: &str, specifier: &str) -> bool {

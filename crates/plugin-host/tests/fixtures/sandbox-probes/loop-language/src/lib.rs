@@ -13,13 +13,26 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    SourceSet, WorkspaceError,
+    DeclaredDep, DepKind, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange,
+    Resolution, SourceSet, WorkspaceError,
 };
 
 struct LoopLanguagePlugin;
 
 export!(LoopLanguagePlugin);
+
+fn trigger_loop_or_trap(manifests: &[Manifest]) {
+    for manifest in manifests {
+        if manifest.text.contains("LOOP_FOREVER") {
+            loop {
+                core::hint::spin_loop();
+            }
+        }
+        if manifest.text.contains("PANIC_TRAP") {
+            panic!("probe trap");
+        }
+    }
+}
 
 impl Guest for LoopLanguagePlugin {
     fn extensions() -> Vec<String> {
@@ -58,12 +71,18 @@ impl Guest for LoopLanguagePlugin {
         Vec::new()
     }
 
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        trigger_loop_or_trap(&manifests);
+        vec![DeclaredDep {
+            package_root: String::new(),
+            name: "healthy-dep".to_string(),
+            kind: DepKind::Runtime,
+        }]
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        trigger_loop_or_trap(&manifests);
+        repository_paths.into_iter().take(1).collect()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

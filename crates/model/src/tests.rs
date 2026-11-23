@@ -1,10 +1,11 @@
 use super::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    SourceSet, WorkspaceError,
+    DeclaredDep, DepKind, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange,
+    Resolution, SourceSet, WorkspaceError,
 };
 use super::{
-    CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, Package, ReferenceRanges,
-    RepoPath, RuntimeImport, SourceFile, Workspace, token_text_hash,
+    CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, LanguagePluginError,
+    Package, ReferenceRanges, RepoPath, RuntimeImport, SourceFile, Workspace, token_text_hash,
+    validate_declared_dependencies, validate_entry_points,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -254,4 +255,72 @@ fn the_token_text_hash_is_64_bit_fnv_1a() {
     assert_eq!(token_text_hash(""), 0xcbf2_9ce4_8422_2325);
     assert_eq!(token_text_hash("a"), 0xaf63_dc4c_8601_ec8c);
     assert_eq!(token_text_hash("foobar"), 0x8594_4171_f739_67e8);
+}
+
+#[test]
+fn validate_entry_points_rejects_traversal_absolute_and_unknown_paths() {
+    let repo_paths = vec![RepoPath::new("src/main.ts").expect("valid path")];
+    assert_eq!(
+        validate_entry_points(&repo_paths, vec!["src/main.ts".to_owned()])
+            .expect("known repo path succeeds"),
+        repo_paths
+    );
+    assert!(matches!(
+        validate_entry_points(&repo_paths, vec!["../../../etc/passwd".to_owned()]),
+        Err(LanguagePluginError::InvalidEntryPointPath { ref path }) if path == "../../../etc/passwd"
+    ));
+    assert!(matches!(
+        validate_entry_points(&repo_paths, vec!["/etc/shadow".to_owned()]),
+        Err(LanguagePluginError::InvalidEntryPointPath { ref path }) if path == "/etc/shadow"
+    ));
+    assert!(matches!(
+        validate_entry_points(&repo_paths, vec!["src/missing.ts".to_owned()]),
+        Err(LanguagePluginError::UnknownEntryPoint { ref path }) if path == "src/missing.ts"
+    ));
+}
+
+#[test]
+fn validate_declared_dependencies_rejects_invalid_package_roots_and_empty_names() {
+    let valid = vec![
+        DeclaredDep {
+            package_root: String::new(),
+            name: "serde".to_owned(),
+            kind: DepKind::Runtime,
+        },
+        DeclaredDep {
+            package_root: "packages/app".to_owned(),
+            name: "@scope/pkg".to_owned(),
+            kind: DepKind::Dev,
+        },
+    ];
+    assert_eq!(
+        validate_declared_dependencies(valid.clone()).expect("valid deps succeed"),
+        valid
+    );
+    for bad_root in ["../escape", "/etc", "packages\\app", "packages/app/"] {
+        let result = validate_declared_dependencies(vec![DeclaredDep {
+            package_root: bad_root.to_owned(),
+            name: "serde".to_owned(),
+            kind: DepKind::Runtime,
+        }]);
+        assert!(
+            matches!(
+                result,
+                Err(LanguagePluginError::InvalidDependencyPackageRoot { ref package_root })
+                    if package_root == bad_root
+            ),
+            "expected invalid package root error for {bad_root:?}, got {result:?}"
+        );
+    }
+    for bad_name in ["", "   "] {
+        let result = validate_declared_dependencies(vec![DeclaredDep {
+            package_root: String::new(),
+            name: bad_name.to_owned(),
+            kind: DepKind::Runtime,
+        }]);
+        assert!(
+            matches!(result, Err(LanguagePluginError::EmptyDependencyName { .. })),
+            "expected empty dependency name error for {bad_name:?}, got {result:?}"
+        );
+    }
 }
