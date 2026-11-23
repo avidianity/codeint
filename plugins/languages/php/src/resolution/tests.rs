@@ -7,9 +7,15 @@ use crate::builtins::{builtin_tables, is_builtin_symbol};
 
 #[test]
 fn php_builtin_tables_are_strictly_sorted_and_case_insensitive() {
-    let (namespaces, globals) = builtin_tables();
+    let (namespaces, composer_runtime, globals) = builtin_tables();
     for pair in namespaces.windows(2) {
         assert!(pair[0] < pair[1], "unsorted PHP namespaces: {pair:?}");
+    }
+    for pair in composer_runtime.windows(2) {
+        assert!(
+            pair[0] < pair[1],
+            "unsorted Composer runtime segments: {pair:?}"
+        );
     }
     for pair in globals.windows(2) {
         assert!(pair[0] < pair[1], "unsorted PHP globals: {pair:?}");
@@ -23,6 +29,11 @@ fn php_builtin_tables_are_strictly_sorted_and_case_insensitive() {
         "Random\\Randomizer",
         "Dom\\HTMLDocument",
         "Pdo\\Mysql",
+        "Pdo\\Sqlite",
+        "BcMath\\Number",
+        "Uri\\Rfc3986\\Uri",
+        "Composer\\InstalledVersions",
+        "Composer\\Autoload\\ClassLoader",
     ] {
         assert!(is_builtin_symbol(sym), "expected PHP builtin {sym}");
     }
@@ -30,6 +41,10 @@ fn php_builtin_tables_are_strictly_sorted_and_case_insensitive() {
         "Carbon",
         "Illuminate\\Support\\Collection",
         "Monolog\\Logger",
+        "Composer\\Semver\\VersionParser",
+        "Composer\\CaBundle\\CaBundle",
+        "Xml\\Parser\\Reader",
+        "OpenSSL\\Wrapper\\Cipher",
     ] {
         assert!(!is_builtin_symbol(ext), "unexpected PHP builtin {ext}");
     }
@@ -130,6 +145,183 @@ fn psr4_collision_resolves_declared_composer_subpackages_and_globals_are_never_e
         check("use:GuzzleHttp\\MissingInternal"),
         Resolution::Unresolved(_)
     ));
+    assert!(matches!(
+        check("use:GuzzleHttp\\MissingDir\\Promise"),
+        Resolution::Unresolved(_)
+    ));
+    assert!(matches!(
+        check("use:GuzzleHttp\\Handler\\Psr7"),
+        Resolution::Unresolved(_)
+    ));
     assert_eq!(check("use:CarbonTimezoneTrait"), Resolution::Builtin);
     assert_eq!(check("use:SubCarbon"), Resolution::Builtin);
+}
+
+fn assert_declared_normalizations(declared: &[&str], cases: &[(&str, &str)]) {
+    let set: HashSet<String> = declared.iter().map(|s| (*s).to_owned()).collect();
+    for &(ns, expected) in cases {
+        assert_eq!(
+            normalize_external_namespace(ns, &set),
+            expected,
+            "namespace {ns}"
+        );
+    }
+}
+
+#[test]
+fn multi_segment_declared_matching_handles_psr_symfony_and_unique_package_names() {
+    assert_declared_normalizations(
+        &[
+            "psr/http-message",
+            "psr/http-client",
+            "psr/http-factory",
+            "psr/http-server-handler",
+            "psr/log",
+            "symfony/translation",
+            "symfony/translation-contracts",
+            "symfony/clock",
+            "symfony/twig-bridge",
+            "symfony/ux-turbo",
+            "symfony/security-core",
+            "friendsofphp/php-cs-fixer",
+            "league/flysystem",
+            "league/flysystem-aws-s3-v3",
+        ],
+        &[
+            ("Psr\\Http\\Message\\RequestInterface", "psr/http-message"),
+            ("Psr\\Http\\Client\\ClientInterface", "psr/http-client"),
+            (
+                "Psr\\Http\\Factory\\StreamFactoryInterface",
+                "psr/http-factory",
+            ),
+            (
+                "Psr\\Http\\Message\\StreamFactoryInterface",
+                "psr/http-factory",
+            ),
+            (
+                "Psr\\Http\\Server\\RequestHandlerInterface",
+                "psr/http-server-handler",
+            ),
+            ("Psr\\Log\\LoggerInterface", "psr/log"),
+            (
+                "Symfony\\Component\\Translation\\Translator",
+                "symfony/translation",
+            ),
+            ("Symfony\\Component\\Clock\\NativeClock", "symfony/clock"),
+            (
+                "Symfony\\Contracts\\Translation\\TranslatorInterface",
+                "symfony/translation-contracts",
+            ),
+            (
+                "Symfony\\Bridge\\Twig\\Extension\\AssetExtension",
+                "symfony/twig-bridge",
+            ),
+            ("Symfony\\UX\\Turbo\\TurboBundle", "symfony/ux-turbo"),
+            (
+                "Symfony\\Component\\Security\\Core\\User\\UserInterface",
+                "symfony/security-core",
+            ),
+            ("PhpCsFixer\\Config", "friendsofphp/php-cs-fixer"),
+            (
+                "League\\Flysystem\\AwsS3V3\\AwsS3V3Adapter",
+                "league/flysystem-aws-s3-v3",
+            ),
+            ("League\\Flysystem\\Filesystem", "league/flysystem"),
+            ("Vendor\\Unlisted\\Thing", "vendor/unlisted"),
+        ],
+    );
+}
+
+#[test]
+fn ambiguous_declared_package_names_do_not_guess_vendor() {
+    assert_declared_normalizations(
+        &["friendsofphp/php-cs-fixer", "acme/php-cs-fixer"],
+        &[("PhpCsFixer\\Config", "phpcsfixer/config")],
+    );
+}
+
+#[test]
+fn class_words_and_leaf_segments_do_not_hijack_sibling_packages() {
+    assert_declared_normalizations(
+        &[
+            "league/oauth2-client",
+            "league/oauth2-server",
+            "doctrine/annotations",
+            "doctrine/lexer",
+            "psr/log",
+        ],
+        &[
+            (
+                "League\\OAuth2\\Server\\Entities\\ClientEntityInterface",
+                "league/oauth2-server",
+            ),
+            ("Doctrine\\Annotations\\Lexer", "doctrine/annotations"),
+            ("Psr\\Something\\Log", "psr/something"),
+        ],
+    );
+    assert_declared_normalizations(
+        &["league/oauth2-client", "doctrine/lexer"],
+        &[
+            (
+                "League\\OAuth2\\Server\\Entities\\ClientEntityInterface",
+                "league/o-auth2",
+            ),
+            ("Doctrine\\Annotations\\Lexer", "doctrine/annotations"),
+        ],
+    );
+}
+
+#[test]
+fn single_word_roots_and_joined_pairs_do_not_cross_vendor_hijack() {
+    assert_declared_normalizations(
+        &[
+            "symfony/dotenv",
+            "symfony/http-client",
+            "psr/http-message",
+            "nikic/php-parser",
+        ],
+        &[
+            ("Dotenv\\Dotenv", "dotenv/dotenv"),
+            ("Http\\Message\\RequestFactory", "http/message"),
+            ("Http\\Client\\HttpClient", "http/client"),
+            ("PhpParser\\Node", "nikic/php-parser"),
+        ],
+    );
+}
+
+#[test]
+fn contracts_prefer_umbrella_while_common_prefers_split_packages_and_strips_trailing_hyphens() {
+    assert_declared_normalizations(
+        &[
+            "symfony/contracts",
+            "symfony/translation",
+            "doctrine/common",
+            "doctrine/collections",
+            "acme/cache-contracts",
+        ],
+        &[
+            (
+                "Symfony\\Contracts\\Translation\\TranslatorInterface",
+                "symfony/contracts",
+            ),
+            (
+                "Doctrine\\Common\\Collections\\ArrayCollection",
+                "doctrine/collections",
+            ),
+            ("Doctrine\\Common\\Util\\ClassUtils", "doctrine/common"),
+            ("Acme\\Contract\\Cache\\Store", "acme/cache-contracts"),
+        ],
+    );
+    assert_declared_normalizations(
+        &[
+            "symfony/contracts",
+            "symfony/translation",
+            "symfony/translation-contracts",
+        ],
+        &[(
+            "Symfony\\Contracts\\Translation\\TranslatorInterface",
+            "symfony/translation-contracts",
+        )],
+    );
+    assert_declared_normalizations(&[], &[("Foo_", "foo"), ("Acme\\Foo_\\Bar", "acme/foo")]);
 }
