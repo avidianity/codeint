@@ -7,6 +7,7 @@ mod guard;
 mod init;
 mod mcp;
 mod remedy;
+mod report;
 mod trend;
 mod update;
 
@@ -16,7 +17,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
+use codeint_config::{
+    Command, ConfigError, ReportDestination, ReportInput, ReportRenderFormat, read_invocation,
+};
 use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
@@ -24,7 +27,7 @@ pub use codeint_config::{
     CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
     TrendRange,
 };
-pub use codeint_report::{DiffReport, GuardReport, Report, TrendReport};
+pub use codeint_report::{DiffReport, GuardReport, Report, SavedReport, TrendReport};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -202,6 +205,8 @@ enum CliError {
     Update(#[from] update::UpdateError),
     #[error(transparent)]
     Report(#[from] ReportError),
+    #[error(transparent)]
+    Rerender(#[from] report::RerenderError),
     #[error("cannot write the report to standard output")]
     Output(#[source] std::io::Error),
     #[error("cannot write the report to {}", path.display())]
@@ -304,7 +309,22 @@ fn run() -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Report {
+            input,
+            destination,
+            format,
+        } => run_report(&input, &destination, format),
     }
+}
+
+fn run_report(
+    input: &ReportInput,
+    destination: &ReportDestination,
+    format: ReportRenderFormat,
+) -> Result<Outcome, CliError> {
+    let rendered = report::rerender(input, format)?;
+    write_report(&rendered, destination)?;
+    Ok(Outcome::Passed)
 }
 
 fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {

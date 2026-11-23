@@ -75,6 +75,12 @@ pub enum ReportDestination {
     File(PathBuf),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportInput {
+    StandardInput,
+    File(PathBuf),
+}
+
 const WORST_FINDINGS_PER_METRIC: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +95,26 @@ pub enum ReportFormat {
     Json,
     Sarif,
     Markdown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ReportRenderFormat {
+    Toon,
+    Json,
+    Sarif,
+    Markdown,
+    Text,
+}
+
+impl ReportRenderFormat {
+    pub fn as_report_format(self) -> ReportFormat {
+        match self {
+            ReportRenderFormat::Toon | ReportRenderFormat::Text => ReportFormat::Toon,
+            ReportRenderFormat::Json => ReportFormat::Json,
+            ReportRenderFormat::Sarif => ReportFormat::Sarif,
+            ReportRenderFormat::Markdown => ReportFormat::Markdown,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -157,6 +183,11 @@ pub enum Command {
         folder: PathBuf,
         target: PathBuf,
         format: GuardFormat,
+    },
+    Report {
+        input: ReportInput,
+        destination: ReportDestination,
+        format: ReportRenderFormat,
     },
 }
 
@@ -268,6 +299,29 @@ enum CommandArguments {
         )]
         format: GuardFormat,
     },
+    #[command(
+        about = "Re-render a saved check or diff JSON report into another format without re-running analysis"
+    )]
+    Report {
+        #[arg(
+            value_name = "INPUT",
+            help = "Path to a saved check or diff JSON report, or - to read from standard input"
+        )]
+        input: PathBuf,
+        #[arg(
+            long,
+            value_name = "FILE",
+            help = "Write the report to this file instead of standard output"
+        )]
+        output: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = ReportRenderFormat::Toon,
+            help = "The format of the report"
+        )]
+        format: ReportRenderFormat,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -328,7 +382,30 @@ fn build_command(
             target: path,
             format,
         }),
+        CommandArguments::Report {
+            input,
+            output,
+            format,
+        } => build_report_command(current_folder, input, output, format),
     }
+}
+
+fn build_report_command(
+    current_folder: &Path,
+    input: PathBuf,
+    output: Option<PathBuf>,
+    format: ReportRenderFormat,
+) -> Result<Command, ConfigError> {
+    let source = if input.as_os_str() == "-" {
+        ReportInput::StandardInput
+    } else {
+        ReportInput::File(input)
+    };
+    Ok(Command::Report {
+        input: source,
+        destination: report_destination(current_folder, output)?,
+        format,
+    })
 }
 
 fn build_trend_command(

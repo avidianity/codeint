@@ -30,6 +30,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `guard` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -512,6 +513,36 @@ codeint guard src/route.ts
 codeint guard src/route.ts --format text
 codeint guard src/route.ts --format toon
 codeint guard src/route.ts --format json
+```
+
+### `codeint report`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<INPUT>` | Path to a saved `check` or `diff` JSON report, or `-` to read from standard input |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, `markdown`, or `text` |
+| `-h, --help` | Print the help of `codeint report` |
+
+`codeint report` re-renders a saved `codeint check --format json` or `codeint diff --format json` payload into another format without re-running analysis.
+Pass `-` as `<INPUT>` to read the JSON payload from standard input.
+`--format text` prints the same compact text report as `--format toon`.
+
+```sh exit=0
+codeint report report.json --format toon
+codeint report report.json --format json
+codeint report report.json --format sarif --output report.sarif
+codeint report report.json --format markdown
+codeint report report.json --format text
+```
+
+An input file that does not exist, malformed JSON, or an unsupported report schema version stops the run with exit code 2:
+
+```sh exit=2
+codeint report missing.json --format sarif
 ```
 
 ## Exit codes
