@@ -3,6 +3,7 @@
 mod check;
 mod churn;
 mod commit_measurement;
+mod coupling;
 mod diff;
 mod guard;
 mod init;
@@ -22,10 +23,13 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, FindingsShown, GuardFormat,
-    PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, CouplingRatio, CouplingRatioError,
+    CouplingSettings, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
+    TrendRange,
 };
-pub use codeint_report::{ChurnReport, DiffReport, GuardReport, Report, TrendReport};
+pub use codeint_report::{
+    ChurnReport, CouplingReport, DiffReport, GuardReport, Report, TrendReport,
+};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -92,6 +96,23 @@ impl Default for ChurnOptions {
     fn default() -> ChurnOptions {
         ChurnOptions {
             window: ChurnWindow::default(),
+            findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
+            plugin_host: PluginHostConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CouplingOptions {
+    pub settings: CouplingSettings,
+    pub findings: FindingsShown,
+    pub plugin_host: PluginHostConfig,
+}
+
+impl Default for CouplingOptions {
+    fn default() -> CouplingOptions {
+        CouplingOptions {
+            settings: CouplingSettings::default(),
             findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
             plugin_host: PluginHostConfig::default(),
         }
@@ -210,6 +231,16 @@ pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, Codei
     churn::churn(
         folder,
         options.window,
+        options.findings,
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingReport, CodeintError> {
+    coupling::coupling(
+        folder,
+        options.settings,
         options.findings,
         &options.plugin_host,
     )
@@ -347,6 +378,21 @@ fn run() -> Result<Outcome, CliError> {
             format,
             &plugin_host,
         ),
+        Command::Coupling {
+            folder,
+            settings,
+            destination,
+            findings,
+            format,
+            plugin_host,
+        } => run_coupling(
+            &folder,
+            settings,
+            &destination,
+            findings,
+            format,
+            &plugin_host,
+        ),
     }
 }
 
@@ -359,6 +405,19 @@ fn run_churn(
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
     let report = churn::churn(folder, window, findings, plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_coupling(
+    folder: &Path,
+    settings: CouplingSettings,
+    destination: &ReportDestination,
+    findings: FindingsShown,
+    format: ChurnFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = coupling::coupling(folder, settings, findings, plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::Passed)
 }

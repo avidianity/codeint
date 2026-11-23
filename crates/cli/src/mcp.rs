@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, FindingsShown, GuardFormat,
-    PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings,
+    FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
 };
 use serde_json::{Value, json};
 
 use crate::{
-    CheckOptions, ChurnOptions, DiffOptions, TrendOptions, check, churn, diff, guard, trend,
+    CheckOptions, ChurnOptions, CouplingOptions, DiffOptions, TrendOptions, check, churn, coupling,
+    diff, guard, trend,
 };
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
@@ -185,6 +186,23 @@ fn handle_tools_list() -> Value {
                         "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                     }
                 }
+            },
+            {
+                "name": "coupling",
+                "description": "Detect pairs of files that repeatedly change together in the same commits, excluding bulk commits and flagging direct runtime imports.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
+                        "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
+                        "max_commit_files": { "type": "integer", "minimum": 1, "description": "Exclude commits touching more than this many files (defaults to 50)." },
+                        "min_co_changes": { "type": "integer", "minimum": 1, "description": "Minimum co-changing commits required to report a pair (defaults to 3)." },
+                        "min_ratio": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum coupling ratio between 0 and 1 required to report a pair (defaults to 0.3)." },
+                        "include_tests": { "type": "boolean", "description": "Include Test Source set files alongside Production files (defaults to false)." },
+                        "all": { "type": "boolean", "description": "Return all coupled pairs instead of the top 20." }
+                    }
+                }
             }
         ]
     })
@@ -205,6 +223,7 @@ fn handle_tools_call(
         "trend" => Ok(call_trend(args, ctx)),
         "guard" => Ok(call_guard(args, ctx)),
         "churn" => Ok(call_churn(args, ctx)),
+        "coupling" => Ok(call_coupling(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
 }
@@ -334,6 +353,76 @@ fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     render_json_tool(churn(&folder, &options), |report| {
         report.render(ChurnFormat::Json)
     })
+}
+
+fn call_coupling(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let settings = match parse_coupling_settings(args) {
+        Ok(settings) => settings,
+        Err(err) => return err,
+    };
+    let folder = resolve_folder(args, ctx.default_folder);
+    let options = CouplingOptions {
+        settings,
+        findings: parse_findings(args),
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    render_json_tool(coupling(&folder, &options), |report| {
+        report.render(ChurnFormat::Json)
+    })
+}
+
+fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, Value> {
+    let defaults = CouplingSettings::default();
+    let window = parse_churn_window(args)?;
+    let max_commit_files = parse_optional_arg(
+        args,
+        "max_commit_files",
+        defaults.max_commit_files,
+        |value| parse_positive_usize(value, "max_commit_files"),
+    )?;
+    let min_co_changes =
+        parse_optional_arg(args, "min_co_changes", defaults.min_co_changes, |value| {
+            parse_positive_usize(value, "min_co_changes")
+        })?;
+    let min_ratio = parse_optional_arg(args, "min_ratio", defaults.min_ratio, parse_ratio)?;
+    let include_tests = args
+        .and_then(|a| a.get("include_tests"))
+        .and_then(Value::as_bool)
+        .unwrap_or(defaults.include_tests);
+    Ok(CouplingSettings {
+        window,
+        max_commit_files,
+        min_co_changes,
+        min_ratio,
+        include_tests,
+    })
+}
+
+fn parse_optional_arg<T>(
+    args: Option<&Value>,
+    name: &str,
+    default: T,
+    parse: impl FnOnce(&Value) -> Result<T, Value>,
+) -> Result<T, Value> {
+    match args.and_then(|a| a.get(name)).filter(|v| !v.is_null()) {
+        Some(value) => parse(value),
+        None => Ok(default),
+    }
+}
+
+fn parse_positive_usize(value: &Value, name: &str) -> Result<usize, Value> {
+    value
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|&n| n > 0)
+        .ok_or_else(|| tool_err(&format!("Argument {name} must be a positive integer")))
+}
+
+fn parse_ratio(value: &Value) -> Result<CouplingRatio, Value> {
+    let ratio = value
+        .as_f64()
+        .ok_or_else(|| tool_err("Argument min_ratio must be a number between 0 and 1"))?;
+    CouplingRatio::new(ratio).map_err(|err| tool_err(&format!("Invalid min_ratio: {err}")))
 }
 
 fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, Value> {

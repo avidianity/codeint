@@ -26,7 +26,7 @@ pub(crate) fn churn(
     Ok(ChurnReport::summarize(languages, &input, findings))
 }
 
-fn churn_range(window: ChurnWindow) -> ChurnRange {
+pub(crate) fn churn_range(window: ChurnWindow) -> ChurnRange {
     match window {
         ChurnWindow::Days(days) => ChurnRange::Days(days),
         ChurnWindow::Since(day) => ChurnRange::Since {

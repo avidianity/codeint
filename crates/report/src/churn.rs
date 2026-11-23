@@ -135,12 +135,7 @@ impl ChurnReport {
     }
 
     pub fn render(&self, format: ChurnFormat) -> Result<String, ReportError> {
-        match format {
-            ChurnFormat::Text => Ok(text::render(self)),
-            ChurnFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
-            ChurnFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
-            ChurnFormat::Markdown => Ok(markdown::render(self)),
-        }
+        render_churn_format(self, format, text::render, markdown::render)
     }
 
     fn named_source_sets(&self) -> impl Iterator<Item = (&'static str, &SourceSetChurnSection)> {
@@ -268,6 +263,20 @@ impl DuplicationChurnSection {
             clone_lines: duplication.clone_lines.count(),
             findings: Findings::worst_first(rows.into_iter(), shown),
         }
+    }
+}
+
+pub(crate) fn render_churn_format<T: Serialize>(
+    report: &T,
+    format: ChurnFormat,
+    render_text: impl FnOnce(&T) -> String,
+    render_markdown: impl FnOnce(&T) -> String,
+) -> Result<String, ReportError> {
+    match format {
+        ChurnFormat::Text => Ok(render_text(report)),
+        ChurnFormat::Toon => toon_format::encode_default(report).map_err(ReportError::Toon),
+        ChurnFormat::Json => serde_json::to_string_pretty(report).map_err(ReportError::Json),
+        ChurnFormat::Markdown => Ok(render_markdown(report)),
     }
 }
 

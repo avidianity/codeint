@@ -19,6 +19,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
 mod churn;
+mod coupling;
 mod diff;
 mod guard;
 mod markdown;
@@ -29,6 +30,7 @@ mod tests;
 mod trend;
 
 pub use churn::{ChurnHistoryInput, ChurnReport};
+pub use coupling::{CouplingHistoryInput, CouplingReport};
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use measurement::CommitMeasurement;

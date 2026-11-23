@@ -13,7 +13,7 @@ mod churn;
 mod history;
 mod result_cache;
 
-pub use churn::{ChurnRange, FileChurnSummary};
+pub use churn::{ChurnRange, CoChangeSummary, FileChurnSummary};
 pub use history::{CommitRange, HistoryCommit};
 pub use result_cache::{ResultCache, ResultCacheError};
 

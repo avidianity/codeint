@@ -23,6 +23,22 @@ pub struct FileChurnSummary {
     pub touches_by_file: BTreeMap<RepoPath, usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoChangeSummary {
+    pub commits_analyzed: usize,
+    pub commits_excluded_by_bulk_limit: usize,
+    pub shallow: bool,
+    pub truncated_by_shallow_boundary: bool,
+    pub touches_by_file: BTreeMap<RepoPath, usize>,
+    pub co_changes: BTreeMap<(RepoPath, RepoPath), usize>,
+}
+
+struct WalkOutcome {
+    commits_analyzed: usize,
+    shallow: bool,
+    truncated_by_shallow_boundary: bool,
+}
+
 enum EffectiveRange {
     Commits(usize),
     Since(i64),
@@ -49,6 +65,62 @@ impl EffectiveRange {
 
 impl Repository {
     pub fn file_churn(&self, range: ChurnRange) -> Result<FileChurnSummary, GitError> {
+        let mut touches_by_file: BTreeMap<RepoPath, usize> = BTreeMap::new();
+        let outcome = self.walk_touched_commits(range, |touched| {
+            for path in touched {
+                *touches_by_file.entry(path).or_insert(0) += 1;
+            }
+        })?;
+        Ok(FileChurnSummary {
+            commits_analyzed: outcome.commits_analyzed,
+            shallow: outcome.shallow,
+            truncated_by_shallow_boundary: outcome.truncated_by_shallow_boundary,
+            touches_by_file,
+        })
+    }
+
+    pub fn co_change_coupling(
+        &self,
+        range: ChurnRange,
+        max_commit_files: usize,
+        allowed_paths: &BTreeSet<RepoPath>,
+    ) -> Result<CoChangeSummary, GitError> {
+        let mut commits_excluded_by_bulk_limit = 0usize;
+        let mut touches_by_file: BTreeMap<RepoPath, usize> = BTreeMap::new();
+        let mut co_changes: BTreeMap<(RepoPath, RepoPath), usize> = BTreeMap::new();
+        let outcome = self.walk_touched_commits(range, |touched| {
+            if touched.len() > max_commit_files {
+                commits_excluded_by_bulk_limit += 1;
+                return;
+            }
+            let measured: Vec<RepoPath> = touched
+                .into_iter()
+                .filter(|path| allowed_paths.contains(path))
+                .collect();
+            for path in &measured {
+                *touches_by_file.entry(path.clone()).or_insert(0) += 1;
+            }
+            for (index, left) in measured.iter().enumerate() {
+                for right in &measured[index + 1..] {
+                    *co_changes.entry((left.clone(), right.clone())).or_insert(0) += 1;
+                }
+            }
+        })?;
+        Ok(CoChangeSummary {
+            commits_analyzed: outcome.commits_analyzed,
+            commits_excluded_by_bulk_limit,
+            shallow: outcome.shallow,
+            truncated_by_shallow_boundary: outcome.truncated_by_shallow_boundary,
+            touches_by_file,
+            co_changes,
+        })
+    }
+
+    fn walk_touched_commits(
+        &self,
+        range: ChurnRange,
+        on_commit: impl FnMut(BTreeSet<RepoPath>),
+    ) -> Result<WalkOutcome, GitError> {
         let head = self.repository.head_id().map_err(GitError::NoHistory)?;
         let shallow_boundary = self
             .repository
@@ -73,19 +145,25 @@ impl Repository {
             })?
             .seconds;
         let effective = EffectiveRange::from_head(range, head_time);
-        self.walk_churn(head_id, &effective, shallow, shallow_boundary.as_ref())
+        self.walk_commits(
+            head_id,
+            &effective,
+            shallow,
+            shallow_boundary.as_ref(),
+            on_commit,
+        )
     }
 
-    fn walk_churn(
+    fn walk_commits(
         &self,
         start: ObjectId,
         effective: &EffectiveRange,
         shallow: bool,
         shallow_boundary: Option<&gix::shallow::Commits>,
-    ) -> Result<FileChurnSummary, GitError> {
+        mut on_commit: impl FnMut(BTreeSet<RepoPath>),
+    ) -> Result<WalkOutcome, GitError> {
         let mut commits_analyzed = 0usize;
         let mut truncated_by_shallow_boundary = false;
-        let mut touches_by_file: BTreeMap<RepoPath, usize> = BTreeMap::new();
         let mut next = Some(start);
         while let Some(id) = next {
             let commit = CommitId(id);
@@ -109,16 +187,13 @@ impl Repository {
                 found.parent_ids().next().map(|parent| parent.detach())
             };
             let touched = self.touched_files_in_commit(commit, &found, parent_id)?;
-            for path in touched {
-                *touches_by_file.entry(path).or_insert(0) += 1;
-            }
+            on_commit(touched);
             next = parent_id;
         }
-        Ok(FileChurnSummary {
+        Ok(WalkOutcome {
             commits_analyzed,
             shallow,
             truncated_by_shallow_boundary,
-            touches_by_file,
         })
     }
 
