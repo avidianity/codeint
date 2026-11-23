@@ -51,25 +51,13 @@ pub struct AgentInstallEntry {
 
 impl AgentStatusReport {
     pub fn render(&self, format: AgentFormat) -> Result<String, ReportError> {
-        render_agent_report(format, self, format_status_text)
+        crate::render_text_report(self, format.into(), format_status_text)
     }
 }
 
 impl AgentInstallReport {
     pub fn render(&self, format: AgentFormat) -> Result<String, ReportError> {
-        render_agent_report(format, self, format_install_text)
-    }
-}
-
-fn render_agent_report<T: Serialize>(
-    format: AgentFormat,
-    report: &T,
-    to_text: fn(&T) -> String,
-) -> Result<String, ReportError> {
-    match format {
-        AgentFormat::Json => serde_json::to_string_pretty(report).map_err(ReportError::Json),
-        AgentFormat::Toon => toon_format::encode_default(report).map_err(ReportError::Toon),
-        AgentFormat::Text => Ok(to_text(report)),
+        crate::render_text_report(self, format.into(), format_install_text)
     }
 }
 

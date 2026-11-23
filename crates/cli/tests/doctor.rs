@@ -96,6 +96,13 @@ impl DoctorFixture {
         })
     }
 
+    fn run_toon(&self, expected_exit: i32) -> Value {
+        let output = self.run(&["--format", "toon"]);
+        assert_eq!(output.status.code(), Some(expected_exit));
+        toon_format::decode_default(std::str::from_utf8(&output.stdout).expect("utf8"))
+            .expect("valid TOON")
+    }
+
     fn run_text(&self, expected_exit: i32) -> String {
         let output = self.run(&[]);
         assert_eq!(output.status.code(), Some(expected_exit));
@@ -209,10 +216,7 @@ fn doctor_reports_healthy_repo_in_text_json_and_toon_and_is_strictly_read_only()
     assert!(!text.contains("Warnings:"), "text: {text}");
     assert!(!text.contains("Blocking errors:"), "text: {text}");
 
-    let toon_out = fixture.run(&["--format", "toon"]);
-    assert_eq!(toon_out.status.code(), Some(0));
-    let toon_text = String::from_utf8(toon_out.stdout).expect("utf8");
-    let decoded: Value = toon_format::decode_default(&toon_text).expect("valid TOON");
+    let decoded = fixture.run_toon(0);
     assert_eq!(decoded["status"], "pass");
     assert_eq!(decoded["summary"]["errors"], 0);
 

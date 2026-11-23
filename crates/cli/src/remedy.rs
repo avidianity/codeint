@@ -1,35 +1,63 @@
 use codeint_config::{ConfigError, ConfigurationFileError, StarterConfigurationError};
 use codeint_git::GitError;
+use codeint_metrics::ImpactError;
 use codeint_model::{MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
-
-use codeint_report::SavedReportError;
+use codeint_report::{SavedReportError, TraceError};
 
 use crate::CliError;
 use crate::agent::AgentError;
 use crate::check::CheckError;
 use crate::config::ConfigCommandError;
 use crate::guard::GuardError;
+use crate::impact::ImpactCommandError;
 use crate::init::InitError;
 use crate::report::RerenderError;
+use crate::trace::TraceCommandError;
 use crate::update::UpdateError;
 
 pub(crate) fn remedy(error: &CliError) -> &'static str {
+    use CliError::*;
     match error {
-        CliError::Config(error) => config_remedy(error),
-        CliError::ConfigCommand(error) => config_command_remedy(error),
-        CliError::Check(error) => check_remedy(error),
-        CliError::Guard(error) => guard_remedy(error),
-        CliError::Agent(error) => agent_remedy(error),
-        CliError::Init(error) => init_remedy(error),
-        CliError::Update(error) => update_remedy(error),
-        CliError::Report(_) => {
+        Config(error) => config_remedy(error),
+        ConfigCommand(error) => config_command_remedy(error),
+        Check(error) => check_remedy(error),
+        Guard(error) => guard_remedy(error),
+        Impact(error) => impact_remedy(error),
+        Trace(error) => trace_remedy(error),
+        other => tooling_remedy(other),
+    }
+}
+
+fn tooling_remedy(error: &CliError) -> &'static str {
+    use CliError::*;
+    match error {
+        Agent(error) => agent_remedy(error),
+        Init(error) => init_remedy(error),
+        Update(error) => update_remedy(error),
+        Report(_) => {
             "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
         }
-        CliError::Rerender(error) => rerender_remedy(error),
-        CliError::Output(_) => "Keep standard output open until codeint exits.",
-        CliError::OutputFile { .. } => {
+        Rerender(error) => rerender_remedy(error),
+        Output(_) => "Keep standard output open until codeint exits.",
+        OutputFile { .. } => {
             "Pass --output a file path that you have permission to write, not a folder."
+        }
+        Config(_) | ConfigCommand(_) | Check(_) | Guard(_) | Impact(_) | Trace(_) => {
+            unreachable!("handled by remedy")
+        }
+    }
+}
+
+fn trace_remedy(error: &TraceCommandError) -> &'static str {
+    match error {
+        TraceCommandError::Check(error) => check_remedy(error),
+        TraceCommandError::UnknownModule { .. }
+        | TraceCommandError::Trace(TraceError::UnknownModule { .. }) => {
+            "Pass repository-relative paths of files measured by codeint (not ignored, unparsable, declaration-only, or outside the repository)."
+        }
+        TraceCommandError::Trace(TraceError::InvalidMaxPaths) => {
+            "Pass a positive integer (at least 1) for --max-paths."
         }
     }
 }
@@ -49,6 +77,9 @@ fn check_remedy(error: &CheckError) -> &'static str {
         CheckError::MetricPlugin(error) => metric_plugin_remedy(error),
         CheckError::ExtensionConflict { .. } => {
             "Assign separate directories to each Language plugin in the languages setting of codeint.json."
+        }
+        CheckError::UnknownWorkspacePackage { .. } => {
+            "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository."
         }
     }
 }
@@ -92,6 +123,24 @@ fn agent_remedy(error: &AgentError) -> &'static str {
     }
 }
 
+fn impact_remedy(error: &ImpactCommandError) -> &'static str {
+    match error {
+        ImpactCommandError::Check(error) => check_remedy(error),
+        ImpactCommandError::Analysis(ImpactError::TargetNotInCodeModel { .. }) => {
+            "Pass a tracked or non-ignored source file that a Language plugin measures, or check the file path."
+        }
+        ImpactCommandError::MissingTargets => {
+            "Pass one or more repository file paths, or pass --changed <base> to analyze changed files."
+        }
+        ImpactCommandError::PathOutsideRepository { .. } => {
+            "Pass a file path inside the Git repository."
+        }
+        ImpactCommandError::InvalidTargetPath { .. } => {
+            "Pass a repository-relative file path using forward slashes."
+        }
+    }
+}
+
 fn init_remedy(error: &InitError) -> &'static str {
     match error {
         InitError::Git(GitError::NotInRepository { .. }) => {
@@ -101,7 +150,6 @@ fn init_remedy(error: &InitError) -> &'static str {
         InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
     }
 }
-
 fn update_remedy(error: &UpdateError) -> &'static str {
     match error {
         UpdateError::ManagedByPackageManager { .. } => {

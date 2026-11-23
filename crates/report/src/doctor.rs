@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use codeint_config::DoctorFormat;
 use serde::Serialize;
 
-use crate::{ReportError, render_structured};
+use crate::{ReportError, render_text_report};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -133,7 +133,7 @@ impl DoctorReport {
     }
 
     pub fn render(&self, format: DoctorFormat) -> Result<String, ReportError> {
-        render_structured(self, format, DoctorReport::render_text)
+        render_text_report(self, format.into(), DoctorReport::render_text)
     }
 
     fn render_text(&self) -> String {

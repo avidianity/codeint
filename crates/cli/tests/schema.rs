@@ -142,6 +142,7 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
             "--all".to_owned(),
             "--format".to_owned(),
             "--output".to_owned(),
+            "--package".to_owned(),
         ])
     );
     let diff_cmd = find_command(&manifest, "diff");
@@ -152,6 +153,7 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
             "--format".to_owned(),
             "--head".to_owned(),
             "--output".to_owned(),
+            "--package".to_owned(),
         ])
     );
     assert_eq!(diff_cmd["arguments"][0]["value_name"], "BASE_REF");

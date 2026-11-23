@@ -102,6 +102,12 @@ pub enum FindingsShown {
     All,
 }
 
+impl Default for FindingsShown {
+    fn default() -> FindingsShown {
+        FindingsShown::WorstPerMetric(WORST_FINDINGS_PER_METRIC)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ReportFormat {
     Toon,
@@ -172,6 +178,20 @@ pub enum DoctorFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ImpactFormat {
+    Toon,
+    Json,
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TraceFormat {
+    Toon,
+    Json,
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum AgentClient {
     ClaudeCode,
     Cursor,
@@ -217,12 +237,19 @@ pub enum AgentCommand {
     },
 }
 
+pub const DEFAULT_MAX_TRACE_PATHS: usize = 10;
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrendRange {
     Latest(usize),
     Since(CalendarDay),
+}
+
+impl Default for TrendRange {
+    fn default() -> TrendRange {
+        TrendRange::Latest(LATEST_COMMITS_OF_A_TREND)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -232,6 +259,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        package: Option<String>,
         plugin_host: PluginHostConfig,
     },
     Diff {
@@ -241,6 +269,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        package: Option<String>,
         result_cache: Option<PathBuf>,
         plugin_host: PluginHostConfig,
     },
@@ -250,6 +279,27 @@ pub enum Command {
         destination: ReportDestination,
         format: TrendFormat,
         result_cache: Option<PathBuf>,
+        plugin_host: PluginHostConfig,
+    },
+    Impact {
+        folder: PathBuf,
+        paths: Vec<String>,
+        changed: Option<String>,
+        depth: Option<usize>,
+        package: Option<String>,
+        destination: ReportDestination,
+        format: ImpactFormat,
+        plugin_host: PluginHostConfig,
+    },
+    Trace {
+        folder: PathBuf,
+        from: String,
+        to: String,
+        all: bool,
+        max_paths: usize,
+        package: Option<String>,
+        destination: ReportDestination,
+        format: TraceFormat,
         plugin_host: PluginHostConfig,
     },
     Init {
@@ -347,12 +397,8 @@ enum CommandArguments {
             help = "Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20"
         )]
         since: Option<CalendarDay>,
-        #[arg(
-            long,
-            value_name = "FILE",
-            help = "Write the report to this file instead of standard output"
-        )]
-        output: Option<PathBuf>,
+        #[command(flatten)]
+        output: OutputArgument,
         #[arg(
             long,
             value_enum,
@@ -361,6 +407,12 @@ enum CommandArguments {
         )]
         format: TrendFormat,
     },
+    #[command(about = "Find the shortest runtime import path between two files in the repository")]
+    Trace(TraceArguments),
+    #[command(
+        about = "Compute the transitive reverse-dependency blast radius of one or more repository files"
+    )]
+    Impact(ImpactArguments),
     #[command(
         about = "Write a starter codeint.json at the root of the Git repository that contains the current folder"
     )]
@@ -380,7 +432,7 @@ enum CommandArguments {
         version: Option<String>,
     },
     #[command(
-        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, and guard tools"
+        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, guard, impact, and trace tools"
     )]
     Mcp,
     #[command(
@@ -404,12 +456,8 @@ enum CommandArguments {
         about = "Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes"
     )]
     Schema {
-        #[arg(
-            long,
-            value_name = "FILE",
-            help = "Write the schema manifest to this file instead of standard output"
-        )]
-        output: Option<PathBuf>,
+        #[command(flatten)]
+        output: OutputArgument,
         #[arg(
             long,
             value_enum,
@@ -475,12 +523,8 @@ enum CommandArguments {
             help = "Path to a saved check or diff JSON report, or - to read from standard input"
         )]
         input: PathBuf,
-        #[arg(
-            long,
-            value_name = "FILE",
-            help = "Write the report to this file instead of standard output"
-        )]
-        output: Option<PathBuf>,
+        #[command(flatten)]
+        output: OutputArgument,
         #[arg(
             long,
             value_enum,
@@ -562,13 +606,25 @@ enum AgentSubcommandArguments {
 }
 
 #[derive(Debug, clap::Args)]
-struct ReportArguments {
+struct OutputArgument {
     #[arg(
         long,
         value_name = "FILE",
         help = "Write the report to this file instead of standard output"
     )]
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+struct ReportArguments {
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Scope measurement and output to this Workspace package"
+    )]
+    package: Option<String>,
+    #[command(flatten)]
+    output: OutputArgument,
     #[arg(long, help = "List every Finding instead of the 20 worst per Metric")]
     all: bool,
     #[arg(
@@ -578,6 +634,84 @@ struct ReportArguments {
         help = "The format of the report"
     )]
     format: ReportFormat,
+}
+
+#[derive(Debug, clap::Args)]
+struct TraceArguments {
+    #[arg(
+        value_name = "FROM",
+        help = "Repository-relative path of the starting module"
+    )]
+    from: String,
+    #[arg(
+        value_name = "TO",
+        help = "Repository-relative path of the target module"
+    )]
+    to: String,
+    #[arg(
+        long,
+        help = "List all shortest runtime import paths up to --max-paths"
+    )]
+    all: bool,
+    #[arg(
+        long = "max-paths",
+        value_name = "COUNT",
+        default_value_t = DEFAULT_MAX_TRACE_PATHS,
+        help = "Maximum number of shortest paths to list when --all is set"
+    )]
+    max_paths: usize,
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Scope the query to this Workspace package"
+    )]
+    package: Option<String>,
+    #[command(flatten)]
+    output: OutputArgument,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = TraceFormat::Toon,
+        help = "The format of the report"
+    )]
+    format: TraceFormat,
+}
+
+#[derive(Debug, clap::Args)]
+struct ImpactArguments {
+    #[arg(
+        value_name = "PATH",
+        required_unless_present = "changed",
+        help = "Repository file paths to analyze"
+    )]
+    paths: Vec<String>,
+    #[arg(
+        long,
+        value_name = "BASE_REF",
+        help = "Analyze files changed since the merge-base of this Git ref and HEAD"
+    )]
+    changed: Option<String>,
+    #[arg(
+        long,
+        value_name = "N",
+        help = "Maximum reverse-dependency hop distance to traverse"
+    )]
+    depth: Option<usize>,
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Scope reported dependents to this Workspace package"
+    )]
+    package: Option<String>,
+    #[command(flatten)]
+    output: OutputArgument,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = ImpactFormat::Toon,
+        help = "The format of the report"
+    )]
+    format: ImpactFormat,
 }
 
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
@@ -604,11 +738,22 @@ fn build_command(
             since,
             output,
             format,
-        } => build_trend_command(current_folder, since, output, format),
+        } => build_trend_command(current_folder, since, output.output, format),
+        CommandArguments::Impact(args) => build_impact_command(current_folder, args),
+        CommandArguments::Trace(args) => build_trace_command(current_folder, args),
         CommandArguments::Init => Ok(Command::Init {
             folder: current_folder.to_path_buf(),
         }),
         CommandArguments::Update { check, version } => Ok(build_update_command(check, version)),
+        other => build_tooling_command(current_folder, other),
+    }
+}
+
+fn build_tooling_command(
+    current_folder: &Path,
+    arguments: CommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
         CommandArguments::Mcp => Ok(Command::Mcp {
             result_cache: result_cache_folder_of_this_process(current_folder),
             plugin_host: plugin_host_config_of_this_process(current_folder),
@@ -620,7 +765,7 @@ fn build_command(
             format,
         }),
         CommandArguments::Schema { output, format } => {
-            build_schema_command(current_folder, output, format)
+            build_schema_command(current_folder, output.output, format)
         }
         CommandArguments::Config {
             path,
@@ -645,13 +790,20 @@ fn build_command(
             input,
             output,
             format,
-        } => build_report_command(current_folder, input, output, format),
+        } => build_report_command(current_folder, input, output.output, format),
         CommandArguments::Doctor { path, format } => Ok(Command::Doctor {
             folder: existing_folder(current_folder, path)?,
             format,
             plugin_host: plugin_host_config_of_this_process(current_folder),
         }),
         CommandArguments::Agent { command } => build_agent_command(current_folder, command),
+        CommandArguments::Check { .. }
+        | CommandArguments::Diff { .. }
+        | CommandArguments::Trend { .. }
+        | CommandArguments::Impact(_)
+        | CommandArguments::Trace(_)
+        | CommandArguments::Init
+        | CommandArguments::Update { .. } => unreachable!("handled by build_command"),
     }
 }
 
@@ -732,25 +884,6 @@ fn agent_home_of_this_process(
     agent_home::resolve_agent_home(current_folder, explicit, cfg!(windows), std::env::var_os)
         .ok_or(ConfigError::MissingAgentHome)
 }
-fn build_trend_command(
-    current_folder: &Path,
-    since: Option<CalendarDay>,
-    output: Option<PathBuf>,
-    format: TrendFormat,
-) -> Result<Command, ConfigError> {
-    Ok(Command::Trend {
-        folder: current_folder.to_path_buf(),
-        range: since.map_or(
-            TrendRange::Latest(LATEST_COMMITS_OF_A_TREND),
-            TrendRange::Since,
-        ),
-        destination: report_destination(current_folder, output)?,
-        format,
-        result_cache: result_cache_folder_of_this_process(current_folder),
-        plugin_host: plugin_host_config_of_this_process(current_folder),
-    })
-}
-
 fn build_check_command(
     current_folder: &Path,
     path: Option<PathBuf>,
@@ -758,9 +891,10 @@ fn build_check_command(
 ) -> Result<Command, ConfigError> {
     Ok(Command::Check {
         folder: existing_folder(current_folder, path)?,
-        destination: report_destination(current_folder, report.output)?,
+        destination: report_destination(current_folder, report.output.output)?,
         findings: findings_shown(report.all),
         format: report.format,
+        package: report.package,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }
@@ -775,10 +909,60 @@ fn build_diff_command(
         folder: current_folder.to_path_buf(),
         base_ref,
         head_ref,
-        destination: report_destination(current_folder, report.output)?,
+        destination: report_destination(current_folder, report.output.output)?,
         findings: findings_shown(report.all),
         format: report.format,
+        package: report.package,
         result_cache: result_cache_folder_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
+}
+
+fn build_trend_command(
+    current_folder: &Path,
+    since: Option<CalendarDay>,
+    output: Option<PathBuf>,
+    format: TrendFormat,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Trend {
+        folder: current_folder.to_path_buf(),
+        range: since.map_or_else(TrendRange::default, TrendRange::Since),
+        destination: report_destination(current_folder, output)?,
+        format,
+        result_cache: result_cache_folder_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
+}
+
+fn build_impact_command(
+    current_folder: &Path,
+    args: ImpactArguments,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Impact {
+        folder: current_folder.to_path_buf(),
+        paths: args.paths,
+        changed: args.changed,
+        depth: args.depth,
+        package: args.package,
+        destination: report_destination(current_folder, args.output.output)?,
+        format: args.format,
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
+}
+
+fn build_trace_command(
+    current_folder: &Path,
+    args: TraceArguments,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Trace {
+        folder: current_folder.to_path_buf(),
+        from: args.from,
+        to: args.to,
+        all: args.all,
+        max_paths: args.max_paths,
+        package: args.package,
+        destination: report_destination(current_folder, args.output.output)?,
+        format: args.format,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }

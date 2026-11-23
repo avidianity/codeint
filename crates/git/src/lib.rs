@@ -97,6 +97,11 @@ pub struct Repository {
     root: PathBuf,
 }
 
+pub struct ChangedFiles {
+    pub merge_base: CommitId,
+    pub files: Vec<RepoPath>,
+}
+
 pub struct Snapshot {
     files: Vec<RepoPath>,
     submodules: Vec<RepoPath>,
@@ -224,6 +229,27 @@ impl Repository {
             },
         })
     }
+
+    pub fn changed_files_since(&self, base_ref: &str) -> Result<ChangedFiles, GitError> {
+        let merge_base = self.merge_base_with_head(base_ref)?;
+        let base = self.commit(merge_base)?;
+        let working = self.working_tree()?;
+        let mut changed = Vec::new();
+        for path in working.files() {
+            let is_changed = match base.contains_file(path) {
+                false => true,
+                true => working.read(path)? != base.read(path)?,
+            };
+            if is_changed {
+                changed.push(path.clone());
+            }
+        }
+        changed.sort();
+        Ok(ChangedFiles {
+            merge_base,
+            files: changed,
+        })
+    }
 }
 
 impl Snapshot {
@@ -233,6 +259,13 @@ impl Snapshot {
 
     pub fn submodules(&self) -> &[RepoPath] {
         &self.submodules
+    }
+
+    fn contains_file(&self, path: &RepoPath) -> bool {
+        match &self.contents {
+            Contents::Commit { blobs, .. } => blobs.contains_key(path),
+            Contents::WorkingTree { .. } => self.files.binary_search(path).is_ok(),
+        }
     }
 
     pub fn working_tree_reader(&self) -> Option<WorkingTreeReader<'_>> {

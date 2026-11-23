@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use codeint_config::{
-    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets, DoctorFormat,
-    FindingsShown, GuardFormat, ReportFormat,
+    AgentFormat, Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
+    ConfigFormat, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, ReportFormat,
+    TraceFormat,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
@@ -23,6 +24,7 @@ mod config;
 mod diff;
 mod doctor;
 mod guard;
+mod impact;
 mod markdown;
 mod measurement;
 mod sarif;
@@ -30,18 +32,22 @@ mod saved;
 mod schema;
 #[cfg(test)]
 mod tests;
+mod trace;
 mod trend;
 
 pub use agent::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
 };
+pub use codeint_metrics::TraceError;
 pub use config::ConfigReport;
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
+pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::CommitMeasurement;
 pub use saved::{SavedReport, SavedReportError};
 pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
+pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
@@ -57,52 +63,6 @@ pub enum ReportError {
     Json(#[source] serde_json::Error),
     #[error("cannot render the report as SARIF")]
     Sarif(#[source] serde_json::Error),
-}
-
-pub(crate) fn encode_toon<T: Serialize>(value: &T) -> Result<String, ReportError> {
-    toon_format::encode_default(value).map_err(ReportError::Toon)
-}
-
-pub(crate) fn encode_json<T: Serialize>(value: &T) -> Result<String, ReportError> {
-    serde_json::to_string_pretty(value).map_err(ReportError::Json)
-}
-
-pub(crate) enum StructuredFormat {
-    Text,
-    Json,
-    Toon,
-}
-
-impl From<DoctorFormat> for StructuredFormat {
-    fn from(format: DoctorFormat) -> StructuredFormat {
-        match format {
-            DoctorFormat::Text => StructuredFormat::Text,
-            DoctorFormat::Json => StructuredFormat::Json,
-            DoctorFormat::Toon => StructuredFormat::Toon,
-        }
-    }
-}
-
-impl From<GuardFormat> for StructuredFormat {
-    fn from(format: GuardFormat) -> StructuredFormat {
-        match format {
-            GuardFormat::Text => StructuredFormat::Text,
-            GuardFormat::Json => StructuredFormat::Json,
-            GuardFormat::Toon => StructuredFormat::Toon,
-        }
-    }
-}
-
-pub(crate) fn render_structured<T: Serialize>(
-    value: &T,
-    format: impl Into<StructuredFormat>,
-    render_text: impl FnOnce(&T) -> String,
-) -> Result<String, ReportError> {
-    match format.into() {
-        StructuredFormat::Text => Ok(render_text(value)),
-        StructuredFormat::Json => encode_json(value),
-        StructuredFormat::Toon => encode_toon(value),
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1163,11 +1123,62 @@ impl Report {
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
         match format {
-            ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
-            ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            ReportFormat::Toon => render_toon(self),
+            ReportFormat::Json => render_json(self),
             ReportFormat::Sarif => serde_json::to_string_pretty(&sarif::SarifLog::new(self))
                 .map_err(ReportError::Sarif),
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
     }
+}
+
+pub(crate) enum TextReportFormat {
+    Toon,
+    Json,
+    Text,
+}
+
+macro_rules! impl_text_report_format {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl From<$ty> for TextReportFormat {
+                fn from(format: $ty) -> TextReportFormat {
+                    match format {
+                        <$ty>::Toon => TextReportFormat::Toon,
+                        <$ty>::Json => TextReportFormat::Json,
+                        <$ty>::Text => TextReportFormat::Text,
+                    }
+                }
+            }
+        )+
+    };
+}
+
+impl_text_report_format!(
+    AgentFormat,
+    ConfigFormat,
+    DoctorFormat,
+    GuardFormat,
+    ImpactFormat,
+    TraceFormat,
+);
+
+pub(crate) fn render_text_report<T: Serialize>(
+    value: &T,
+    format: TextReportFormat,
+    render_text: impl FnOnce(&T) -> String,
+) -> Result<String, ReportError> {
+    match format {
+        TextReportFormat::Toon => render_toon(value),
+        TextReportFormat::Json => render_json(value),
+        TextReportFormat::Text => Ok(render_text(value)),
+    }
+}
+
+pub(crate) fn render_toon<T: Serialize>(value: &T) -> Result<String, ReportError> {
+    toon_format::encode_default(value).map_err(ReportError::Toon)
+}
+
+pub(crate) fn render_json<T: Serialize>(value: &T) -> Result<String, ReportError> {
+    serde_json::to_string_pretty(value).map_err(ReportError::Json)
 }

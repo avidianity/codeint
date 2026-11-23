@@ -20,11 +20,7 @@ impl ConfigReport {
     }
 
     pub fn render(&self, format: ConfigFormat) -> Result<String, ReportError> {
-        match format {
-            ConfigFormat::Text => Ok(self.format_lines()),
-            ConfigFormat::Toon => crate::encode_toon(self),
-            ConfigFormat::Json => crate::encode_json(self),
-        }
+        crate::render_text_report(self, format.into(), ConfigReport::format_lines)
     }
 
     fn format_lines(&self) -> String {

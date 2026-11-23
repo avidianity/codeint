@@ -26,9 +26,11 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `check` | Measure the working tree and print the report; see [`codeint check`](#codeint-check) |
 | `diff` | Compare the working tree, or a head Git ref, with the merge-base of a base Git ref; see [`codeint diff`](#codeint-diff) |
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
+| `impact` | Compute the transitive reverse-dependency blast radius of one or more repository files; see [`codeint impact`](#codeint-impact) |
+| `trace` | Find the shortest runtime import path between two files in the repository; see [`codeint trace`](#codeint-trace) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
-| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `guard` tools; see [`codeint mcp`](#codeint-mcp) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, and `trace` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
 | `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
 | `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
@@ -132,6 +134,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 
 | Option | Meaning |
 | ------ | ------- |
+| `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
@@ -219,6 +222,12 @@ codeint: missing does not exist
 Pass a folder that exists, or leave the path out to measure the current folder.
 ```
 
+Passing `--package <PATH>` in a repository without that Workspace package stops the run with exit code 2:
+
+```sh exit=2
+codeint check --package packages/missing
+```
+
 ### `codeint diff`
 
 | Argument | Meaning |
@@ -228,6 +237,7 @@ Pass a folder that exists, or leave the path out to measure the current folder.
 | Option | Meaning |
 | ------ | ------- |
 | `--head <REF>` | Measure this Git ref from Git objects instead of the working tree; the merge-base is then taken with this ref instead of HEAD |
+| `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown` |
@@ -310,6 +320,12 @@ codeint diff no-such-branch
 ```text stderr
 codeint: the Git ref "no-such-branch" does not name a commit in this repository: couldn't parse revision, input="no-such-branch": Reference "no-such-branch" could not be found: NotFound
 Pass a branch, tag, or commit that exists in this repository; fetch it first when it lives on a remote: git fetch origin main
+```
+
+Passing `--package <PATH>` for a Workspace package that does not exist stops the run with exit code 2:
+
+```sh exit=2
+codeint diff main --package packages/missing
 ```
 
 #### Compare two refs
@@ -465,6 +481,83 @@ codeint reads each commit from Git objects, so it never checks out a commit and 
 Every commit uses the `codeint.json` of the working tree, as `codeint diff` does.
 Each commit goes through the [result cache](#result-cache), so a repeated trend measures only the commits that are new since the last run.
 
+### `codeint impact`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]...` | Repository file paths to analyze |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--changed <BASE_REF>` | Analyze files changed since the merge-base of this Git ref and HEAD |
+| `--depth <N>` | Maximum reverse-dependency hop distance to traverse |
+| `--package <PATH>` | Scope reported dependents to this Workspace package |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `text` |
+| `-h, --help` | Print the help of `codeint impact` |
+
+`codeint impact` computes the transitive reverse-dependency blast radius of one or more repository files, distinguishing direct dependents (distance 1) from transitive dependents (distance 2 or more), separating Production dependents from Test dependents, and listing affected Workspace packages:
+
+```sh exit=0
+codeint impact src/sign.ts
+codeint impact --changed main
+codeint impact src/sign.ts --depth 1 --format text
+codeint impact src/sign.ts --format toon
+codeint impact src/sign.ts --format json --output impact.json
+```
+
+Passing `--package <PATH>` for a Workspace package that does not exist stops the run with exit code 2:
+
+```sh exit=2
+codeint impact src/sign.ts --package packages/missing
+```
+
+### `codeint trace`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<FROM>` | Repository-relative path of the starting module |
+| `<TO>` | Repository-relative path of the target module |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--all` | List all shortest runtime import paths up to `--max-paths` |
+| `--max-paths <COUNT>` | Maximum number of shortest paths to list when `--all` is set |
+| `--package <PATH>` | Scope the query to this Workspace package |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `text` |
+| `-h, --help` | Print the help of `codeint trace` |
+
+`codeint trace` finds the shortest runtime import path connecting two measured files in the working tree.
+When no runtime import path connects them, it reports `connected: false` and exits with code 0:
+
+```sh exit=0
+codeint trace src/sign.ts src/parse.ts
+```
+
+```text stdout
+from: src/sign.ts
+to: src/parse.ts
+connected: false
+shortest_distance: null
+paths: []
+truncated: false
+```
+
+These commands exercise `--all`, `--max-paths`, `--output`, and each output format:
+
+```sh exit=0
+codeint trace src/sign.ts src/parse.ts --format toon
+codeint trace src/sign.ts src/parse.ts --format text
+codeint trace src/sign.ts src/parse.ts --all --max-paths 5 --format json --output trace.json
+```
+
+Passing `--package <PATH>` for a Workspace package that does not exist stops the run with exit code 2:
+
+```sh exit=2
+codeint trace src/sign.ts src/parse.ts --package packages/missing
+```
+
 ### `codeint update`
 
 | Option | Meaning |
@@ -492,7 +585,7 @@ codeint 0.5.0 is already up to date (v0.5.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes four read-only tools (`check`, `diff`, `trend`, and `guard`) so coding agents can measure Software entropy, inspect architectural boundaries, and fix Regressions before opening a pull request.
+It exposes six read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, and `trace`) so coding agents can measure Software entropy, inspect architectural boundaries, reverse-dependency blast radius, and import paths, and fix Regressions before opening a pull request.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0

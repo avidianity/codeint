@@ -146,8 +146,8 @@ impl SchemaReport {
 
     pub fn render(&self, format: SchemaFormat) -> Result<String, ReportError> {
         match format {
-            SchemaFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
-            SchemaFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
+            SchemaFormat::Json => crate::render_json(self),
+            SchemaFormat::Toon => crate::render_toon(self),
         }
     }
 }

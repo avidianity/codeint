@@ -3,13 +3,16 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
-    TrendRange,
+    CalendarDay, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
+    TraceFormat, TrendFormat, TrendRange,
 };
 use codeint_report::McpToolSchema;
 use serde_json::{Value, json};
 
-use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, guard, trend};
+use crate::{
+    CheckOptions, DiffOptions, ImpactOptions, TraceOptions, TrendOptions, check, diff, guard,
+    impact, trace, trend,
+};
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -130,6 +133,7 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
                     "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                 }
             }),
@@ -144,6 +148,7 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                     "base_ref": { "type": "string", "description": "Base Git ref such as main or origin/main." },
                     "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
                     "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                 }
             }),
@@ -171,6 +176,40 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                 }
             }),
         },
+        McpToolSchema {
+            name: "impact".to_owned(),
+            description: "Compute the transitive reverse-dependency blast radius of one or more repository files (or files changed since a base Git ref), separating Production and Test dependents and listing affected Workspace packages.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "paths": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Repository-relative file paths to analyze."
+                    },
+                    "changed": { "type": "string", "description": "Optional base Git ref; analyze files changed since its merge-base with HEAD." },
+                    "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope reported dependents." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "trace".to_owned(),
+            description: "Find the shortest runtime import path(s) connecting two repository files.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["from", "to"],
+                "properties": {
+                    "from": { "type": "string", "description": "Repository-relative path of the starting module." },
+                    "to": { "type": "string", "description": "Repository-relative path of the target module." },
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope the query." },
+                    "all": { "type": "boolean", "description": "Return all shortest paths up to max_paths instead of a single shortest path." },
+                    "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
+                }
+            }),
+        },
     ]
 }
 
@@ -194,6 +233,8 @@ fn handle_tools_call(
         "diff" => Ok(call_diff(args, ctx)),
         "trend" => Ok(call_trend(args, ctx)),
         "guard" => Ok(call_guard(args, ctx)),
+        "impact" => Ok(call_impact(args, ctx)),
+        "trace" => Ok(call_trace(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
 }
@@ -202,6 +243,7 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let folder = resolve_folder(args, ctx.default_folder);
     let options = CheckOptions {
         findings: parse_findings(args),
+        package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
     match check(&folder, &options) {
@@ -226,6 +268,7 @@ fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
             .and_then(Value::as_str)
             .map(str::to_owned),
         findings: parse_findings(args),
+        package: parse_package(args),
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
@@ -307,6 +350,83 @@ fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     render_json_tool(guard(&folder, Path::new(file)), |report| {
         report.render(GuardFormat::Json)
     })
+}
+
+fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let folder = resolve_folder(args, ctx.default_folder);
+    let paths: Vec<String> = match args.and_then(|a| a.get("paths")) {
+        Some(Value::Array(items)) => {
+            let mut parsed = Vec::with_capacity(items.len());
+            for item in items {
+                let Some(path) = item.as_str() else {
+                    return tool_err("Invalid paths argument: every entry must be a string");
+                };
+                parsed.push(path.to_owned());
+            }
+            parsed
+        }
+        Some(_) => return tool_err("Invalid paths argument: expected an array of strings"),
+        None => Vec::new(),
+    };
+    let changed = args
+        .and_then(|a| a.get("changed"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let depth = match args.and_then(|a| a.get("depth")) {
+        Some(value) => match value.as_u64().and_then(|n| usize::try_from(n).ok()) {
+            Some(depth) => Some(depth),
+            None => return tool_err("Invalid depth argument: expected a non-negative integer"),
+        },
+        None => None,
+    };
+    let options = ImpactOptions {
+        paths,
+        changed,
+        depth,
+        package: parse_package(args),
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    render_json_tool(impact(&folder, &options), |report| {
+        report.render(ImpactFormat::Json)
+    })
+}
+
+fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let from = match required_str_arg(args, "from") {
+        Ok(value) => value,
+        Err(err) => return err,
+    };
+    let to = match required_str_arg(args, "to") {
+        Ok(value) => value,
+        Err(err) => return err,
+    };
+    let folder = resolve_folder(args, ctx.default_folder);
+    let all = args
+        .and_then(|a| a.get("all"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let max_paths = match args.and_then(|a| a.get("max_paths")) {
+        Some(value) => match value.as_u64().and_then(|n| usize::try_from(n).ok()) {
+            Some(n) => n,
+            None => return tool_err("Invalid argument: max_paths must be a positive integer"),
+        },
+        None => TraceOptions::default().max_paths,
+    };
+    let options = TraceOptions {
+        all,
+        max_paths,
+        package: parse_package(args),
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    render_json_tool(trace(&folder, from, to, &options), |report| {
+        report.render(TraceFormat::Json)
+    })
+}
+
+fn parse_package(args: Option<&Value>) -> Option<String> {
+    args.and_then(|a| a.get("package"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {

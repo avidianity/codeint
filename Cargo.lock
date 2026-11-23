@@ -290,6 +290,7 @@ dependencies = [
  "codeint-lang-python",
  "codeint-lang-rust",
  "codeint-lang-ts",
+ "codeint-metrics",
  "codeint-model",
  "codeint-plugin-host",
  "codeint-report",
@@ -388,6 +389,7 @@ name = "codeint-metrics"
 version = "0.5.0"
 dependencies = [
  "codeint-model",
+ "thiserror",
 ]
 
 [[package]]

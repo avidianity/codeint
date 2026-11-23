@@ -14,8 +14,8 @@ use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, MetricPlugin,
-    MetricPluginError, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace,
-    WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
+    MetricPluginError, Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile,
+    Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
@@ -50,6 +50,119 @@ pub(crate) enum CheckError {
         extension: String,
         path: Option<RepoPath>,
     },
+    #[error("{}", format_unknown_workspace_package(requested, available))]
+    UnknownWorkspacePackage {
+        requested: String,
+        available: Vec<String>,
+    },
+}
+
+fn format_unknown_workspace_package(requested: &str, available: &[String]) -> String {
+    if available.is_empty() {
+        format!(
+            "Workspace package {requested:?} was not found; no Workspace packages were discovered in this repository"
+        )
+    } else {
+        format!(
+            "Workspace package {requested:?} was not found; discovered Workspace packages: {}",
+            available.join(", ")
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SelectedPackage {
+    Root,
+    Member(RepoPath),
+}
+
+impl SelectedPackage {
+    pub(crate) fn as_str(&self) -> &str {
+        match self {
+            SelectedPackage::Root => ".",
+            SelectedPackage::Member(root) => root.as_str(),
+        }
+    }
+
+    pub(crate) fn matches(&self, package: Package<'_>) -> bool {
+        match (self, package) {
+            (SelectedPackage::Root, Package::Root) => true,
+            (SelectedPackage::Member(selected), Package::Member(actual)) => selected == actual,
+            _ => false,
+        }
+    }
+}
+
+pub(crate) fn select_workspace_package(
+    workspace: &Workspace,
+    requested: &str,
+) -> Result<SelectedPackage, CheckError> {
+    let available: Vec<String> = workspace.member_roots().map(ToString::to_string).collect();
+    if !workspace.has_members() {
+        return Err(CheckError::UnknownWorkspacePackage {
+            requested: requested.to_owned(),
+            available,
+        });
+    }
+    let normalized = normalize_package_path(requested);
+    if normalized == "." {
+        return Ok(SelectedPackage::Root);
+    }
+    if let Ok(candidate) = RepoPath::new(normalized)
+        && workspace.member_roots().any(|root| root == &candidate)
+    {
+        return Ok(SelectedPackage::Member(candidate));
+    }
+    Err(CheckError::UnknownWorkspacePackage {
+        requested: requested.to_owned(),
+        available,
+    })
+}
+
+fn normalize_package_path(raw: &str) -> String {
+    let replaced = raw.replace('\\', "/");
+    let mut trimmed = replaced.as_str();
+    while let Some(stripped) = trimmed.strip_prefix("./") {
+        trimmed = stripped;
+    }
+    trimmed = trimmed.trim_end_matches('/');
+    if trimmed.is_empty() && !raw.is_empty() && replaced.trim_end_matches('/') == "." {
+        return ".".to_owned();
+    }
+    trimmed.to_owned()
+}
+
+pub(crate) fn workspace_of_languages(languages: &[MeasuredLanguage]) -> Workspace {
+    let mut workspace = Workspace::default();
+    for language in languages {
+        workspace.join(language.model.workspace.clone());
+    }
+    workspace
+}
+
+pub(crate) fn filter_model_to_package(model: &mut CodeModel, selected: &SelectedPackage) {
+    let workspace = std::mem::take(&mut model.workspace);
+    model
+        .files
+        .retain(|file| selected.matches(workspace.package_of(&file.path)));
+    model
+        .skipped
+        .retain(|file| selected.matches(workspace.package_of(&file.path)));
+    model
+        .declaration_only
+        .retain(|path| selected.matches(workspace.package_of(path)));
+    model
+        .runtime_imports
+        .retain(|import| selected.matches(workspace.package_of(&import.importer)));
+}
+
+pub(crate) fn filter_languages_to_package(
+    languages: &mut [MeasuredLanguage],
+    selected: &SelectedPackage,
+) {
+    for language in languages {
+        filter_model_to_package(&mut language.model, selected);
+    }
 }
 
 fn format_extension_conflict(
@@ -172,22 +285,53 @@ impl LoadedPlugins {
     }
 }
 
+pub(crate) struct WorkspaceContext {
+    pub(crate) repository: Repository,
+    pub(crate) configuration: Configuration,
+    pub(crate) plugins: LoadedPlugins,
+}
+
+impl WorkspaceContext {
+    pub(crate) fn load(
+        folder: &Path,
+        plugin_host: &PluginHostConfig,
+    ) -> Result<WorkspaceContext, CheckError> {
+        let repository = Repository::discover(folder)?;
+        let configuration = read_configuration(repository.root())?;
+        let plugins = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+        Ok(WorkspaceContext {
+            repository,
+            configuration,
+            plugins,
+        })
+    }
+
+    pub(crate) fn measure_working_tree_model(&self) -> Result<CodeModel, CheckError> {
+        let plugins = self.plugins.as_named();
+        let tree = self.repository.working_tree()?;
+        let languages = measure_with(&tree, &plugins, &self.configuration)?;
+        Ok(CodeModel::merge(
+            languages.into_iter().map(|language| language.model),
+        ))
+    }
+}
+
 pub(crate) fn check(
     folder: &Path,
     findings: FindingsShown,
+    package: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
-    let repository = Repository::discover(folder)?;
-    let configuration = read_configuration(repository.root())?;
-    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
-    let plugins = loaded.as_named();
-    let metric_plugins = loaded.metric_plugins();
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    let plugins = context.plugins.as_named();
+    let metric_plugins = context.plugins.metric_plugins();
     check_loaded(
-        &repository,
-        &configuration,
+        &context.repository,
+        &context.configuration,
         &plugins,
         &metric_plugins,
         findings,
+        package,
     )
 }
 
@@ -200,7 +344,7 @@ fn check_with(
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
     configuration.validate_metrics(&[])?;
-    check_loaded(&repository, &configuration, plugins, &[], findings)
+    check_loaded(&repository, &configuration, plugins, &[], findings, None)
 }
 
 fn check_loaded(
@@ -209,9 +353,15 @@ fn check_loaded(
     plugins: &[NamedLanguagePlugin<'_>],
     metric_plugins: &[&dyn MetricPlugin],
     findings: FindingsShown,
+    package: Option<&str>,
 ) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
-    let languages = measure_with(&tree, plugins, configuration)?;
+    let mut languages = measure_with(&tree, plugins, configuration)?;
+    if let Some(requested) = package {
+        let workspace = workspace_of_languages(&languages);
+        let selected = select_workspace_package(&workspace, requested)?;
+        filter_languages_to_package(&mut languages, &selected);
+    }
     Ok(Report::summarize_with_metrics_and_boundaries(
         languages,
         tree.submodules().to_vec(),

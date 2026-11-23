@@ -7,10 +7,12 @@ mod config;
 mod diff;
 mod doctor;
 mod guard;
+mod impact;
 mod init;
 mod mcp;
 mod remedy;
 mod report;
+mod trace;
 mod trend;
 mod update;
 
@@ -21,77 +23,73 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    AgentCommand, Command, ConfigError, ReportDestination, ReportInput, ReportRenderFormat,
-    cli_schema, read_invocation,
+    AgentCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, ReportDestination, ReportInput,
+    ReportRenderFormat, cli_schema, read_invocation,
 };
 use codeint_git::ResultCache;
 use codeint_report::{ExitCodeSchema, ReportError};
 
 pub use codeint_config::{
     AgentClient, AgentFormat, BudgetOverride, CalendarDay, ConfigFormat, ConfigOverrides,
-    DoctorFormat, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, SchemaFormat,
-    SourceSetOverride, TrendFormat, TrendRange,
+    DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
+    SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat, TrendRange,
 };
 pub use codeint_report::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
     ConfigReport, DiffReport, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary, GuardReport,
-    Report, SavedReport, SchemaReport, TrendReport,
+    ImpactReport, Report, SavedReport, SchemaReport, TraceReport, TrendReport,
 };
 
-const DEFAULT_WORST_FINDINGS: usize = 20;
-const DEFAULT_TREND_COMMITS: usize = 20;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CheckOptions {
     pub findings: FindingsShown,
+    pub package: Option<String>,
     pub plugin_host: PluginHostConfig,
 }
 
-impl Default for CheckOptions {
-    fn default() -> CheckOptions {
-        CheckOptions {
-            findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
-            plugin_host: PluginHostConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DiffOptions {
     pub head_ref: Option<String>,
     pub findings: FindingsShown,
+    pub package: Option<String>,
     pub result_cache: Option<PathBuf>,
     pub plugin_host: PluginHostConfig,
 }
 
-impl Default for DiffOptions {
-    fn default() -> DiffOptions {
-        DiffOptions {
-            head_ref: None,
-            findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
-            result_cache: None,
-            plugin_host: PluginHostConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TrendOptions {
     pub range: TrendRange,
     pub result_cache: Option<PathBuf>,
     pub plugin_host: PluginHostConfig,
 }
 
-impl Default for TrendOptions {
-    fn default() -> TrendOptions {
-        TrendOptions {
-            range: TrendRange::Latest(DEFAULT_TREND_COMMITS),
-            result_cache: None,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImpactOptions {
+    pub paths: Vec<String>,
+    pub changed: Option<String>,
+    pub depth: Option<usize>,
+    pub package: Option<String>,
+    pub plugin_host: PluginHostConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraceOptions {
+    pub all: bool,
+    pub max_paths: usize,
+    pub package: Option<String>,
+    pub plugin_host: PluginHostConfig,
+}
+
+impl Default for TraceOptions {
+    fn default() -> TraceOptions {
+        TraceOptions {
+            all: false,
+            max_paths: DEFAULT_MAX_TRACE_PATHS,
+            package: None,
             plugin_host: PluginHostConfig::default(),
         }
     }
 }
-
 pub struct CheckOutcome {
     pub passed: bool,
     pub failures: Vec<String>,
@@ -136,8 +134,13 @@ impl fmt::Display for CodeintError {
 impl Error for CodeintError {}
 
 pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, CodeintError> {
-    let report = check::check(folder, options.findings, &options.plugin_host)
-        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    let report = check::check(
+        folder,
+        options.findings,
+        options.package.as_deref(),
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures: Vec<String> = report
         .over_budget()
         .iter()
@@ -181,6 +184,7 @@ fn measure_diff(
         folder,
         refs,
         options.findings,
+        options.package.as_deref(),
         cache.as_ref(),
         &options.plugin_host,
     )
@@ -190,6 +194,36 @@ pub fn trend(folder: &Path, options: &TrendOptions) -> Result<TrendReport, Codei
     let cache = options.result_cache.clone().map(ResultCache::in_folder);
     trend::trend(folder, options.range, cache.as_ref(), &options.plugin_host)
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+pub fn impact(folder: &Path, options: &ImpactOptions) -> Result<ImpactReport, CodeintError> {
+    let request = impact::ImpactRequest {
+        paths: &options.paths,
+        changed: options.changed.as_deref(),
+        depth: options.depth,
+        package: options.package.as_deref(),
+        plugin_host: &options.plugin_host,
+    };
+    impact::impact(folder, &request)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Impact(err)))
+}
+
+pub fn trace(
+    folder: &Path,
+    from: &str,
+    to: &str,
+    options: &TraceOptions,
+) -> Result<TraceReport, CodeintError> {
+    trace::trace(
+        folder,
+        from,
+        to,
+        options.all,
+        options.max_paths,
+        options.package.as_deref(),
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Trace(err)))
 }
 
 pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
@@ -250,6 +284,10 @@ enum CliError {
     Guard(#[from] guard::GuardError),
     #[error(transparent)]
     Agent(#[from] agent::AgentError),
+    #[error(transparent)]
+    Impact(#[from] impact::ImpactCommandError),
+    #[error(transparent)]
+    Trace(#[from] trace::TraceCommandError),
     #[error(transparent)]
     Init(#[from] init::InitError),
     #[error(transparent)]
@@ -330,8 +368,16 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             findings,
             format,
+            package,
             plugin_host,
-        } => run_check(&folder, &destination, findings, format, &plugin_host),
+        } => run_check(
+            &folder,
+            &destination,
+            findings,
+            format,
+            package.as_deref(),
+            &plugin_host,
+        ),
         Command::Diff {
             folder,
             base_ref,
@@ -339,12 +385,14 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             findings,
             format,
+            package,
             result_cache,
             plugin_host,
         } => {
             let options = DiffOptions {
                 head_ref,
                 findings,
+                package,
                 result_cache,
                 plugin_host,
             };
@@ -365,12 +413,56 @@ fn run() -> Result<Outcome, CliError> {
             result_cache,
             &plugin_host,
         ),
+        Command::Impact {
+            folder,
+            paths,
+            changed,
+            depth,
+            package,
+            destination,
+            format,
+            plugin_host,
+        } => {
+            let request = impact::ImpactRequest {
+                paths: &paths,
+                changed: changed.as_deref(),
+                depth,
+                package: package.as_deref(),
+                plugin_host: &plugin_host,
+            };
+            run_impact(&folder, &request, &destination, format)
+        }
+        Command::Trace {
+            folder,
+            from,
+            to,
+            all,
+            max_paths,
+            package,
+            destination,
+            format,
+            plugin_host,
+        } => {
+            let options = TraceOptions {
+                all,
+                max_paths,
+                package,
+                plugin_host,
+            };
+            run_trace(&folder, &from, &to, &destination, format, &options)
+        }
         Command::Init { folder } => run_init(&folder),
         Command::Update {
             check_only,
             version,
             release_base_url,
         } => run_update(check_only, version.as_deref(), release_base_url.as_deref()),
+        other => run_tooling_command(other),
+    }
+}
+
+fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
+    match command {
         Command::Mcp {
             folder,
             result_cache,
@@ -401,6 +493,13 @@ fn run() -> Result<Outcome, CliError> {
             plugin_host,
         } => run_doctor(&folder, format, &plugin_host),
         Command::Agent(command) => run_agent(command),
+        Command::Check { .. }
+        | Command::Diff { .. }
+        | Command::Trend { .. }
+        | Command::Impact { .. }
+        | Command::Trace { .. }
+        | Command::Init { .. }
+        | Command::Update { .. } => unreachable!("handled by run"),
     }
 }
 
@@ -500,9 +599,10 @@ fn run_check(
     destination: &ReportDestination,
     findings: FindingsShown,
     format: ReportFormat,
+    package: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
-    let report = check::check(folder, findings, plugin_host)?;
+    let report = check::check(folder, findings, package, plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::from_failures(
         report
@@ -535,6 +635,38 @@ fn run_trend(
 ) -> Result<Outcome, CliError> {
     let result_cache = result_cache.map(ResultCache::in_folder);
     let report = trend::trend(folder, range, result_cache.as_ref(), plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_impact(
+    folder: &Path,
+    request: &impact::ImpactRequest<'_>,
+    destination: &ReportDestination,
+    format: ImpactFormat,
+) -> Result<Outcome, CliError> {
+    let report = impact::impact(folder, request)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_trace(
+    folder: &Path,
+    from: &str,
+    to: &str,
+    destination: &ReportDestination,
+    format: TraceFormat,
+    options: &TraceOptions,
+) -> Result<Outcome, CliError> {
+    let report = trace::trace(
+        folder,
+        from,
+        to,
+        options.all,
+        options.max_paths,
+        options.package.as_deref(),
+        &options.plugin_host,
+    )?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::Passed)
 }

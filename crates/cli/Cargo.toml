@@ -17,6 +17,7 @@ codeint-lang-php = { workspace = true }
 codeint-lang-python = { workspace = true }
 codeint-lang-rust = { workspace = true }
 codeint-lang-ts = { workspace = true }
+codeint-metrics = { workspace = true }
 codeint-model = { workspace = true }
 codeint-plugin-host = { workspace = true }
 codeint-report = { workspace = true }
