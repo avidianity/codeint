@@ -24,6 +24,43 @@ pub use starter::{
 
 const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
 const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
+const DEFAULT_MIN_SIMILARITY: f64 = 0.85;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MinSimilarity(f64);
+
+impl MinSimilarity {
+    pub const DEFAULT: MinSimilarity = MinSimilarity(DEFAULT_MIN_SIMILARITY);
+
+    pub fn new(value: f64) -> Option<MinSimilarity> {
+        (value.is_finite() && value > 0.0 && value <= 1.0).then_some(MinSimilarity(value))
+    }
+
+    pub fn ratio(self) -> f64 {
+        self.0
+    }
+}
+
+impl Default for MinSimilarity {
+    fn default() -> MinSimilarity {
+        MinSimilarity::DEFAULT
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DuplicationConfig {
+    pub near_clones: bool,
+    pub min_similarity: MinSimilarity,
+}
+
+impl Default for DuplicationConfig {
+    fn default() -> DuplicationConfig {
+        DuplicationConfig {
+            near_clones: false,
+            min_similarity: MinSimilarity::DEFAULT,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PluginLimits {
@@ -55,6 +92,7 @@ pub struct Configuration {
     pub plugins: Vec<PluginDeclaration>,
     pub plugin_limits: PluginLimits,
     pub boundaries: Option<Boundaries>,
+    pub duplication: DuplicationConfig,
     effective: ConfigurationFile,
 }
 
@@ -355,6 +393,45 @@ struct ConfigurationFile {
         description = "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
     )]
     boundaries: Option<BoundariesFile>,
+    #[serde(default, skip_serializing_if = "DuplicationConfigFile::is_unset")]
+    #[schemars(
+        description = "Settings for Duplication detection, including opt-in shingle-based near-clone detection. Exact Clone groups remain the default when omitted."
+    )]
+    duplication: DuplicationConfigFile,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DuplicationConfigFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "bool",
+        description = "When true, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; false by default."
+    )]
+    near_clones: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(max = 1),
+        extend("exclusiveMinimum" = 0),
+        description = "Minimum Jaccard shingle similarity in (0, 1] required for two blocks to match as a near-clone; 0.85 by default."
+    )]
+    min_similarity: Option<f64>,
+}
+
+impl DuplicationConfigFile {
+    fn is_unset(&self) -> bool {
+        self.near_clones.is_none() && self.min_similarity.is_none()
+    }
+
+    fn normalized(self) -> DuplicationConfigFile {
+        DuplicationConfigFile {
+            near_clones: self.near_clones.filter(|&enabled| enabled),
+            min_similarity: self
+                .min_similarity
+                .filter(|&ratio| ratio != DEFAULT_MIN_SIMILARITY),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -611,6 +688,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
     let effective = file.without_schema_address();
     let parsed_boundaries = file.boundaries.map(Boundaries::from_file).transpose()?;
+    let parsed_duplication = duplication_config(file.duplication)?;
     Ok(Configuration {
         effective,
         source_set_overrides: source_set_overrides(file.source_sets)?,
@@ -620,6 +698,29 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         plugins: plugins(file.plugins)?,
         plugin_limits: plugin_limits(file.plugin_limits),
         boundaries: parsed_boundaries,
+        duplication: parsed_duplication,
+    })
+}
+
+fn duplication_config(
+    file: DuplicationConfigFile,
+) -> Result<DuplicationConfig, ConfigurationFileError> {
+    let min_similarity = match file.min_similarity {
+        Some(value) => MinSimilarity::new(value).ok_or_else(|| {
+            ConfigurationFileError::OutOfExclusiveMinRange {
+                key: KeyPath::default()
+                    .child(KeySegment::Key("duplication".to_owned()))
+                    .child(KeySegment::Key("min_similarity".to_owned())),
+                exclusive_minimum: 0.0,
+                maximum: 1.0,
+                found: value,
+            }
+        })?,
+        None => MinSimilarity::DEFAULT,
+    };
+    Ok(DuplicationConfig {
+        near_clones: file.near_clones.unwrap_or(false),
+        min_similarity,
     })
 }
 
@@ -749,6 +850,7 @@ impl ConfigurationFile {
     fn without_schema_address(&self) -> ConfigurationFile {
         ConfigurationFile {
             _schema: None,
+            duplication: self.duplication.clone().normalized(),
             ..self.clone()
         }
     }
@@ -925,5 +1027,66 @@ mod schema_version_tests {
         assert!(
             check_schema_version(&schema_json("./schema/codeint.schema.json"), "0.4.0").is_ok()
         );
+    }
+}
+
+#[cfg(test)]
+mod duplication_config_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_disable_near_clones_with_0_85_min_similarity() {
+        let config = parse("{}").expect("empty config parses");
+
+        assert!(!config.duplication.near_clones);
+        assert_eq!(config.duplication.min_similarity.ratio(), 0.85);
+    }
+
+    #[test]
+    fn parses_valid_near_clones_and_min_similarity_bounds() {
+        let enabled = parse(r#"{ "duplication": { "near_clones": true, "min_similarity": 1.0 } }"#)
+            .expect("min_similarity 1.0 parses");
+        let low = parse(r#"{ "duplication": { "near_clones": true, "min_similarity": 0.01 } }"#)
+            .expect("min_similarity 0.01 parses");
+
+        assert!(enabled.duplication.near_clones);
+        assert_eq!(enabled.duplication.min_similarity.ratio(), 1.0);
+        assert_eq!(low.duplication.min_similarity.ratio(), 0.01);
+    }
+
+    #[test]
+    fn rejects_min_similarity_outside_open_closed_unit_interval() {
+        for invalid in ["0", "0.0", "-0.1", "1.01", "1.5"] {
+            let text = format!(r#"{{ "duplication": {{ "min_similarity": {invalid} }} }}"#);
+            let error = parse(&text).expect_err("invalid min_similarity must fail");
+            assert!(
+                matches!(
+                    error,
+                    ConfigurationFileError::OutOfExclusiveMinRange {
+                        exclusive_minimum: 0.0,
+                        maximum: 1.0,
+                        ..
+                    }
+                ),
+                "unexpected error for {invalid}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn effective_serialization_matches_default_when_set_to_defaults_and_differs_when_enabled() {
+        let default_json = serde_json::to_string(&parse("{}").expect("default")).expect("json");
+        let explicit_default_json = serde_json::to_string(
+            &parse(r#"{ "duplication": { "near_clones": false, "min_similarity": 0.85 } }"#)
+                .expect("explicit default"),
+        )
+        .expect("json");
+        let enabled_json = serde_json::to_string(
+            &parse(r#"{ "duplication": { "near_clones": true } }"#).expect("enabled"),
+        )
+        .expect("json");
+
+        assert_eq!(default_json, explicit_default_json);
+        assert_ne!(default_json, enabled_json);
     }
 }

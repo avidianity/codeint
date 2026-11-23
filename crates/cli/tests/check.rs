@@ -2719,7 +2719,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, duplication",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -4934,4 +4934,118 @@ fn overlapping_exact_clone_groups_across_three_files_collapse_into_one_clone_fam
         ]
     );
     assert_eq!(sarif_ids, clone_family_ids(&report));
+}
+
+fn write_near_clone_config(repository: &Repository, min_similarity: f64) {
+    repository.write(
+        "codeint.json",
+        &format!(
+            r#"{{ "duplication": {{ "near_clones": true, "min_similarity": {min_similarity} }} }}"#
+        ),
+    );
+}
+
+fn with_inserted_statement(source: &str, after: &str, statement: &str) -> String {
+    source.replacen(after, &format!("{after}{statement}"), 1)
+}
+
+#[test]
+fn near_clone_detection_catches_one_line_edit_when_enabled_preserves_verbosity_and_clusters_families()
+ {
+    let edited = with_inserted_statement(
+        CART_TOTAL,
+        "  let sum = 0;\n",
+        "  console.log(items.length);\n",
+    );
+    let second_edited = with_inserted_statement(
+        ORDER_TOTAL_RENAMED,
+        "  let result = 100;\n",
+        "  console.log(lines.length);\n",
+    );
+    let repository = repo_with_files(&[
+        ("src/cart.ts", CART_TOTAL.to_owned()),
+        ("src/edited.ts", edited),
+        ("src/other.ts", AREA_OF_75_TOKENS.to_owned()),
+    ]);
+
+    let default_output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&default_output);
+    let default_report: serde_json::Value =
+        serde_json::from_str(&stdout(&default_output)).expect("JSON parses");
+    assert_eq!(
+        default_report["source_sets"]["production"]["duplication"]["clone_lines"],
+        0
+    );
+    assert!(
+        default_report["source_sets"]["production"]["duplication"]
+            .get("near_clones")
+            .is_none()
+    );
+
+    write_near_clone_config(&repository, 0.85);
+    let json_out = repository.codeint(&["check", "--format", "json"]);
+    let md_out = repository.codeint(&["check", "--format", "markdown"]);
+    let sarif_out = repository.codeint(&["check", "--format", "sarif"]);
+    assert_success(&json_out);
+    assert_success(&md_out);
+    assert_success(&sarif_out);
+
+    let report: serde_json::Value = serde_json::from_str(&stdout(&json_out)).expect("JSON parses");
+    let dup = &report["source_sets"]["production"]["duplication"];
+    let verb = &report["source_sets"]["production"]["verbosity"];
+    assert_eq!(dup["near_clones"]["min_similarity"], 0.85);
+    assert!(
+        dup["reference_range"]
+            .as_str()
+            .is_some_and(|text| text.contains("near-clone"))
+    );
+    assert_eq!(dup["clone_lines"], 19);
+    assert_eq!(verb["clone_lines"], 0);
+    assert_eq!(verb["reference_range"]["low"], 0.018);
+
+    let groups = dup["clone_groups"].as_array().expect("clone_groups");
+    assert_eq!(groups.len(), 1);
+    let similarity = groups[0]["similarity"]
+        .as_f64()
+        .expect("near-clone similarity");
+    assert!((0.85..1.0).contains(&similarity));
+    let pct = (similarity * 100.0).round() as u64;
+    let markdown = stdout(&md_out);
+    assert!(
+        markdown.contains(&format!("({pct}% similar)")),
+        "expected similarity percentage in Markdown:\n{markdown}"
+    );
+    let sarif = stdout(&sarif_out);
+    assert!(
+        sarif.contains(&format!("({pct}% similar)")),
+        "expected similarity percentage in SARIF:\n{sarif}"
+    );
+
+    repository.write("src/third.ts", &second_edited);
+    let (family_report, sarif_ids) = check_json_and_sarif_duplication_ids(&repository);
+    let (_, families) = production_duplication_and_families(&family_report);
+    assert_eq!(families.len(), 1);
+    assert_eq!(
+        family_location_ranges(&families[0]),
+        [
+            ("src/cart.ts", 1, 9),
+            ("src/edited.ts", 1, 10),
+            ("src/third.ts", 1, 10),
+        ]
+    );
+    assert_eq!(sarif_ids, clone_family_ids(&family_report));
+}
+
+#[test]
+fn invalid_near_clone_min_similarity_stops_check_with_exit_code_2() {
+    let repository = repo_with_files(&[("src/main.ts", "export const value = 1;\n".to_owned())]);
+    write_near_clone_config(&repository, 0.0);
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        "codeint: codeint.json: duplication.min_similarity must be greater than 0 and at most 1, not 0\n\
+         Set the value to a ratio greater than 0 and at most 1, such as 0.85.\n",
+    );
 }

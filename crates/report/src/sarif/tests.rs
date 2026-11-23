@@ -42,6 +42,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
     let clones = [CloneGroupFinding {
         id: "2222222222222222".to_owned(),
         tokens: 80,
+        similarity: None,
         locations: vec![
             CloneLocation {
                 path: "src/a.ts".to_owned(),
@@ -111,6 +112,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
         CloneGroupFinding {
             id: "aaaa000000000001".to_owned(),
             tokens: 80,
+            similarity: None,
             locations: vec![
                 CloneLocation {
                     path: "src/a.ts".to_owned(),
@@ -132,6 +134,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
         CloneGroupFinding {
             id: "bbbb000000000002".to_owned(),
             tokens: 75,
+            similarity: Some(Decimal(0.92)),
             locations: vec![
                 CloneLocation {
                     path: "src/x.ts".to_owned(),
@@ -201,5 +204,9 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
     assert_eq!(
         results[1]["partialFingerprints"]["codeintFindingId"],
         "bbbb000000000002"
+    );
+    assert_eq!(
+        results[1]["message"]["text"],
+        "Near-clone group of 75 tokens (92% similar) in 2 fragments; the other fragments: src/y.ts lines 1-8."
     );
 }

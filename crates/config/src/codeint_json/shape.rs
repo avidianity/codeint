@@ -123,8 +123,25 @@ impl<'schema> Shape<'schema> {
 }
 
 fn check_range(value: &Value, schema: &Value, key: &KeyPath) -> Result<(), ConfigurationFileError> {
-    let (Some(found), Some(minimum), Some(maximum)) = (
-        value.as_f64(),
+    let Some(found) = value.as_f64() else {
+        return Ok(());
+    };
+    if let (Some(exclusive_minimum), Some(maximum)) = (
+        schema.get("exclusiveMinimum").and_then(Value::as_f64),
+        schema.get("maximum").and_then(Value::as_f64),
+    ) {
+        return if found > exclusive_minimum && found <= maximum {
+            Ok(())
+        } else {
+            Err(ConfigurationFileError::OutOfExclusiveMinRange {
+                key: key.clone(),
+                exclusive_minimum,
+                maximum,
+                found,
+            })
+        };
+    }
+    let (Some(minimum), Some(maximum)) = (
         schema.get("minimum").and_then(Value::as_f64),
         schema.get("maximum").and_then(Value::as_f64),
     ) else {

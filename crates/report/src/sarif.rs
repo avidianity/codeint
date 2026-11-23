@@ -493,11 +493,19 @@ fn clone_family_result(source_set: SourceSet, family: &CloneFamilyFinding) -> Op
 }
 
 fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {
-    let header = format!(
-        "Clone group of {} tokens in {} fragments; the other fragments",
-        group.tokens,
-        group.locations.len(),
-    );
+    let header = match &group.similarity {
+        Some(similarity) => format!(
+            "Near-clone group of {} tokens ({}% similar) in {} fragments; the other fragments",
+            group.tokens,
+            (similarity.0 * 100.0).round() as u64,
+            group.locations.len(),
+        ),
+        None => format!(
+            "Clone group of {} tokens in {} fragments; the other fragments",
+            group.tokens,
+            group.locations.len(),
+        ),
+    };
     duplication_result(source_set, &group.id, &group.locations, &header)
 }
 

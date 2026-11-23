@@ -581,6 +581,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `boundaries.rules[].reason` | string | Optional human-readable explanation shown in boundary Findings |
 | `boundaries.strict_zones` | boolean | When `true`, report files in evaluated Source sets that do not match any configured zone; `false` by default |
 | `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
+| `duplication` | object | Settings for Duplication detection, including opt-in shingle-based near-clone detection; see [Duplication](#duplication) |
+| `duplication.near_clones` | boolean | When `true`, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; `false` by default |
+| `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -596,7 +599,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, duplication
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -862,6 +865,25 @@ In `codeint diff`, each boundary Finding carries a stable content-based identifi
 codeint check
 ```
 
+### Duplication
+
+By default, Duplication reports exact normalized Clone groups so calibrated Reference ranges stay unchanged.
+Set `duplication.near_clones` to `true` to also detect near-duplicate blocks that differ by small insertions, deletions, or edits using shingle Jaccard similarity at or above `duplication.min_similarity` (`0.85` by default, in `(0, 1]`).
+Near-clone mode honors the same `import-or-export`, minimum token, and minimum distinct token rules as exact Clone groups, clusters overlapping exact and near-clone fragments across three or more locations into Clone families, and keeps Verbosity coupled only to exact Clone groups.
+
+```json codeint.json
+{
+  "duplication": {
+    "near_clones": true,
+    "min_similarity": 0.85
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
 ## Result cache
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
@@ -1032,6 +1054,7 @@ Each Metric object has these fields:
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
+- `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in `codeint.json`; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
 - `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
 
@@ -1042,7 +1065,7 @@ Each import has `importer`, the path of the importing file, `specifier`, the tex
 Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
 - An eroded function has `path`, `line`, `cyclomatic_complexity`, `source_lines`, and `function_mass`.
-- A Clone group has `tokens` and `locations`; each location has `path`, `start_line`, and `end_line`.
+- A Clone group has `tokens`, optional `similarity` (present on near-clone Findings as a ratio in `(0, 1]`), and `locations`; each location has `path`, `start_line`, and `end_line`.
 - A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.
 - An Import cycle has `modules`, the paths of the modules in the cycle.

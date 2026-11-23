@@ -263,9 +263,23 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
     let DuplicationSection {
         ratio: duplication_ratio,
         reference_range: duplication_range,
+        near_clones,
         clone_lines,
         ..
     } = &section.duplication;
+    let duplication_behind = match near_clones {
+        Some(mode) => format!(
+            "{} of {} (near-clones >= {}%)",
+            CLONE_LINE.counted(*clone_lines),
+            SOURCE_LINE.counted(section.source_lines),
+            similarity_percent(mode.min_similarity.0),
+        ),
+        None => format!(
+            "{} of {}",
+            CLONE_LINE.counted(*clone_lines),
+            SOURCE_LINE.counted(section.source_lines)
+        ),
+    };
     let VerbositySection {
         ratio: verbosity_ratio,
         reference_range: verbosity_range,
@@ -288,11 +302,7 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         row(
             "Duplication",
             duplication_ratio.0,
-            format!(
-                "{} of {}",
-                CLONE_LINE.counted(*clone_lines),
-                SOURCE_LINE.counted(section.source_lines)
-            ),
+            duplication_behind,
             duplication_range,
         ),
         row(
@@ -488,7 +498,19 @@ pub(crate) fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<Strin
 
 pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     let locations: Vec<String> = group.locations.iter().map(clone_location).collect();
-    format!("{} tokens: {}", group.tokens, locations.join(", "))
+    match &group.similarity {
+        Some(similarity) => format!(
+            "{} tokens ({}% similar): {}",
+            group.tokens,
+            similarity_percent(similarity.0),
+            locations.join(", "),
+        ),
+        None => format!("{} tokens: {}", group.tokens, locations.join(", ")),
+    }
+}
+
+fn similarity_percent(ratio: f64) -> u64 {
+    (ratio * 100.0).round() as u64
 }
 
 pub(crate) fn clone_family_item(family: &CloneFamilyFinding) -> String {

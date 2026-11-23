@@ -206,42 +206,49 @@ fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
     assert!(unzoned.get("zone").is_none());
 }
 
-#[test]
-fn mcp_check_and_diff_expose_clone_families_for_three_or_more_copies() {
-    let repo = init_sample_repo();
-    let duplicated = concat!(
-        "export function computeInvoice(entries: { unit: number; tax: number; count: number }[]): number {\n",
-        "  let accumulator = 0;\n",
-        "  for (const entry of entries.filter(Boolean)) {\n",
-        "    if (entry.count > 0 && entry.unit >= 0) {\n",
-        "      accumulator += (entry.unit + entry.tax) * entry.count;\n",
-        "    }\n",
-        "  }\n",
-        "  return Math.floor(accumulator * 100) / 100;\n",
-        "}\n",
-    );
-    std::fs::write(repo.path().join("c.ts"), duplicated).unwrap();
-    std::fs::write(repo.path().join("a.ts"), duplicated).unwrap();
-    std::fs::write(repo.path().join("b.ts"), duplicated).unwrap();
+const DUPLICATED_INVOICE_TS: &str = concat!(
+    "export function computeInvoice(entries: { unit: number; tax: number; count: number }[]): number {\n",
+    "  let accumulator = 0;\n",
+    "  for (const entry of entries.filter(Boolean)) {\n",
+    "    if (entry.count > 0 && entry.unit >= 0) {\n",
+    "      accumulator += (entry.unit + entry.tax) * entry.count;\n",
+    "    }\n",
+    "  }\n",
+    "  return Math.floor(accumulator * 100) / 100;\n",
+    "}\n",
+);
 
+fn run_mcp_check_and_diff(repo: &std::path::Path) -> (Value, Value) {
     let responses = send_mcp_requests(
-        repo.path(),
+        repo,
         &[
             json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "check", "arguments": {}}}),
             json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "diff", "arguments": {"base_ref": "main"}}}),
         ],
     );
-
     assert_eq!(responses.len(), 2);
     assert_eq!(responses[0]["result"]["isError"], false);
     assert_eq!(responses[1]["result"]["isError"], false);
+    let parse_text = |index: usize| {
+        serde_json::from_str(
+            responses[index]["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    (parse_text(0), parse_text(1))
+}
 
-    let check_payload: Value = serde_json::from_str(
-        responses[0]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+#[test]
+fn mcp_check_and_diff_expose_clone_families_for_three_or_more_copies() {
+    let repo = init_sample_repo();
+    std::fs::write(repo.path().join("c.ts"), DUPLICATED_INVOICE_TS).unwrap();
+    std::fs::write(repo.path().join("a.ts"), DUPLICATED_INVOICE_TS).unwrap();
+    std::fs::write(repo.path().join("b.ts"), DUPLICATED_INVOICE_TS).unwrap();
+
+    let (check_payload, diff_payload) = run_mcp_check_and_diff(repo.path());
+
     let families =
         check_payload["report"]["source_sets"]["production"]["duplication"]["clone_families"]
             .as_array()
@@ -256,16 +263,51 @@ fn mcp_check_and_diff_expose_clone_families_for_three_or_more_copies() {
         .collect();
     assert_eq!(paths, ["a.ts", "b.ts", "c.ts"]);
 
-    let diff_payload: Value = serde_json::from_str(
-        responses[1]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
     let new_families =
         diff_payload["report"]["source_sets"]["production"]["duplication"]["clone_families"]["new"]
             .as_array()
             .expect("diff new clone_families");
     assert_eq!(new_families.len(), 1);
     assert_eq!(new_families[0]["id"], families[0]["id"]);
+}
+
+#[test]
+fn mcp_check_and_diff_expose_near_clone_similarity_and_families() {
+    let repo = init_sample_repo();
+    std::fs::write(
+        repo.path().join("codeint.json"),
+        r#"{ "duplication": { "near_clones": true, "min_similarity": 0.85 } }"#,
+    )
+    .unwrap();
+    let copy_one = DUPLICATED_INVOICE_TS.replacen(
+        "  let accumulator = 0;\n",
+        "  let accumulator = 0;\n  console.log(entries.length);\n",
+        1,
+    );
+    let copy_two = DUPLICATED_INVOICE_TS.replacen(
+        "      accumulator += (entry.unit + entry.tax) * entry.count;\n",
+        "      accumulator += (entry.unit + entry.tax) * entry.count;\n      console.log(accumulator);\n",
+        1,
+    );
+    std::fs::write(repo.path().join("one.ts"), DUPLICATED_INVOICE_TS).unwrap();
+    std::fs::write(repo.path().join("two.ts"), copy_one).unwrap();
+    std::fs::write(repo.path().join("three.ts"), copy_two).unwrap();
+
+    let (check_payload, diff_payload) = run_mcp_check_and_diff(repo.path());
+
+    let dup = &check_payload["report"]["source_sets"]["production"]["duplication"];
+    assert_eq!(dup["near_clones"]["min_similarity"], 0.85);
+    let groups = dup["clone_groups"].as_array().expect("clone_groups");
+    assert_eq!(groups.len(), 1);
+    assert!(groups[0]["similarity"].as_f64().unwrap() >= 0.85);
+    let families = dup["clone_families"].as_array().expect("clone_families");
+    assert_eq!(families.len(), 1);
+
+    assert_eq!(diff_payload["passed"], false);
+    let new_groups = diff_payload["report"]["source_sets"]["production"]["duplication"]["new"]
+        .as_array()
+        .expect("new near-clone groups");
+    assert_eq!(new_groups.len(), 1);
+    assert_eq!(new_groups[0]["id"], groups[0]["id"]);
+    assert!(new_groups[0]["similarity"].as_f64().unwrap() >= 0.85);
 }

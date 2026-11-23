@@ -9,8 +9,11 @@ use crate::line_share::{LineShare, line_shares_by_package};
 use crate::FindingId;
 use crate::finding_id::FindingIds;
 
+mod near_clones;
 #[cfg(test)]
 mod tests;
+
+pub use near_clones::NearCloneConfig;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MinimumCloneTokens(NonZeroUsize);
@@ -38,6 +41,7 @@ impl MinimumDistinctTokens {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Duplication {
     pub clone_lines: CloneLines,
+    pub exact_clone_lines: CloneLines,
     pub source_lines: u64,
     pub clone_groups: Vec<CloneGroup>,
     pub clone_families: Vec<CloneFamily>,
@@ -49,9 +53,19 @@ impl Duplication {
         minimum: MinimumCloneTokens,
         minimum_distinct: MinimumDistinctTokens,
     ) -> Duplication {
+        Duplication::measure_with_near_clones(model, minimum, minimum_distinct, None)
+    }
+
+    pub fn measure_with_near_clones(
+        model: &CodeModel,
+        minimum: MinimumCloneTokens,
+        minimum_distinct: MinimumDistinctTokens,
+        near_clones: Option<NearCloneConfig>,
+    ) -> Duplication {
         let window = minimum.0.get();
-        let classes = equal_window_classes(model, &searched_runs(model), window);
-        let mut clone_lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+        let runs = searched_runs(model);
+        let classes = equal_window_classes(model, &runs, window);
+        let mut exact_lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
         let mut unidentified_groups = Vec::new();
         for (tokens, starts) in maximal_runs(&classes, window) {
             let starts = without_overlaps(starts, tokens);
@@ -73,7 +87,7 @@ impl Duplication {
             let mut spans = Vec::with_capacity(starts.len());
             for Position { file, token } in starts {
                 let covered = &model.files[file].model.tokens[token..token + tokens];
-                clone_lines_by_file
+                exact_lines_by_file
                     .entry(file)
                     .or_default()
                     .extend(covered.iter().map(|covered| covered.line));
@@ -110,6 +124,7 @@ impl Duplication {
             clone_groups.push(CloneGroup {
                 id,
                 tokens: group.tokens,
+                similarity: None,
                 fragments: group.fragments,
             });
             cluster_inputs.push(GroupClusterInput {
@@ -118,9 +133,37 @@ impl Duplication {
                 content_digest: digest,
             });
         }
+        let mut total_lines_by_file = exact_lines_by_file.clone();
+        if let Some(config) = near_clones {
+            let near = near_clones::detect_near_clones(
+                model,
+                &runs,
+                window,
+                minimum_distinct.0,
+                &cluster_inputs,
+                config,
+            );
+            for span in near.spans {
+                let covered =
+                    &model.files[span.file].model.tokens[span.start_token..span.end_token];
+                total_lines_by_file
+                    .entry(span.file)
+                    .or_default()
+                    .extend(covered.iter().map(|token| token.line));
+            }
+            clone_groups.extend(near.groups);
+            cluster_inputs.extend(near.cluster_inputs);
+            clone_groups.sort_by(|left, right| {
+                right
+                    .tokens
+                    .cmp(&left.tokens)
+                    .then_with(|| left.fragments.cmp(&right.fragments))
+            });
+        }
         let clone_families = build_clone_families(model, &cluster_inputs);
         Duplication {
-            clone_lines: CloneLines::of_files(model, clone_lines_by_file),
+            clone_lines: CloneLines::of_files(model, total_lines_by_file),
+            exact_clone_lines: CloneLines::of_files(model, exact_lines_by_file),
             source_lines: model
                 .files
                 .iter()
@@ -175,10 +218,11 @@ impl CloneLines {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CloneGroup {
     pub id: FindingId,
     pub tokens: usize,
+    pub similarity: Option<f64>,
     pub fragments: Vec<Fragment>,
 }
 

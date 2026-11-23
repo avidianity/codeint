@@ -13,7 +13,7 @@ pub use boundaries::{
 };
 pub use duplication::{
     CloneFamily, CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens,
-    MinimumDistinctTokens,
+    MinimumDistinctTokens, NearCloneConfig,
 };
 pub use erosion::{ErodedFunction, Erosion, FunctionMasses};
 pub use finding_id::FindingId;

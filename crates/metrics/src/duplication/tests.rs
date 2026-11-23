@@ -1,10 +1,13 @@
 use std::num::NonZeroUsize;
 
 use codeint_model::{
-    CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
+    CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, language::Function,
+    token_text_hash,
 };
 
-use super::{CloneFamily, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens};
+use super::{
+    CloneFamily, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig,
+};
 
 fn file(path: &str, lines: &[&str]) -> SourceFile {
     let tokens = lines
@@ -430,6 +433,295 @@ fn clone_family_id_is_order_independent_and_stable_when_fragments_move() {
             fragment("a.ts", 1, 2),
             fragment("b.ts", 3, 4),
             fragment("c.ts", 1, 2),
+        ]
+    );
+}
+
+fn near_clone_lines() -> Vec<&'static str> {
+    vec![
+        "fn $f ( $a , $b , $c ) {",
+        "let $x = $a + $b * \"2\" ;",
+        "let $y = $b - $c / \"3\" ;",
+        "if ( $x > $y ) {",
+        "$x += ( $a - $b ) * $c ;",
+        "}",
+        "for ( let $i of $a ) {",
+        "if ( $i >= \"0\" ) {",
+        "$y += $i % \"5\" ;",
+        "}",
+        "}",
+        "return $x + $y - \"1\" ;",
+        "}",
+    ]
+}
+
+fn file_with_functions(path: &str, lines: &[&str], functions: Vec<Function>) -> SourceFile {
+    let mut source = file(path, lines);
+    source.model.functions = functions;
+    source
+}
+
+fn whole_function(line_count: usize) -> Vec<Function> {
+    vec![Function {
+        line: 1,
+        end_line: u32::try_from(line_count).expect("few lines"),
+        decision_points: 2,
+        source_lines: u32::try_from(line_count).expect("few lines"),
+    }]
+}
+
+fn function_file(path: &str, lines: &[&str]) -> SourceFile {
+    file_with_functions(path, lines, whole_function(lines.len()))
+}
+
+fn measure_near_pair(left: &[&str], right: &[&str], threshold: Option<f64>) -> Duplication {
+    let code = model(vec![
+        function_file("one.ts", left),
+        function_file("two.ts", right),
+    ]);
+    let config = threshold.map(|value| NearCloneConfig::new(value).expect("valid threshold"));
+    Duplication::measure_with_near_clones(
+        &code,
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        config,
+    )
+}
+
+#[test]
+fn near_clones_off_by_default_leaves_edited_copy_undetected() {
+    let base = near_clone_lines();
+    let mut edited = base.clone();
+    edited.insert(5, "$log ( $x ) ;");
+
+    let duplication = measure_near_pair(&base, &edited, None);
+
+    assert!(duplication.clone_groups.is_empty());
+    assert_eq!(duplication.clone_lines.count(), 0);
+    assert_eq!(duplication.exact_clone_lines.count(), 0);
+}
+
+#[test]
+fn near_clones_enabled_catches_one_line_edit_with_similarity_and_keeps_exact_lines_separate() {
+    let base = near_clone_lines();
+    let mut edited = base.clone();
+    edited.insert(5, "$log ( $x ) ;");
+
+    let duplication = measure_near_pair(&base, &edited, Some(0.85));
+
+    assert_eq!(duplication.clone_groups.len(), 1);
+    let group = &duplication.clone_groups[0];
+    let similarity = group.similarity.expect("near-clone reports similarity");
+    assert!(
+        (0.85..1.0).contains(&similarity),
+        "unexpected similarity {similarity}"
+    );
+    assert_eq!(
+        group.fragments,
+        vec![fragment("one.ts", 1, 13), fragment("two.ts", 1, 14)]
+    );
+    assert_eq!(duplication.clone_lines.count(), 27);
+    assert_eq!(duplication.exact_clone_lines.count(), 0);
+}
+
+#[test]
+fn near_clones_ignore_blocks_below_min_similarity() {
+    let base = near_clone_lines();
+    let different = [
+        "class $cls {",
+        "static $m ( $p ) {",
+        "switch ( $p ) {",
+        "case \"a\" : break ;",
+        "case \"b\" : continue ;",
+        "default : throw $p ;",
+        "}",
+        "while ( $p != \"0\" ) {",
+        "$p -= \"1\" ;",
+        "$p ^= \"3\" ;",
+        "$p |= \"7\" ;",
+        "yield $p ;",
+        "}",
+        "}",
+        "}",
+    ];
+
+    let duplication = measure_near_pair(&base, &different, Some(0.85));
+
+    assert!(duplication.clone_groups.is_empty());
+}
+
+#[test]
+fn near_clones_exclude_import_or_export_tokens_and_respect_token_guards() {
+    let imports_only = [
+        "@import @a @b @c @d @e @f @g @h @i @j",
+        "@import @k @l @m @n @o @p @q @r @s @t",
+        "@export @u @v @w @x @y @z @a1 @b1 @c1 @d1",
+    ];
+    let imports_edited = [
+        "@import @a @b @c @d @e @f @g @h @i @j",
+        "@import @k @l @m @n @o @p @q @r @s @t",
+        "@export @u @v @w @x @y @z @a1 @b1 @c1 @d1 @e1",
+    ];
+    let low_distinct = [
+        "{ $a : \"1\" , $b : \"2\" , $c : \"3\" , $d : \"4\" ,",
+        "$e : \"5\" , $f : \"6\" , $g : \"7\" , $h : \"8\" ,",
+        "$i : \"9\" , $j : \"10\" , $k : \"11\" , $l : \"12\" }",
+    ];
+    let low_distinct_edited = [
+        "{ $a : \"1\" , $b : \"2\" , $c : \"3\" , $d : \"4\" ,",
+        "$e : \"5\" , $f : \"6\" , $g : \"7\" , $h : \"8\" ,",
+        "$i : \"9\" , $j : \"10\" , $k : \"11\" , $l : \"12\" , $m : \"13\" }",
+    ];
+    let config = NearCloneConfig::new(0.80).expect("valid threshold");
+
+    let imports_dup = Duplication::measure_with_near_clones(
+        &model(vec![
+            file("a.ts", &imports_only),
+            file("b.ts", &imports_edited),
+        ]),
+        minimum(10),
+        MinimumDistinctTokens::new(0),
+        Some(config),
+    );
+    let boilerplate_dup = Duplication::measure_with_near_clones(
+        &model(vec![
+            file("a.ts", &low_distinct),
+            file("b.ts", &low_distinct_edited),
+        ]),
+        minimum(20),
+        MinimumDistinctTokens::DEFAULT,
+        Some(config),
+    );
+
+    assert!(imports_dup.clone_groups.is_empty());
+    assert!(boilerplate_dup.clone_groups.is_empty());
+}
+
+#[test]
+fn exact_clones_are_not_duplicated_as_near_clones() {
+    let base = near_clone_lines();
+
+    let duplication = measure_near_pair(&base, &base, Some(0.85));
+
+    assert_eq!(duplication.clone_groups.len(), 1);
+    assert_eq!(duplication.clone_groups[0].similarity, None);
+    assert_eq!(duplication.clone_lines, duplication.exact_clone_lines);
+}
+
+#[test]
+fn three_near_clones_cluster_into_one_clone_family_with_stable_id_across_line_shifts() {
+    let base = near_clone_lines();
+    let mut second = base.clone();
+    second.insert(5, "$log ( $x ) ;");
+    let mut third = base.clone();
+    third.insert(10, "$trace ( $y ) ;");
+    let config = NearCloneConfig::new(0.85).expect("valid threshold");
+
+    let first_run = Duplication::measure_with_near_clones(
+        &model(vec![
+            file_with_functions("c.ts", &third, whole_function(third.len())),
+            file_with_functions("a.ts", &base, whole_function(base.len())),
+            file_with_functions("b.ts", &second, whole_function(second.len())),
+        ]),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        Some(config),
+    );
+
+    let mut shifted_second = vec!["const $pad1 = \"1\" ;", "const $pad2 = \"2\" ;"];
+    shifted_second.extend_from_slice(&second);
+    let shifted_fn = vec![Function {
+        line: 3,
+        end_line: u32::try_from(shifted_second.len()).expect("few lines"),
+        decision_points: 2,
+        source_lines: u32::try_from(second.len()).expect("few lines"),
+    }];
+    let shifted_run = Duplication::measure_with_near_clones(
+        &model(vec![
+            file_with_functions("a.ts", &base, whole_function(base.len())),
+            file_with_functions("b.ts", &shifted_second, shifted_fn),
+            file_with_functions("c.ts", &third, whole_function(third.len())),
+        ]),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        Some(config),
+    );
+
+    assert_eq!(first_run.clone_families.len(), 1);
+    assert_eq!(shifted_run.clone_families.len(), 1);
+    assert_eq!(
+        first_run.clone_families[0].id,
+        shifted_run.clone_families[0].id
+    );
+    assert_eq!(first_run.clone_groups[0].id, shifted_run.clone_groups[0].id);
+    assert_eq!(
+        first_run.clone_families[0].fragments,
+        vec![
+            fragment("a.ts", 1, 13),
+            fragment("b.ts", 1, 14),
+            fragment("c.ts", 1, 14),
+        ]
+    );
+    assert_eq!(first_run.clone_families[0].duplicated_lines, 41);
+}
+
+#[test]
+fn bounded_near_clone_detection_scales_across_hundreds_of_distinct_functions() {
+    let mut files = Vec::new();
+    for idx in 0..240usize {
+        let ops = [
+            format!("op_{idx}_a"),
+            format!("op_{idx}_b"),
+            format!("op_{idx}_c"),
+            format!("op_{idx}_d"),
+            format!("op_{idx}_e"),
+            format!("op_{idx}_f"),
+        ];
+        let lines: Vec<String> = (0..12)
+            .map(|row| {
+                format!(
+                    "{} $v {} \"0\" {} k_{idx}_{row} ;",
+                    ops[row % 6],
+                    ops[(row + 1) % 6],
+                    ops[(row + 2) % 6],
+                )
+            })
+            .collect();
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        files.push(file_with_functions(
+            &format!("src/f{idx:03}.ts"),
+            &refs,
+            whole_function(refs.len()),
+        ));
+    }
+    let planted_a = near_clone_lines();
+    let mut planted_b = planted_a.clone();
+    planted_b.insert(5, "$log ( $x ) ;");
+    files.push(file_with_functions(
+        "src/planted_a.ts",
+        &planted_a,
+        whole_function(planted_a.len()),
+    ));
+    files.push(file_with_functions(
+        "src/planted_b.ts",
+        &planted_b,
+        whole_function(planted_b.len()),
+    ));
+    let config = NearCloneConfig::new(0.85).expect("valid threshold");
+
+    let duplication = Duplication::measure_with_near_clones(
+        &model(files),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        Some(config),
+    );
+
+    assert_eq!(duplication.clone_groups.len(), 1);
+    assert_eq!(
+        duplication.clone_groups[0].fragments,
+        vec![
+            fragment("src/planted_a.ts", 1, 13),
+            fragment("src/planted_b.ts", 1, 14),
         ]
     );
 }

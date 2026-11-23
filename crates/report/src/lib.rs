@@ -4,12 +4,12 @@ use std::collections::BTreeMap;
 
 use codeint_config::{
     Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
-    FindingsShown, ReportFormat,
+    DuplicationConfig, FindingsShown, ReportFormat,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneFamily, CloneGroup,
     Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
-    MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
+    MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -36,6 +36,7 @@ const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
+const NOT_SHOWN_FOR_NEAR_CLONES: &str = "not shown, because near-clone detection is enabled (Reference ranges are calibrated for exact Clone groups)";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReportError {
@@ -250,6 +251,8 @@ struct ErodedFunctionFinding {
 struct DuplicationSection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    near_clones: Option<NearClonesSummary>,
     clone_lines: u64,
     #[serde(flatten)]
     clone_groups: Findings<CloneGroupFinding>,
@@ -257,10 +260,17 @@ struct DuplicationSection {
     clone_families: Findings<CloneFamilyFinding>,
 }
 
+#[derive(Debug, Serialize)]
+struct NearClonesSummary {
+    min_similarity: Decimal,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct CloneGroupFinding {
     id: String,
     tokens: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    similarity: Option<Decimal>,
     locations: Vec<CloneLocation>,
 }
 
@@ -546,6 +556,7 @@ impl SourceSetSections {
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
@@ -558,6 +569,7 @@ impl SourceSetSections {
                     findings,
                     metric_plugins,
                     source_set_boundaries,
+                    duplication,
                 )?);
             }
         }
@@ -631,12 +643,13 @@ impl SourceSetSection {
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
     ) -> Result<SourceSetSection, MetricPluginError> {
-        let measured = Measured::new(model);
-        let boundaries = boundaries.map(|config| {
-            let evaluated = Boundaries::measure(model, &ConfigBoundaryPolicy(config));
-            BoundariesSection::new(&evaluated, findings)
-        });
+        let measured = Measured::new(model, boundaries, duplication);
+        let boundaries = measured
+            .boundaries
+            .as_ref()
+            .map(|evaluated| BoundariesSection::new(evaluated, findings));
         let mut external_metrics = BTreeMap::new();
         for plugin in metric_plugins {
             let result = plugin.measure(model)?;
@@ -663,7 +676,12 @@ impl SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: ErosionSection::new(&measured.erosion, ranges, findings),
-            duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
+            duplication: DuplicationSection::new(
+                &measured.duplication,
+                ranges,
+                findings,
+                duplication,
+            ),
             verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
             import_cycles: ImportCyclesSection::new(&measured.import_cycles, ranges, findings),
             boundaries,
@@ -721,10 +739,22 @@ impl DuplicationSection {
         duplication: &Duplication,
         ranges: &ReferenceRangeScope,
         shown: FindingsShown,
+        config: DuplicationConfig,
     ) -> DuplicationSection {
+        let (reference_range, near_clones) = if config.near_clones {
+            (
+                ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_NEAR_CLONES),
+                Some(NearClonesSummary {
+                    min_similarity: Decimal::rounded(config.min_similarity.ratio()),
+                }),
+            )
+        } else {
+            (ranges.entry(Metric::Duplication.key()), None)
+        };
         DuplicationSection {
             ratio: Decimal::rounded(duplication.ratio()),
-            reference_range: ranges.entry(Metric::Duplication.key()),
+            reference_range,
+            near_clones,
             clone_lines: duplication.clone_lines.count(),
             clone_groups: Findings::worst_first(
                 duplication.clone_groups.iter().map(CloneGroupFinding::new),
@@ -746,6 +776,7 @@ impl CloneGroupFinding {
         CloneGroupFinding {
             id: group.id.to_string(),
             tokens: group.tokens,
+            similarity: group.similarity.map(Decimal::rounded),
             locations: group.fragments.iter().map(CloneLocation::new).collect(),
         }
     }
@@ -867,20 +898,33 @@ struct Measured {
     duplication: Duplication,
     verbosity: Verbosity,
     import_cycles: ImportCycles,
+    boundaries: Option<Boundaries>,
 }
 
 impl Measured {
-    fn new(model: &CodeModel) -> Measured {
-        let duplication = Duplication::measure(
+    fn new(
+        model: &CodeModel,
+        boundaries: Option<&BoundariesConfig>,
+        duplication_config: DuplicationConfig,
+    ) -> Measured {
+        let near_clones = duplication_config.near_clones.then(|| {
+            NearCloneConfig::new(duplication_config.min_similarity.ratio())
+                .expect("validated min_similarity is in (0, 1]")
+        });
+        let duplication = Duplication::measure_with_near_clones(
             model,
             MinimumCloneTokens::DEFAULT,
             MinimumDistinctTokens::DEFAULT,
+            near_clones,
         );
+        let boundaries =
+            boundaries.map(|config| Boundaries::measure(model, &ConfigBoundaryPolicy(config)));
         Measured {
             erosion: Erosion::measure(model),
-            verbosity: Verbosity::measure(model, &duplication.clone_lines),
+            verbosity: Verbosity::measure(model, &duplication.exact_clone_lines),
             duplication,
             import_cycles: ImportCycles::measure(model),
+            boundaries,
         }
     }
 }
@@ -939,6 +983,7 @@ impl MeasuredSection {
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = model.files.len();
         let lines = source_lines(&model);
@@ -948,6 +993,7 @@ impl MeasuredSection {
             findings,
             metric_plugins,
             boundaries,
+            duplication,
         )?;
         Ok(MeasuredSection {
             files,
@@ -993,6 +1039,26 @@ impl Report {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_config(
+            languages,
+            submodules,
+            findings,
+            budgets,
+            metric_plugins,
+            boundaries,
+            DuplicationConfig::default(),
+        )
+    }
+
+    pub fn summarize_with_config(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
+        budgets: &Budgets,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
+    ) -> Result<Report, MetricPluginError> {
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -1016,6 +1082,7 @@ impl Report {
                             findings,
                             metric_plugins,
                             boundaries,
+                            duplication,
                         )?,
                     );
                 }
@@ -1034,8 +1101,14 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured =
-            MeasuredSection::new(model, &total_ranges, findings, metric_plugins, boundaries)?;
+        let measured = MeasuredSection::new(
+            model,
+            &total_ranges,
+            findings,
+            metric_plugins,
+            boundaries,
+            duplication,
+        )?;
         Ok(Report {
             over_budget: measured.source_sets.over_budget(budgets),
             skipped,

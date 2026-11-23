@@ -104,6 +104,12 @@ for declaration in &configuration.plugins {
 - A `url` that does not use `https://` fails with `ConfigurationFileError::NonHttpsPluginUrl` (exit code 2).
 - `plugins` is empty by default and omitted when serialized as empty, so `codeint init` leaves it out.
 
+## Configure Duplication near-clone detection
+
+- `configuration.duplication.near_clones` is `false` by default, keeping exact Clone groups as the default behavior.
+- `configuration.duplication.min_similarity` is a validated `MinSimilarity` in `(0.0, 1.0]`, defaulting to `0.85`.
+- Any `min_similarity` outside `(0.0, 1.0]` fails `read_configuration` with `ConfigurationFileError::OutOfExclusiveMinRange` (exit code 2).
+
 ## Add a setting
 
 - Add a field to `ConfigurationFile` in `src/codeint_json.rs`, with `#[serde(default)]` and a `#[schemars(description = ...)]` that tells the user what it does.

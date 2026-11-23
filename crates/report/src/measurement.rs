@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 
-use codeint_config::Boundaries as BoundariesConfig;
-use codeint_metrics::Boundaries;
+use codeint_config::{Boundaries as BoundariesConfig, DuplicationConfig};
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, ConfigBoundaryPolicy,
-    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, ErodedFunctionFinding,
+    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,27 +73,45 @@ impl CommitMeasurement {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
+        CommitMeasurement::of_with_config(
+            model,
+            metric_plugins,
+            boundaries,
+            DuplicationConfig::default(),
+        )
+    }
+
+    pub fn of_with_config(
+        model: CodeModel,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
+    ) -> Result<CommitMeasurement, MetricPluginError> {
         let source_sets = model.into_source_sets();
         Ok(CommitMeasurement {
             production: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Production),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Production)),
+                duplication,
             )?,
             test: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Test),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Test)),
+                duplication,
             )?,
             generated: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Generated),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Generated)),
+                duplication,
             )?,
             vendored: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Vendored),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Vendored)),
+                duplication,
             )?,
         })
     }
@@ -114,11 +131,13 @@ impl SourceSetMeasurement {
         model: &CodeModel,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        duplication_config: DuplicationConfig,
     ) -> Result<SourceSetMeasurement, MetricPluginError> {
-        let measured = Measured::new(model);
-        let boundaries = boundaries.map(|config| {
-            let evaluated = Boundaries::measure(model, &ConfigBoundaryPolicy(config));
-            MetricMeasurement {
+        let measured = Measured::new(model, boundaries, duplication_config);
+        let boundaries = measured
+            .boundaries
+            .as_ref()
+            .map(|evaluated| MetricMeasurement {
                 ratio: evaluated.ratio(),
                 numerator: evaluated.findings().len() as f64,
                 findings_worst_first: evaluated
@@ -126,8 +145,7 @@ impl SourceSetMeasurement {
                     .iter()
                     .map(BoundaryFindingRow::from)
                     .collect(),
-            }
-        });
+            });
         let mut external_metrics = BTreeMap::new();
         for plugin in metric_plugins {
             let result = plugin.measure(model)?;

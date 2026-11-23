@@ -16,10 +16,10 @@ pub use boundaries::{
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
-    Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
-    PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
-    StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
-    write_starter_configuration,
+    Budget, Budgets, Configuration, DetectedLanguage, DuplicationConfig, LanguageCoverage,
+    Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource,
+    Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
+    published_schema_address, read_configuration, write_starter_configuration,
 };
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};

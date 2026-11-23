@@ -202,13 +202,14 @@ fn check_loaded(
 ) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
     let languages = measure_with(&tree, plugins, configuration)?;
-    Ok(Report::summarize_with_metrics_and_boundaries(
+    Ok(Report::summarize_with_config(
         languages,
         tree.submodules().to_vec(),
         findings,
         &configuration.budgets,
         metric_plugins,
         configuration.boundaries.as_ref(),
+        configuration.duplication,
     )?)
 }
 

@@ -1321,3 +1321,56 @@ fn a_second_diff_with_head_reads_both_commits_from_the_cache() {
 
     assert_eq!(second, first);
 }
+
+#[test]
+fn diff_gates_new_near_clones_and_classifies_unchanged_near_clones_by_stable_id() {
+    let base_fn = [
+        "export function batchTotal(rows: { price: number; rebate: number; units: number }[]): number {",
+        "  let acc = 0;",
+        "  for (const row of rows.filter(Boolean)) {",
+        "    if (row.units > 0) {",
+        "      acc += (row.price - row.rebate) * row.units;",
+        "    }",
+        "  }",
+        "  return Math.round(acc * 100) / 100;",
+        "}",
+    ]
+    .join("\n");
+    let near_copy = base_fn.replacen(
+        "  let acc = 0;",
+        "  let acc = 0;\n  console.debug(rows);",
+        1,
+    );
+    let fixture = Fixture::on_main();
+    fixture.put(
+        "codeint.json",
+        r#"{"duplication":{"near_clones":true,"min_similarity":0.85}}"#,
+    );
+    fixture.put("src/base.ts", &base_fn);
+    fixture.commit("base");
+
+    fixture.put("src/copy.ts", &near_copy);
+    let (code, report, stderr) = fixture.diff_outcome();
+    assert_eq!(
+        code,
+        Some(1),
+        "expected regression failure, stderr: {stderr}"
+    );
+    let dup = &report["source_sets"]["production"]["duplication"];
+    let new_groups = dup["new"].as_array().expect("new duplication findings");
+    assert_eq!(new_groups.len(), 1);
+    assert!(new_groups[0]["similarity"].as_f64().unwrap() >= 0.85);
+    assert!(
+        regressions(&report)
+            .iter()
+            .any(|reg| reg["metric"] == "duplication"),
+        "expected duplication regression: {report}"
+    );
+
+    fixture.commit("add near clone");
+    fixture.put("src/copy.ts", &format!("const pad = 1;\n{near_copy}"));
+    let shifted_report = fixture.diff_passing();
+    let shifted_dup = &shifted_report["source_sets"]["production"]["duplication"];
+    assert_eq!(shifted_dup["unchanged"], 1);
+    assert_eq!(shifted_dup["new"].as_array().map(Vec::len), Some(0));
+}
