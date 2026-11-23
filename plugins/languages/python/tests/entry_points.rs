@@ -60,33 +60,68 @@ fn extracts_project_scripts_gui_scripts_entry_points_and_declared_packages() {
     );
 }
 
+fn discover_root_pyproject(paths: &[&str], text: &str) -> Vec<String> {
+    let repo: Vec<RepoPath> = paths.iter().map(|p| RepoPath::new(*p).unwrap()).collect();
+    Python
+        .entry_points(
+            &repo,
+            vec![Manifest {
+                path: "pyproject.toml".to_owned(),
+                text: text.to_owned(),
+            }],
+        )
+        .expect("entry points")
+        .into_iter()
+        .map(|entry| entry.as_str().to_owned())
+        .collect()
+}
+
 #[test]
-fn returns_empty_when_pyproject_declares_no_entry_points_or_is_invalid() {
-    let snapshot = [
-        RepoPath::new("pyproject.toml").unwrap(),
-        RepoPath::new("webapp/__init__.py").unwrap(),
-        RepoPath::new("webapp/views.py").unwrap(),
-    ];
-    let plain = Manifest {
-        path: "pyproject.toml".to_owned(),
-        text: "[project]\nname = \"webapp\"\n".to_owned(),
-    };
-    let broken = Manifest {
-        path: "pyproject.toml".to_owned(),
-        text: "[project\nname =".to_owned(),
-    };
+fn registers_package_root_init_and_main_alongside_scripts_for_src_and_flat_layouts() {
     assert_eq!(
-        Python
-            .entry_points(&snapshot, vec![plain])
-            .expect("valid empty result"),
-        Vec::<RepoPath>::new()
+        discover_root_pyproject(
+            &[
+                "pyproject.toml",
+                "src/flask/__init__.py",
+                "src/flask/__main__.py",
+                "src/flask/cli.py",
+                "src/flask/app.py",
+                "src/flask/json/__init__.py",
+                "tests/__init__.py",
+                "docs/__init__.py",
+            ],
+            "[project]\nname = \"Flask\"\n[project.scripts]\nflask = \"flask.cli:main\"\n",
+        ),
+        [
+            "src/flask/__init__.py",
+            "src/flask/__main__.py",
+            "src/flask/cli.py",
+        ]
     );
     assert_eq!(
-        Python
-            .entry_points(&snapshot, vec![broken])
-            .expect("valid empty result"),
-        Vec::<RepoPath>::new()
+        discover_root_pyproject(
+            &[
+                "pyproject.toml",
+                "webapp/__init__.py",
+                "webapp/views.py",
+                "tests/__init__.py",
+            ],
+            "[project]\nname = \"webapp\"\n",
+        ),
+        ["webapp/__init__.py"]
     );
+}
+
+#[test]
+fn returns_empty_when_pyproject_has_no_packages_or_is_invalid() {
+    let paths = ["pyproject.toml", "scripts/tool.py", "tests/__init__.py"];
+    for text in [
+        "[project]\nname = \"webapp\"\n",
+        "[tool.uv.workspace]\nmembers = [\"packages/*\"]\n",
+        "[project\nname =",
+    ] {
+        assert!(discover_root_pyproject(&paths, text).is_empty());
+    }
 }
 
 #[test]

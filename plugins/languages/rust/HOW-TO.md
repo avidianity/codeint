@@ -18,7 +18,7 @@
 ## Workspaces and intra-crate imports
 
 - `src/workspaces.rs` reads `[workspace]` `members` and `exclude` globs from the root `Cargo.toml` to report Workspace packages.
-- `src/imports.rs` and `src/resolution.rs` resolve `crate::` / `self::` / `super::` `use` paths to intra-crate `.rs` files (`foo.rs` or `foo/mod.rs`), classifying `std`/`core`/`alloc`/`proc_macro` and external crates as `External` (bare `mod foo;` tree declarations are not treated as runtime imports so standard parent-child module hierarchies do not create false cycles).
+- `src/imports.rs` and `src/resolution.rs` resolve non-`#[cfg(test)]` external `mod` declarations (including `#[path = "..."]`), `crate::` / `self::` / `super::` `use` paths, and qualified crate paths (including macro and attribute paths) to intra-crate `.rs` files (`foo.rs` or `foo/mod.rs`), workspace crates, `Builtin`, or `External` dependencies.
 
 ## Reference ranges
 

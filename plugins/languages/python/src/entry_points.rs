@@ -3,6 +3,23 @@ use std::collections::{BTreeSet, HashSet};
 use codeint_model::language::Manifest;
 use codeint_model::scan::normalize_relative_path;
 
+const NON_PACKAGE_DIRS: [&str; 14] = [
+    "benchmark",
+    "benchmarks",
+    "build",
+    "dist",
+    "doc",
+    "docs",
+    "example",
+    "examples",
+    "node_modules",
+    "scripts",
+    "test",
+    "tests",
+    "third_party",
+    "vendor",
+];
+
 pub(crate) fn discover(repository_paths: &[String], manifests: &[Manifest]) -> Vec<String> {
     let py_files: HashSet<&str> = repository_paths
         .iter()
@@ -14,8 +31,47 @@ pub(crate) fn discover(repository_paths: &[String], manifests: &[Manifest]) -> V
         let roots = package_search_roots(base_dir);
         collect_script_entries(&doc, &roots, &py_files, &mut entries);
         collect_declared_packages(&doc, base_dir, &py_files, &mut entries);
+        collect_package_root_entries(&doc, &roots, &py_files, &mut entries);
     }
     entries.into_iter().collect()
+}
+
+fn collect_package_root_entries(
+    doc: &toml::Value,
+    roots: &[String],
+    py_files: &HashSet<&str>,
+    found: &mut BTreeSet<String>,
+) {
+    let defines_package = doc.get("project").is_some()
+        || doc
+            .get("tool")
+            .and_then(|tool| tool.get("poetry"))
+            .is_some();
+    if !defines_package {
+        return;
+    }
+    for root in roots {
+        let prefix = if root.is_empty() {
+            String::new()
+        } else {
+            format!("{root}/")
+        };
+        for &path in py_files {
+            let Some(rest) = path.strip_prefix(&prefix) else {
+                continue;
+            };
+            let Some((pkg, file_name)) = rest.split_once('/') else {
+                continue;
+            };
+            if !matches!(file_name, "__init__.py" | "__main__.py") {
+                continue;
+            }
+            if pkg.is_empty() || pkg.starts_with('.') || NON_PACKAGE_DIRS.contains(&pkg) {
+                continue;
+            }
+            found.insert(path.to_owned());
+        }
+    }
 }
 
 fn parsed_pyprojects(manifests: &[Manifest]) -> Vec<(&str, toml::Value)> {

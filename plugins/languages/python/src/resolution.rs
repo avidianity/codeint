@@ -108,24 +108,59 @@ fn resolve_relative(py_files: &HashSet<String>, importer: &str, specifier: &str)
         return Resolution::Unresolved(format!("{specifier:?} climbs outside the repository"));
     }
     segments.truncate(segments.len() - climbs);
-    if !remainder.is_empty() {
-        segments.extend(remainder.split('.').filter(|s| !s.is_empty()));
-    }
-    let base = segments.join("/");
-    let candidates = if base.is_empty() {
+    let base_dir = segments.join("/");
+    let remainder_segments: Vec<&str> = remainder.split('.').filter(|s| !s.is_empty()).collect();
+    segments.extend(remainder_segments.iter().copied());
+    find_relative_target(
+        py_files,
+        importer,
+        specifier,
+        &base_dir,
+        &segments.join("/"),
+        remainder_segments.len() == 1,
+    )
+}
+
+fn find_relative_target(
+    py_files: &HashSet<String>,
+    importer: &str,
+    specifier: &str,
+    base_dir: &str,
+    target_base: &str,
+    allow_init_fallback: bool,
+) -> Resolution {
+    let candidates = if target_base.is_empty() {
         vec!["__init__.py".to_owned()]
     } else {
-        vec![format!("{base}.py"), format!("{base}/__init__.py")]
+        vec![
+            format!("{target_base}.py"),
+            format!("{target_base}/__init__.py"),
+        ]
     };
     for candidate in candidates {
         if py_files.contains(&candidate) {
-            if candidate == importer {
-                return Resolution::Builtin;
-            }
-            return Resolution::Resolved(candidate);
+            return if candidate == importer {
+                Resolution::Builtin
+            } else {
+                Resolution::Resolved(candidate)
+            };
+        }
+    }
+    if allow_init_fallback {
+        let init_candidate = init_path_for(base_dir);
+        if init_candidate != importer && py_files.contains(&init_candidate) {
+            return Resolution::Resolved(init_candidate);
         }
     }
     Resolution::Unresolved(format!(
         "no Python module in the repository matches {specifier:?}"
     ))
+}
+
+fn init_path_for(dir: &str) -> String {
+    if dir.is_empty() {
+        "__init__.py".to_owned()
+    } else {
+        format!("{dir}/__init__.py")
+    }
 }
