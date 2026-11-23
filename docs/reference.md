@@ -1186,9 +1186,9 @@ codeint compares declared manifest dependencies against imported external packag
   In JavaScript and TypeScript projects, `devDependencies` invoked in command position by `package.json` `scripts` (including workspace member scripts for root `devDependencies`) are credited as used while keeping their `dev` classification for `declared` counts and `dev_in_production_dependencies`.
 - `unlisted_dependencies`: external packages imported by Production or Test files in a package that has a dependency manifest but does not declare them.
   Standard library and runtime built-ins are never flagged.
-  In JavaScript and TypeScript workspaces, a workspace member may import dependencies hoisted in the root `package.json`, crediting the root as used while still enforcing `dev_in_production_dependencies` for root dev dependencies imported by Production files.
-- `dev_in_production_dependencies`: dependencies declared only as dev dependencies that are imported by Production files.
-  Dev dependencies imported by Test files are treated as used and are not flagged.
+  In JavaScript and TypeScript workspaces, a workspace member may import dependencies hoisted in the root `package.json`, crediting the root as used while still enforcing `dev_in_production_dependencies` for root dev dependencies imported by runtime Production files.
+- `dev_in_production_dependencies`: dependencies declared only as dev dependencies that are imported by runtime Production files.
+  Dev dependencies imported by Test files or non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are treated as used and are not flagged.
 
 List canonical external package names under `dependencies.ignore` to exclude them from all three dependency Metrics.
 Set independent Budgets under `budgets.unused_dependencies`, `budgets.unlisted_dependencies`, and `budgets.dev_in_production_dependencies`, and adjust `codeint diff` Regression limits under `regression_limits` (all three default to `new_findings: "any_new_finding"`):
@@ -1238,7 +1238,8 @@ codeint check
 
 Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`) and configured `entry_points` globs in `codeint.json`.
 Production files unreachable from any Production entry point are reported as `unreferenced`, or as `test-only` when still imported by Test files.
-Generated and Vendored Source sets are excluded, and when no entry points exist for a language or isolated Workspace package, Orphan files reporting stays silently inactive.
+Generated and Vendored Source sets and non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are excluded from both entry-point roots and evaluated Production files.
+When no runtime entry points exist for a language or isolated Workspace package, Orphan files reporting stays silently inactive.
 In `codeint diff`, each Orphan files Finding carries a stable `id` so pre-existing orphans remain unchanged while newly introduced orphans fail by default (`new_findings: "any_new_finding"`).
 
 ```json codeint.json

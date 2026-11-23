@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use codeint_model::{CodeModel, ImportResolution, Package, RepoPath, SourceSet};
 
 use crate::finding_id::{FindingId, FindingIds};
+use crate::tooling_paths::ToolingPaths;
 
 #[cfg(test)]
 mod tests;
@@ -74,7 +75,8 @@ impl OrphanFiles {
             .iter()
             .map(|file| file.model.source_set)
             .collect();
-        let roots = collect_roots(&index_of, &source_sets, entry_points);
+        let tooling = ToolingPaths::from_model(model);
+        let roots = collect_roots(&index_of, &source_sets, entry_points, &tooling);
         if roots.is_empty() {
             return None;
         }
@@ -91,47 +93,28 @@ impl OrphanFiles {
         let mut evaluated_files = 0usize;
         let mut pending = Vec::new();
         for (index, file) in model.files.iter().enumerate() {
-            if file.model.source_set != SourceSet::Production {
-                continue;
-            }
-            if let Some(active) = &active_packages
-                && !active.contains(&model.workspace.package_of(&file.path))
-            {
-                continue;
-            }
-            if !include_in_report(&file.path) {
+            if !is_evaluated_production_file(
+                model,
+                file.model.source_set,
+                &file.path,
+                &tooling,
+                active_packages.as_ref(),
+                &include_in_report,
+            ) {
                 continue;
             }
             evaluated_files += 1;
             if live[index] {
                 continue;
             }
-            let (kind, test_importers, message) = if reached_by_test[index] {
-                let importers = collect_reaching_test_importers(
-                    index,
-                    &graphs.direct_test_importers,
-                    &graphs.reverse_non_test,
-                    &live,
-                    model,
-                );
-                let message = format!(
-                    "Production file {} is unreachable from Production entry points (only imported by tests)",
-                    file.path
-                );
-                (OrphanFileKind::TestOnly, importers, message)
-            } else {
-                let message = format!(
-                    "Production file {} is unreachable from any entry point",
-                    file.path
-                );
-                (OrphanFileKind::Unreferenced, Vec::new(), message)
-            };
-            pending.push(PendingOrphan {
-                path: file.path.clone(),
-                kind,
-                test_importers,
-                message,
-            });
+            pending.push(build_pending_orphan(
+                index,
+                &file.path,
+                reached_by_test[index],
+                &graphs,
+                &live,
+                model,
+            ));
         }
 
         if evaluated_files == 0 {
@@ -215,11 +198,13 @@ fn collect_roots(
     index_of: &HashMap<&RepoPath, usize>,
     source_sets: &[SourceSet],
     entry_points: &[RepoPath],
+    tooling: &ToolingPaths,
 ) -> BTreeSet<usize> {
     let mut roots = BTreeSet::new();
     for entry in entry_points {
         if let Some(&index) = index_of.get(entry)
             && source_sets[index] == SourceSet::Production
+            && !tooling.is_non_runtime_tooling_path(entry)
         {
             roots.insert(index);
         }
@@ -360,6 +345,57 @@ fn collect_reaching_test_importers(
         .collect();
     paths.sort();
     paths
+}
+
+fn is_evaluated_production_file<'model>(
+    model: &'model CodeModel,
+    source_set: SourceSet,
+    path: &RepoPath,
+    tooling: &ToolingPaths,
+    active_packages: Option<&HashSet<Package<'model>>>,
+    include_in_report: &impl Fn(&RepoPath) -> bool,
+) -> bool {
+    if source_set != SourceSet::Production || tooling.is_non_runtime_tooling_path(path) {
+        return false;
+    }
+    if let Some(active) = active_packages
+        && !active.contains(&model.workspace.package_of(path))
+    {
+        return false;
+    }
+    include_in_report(path)
+}
+
+fn build_pending_orphan(
+    index: usize,
+    path: &RepoPath,
+    reached_by_test: bool,
+    graphs: &ImportGraphs,
+    live: &[bool],
+    model: &CodeModel,
+) -> PendingOrphan {
+    let (kind, test_importers, message) = if reached_by_test {
+        let importers = collect_reaching_test_importers(
+            index,
+            &graphs.direct_test_importers,
+            &graphs.reverse_non_test,
+            live,
+            model,
+        );
+        let message = format!(
+            "Production file {path} is unreachable from Production entry points (only imported by tests)"
+        );
+        (OrphanFileKind::TestOnly, importers, message)
+    } else {
+        let message = format!("Production file {path} is unreachable from any entry point");
+        (OrphanFileKind::Unreferenced, Vec::new(), message)
+    };
+    PendingOrphan {
+        path: path.clone(),
+        kind,
+        test_importers,
+        message,
+    }
 }
 
 fn assign_finding_ids(mut pending: Vec<PendingOrphan>) -> Vec<OrphanFileFinding> {
