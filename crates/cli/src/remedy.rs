@@ -1,5 +1,5 @@
 use codeint_config::{
-    CodeownersError, ConfigError, ConfigurationFileError, StarterConfigurationError,
+    CodeownersError, ConfigError, ConfigFileKind, ConfigurationFileError, StarterConfigurationError,
 };
 use codeint_git::GitError;
 use codeint_metrics::ImpactError;
@@ -265,19 +265,43 @@ pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> &'sta
         .unwrap_or("Check codeint.json against the JSON schema that $schema links to.")
 }
 
+fn choose_file_remedy(
+    file: ConfigFileKind,
+    json: &'static str,
+    jsonc: &'static str,
+) -> &'static str {
+    match file {
+        ConfigFileKind::Json => json,
+        ConfigFileKind::Jsonc => jsonc,
+    }
+}
+
 fn file_access_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
     use ConfigurationFileError as E;
     match error {
-        E::Unreadable(_) => Some(
+        E::AmbiguousConfigFiles => Some(
+            "Remove either codeint.json or codeint.jsonc so only one configuration file exists at the repository root.",
+        ),
+        E::Unreadable { file, .. } => Some(choose_file_remedy(
+            *file,
             "Check that codeint.json is a file you have permission to read, then run codeint again.",
-        ),
-        E::BrokenSymlink => Some(
+            "Check that codeint.jsonc is a file you have permission to read, then run codeint again.",
+        )),
+        E::BrokenSymlink { file } => Some(choose_file_remedy(
+            *file,
             "Point the codeint.json symlink to an existing file, or remove the broken symlink and run codeint again.",
-        ),
-        E::NotJson(_) => Some("Fix the JSON syntax of codeint.json at that line and column."),
-        E::NewerSchemaVersion { .. } => Some(
+            "Point the codeint.jsonc symlink to an existing file, or remove the broken symlink and run codeint again.",
+        )),
+        E::NotJson { file, .. } | E::InvalidJsonc { file, .. } => Some(choose_file_remedy(
+            *file,
+            "Fix the JSON syntax of codeint.json at that line and column.",
+            "Fix the JSON syntax of codeint.jsonc at that line and column.",
+        )),
+        E::NewerSchemaVersion { file, .. } => Some(choose_file_remedy(
+            *file,
             "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.",
-        ),
+            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.jsonc.",
+        )),
         _ => None,
     }
 }
@@ -482,8 +506,12 @@ fn rerender_remedy(error: &RerenderError) -> &'static str {
 
 fn starter_configuration_remedy(error: &StarterConfigurationError) -> &'static str {
     match error {
-        StarterConfigurationError::AlreadyExists { .. } => {
-            "Edit the existing codeint.json, or delete it and run codeint init again."
+        StarterConfigurationError::AlreadyExists { path } => {
+            if path.file_name().and_then(|name| name.to_str()) == Some("codeint.jsonc") {
+                "Edit the existing codeint.jsonc, or delete it and run codeint init again."
+            } else {
+                "Edit the existing codeint.json, or delete it and run codeint init again."
+            }
         }
         StarterConfigurationError::Unwritable { .. } => {
             "Check that you have permission to write to the root of the repository, then run codeint init again."

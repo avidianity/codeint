@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use codeint_model::RepoPath;
 
-use super::{CONFIGURATION_FILE_NAME, ConfigurationFile, LanguageGlobs};
+use super::{
+    CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME, ConfigurationFile, LanguageGlobs,
+};
 
 #[cfg(test)]
 mod tests;
@@ -37,6 +39,23 @@ pub fn write_starter_configuration(
     repository_root: &Path,
     languages: &[DetectedLanguage],
 ) -> Result<PathBuf, StarterConfigurationError> {
+    for existing_name in [CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME] {
+        let existing_path = repository_root.join(existing_name);
+        match std::fs::symlink_metadata(&existing_path) {
+            Ok(_) => {
+                return Err(StarterConfigurationError::AlreadyExists {
+                    path: existing_path,
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(StarterConfigurationError::Unwritable {
+                    path: existing_path,
+                    source,
+                });
+            }
+        }
+    }
     let path = repository_root.join(CONFIGURATION_FILE_NAME);
     let text = starter_configuration_text(languages);
     let unwritable = |source| StarterConfigurationError::Unwritable {

@@ -9,9 +9,11 @@ let repository = Repository::discover(&folder)?;
 let configuration = read_configuration(repository.root())?;
 ```
 
-- `read_configuration` reads `codeint.json` at the root of the repository, so pass the root of the working tree, never the folder the user named.
+- `read_configuration` reads `codeint.json` or `codeint.jsonc` at the root of the repository, so pass the root of the working tree, never the folder the user named.
+  Both files accept JSONC syntax (`//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`).
+  Having both `codeint.json` and `codeint.jsonc` at the repository root fails with `ConfigurationFileError::AmbiguousConfigFiles` (exit code 2).
 - `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
-- It returns `Configuration::default()` when the file is absent; codeint runs with defaults.
+- It returns `Configuration::default()` when neither file is present; codeint runs with defaults.
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.
 - Only this crate reads `codeint.json`; every other crate receives the typed `Configuration`.
@@ -134,7 +136,7 @@ let written = write_starter_configuration(tree.root(), &languages)?;
 ```
 
 - Pass the root of the working tree; the file lands at `{root}/codeint.json`.
-- It fails with `StarterConfigurationError::AlreadyExists` when the file exists, and never replaces it.
+- It fails with `StarterConfigurationError::AlreadyExists` when either `codeint.json` or `codeint.jsonc` already exists, and never replaces it.
 - `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
 - An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.
 - The `$schema` value is `published_schema_address()`: the raw GitHub address of `schema/codeint.schema.json` at the tag `v{version}` of the running codeint.

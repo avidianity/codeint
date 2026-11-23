@@ -801,9 +801,11 @@ codeint coupling --format markdown
 
 ## `codeint.json`
 
-codeint reads `codeint.json` at the root of the Git repository.
-Without the file, codeint uses the default of every key.
-[`codeint init`](#codeint-init) writes a starter file, and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
+codeint reads `codeint.json` or `codeint.jsonc` at the root of the Git repository.
+Both files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
+Keep only one of `codeint.json` or `codeint.jsonc` at the repository root; having both stops the run with exit code 2.
+Without either file, codeint uses the default of every key.
+[`codeint init`](#codeint-init) writes a starter `codeint.json` (and never replaces an existing `codeint.json` or `codeint.jsonc`), and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
 
 In the key paths below, `[]` stands for each item of a list, and a name in braces stands for each of its values:
 

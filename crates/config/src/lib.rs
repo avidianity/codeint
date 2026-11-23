@@ -34,7 +34,9 @@ pub use codeint_json::{
     write_starter_configuration,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
-pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
+pub use config_error::{
+    ConfigFileKind, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,
+};
 pub use coupling::{
     CouplingRatio, CouplingRatioError, CouplingSettings, DEFAULT_MAX_COMMIT_FILES,
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,

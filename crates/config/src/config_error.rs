@@ -5,6 +5,37 @@ use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
 pub(crate) const CONFIGURATION_FILE_NAME: &str = "codeint.json";
+pub(crate) const CONFIGURATION_JSONC_FILE_NAME: &str = "codeint.jsonc";
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message} at line {line} column {column}")]
+pub struct JsoncError {
+    pub message: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConfigFileKind {
+    #[default]
+    Json,
+    Jsonc,
+}
+
+impl ConfigFileKind {
+    pub fn file_name(self) -> &'static str {
+        match self {
+            ConfigFileKind::Json => CONFIGURATION_FILE_NAME,
+            ConfigFileKind::Jsonc => CONFIGURATION_JSONC_FILE_NAME,
+        }
+    }
+}
+
+impl fmt::Display for ConfigFileKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.file_name())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsonType {
@@ -28,17 +59,39 @@ pub struct KeyPath(Vec<KeySegment>);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationFileError {
-    #[error("cannot read {CONFIGURATION_FILE_NAME}")]
-    Unreadable(#[source] std::io::Error),
-    #[error("{CONFIGURATION_FILE_NAME} is a broken symlink")]
-    BrokenSymlink,
-    #[error("{CONFIGURATION_FILE_NAME} is not valid JSON")]
-    NotJson(#[source] serde_json::Error),
     #[error(
-        "{CONFIGURATION_FILE_NAME} has an unknown key {key}; the keys allowed there are {}",
+        "both {CONFIGURATION_FILE_NAME} and {CONFIGURATION_JSONC_FILE_NAME} exist at the repository root; keep only one"
+    )]
+    AmbiguousConfigFiles,
+    #[error("cannot read {file}")]
+    Unreadable {
+        file: ConfigFileKind,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{file} is a broken symlink")]
+    BrokenSymlink { file: ConfigFileKind },
+    #[error("{file} is not valid JSON")]
+    NotJson {
+        file: ConfigFileKind,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("{file} is not valid JSON")]
+    InvalidJsonc {
+        file: ConfigFileKind,
+        #[source]
+        source: JsoncError,
+    },
+    #[error(
+        "{file} has an unknown key {key}; the keys allowed there are {}",
         allowed.join(", ")
     )]
-    UnknownKey { key: KeyPath, allowed: Vec<String> },
+    UnknownKey {
+        file: ConfigFileKind,
+        key: KeyPath,
+        allowed: Vec<String>,
+    },
     #[error(
         "--budget {}.{metric} names an unknown Metric {metric:?}; the Metrics allowed are {}",
         source_set.key(),
@@ -50,58 +103,66 @@ pub enum ConfigurationFileError {
         allowed: Vec<String>,
     },
     #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be {}, not {}",
+        "{file}: {key} must be {}, not {}",
         any_of(expected),
         found.with_article()
     )]
     WrongType {
+        file: ConfigFileKind,
         key: KeyPath,
         expected: Vec<JsonType>,
         found: JsonType,
     },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be between {minimum} and {maximum}, not {found}"
-    )]
+    #[error("{file}: {key} must be between {minimum} and {maximum}, not {found}")]
     OutOfRange {
+        file: ConfigFileKind,
         key: KeyPath,
         minimum: f64,
         maximum: f64,
         found: f64,
     },
     #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be greater than {exclusive_minimum} and at most {maximum}, not {found}"
+        "{file}: {key} must be greater than {exclusive_minimum} and at most {maximum}, not {found}"
     )]
     OutOfExclusiveMinRange {
+        file: ConfigFileKind,
         key: KeyPath,
         exclusive_minimum: f64,
         maximum: f64,
         found: f64,
     },
     #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be one of {}, not {found}",
+        "{file}: {key} must be one of {}, not {found}",
         allowed.join(", ")
     )]
     NotOneOf {
+        file: ConfigFileKind,
         key: KeyPath,
         allowed: Vec<String>,
-        found: Value,
+        found: Box<Value>,
     },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} needs the key {missing}")]
-    MissingKey { key: KeyPath, missing: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME} names an unknown Language plugin {name} at {key}; the Language plugins are {}",
-        known.join(", ")
-    )]
-    UnknownLanguagePlugin {
-        key: KeyPath,
-        name: String,
-        known: Vec<String>,
-    },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} is not a valid glob")]
+    #[error("{file}: {key} is not a valid glob")]
     InvalidGlob {
+        file: ConfigFileKind,
         key: KeyPath,
         #[source]
         source: globset::Error,
+    },
+    #[error("{file}: {key} needs the key {missing}")]
+    MissingKey {
+        file: ConfigFileKind,
+        key: KeyPath,
+        missing: String,
+    },
+    #[error(
+        "{file} names an unknown Language plugin {name} at {key}; the Language plugins are {}",
+        known.join(", ")
+    )]
+    UnknownLanguagePlugin {
+        file: ConfigFileKind,
+        key: KeyPath,
+        name: String,
+        known: Vec<String>,
     },
     #[error("--source-set {}: {glob:?} is not a valid glob", source_set.key())]
     InvalidCliGlob {
@@ -110,60 +171,115 @@ pub enum ConfigurationFileError {
         #[source]
         source: globset::Error,
     },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be a 64-character hexadecimal SHA-256 digest, not {found:?}"
-    )]
-    InvalidSha256 { key: KeyPath, found: String },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} must not be empty")]
-    EmptyPluginField { key: KeyPath },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must set either path or url")]
-    MissingPluginSource { key: KeyPath, name: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must set either path or url, not both"
-    )]
-    AmbiguousPluginSource { key: KeyPath, name: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must use an HTTPS URL (https://), not {url:?}"
-    )]
+    #[error("{file}: {key} must be a 64-character hexadecimal SHA-256 digest, not {found:?}")]
+    InvalidSha256 {
+        file: ConfigFileKind,
+        key: KeyPath,
+        found: String,
+    },
+    #[error("{file}: {key} must not be empty")]
+    EmptyPluginField { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} for Plugin {name:?} must set either path or url")]
+    MissingPluginSource {
+        file: ConfigFileKind,
+        key: KeyPath,
+        name: String,
+    },
+    #[error("{file}: {key} for Plugin {name:?} must set either path or url, not both")]
+    AmbiguousPluginSource {
+        file: ConfigFileKind,
+        key: KeyPath,
+        name: String,
+    },
+    #[error("{file}: {key} for Plugin {name:?} must use an HTTPS URL (https://), not {url:?}")]
     NonHttpsPluginUrl {
+        file: ConfigFileKind,
         key: KeyPath,
         name: String,
         url: String,
     },
     #[error(
-        "{CONFIGURATION_FILE_NAME} targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
+        "{file} targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
     )]
     NewerSchemaVersion {
+        file: ConfigFileKind,
         config_version: String,
         binary_version: String,
     },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} has invalid boundary zone name {name:?}")]
-    InvalidBoundaryZoneName { key: KeyPath, name: String },
+    #[error("{file}: {key} has invalid boundary zone name {name:?}")]
+    InvalidBoundaryZoneName {
+        file: ConfigFileKind,
+        key: KeyPath,
+        name: String,
+    },
+    #[error("{file}: {key} for boundary zone {zone:?} must list at least one glob pattern")]
+    EmptyBoundaryZonePatterns {
+        file: ConfigFileKind,
+        key: KeyPath,
+        zone: String,
+    },
     #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} for boundary zone {zone:?} must list at least one glob pattern"
-    )]
-    EmptyBoundaryZonePatterns { key: KeyPath, zone: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} references unknown boundary zone {zone:?}; known zones are {}",
+        "{file}: {key} references unknown boundary zone {zone:?}; known zones are {}",
         known.join(", ")
     )]
     UnknownBoundaryZone {
+        file: ConfigFileKind,
         key: KeyPath,
         zone: String,
         known: Vec<String>,
     },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} for boundary zone {from:?} must set either allow or deny, not both"
-    )]
-    ConflictingBoundaryRule { key: KeyPath, from: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} for boundary zone {from:?} must set either allow or deny"
-    )]
-    MissingBoundaryRuleDirective { key: KeyPath, from: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} mixes allow and deny directives for boundary zone {from:?}"
-    )]
-    ConflictingBoundaryDirectives { key: KeyPath, from: String },
+    #[error("{file}: {key} for boundary zone {from:?} must set either allow or deny, not both")]
+    ConflictingBoundaryRule {
+        file: ConfigFileKind,
+        key: KeyPath,
+        from: String,
+    },
+    #[error("{file}: {key} for boundary zone {from:?} must set either allow or deny")]
+    MissingBoundaryRuleDirective {
+        file: ConfigFileKind,
+        key: KeyPath,
+        from: String,
+    },
+    #[error("{file}: {key} mixes allow and deny directives for boundary zone {from:?}")]
+    ConflictingBoundaryDirectives {
+        file: ConfigFileKind,
+        key: KeyPath,
+        from: String,
+    },
+}
+
+impl ConfigurationFileError {
+    pub(crate) fn with_file_kind(mut self, file_kind: ConfigFileKind) -> Self {
+        use ConfigurationFileError::*;
+        match &mut self {
+            Unreadable { file, .. }
+            | BrokenSymlink { file }
+            | NotJson { file, .. }
+            | InvalidJsonc { file, .. }
+            | UnknownKey { file, .. }
+            | WrongType { file, .. }
+            | OutOfRange { file, .. }
+            | OutOfExclusiveMinRange { file, .. }
+            | NotOneOf { file, .. }
+            | MissingKey { file, .. }
+            | UnknownLanguagePlugin { file, .. }
+            | InvalidGlob { file, .. }
+            | InvalidSha256 { file, .. }
+            | EmptyPluginField { file, .. }
+            | MissingPluginSource { file, .. }
+            | AmbiguousPluginSource { file, .. }
+            | NonHttpsPluginUrl { file, .. }
+            | NewerSchemaVersion { file, .. }
+            | InvalidBoundaryZoneName { file, .. }
+            | EmptyBoundaryZonePatterns { file, .. }
+            | UnknownBoundaryZone { file, .. }
+            | ConflictingBoundaryRule { file, .. }
+            | MissingBoundaryRuleDirective { file, .. }
+            | ConflictingBoundaryDirectives { file, .. } => *file = file_kind,
+            AmbiguousConfigFiles | UnknownCliBudgetMetric { .. } | InvalidCliGlob { .. } => {}
+        }
+        self
+    }
 }
 
 pub(crate) fn compile_glob(glob: &str) -> Result<Glob, globset::Error> {
@@ -178,6 +294,7 @@ pub(crate) fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, Confi
     for (index, glob) in globs.iter().enumerate() {
         let compiled =
             compile_glob(glob).map_err(|source| ConfigurationFileError::InvalidGlob {
+                file: ConfigFileKind::Json,
                 key: key.child(KeySegment::Index(index)),
                 source,
             })?;
@@ -186,6 +303,7 @@ pub(crate) fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, Confi
     builder
         .build()
         .map_err(|source| ConfigurationFileError::InvalidGlob {
+            file: ConfigFileKind::Json,
             key: key.clone(),
             source,
         })

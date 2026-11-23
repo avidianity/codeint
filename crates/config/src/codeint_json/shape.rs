@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-use super::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
+use super::{ConfigFileKind, ConfigurationFileError, JsonType, KeyPath, KeySegment};
 
 #[cfg(test)]
 mod tests;
@@ -56,6 +56,7 @@ impl<'schema> Shape<'schema> {
             Ok(())
         } else {
             Err(ConfigurationFileError::WrongType {
+                file: ConfigFileKind::Json,
                 key: key.clone(),
                 expected,
                 found: JsonType::of(value),
@@ -78,6 +79,7 @@ impl<'schema> Shape<'schema> {
                 None => match additional {
                     Some(Value::Bool(false)) => {
                         return Err(ConfigurationFileError::UnknownKey {
+                            file: ConfigFileKind::Json,
                             key: member_key,
                             allowed: properties
                                 .map(|properties| properties.keys().cloned().collect())
@@ -100,6 +102,7 @@ impl<'schema> Shape<'schema> {
             .find(|name| !members.contains_key(*name));
         match missing {
             Some(name) => Err(ConfigurationFileError::MissingKey {
+                file: ConfigFileKind::Json,
                 key: key.clone(),
                 missing: name.to_owned(),
             }),
@@ -134,6 +137,7 @@ fn check_range(value: &Value, schema: &Value, key: &KeyPath) -> Result<(), Confi
             Ok(())
         } else {
             Err(ConfigurationFileError::OutOfExclusiveMinRange {
+                file: ConfigFileKind::Json,
                 key: key.clone(),
                 exclusive_minimum,
                 maximum,
@@ -151,6 +155,7 @@ fn check_range(value: &Value, schema: &Value, key: &KeyPath) -> Result<(), Confi
         Ok(())
     } else {
         Err(ConfigurationFileError::OutOfRange {
+            file: ConfigFileKind::Json,
             key: key.clone(),
             minimum,
             maximum,
@@ -171,6 +176,7 @@ fn check_allowed_values(
         return Ok(());
     }
     Err(ConfigurationFileError::NotOneOf {
+        file: ConfigFileKind::Json,
         key: key.clone(),
         allowed: allowed
             .iter()
@@ -179,7 +185,7 @@ fn check_allowed_values(
                 other => other.to_string(),
             })
             .collect(),
-        found: value.clone(),
+        found: Box::new(value.clone()),
     })
 }
 

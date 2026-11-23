@@ -185,11 +185,10 @@ fn init_in_a_repository_without_files_a_language_plugin_claims_leaves_languages_
     assert_exit_code(&codeint(&repository.root(), &["check"]), 0);
 }
 
-#[test]
-fn init_refuses_to_replace_an_existing_codeint_json_exits_2_and_keeps_the_file() {
+fn assert_init_refuses_existing_config(file_name: &str, body: &str) {
     let repository = Repository::new();
     repository.add("src/main.ts", "export const main = 1;\n");
-    repository.add("codeint.json", "{ \"budgets\": {} }\n");
+    repository.add(file_name, body);
 
     let output = codeint(&repository.root().join("src"), &["init"]);
 
@@ -199,11 +198,27 @@ fn init_refuses_to_replace_an_existing_codeint_json_exits_2_and_keeps_the_file()
         text(&output.stderr),
         format!(
             "codeint: {} already exists, and codeint init never replaces it\n\
-             Edit the existing codeint.json, or delete it and run codeint init again.\n",
-            repository.root().join("codeint.json").display()
+             Edit the existing {file_name}, or delete it and run codeint init again.\n",
+            repository.root().join(file_name).display()
         )
     );
-    assert_eq!(repository.configuration(), "{ \"budgets\": {} }\n");
+    assert_eq!(
+        fs::read_to_string(repository.root().join(file_name)).expect("read existing config"),
+        body
+    );
+    if file_name != "codeint.json" {
+        assert!(!repository.root().join("codeint.json").exists());
+    }
+}
+
+#[test]
+fn init_refuses_to_replace_an_existing_codeint_json_exits_2_and_keeps_the_file() {
+    assert_init_refuses_existing_config("codeint.json", "{ \"budgets\": {} }\n");
+}
+
+#[test]
+fn init_refuses_when_codeint_jsonc_already_exists_exits_2_and_keeps_the_file() {
+    assert_init_refuses_existing_config("codeint.jsonc", "// keep me\n{ \"budgets\": {}, }\n");
 }
 
 #[test]

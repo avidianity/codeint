@@ -96,9 +96,13 @@ fn append_schema_sync(mut message: String, target_tag: &str) -> String {
 fn find_codeint_json(start: &Path) -> Option<PathBuf> {
     let mut dir = Some(start);
     while let Some(current) = dir {
-        let candidate = current.join("codeint.json");
-        if candidate.is_file() {
-            return Some(candidate);
+        let json = current.join("codeint.json");
+        let jsonc = current.join("codeint.jsonc");
+        match (json.is_file(), jsonc.is_file()) {
+            (true, true) => return None,
+            (true, false) => return Some(json),
+            (false, true) => return Some(jsonc),
+            (false, false) => {}
         }
         if current.join(".git").exists() {
             return None;

@@ -262,6 +262,19 @@ fn doctor_reports_blocking_error_for_invalid_codeint_json_and_exits_nonzero() {
     assert!(text.contains("unknown_key"), "text: {text}");
 }
 
+fn assert_blocking_error(
+    fixture: &DoctorFixture,
+    id: &str,
+    expected_summary: &str,
+    expected_remedy: &str,
+) -> Value {
+    let report = fixture.run_json(&[], 1);
+    assert_eq!(report["status"], "error");
+    assert_check_field(&report, id, "error", "summary", expected_summary);
+    assert_check_field(&report, id, "error", "remedy", expected_remedy);
+    report
+}
+
 #[test]
 fn doctor_reports_blocking_error_for_future_schema_version_and_exits_nonzero() {
     let fixture = DoctorFixture::git_repo_with_ts();
@@ -269,10 +282,7 @@ fn doctor_reports_blocking_error_for_future_schema_version_and_exits_nonzero() {
         "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v99.0.0/schema/codeint.schema.json"
     }));
 
-    let report = fixture.run_json(&[], 1);
-    assert_eq!(report["status"], "error");
-    assert_check_field(&report, "schema", "error", "summary", "v99.0.0");
-    assert_check_field(&report, "schema", "error", "remedy", "codeint update");
+    assert_blocking_error(&fixture, "schema", "v99.0.0", "codeint update");
 }
 
 #[test]
@@ -349,26 +359,31 @@ fn doctor_verifies_external_wasm_plugins_and_fails_on_missing_or_mismatched_sha2
 }
 
 #[cfg(unix)]
+fn assert_doctor_broken_config_symlink(file_name: &str, missing_target: &str) -> Value {
+    use std::os::unix::fs::symlink;
+
+    let fixture = DoctorFixture::git_repo_with_ts();
+    symlink(
+        fixture.root().join(missing_target),
+        fixture.root().join(file_name),
+    )
+    .expect("create broken config symlink");
+
+    assert_blocking_error(
+        &fixture,
+        "config",
+        &format!("{file_name} is a broken symlink"),
+        file_name,
+    )
+}
+
+#[cfg(unix)]
 #[test]
 fn doctor_reports_broken_symlink_for_codeint_json_and_cached_remote_plugin() {
     use std::os::unix::fs::symlink;
 
-    let broken_config_fixture = DoctorFixture::git_repo_with_ts();
-    symlink(
-        broken_config_fixture.root().join("missing-config.json"),
-        broken_config_fixture.root().join("codeint.json"),
-    )
-    .expect("create broken codeint.json symlink");
-
-    let broken_config_report = broken_config_fixture.run_json(&[], 1);
-    assert_eq!(broken_config_report["status"], "error");
-    assert_check_field(
-        &broken_config_report,
-        "config",
-        "error",
-        "summary",
-        "broken symlink",
-    );
+    let broken_config_report =
+        assert_doctor_broken_config_symlink("codeint.json", "missing-config.json");
     let checks = broken_config_report["checks"]
         .as_array()
         .expect("checks array");
@@ -394,4 +409,51 @@ fn doctor_reports_broken_symlink_for_codeint_json_and_cached_remote_plugin() {
         "summary",
         "broken symlink",
     );
+}
+
+#[test]
+fn doctor_validates_codeint_jsonc_and_reports_ambiguous_config_files() {
+    let fixture = DoctorFixture::git_repo_with_ts();
+    fixture.write(
+        "codeint.jsonc",
+        format!(
+            concat!(
+                "// config with comments and trailing commas\n",
+                "{{\n",
+                "  \"$schema\": \"{}\",\n",
+                "  /* valid budgets */\n",
+                "  \"budgets\": {{\n",
+                "    \"production\": {{\n",
+                "      \"erosion\": 0.25,\n",
+                "    }},\n",
+                "  }},\n",
+                "}}\n",
+            ),
+            current_schema_url()
+        ),
+    );
+
+    let report = fixture.run_json(&[], 0);
+    assert_non_blocking_summary(&report, "pass", false);
+    assert_check_field(
+        &report,
+        "config",
+        "pass",
+        "summary",
+        "codeint.jsonc is valid",
+    );
+
+    fixture.write("codeint.json", "{}\n");
+    assert_blocking_error(
+        &fixture,
+        "config",
+        "both codeint.json and codeint.jsonc exist at the repository root",
+        "Remove either codeint.json or codeint.jsonc",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn doctor_reports_broken_symlink_for_codeint_jsonc() {
+    let _ = assert_doctor_broken_config_symlink("codeint.jsonc", "missing-config.jsonc");
 }

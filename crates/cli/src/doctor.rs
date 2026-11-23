@@ -13,7 +13,8 @@ use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, find_workspace, read_manifests};
 use crate::describe;
 use crate::remedy::{configuration_file_remedy, git_remedy};
 
-const NEWER_SCHEMA_REMEDY: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.";
+const NEWER_SCHEMA_REMEDY_JSON: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.";
+const NEWER_SCHEMA_REMEDY_JSONC: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.jsonc.";
 
 pub(crate) fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
     let mut checks = Vec::new();
@@ -80,26 +81,41 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>,
             (vec![check], None, true)
         }
         ConfigurationInspection::Valid {
+            path,
             schema,
             configuration,
-            ..
         } => {
-            let checks = valid_configuration_checks(&schema, &configuration);
+            let file_name = config_file_label(&path);
+            let checks = valid_configuration_checks(file_name, &schema, &configuration);
             (checks, Some(*configuration), false)
         }
-        ConfigurationInspection::Invalid { schema, error, .. } => {
+        ConfigurationInspection::Invalid {
+            path,
+            schema,
+            error,
+        } => {
+            let file_name = config_file_label(&path);
             let config_check = DoctorCheck::error("config", describe(&error))
                 .with_remedy(configuration_file_remedy(&error));
             let mut checks = vec![config_check];
             if let Some(schema_status) = schema {
-                checks.push(schema_check(&schema_status));
+                checks.push(schema_check(file_name, &schema_status));
             }
             (checks, None, false)
         }
     }
 }
 
+fn config_file_label(path: &Path) -> &'static str {
+    if path.file_name().and_then(|name| name.to_str()) == Some("codeint.jsonc") {
+        "codeint.jsonc"
+    } else {
+        "codeint.json"
+    }
+}
+
 fn valid_configuration_checks(
+    file_name: &'static str,
     schema: &SchemaVersionStatus,
     configuration: &Configuration,
 ) -> Vec<DoctorCheck> {
@@ -112,16 +128,16 @@ fn valid_configuration_checks(
             DoctorCheck::error("config", describe(&error))
                 .with_remedy(configuration_file_remedy(&error))
         } else {
-            DoctorCheck::pass("config", "codeint.json is valid")
+            DoctorCheck::pass("config", format!("{file_name} is valid"))
         };
-    vec![config_check, schema_check(schema)]
+    vec![config_check, schema_check(file_name, schema)]
 }
 
-fn schema_check(status: &SchemaVersionStatus) -> DoctorCheck {
+fn schema_check(file_name: &'static str, status: &SchemaVersionStatus) -> DoctorCheck {
     let binary_version = env!("CARGO_PKG_VERSION");
     match status {
         SchemaVersionStatus::Missing => {
-            DoctorCheck::pass("schema", "No $schema set in codeint.json (optional)")
+            DoctorCheck::pass("schema", format!("No $schema set in {file_name} (optional)"))
         }
         SchemaVersionStatus::Compatible {
             url,
@@ -141,11 +157,15 @@ fn schema_check(status: &SchemaVersionStatus) -> DoctorCheck {
         } => DoctorCheck::error(
             "schema",
             format!(
-                "codeint.json targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
+                "{file_name} targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
             ),
         )
         .with_detail(url.clone())
-        .with_remedy(NEWER_SCHEMA_REMEDY),
+        .with_remedy(if file_name == "codeint.jsonc" {
+            NEWER_SCHEMA_REMEDY_JSONC
+        } else {
+            NEWER_SCHEMA_REMEDY_JSON
+        }),
     }
 }
 
