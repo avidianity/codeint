@@ -20,6 +20,7 @@ jobs:
     name: body
     runs-on: ubuntu-24.04
     env:
+      TITLE: ${{ github.event.pull_request.title }}
       BODY: ${{ github.event.pull_request.body }}
       BASE: origin/${{ github.base_ref }}
     steps:
@@ -27,6 +28,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+      - run: printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title.txt"
       - run: printf '%s\n' "$BODY" > "$RUNNER_TEMP/body.md"
+      - run: cargo xtask commit-message --file "$RUNNER_TEMP/title.txt"
       - run: cargo xtask evidence-bundle --body-file "$RUNNER_TEMP/body.md"
       - run: cargo xtask behavior-has-test --base "$BASE" --body-file "$RUNNER_TEMP/body.md"
