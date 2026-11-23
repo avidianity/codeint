@@ -175,8 +175,8 @@ impl DiffReport {
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
         match format {
-            ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
-            ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            ReportFormat::Toon => crate::render_toon(self),
+            ReportFormat::Json => crate::render_json(self),
             ReportFormat::Sarif => serde_json::to_string_pretty(&self.new_findings_as_sarif())
                 .map_err(ReportError::Sarif),
             ReportFormat::Markdown => Ok(markdown::render(self)),
