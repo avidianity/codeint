@@ -162,14 +162,22 @@ impl LoadedPlugins {
     }
 }
 
+pub(crate) fn load_workspace(
+    folder: &Path,
+    plugin_host: &PluginHostConfig,
+) -> Result<(Repository, Configuration, LoadedPlugins), CheckError> {
+    let repository = Repository::discover(folder)?;
+    let configuration = read_configuration(repository.root())?;
+    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+    Ok((repository, configuration, loaded))
+}
+
 pub(crate) fn check(
     folder: &Path,
     findings: FindingsShown,
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
-    let repository = Repository::discover(folder)?;
-    let configuration = read_configuration(repository.root())?;
-    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+    let (repository, configuration, loaded) = load_workspace(folder, plugin_host)?;
     let plugins = loaded.as_named();
     let metric_plugins = loaded.metric_plugins();
     check_loaded(

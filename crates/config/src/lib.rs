@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 mod boundaries;
 mod calendar_day;
+mod churn;
 mod codeint_json;
 mod config_error;
 mod regression_limits;
@@ -15,6 +16,7 @@ pub use boundaries::{
     Boundaries, BoundaryDirective, BoundaryPreset, BoundaryRuleDecision, BoundarySourceSet,
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
+pub use churn::{ChurnFormat, ChurnSince, ChurnSinceError, ChurnWindow, DEFAULT_CHURN_DAYS};
 pub use codeint_json::{
     Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
     PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
@@ -158,6 +160,14 @@ pub enum Command {
         target: PathBuf,
         format: GuardFormat,
     },
+    Churn {
+        folder: PathBuf,
+        window: ChurnWindow,
+        destination: ReportDestination,
+        findings: FindingsShown,
+        format: ChurnFormat,
+        plugin_host: PluginHostConfig,
+    },
 }
 
 #[derive(Debug)]
@@ -248,7 +258,7 @@ enum CommandArguments {
         version: Option<String>,
     },
     #[command(
-        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, and guard tools"
+        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, guard, and churn tools"
     )]
     Mcp,
     #[command(
@@ -267,6 +277,40 @@ enum CommandArguments {
             help = "The format of the output"
         )]
         format: GuardFormat,
+    },
+    #[command(
+        about = "Rank eroded and duplicated files alongside their Git commit churn independently per Metric"
+    )]
+    Churn {
+        #[arg(
+            long,
+            value_name = "WINDOW",
+            conflicts_with = "commits",
+            help = "Lookback window in days (such as 90d) or a UTC date (YYYY-MM-DD); defaults to 90d"
+        )]
+        since: Option<ChurnSince>,
+        #[arg(
+            long,
+            value_name = "COUNT",
+            conflicts_with = "since",
+            help = "Walk at most this many main-line commits from HEAD"
+        )]
+        commits: Option<std::num::NonZeroUsize>,
+        #[arg(
+            long,
+            value_name = "FILE",
+            help = "Write the report to this file instead of standard output"
+        )]
+        output: Option<PathBuf>,
+        #[arg(long, help = "List every Finding instead of the 20 worst per Metric")]
+        all: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = ChurnFormat::Toon,
+            help = "The format of the report"
+        )]
+        format: ChurnFormat,
     },
 }
 
@@ -328,7 +372,37 @@ fn build_command(
             target: path,
             format,
         }),
+        CommandArguments::Churn {
+            since,
+            commits,
+            output,
+            all,
+            format,
+        } => build_churn_command(current_folder, since, commits, output, all, format),
     }
+}
+
+fn build_churn_command(
+    current_folder: &Path,
+    since: Option<ChurnSince>,
+    commits: Option<std::num::NonZeroUsize>,
+    output: Option<PathBuf>,
+    all: bool,
+    format: ChurnFormat,
+) -> Result<Command, ConfigError> {
+    let window = match (since, commits) {
+        (Some(since), None) => ChurnWindow::from(since),
+        (None, Some(count)) => ChurnWindow::Commits(count.get()),
+        _ => ChurnWindow::default(),
+    };
+    Ok(Command::Churn {
+        folder: current_folder.to_path_buf(),
+        window,
+        destination: report_destination(current_folder, output)?,
+        findings: findings_shown(all),
+        format,
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
 }
 
 fn build_trend_command(

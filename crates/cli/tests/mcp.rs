@@ -77,7 +77,7 @@ fn mcp_initialize_list_and_call_tools() {
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "codeint");
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["check", "diff", "trend", "guard"]);
+    assert_eq!(names, ["check", "diff", "trend", "guard", "churn"]);
 
     assert_eq!(responses[2]["result"]["isError"], false);
     let check_payload: Value = serde_json::from_str(
@@ -204,4 +204,50 @@ fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
     .unwrap();
     assert_eq!(unzoned["configured"], true);
     assert!(unzoned.get("zone").is_none());
+}
+
+fn tool_call(id: u64, name: &str, arguments: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments }
+    })
+}
+
+#[test]
+fn mcp_churn_tool_reports_file_churn_and_handles_non_git_directory() {
+    let repo = init_sample_repo();
+    let non_git = TempDir::new().unwrap();
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            tool_call(1, "churn", json!({"commits": 10})),
+            tool_call(
+                2,
+                "churn",
+                json!({"path": non_git.path().to_string_lossy()}),
+            ),
+        ],
+    );
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[0]["result"]["isError"], false);
+    let payload: Value = serde_json::from_str(
+        responses[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(payload["commits_analyzed"], 1);
+    assert_eq!(payload["shallow"], false);
+    assert!(payload.get("score").is_none());
+
+    assert_eq!(responses[1]["result"]["isError"], true);
+    let err_text = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        err_text.contains("not inside a Git repository"),
+        "err: {err_text}"
+    );
 }
