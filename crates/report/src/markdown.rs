@@ -1,3 +1,4 @@
+use crate::ownership::OwnedFinding;
 use crate::{
     BoundaryFindingRow, CloneGroupFinding, CloneLocation, DuplicationSection,
     ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
@@ -359,12 +360,7 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
         "Erosion",
         &section.erosion.findings,
         &ERODED_FUNCTION,
-        |listed| {
-            table(
-                &ERODED_FUNCTION_COLUMNS,
-                listed.iter().map(eroded_function_row).collect(),
-            )
-        },
+        |listed| findings_table(&ERODED_FUNCTION_COLUMNS, listed, eroded_function_row),
     );
     push_findings(
         &mut blocks,
@@ -378,12 +374,7 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
         "Verbosity",
         &section.verbosity.findings,
         &FLAGGED_LINE,
-        |listed| {
-            table(
-                &FLAGGED_LINE_COLUMNS,
-                listed.iter().map(flagged_line_row).collect(),
-            )
-        },
+        |listed| findings_table(&FLAGGED_LINE_COLUMNS, listed, flagged_line_row),
     );
     push_findings(
         &mut blocks,
@@ -397,12 +388,7 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
         "Unresolved imports",
         &section.import_cycles.unresolved_imports.imports,
         &UNRESOLVED_IMPORT,
-        |listed| {
-            table(
-                &UNRESOLVED_IMPORT_COLUMNS,
-                listed.iter().map(unresolved_import_row).collect(),
-            )
-        },
+        |listed| findings_table(&UNRESOLVED_IMPORT_COLUMNS, listed, unresolved_import_row),
     );
     if let Some(boundaries) = &section.boundaries {
         push_findings(
@@ -410,12 +396,7 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             "Boundaries",
             &boundaries.findings,
             &FINDING,
-            |listed| {
-                table(
-                    &BOUNDARY_FINDING_COLUMNS,
-                    listed.iter().map(boundary_finding_row).collect(),
-                )
-            },
+            |listed| findings_table(&BOUNDARY_FINDING_COLUMNS, listed, boundary_finding_row),
         );
     }
     for external in section.external_metrics.values() {
@@ -424,12 +405,7 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             &external.name,
             &external.findings,
             &FINDING,
-            |listed| {
-                table(
-                    &EXTERNAL_FINDING_COLUMNS,
-                    listed.iter().map(external_finding_row).collect(),
-                )
-            },
+            |listed| findings_table(&EXTERNAL_FINDING_COLUMNS, listed, external_finding_row),
         );
     }
     blocks
@@ -458,6 +434,50 @@ pub(crate) fn push_findings<T>(
     }
 }
 
+pub(crate) fn findings_table<T: OwnedFinding>(
+    columns: &[&str],
+    listed: &[T],
+    row: impl Fn(&T) -> Vec<String>,
+) -> String {
+    let show_owners = listed.iter().any(|item| !item.owners().is_empty());
+    let mut headers: Vec<&str> = columns.to_vec();
+    if show_owners {
+        headers.push("Owners");
+    }
+    let rows = listed
+        .iter()
+        .map(|item| {
+            let mut cells = row(item);
+            if show_owners {
+                cells.push(format_owners(item.owners()));
+            }
+            cells
+        })
+        .collect();
+    table(&headers, rows)
+}
+
+fn format_owners(owners: &[String]) -> String {
+    if owners.is_empty() {
+        "-".to_owned()
+    } else {
+        owners
+            .iter()
+            .map(String::as_str)
+            .map(code)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+fn with_owners_suffix(text: String, owners: &[String]) -> String {
+    if owners.is_empty() {
+        text
+    } else {
+        format!("{text} (owners: {})", format_owners(owners))
+    }
+}
+
 pub(crate) fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<String> {
     vec![
         code(&format!("{}:{}", function.path, function.line)),
@@ -469,7 +489,10 @@ pub(crate) fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<Strin
 
 pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     let locations: Vec<String> = group.locations.iter().map(clone_location).collect();
-    format!("{} tokens: {}", group.tokens, locations.join(", "))
+    with_owners_suffix(
+        format!("{} tokens: {}", group.tokens, locations.join(", ")),
+        &group.owners,
+    )
 }
 
 fn clone_location(location: &CloneLocation) -> String {
@@ -502,7 +525,7 @@ pub(crate) fn external_finding_row(finding: &ExternalMetricFinding) -> Vec<Strin
 
 pub(crate) fn import_cycle_item(cycle: &ImportCycleFinding) -> String {
     let modules: Vec<String> = cycle.modules.iter().map(|module| code(module)).collect();
-    modules.join(", ")
+    with_owners_suffix(modules.join(", "), &cycle.owners)
 }
 
 fn unresolved_import_row(row: &UnresolvedImportRow) -> Vec<String> {

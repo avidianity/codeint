@@ -197,6 +197,7 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let folder = resolve_folder(args, ctx.default_folder);
     let options = CheckOptions {
         findings: parse_findings(args),
+        owner: None,
         plugin_host: ctx.plugin_host.clone(),
     };
     match check(&folder, &options) {
@@ -221,6 +222,7 @@ fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
             .and_then(Value::as_str)
             .map(str::to_owned),
         findings: parse_findings(args),
+        owner: None,
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };

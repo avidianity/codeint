@@ -1,4 +1,6 @@
-use codeint_config::{ConfigError, ConfigurationFileError, StarterConfigurationError};
+use codeint_config::{
+    CodeownersError, ConfigError, ConfigurationFileError, StarterConfigurationError,
+};
 use codeint_git::GitError;
 use codeint_model::{MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
@@ -30,6 +32,12 @@ fn check_remedy(error: &CheckError) -> &'static str {
     match error {
         CheckError::Git(error) => git_remedy(error),
         CheckError::Configuration(error) => configuration_file_remedy(error),
+        CheckError::Codeowners(CodeownersError::Read { .. }) => {
+            "Check that the CODEOWNERS file is readable UTF-8, then run codeint again."
+        }
+        CheckError::Codeowners(CodeownersError::InvalidOwnerPattern { .. }) => {
+            "Pass a valid glob pattern to --owner, such as @org/team or @org/*."
+        }
         CheckError::Workspace(error) => workspace_remedy(error),
         CheckError::Resolve(_) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."

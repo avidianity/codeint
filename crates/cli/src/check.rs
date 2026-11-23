@@ -3,8 +3,8 @@ use std::path::Path;
 use std::string::FromUtf8Error;
 
 use codeint_config::{
-    Configuration, ConfigurationFileError, FindingsShown, LanguageCoverage, PluginHostConfig,
-    SourceSetOverrides, read_configuration,
+    Codeowners, CodeownersError, Configuration, ConfigurationFileError, FindingsShown,
+    LanguageCoverage, OwnerFilter, PluginHostConfig, SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_dart::Dart;
@@ -21,7 +21,7 @@ use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{MeasuredLanguage, Report};
+use codeint_report::{MeasuredLanguage, OwnershipOptions, Report};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
@@ -33,6 +33,8 @@ pub(crate) enum CheckError {
     Git(#[from] GitError),
     #[error(transparent)]
     Configuration(#[from] ConfigurationFileError),
+    #[error(transparent)]
+    Codeowners(#[from] CodeownersError),
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
@@ -162,22 +164,58 @@ impl LoadedPlugins {
     }
 }
 
+pub(crate) struct PreparedRun {
+    pub(crate) repository: Repository,
+    pub(crate) configuration: Configuration,
+    pub(crate) loaded: LoadedPlugins,
+    pub(crate) codeowners: Option<Codeowners>,
+    pub(crate) owner_filter: Option<OwnerFilter>,
+}
+
+impl PreparedRun {
+    pub(crate) fn load(
+        folder: &Path,
+        owner_pattern: Option<&str>,
+        plugin_host: &PluginHostConfig,
+    ) -> Result<PreparedRun, CheckError> {
+        let repository = Repository::discover(folder)?;
+        let configuration = read_configuration(repository.root())?;
+        let codeowners = Codeowners::load(repository.root())?;
+        let owner_filter = owner_pattern.map(OwnerFilter::new).transpose()?;
+        let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+        Ok(PreparedRun {
+            repository,
+            configuration,
+            loaded,
+            codeowners,
+            owner_filter,
+        })
+    }
+
+    pub(crate) fn ownership(&self) -> OwnershipOptions<'_> {
+        OwnershipOptions {
+            codeowners: self.codeowners.as_ref(),
+            owner_filter: self.owner_filter.as_ref(),
+        }
+    }
+}
+
 pub(crate) fn check(
     folder: &Path,
     findings: FindingsShown,
+    owner: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
-    let repository = Repository::discover(folder)?;
-    let configuration = read_configuration(repository.root())?;
-    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
-    let plugins = loaded.as_named();
-    let metric_plugins = loaded.metric_plugins();
+    let run = PreparedRun::load(folder, owner, plugin_host)?;
+    let plugins = run.loaded.as_named();
+    let metric_plugins = run.loaded.metric_plugins();
     check_loaded(
-        &repository,
-        &configuration,
+        &run.repository,
+        &run.configuration,
         &plugins,
         &metric_plugins,
         findings,
+        run.ownership(),
     )
 }
 
@@ -190,7 +228,14 @@ fn check_with(
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
     configuration.validate_metrics(&[])?;
-    check_loaded(&repository, &configuration, plugins, &[], findings)
+    check_loaded(
+        &repository,
+        &configuration,
+        plugins,
+        &[],
+        findings,
+        OwnershipOptions::default(),
+    )
 }
 
 fn check_loaded(
@@ -199,16 +244,18 @@ fn check_loaded(
     plugins: &[NamedLanguagePlugin<'_>],
     metric_plugins: &[&dyn MetricPlugin],
     findings: FindingsShown,
+    ownership: OwnershipOptions<'_>,
 ) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
     let languages = measure_with(&tree, plugins, configuration)?;
-    Ok(Report::summarize_with_metrics_and_boundaries(
+    Ok(Report::summarize_with_ownership(
         languages,
         tree.submodules().to_vec(),
         findings,
         &configuration.budgets,
         metric_plugins,
         configuration.boundaries.as_ref(),
+        ownership,
     )?)
 }
 

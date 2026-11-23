@@ -130,6 +130,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
+| `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `-h, --help` | Print the help of `codeint check` |
 
 `codeint check` measures the working tree, including uncommitted and untracked files, and prints the report:
@@ -200,6 +201,7 @@ These commands measure the same repository with other options:
 ```sh exit=0
 codeint check src
 codeint check --all
+codeint check --owner @team
 codeint check --format markdown --output report.md
 ```
 
@@ -226,6 +228,7 @@ Pass a folder that exists, or leave the path out to measure the current folder.
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown` |
+| `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `-h, --help` | Print the help of `codeint diff` |
 
 `codeint diff {base-ref}` compares the working tree with the merge-base of the base ref and HEAD.
@@ -366,6 +369,12 @@ codeint diff main --head no-such-branch
 ```text stderr
 codeint: the Git ref "no-such-branch" does not name a commit in this repository: couldn't parse revision, input="no-such-branch": Reference "no-such-branch" could not be found: NotFound
 Pass a branch, tag, or commit that exists in this repository; fetch it first when it lives on a remote: git fetch origin main
+```
+
+When a repository has a `CODEOWNERS` file (`.github/CODEOWNERS`, `CODEOWNERS`, or `docs/CODEOWNERS`), codeint attaches matched owners to Findings and `--owner <OWNER>` filters Findings to those matching the pattern:
+
+```sh exit=0
+codeint diff main --owner @team
 ```
 
 #### Regressions
