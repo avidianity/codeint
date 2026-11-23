@@ -218,3 +218,82 @@ fn subtracts_null_excluded_subpaths_from_wildcard_exports() {
         ]
     );
 }
+
+fn assert_discovered(paths: &[&str], manifests: &[(&str, &str)], expected: &[&str]) {
+    assert_eq!(discover_ts(paths, manifests), expected);
+}
+
+#[test]
+fn wildcard_exports_in_nested_package_do_not_escape_to_sibling_directories() {
+    assert_discovered(
+        &[
+            "packages/app/package.json",
+            "packages/app/index.ts",
+            "packages/app-other/secret.ts",
+            "packages/dot/package.json",
+            "packages/dot/local.ts",
+            "packages/dot-other/secret.ts",
+        ],
+        &[
+            (
+                "packages/app/package.json",
+                r#"{"name":"@demo/app","exports":{"./*":"*.ts"}}"#,
+            ),
+            (
+                "packages/dot/package.json",
+                r#"{"name":"@demo/dot","exports":{"./*":"./.*.ts"}}"#,
+            ),
+        ],
+        &["packages/app/index.ts", "packages/dot/local.ts"],
+    );
+}
+
+#[test]
+fn subtracts_nested_conditional_and_array_null_exclusions_from_wildcard_exports() {
+    let pkg = r#"{
+        "name": "demo",
+        "exports": {
+            "./*": "./src/*.ts",
+            "./internal/*": { "default": null },
+            "./dual/*": { "import": null, "require": null },
+            "./blocked/*": [null],
+            "./mixed/*": { "import": null, "default": "./src/mixed/*.ts" }
+        }
+    }"#;
+    assert_discovered(
+        &[
+            "package.json",
+            "src/public.ts",
+            "src/internal/secret.ts",
+            "src/dual/hidden.ts",
+            "src/blocked/nope.ts",
+            "src/mixed/ok.ts",
+        ],
+        &[("package.json", pkg)],
+        &["src/mixed/ok.ts", "src/public.ts"],
+    );
+}
+
+#[test]
+fn nested_package_dot_main_resolves_package_index_instead_of_sibling_file() {
+    for (manifest, pkg_path, sibling, index) in [
+        (
+            r#"{"name":"@demo/app","main":"./"}"#,
+            "packages/app/package.json",
+            "packages/app.ts",
+            "packages/app/index.ts",
+        ),
+        (
+            r#"{"name":"@demo/lib","main":".","bin":"./"}"#,
+            "packages/lib/package.json",
+            "packages/lib.ts",
+            "packages/lib/index.ts",
+        ),
+    ] {
+        assert_discovered(
+            &[pkg_path, sibling, index],
+            &[(pkg_path, manifest)],
+            &[index],
+        );
+    }
+}

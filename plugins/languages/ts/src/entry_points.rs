@@ -82,11 +82,11 @@ impl<'a> TsEntryFinder<'a> {
         if let Value::Object(map) = value {
             let exclusions: Vec<&str> = map
                 .iter()
-                .filter(|(key, item)| key.starts_with('.') && item.is_null())
+                .filter(|(key, item)| key.starts_with('.') && is_null_exclusion(item))
                 .map(|(key, _)| key.as_str())
                 .collect();
             for (key, item) in map {
-                if item.is_null() {
+                if is_null_exclusion(item) {
                     continue;
                 }
                 let export_key = key.starts_with('.').then_some(key.as_str());
@@ -132,34 +132,39 @@ impl<'a> TsEntryFinder<'a> {
         let Some(candidate) = normalize_entry_path(base_dir, raw) else {
             return;
         };
-        if self.file_set.contains(candidate.as_str())
+        if is_nested_candidate(base_dir, &candidate)
+            && self.file_set.contains(candidate.as_str())
             && (is_ts_source_file(&candidate, self.extensions) || has_no_extension(&candidate))
         {
             self.entries.insert(candidate);
             return;
         }
-        self.resolve_source_candidate(&candidate);
+        self.resolve_source_candidate(base_dir, &candidate);
     }
 
     fn resolve_source_target(&mut self, base_dir: &str, raw: &str) {
         if let Some(candidate) = normalize_entry_path(base_dir, raw) {
-            self.resolve_source_candidate(&candidate);
+            self.resolve_source_candidate(base_dir, &candidate);
         }
     }
 
-    fn resolve_source_candidate(&mut self, candidate: &str) {
+    fn resolve_source_candidate(&mut self, base_dir: &str, candidate: &str) {
         if is_declaration_file(candidate) {
             return;
         }
-        if self.file_set.contains(candidate) && is_ts_source_file(candidate, self.extensions) {
+        let allow_file = is_nested_candidate(base_dir, candidate);
+        if allow_file
+            && self.file_set.contains(candidate)
+            && is_ts_source_file(candidate, self.extensions)
+        {
             self.entries.insert(candidate.to_owned());
             return;
         }
-        if let Some(aliased) = self.resolve_output_alias(candidate) {
+        if allow_file && let Some(aliased) = self.resolve_output_alias(candidate) {
             self.entries.insert(aliased);
             return;
         }
-        if let Some(expanded) = self.resolve_extension_or_index(candidate) {
+        if let Some(expanded) = self.resolve_extension_or_index(candidate, allow_file) {
             self.entries.insert(expanded);
         }
     }
@@ -179,11 +184,13 @@ impl<'a> TsEntryFinder<'a> {
         None
     }
 
-    fn resolve_extension_or_index(&self, candidate: &str) -> Option<String> {
-        for ext in self.extensions {
-            let with_ext = format!("{candidate}.{ext}");
-            if self.file_set.contains(with_ext.as_str()) && !is_declaration_file(&with_ext) {
-                return Some(with_ext);
+    fn resolve_extension_or_index(&self, candidate: &str, allow_extension: bool) -> Option<String> {
+        if allow_extension {
+            for ext in self.extensions {
+                let with_ext = format!("{candidate}.{ext}");
+                if self.file_set.contains(with_ext.as_str()) && !is_declaration_file(&with_ext) {
+                    return Some(with_ext);
+                }
             }
         }
         for ext in self.extensions {
@@ -207,7 +214,8 @@ impl<'a> TsEntryFinder<'a> {
         };
         let key_parts = export_key.and_then(split_single_wildcard);
         for path in self.paths {
-            if let Some(matched_suffix) = wildcard_suffix_match(path, &prefix, suffix)
+            if is_within_base_dir(base_dir, path)
+                && let Some(matched_suffix) = wildcard_suffix_match(path, &prefix, suffix)
                 && path.len() > prefix.len() + matched_suffix.len()
                 && is_ts_source_file(path, self.extensions)
                 && !is_excluded_export(path, &prefix, matched_suffix, key_parts, exclusions)
@@ -218,6 +226,26 @@ impl<'a> TsEntryFinder<'a> {
     }
 }
 
+fn is_null_exclusion(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Array(items) => !items.is_empty() && items.iter().all(is_null_exclusion),
+        Value::Object(map) => !map.is_empty() && map.values().all(is_null_exclusion),
+        _ => false,
+    }
+}
+
+fn is_nested_candidate(base_dir: &str, candidate: &str) -> bool {
+    base_dir.is_empty() || candidate != base_dir
+}
+
+fn is_within_base_dir(base_dir: &str, path: &str) -> bool {
+    base_dir.is_empty()
+        || path
+            .strip_prefix(base_dir)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 fn split_single_wildcard(pattern: &str) -> Option<(&str, &str)> {
     let (prefix, suffix) = pattern.split_once('*')?;
     (!suffix.contains('*')).then_some((prefix, suffix))
@@ -225,6 +253,15 @@ fn split_single_wildcard(pattern: &str) -> Option<(&str, &str)> {
 
 fn has_parent_segment(path: &str) -> bool {
     path.split('/').any(|segment| segment == "..")
+}
+
+fn ensure_wildcard_slash(base_dir: &str, prefix_raw: &str, normalized_prefix: String) -> String {
+    if !normalized_prefix.is_empty() && (prefix_raw.ends_with('/') || normalized_prefix == base_dir)
+    {
+        format!("{normalized_prefix}/")
+    } else {
+        normalized_prefix
+    }
 }
 
 fn wildcard_prefix<'a>(base_dir: &str, raw: &'a str) -> Option<(String, &'a str)> {
@@ -237,11 +274,7 @@ fn wildcard_prefix<'a>(base_dir: &str, raw: &'a str) -> Option<(String, &'a str)
         return None;
     }
     let normalized_prefix = normalize_relative_path(base_dir, prefix_raw)?;
-    let prefix = if prefix_raw.ends_with('/') && !normalized_prefix.is_empty() {
-        format!("{normalized_prefix}/")
-    } else {
-        normalized_prefix
-    };
+    let prefix = ensure_wildcard_slash(base_dir, prefix_raw, normalized_prefix);
     Some((prefix, suffix))
 }
 
