@@ -1,5 +1,5 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_model::language::{Function, ImportRequest, Resolution};
+use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{
     FileModel, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind,
     token_text_hash,
@@ -2201,4 +2201,203 @@ fn cognitive_complexity_handles_else_if_boolean_sequences_labels_recursion_and_n
     assert_eq!(found[0].cognitive_complexity, 18);
     assert_eq!(found[1].name, None);
     assert_eq!(found[1].cognitive_complexity, 3);
+}
+
+fn declared_deps(manifests: &[(&str, &str)]) -> Vec<DeclaredDep> {
+    plugin()
+        .declared_dependencies(
+            manifests
+                .iter()
+                .map(|(path, text)| manifest(path, text))
+                .collect(),
+        )
+        .expect("declared dependencies")
+}
+
+fn expected_declared(rows: &[(&str, &str, DepKind)]) -> Vec<DeclaredDep> {
+    rows.iter()
+        .map(|(root, name, kind)| DeclaredDep {
+            package_root: (*root).to_owned(),
+            name: (*name).to_owned(),
+            kind: *kind,
+        })
+        .collect()
+}
+
+fn resolve_with_tsconfig(tsconfig: &str, specifiers: &[&str]) -> Vec<Resolution> {
+    let requests: Vec<(&str, &str)> = specifiers
+        .iter()
+        .map(|specifier| ("src/app.ts", *specifier))
+        .collect();
+    resolve_for(
+        &["tsconfig.json", "src/app.ts"],
+        &[("tsconfig.json", tsconfig)],
+        &requests,
+    )
+}
+
+#[test]
+fn node_and_bun_builtins_and_canonical_external_packages_classify_accurately() {
+    let catch_all_builtins = resolve_with_tsconfig(
+        r#"{"compilerOptions": {"baseUrl": ".", "paths": {"*": ["./src/*"]}}}"#,
+        &[
+            "node:fs",
+            "node:test",
+            "node:sqlite",
+            "node:path/posix",
+            "fs",
+            "fs/promises",
+            "path/posix",
+            "stream/promises",
+            "bun",
+            "bun:sqlite",
+        ],
+    );
+    assert_eq!(catch_all_builtins, vec![Resolution::Builtin; 10]);
+
+    let normal_resolutions = resolve_with_tsconfig(
+        r#"{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}"#,
+        &[
+            "node:crypto",
+            "fs/promises",
+            "lodash/fp/map",
+            "@scope/pkg/sub/deep",
+            "@scope/pkg/sub?raw#hash",
+        ],
+    );
+    assert_eq!(
+        normal_resolutions,
+        vec![
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::External("lodash".to_owned()),
+            Resolution::External("@scope/pkg".to_owned()),
+            Resolution::External("@scope/pkg".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn single_package_json_parses_runtime_dev_optional_and_peer_dependencies() {
+    let deps = declared_deps(&[
+        (
+            "package.json",
+            r#"{
+              "name": "solo-app",
+              "dependencies": {
+                "react": "^18.3.0",
+                "@scope/ui": "^1.0.0",
+                "solo-app": "^1.0.0",
+                "   ": "^1.0.0"
+              },
+              "devDependencies": {
+                "vitest": "^2.0.0",
+                "@types/node": "^22.0.0"
+              },
+              "optionalDependencies": {
+                "fsevents": "^2.3.0"
+              },
+              "peerDependencies": {
+                "react-dom": "^18.3.0",
+                "fsevents": "^2.3.0"
+              }
+            }"#,
+        ),
+        ("tsconfig.json", r#"{"compilerOptions": {"strict": true}}"#),
+        (
+            "node_modules/ignored/package.json",
+            r#"{"name": "ignored", "dependencies": {"leak": "1.0.0"}}"#,
+        ),
+        (
+            "examples/demo/package.json",
+            r#"{"name": "demo", "dependencies": {"non-workspace": "1.0.0"}}"#,
+        ),
+    ]);
+
+    assert_eq!(
+        deps,
+        expected_declared(&[
+            ("", "@scope/ui", DepKind::Runtime),
+            ("", "react", DepKind::Runtime),
+            ("", "@types/node", DepKind::Dev),
+            ("", "vitest", DepKind::Dev),
+            ("", "fsevents", DepKind::Optional),
+            ("", "react-dom", DepKind::Optional),
+        ])
+    );
+}
+
+#[test]
+fn workspace_package_jsons_emit_per_package_deps_and_exclude_local_members() {
+    let expected = expected_declared(&[
+        ("", "vitest", DepKind::Dev),
+        ("packages/core", "zod", DepKind::Runtime),
+        ("packages/web", "react", DepKind::Runtime),
+        ("packages/web", "tsx", DepKind::Dev),
+        ("packages/web", "react-dom", DepKind::Optional),
+    ]);
+
+    for (label, root_path, root_text) in [
+        (
+            "npm_yarn_bun",
+            "package.json",
+            r#"{"workspaces": ["packages/*", "!packages/retired"], "devDependencies": {"vitest": "^2.0.0"}}"#,
+        ),
+        (
+            "pnpm",
+            "pnpm-workspace.yaml",
+            "packages:\n  - 'packages/*'\n  - '!packages/retired'\n",
+        ),
+    ] {
+        let mut manifests = vec![
+            (root_path, root_text),
+            (
+                "packages/core/package.json",
+                r#"{"name": "@acme/core", "dependencies": {"zod": "^3.23.0"}}"#,
+            ),
+            (
+                "packages/web/package.json",
+                r#"{
+                  "name": "@acme/web",
+                  "dependencies": {
+                    "@acme/core": "^1.0.0",
+                    "@acme/other": "workspace:*",
+                    "react": "^18.3.0"
+                  },
+                  "devDependencies": {"tsx": "^4.0.0"},
+                  "peerDependencies": {"react-dom": "^18.3.0"}
+                }"#,
+            ),
+            (
+                "packages/retired/package.json",
+                r#"{"name": "@acme/retired", "dependencies": {"old-dep": "1.0.0"}}"#,
+            ),
+        ];
+        if root_path == "pnpm-workspace.yaml" {
+            manifests.push((
+                "package.json",
+                r#"{"devDependencies": {"vitest": "^2.0.0"}}"#,
+            ));
+        }
+        assert_eq!(declared_deps(&manifests), expected, "{label}");
+    }
+
+    let polyglot = declared_deps(&[
+        (
+            "frontend/package.json",
+            r#"{"name": "frontend", "dependencies": {"svelte": "^5.0.0"}, "devDependencies": {"vite": "^6.0.0"}}"#,
+        ),
+        ("broken/package.json", "{ not valid json"),
+        (
+            "frontend/node_modules/pkg/package.json",
+            r#"{"dependencies": {"leaked": "^1.0.0"}}"#,
+        ),
+    ]);
+    assert_eq!(
+        polyglot,
+        expected_declared(&[
+            ("frontend", "svelte", DepKind::Runtime),
+            ("frontend", "vite", DepKind::Dev),
+        ])
+    );
 }

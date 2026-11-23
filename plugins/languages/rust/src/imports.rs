@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use syn::visit::{self, Visit};
-use syn::{File, Item, ItemMod, ItemUse, UseTree};
+use syn::{File, Item, ItemExternCrate, ItemMod, ItemUse, UseTree};
 
 use crate::cfg_test::{has_cfg_test, item_attrs};
 
@@ -45,6 +45,16 @@ impl<'ast> Visit<'ast> for ImportCollector {
         }
         let mut prefix = Vec::new();
         collect_use_tree(&node.tree, &mut prefix, &mut self.specifiers);
+    }
+
+    fn visit_item_extern_crate(&mut self, node: &'ast ItemExternCrate) {
+        if self.exclude_cfg_test && has_cfg_test(&node.attrs) {
+            return;
+        }
+        let ident = node.ident.to_string();
+        if ident != "self" {
+            self.specifiers.insert(format!("{USE_PREFIX}{ident}"));
+        }
     }
 }
 

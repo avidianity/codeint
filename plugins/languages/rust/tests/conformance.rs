@@ -1,5 +1,5 @@
 use codeint_lang_rust::{Rust, flagged_line_rules};
-use codeint_model::language::{Function, ImportRequest, Resolution};
+use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{
     FileModel, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind,
 };
@@ -256,7 +256,7 @@ fn resolves_intra_crate_mod_and_use_imports_and_marks_external_crates() {
             Resolution::Resolved("src/beta/child.rs".to_owned()),
             Resolution::Resolved("src/alpha.rs".to_owned()),
             Resolution::Builtin,
-            Resolution::External(String::new()),
+            Resolution::External("serde".to_owned()),
         ]
     );
 }
@@ -354,5 +354,213 @@ fn outer(items: &[i32], a: bool, b: bool, c: bool) -> i32 {
             (Some("outer"), 19),
             (Some("inner"), 3),
         ]
+    );
+}
+
+fn assert_rust_declared_deps(manifests: &[(&str, &str)], expected: &[(&str, &str, DepKind)]) {
+    let input: Vec<Manifest> = manifests
+        .iter()
+        .map(|(path, text)| Manifest {
+            path: (*path).to_owned(),
+            text: (*text).to_owned(),
+        })
+        .collect();
+    let actual = plugin()
+        .declared_dependencies(input)
+        .expect("declared dependencies");
+    let expected_deps: Vec<DeclaredDep> = expected
+        .iter()
+        .map(|(package_root, name, kind)| DeclaredDep {
+            package_root: (*package_root).to_owned(),
+            name: (*name).to_owned(),
+            kind: *kind,
+        })
+        .collect();
+    assert_eq!(actual, expected_deps);
+}
+
+#[test]
+fn rust_builtins_external_crate_normalization_and_workspace_imports() {
+    let lowered = lower(
+        "crates/app/src/main.rs",
+        "extern crate alloc;\nextern crate serde_json;\nuse proc_macro2::Span;\n",
+    )
+    .expect("extern crate lowers");
+    assert_eq!(
+        lowered.runtime_imports,
+        vec!["use:alloc", "use:proc_macro2::Span", "use:serde_json"]
+    );
+
+    let paths: Vec<RepoPath> = [
+        "Cargo.toml",
+        "crates/core/Cargo.toml",
+        "crates/core/src/lib.rs",
+        "crates/app/Cargo.toml",
+        "crates/app/src/lib.rs",
+        "crates/app/src/rules.rs",
+        "crates/app/src/main.rs",
+    ]
+    .into_iter()
+    .map(|p| RepoPath::new(p).expect("valid"))
+    .collect();
+    let manifests = vec![
+        Manifest {
+            path: "Cargo.toml".to_owned(),
+            text: "[workspace]\nmembers = [\"crates/*\"]\n".to_owned(),
+        },
+        Manifest {
+            path: "crates/core/Cargo.toml".to_owned(),
+            text: "[package]\nname = \"demo-core\"\n".to_owned(),
+        },
+        Manifest {
+            path: "crates/app/Cargo.toml".to_owned(),
+            text: "[package]\nname = \"demo-app\"\n".to_owned(),
+        },
+    ];
+    let requests: Vec<ImportRequest> = [
+        ("crates/app/src/main.rs", "use:std::collections::HashMap"),
+        ("crates/app/src/main.rs", "use:core::fmt"),
+        ("crates/app/src/main.rs", "use:alloc::vec::Vec"),
+        ("crates/app/src/main.rs", "use:proc_macro::TokenStream"),
+        ("crates/app/src/main.rs", "use:test::Bencher"),
+        ("crates/app/src/main.rs", "use:serde_json::Value"),
+        ("crates/app/src/main.rs", "use:proc_macro2::Span"),
+        ("crates/app/src/main.rs", "use:r#async::Task"),
+        ("crates/app/src/main.rs", "use:demo_core::Model"),
+        ("crates/app/src/lib.rs", "use:rules::flag"),
+        ("crates/core/src/lib.rs", "use:demo_core::SelfRef"),
+    ]
+    .into_iter()
+    .map(|(importer, specifier)| ImportRequest {
+        importer: importer.to_owned(),
+        specifier: specifier.to_owned(),
+    })
+    .collect();
+
+    assert_eq!(
+        plugin().resolve_imports(&paths, manifests, requests),
+        vec![
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::External("serde_json".to_owned()),
+            Resolution::External("proc_macro2".to_owned()),
+            Resolution::External("async".to_owned()),
+            Resolution::Resolved("crates/core/src/lib.rs".to_owned()),
+            Resolution::Resolved("crates/app/src/rules.rs".to_owned()),
+            Resolution::Builtin,
+        ]
+    );
+}
+
+#[test]
+fn single_crate_cargo_toml_parses_runtime_dev_build_optional_and_target_dependencies() {
+    assert_rust_declared_deps(
+        &[
+            (
+                "Cargo.toml",
+                r#"
+[package]
+name = "solo-app"
+
+[dependencies]
+serde-json = "1.0"
+tracing = { version = "0.1", optional = true }
+my-alias = { package = "actual-pkg", version = "1.0" }
+local-helper = { path = "../helper" }
+
+[dev-dependencies]
+insta = "1.40"
+assert-cmd = "2.0"
+
+[build-dependencies]
+cc = "1.0"
+
+[target.'cfg(unix)'.dependencies]
+nix = "0.29"
+libc = { version = "0.2", optional = true }
+"#,
+            ),
+            (
+                "target/debug/Cargo.toml",
+                "[package]\nname = \"built\"\n[dependencies]\nignored = \"1\"\n",
+            ),
+            (
+                "tests/fixtures/sample/Cargo.toml",
+                "[package]\nname = \"fixture\"\n[dependencies]\nfixture-dep = \"1\"\n",
+            ),
+        ],
+        &[
+            ("", "my_alias", DepKind::Runtime),
+            ("", "nix", DepKind::Runtime),
+            ("", "serde_json", DepKind::Runtime),
+            ("", "assert_cmd", DepKind::Dev),
+            ("", "cc", DepKind::Dev),
+            ("", "insta", DepKind::Dev),
+            ("", "libc", DepKind::Optional),
+            ("", "tracing", DepKind::Optional),
+        ],
+    );
+}
+
+#[test]
+fn workspace_cargo_tomls_emit_per_member_deps_and_exclude_local_crates() {
+    assert_rust_declared_deps(
+        &[
+            (
+                "Cargo.toml",
+                r#"
+[workspace]
+members = ["crates/*"]
+exclude = ["crates/retired"]
+
+[workspace.dependencies]
+demo-core = { path = "crates/core" }
+serde = "1.0"
+proc-macro2 = "1.0"
+"#,
+            ),
+            (
+                "crates/core/Cargo.toml",
+                r#"
+[package]
+name = "demo-core"
+
+[dependencies]
+serde = { workspace = true }
+"#,
+            ),
+            (
+                "crates/app/Cargo.toml",
+                r#"
+[package]
+name = "demo-app"
+
+[dependencies]
+demo-core = { workspace = true }
+proc-macro2 = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3.0"
+"#,
+            ),
+            (
+                "crates/retired/Cargo.toml",
+                r#"
+[package]
+name = "retired"
+
+[dependencies]
+old-dep = "1.0"
+"#,
+            ),
+        ],
+        &[
+            ("crates/app", "tempfile", DepKind::Dev),
+            ("crates/app", "proc_macro2", DepKind::Optional),
+            ("crates/core", "serde", DepKind::Runtime),
+        ],
     );
 }

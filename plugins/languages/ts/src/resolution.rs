@@ -163,7 +163,7 @@ fn precheck_specifier(importer: &str, specifier: &str) -> Option<Resolution> {
             "{specifier:?} leads outside the repository"
         )));
     }
-    is_bun_builtin(specifier).then_some(Resolution::Builtin)
+    is_runtime_builtin(specifier).then_some(Resolution::Builtin)
 }
 
 fn is_project_configuration_error(error: &ResolveError) -> bool {
@@ -176,8 +176,12 @@ fn is_project_configuration_error(error: &ResolveError) -> bool {
     )
 }
 
-fn is_bun_builtin(specifier: &str) -> bool {
-    specifier == "bun" || specifier.starts_with("bun:")
+fn is_runtime_builtin(specifier: &str) -> bool {
+    specifier == "bun"
+        || specifier.starts_with("bun:")
+        || specifier
+            .strip_prefix("node:")
+            .is_some_and(|rest| !rest.is_empty())
 }
 
 fn is_relative(specifier: &str) -> bool {

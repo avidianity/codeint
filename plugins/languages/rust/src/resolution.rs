@@ -1,11 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use toml::Value;
 
+use crate::dependencies::{load_active_manifests, normalize_crate_name};
 use crate::imports::{MOD_PREFIX, USE_PREFIX};
 use crate::workspaces::CARGO_MANIFEST;
 
-const STD_CRATES: [&str; 4] = ["std", "core", "alloc", "proc_macro"];
+const STD_CRATES: [&str; 5] = ["std", "core", "alloc", "proc_macro", "test"];
 
 pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
     repository_paths
@@ -18,6 +20,7 @@ pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
 pub(crate) struct RustResolver {
     files: HashSet<String>,
     crate_roots: Vec<String>,
+    local_crates: HashMap<String, Option<String>>,
 }
 
 impl RustResolver {
@@ -37,7 +40,12 @@ impl RustResolver {
             })
             .collect();
         crate_roots.sort_by_key(|root| std::cmp::Reverse(root.len()));
-        RustResolver { files, crate_roots }
+        let local_crates = build_local_crate_map(&files, manifests);
+        RustResolver {
+            files,
+            crate_roots,
+            local_crates,
+        }
     }
 
     pub(crate) fn resolve(&self, request: &ImportRequest) -> Resolution {
@@ -47,14 +55,17 @@ impl RustResolver {
         if let Some(use_path) = request.specifier.strip_prefix(USE_PREFIX) {
             return self.resolve_use(&request.importer, use_path);
         }
-        Resolution::External(String::new())
+        Resolution::Unresolved(format!(
+            "unrecognized Rust import specifier {:?}",
+            request.specifier
+        ))
     }
 
     fn resolve_mod(&self, importer: &str, mod_name: &str) -> Resolution {
         let base_dir = module_child_dir(importer);
         match self.find_module_file(&base_dir, &[mod_name]) {
             Some(target) if target != importer => Resolution::Resolved(target),
-            Some(_) => Resolution::External(String::new()),
+            Some(_) => Resolution::Builtin,
             None => Resolution::Unresolved(format!(
                 "no module file found for `mod {mod_name}` from {importer}"
             )),
@@ -64,15 +75,16 @@ impl RustResolver {
     fn resolve_use(&self, importer: &str, use_path: &str) -> Resolution {
         let segments: Vec<&str> = use_path.split("::").filter(|s| !s.is_empty()).collect();
         let Some(&first) = segments.first() else {
-            return Resolution::External(String::new());
+            return Resolution::Unresolved(format!("empty Rust use path {use_path:?}"));
         };
-        if STD_CRATES.contains(&first) {
+        let head = first.strip_prefix("r#").unwrap_or(first);
+        if STD_CRATES.contains(&head) {
             return Resolution::Builtin;
         }
-        match first {
+        match head {
             "crate" => {
                 let Some(src_dir) = self.crate_src_dir(importer) else {
-                    return Resolution::External(String::new());
+                    return Resolution::Builtin;
                 };
                 self.resolve_longest_module(importer, &src_dir, &segments[1..])
             }
@@ -91,12 +103,31 @@ impl RustResolver {
                     return self
                         .resolve_dir_to_file(&current)
                         .filter(|target| target != importer)
-                        .map_or_else(|| Resolution::External(String::new()), Resolution::Resolved);
+                        .map_or(Resolution::Builtin, Resolution::Resolved);
                 }
                 self.resolve_longest_module(importer, &current, &segments[idx..])
             }
-            _ => Resolution::External(String::new()),
+            _ => self.resolve_top_level_use(importer, head),
         }
+    }
+
+    fn resolve_top_level_use(&self, importer: &str, head: &str) -> Resolution {
+        let crate_ident = normalize_crate_name(head);
+        if let Some(lib_target) = self.local_crates.get(&crate_ident) {
+            return match lib_target {
+                Some(path) if path != importer => Resolution::Resolved(path.clone()),
+                _ => Resolution::Builtin,
+            };
+        }
+        let child_dir = module_child_dir(importer);
+        if let Some(target) = self.find_module_file(&child_dir, &[head]) {
+            return if target == importer {
+                Resolution::Builtin
+            } else {
+                Resolution::Resolved(target)
+            };
+        }
+        Resolution::External(crate_ident)
     }
 
     fn resolve_longest_module(
@@ -108,7 +139,7 @@ impl RustResolver {
         for len in (1..=segments.len()).rev() {
             if let Some(target) = self.find_module_file(base_dir, &segments[..len]) {
                 return if target == importer {
-                    Resolution::External(String::new())
+                    Resolution::Builtin
                 } else {
                     Resolution::Resolved(target)
                 };
@@ -119,7 +150,7 @@ impl RustResolver {
         {
             return Resolution::Resolved(root_file);
         }
-        Resolution::External(String::new())
+        Resolution::Builtin
     }
 
     fn find_module_file(&self, base_dir: &str, segments: &[&str]) -> Option<String> {
@@ -170,6 +201,38 @@ impl RustResolver {
             .map(|idx| importer[..idx + 4].to_owned())
             .or_else(|| importer.starts_with("src/").then(|| "src".to_owned()))
     }
+}
+
+fn build_local_crate_map(
+    files: &HashSet<String>,
+    manifests: &[Manifest],
+) -> HashMap<String, Option<String>> {
+    let mut map = HashMap::new();
+    for (root, doc) in load_active_manifests(manifests) {
+        let lib_rel = doc
+            .get("lib")
+            .and_then(|lib| lib.get("path"))
+            .and_then(Value::as_str)
+            .unwrap_or("src/lib.rs");
+        let candidate = join(&root, lib_rel.trim_start_matches("./"));
+        let lib_path = files.contains(&candidate).then_some(candidate);
+        let crate_name = doc
+            .get("lib")
+            .and_then(|lib| lib.get("name"))
+            .and_then(Value::as_str)
+            .or_else(|| {
+                doc.get("package")
+                    .and_then(|pkg| pkg.get("name"))
+                    .and_then(Value::as_str)
+            });
+        if let Some(raw_name) = crate_name {
+            let ident = normalize_crate_name(raw_name);
+            if !ident.is_empty() {
+                map.insert(ident, lib_path);
+            }
+        }
+    }
+    map
 }
 
 fn join(dir: &str, file: &str) -> String {

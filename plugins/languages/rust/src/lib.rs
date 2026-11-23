@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod cfg_test;
+mod dependencies;
 mod functions;
 mod imports;
 mod resolution;
@@ -65,8 +66,8 @@ impl Guest for Rust {
         })
     }
 
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        dependencies::extract_declared(&manifests)
     }
 
     fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
