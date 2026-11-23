@@ -5,8 +5,8 @@ use serde::Serialize;
 use codeint_model::{Metric, SourceSet};
 
 use crate::{
-    CloneGroupFinding, CloneLocation, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
-    ImportCycleFinding, Report, SourceSetSection,
+    BoundaryFindingRow, CloneGroupFinding, CloneLocation, ErodedFunctionFinding,
+    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Report, SourceSetSection,
 };
 
 #[cfg(test)]
@@ -141,6 +141,7 @@ pub(crate) struct ListedFindings<'findings> {
     pub(crate) clone_groups: &'findings [CloneGroupFinding],
     pub(crate) flagged_lines: &'findings [FlaggedLineRow],
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
+    pub(crate) boundaries: &'findings [BoundaryFindingRow],
     pub(crate) external_metrics: Vec<ListedExternalMetric<'findings>>,
 }
 
@@ -159,6 +160,9 @@ impl SarifLog {
         findings: impl Iterator<Item = (SourceSet, ListedFindings<'findings>)>,
     ) -> SarifLog {
         let collected: Vec<(SourceSet, ListedFindings<'findings>)> = findings.collect();
+        let has_boundaries = collected
+            .iter()
+            .any(|(_, listed)| !listed.boundaries.is_empty());
         let mut external_rules: BTreeMap<String, (&str, &str)> = BTreeMap::new();
         for (_, listed) in &collected {
             for external in &listed.external_metrics {
@@ -168,6 +172,11 @@ impl SarifLog {
             }
         }
         let mut rules: Vec<Rule> = RULES.map(descriptor).into();
+        let boundaries_rule_index = has_boundaries.then(|| {
+            let index = rules.len();
+            rules.push(boundaries_descriptor());
+            index
+        });
         let mut external_rule_indices: BTreeMap<String, usize> = BTreeMap::new();
         for (key, (name, description)) in external_rules {
             let index = rules.len();
@@ -202,7 +211,12 @@ impl SarifLog {
                 results: collected
                     .iter()
                     .flat_map(|(source_set, listed)| {
-                        results(*source_set, listed, &external_rule_indices)
+                        results(
+                            *source_set,
+                            listed,
+                            boundaries_rule_index,
+                            &external_rule_indices,
+                        )
                     })
                     .collect(),
             }],
@@ -313,6 +327,22 @@ impl Location {
     }
 }
 
+fn boundaries_descriptor() -> Rule {
+    Rule {
+        id: "boundaries".to_owned(),
+        name: "Boundaries".to_owned(),
+        short_description: Text::from(
+            "An import or file that breaks configured architectural boundaries",
+        ),
+        full_description: Text::from(
+            "Boundaries checks resolved runtime imports against configured architectural zones, directional allow or deny rules, public_files encapsulation, and optional strict_zones coverage.",
+        ),
+        help: Text::from(
+            "Import through an allowed zone or a target zone's public_files entry point, or assign the file to a configured zone.",
+        ),
+    }
+}
+
 impl<'findings> ListedFindings<'findings> {
     fn of_section(section: &'findings SourceSetSection) -> ListedFindings<'findings> {
         ListedFindings {
@@ -320,6 +350,10 @@ impl<'findings> ListedFindings<'findings> {
             clone_groups: &section.duplication.clone_groups.listed,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
+            boundaries: section
+                .boundaries
+                .as_ref()
+                .map_or(&[], |boundaries| boundaries.findings.listed.as_slice()),
             external_metrics: section
                 .external_metrics
                 .iter()
@@ -337,6 +371,7 @@ impl<'findings> ListedFindings<'findings> {
 fn results(
     source_set: SourceSet,
     listed: &ListedFindings<'_>,
+    boundaries_rule_index: Option<usize>,
     external_rule_indices: &BTreeMap<String, usize>,
 ) -> Vec<SarifResult> {
     let eroded_functions = listed.eroded_functions.iter().map(|function| {
@@ -370,6 +405,29 @@ fn results(
         .import_cycles
         .iter()
         .filter_map(|cycle| import_cycle_result(source_set, cycle));
+    let boundaries = listed.boundaries.iter().map(|finding| {
+        let related_locations = finding
+            .target
+            .as_deref()
+            .map(|target| vec![Location::in_repository(target, 1, None).related(1)])
+            .unwrap_or_default();
+        SarifResult {
+            rule_id: "boundaries".to_owned(),
+            rule_index: boundaries_rule_index.unwrap_or_default(),
+            level: "note",
+            message: Text {
+                text: finding.message.clone(),
+            },
+            locations: [Location::in_repository(&finding.importer, 1, None)],
+            related_locations,
+            partial_fingerprints: PartialFingerprints {
+                codeint_finding_id: finding.id.clone(),
+            },
+            properties: ResultProperties {
+                source_set: source_set.key(),
+            },
+        }
+    });
     let external_findings = listed.external_metrics.iter().flat_map(|external| {
         let rule_index = external_rule_indices
             .get(external.key)
@@ -400,6 +458,7 @@ fn results(
         .chain(clone_groups)
         .chain(flagged_lines)
         .chain(import_cycles)
+        .chain(boundaries)
         .chain(external_findings)
         .collect()
 }

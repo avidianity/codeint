@@ -1,8 +1,8 @@
 use crate::{
-    CloneGroupFinding, CloneLocation, DuplicationSection, ErodedFunctionFinding, ErosionSection,
-    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection,
-    MeasuredSection, PackageSection, ReferenceRangeEntry, Report, SourceSetSection,
-    SourceSetSections, UnresolvedImportRow, VerbositySection,
+    BoundaryFindingRow, CloneGroupFinding, CloneLocation, DuplicationSection,
+    ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
+    ImportCycleFinding, ImportCyclesSection, MeasuredSection, PackageSection, ReferenceRangeEntry,
+    Report, SourceSetSection, SourceSetSections, UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -34,6 +34,14 @@ const PACKAGE_COLUMNS: [&str; 8] = [
 ];
 pub(crate) const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
 pub(crate) const EXTERNAL_FINDING_COLUMNS: [&str; 2] = ["Location", "Message"];
+const BOUNDARY_FINDING_COLUMNS: [&str; 6] = [
+    "Importer",
+    "Target",
+    "Source zone",
+    "Target zone",
+    "Rule",
+    "Reason",
+];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
 
 pub(crate) struct Noun {
@@ -294,6 +302,20 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
             &import_cycles.reference_range,
         ),
     ];
+    if let Some(boundaries) = &section.boundaries {
+        let total_findings = boundaries.findings.listed.len() + boundaries.findings.left_out;
+        rows.push(vec![
+            source_set.to_string(),
+            "Boundaries".to_string(),
+            boundaries.ratio.0.to_string(),
+            format!(
+                "{} across {} resolved imports",
+                FINDING.counted(total_findings as u64),
+                boundaries.resolved_imports
+            ),
+            "not applicable".to_string(),
+        ]);
+    }
     for external in section.external_metrics.values() {
         rows.push(row(
             &external.name,
@@ -382,6 +404,20 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             )
         },
     );
+    if let Some(boundaries) = &section.boundaries {
+        push_findings(
+            &mut blocks,
+            "Boundaries",
+            &boundaries.findings,
+            &FINDING,
+            |listed| {
+                table(
+                    &BOUNDARY_FINDING_COLUMNS,
+                    listed.iter().map(boundary_finding_row).collect(),
+                )
+            },
+        );
+    }
     for external in section.external_metrics.values() {
         push_findings(
             &mut blocks,
@@ -474,6 +510,21 @@ fn unresolved_import_row(row: &UnresolvedImportRow) -> Vec<String> {
         code(&row.importer),
         code(&row.specifier),
         prose(&row.reason),
+    ]
+}
+
+fn boundary_finding_row(row: &BoundaryFindingRow) -> Vec<String> {
+    vec![
+        code(&row.importer),
+        row.target.as_deref().map_or_else(|| "-".to_owned(), code),
+        row.source_zone
+            .as_deref()
+            .map_or_else(|| "-".to_owned(), prose),
+        row.target_zone
+            .as_deref()
+            .map_or_else(|| "-".to_owned(), prose),
+        prose(&row.kind),
+        prose(row.reason.as_deref().unwrap_or(&row.message)),
     ]
 }
 

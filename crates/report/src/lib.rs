@@ -2,10 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use codeint_config::{Budgets, FindingsShown, ReportFormat};
+use codeint_config::{
+    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
+    FindingsShown, ReportFormat,
+};
 use codeint_metrics::{
-    CloneGroup, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle,
-    ImportCycles, MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
+    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
+    ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
+    MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -114,10 +118,38 @@ struct SourceSetSection {
     duplication: DuplicationSection,
     verbosity: VerbositySection,
     import_cycles: ImportCyclesSection,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    boundaries: Option<BoundariesSection>,
     #[serde(flatten)]
     external_metrics: BTreeMap<String, ExternalMetricSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
+}
+
+#[derive(Debug, Serialize)]
+struct BoundariesSection {
+    ratio: Decimal,
+    resolved_imports: usize,
+    #[serde(flatten)]
+    findings: Findings<BoundaryFindingRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BoundaryFindingRow {
+    id: String,
+    kind: String,
+    importer: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    specifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_zone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_zone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -406,6 +438,73 @@ impl FindingKind for ExternalMetricFinding {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl FindingKind for BoundaryFindingRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
+struct ConfigBoundaryPolicy<'config>(&'config BoundariesConfig);
+
+impl BoundaryPolicy for ConfigBoundaryPolicy<'_> {
+    fn zone_of(&self, path: &RepoPath) -> Option<&str> {
+        self.0.zone_of(path)
+    }
+
+    fn has_public_files(&self, zone: &str) -> bool {
+        self.0.has_public_files(zone)
+    }
+
+    fn is_public_file(&self, zone: &str, path: &RepoPath) -> bool {
+        self.0.is_public_file(zone, path)
+    }
+
+    fn check_import(&self, source_zone: &str, target_zone: &str) -> BoundaryEdgeCheck {
+        match self.0.check_import(source_zone, target_zone) {
+            BoundaryRuleDecision::Allowed => BoundaryEdgeCheck::Allowed,
+            BoundaryRuleDecision::Denied {
+                directive: BoundaryDirective::Allow,
+                reason,
+            } => BoundaryEdgeCheck::DeniedByAllowRule { reason },
+            BoundaryRuleDecision::Denied {
+                directive: BoundaryDirective::Deny,
+                reason,
+            } => BoundaryEdgeCheck::DeniedByDenyRule { reason },
+        }
+    }
+
+    fn strict_zones(&self) -> bool {
+        self.0.strict_zones()
+    }
+}
+
+impl BoundariesSection {
+    fn new(boundaries: &Boundaries, shown: FindingsShown) -> BoundariesSection {
+        BoundariesSection {
+            ratio: Decimal::rounded(boundaries.ratio()),
+            resolved_imports: boundaries.resolved_imports(),
+            findings: Findings::worst_first(
+                boundaries.findings().iter().map(BoundaryFindingRow::from),
+                shown,
+            ),
+        }
+    }
+}
+
+impl From<&BoundaryFinding> for BoundaryFindingRow {
+    fn from(finding: &BoundaryFinding) -> BoundaryFindingRow {
+        BoundaryFindingRow {
+            id: finding.id.to_string(),
+            kind: finding.kind.key().to_owned(),
+            importer: finding.importer.to_string(),
+            target: finding.target.as_ref().map(RepoPath::to_string),
+            specifier: finding.specifier.clone(),
+            source_zone: finding.source_zone.clone(),
+            target_zone: finding.target_zone.clone(),
+            reason: finding.reason.clone(),
+            message: finding.message.clone(),
+        }
+    }
+}
+
 impl ExternalMetricFinding {
     fn from_model(finding: &ExternalFinding) -> ExternalMetricFinding {
         ExternalMetricFinding {
@@ -424,15 +523,19 @@ impl SourceSetSections {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
+                let source_set_boundaries =
+                    boundaries.filter(|config| config.applies_to_source_set(source_set));
                 *sections.slot(source_set) = Some(SourceSetSection::new(
                     model,
                     ranges,
                     findings,
                     metric_plugins,
+                    source_set_boundaries,
                 )?);
             }
         }
@@ -475,6 +578,12 @@ impl SourceSetSections {
                 .into_iter()
                 .chain(
                     section
+                        .boundaries
+                        .iter()
+                        .map(move |boundaries| (source_set, "boundaries", boundaries.ratio.0)),
+                )
+                .chain(
+                    section
                         .external_metrics
                         .iter()
                         .map(move |(key, metric)| (source_set, key.as_str(), metric.ratio.0)),
@@ -499,8 +608,13 @@ impl SourceSetSection {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
     ) -> Result<SourceSetSection, MetricPluginError> {
         let measured = Measured::new(model);
+        let boundaries = boundaries.map(|config| {
+            let evaluated = Boundaries::measure(model, &ConfigBoundaryPolicy(config));
+            BoundariesSection::new(&evaluated, findings)
+        });
         let mut external_metrics = BTreeMap::new();
         for plugin in metric_plugins {
             let result = plugin.measure(model)?;
@@ -530,6 +644,7 @@ impl SourceSetSection {
             duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
             verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
             import_cycles: ImportCyclesSection::new(&measured.import_cycles, ranges, findings),
+            boundaries,
             external_metrics,
             packages: package_sections(model, &measured),
         })
@@ -782,11 +897,17 @@ impl MeasuredSection {
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = model.files.len();
         let lines = source_lines(&model);
-        let source_sets =
-            SourceSetSections::new(&model.into_source_sets(), ranges, findings, metric_plugins)?;
+        let source_sets = SourceSetSections::new(
+            &model.into_source_sets(),
+            ranges,
+            findings,
+            metric_plugins,
+            boundaries,
+        )?;
         Ok(MeasuredSection {
             files,
             source_lines: lines,
@@ -813,6 +934,24 @@ impl Report {
         budgets: &Budgets,
         metric_plugins: &[&dyn MetricPlugin],
     ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_metrics_and_boundaries(
+            languages,
+            submodules,
+            findings,
+            budgets,
+            metric_plugins,
+            None,
+        )
+    }
+
+    pub fn summarize_with_metrics_and_boundaries(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
+        budgets: &Budgets,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+    ) -> Result<Report, MetricPluginError> {
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -835,6 +974,7 @@ impl Report {
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
                             findings,
                             metric_plugins,
+                            boundaries,
                         )?,
                     );
                 }
@@ -853,7 +993,8 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(model, &total_ranges, findings, metric_plugins)?;
+        let measured =
+            MeasuredSection::new(model, &total_ranges, findings, metric_plugins, boundaries)?;
         Ok(Report {
             over_budget: measured.source_sets.over_budget(budgets),
             skipped,

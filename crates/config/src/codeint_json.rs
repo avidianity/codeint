@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use codeint_model::{Metric, RepoPath, SourceSet};
 
 use crate::RegressionLimits;
+use crate::boundaries::{Boundaries, BoundariesFile};
 use crate::regression_limits::RegressionLimitSetting;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use schemars::JsonSchema;
@@ -52,6 +53,7 @@ pub struct Configuration {
     pub regression_limits: RegressionLimits,
     pub plugins: Vec<PluginDeclaration>,
     pub plugin_limits: PluginLimits,
+    pub boundaries: Option<Boundaries>,
     effective: ConfigurationFile,
 }
 
@@ -128,12 +130,16 @@ impl Configuration {
         let allowed_metrics = || -> Vec<String> {
             Metric::BUILT_IN_KEYS
                 .iter()
+                .chain(["boundaries"].iter())
                 .chain(external_metric_keys.iter())
                 .map(|key| (*key).to_owned())
                 .collect()
         };
-        let is_known =
-            |key: &str| Metric::BUILT_IN_KEYS.contains(&key) || external_metric_keys.contains(&key);
+        let is_known = |key: &str| {
+            Metric::BUILT_IN_KEYS.contains(&key)
+                || key == "boundaries"
+                || external_metric_keys.contains(&key)
+        };
         for (source_set, metric_key, _) in &self.budgets.set {
             if !is_known(metric_key) {
                 return Err(ConfigurationFileError::UnknownKey {
@@ -403,6 +409,33 @@ pub enum ConfigurationFileError {
         config_version: String,
         binary_version: String,
     },
+    #[error("{CONFIGURATION_FILE_NAME}: {key} has invalid boundary zone name {name:?}")]
+    InvalidBoundaryZoneName { key: KeyPath, name: String },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} for boundary zone {zone:?} must list at least one glob pattern"
+    )]
+    EmptyBoundaryZonePatterns { key: KeyPath, zone: String },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} references unknown boundary zone {zone:?}; known zones are {}",
+        known.join(", ")
+    )]
+    UnknownBoundaryZone {
+        key: KeyPath,
+        zone: String,
+        known: Vec<String>,
+    },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} for boundary zone {from:?} must set either allow or deny, not both"
+    )]
+    ConflictingBoundaryRule { key: KeyPath, from: String },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} for boundary zone {from:?} must set either allow or deny"
+    )]
+    MissingBoundaryRuleDirective { key: KeyPath, from: String },
+    #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} mixes allow and deny directives for boundary zone {from:?}"
+    )]
+    ConflictingBoundaryDirectives { key: KeyPath, from: String },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -447,6 +480,12 @@ struct ConfigurationFile {
         description = "Memory cap and time limit enforced on each WebAssembly Plugin. Defaults are 64 MiB and 5000 ms."
     )]
     plugin_limits: PluginLimitsFile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "BoundariesFile",
+        description = "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
+    )]
+    boundaries: Option<BoundariesFile>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -628,6 +667,13 @@ struct MetricBudgets {
         description = "The highest Import cycles ratio, from 0 to 1."
     )]
     import_cycles: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Boundaries ratio, from 0 to 1."
+    )]
+    boundaries: Option<Budget>,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, Budget>,
 }
@@ -686,6 +732,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
     let file: ConfigurationFile =
         serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
     let effective = file.without_schema_address();
+    let parsed_boundaries = file.boundaries.map(Boundaries::from_file).transpose()?;
     Ok(Configuration {
         effective,
         source_set_overrides: source_set_overrides(file.source_sets)?,
@@ -694,6 +741,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         regression_limits: regression_limits(file.regression_limits),
         plugins: plugins(file.plugins)?,
         plugin_limits: plugin_limits(file.plugin_limits),
+        boundaries: parsed_boundaries,
     })
 }
 
@@ -846,6 +894,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             duplication,
             verbosity,
             import_cycles,
+            boundaries,
             external,
         } = metric_budgets;
         [
@@ -853,6 +902,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             (Metric::Duplication.key().to_owned(), duplication),
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),
+            ("boundaries".to_owned(), boundaries),
         ]
         .into_iter()
         .filter_map(move |(metric, ratio)| Some((source_set, metric, ratio?)))
@@ -922,7 +972,7 @@ fn source_set_overrides(
     Ok(SourceSetOverrides { by_precedence })
 }
 
-fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, ConfigurationFileError> {
+pub(crate) fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, ConfigurationFileError> {
     let mut builder = GlobSetBuilder::new();
     for (index, glob) in globs.iter().enumerate() {
         let compiled = GlobBuilder::new(glob)
@@ -944,7 +994,7 @@ fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, ConfigurationFil
 }
 
 impl KeyPath {
-    fn child(&self, segment: KeySegment) -> KeyPath {
+    pub(crate) fn child(&self, segment: KeySegment) -> KeyPath {
         let mut segments = self.0.clone();
         segments.push(segment);
         KeyPath(segments)

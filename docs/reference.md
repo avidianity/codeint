@@ -522,6 +522,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets` | object | The Budgets of each Source set; see [Budgets](#budgets) |
 | `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
+| `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -543,6 +544,15 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `plugin_limits` | object | Memory cap and time limit enforced on each WebAssembly Plugin; see [Plugins](#plugins) |
 | `plugin_limits.memory_mb` | integer from 1 to 4096 | Maximum linear memory in MiB that a WebAssembly Plugin may allocate; `64` by default |
 | `plugin_limits.timeout_ms` | integer from 1 to 300000 | Maximum wall-clock time in milliseconds for each WebAssembly Plugin call; `5000` by default |
+| `boundaries` | object | Architectural import boundaries defining named zones, optional `public_files` entry points, directional `allow` or `deny` rules, and optional `strict_zones` mode |
+| `boundaries.zones` | object | Map of zone name to zone definition (`patterns` globs and optional `public_files` globs) |
+| `boundaries.rules` | list of objects | Directional import rules between architectural zones |
+| `boundaries.rules[].from` | string | Source zone name, or `*` to match any zone without a specific rule |
+| `boundaries.rules[].allow` | list of strings | Target zone names (or `*`) that the source zone is allowed to import; mutually exclusive with `deny` |
+| `boundaries.rules[].deny` | list of strings | Target zone names (or `*`) that the source zone is forbidden to import; mutually exclusive with `allow` |
+| `boundaries.rules[].reason` | string | Optional human-readable explanation shown in boundary Findings |
+| `boundaries.strict_zones` | boolean | When `true`, report files in evaluated Source sets that do not match any configured zone; `false` by default |
+| `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -558,7 +568,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -753,6 +763,54 @@ Use `plugin_limits` to raise or adjust these limits:
   "plugin_limits": {
     "memory_mb": 128,
     "timeout_ms": 10000
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+### Boundaries
+
+`boundaries` enforces directional import rules and `public_files` encapsulation over resolved runtime imports across every supported Language plugin.
+When `boundaries` is omitted, boundary evaluation is completely inactive.
+Each zone in `boundaries.zones` declares repository-relative `patterns` globs and optional `public_files` globs naming the only files external zones may import.
+When a file matches patterns in multiple zones, the most specific pattern (most literal characters, then longest pattern, then zone name alphabetically) wins.
+Each rule in `boundaries.rules` sets `from` (a zone name or `*`), either `allow` or `deny` (mutually exclusive), and an optional `reason`.
+By default, `boundaries` evaluates the `production` Source set only; set `source_sets` to evaluate additional Source sets, and set `strict_zones` to `true` to report files matching no zone.
+
+```json codeint.json
+{
+  "budgets": {
+    "production": {
+      "boundaries": 0
+    }
+  },
+  "boundaries": {
+    "zones": {
+      "app": {
+        "patterns": ["src/**"],
+        "public_files": ["src/**"]
+      },
+      "infra": {
+        "patterns": ["infra/**"]
+      }
+    },
+    "rules": [
+      {
+        "from": "app",
+        "allow": ["app"],
+        "reason": "App layer stays independent of infrastructure"
+      },
+      {
+        "from": "infra",
+        "deny": ["app"],
+        "reason": "Infrastructure must not import application code"
+      }
+    ],
+    "strict_zones": false,
+    "source_sets": ["production"]
   }
 }
 ```

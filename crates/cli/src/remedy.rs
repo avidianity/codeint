@@ -167,6 +167,24 @@ fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
         ConfigurationFileError::NewerSchemaVersion { .. } => {
             "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json."
         }
+        ConfigurationFileError::InvalidBoundaryZoneName { .. } => {
+            "Give each boundary zone in codeint.json a non-empty name other than \"*\"."
+        }
+        ConfigurationFileError::EmptyBoundaryZonePatterns { .. } => {
+            "Add at least one path glob under patterns for every zone in boundaries.zones."
+        }
+        ConfigurationFileError::UnknownBoundaryZone { .. } => {
+            "Reference only zones defined under boundaries.zones (or \"*\") in boundaries.rules."
+        }
+        ConfigurationFileError::ConflictingBoundaryRule { .. } => {
+            "Set either allow or deny on each rule in boundaries.rules, not both."
+        }
+        ConfigurationFileError::MissingBoundaryRuleDirective { .. } => {
+            "Set either allow or deny on each rule in boundaries.rules."
+        }
+        ConfigurationFileError::ConflictingBoundaryDirectives { .. } => {
+            "Use either allow rules or deny rules for a given source zone in boundaries.rules, not both."
+        }
         _ => "Check codeint.json against the JSON schema that $schema links to.",
     }
 }

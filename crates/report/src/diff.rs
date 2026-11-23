@@ -199,6 +199,7 @@ impl DiffReport {
                     clone_groups: &changes.duplication.new.listed,
                     flagged_lines: &changes.verbosity.new.listed,
                     import_cycles: &changes.import_cycles.new.listed,
+                    boundaries: &[],
                     external_metrics: changes
                         .external_metrics
                         .iter()
