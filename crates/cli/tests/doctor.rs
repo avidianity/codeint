@@ -294,6 +294,20 @@ fn doctor_warns_outside_git_repository_without_blocking_and_remains_read_only() 
     let report = fixture.run_json(&[], 0);
     assert_non_blocking_summary(&report, "warn", true);
     assert_eq!(find_check(&report, "git")["status"], "warn");
+    assert_check_field(
+        &report,
+        "config",
+        "warn",
+        "summary",
+        "No codeint.jsonc or codeint.json found; using built-in defaults",
+    );
+    assert_check_field(
+        &report,
+        "config",
+        "warn",
+        "remedy",
+        "Run codeint init to write a starter codeint.jsonc.",
+    );
 
     let text = fixture.run_text(0);
     assert!(text.contains("Warnings:"), "text: {text}");

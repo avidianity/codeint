@@ -5209,3 +5209,39 @@ fn invalid_near_clone_min_similarity_stops_check_with_exit_code_2() {
          Set the value to a ratio greater than 0 and at most 1, such as 0.85.\n",
     );
 }
+
+#[test]
+fn plugin_host_error_remedies_name_codeint_jsonc_when_active() {
+    let repository = Repository::new();
+    repository.write("src/app.ts", "export const ok = 1;\n");
+    repository.write(
+        "codeint.jsonc",
+        concat!(
+            "{\n",
+            "  // missing local plugin\n",
+            "  \"plugins\": [\n",
+            "    {\n",
+            "      \"name\": \"missing-plugin\",\n",
+            "      \"path\": \"plugins/missing.wasm\",\n",
+            "      \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n",
+            "    },\n",
+            "  ],\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+    let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
+    let remedy_line = stderr.lines().nth(1).unwrap_or_default();
+
+    assert_eq!(output.status.code(), Some(2), "stderr: {stderr}");
+    assert_eq!(
+        remedy_line,
+        "Check that the plugin path in codeint.jsonc points to an existing readable WebAssembly component file."
+    );
+    assert!(
+        !stderr.replace("codeint.jsonc", "").contains("codeint.json"),
+        "unexpected codeint.json in stderr: {stderr}"
+    );
+}

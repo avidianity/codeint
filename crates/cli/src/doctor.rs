@@ -85,9 +85,11 @@ fn check_git(folder: &Path) -> (DoctorCheck, Option<Repository>, PathBuf) {
 fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfiguration>, bool) {
     match inspect_configuration(root) {
         ConfigurationInspection::Missing { .. } => {
-            let check =
-                DoctorCheck::warn("config", "No codeint.json found; using built-in defaults")
-                    .with_remedy("Run codeint init to write a starter codeint.jsonc.");
+            let check = DoctorCheck::warn(
+                "config",
+                "No codeint.jsonc or codeint.json found; using built-in defaults",
+            )
+            .with_remedy("Run codeint init to write a starter codeint.jsonc.");
             (vec![check], None, true)
         }
         ConfigurationInspection::Valid {

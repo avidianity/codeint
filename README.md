@@ -97,7 +97,7 @@ codeint diff main
 codeint trend
 ```
 
-- `codeint init` writes a starter `codeint.json` with a versioned `$schema`.
+- `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema`.
 - `codeint check` measures the working tree and prints each Metric with its Findings.
 - `codeint diff main` compares the working tree against the merge-base of `main` and fails on a Regression.
 - `codeint trend` prints each Metric across the latest main-line commits.

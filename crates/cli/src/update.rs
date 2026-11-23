@@ -110,23 +110,21 @@ fn find_codeint_json(start: &Path) -> Option<PathBuf> {
 }
 
 fn replace_schema_tag(text: &str, target_tag: &str) -> Option<(String, String)> {
-    let span = codeint_config::schema_value_span(text)?;
-    let url = text
-        .get(span.clone())?
-        .strip_prefix('"')?
-        .strip_suffix('"')?;
-    let rest = url.strip_prefix(SCHEMA_URL_PREFIX)?;
+    let schema = codeint_config::schema_value_span(text)?;
+    let rest = schema.value.strip_prefix(SCHEMA_URL_PREFIX)?;
     let current_ref = rest.strip_suffix(SCHEMA_URL_SUFFIX)?;
     if current_ref.is_empty() || current_ref.contains('/') || current_ref == target_tag {
         return None;
     }
     let new_url = format!("{SCHEMA_URL_PREFIX}{target_tag}{SCHEMA_URL_SUFFIX}");
+    let prefix = text.get(..schema.span.start)?;
+    let suffix = text.get(schema.span.end..)?;
     let mut updated = String::with_capacity(text.len() + target_tag.len());
-    updated.push_str(&text[..span.start]);
+    updated.push_str(prefix);
     updated.push('"');
     updated.push_str(&new_url);
     updated.push('"');
-    updated.push_str(&text[span.end..]);
+    updated.push_str(suffix);
     Some((updated, new_url))
 }
 

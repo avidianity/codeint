@@ -276,12 +276,24 @@ fn update_syncs_versioned_schema_in_codeint_json() {
     assert!(updated_json.contains("\"budgets\": {}"), "{updated_json}");
 }
 
-#[test]
-fn update_syncs_only_active_schema_in_codeint_jsonc_and_preserves_comments() {
+fn assert_update_rewrites(config_name: &str, cases: &[(&str, &str)]) {
     let temp = TempDir::new().expect("temp");
     let repo_dir = temp.path().join("repo");
     fs::create_dir_all(repo_dir.join(".git")).expect("git dir");
-    let config_path = repo_dir.join("codeint.jsonc");
+    let config_path = repo_dir.join(config_name);
+    for (original, expected) in cases {
+        fs::write(&config_path, original).expect("write config");
+        let output = run_update_in_repo(&temp, &repo_dir, "v9.9.9");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            fs::read_to_string(&config_path).expect("read config"),
+            *expected
+        );
+    }
+}
+
+#[test]
+fn update_syncs_only_active_schema_in_codeint_jsonc_and_preserves_comments() {
     let original = concat!(
         "{\n",
         "  // \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.1/schema/codeint.schema.json\",\n",
@@ -290,11 +302,6 @@ fn update_syncs_only_active_schema_in_codeint_jsonc_and_preserves_comments() {
         "  \"budgets\": {},\n",
         "}\n",
     );
-    fs::write(&config_path, original).expect("write codeint.jsonc");
-
-    let output = run_update_in_repo(&temp, &repo_dir, "v9.9.9");
-    assert!(output.status.success(), "{output:?}");
-    let updated = fs::read_to_string(&config_path).expect("read codeint.jsonc");
     let expected = concat!(
         "{\n",
         "  // \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.1/schema/codeint.schema.json\",\n",
@@ -303,7 +310,7 @@ fn update_syncs_only_active_schema_in_codeint_jsonc_and_preserves_comments() {
         "  \"budgets\": {},\n",
         "}\n",
     );
-    assert_eq!(updated, expected);
+    assert_update_rewrites("codeint.jsonc", &[(original, expected)]);
 }
 
 #[cfg(unix)]
@@ -325,5 +332,39 @@ fn update_refuses_to_mutate_codeint_jsonc_when_broken_codeint_json_symlink_exist
     assert_eq!(
         fs::read_to_string(&config_path).expect("read codeint.jsonc"),
         original
+    );
+}
+
+#[test]
+fn update_handles_duplicate_schema_keys_and_json_escapes() {
+    let duplicated = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.2.0/schema/codeint.schema.json\",\n",
+        "}\n",
+    );
+    let duplicated_expected = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v9.9.9/schema/codeint.schema.json\",\n",
+        "}\n",
+    );
+    let custom_last = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": \"https://example.invalid/custom.schema.json\",\n",
+        "}\n",
+    );
+    let escaped_slash_in_ref = "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0\\u002fextra/schema/codeint.schema.json\",\n}\n";
+    let escaped_valid_url = "{\n  \"$schema\": \"https:\\/\\/raw.githubusercontent.com\\/avidianity\\/codeint\\/v0.1.0\\/schema\\/codeint.schema.json\",\n}\n";
+    let escaped_valid_expected = "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v9.9.9/schema/codeint.schema.json\",\n}\n";
+    assert_update_rewrites(
+        "codeint.jsonc",
+        &[
+            (duplicated, duplicated_expected),
+            (custom_last, custom_last),
+            (escaped_slash_in_ref, escaped_slash_in_ref),
+            (escaped_valid_url, escaped_valid_expected),
+        ],
     );
 }

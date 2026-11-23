@@ -192,6 +192,10 @@ pub struct PluginDeclaration {
 }
 
 impl Configuration {
+    pub fn config_file(&self) -> ConfigFileKind {
+        self.config_file
+    }
+
     pub fn validate_cli_budget_metrics(
         &self,
         overrides: &[BudgetOverride],
@@ -830,7 +834,13 @@ pub fn discover_config_file(
     }
 }
 
-pub fn schema_value_span(text: &str) -> Option<std::ops::Range<usize>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaValueSpan {
+    pub span: std::ops::Range<usize>,
+    pub value: String,
+}
+
+pub fn schema_value_span(text: &str) -> Option<SchemaValueSpan> {
     let without_bom = text.strip_prefix('\u{FEFF}').unwrap_or(text);
     let bom_len = text.len() - without_bom.len();
     let parsed = parse_to_ast(
@@ -840,8 +850,19 @@ pub fn schema_value_span(text: &str) -> Option<std::ops::Range<usize>> {
     )
     .ok()?;
     let value = parsed.value?;
-    let schema = value.as_object()?.get_string("$schema")?;
-    Some((schema.range.start + bom_len)..(schema.range.end + bom_len))
+    let object = value.as_object()?;
+    let property = object
+        .properties
+        .iter()
+        .rev()
+        .find(|property| property.name.as_str() == "$schema")?;
+    let jsonc_parser::ast::Value::StringLit(schema) = &property.value else {
+        return None;
+    };
+    Some(SchemaValueSpan {
+        span: (schema.range.start + bom_len)..(schema.range.end + bom_len),
+        value: schema.value.to_string(),
+    })
 }
 
 fn read_config_file(discovered: &DiscoveredConfigFile) -> Result<String, ConfigurationFileError> {

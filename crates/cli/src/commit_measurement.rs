@@ -154,7 +154,8 @@ pub(crate) fn measure_all_languages_for_package(
         configuration.boundaries.as_ref(),
         configuration.duplication,
         orphan_files.as_ref(),
-    )?;
+    )
+    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))?;
     Ok((selected, measurement))
 }
 
@@ -177,11 +178,12 @@ fn measure_all_languages_selected(
     if let Some(selected) = selected {
         filter_model_to_package(&mut model, selected);
     }
-    Ok(CommitMeasurement::of_with_options(
+    CommitMeasurement::of_with_options(
         model,
         &metric_plugins,
         configuration.boundaries.as_ref(),
         configuration.duplication,
         orphan_files.as_ref(),
-    )?)
+    )
+    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }

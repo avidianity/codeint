@@ -184,10 +184,14 @@ fn schema_value_span_targets_active_top_level_schema_and_ignores_comments_and_ne
         "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
         "}\n",
     );
-    let span = schema_value_span(commented).expect("active top-level $schema span");
+    let schema = schema_value_span(commented).expect("active top-level $schema span");
     assert_eq!(
-        &commented[span],
+        &commented[schema.span],
         "\"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\""
+    );
+    assert_eq!(
+        schema.value,
+        "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json"
     );
 
     assert_eq!(
@@ -198,4 +202,42 @@ fn schema_value_span_targets_active_top_level_schema_and_ignores_comments_and_ne
     );
     assert_eq!(schema_value_span(r#"{ "$schema": 123 }"#), None);
     assert_eq!(schema_value_span(r#"{ "$schema": "#), None);
+}
+
+#[test]
+fn schema_value_span_uses_last_duplicate_key_and_unescapes_string_value() {
+    let duplicated = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.2.0/schema/codeint.schema.json\",\n",
+        "}\n",
+    );
+    let schema = schema_value_span(duplicated).expect("last duplicate $schema span");
+    assert_eq!(
+        &duplicated[schema.span],
+        "\"https://raw.githubusercontent.com/avidianity/codeint/v0.2.0/schema/codeint.schema.json\""
+    );
+    assert_eq!(
+        schema.value,
+        "https://raw.githubusercontent.com/avidianity/codeint/v0.2.0/schema/codeint.schema.json"
+    );
+
+    let shadowed_by_non_string = concat!(
+        "{\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "  \"$schema\": 123,\n",
+        "}\n",
+    );
+    assert_eq!(schema_value_span(shadowed_by_non_string), None);
+
+    let escaped = r#"{ "$schema": "https:\/\/raw.githubusercontent.com\/avidianity\/codeint\/v0.1.0\u002fextra\/schema\/codeint.schema.json" }"#;
+    let escaped_schema = schema_value_span(escaped).expect("escaped $schema span");
+    assert_eq!(
+        &escaped[escaped_schema.span],
+        r#""https:\/\/raw.githubusercontent.com\/avidianity\/codeint\/v0.1.0\u002fextra\/schema\/codeint.schema.json""#
+    );
+    assert_eq!(
+        escaped_schema.value,
+        "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/extra/schema/codeint.schema.json"
+    );
 }
