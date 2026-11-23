@@ -1332,7 +1332,7 @@ Each Metric object has these fields:
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
 - `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in `codeint.json`; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
-- `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`.
+- `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`, and `unlisted_clone_family_group_ids` when listed `clone_groups` belong to unlisted Clone families.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
 
 `import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.

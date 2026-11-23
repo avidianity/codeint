@@ -222,14 +222,18 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
 
 #[test]
 fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
-    use codeint_config::{Budgets, FindingsShown, RegressionLimits, ReportFormat};
+    use codeint_config::{
+        Budgets, FindingsShown, RegressionLimits, ReportFormat, ReportRenderFormat,
+    };
     use codeint_model::{
         CodeModel, FileModel, ReferenceRanges, RepoPath, SourceFile, Token, TokenKind,
         token_text_hash,
     };
     use std::collections::HashSet;
 
-    use crate::{BaseCommit, CommitMeasurement, DiffReport, Head, MeasuredLanguage, Report};
+    use crate::{
+        BaseCommit, CommitMeasurement, DiffReport, Head, MeasuredLanguage, Report, SavedReport,
+    };
 
     let make_file = |path: &str, family_id: usize, lines: u32, tokens_per_line: usize| {
         let mut tokens = Vec::new();
@@ -295,14 +299,20 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
         FindingsShown::default(),
         &Budgets::default(),
     );
-    let report_json: serde_json::Value =
-        serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("parse");
+    let check_json_text = report.render(ReportFormat::Json).expect("json");
+    let report_json: serde_json::Value = serde_json::from_str(&check_json_text).expect("parse");
     let dup_json = &report_json["source_sets"]["production"]["duplication"];
     assert_eq!(
         dup_json["clone_families"].as_array().map(Vec::len),
         Some(20)
     );
     assert_eq!(dup_json["clone_families_left_out"], 6);
+    assert_eq!(
+        dup_json["unlisted_clone_family_group_ids"]
+            .as_array()
+            .map(Vec::len),
+        Some(6)
+    );
 
     let full_report = Report::summarize(
         vec![MeasuredLanguage {
@@ -317,6 +327,11 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
     let full_json: serde_json::Value =
         serde_json::from_str(&full_report.render(ReportFormat::Json).expect("json"))
             .expect("parse");
+    assert_eq!(
+        full_json["source_sets"]["production"]["duplication"]
+            .get("unlisted_clone_family_group_ids"),
+        None
+    );
     let all_clustered_ids: HashSet<String> = full_json["source_sets"]["production"]["duplication"]
         ["clone_families"]
         .as_array()
@@ -353,7 +368,25 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
         }
     };
 
-    assert_sarif_omits_clustered(&report.render(ReportFormat::Sarif).expect("sarif"), "SARIF");
+    let direct_check_sarif = report.render(ReportFormat::Sarif).expect("sarif");
+    assert_sarif_omits_clustered(&direct_check_sarif, "SARIF");
+    let saved_check = SavedReport::from_json(&check_json_text).expect("parse saved check");
+    let saved_check_sarif = saved_check
+        .render(ReportRenderFormat::Sarif)
+        .expect("saved check sarif");
+    assert_eq!(saved_check_sarif, direct_check_sarif);
+    assert_eq!(
+        saved_check
+            .render(ReportRenderFormat::Json)
+            .expect("saved check json"),
+        check_json_text
+    );
+    assert_eq!(
+        saved_check
+            .render(ReportRenderFormat::Toon)
+            .expect("saved check toon"),
+        report.render(ReportFormat::Toon).expect("direct toon")
+    );
 
     let diff = DiffReport::compare(
         BaseCommit {
@@ -367,8 +400,32 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
         &Budgets::default(),
         &RegressionLimits::default(),
     );
-    assert_sarif_omits_clustered(
-        &diff.render(ReportFormat::Sarif).expect("diff sarif"),
-        "Diff SARIF",
+    let direct_diff_sarif = diff.render(ReportFormat::Sarif).expect("diff sarif");
+    assert_sarif_omits_clustered(&direct_diff_sarif, "Diff SARIF");
+    let diff_json_text = diff.render(ReportFormat::Json).expect("diff json");
+    let diff_json: serde_json::Value = serde_json::from_str(&diff_json_text).expect("parse diff");
+    assert_eq!(
+        diff_json["source_sets"]["production"]["duplication"]["clone_families"]
+            ["unlisted_clone_family_group_ids"]
+            .as_array()
+            .map(Vec::len),
+        Some(6)
+    );
+    let saved_diff = SavedReport::from_json(&diff_json_text).expect("parse saved diff");
+    let saved_diff_sarif = saved_diff
+        .render(ReportRenderFormat::Sarif)
+        .expect("saved diff sarif");
+    assert_eq!(saved_diff_sarif, direct_diff_sarif);
+    assert_eq!(
+        saved_diff
+            .render(ReportRenderFormat::Json)
+            .expect("saved diff json"),
+        diff_json_text
+    );
+    assert_eq!(
+        saved_diff
+            .render(ReportRenderFormat::Toon)
+            .expect("saved diff toon"),
+        diff.render(ReportFormat::Toon).expect("direct diff toon")
     );
 }

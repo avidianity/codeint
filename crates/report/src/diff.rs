@@ -14,7 +14,7 @@ use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
     BoundaryFindingRow, BudgetFailure, CloneFamilyFinding, CloneGroupFinding, Decimal,
     ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding,
-    PerSourceSet, ReportError,
+    PerSourceSet, ReportError, clustered_clone_group_ids, unlisted_clone_family_group_ids,
 };
 
 mod markdown;
@@ -111,7 +111,7 @@ struct CloneFamilyChanges {
     new: Findings<CloneFamilyFinding>,
     resolved: Findings<CloneFamilyFinding>,
     unchanged: usize,
-    clustered_group_ids: Vec<String>,
+    unlisted_clone_family_group_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -255,7 +255,9 @@ impl DiffReport {
                         .duplication
                         .clone_families
                         .as_ref()
-                        .map_or(&[], |families| families.clustered_group_ids.as_slice()),
+                        .map_or(&[], |families| {
+                            families.unlisted_clone_family_group_ids.as_slice()
+                        }),
                     flagged_lines: &changes.verbosity.new.listed,
                     import_cycles: &changes.import_cycles.new.listed,
                     boundaries: changes
@@ -301,6 +303,12 @@ impl Serialize for CloneFamilyChanges {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
         serialize_diff_findings(&mut map, &self.new, &self.resolved, self.unchanged)?;
+        if !self.unlisted_clone_family_group_ids.is_empty() {
+            map.serialize_entry(
+                "unlisted_clone_family_group_ids",
+                &self.unlisted_clone_family_group_ids,
+            )?;
+        }
         map.end()
     }
 }
@@ -384,18 +392,21 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
 
 impl<'de> Deserialize<'de> for CloneFamilyChanges {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = RawDiffFindings::<CloneFamilyFinding>::deserialize(deserializer)?;
-        let (new, resolved, unchanged) = raw.into_parts();
-        let clustered_group_ids = new
-            .listed
-            .iter()
-            .flat_map(|family| family.clone_group_ids.iter().cloned())
-            .collect();
+        #[derive(Deserialize)]
+        struct RawCloneFamilyChanges {
+            #[serde(flatten)]
+            findings: RawDiffFindings<CloneFamilyFinding>,
+            #[serde(default)]
+            unlisted_clone_family_group_ids: Vec<String>,
+        }
+
+        let raw = RawCloneFamilyChanges::deserialize(deserializer)?;
+        let (new, resolved, unchanged) = raw.findings.into_parts();
         Ok(CloneFamilyChanges {
             new,
             resolved,
             unchanged,
-            clustered_group_ids,
+            unlisted_clone_family_group_ids: raw.unlisted_clone_family_group_ids,
         })
     }
 }
@@ -726,6 +737,7 @@ fn source_set_changes(
             ownership,
         )),
     };
+    let duplication_groups = classify(base.duplication, head.duplication, shown, ownership);
     let base_families = ownership.apply(base.clone_families);
     let head_families = ownership.apply(head.clone_families);
     let clone_families = if base_families.is_empty() && head_families.is_empty() {
@@ -733,21 +745,25 @@ fn source_set_changes(
     } else {
         let base_ids = ids(&base_families);
         let head_ids = ids(&head_families);
-        let clustered_group_ids = head_families
-            .iter()
-            .flat_map(|family| family.clone_group_ids.iter().cloned())
-            .collect();
+        let all_clustered = clustered_clone_group_ids(&head_families);
+        let new = missing_from(head_families, &base_ids, shown);
+        let resolved = missing_from(base_families, &head_ids, shown);
+        let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
+            &duplication_groups.new.listed,
+            &new.listed,
+            &all_clustered,
+        );
         Some(CloneFamilyChanges {
             unchanged: head_ids.intersection(&base_ids).count(),
-            new: missing_from(head_families, &base_ids, shown),
-            resolved: missing_from(base_families, &head_ids, shown),
-            clustered_group_ids,
+            new,
+            resolved,
+            unlisted_clone_family_group_ids,
         })
     };
     SourceSetChanges {
         erosion: classify(base.erosion, head.erosion, shown, ownership),
         duplication: DuplicationChanges {
-            groups: classify(base.duplication, head.duplication, shown, ownership),
+            groups: duplication_groups,
             clone_families,
         },
         verbosity: classify(base.verbosity, head.verbosity, shown, ownership),

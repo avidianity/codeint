@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use codeint_config::{
     AgentFormat, Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
@@ -352,8 +352,8 @@ struct DuplicationSection {
     clone_groups: Findings<CloneGroupFinding>,
     #[serde(flatten)]
     clone_families: Findings<CloneFamilyFinding>,
-    #[serde(skip)]
-    clustered_clone_group_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    unlisted_clone_family_group_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -377,14 +377,11 @@ impl<'de> Deserialize<'de> for DuplicationSection {
             clone_families: Vec<CloneFamilyFinding>,
             #[serde(default)]
             clone_families_left_out: usize,
+            #[serde(default)]
+            unlisted_clone_family_group_ids: Vec<String>,
         }
 
         let raw = RawDuplicationSection::deserialize(deserializer)?;
-        let clustered_clone_group_ids = raw
-            .clone_families
-            .iter()
-            .flat_map(|family| family.clone_group_ids.iter().cloned())
-            .collect();
         Ok(DuplicationSection {
             ratio: raw.ratio,
             reference_range: raw.reference_range,
@@ -398,7 +395,7 @@ impl<'de> Deserialize<'de> for DuplicationSection {
                 listed: raw.clone_families,
                 left_out: raw.clone_families_left_out,
             },
-            clustered_clone_group_ids,
+            unlisted_clone_family_group_ids: raw.unlisted_clone_family_group_ids,
         })
     }
 }
@@ -1016,20 +1013,53 @@ impl DuplicationSection {
                 .map(CloneFamilyFinding::new)
                 .collect(),
         );
-        let clustered_clone_group_ids: Vec<String> = all_clone_families
-            .iter()
-            .flat_map(|family| family.clone_group_ids.iter().cloned())
-            .collect();
+        let all_clustered = clustered_clone_group_ids(&all_clone_families);
+        let clone_groups = view.select(duplication.clone_groups.iter().map(CloneGroupFinding::new));
+        let clone_families = Findings::worst_first(all_clone_families.into_iter(), view.shown);
+        let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
+            &clone_groups.listed,
+            &clone_families.listed,
+            &all_clustered,
+        );
         DuplicationSection {
             ratio: Decimal::rounded(duplication.ratio()),
             reference_range,
             near_clones,
             clone_lines: duplication.clone_lines.count(),
-            clone_groups: view.select(duplication.clone_groups.iter().map(CloneGroupFinding::new)),
-            clone_families: Findings::worst_first(all_clone_families.into_iter(), view.shown),
-            clustered_clone_group_ids,
+            clone_groups,
+            clone_families,
+            unlisted_clone_family_group_ids,
         }
     }
+}
+
+pub(crate) fn clustered_clone_group_ids(families: &[CloneFamilyFinding]) -> HashSet<String> {
+    families
+        .iter()
+        .flat_map(|family| family.clone_group_ids.iter().cloned())
+        .collect()
+}
+
+pub(crate) fn unlisted_clone_family_group_ids(
+    listed_groups: &[CloneGroupFinding],
+    listed_families: &[CloneFamilyFinding],
+    all_clustered: &HashSet<String>,
+) -> Vec<String> {
+    if all_clustered.is_empty() {
+        return Vec::new();
+    }
+    let listed_clustered: HashSet<&str> = listed_families
+        .iter()
+        .flat_map(|family| family.clone_group_ids.iter().map(String::as_str))
+        .collect();
+    listed_groups
+        .iter()
+        .filter(|group| {
+            let id = group.id.as_str();
+            all_clustered.contains(id) && !listed_clustered.contains(id)
+        })
+        .map(|group| group.id.clone())
+        .collect()
 }
 
 impl CloneGroupFinding {

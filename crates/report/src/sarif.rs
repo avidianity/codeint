@@ -323,7 +323,7 @@ impl<'findings> ListedFindings<'findings> {
             eroded_functions: &section.erosion.findings.listed,
             clone_groups: &section.duplication.clone_groups.listed,
             clone_families: &section.duplication.clone_families.listed,
-            clustered_clone_group_ids: &section.duplication.clustered_clone_group_ids,
+            clustered_clone_group_ids: &section.duplication.unlisted_clone_family_group_ids,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
             boundaries: section
