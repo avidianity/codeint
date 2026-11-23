@@ -725,28 +725,49 @@ fn collect_dependency_manifests(
         .map(|dep| dep.package_root.as_str())
         .collect();
     let member_roots: HashSet<&str> = plugin_members.iter().map(RepoPath::as_str).collect();
-    let has_members = !member_roots.is_empty();
-    let active: Vec<(&str, &str)> = manifests
+    let mut collected: Vec<DependencyManifest> = manifests
         .iter()
-        .filter(|manifest| is_dependency_manifest_path(&manifest.path))
-        .map(|manifest| (manifest_root(&manifest.path), manifest.path.as_str()))
-        .collect();
-    let mut collected = Vec::new();
-    for (root, path) in active {
-        let selected = declared_roots.contains(root)
-            || root.is_empty()
-            || member_roots.contains(root)
-            || (!has_members && owns_any_file(root, files));
-        if selected && let Ok(repo_path) = RepoPath::new(path) {
-            collected.push(DependencyManifest {
-                package_root: root.to_owned(),
+        .filter(|manifest| should_include_manifest(manifest, &declared_roots, &member_roots, files))
+        .filter_map(|manifest| {
+            let repo_path = RepoPath::new(&manifest.path).ok()?;
+            Some(DependencyManifest {
+                package_root: manifest_root(&manifest.path).to_owned(),
                 path: repo_path,
-            });
-        }
-    }
+            })
+        })
+        .collect();
     collected.sort();
     collected.dedup();
     collected
+}
+
+fn should_include_manifest(
+    manifest: &Manifest,
+    declared_roots: &HashSet<&str>,
+    member_roots: &HashSet<&str>,
+    files: &[SourceFile],
+) -> bool {
+    if !is_dependency_manifest_path(&manifest.path) || is_virtual_cargo_workspace(manifest) {
+        return false;
+    }
+    let root = manifest_root(&manifest.path);
+    if declared_roots.contains(root) || member_roots.contains(root) {
+        return true;
+    }
+    if root.is_empty() {
+        return member_roots.is_empty();
+    }
+    owns_any_file(root, files)
+}
+
+fn is_virtual_cargo_workspace(manifest: &Manifest) -> bool {
+    let is_cargo = manifest.path == "Cargo.toml" || manifest.path.ends_with("/Cargo.toml");
+    if !is_cargo {
+        return false;
+    }
+    toml::from_str::<toml::Value>(&manifest.text)
+        .ok()
+        .is_some_and(|doc| doc.get("workspace").is_some() && doc.get("package").is_none())
 }
 
 fn owns_any_file(root: &str, files: &[SourceFile]) -> bool {

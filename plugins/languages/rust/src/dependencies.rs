@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashSet};
 use codeint_model::language::{DeclaredDep, DepKind, Manifest};
 use toml::Value;
 
-use crate::workspaces::{CARGO_MANIFEST, workspace_packages};
+use crate::workspaces::CARGO_MANIFEST;
 
 #[cfg(test)]
 mod tests;
@@ -20,7 +20,9 @@ pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
 
     let mut collected: BTreeSet<(String, u8, String)> = BTreeSet::new();
     for (root, doc) in &docs {
-        collect_manifest_tables(root, doc, &local_crates, &mut collected);
+        if doc.get("package").is_some() {
+            collect_manifest_tables(root, doc, &local_crates, &mut collected);
+        }
     }
 
     collected
@@ -38,12 +40,6 @@ pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
 }
 
 fn load_active_manifests(manifests: &[Manifest]) -> Vec<(String, Value)> {
-    let members: HashSet<String> = workspace_packages(manifests)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
-    let has_root = manifests.iter().any(|m| m.path == CARGO_MANIFEST);
-
     let mut docs = Vec::new();
     for manifest in manifests {
         let root = match manifest.path.as_str() {
@@ -53,12 +49,7 @@ fn load_active_manifests(manifests: &[Manifest]) -> Vec<(String, Value)> {
                 _ => continue,
             },
         };
-        let selected = match (!members.is_empty(), has_root) {
-            (true, _) => root.is_empty() || members.contains(root),
-            (false, true) => root.is_empty(),
-            (false, false) => true,
-        };
-        if selected && let Ok(doc) = toml::from_str::<Value>(&manifest.text) {
+        if let Ok(doc) = toml::from_str::<Value>(&manifest.text) {
             docs.push((root.to_owned(), doc));
         }
     }
@@ -67,15 +58,13 @@ fn load_active_manifests(manifests: &[Manifest]) -> Vec<(String, Value)> {
 
 fn collect_local_crates(docs: &[(String, Value)]) -> HashSet<String> {
     let mut local = HashSet::new();
-    for (root, doc) in docs {
+    for (_, doc) in docs {
         for (section, key) in [("package", "name"), ("lib", "name")] {
             if let Some(name) = table_str(doc, section, key) {
                 insert_normalized(&mut local, name);
             }
         }
-        if root.is_empty() {
-            collect_workspace_path_crates(doc, &mut local);
-        }
+        collect_workspace_path_crates(doc, &mut local);
     }
     local
 }

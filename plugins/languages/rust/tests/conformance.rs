@@ -505,6 +505,7 @@ pkg-config = "0.3"
             ("", "insta", DepKind::Dev),
             ("", "libc", DepKind::Optional),
             ("", "tracing", DepKind::Optional),
+            ("tests/fixtures/sample", "fixture_dep", DepKind::Runtime),
         ],
     );
 }
@@ -565,7 +566,69 @@ old-dep = "1.0"
             ("crates/app", "tempfile", DepKind::Dev),
             ("crates/app", "proc_macro2", DepKind::Optional),
             ("crates/core", "serde", DepKind::Runtime),
+            ("crates/retired", "old_dep", DepKind::Runtime),
         ],
+    );
+}
+
+#[test]
+fn value_namespace_items_do_not_suppress_external_use_imports() {
+    let source = concat!(
+        "use serde::Serialize;\n",
+        "use regex::Regex;\n",
+        "use anyhow::Result;\n",
+        "use tokio::runtime;\n",
+        "pub fn serde() {}\n",
+        "pub fn regex() {}\n",
+        "pub const anyhow: u8 = 0;\n",
+        "pub static tokio: u8 = 0;\n",
+    );
+    let lowered = lower("src/lib.rs", source).expect("lower");
+    assert_eq!(
+        lowered.runtime_imports,
+        vec![
+            "use:anyhow::Result",
+            "use:regex::Regex",
+            "use:serde::Serialize",
+            "use:tokio::runtime",
+        ]
+    );
+
+    let paths: Vec<RepoPath> = ["Cargo.toml", "src/lib.rs"]
+        .into_iter()
+        .map(|p| RepoPath::new(p).expect("valid"))
+        .collect();
+    let manifests = vec![Manifest {
+        path: "Cargo.toml".to_owned(),
+        text: "[package]\nname = \"demo\"\n[dependencies]\nregex = \"1\"\n".to_owned(),
+    }];
+    let declared = plugin()
+        .declared_dependencies(manifests.clone())
+        .expect("declared");
+    assert_eq!(
+        declared,
+        vec![DeclaredDep {
+            package_root: String::new(),
+            name: "regex".to_owned(),
+            kind: DepKind::Runtime,
+        }]
+    );
+    let requests: Vec<ImportRequest> = lowered
+        .runtime_imports
+        .iter()
+        .map(|specifier| ImportRequest {
+            importer: "src/lib.rs".to_owned(),
+            specifier: specifier.clone(),
+        })
+        .collect();
+    assert_eq!(
+        plugin().resolve_imports(&paths, manifests, requests),
+        vec![
+            Resolution::External("anyhow".to_owned()),
+            Resolution::External("regex".to_owned()),
+            Resolution::External("serde".to_owned()),
+            Resolution::External("tokio".to_owned()),
+        ]
     );
 }
 

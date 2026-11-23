@@ -2325,6 +2325,7 @@ fn single_package_json_parses_runtime_dev_optional_and_peer_dependencies() {
             ("", "vitest", DepKind::Dev),
             ("", "fsevents", DepKind::Optional),
             ("", "react-dom", DepKind::Optional),
+            ("examples/demo", "non-workspace", DepKind::Runtime),
         ])
     );
 }
@@ -2334,6 +2335,7 @@ fn workspace_package_jsons_emit_per_package_deps_and_exclude_local_members() {
     let expected = expected_declared(&[
         ("", "vitest", DepKind::Dev),
         ("packages/core", "zod", DepKind::Runtime),
+        ("packages/retired", "old-dep", DepKind::Runtime),
         ("packages/web", "react", DepKind::Runtime),
         ("packages/web", "tsx", DepKind::Dev),
         ("packages/web", "react-dom", DepKind::Optional),

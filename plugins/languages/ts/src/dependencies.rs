@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashSet};
 use codeint_model::language::{DeclaredDep, DepKind, Manifest};
 use serde_json::Value;
 
-use crate::workspaces::{PACKAGE_MANIFEST, workspace_packages};
+use crate::workspaces::PACKAGE_MANIFEST;
 
 const DEP_SECTIONS: [(&str, u8); 4] = [
     ("dependencies", 0),
@@ -13,17 +13,7 @@ const DEP_SECTIONS: [(&str, u8); 4] = [
 ];
 
 pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
-    let members: HashSet<String> = workspace_packages(manifests)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
-    let root_present = manifests
-        .iter()
-        .any(|manifest| manifest.path == PACKAGE_MANIFEST);
-    let active: Vec<(&str, Value)> = manifests
-        .iter()
-        .filter_map(|manifest| parse_active_package(manifest, &members, root_present))
-        .collect();
+    let active: Vec<(&str, Value)> = manifests.iter().filter_map(parse_active_package).collect();
     let local_names: HashSet<String> = active
         .iter()
         .filter_map(|(_, doc)| doc.get("name").and_then(Value::as_str))
@@ -47,11 +37,7 @@ pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
         .collect()
 }
 
-fn parse_active_package<'a>(
-    manifest: &'a Manifest,
-    members: &HashSet<String>,
-    root_present: bool,
-) -> Option<(&'a str, Value)> {
+fn parse_active_package(manifest: &Manifest) -> Option<(&str, Value)> {
     let root = if manifest.path == PACKAGE_MANIFEST {
         ""
     } else {
@@ -61,14 +47,6 @@ fn parse_active_package<'a>(
         }
         dir
     };
-    let in_scope = if !members.is_empty() {
-        root.is_empty() || members.contains(root)
-    } else {
-        !root_present || root.is_empty()
-    };
-    if !in_scope {
-        return None;
-    }
     let doc = serde_json::from_str::<Value>(&manifest.text).ok()?;
     Some((root, doc))
 }

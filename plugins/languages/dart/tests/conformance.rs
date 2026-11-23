@@ -441,3 +441,29 @@ int guarded(Object? value, bool flag) {
     assert_eq!(guarded.cognitive_complexity, 3);
     assert_eq!(guarded.decision_points + 1, 4);
 }
+
+#[test]
+fn dart_switch_expression_nullable_patterns_before_ternary_are_not_counted_as_ternaries() {
+    let src = "\
+int evaluate(Object? v, bool c) {
+  return switch (v) {
+    int? n => c ? 1 : 2,
+    double? n => c ? 3 : 4,
+    String? n => c ? 5 : 6,
+    bool? n => c ? 7 : 8,
+    List? n => c ? 9 : 10,
+    Map? n => c ? 11 : 12,
+    Set? n => c ? 13 : 14,
+    num? n => c ? 15 : 16,
+    _ => 0,
+  };
+}
+";
+    let model = lower("lib/switch_expr.dart", src).unwrap();
+    assert_eq!(model.functions.len(), 1);
+    let evaluate = &model.functions[0];
+    assert_eq!(evaluate.name.as_deref(), Some("evaluate"));
+    assert_eq!(evaluate.decision_points, 16);
+    assert_eq!(evaluate.decision_points + 1, 17);
+    assert_eq!(evaluate.cognitive_complexity, 17);
+}

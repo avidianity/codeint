@@ -350,7 +350,8 @@ fn step_ternary_colon_scan(
         *colons += 1;
         return (*colons >= required_colons).then_some(true);
     }
-    let stopped = matches!(text, ";" | ",") || (stop_on_stmt_kw && is_case_body_boundary_kw(tok));
+    let stopped =
+        matches!(text, ";" | "," | "=>") || (stop_on_stmt_kw && is_case_body_boundary_kw(tok));
     stopped.then_some(false)
 }
 

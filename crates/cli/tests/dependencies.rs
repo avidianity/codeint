@@ -519,3 +519,138 @@ fn rust_build_dependencies_php_internal_namespace_and_polyglot_empty_manifests_b
     assert_eq!(unlisted[0]["dependency"], "requests");
     assert_eq!(unlisted[0]["manifest"], "services/ml/pyproject.toml");
 }
+
+#[test]
+fn nested_standalone_packages_and_virtual_cargo_workspaces_match_manifests() {
+    assert_language_hygiene(
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"root-app\"\nversion = \"0.1.0\"\n[dependencies]\nserde = \"1\"\n",
+            ),
+            (
+                "src/lib.rs",
+                "use serde::Serialize;\npub fn marker() -> &'static str { std::any::type_name::<dyn Serialize>() }\n",
+            ),
+            (
+                "tools/helper/Cargo.toml",
+                "[package]\nname = \"helper\"\nversion = \"0.1.0\"\n[dependencies]\nanyhow = \"1\"\n",
+            ),
+            (
+                "tools/helper/src/main.rs",
+                "use anyhow::Result;\nfn main() -> Result<()> { Ok(()) }\n",
+            ),
+        ],
+        &[],
+        &[],
+        &[],
+    );
+
+    assert_language_hygiene(
+        &[
+            (
+                "package.json",
+                r#"{ "name": "root-app", "dependencies": { "zod": "^3.0.0" } }"#,
+            ),
+            (
+                "src/index.ts",
+                "import { z } from 'zod';\nexport const ok = Boolean(z);\n",
+            ),
+            (
+                "examples/demo/package.json",
+                r#"{ "name": "demo", "dependencies": { "axios": "^1.0.0" } }"#,
+            ),
+            (
+                "examples/demo/src/index.ts",
+                "import axios from 'axios';\nexport const client = axios;\n",
+            ),
+        ],
+        &[],
+        &[],
+        &[],
+    );
+
+    assert_language_hygiene(
+        &[
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"crates/a\"]\nexclude = [\"examples/standalone\"]\n",
+            ),
+            (
+                "crates/a/Cargo.toml",
+                "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n[dependencies]\nserde = \"1\"\n",
+            ),
+            (
+                "crates/a/src/lib.rs",
+                "use serde::Serialize;\npub fn ok() -> &'static str { std::any::type_name::<dyn Serialize>() }\n",
+            ),
+            (
+                "examples/standalone/Cargo.toml",
+                "[package]\nname = \"standalone\"\nversion = \"0.1.0\"\n[dependencies]\nanyhow = \"1\"\n",
+            ),
+            (
+                "examples/standalone/src/main.rs",
+                "use anyhow::Result;\nfn main() -> Result<()> { Ok(()) }\n",
+            ),
+        ],
+        &[],
+        &[],
+        &[],
+    );
+
+    let excluded_empty = init_git_repo(&[
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/a\"]\nexclude = [\"examples/standalone\"]\n",
+        ),
+        (
+            "crates/a/Cargo.toml",
+            "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n",
+        ),
+        ("crates/a/src/lib.rs", "pub fn ok() -> bool { true }\n"),
+        (
+            "examples/standalone/Cargo.toml",
+            "[package]\nname = \"standalone\"\nversion = \"0.1.0\"\n",
+        ),
+        (
+            "examples/standalone/src/main.rs",
+            "use anyhow::Result;\nfn main() -> Result<()> { Ok(()) }\n",
+        ),
+    ]);
+    let excluded_report = expect_json(
+        excluded_empty.path(),
+        None,
+        &["check", "--format", "json"],
+        0,
+    );
+    let excluded_unlisted = excluded_report["dependencies"]["unlisted_dependencies"]["findings"]
+        .as_array()
+        .expect("unlisted findings");
+    assert_eq!(excluded_unlisted.len(), 1);
+    assert_eq!(excluded_unlisted[0]["dependency"], "anyhow");
+    assert_eq!(
+        excluded_unlisted[0]["manifest"],
+        "examples/standalone/Cargo.toml"
+    );
+
+    assert_language_hygiene(
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"value-shadow\"\nversion = \"0.1.0\"\n[dependencies]\nregex = \"1\"\n",
+            ),
+            (
+                "src/lib.rs",
+                concat!(
+                    "use serde::Serialize;\n",
+                    "use regex::Regex;\n",
+                    "pub fn serde() {}\n",
+                    "pub fn regex() {}\n",
+                ),
+            ),
+        ],
+        &[],
+        &["serde"],
+        &[],
+    );
+}

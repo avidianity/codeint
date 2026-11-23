@@ -86,9 +86,6 @@ fn declared_item_ident(item: &Item) -> Option<String> {
         Item::Trait(node) => &node.ident,
         Item::TraitAlias(node) => &node.ident,
         Item::Type(node) => &node.ident,
-        Item::Fn(node) => &node.sig.ident,
-        Item::Const(node) => &node.ident,
-        Item::Static(node) => &node.ident,
         Item::Union(node) => &node.ident,
         _ => return None,
     };
