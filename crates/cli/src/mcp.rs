@@ -210,8 +210,9 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
 }
 
 fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let Some(base_ref) = args.and_then(|a| a.get("base_ref")).and_then(Value::as_str) else {
-        return tool_err("Missing required argument: base_ref");
+    let base_ref = match required_str_arg(args, "base_ref") {
+        Ok(value) => value,
+        Err(err) => return err,
     };
     let folder = resolve_folder(args, ctx.default_folder);
     let options = DiffOptions {
@@ -251,6 +252,28 @@ fn render_outcome(
     }
 }
 
+fn render_json_tool<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
+) -> Value {
+    match result {
+        Ok(report) => match render(report) {
+            Ok(rendered) => {
+                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
+                tool_ok(payload)
+            }
+            Err(err) => tool_err(&err.to_string()),
+        },
+        Err(err) => tool_err(&err.to_string()),
+    }
+}
+
+fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, Value> {
+    args.and_then(|a| a.get(name))
+        .and_then(Value::as_str)
+        .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
+}
+
 fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let folder = resolve_folder(args, ctx.default_folder);
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
@@ -265,33 +288,20 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
-    match trend(&folder, &options) {
-        Ok(report) => match report.render(TrendFormat::Json) {
-            Ok(rendered) => {
-                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
-                tool_ok(payload)
-            }
-            Err(err) => tool_err(&err.to_string()),
-        },
-        Err(err) => tool_err(&err.to_string()),
-    }
+    render_json_tool(trend(&folder, &options), |report| {
+        report.render(TrendFormat::Json)
+    })
 }
 
 fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let Some(file) = args.and_then(|a| a.get("file")).and_then(Value::as_str) else {
-        return tool_err("Missing required argument: file");
+    let file = match required_str_arg(args, "file") {
+        Ok(value) => value,
+        Err(err) => return err,
     };
     let folder = resolve_folder(args, ctx.default_folder);
-    match guard(&folder, Path::new(file)) {
-        Ok(report) => match report.render(GuardFormat::Json) {
-            Ok(rendered) => {
-                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
-                tool_ok(payload)
-            }
-            Err(err) => tool_err(&err.to_string()),
-        },
-        Err(err) => tool_err(&err.to_string()),
-    }
+    render_json_tool(guard(&folder, Path::new(file)), |report| {
+        report.render(GuardFormat::Json)
+    })
 }
 
 fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {

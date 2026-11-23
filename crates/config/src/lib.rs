@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 mod boundaries;
 mod calendar_day;
 mod codeint_json;
+mod config_error;
 mod regression_limits;
 mod result_cache_folder;
 
@@ -15,12 +16,12 @@ pub use boundaries::{
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
-    Budget, Budgets, Configuration, ConfigurationFileError, DetectedLanguage, JsonType, KeyPath,
-    KeySegment, LanguageCoverage, Languages, PluginDeclaration, PluginKind, PluginLimits,
-    PluginSource, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
-    configuration_schema, published_schema_address, read_configuration,
+    Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
+    PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
+    StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
     write_starter_configuration,
 };
+pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
@@ -291,46 +292,62 @@ struct ReportArguments {
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
     let arguments = Arguments::parse();
     let current_folder = std::env::current_dir().map_err(ConfigError::CurrentFolder)?;
-    let command = match arguments.command {
+    let command = build_command(&current_folder, arguments.command)?;
+    Ok(Invocation { command })
+}
+
+fn build_command(
+    current_folder: &Path,
+    arguments: CommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
         CommandArguments::Check { path, report } => {
-            build_check_command(&current_folder, path, report)?
+            build_check_command(current_folder, path, report)
         }
         CommandArguments::Diff {
             base_ref,
             head_ref,
             report,
-        } => build_diff_command(&current_folder, base_ref, head_ref, report)?,
+        } => build_diff_command(current_folder, base_ref, head_ref, report),
         CommandArguments::Trend {
             since,
             output,
             format,
-        } => Command::Trend {
-            folder: current_folder.clone(),
-            range: since.map_or(
-                TrendRange::Latest(LATEST_COMMITS_OF_A_TREND),
-                TrendRange::Since,
-            ),
-            destination: report_destination(&current_folder, output)?,
-            format,
-            result_cache: result_cache_folder_of_this_process(&current_folder),
-            plugin_host: plugin_host_config_of_this_process(&current_folder),
-        },
-        CommandArguments::Init => Command::Init {
-            folder: current_folder,
-        },
-        CommandArguments::Update { check, version } => build_update_command(check, version),
-        CommandArguments::Mcp => Command::Mcp {
-            result_cache: result_cache_folder_of_this_process(&current_folder),
-            plugin_host: plugin_host_config_of_this_process(&current_folder),
-            folder: current_folder,
-        },
-        CommandArguments::Guard { path, format } => Command::Guard {
-            folder: current_folder,
+        } => build_trend_command(current_folder, since, output, format),
+        CommandArguments::Init => Ok(Command::Init {
+            folder: current_folder.to_path_buf(),
+        }),
+        CommandArguments::Update { check, version } => Ok(build_update_command(check, version)),
+        CommandArguments::Mcp => Ok(Command::Mcp {
+            result_cache: result_cache_folder_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder),
+            folder: current_folder.to_path_buf(),
+        }),
+        CommandArguments::Guard { path, format } => Ok(Command::Guard {
+            folder: current_folder.to_path_buf(),
             target: path,
             format,
-        },
-    };
-    Ok(Invocation { command })
+        }),
+    }
+}
+
+fn build_trend_command(
+    current_folder: &Path,
+    since: Option<CalendarDay>,
+    output: Option<PathBuf>,
+    format: TrendFormat,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Trend {
+        folder: current_folder.to_path_buf(),
+        range: since.map_or(
+            TrendRange::Latest(LATEST_COMMITS_OF_A_TREND),
+            TrendRange::Since,
+        ),
+        destination: report_destination(current_folder, output)?,
+        format,
+        result_cache: result_cache_folder_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
 }
 
 fn build_check_command(

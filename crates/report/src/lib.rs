@@ -478,15 +478,16 @@ impl BoundaryPolicy for ConfigBoundaryPolicy<'_> {
     }
 }
 
+fn mapped_findings<'a, T: 'a, R: From<&'a T>>(items: &'a [T], shown: FindingsShown) -> Findings<R> {
+    Findings::worst_first(items.iter().map(R::from), shown)
+}
+
 impl BoundariesSection {
     fn new(boundaries: &Boundaries, shown: FindingsShown) -> BoundariesSection {
         BoundariesSection {
             ratio: Decimal::rounded(boundaries.ratio()),
             resolved_imports: boundaries.resolved_imports(),
-            findings: Findings::worst_first(
-                boundaries.findings().iter().map(BoundaryFindingRow::from),
-                shown,
-            ),
+            findings: mapped_findings(boundaries.findings(), shown),
         }
     }
 }
@@ -746,10 +747,7 @@ impl VerbositySection {
             verbose_lines: verbosity.verbose_lines(),
             flagged_lines: verbosity.flagged_line_count(),
             clone_lines: verbosity.clone_line_count(),
-            findings: Findings::worst_first(
-                verbosity.flagged_lines().iter().map(FlaggedLineRow::from),
-                shown,
-            ),
+            findings: mapped_findings(verbosity.flagged_lines(), shown),
         }
     }
 }

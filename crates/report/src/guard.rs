@@ -184,69 +184,7 @@ impl GuardReport {
             return out.trim_end_matches('\n').to_owned();
         }
         match &self.zone {
-            Some(zone) => {
-                let _ = writeln!(out, "zone: {zone}");
-                if !self.public_files.is_empty() {
-                    let visibility = if self.is_public_file == Some(true) {
-                        "this file is public"
-                    } else {
-                        "this file is private"
-                    };
-                    let _ = writeln!(
-                        out,
-                        "public_files: {} ({visibility})",
-                        self.public_files.join(", ")
-                    );
-                }
-                if self.allowed_targets.is_empty() {
-                    let _ = writeln!(out, "allowed_targets: none");
-                } else {
-                    let _ = writeln!(out, "allowed_targets:");
-                    for target in &self.allowed_targets {
-                        let mut details = Vec::new();
-                        if !target.public_files.is_empty() {
-                            details
-                                .push(format!("public_files: {}", target.public_files.join(", ")));
-                        }
-                        if let Some(reason) = &target.reason {
-                            details.push(format!("reason: {reason}"));
-                        }
-                        if details.is_empty() {
-                            let _ = writeln!(out, "  - {}", target.zone);
-                        } else {
-                            let _ = writeln!(out, "  - {} ({})", target.zone, details.join("; "));
-                        }
-                    }
-                }
-                if self.denied_targets.is_empty() {
-                    let _ = writeln!(out, "denied_targets: none");
-                } else {
-                    let _ = writeln!(out, "denied_targets:");
-                    for target in &self.denied_targets {
-                        match &target.reason {
-                            Some(reason) => {
-                                let _ = writeln!(
-                                    out,
-                                    "  - {} ({}: {reason})",
-                                    target.zone, target.directive
-                                );
-                            }
-                            None => {
-                                let _ = writeln!(out, "  - {} ({})", target.zone, target.directive);
-                            }
-                        }
-                    }
-                }
-                if self.allowed_importers.is_empty() {
-                    let _ = writeln!(out, "allowed_importers: none");
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "allowed_importers: {}",
-                        self.allowed_importers.join(", ")
-                    );
-                }
-            }
+            Some(zone) => self.write_zone_details(&mut out, zone),
             None => {
                 let _ = writeln!(out, "zone: none");
             }
@@ -255,6 +193,86 @@ impl GuardReport {
             let _ = writeln!(out, "note: {note}");
         }
         out.trim_end_matches('\n').to_owned()
+    }
+
+    fn write_zone_details(&self, out: &mut String, zone: &str) {
+        let _ = writeln!(out, "zone: {zone}");
+        self.write_public_files(out);
+        self.write_allowed_targets(out);
+        self.write_denied_targets(out);
+        self.write_allowed_importers(out);
+    }
+
+    fn write_public_files(&self, out: &mut String) {
+        if self.public_files.is_empty() {
+            return;
+        }
+        let visibility = if self.is_public_file == Some(true) {
+            "this file is public"
+        } else {
+            "this file is private"
+        };
+        let _ = writeln!(
+            out,
+            "public_files: {} ({visibility})",
+            self.public_files.join(", ")
+        );
+    }
+
+    fn write_allowed_targets(&self, out: &mut String) {
+        if self.allowed_targets.is_empty() {
+            let _ = writeln!(out, "allowed_targets: none");
+            return;
+        }
+        let _ = writeln!(out, "allowed_targets:");
+        for target in &self.allowed_targets {
+            let _ = writeln!(out, "  - {}", format_allowed_target(target));
+        }
+    }
+
+    fn write_denied_targets(&self, out: &mut String) {
+        if self.denied_targets.is_empty() {
+            let _ = writeln!(out, "denied_targets: none");
+            return;
+        }
+        let _ = writeln!(out, "denied_targets:");
+        for target in &self.denied_targets {
+            match &target.reason {
+                Some(reason) => {
+                    let _ = writeln!(out, "  - {} ({}: {reason})", target.zone, target.directive);
+                }
+                None => {
+                    let _ = writeln!(out, "  - {} ({})", target.zone, target.directive);
+                }
+            }
+        }
+    }
+
+    fn write_allowed_importers(&self, out: &mut String) {
+        if self.allowed_importers.is_empty() {
+            let _ = writeln!(out, "allowed_importers: none");
+        } else {
+            let _ = writeln!(
+                out,
+                "allowed_importers: {}",
+                self.allowed_importers.join(", ")
+            );
+        }
+    }
+}
+
+fn format_allowed_target(target: &GuardAllowedTarget) -> String {
+    let mut details = Vec::new();
+    if !target.public_files.is_empty() {
+        details.push(format!("public_files: {}", target.public_files.join(", ")));
+    }
+    if let Some(reason) = &target.reason {
+        details.push(format!("reason: {reason}"));
+    }
+    if details.is_empty() {
+        target.zone.clone()
+    } else {
+        format!("{} ({})", target.zone, details.join("; "))
     }
 }
 

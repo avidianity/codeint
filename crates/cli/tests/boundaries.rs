@@ -1,8 +1,18 @@
 use std::fs;
+use std::path::Path;
 use std::process::{Command, Output};
 
 use serde_json::Value;
 use tempfile::TempDir;
+
+const GIT_ENV: [(&str, &str); 6] = [
+    ("GIT_CONFIG_GLOBAL", "/dev/null"),
+    ("GIT_CONFIG_NOSYSTEM", "1"),
+    ("GIT_AUTHOR_NAME", "Fixture"),
+    ("GIT_AUTHOR_EMAIL", "fixture@example.invalid"),
+    ("GIT_COMMITTER_NAME", "Fixture"),
+    ("GIT_COMMITTER_EMAIL", "fixture@example.invalid"),
+];
 
 struct BoundaryFixture(TempDir);
 
@@ -15,34 +25,117 @@ impl BoundaryFixture {
             .status()
             .expect("git init");
         assert!(init.success());
+        let fixture = BoundaryFixture(dir);
         for &(rel, body) in files {
-            let dst = dir.path().join(rel);
-            if let Some(parent) = dst.parent() {
-                fs::create_dir_all(parent).expect("mkdir");
-            }
-            fs::write(dst, body).expect("write");
+            fixture.write(rel, body);
         }
-        BoundaryFixture(dir)
+        fixture
+    }
+
+    fn write(&self, rel: &str, body: &str) {
+        let dst = self.0.path().join(rel);
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent).expect("mkdir");
+        }
+        fs::write(dst, body).expect("write");
+    }
+
+    fn git(&self, args: &[&str]) {
+        let mut command = Command::new("git");
+        command.args(args).current_dir(self.0.path());
+        for (key, value) in GIT_ENV {
+            command.env(key, value);
+        }
+        let output = command.output().expect("run git");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn commit(&self, message: &str) {
+        self.git(&["add", "--all"]);
+        self.git(&["commit", "--quiet", "--message", message]);
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_codeint"))
-            .args(args)
-            .current_dir(self.0.path())
-            .output()
-            .expect("run codeint")
+        self.run_with_optional_cache(None, args)
     }
 
-    fn check_json(&self, expected_code: i32) -> Value {
-        let out = self.run(&["check", "--format", "json"]);
+    fn run_with_optional_cache(&self, cache_dir: Option<&Path>, args: &[&str]) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_codeint"));
+        command.args(args).current_dir(self.0.path());
+        if let Some(cache) = cache_dir {
+            command.env("CODEINT_CACHE_DIR", cache);
+        }
+        command.output().expect("run codeint")
+    }
+
+    fn run_stdout(&self, cache_dir: Option<&Path>, args: &[&str], expected_code: i32) -> String {
+        let out = self.run_with_optional_cache(cache_dir, args);
         assert_eq!(
             out.status.code(),
             Some(expected_code),
             "stderr: {}",
             String::from_utf8_lossy(&out.stderr)
         );
-        serde_json::from_slice(&out.stdout).expect("valid JSON")
+        String::from_utf8(out.stdout).expect("utf8")
     }
+
+    fn run_json(&self, cache_dir: Option<&Path>, args: &[&str], expected_code: i32) -> Value {
+        let stdout = self.run_stdout(cache_dir, args, expected_code);
+        serde_json::from_str(&stdout).expect("valid JSON")
+    }
+
+    fn check_json(&self, expected_code: i32) -> Value {
+        self.run_json(None, &["check", "--format", "json"], expected_code)
+    }
+
+    fn diff_json(&self, cache_dir: &Path, expected_code: i32) -> Value {
+        self.run_json(
+            Some(cache_dir),
+            &["diff", "main", "--format", "json"],
+            expected_code,
+        )
+    }
+
+    fn sarif_boundary_results(
+        &self,
+        cache_dir: Option<&Path>,
+        args: &[&str],
+        expected_code: i32,
+    ) -> Vec<Value> {
+        let sarif = self.run_json(cache_dir, args, expected_code);
+        sarif["runs"][0]["results"]
+            .as_array()
+            .expect("SARIF results")
+            .iter()
+            .filter(|result| result["ruleId"] == "boundaries")
+            .cloned()
+            .collect()
+    }
+}
+
+fn boundary_findings(report: &Value, source_set: &str) -> Vec<Value> {
+    report["source_sets"][source_set]["boundaries"]["findings"]
+        .as_array()
+        .expect("boundaries findings")
+        .clone()
+}
+
+fn assert_diff_counts(
+    diff: &Value,
+    expected_new: usize,
+    expected_resolved: usize,
+    expected_unchanged: u64,
+) {
+    assert_eq!(diff["new"].as_array().expect("new").len(), expected_new);
+    assert_eq!(
+        diff["resolved"].as_array().expect("resolved").len(),
+        expected_resolved
+    );
+    assert_eq!(diff["unchanged"], expected_unchanged);
 }
 
 #[test]
@@ -108,10 +201,9 @@ fn check_reports_directional_deny_allow_and_public_files_findings_across_formats
     ]);
 
     let json = fixture.check_json(0);
-    let prod_boundaries = &json["source_sets"]["production"]["boundaries"];
-    assert!(prod_boundaries.is_object());
+    assert!(json["source_sets"]["production"]["boundaries"].is_object());
     assert!(json["source_sets"]["test"].get("boundaries").is_none());
-    let findings = prod_boundaries["findings"].as_array().expect("findings");
+    let findings = boundary_findings(&json, "production");
     assert_eq!(findings.len(), 3, "got: {findings:?}");
 
     let domain_to_infra = findings
@@ -143,23 +235,13 @@ fn check_reports_directional_deny_allow_and_public_files_findings_across_formats
     assert_eq!(app_deep_import["source_zone"], "app");
     assert_eq!(app_deep_import["target_zone"], "domain");
 
-    let toon = fixture.run(&["check"]);
-    assert_eq!(toon.status.code(), Some(0));
-    let toon_text = String::from_utf8(toon.stdout).expect("utf8");
+    let toon_text = fixture.run_stdout(None, &["check"], 0);
     assert!(toon_text.contains("boundaries:"));
     assert!(toon_text.contains("src/domain/internal.ts"));
     assert!(toon_text.contains("src/infra/db.ts"));
     assert!(toon_text.contains("Domain logic must not depend on infrastructure"));
 
-    let sarif_out = fixture.run(&["check", "--format", "sarif"]);
-    assert_eq!(sarif_out.status.code(), Some(0));
-    let sarif: Value = serde_json::from_slice(&sarif_out.stdout).expect("valid SARIF");
-    let boundary_sarif: Vec<&Value> = sarif["runs"][0]["results"]
-        .as_array()
-        .expect("SARIF results")
-        .iter()
-        .filter(|result| result["ruleId"] == "boundaries")
-        .collect();
+    let boundary_sarif = fixture.sarif_boundary_results(None, &["check", "--format", "sarif"], 0);
     assert_eq!(boundary_sarif.len(), 3);
     assert!(boundary_sarif.iter().any(|result| {
         let text = result["message"]["text"].as_str().unwrap_or_default();
@@ -168,9 +250,7 @@ fn check_reports_directional_deny_allow_and_public_files_findings_across_formats
             && text.contains("Domain logic must not depend on infrastructure")
     }));
 
-    let md = fixture.run(&["check", "--format", "markdown"]);
-    assert_eq!(md.status.code(), Some(0));
-    let md_text = String::from_utf8(md.stdout).expect("utf8");
+    let md_text = fixture.run_stdout(None, &["check", "--format", "markdown"], 0);
     assert!(md_text.contains("### Boundaries"));
     assert!(md_text.contains("`src/domain/internal.ts`"));
     assert!(md_text.contains("`src/infra/db.ts`"));
@@ -283,10 +363,7 @@ fn check_strict_zones_flags_unzoned_production_files() {
         ("src/orphan.ts", "export const orphan = 2;\n"),
     ]);
 
-    let json = fixture.check_json(0);
-    let findings = json["source_sets"]["production"]["boundaries"]["findings"]
-        .as_array()
-        .expect("findings");
+    let findings = boundary_findings(&fixture.check_json(0), "production");
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0]["kind"], "unzoned_file");
     assert_eq!(findings[0]["importer"], "src/orphan.ts");
@@ -337,10 +414,7 @@ fn check_enforces_boundaries_across_python_and_typescript() {
         ),
     ]);
 
-    let json = fixture.check_json(0);
-    let findings = json["source_sets"]["production"]["boundaries"]["findings"]
-        .as_array()
-        .expect("findings");
+    let findings = boundary_findings(&fixture.check_json(0), "production");
     assert_eq!(findings.len(), 2, "got: {findings:?}");
     assert!(
         findings
@@ -402,112 +476,64 @@ fn check_enforces_boundary_budget_overlap_precedence_and_optional_test_source_se
     ]);
 
     let json = fixture.check_json(1);
-    let prod_findings = json["source_sets"]["production"]["boundaries"]["findings"]
-        .as_array()
-        .expect("production boundaries findings");
+    let prod_findings = boundary_findings(&json, "production");
     assert_eq!(prod_findings.len(), 1);
     assert_eq!(prod_findings[0]["source_zone"], "domain");
     assert_eq!(prod_findings[0]["target_zone"], "infra");
 
-    let test_findings = json["source_sets"]["test"]["boundaries"]["findings"]
-        .as_array()
-        .expect("test boundaries findings");
+    let test_findings = boundary_findings(&json, "test");
     assert_eq!(test_findings.len(), 1);
     assert_eq!(test_findings[0]["kind"], "public_files");
     assert_eq!(test_findings[0]["source_zone"], "core");
     assert_eq!(test_findings[0]["target_zone"], "domain");
 }
 
-const GIT_ENV: [(&str, &str); 6] = [
-    ("GIT_CONFIG_GLOBAL", "/dev/null"),
-    ("GIT_CONFIG_NOSYSTEM", "1"),
-    ("GIT_AUTHOR_NAME", "Fixture"),
-    ("GIT_AUTHOR_EMAIL", "fixture@example.invalid"),
-    ("GIT_COMMITTER_NAME", "Fixture"),
-    ("GIT_COMMITTER_EMAIL", "fixture@example.invalid"),
-];
-
-impl BoundaryFixture {
-    fn write(&self, rel: &str, body: &str) {
-        let dst = self.0.path().join(rel);
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent).expect("mkdir");
-        }
-        fs::write(dst, body).expect("write");
+fn check_preset_findings(preset: &str, files: &[(&str, &str)]) -> Vec<Value> {
+    let config = format!(r#"{{"boundaries":{{"preset":"{preset}"}}}}"#);
+    let fixture = BoundaryFixture::init(&[("codeint.json", &config)]);
+    for &(rel, body) in files {
+        fixture.write(rel, body);
     }
-
-    fn git(&self, args: &[&str]) {
-        let mut command = Command::new("git");
-        command.args(args).current_dir(self.0.path());
-        for (key, value) in GIT_ENV {
-            command.env(key, value);
-        }
-        let output = command.output().expect("run git");
-        assert!(
-            output.status.success(),
-            "git {args:?} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    fn commit(&self, message: &str) {
-        self.git(&["add", "--all"]);
-        self.git(&["commit", "--quiet", "--message", message]);
-    }
-
-    fn run_with_cache(&self, cache_dir: &std::path::Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_codeint"))
-            .args(args)
-            .env("CODEINT_CACHE_DIR", cache_dir)
-            .current_dir(self.0.path())
-            .output()
-            .expect("run codeint")
-    }
+    boundary_findings(&fixture.check_json(0), "production")
 }
 
 #[test]
-fn check_supports_layered_and_hexagonal_presets_with_user_overrides() {
-    let layered = BoundaryFixture::init(&[
-        (
-            "codeint.json",
-            r#"{
-  "boundaries": {
-    "preset": "layered"
-  }
+fn check_supports_layered_preset() {
+    let findings = check_preset_findings(
+        "layered",
+        &[
+            ("src/infrastructure/db.ts", "export const db = 1;\n"),
+            (
+                "src/domain/order.ts",
+                "import { db } from '../infrastructure/db';\nexport const order = db;\n",
+            ),
+            (
+                "src/application/service.ts",
+                "import { order } from '../domain/order';\nexport const service = order;\n",
+            ),
+            (
+                "src/presentation/view.ts",
+                "import { db } from '../infrastructure/db';\nexport const view = db;\n",
+            ),
+        ],
+    );
+    assert_eq!(findings.len(), 2, "got: {findings:?}");
+    let pairs: Vec<(&str, &str, &str)> = findings
+        .iter()
+        .map(|f| {
+            (
+                f["importer"].as_str().unwrap_or_default(),
+                f["source_zone"].as_str().unwrap_or_default(),
+                f["target_zone"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert!(pairs.contains(&("src/domain/order.ts", "domain", "infrastructure")));
+    assert!(pairs.contains(&("src/presentation/view.ts", "presentation", "infrastructure")));
 }
-"#,
-        ),
-        ("src/infrastructure/db.ts", "export const db = 1;\n"),
-        (
-            "src/domain/order.ts",
-            "import { db } from '../infrastructure/db';\nexport const order = db;\n",
-        ),
-        (
-            "src/application/service.ts",
-            "import { order } from '../domain/order';\nexport const service = order;\n",
-        ),
-        (
-            "src/presentation/view.ts",
-            "import { db } from '../infrastructure/db';\nexport const view = db;\n",
-        ),
-    ]);
 
-    let layered_json = layered.check_json(0);
-    let layered_findings = layered_json["source_sets"]["production"]["boundaries"]["findings"]
-        .as_array()
-        .expect("layered findings");
-    assert_eq!(layered_findings.len(), 2, "got: {layered_findings:?}");
-    assert!(layered_findings.iter().any(|f| {
-        f["importer"] == "src/domain/order.ts"
-            && f["source_zone"] == "domain"
-            && f["target_zone"] == "infrastructure"
-    }));
-    assert!(layered_findings.iter().any(|f| {
-        f["importer"] == "src/presentation/view.ts"
-            && f["source_zone"] == "presentation"
-            && f["target_zone"] == "infrastructure"
-    }));
-
+#[test]
+fn check_supports_layered_preset_with_user_overrides() {
     let layered_override = BoundaryFixture::init(&[
         (
             "codeint.json",
@@ -554,56 +580,45 @@ fn check_supports_layered_and_hexagonal_presets_with_user_overrides() {
         ),
     ]);
 
-    let override_json = layered_override.check_json(0);
-    let override_findings = override_json["source_sets"]["production"]["boundaries"]["findings"]
-        .as_array()
-        .expect("override findings");
-    assert_eq!(override_findings.len(), 2, "got: {override_findings:?}");
-    assert!(override_findings.iter().any(|f| {
+    let findings = boundary_findings(&layered_override.check_json(0), "production");
+    assert_eq!(findings.len(), 2, "got: {findings:?}");
+    assert!(findings.iter().any(|f| {
         f["importer"] == "src/business/bad.ts"
             && f["kind"] == "zone_rule"
             && f["reason"] == "Domain may import shared helpers only"
     }));
-    assert!(override_findings.iter().any(|f| {
+    assert!(findings.iter().any(|f| {
         f["importer"] == "src/application/deep.ts"
             && f["kind"] == "public_files"
             && f["target"] == "src/business/internal.ts"
     }));
-
-    let hexagonal = BoundaryFixture::init(&[
-        (
-            "codeint.json",
-            r#"{
-  "boundaries": {
-    "preset": "hexagonal"
-  }
 }
-"#,
-        ),
-        ("src/domain/model.ts", "export const model = 1;\n"),
-        (
-            "src/ports/repo.ts",
-            "import { model } from '../domain/model';\nexport const repo = model;\n",
-        ),
-        (
-            "src/adapters/http.ts",
-            "import { repo } from '../ports/repo';\nexport const http = repo;\n",
-        ),
-        (
-            "src/application/usecase.ts",
-            "import { repo } from '../ports/repo';\nimport { http } from '../adapters/http';\nexport const run = repo + http;\n",
-        ),
-    ]);
 
-    let hex_json = hexagonal.check_json(0);
-    let hex_findings = hex_json["source_sets"]["production"]["boundaries"]["findings"]
-        .as_array()
-        .expect("hexagonal findings");
-    assert_eq!(hex_findings.len(), 1, "got: {hex_findings:?}");
-    assert_eq!(hex_findings[0]["importer"], "src/application/usecase.ts");
-    assert_eq!(hex_findings[0]["target"], "src/adapters/http.ts");
-    assert_eq!(hex_findings[0]["source_zone"], "application");
-    assert_eq!(hex_findings[0]["target_zone"], "adapters");
+#[test]
+fn check_supports_hexagonal_preset() {
+    let findings = check_preset_findings(
+        "hexagonal",
+        &[
+            ("src/domain/model.ts", "export const model = 1;\n"),
+            (
+                "src/ports/repo.ts",
+                "import { model } from '../domain/model';\nexport const repo = model;\n",
+            ),
+            (
+                "src/adapters/http.ts",
+                "import { repo } from '../ports/repo';\nexport const http = repo;\n",
+            ),
+            (
+                "src/application/usecase.ts",
+                "import { repo } from '../ports/repo';\nimport { http } from '../adapters/http';\nexport const run = repo + http;\n",
+            ),
+        ],
+    );
+    assert_eq!(findings.len(), 1, "got: {findings:?}");
+    assert_eq!(findings[0]["importer"], "src/application/usecase.ts");
+    assert_eq!(findings[0]["target"], "src/adapters/http.ts");
+    assert_eq!(findings[0]["source_zone"], "application");
+    assert_eq!(findings[0]["target_zone"], "adapters");
 }
 
 #[test]
@@ -650,15 +665,7 @@ fn check_enforces_per_source_set_boundary_budgets() {
 fn diff_classifies_boundary_findings_and_gates_new_regressions_without_failing_on_preexisting() {
     let cache = tempfile::tempdir().expect("cache tempdir");
     let fixture = BoundaryFixture::init(&[
-        (
-            "codeint.json",
-            r#"{
-  "boundaries": {
-    "preset": "layered"
-  }
-}
-"#,
-        ),
+        ("codeint.json", r#"{"boundaries":{"preset":"layered"}}"#),
         ("src/infrastructure/db.ts", "export const db = 1;\n"),
         (
             "src/domain/legacy.ts",
@@ -675,39 +682,30 @@ fn diff_classifies_boundary_findings_and_gates_new_regressions_without_failing_o
         "src/domain/legacy.ts",
         "\n\nimport { db } from '../infrastructure/db';\nexport const legacy = db + 1;\n",
     );
-    let no_regression = fixture.run_with_cache(cache.path(), &["diff", "main", "--format", "json"]);
-    assert_eq!(
-        no_regression.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&no_regression.stderr)
+    let no_reg_json = fixture.diff_json(cache.path(), 0);
+    assert_diff_counts(
+        &no_reg_json["source_sets"]["production"]["boundaries"],
+        0,
+        0,
+        1,
     );
-    let no_reg_json: Value = serde_json::from_slice(&no_regression.stdout).expect("valid JSON");
-    let prod_diff = &no_reg_json["source_sets"]["production"]["boundaries"];
-    assert_eq!(prod_diff["new"].as_array().expect("new").len(), 0);
-    assert_eq!(prod_diff["resolved"].as_array().expect("resolved").len(), 0);
-    assert_eq!(prod_diff["unchanged"], 1);
     assert!(no_reg_json.get("regressions").is_none());
 
     fixture.write(
         "src/domain/new_feature.ts",
         "import { db } from '../infrastructure/db';\nexport const feature = db;\n",
     );
-    let with_regression =
-        fixture.run_with_cache(cache.path(), &["diff", "main", "--format", "json"]);
-    assert_eq!(
-        with_regression.status.code(),
-        Some(1),
-        "stderr: {}",
-        String::from_utf8_lossy(&with_regression.stderr)
-    );
-    let reg_json: Value = serde_json::from_slice(&with_regression.stdout).expect("valid JSON");
+    let reg_json = fixture.diff_json(cache.path(), 1);
     let prod_reg_diff = &reg_json["source_sets"]["production"]["boundaries"];
-    let new_findings = prod_reg_diff["new"].as_array().expect("new findings");
-    assert_eq!(new_findings.len(), 1, "got: {new_findings:?}");
-    assert_eq!(new_findings[0]["importer"], "src/domain/new_feature.ts");
-    assert_eq!(new_findings[0]["target"], "src/infrastructure/db.ts");
-    assert_eq!(prod_reg_diff["unchanged"], 1);
+    assert_diff_counts(prod_reg_diff, 1, 0, 1);
+    assert_eq!(
+        prod_reg_diff["new"][0]["importer"],
+        "src/domain/new_feature.ts"
+    );
+    assert_eq!(
+        prod_reg_diff["new"][0]["target"],
+        "src/infrastructure/db.ts"
+    );
     let regressions = reg_json["regressions"].as_array().expect("regressions");
     assert!(
         regressions
@@ -716,85 +714,51 @@ fn diff_classifies_boundary_findings_and_gates_new_regressions_without_failing_o
         "got: {regressions:?}"
     );
 
-    let sarif_out = fixture.run_with_cache(cache.path(), &["diff", "main", "--format", "sarif"]);
-    assert_eq!(sarif_out.status.code(), Some(1));
-    let sarif: Value = serde_json::from_slice(&sarif_out.stdout).expect("valid SARIF");
-    let sarif_results: Vec<&Value> = sarif["runs"][0]["results"]
-        .as_array()
-        .expect("results")
-        .iter()
-        .filter(|r| r["ruleId"] == "boundaries")
-        .collect();
+    let sarif_results = fixture.sarif_boundary_results(
+        Some(cache.path()),
+        &["diff", "main", "--format", "sarif"],
+        1,
+    );
     assert_eq!(sarif_results.len(), 1);
     assert_eq!(
         sarif_results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
         "src/domain/new_feature.ts"
     );
 
-    let md_out = fixture.run_with_cache(cache.path(), &["diff", "main", "--format", "markdown"]);
-    assert_eq!(md_out.status.code(), Some(1));
-    let md_text = String::from_utf8(md_out.stdout).expect("utf8");
+    let md_text = fixture.run_stdout(
+        Some(cache.path()),
+        &["diff", "main", "--format", "markdown"],
+        1,
+    );
     assert!(md_text.contains("| Production | Boundaries |"));
     assert!(md_text.contains("### New Boundaries Findings"));
     assert!(md_text.contains("`src/domain/new_feature.ts`"));
 
-    let toon_out = fixture.run_with_cache(cache.path(), &["diff", "main"]);
-    assert_eq!(toon_out.status.code(), Some(1));
-    let toon_text = String::from_utf8(toon_out.stdout).expect("utf8");
+    let toon_text = fixture.run_stdout(Some(cache.path()), &["diff", "main"], 1);
     assert!(toon_text.contains("boundaries:"));
     assert!(toon_text.contains("src/domain/new_feature.ts"));
 
     fixture.write(
         "codeint.json",
         r#"{
-  "boundaries": {
-    "preset": "layered"
-  },
+  "boundaries": { "preset": "layered" },
   "regression_limits": {
     "production": {
-      "boundaries": {
-        "ratio_rise": 1,
-        "new_findings": "never"
-      }
+      "boundaries": { "ratio_rise": 1, "new_findings": "never" }
     }
   }
-}
-"#,
+}"#,
     );
-    let relaxed = fixture.run_with_cache(cache.path(), &["diff", "main", "--format", "json"]);
-    assert_eq!(
-        relaxed.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&relaxed.stderr)
-    );
+    fixture.diff_json(cache.path(), 0);
 
-    fixture.write(
-        "codeint.json",
-        r#"{
-  "boundaries": {
-    "preset": "layered"
-  }
-}
-"#,
-    );
+    fixture.write("codeint.json", r#"{"boundaries":{"preset":"layered"}}"#);
     fixture.write("src/domain/legacy.ts", "export const legacy = 1;\n");
     fixture.write("src/domain/new_feature.ts", "export const feature = 2;\n");
-    let resolved_out = fixture.run_with_cache(cache.path(), &["diff", "main", "--format", "json"]);
-    assert_eq!(resolved_out.status.code(), Some(0));
-    let resolved_json: Value = serde_json::from_slice(&resolved_out.stdout).expect("valid JSON");
+    let resolved_json = fixture.diff_json(cache.path(), 0);
     let resolved_diff = &resolved_json["source_sets"]["production"]["boundaries"];
-    assert_eq!(resolved_diff["new"].as_array().expect("new").len(), 0);
-    assert_eq!(
-        resolved_diff["resolved"]
-            .as_array()
-            .expect("resolved")
-            .len(),
-        1
-    );
+    assert_diff_counts(resolved_diff, 0, 1, 0);
     assert_eq!(
         resolved_diff["resolved"][0]["importer"],
         "src/domain/legacy.ts"
     );
-    assert_eq!(resolved_diff["unchanged"], 0);
 }

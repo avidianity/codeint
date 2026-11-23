@@ -5,7 +5,7 @@ use globset::{GlobBuilder, GlobMatcher, GlobSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::codeint_json::{ConfigurationFileError, KeyPath, KeySegment, glob_set};
+use crate::config_error::{ConfigurationFileError, KeyPath, KeySegment, glob_set};
 
 const WILDCARD_ZONE: &str = "*";
 
@@ -161,105 +161,9 @@ impl Boundaries {
     pub(crate) fn from_file(file: BoundariesFile) -> Result<Boundaries, ConfigurationFileError> {
         let (merged_zones, merged_rules) = merge_preset(file.preset, file.zones, file.rules);
         let boundaries_key = KeyPath::default().child(KeySegment::Key("boundaries".to_owned()));
-        let zones_key = boundaries_key.child(KeySegment::Key("zones".to_owned()));
-        let mut zones = BTreeMap::new();
-        for (name, zone_file) in merged_zones {
-            let zone_key = zones_key.child(KeySegment::Key(name.clone()));
-            if name.trim().is_empty() || name == WILDCARD_ZONE {
-                return Err(ConfigurationFileError::InvalidBoundaryZoneName {
-                    key: zone_key,
-                    name,
-                });
-            }
-            if zone_file.patterns.is_empty() {
-                return Err(ConfigurationFileError::EmptyBoundaryZonePatterns {
-                    key: zone_key.child(KeySegment::Key("patterns".to_owned())),
-                    zone: name,
-                });
-            }
-            let patterns_key = zone_key.child(KeySegment::Key("patterns".to_owned()));
-            let patterns = compile_patterns(&patterns_key, &zone_file.patterns)?;
-            let public_file_patterns = zone_file.public_files;
-            let public_files = if public_file_patterns.is_empty() {
-                None
-            } else {
-                let public_key = zone_key.child(KeySegment::Key("public_files".to_owned()));
-                Some(glob_set(&public_key, &public_file_patterns)?)
-            };
-            zones.insert(
-                name,
-                CompiledZone {
-                    patterns,
-                    public_files,
-                    public_file_patterns,
-                },
-            );
-        }
-
-        let known_zones: Vec<String> = zones.keys().cloned().collect();
-        let rules_key = boundaries_key.child(KeySegment::Key("rules".to_owned()));
-        let mut rules = Vec::with_capacity(merged_rules.len());
-        let mut directive_by_from: BTreeMap<String, BoundaryDirective> = BTreeMap::new();
-
-        for (index, rule) in merged_rules.into_iter().enumerate() {
-            let rule_key = rules_key.child(KeySegment::Index(index));
-            if rule.from != WILDCARD_ZONE && !zones.contains_key(&rule.from) {
-                return Err(ConfigurationFileError::UnknownBoundaryZone {
-                    key: rule_key.child(KeySegment::Key("from".to_owned())),
-                    zone: rule.from,
-                    known: known_zones,
-                });
-            }
-            let (directive, targets, targets_key_name) = match (rule.allow, rule.deny) {
-                (Some(allow), None) => (BoundaryDirective::Allow, allow, "allow"),
-                (None, Some(deny)) => (BoundaryDirective::Deny, deny, "deny"),
-                (Some(_), Some(_)) => {
-                    return Err(ConfigurationFileError::ConflictingBoundaryRule {
-                        key: rule_key,
-                        from: rule.from,
-                    });
-                }
-                (None, None) => {
-                    return Err(ConfigurationFileError::MissingBoundaryRuleDirective {
-                        key: rule_key,
-                        from: rule.from,
-                    });
-                }
-            };
-            if let Some(&previous) = directive_by_from.get(&rule.from)
-                && previous != directive
-            {
-                return Err(ConfigurationFileError::ConflictingBoundaryDirectives {
-                    key: rule_key,
-                    from: rule.from,
-                });
-            }
-            directive_by_from.insert(rule.from.clone(), directive);
-
-            let targets_key = rule_key.child(KeySegment::Key(targets_key_name.to_owned()));
-            for (target_index, target) in targets.iter().enumerate() {
-                if target != WILDCARD_ZONE && !zones.contains_key(target) {
-                    return Err(ConfigurationFileError::UnknownBoundaryZone {
-                        key: targets_key.child(KeySegment::Index(target_index)),
-                        zone: target.clone(),
-                        known: known_zones,
-                    });
-                }
-            }
-            rules.push(CompiledRule {
-                from: rule.from,
-                directive,
-                targets,
-                reason: rule.reason.filter(|text| !text.trim().is_empty()),
-            });
-        }
-
-        let source_sets = if file.source_sets.is_empty() {
-            vec![SourceSet::Production]
-        } else {
-            file.source_sets.into_iter().map(SourceSet::from).collect()
-        };
-
+        let zones = compile_zones(&boundaries_key, merged_zones)?;
+        let rules = compile_rules(&boundaries_key, &zones, merged_rules)?;
+        let source_sets = resolve_source_sets(file.source_sets);
         Ok(Boundaries {
             zones,
             rules,
@@ -401,6 +305,159 @@ impl Boundaries {
                 }
             }
         }
+    }
+}
+
+fn compile_zones(
+    boundaries_key: &KeyPath,
+    merged_zones: BTreeMap<String, BoundaryZoneFile>,
+) -> Result<BTreeMap<String, CompiledZone>, ConfigurationFileError> {
+    let zones_key = boundaries_key.child(KeySegment::Key("zones".to_owned()));
+    let mut zones = BTreeMap::new();
+    for (name, zone_file) in merged_zones {
+        let (compiled_name, compiled_zone) = compile_zone(&zones_key, name, zone_file)?;
+        zones.insert(compiled_name, compiled_zone);
+    }
+    Ok(zones)
+}
+
+fn compile_zone(
+    zones_key: &KeyPath,
+    name: String,
+    zone_file: BoundaryZoneFile,
+) -> Result<(String, CompiledZone), ConfigurationFileError> {
+    let zone_key = zones_key.child(KeySegment::Key(name.clone()));
+    if name.trim().is_empty() || name == WILDCARD_ZONE {
+        return Err(ConfigurationFileError::InvalidBoundaryZoneName {
+            key: zone_key,
+            name,
+        });
+    }
+    let patterns_key = zone_key.child(KeySegment::Key("patterns".to_owned()));
+    if zone_file.patterns.is_empty() {
+        return Err(ConfigurationFileError::EmptyBoundaryZonePatterns {
+            key: patterns_key,
+            zone: name,
+        });
+    }
+    let patterns = compile_patterns(&patterns_key, &zone_file.patterns)?;
+    let public_file_patterns = zone_file.public_files;
+    let public_files = if public_file_patterns.is_empty() {
+        None
+    } else {
+        let public_key = zone_key.child(KeySegment::Key("public_files".to_owned()));
+        Some(glob_set(&public_key, &public_file_patterns)?)
+    };
+    Ok((
+        name,
+        CompiledZone {
+            patterns,
+            public_files,
+            public_file_patterns,
+        },
+    ))
+}
+
+fn compile_rules(
+    boundaries_key: &KeyPath,
+    zones: &BTreeMap<String, CompiledZone>,
+    merged_rules: Vec<BoundaryRuleFile>,
+) -> Result<Vec<CompiledRule>, ConfigurationFileError> {
+    let known_zones: Vec<String> = zones.keys().cloned().collect();
+    let rules_key = boundaries_key.child(KeySegment::Key("rules".to_owned()));
+    let mut rules = Vec::with_capacity(merged_rules.len());
+    let mut directive_by_from: BTreeMap<String, BoundaryDirective> = BTreeMap::new();
+    for (index, rule) in merged_rules.into_iter().enumerate() {
+        let rule_key = rules_key.child(KeySegment::Index(index));
+        rules.push(compile_rule(
+            &rule_key,
+            rule,
+            zones,
+            &known_zones,
+            &mut directive_by_from,
+        )?);
+    }
+    Ok(rules)
+}
+
+fn compile_rule(
+    rule_key: &KeyPath,
+    rule: BoundaryRuleFile,
+    zones: &BTreeMap<String, CompiledZone>,
+    known_zones: &[String],
+    directive_by_from: &mut BTreeMap<String, BoundaryDirective>,
+) -> Result<CompiledRule, ConfigurationFileError> {
+    if rule.from != WILDCARD_ZONE && !zones.contains_key(&rule.from) {
+        return Err(ConfigurationFileError::UnknownBoundaryZone {
+            key: rule_key.child(KeySegment::Key("from".to_owned())),
+            zone: rule.from,
+            known: known_zones.to_vec(),
+        });
+    }
+    let (directive, targets, targets_key_name) =
+        extract_rule_directive(rule_key, &rule.from, rule.allow, rule.deny)?;
+    if let Some(&previous) = directive_by_from.get(&rule.from)
+        && previous != directive
+    {
+        return Err(ConfigurationFileError::ConflictingBoundaryDirectives {
+            key: rule_key.clone(),
+            from: rule.from,
+        });
+    }
+    directive_by_from.insert(rule.from.clone(), directive);
+    let targets_key = rule_key.child(KeySegment::Key(targets_key_name.to_owned()));
+    validate_rule_targets(&targets_key, &targets, zones, known_zones)?;
+    Ok(CompiledRule {
+        from: rule.from,
+        directive,
+        targets,
+        reason: rule.reason.filter(|text| !text.trim().is_empty()),
+    })
+}
+
+fn extract_rule_directive(
+    rule_key: &KeyPath,
+    from: &str,
+    allow: Option<Vec<String>>,
+    deny: Option<Vec<String>>,
+) -> Result<(BoundaryDirective, Vec<String>, &'static str), ConfigurationFileError> {
+    match (allow, deny) {
+        (Some(allow), None) => Ok((BoundaryDirective::Allow, allow, "allow")),
+        (None, Some(deny)) => Ok((BoundaryDirective::Deny, deny, "deny")),
+        (Some(_), Some(_)) => Err(ConfigurationFileError::ConflictingBoundaryRule {
+            key: rule_key.clone(),
+            from: from.to_owned(),
+        }),
+        (None, None) => Err(ConfigurationFileError::MissingBoundaryRuleDirective {
+            key: rule_key.clone(),
+            from: from.to_owned(),
+        }),
+    }
+}
+
+fn validate_rule_targets(
+    targets_key: &KeyPath,
+    targets: &[String],
+    zones: &BTreeMap<String, CompiledZone>,
+    known_zones: &[String],
+) -> Result<(), ConfigurationFileError> {
+    for (target_index, target) in targets.iter().enumerate() {
+        if target != WILDCARD_ZONE && !zones.contains_key(target) {
+            return Err(ConfigurationFileError::UnknownBoundaryZone {
+                key: targets_key.child(KeySegment::Index(target_index)),
+                zone: target.clone(),
+                known: known_zones.to_vec(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn resolve_source_sets(source_sets: Vec<BoundarySourceSet>) -> Vec<SourceSet> {
+    if source_sets.is_empty() {
+        vec![SourceSet::Production]
+    } else {
+        source_sets.into_iter().map(SourceSet::from).collect()
     }
 }
 
