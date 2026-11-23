@@ -3,11 +3,13 @@ use codeint_git::GitError;
 use codeint_metrics::ImpactError;
 use codeint_model::{MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
+use codeint_report::TraceError;
 
 use crate::CliError;
 use crate::check::CheckError;
 use crate::impact::ImpactCommandError;
 use crate::init::InitError;
+use crate::trace::TraceCommandError;
 use crate::update::UpdateError;
 
 pub(crate) fn remedy(error: &CliError) -> &'static str {
@@ -15,6 +17,14 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(error) => check_remedy(error),
         CliError::Impact(error) => impact_remedy(error),
+        CliError::Trace(TraceCommandError::Check(error)) => check_remedy(error),
+        CliError::Trace(TraceCommandError::UnknownModule { .. })
+        | CliError::Trace(TraceCommandError::Trace(TraceError::UnknownModule { .. })) => {
+            "Pass repository-relative paths of files measured by codeint (not ignored, unparsable, declaration-only, or outside the repository)."
+        }
+        CliError::Trace(TraceCommandError::Trace(TraceError::InvalidMaxPaths)) => {
+            "Pass a positive integer (at least 1) for --max-paths."
+        }
         CliError::Init(InitError::Git(GitError::NotInRepository { .. })) => {
             "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
         }
@@ -69,7 +79,6 @@ fn impact_remedy(error: &ImpactCommandError) -> &'static str {
         }
     }
 }
-
 fn update_remedy(error: &UpdateError) -> &'static str {
     match error {
         UpdateError::ManagedByPackageManager { .. } => {
