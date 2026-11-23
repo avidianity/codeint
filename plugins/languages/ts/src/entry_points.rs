@@ -79,19 +79,49 @@ impl<'a> TsEntryFinder<'a> {
     }
 
     fn collect_exports(&mut self, base_dir: &str, value: &Value) {
+        if let Value::Object(map) = value {
+            let exclusions: Vec<&str> = map
+                .iter()
+                .filter(|(key, item)| key.starts_with('.') && item.is_null())
+                .map(|(key, _)| key.as_str())
+                .collect();
+            for (key, item) in map {
+                if item.is_null() {
+                    continue;
+                }
+                let export_key = key.starts_with('.').then_some(key.as_str());
+                let active_exclusions = if export_key.is_some() {
+                    exclusions.as_slice()
+                } else {
+                    &[]
+                };
+                self.collect_export_target(base_dir, export_key, active_exclusions, item);
+            }
+            return;
+        }
+        self.collect_export_target(base_dir, None, &[], value);
+    }
+
+    fn collect_export_target(
+        &mut self,
+        base_dir: &str,
+        export_key: Option<&str>,
+        exclusions: &[&str],
+        value: &Value,
+    ) {
         match value {
             Value::String(target) if target.contains('*') => {
-                self.resolve_wildcard_export(base_dir, target);
+                self.resolve_wildcard_export(base_dir, target, export_key, exclusions);
             }
             Value::String(target) => self.resolve_source_target(base_dir, target),
             Value::Array(items) => {
                 for item in items {
-                    self.collect_exports(base_dir, item);
+                    self.collect_export_target(base_dir, export_key, exclusions, item);
                 }
             }
             Value::Object(map) => {
                 for item in map.values() {
-                    self.collect_exports(base_dir, item);
+                    self.collect_export_target(base_dir, export_key, exclusions, item);
                 }
             }
             _ => {}
@@ -165,33 +195,91 @@ impl<'a> TsEntryFinder<'a> {
         None
     }
 
-    fn resolve_wildcard_export(&mut self, base_dir: &str, raw: &str) {
-        if raw.starts_with('/') || raw.contains('\\') {
-            return;
-        }
-        let Some((prefix_raw, suffix)) = raw.split_once('*') else {
-            return;
-        };
-        if suffix.contains('*') {
-            return;
-        }
-        let Some(normalized_prefix) = normalize_relative_path(base_dir, prefix_raw) else {
+    fn resolve_wildcard_export(
+        &mut self,
+        base_dir: &str,
+        raw: &str,
+        export_key: Option<&str>,
+        exclusions: &[&str],
+    ) {
+        let Some((prefix, suffix)) = wildcard_prefix(base_dir, raw) else {
             return;
         };
-        let prefix = if prefix_raw.ends_with('/') && !normalized_prefix.is_empty() {
-            format!("{normalized_prefix}/")
-        } else {
-            normalized_prefix
-        };
+        let key_parts = export_key.and_then(split_single_wildcard);
         for path in self.paths {
             if let Some(matched_suffix) = wildcard_suffix_match(path, &prefix, suffix)
                 && path.len() > prefix.len() + matched_suffix.len()
                 && is_ts_source_file(path, self.extensions)
+                && !is_excluded_export(path, &prefix, matched_suffix, key_parts, exclusions)
             {
                 self.entries.insert(path.clone());
             }
         }
     }
+}
+
+fn split_single_wildcard(pattern: &str) -> Option<(&str, &str)> {
+    let (prefix, suffix) = pattern.split_once('*')?;
+    (!suffix.contains('*')).then_some((prefix, suffix))
+}
+
+fn has_parent_segment(path: &str) -> bool {
+    path.split('/').any(|segment| segment == "..")
+}
+
+fn wildcard_prefix<'a>(base_dir: &str, raw: &'a str) -> Option<(String, &'a str)> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('/') || trimmed.contains('\\') {
+        return None;
+    }
+    let (prefix_raw, suffix) = split_single_wildcard(trimmed)?;
+    if has_parent_segment(prefix_raw) || has_parent_segment(suffix) {
+        return None;
+    }
+    let normalized_prefix = normalize_relative_path(base_dir, prefix_raw)?;
+    let prefix = if prefix_raw.ends_with('/') && !normalized_prefix.is_empty() {
+        format!("{normalized_prefix}/")
+    } else {
+        normalized_prefix
+    };
+    Some((prefix, suffix))
+}
+
+fn is_excluded_export(
+    path: &str,
+    prefix: &str,
+    matched_suffix: &str,
+    key_parts: Option<(&str, &str)>,
+    exclusions: &[&str],
+) -> bool {
+    let Some((key_prefix, key_suffix)) = key_parts else {
+        return false;
+    };
+    if exclusions.is_empty() {
+        return false;
+    }
+    let captured = &path[prefix.len()..path.len() - matched_suffix.len()];
+    let subpath = format!("{key_prefix}{captured}{key_suffix}");
+    exclusions.iter().any(|&exclusion| {
+        matches_exclusion(&subpath, exclusion, key_prefix.len(), key_suffix.len())
+    })
+}
+
+fn matches_exclusion(
+    subpath: &str,
+    exclusion: &str,
+    key_prefix_len: usize,
+    key_suffix_len: usize,
+) -> bool {
+    let Some((excl_prefix, excl_suffix)) = split_single_wildcard(exclusion) else {
+        return subpath == exclusion;
+    };
+    let more_specific = excl_prefix.len() > key_prefix_len
+        || (excl_prefix.len() == key_prefix_len && excl_suffix.len() >= key_suffix_len);
+    more_specific
+        && subpath.starts_with(excl_prefix)
+        && subpath.ends_with(excl_suffix)
+        && subpath.len() >= excl_prefix.len() + excl_suffix.len()
 }
 
 fn wildcard_suffix_match<'a>(path: &str, prefix: &str, suffix: &'a str) -> Option<&'a str> {
@@ -215,7 +303,11 @@ fn wildcard_suffix_match<'a>(path: &str, prefix: &str, suffix: &'a str) -> Optio
 
 fn normalize_entry_path(base_dir: &str, raw: &str) -> Option<String> {
     let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed.starts_with('/') || trimmed.contains('\\') {
+    if trimmed.is_empty()
+        || trimmed.starts_with('/')
+        || trimmed.contains('\\')
+        || has_parent_segment(trimmed)
+    {
         return None;
     }
     let normalized = normalize_relative_path(base_dir, trimmed)?;

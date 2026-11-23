@@ -57,7 +57,11 @@ struct CrateTargetIndex<'a> {
 impl CrateTargetIndex<'_> {
     fn record(&self, base_dir: &str, rel: &str, out: &mut BTreeSet<String>) -> bool {
         let trimmed = rel.trim();
-        if trimmed.is_empty() || trimmed.starts_with('/') || trimmed.contains('\\') {
+        if trimmed.is_empty()
+            || trimmed.starts_with('/')
+            || trimmed.contains('\\')
+            || trimmed.split('/').any(|segment| segment == "..")
+        {
             return false;
         }
         let Some(candidate) = normalize_relative_path(base_dir, trimmed) else {
@@ -104,7 +108,7 @@ impl CargoTargets {
         };
         if let Some(explicit) = self.lib.as_ref().and_then(|spec| spec.path.as_deref()) {
             index.record(base_dir, explicit, out);
-        } else if package.autolib != Some(false) {
+        } else if self.lib.is_some() || package.autolib != Some(false) {
             index.record(base_dir, "src/lib.rs", out);
         }
         for bin in &self.bin {
@@ -128,6 +132,15 @@ fn record_named_bin(
     bin_name: &str,
     out: &mut BTreeSet<String>,
 ) {
+    let bin_name = bin_name.trim();
+    if bin_name.is_empty()
+        || bin_name.contains('/')
+        || bin_name.contains('\\')
+        || bin_name == "."
+        || bin_name == ".."
+    {
+        return;
+    }
     let direct = format!("src/bin/{bin_name}.rs");
     if index.record(base_dir, &direct, out) {
         return;

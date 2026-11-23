@@ -219,7 +219,7 @@ fn collect_roots(
     let mut roots = BTreeSet::new();
     for entry in entry_points {
         if let Some(&index) = index_of.get(entry)
-            && source_sets[index] != SourceSet::Test
+            && source_sets[index] == SourceSet::Production
         {
             roots.insert(index);
         }

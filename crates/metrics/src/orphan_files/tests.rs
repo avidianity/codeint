@@ -197,6 +197,61 @@ fn excludes_generated_and_vendored_source_sets() {
 }
 
 #[test]
+fn generated_and_vendored_entry_points_do_not_activate_orphan_detection() {
+    let single = build_model(
+        &[
+            ("app/main.ts", SourceSet::Production),
+            ("app/util.ts", SourceSet::Production),
+            ("app/types.g.ts", SourceSet::Generated),
+            ("vendor/pkg.ts", SourceSet::Vendored),
+        ],
+        &[],
+        &[],
+    );
+    for candidates in [
+        vec![repo_path("app/types.g.ts")],
+        vec![repo_path("vendor/pkg.ts")],
+        vec![repo_path("app/types.g.ts"), repo_path("vendor/pkg.ts")],
+    ] {
+        assert!(OrphanFiles::measure(&single, &candidates).is_none());
+    }
+
+    let workspace = build_model(
+        &[
+            ("mods/web/main.ts", SourceSet::Production),
+            ("mods/web/unused.ts", SourceSet::Production),
+            ("mods/gen/service.ts", SourceSet::Production),
+            ("mods/gen/router.g.ts", SourceSet::Generated),
+            ("mods/gen/vendor/entry.ts", SourceSet::Vendored),
+        ],
+        &[],
+        &["mods/web", "mods/gen"],
+    );
+    let measured = OrphanFiles::measure(
+        &workspace,
+        &[
+            repo_path("mods/web/main.ts"),
+            repo_path("mods/gen/router.g.ts"),
+            repo_path("mods/gen/vendor/entry.ts"),
+        ],
+    )
+    .expect("production root activates detection");
+
+    assert_eq!(
+        (
+            measured.entry_points(),
+            measured.evaluated_files(),
+            orphan_paths(&measured),
+        ),
+        (
+            &[repo_path("mods/web/main.ts")][..],
+            2,
+            vec!["mods/web/unused.ts"],
+        )
+    );
+}
+
+#[test]
 fn traverses_cross_package_imports_and_skips_unrooted_isolated_packages() {
     let model = build_model(
         &[

@@ -88,3 +88,22 @@ fn returns_empty_when_pyproject_declares_no_entry_points_or_is_invalid() {
         Vec::<RepoPath>::new()
     );
 }
+
+#[test]
+fn rejects_parent_traversal_in_nested_pyproject_entries() {
+    let repo = [
+        "packages/app/pyproject.toml",
+        "packages/app/src/app/__init__.py",
+        "packages/other/secret/__init__.py",
+        "packages/other/secret.py",
+    ]
+    .map(|item| RepoPath::new(item).unwrap());
+    let pyproject = Manifest {
+        path: "packages/app/pyproject.toml".to_owned(),
+        text: "[project]\nname = \"app\"\n[project.scripts]\nescape = \"../other.secret:main\"\ndotted = \"..other.secret:main\"\n[tool.setuptools]\npackages = [\"../other/secret\"]\n[tool.hatch.build.targets.wheel]\npackages = [\"src/../../other/secret\"]\n[tool.poetry]\npackages = [{ include = \"../other/secret\" }, { include = \"secret\", from = \"../other\" }, { include = \"app\", from = \"src\" }]\n".to_owned(),
+    };
+    assert_eq!(
+        Python.entry_points(&repo, vec![pyproject]).unwrap(),
+        [RepoPath::new("packages/app/src/app/__init__.py").unwrap()]
+    );
+}

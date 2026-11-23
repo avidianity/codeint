@@ -202,7 +202,11 @@ fn resolve_package_dir(
     found: &mut BTreeSet<String>,
 ) {
     let trimmed = pkg.trim();
-    if trimmed.is_empty() || trimmed.starts_with('/') || trimmed.contains('\\') {
+    if trimmed.is_empty()
+        || trimmed.starts_with('/')
+        || trimmed.contains('\\')
+        || trimmed.split('/').any(|segment| segment == "..")
+    {
         return;
     }
     let rel_pkg = if trimmed.contains('/') {
@@ -221,7 +225,14 @@ fn resolve_package_dir(
 
 fn candidate_package_roots(base_dir: &str, from: Option<&str>, has_slash: bool) -> Vec<String> {
     if let Some(from_dir) = from {
-        return normalize_relative_path(base_dir, from_dir.trim())
+        let trimmed = from_dir.trim();
+        if trimmed.starts_with('/')
+            || trimmed.contains('\\')
+            || trimmed.split('/').any(|segment| segment == "..")
+        {
+            return Vec::new();
+        }
+        return normalize_relative_path(base_dir, trimmed)
             .into_iter()
             .collect();
     }

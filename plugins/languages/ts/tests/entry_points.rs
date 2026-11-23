@@ -129,3 +129,92 @@ fn returns_empty_when_package_json_declares_no_entry_points_or_is_invalid() {
         );
     }
 }
+
+fn discover_ts(paths: &[&str], manifests: &[(&str, &str)]) -> Vec<String> {
+    let repo: Vec<RepoPath> = paths.iter().map(|p| RepoPath::new(*p).unwrap()).collect();
+    let specs = manifests
+        .iter()
+        .map(|(path, text)| Manifest {
+            path: (*path).into(),
+            text: (*text).into(),
+        })
+        .collect();
+    TypeScriptAndJavaScript
+        .entry_points(&repo, specs)
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.as_str().to_owned())
+        .collect()
+}
+
+#[test]
+fn rejects_parent_traversal_in_nested_package_json_entries() {
+    let app_pkg = r#"{
+        "name": "@demo/app",
+        "main": "../other/secret.ts",
+        "module": "./../other/secret.ts",
+        "bin": { "bad": "../other/bin.js" },
+        "exports": {
+            ".": "./src/index.ts",
+            "./escape": "../other/secret.ts",
+            "./wild/*": "../other/wild/*.ts",
+            "./dotdot/*": "./../*.ts"
+        }
+    }"#;
+    let found = discover_ts(
+        &[
+            "packages/app/package.json",
+            "packages/app/src/index.ts",
+            "packages/other/secret.ts",
+            "packages/other/bin.js",
+            "packages/other/wild/a.ts",
+        ],
+        &[("packages/app/package.json", app_pkg)],
+    );
+    assert_eq!(found, ["packages/app/src/index.ts"]);
+}
+
+#[test]
+fn subtracts_null_excluded_subpaths_from_wildcard_exports() {
+    let root_pkg = r#"{
+        "name": "demo",
+        "exports": {
+            "./*": { "import": "./src/*.js" },
+            "./secret": null,
+            "./internal/*": null,
+            "./internal/public/*": "./src/internal/public/*.ts"
+        }
+    }"#;
+    let lib_pkg = r#"{
+        "name": "@demo/lib",
+        "exports": {
+            "./*.js": "./src/*.ts",
+            "./private/*.js": null
+        }
+    }"#;
+    let found = discover_ts(
+        &[
+            "package.json",
+            "src/public.ts",
+            "src/secret.ts",
+            "src/internal/helper.ts",
+            "src/internal/deep/util.ts",
+            "src/internal/public/api.ts",
+            "packages/lib/package.json",
+            "packages/lib/src/open.ts",
+            "packages/lib/src/private/hidden.ts",
+        ],
+        &[
+            ("package.json", root_pkg),
+            ("packages/lib/package.json", lib_pkg),
+        ],
+    );
+    assert_eq!(
+        found,
+        [
+            "packages/lib/src/open.ts",
+            "src/internal/public/api.ts",
+            "src/public.ts",
+        ]
+    );
+}

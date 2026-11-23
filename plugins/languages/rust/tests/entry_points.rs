@@ -104,3 +104,52 @@ fn handles_root_crate_empty_targets_and_invalid_manifests() {
         );
     }
 }
+
+fn cargo_entries(paths: &[&str], manifest_path: &str, text: &str) -> Vec<String> {
+    let repo: Vec<RepoPath> = paths
+        .iter()
+        .map(|raw| RepoPath::new(*raw).unwrap())
+        .collect();
+    Rust.entry_points(
+        &repo,
+        vec![Manifest {
+            path: manifest_path.into(),
+            text: text.into(),
+        }],
+    )
+    .unwrap()
+    .into_iter()
+    .map(|entry| entry.as_str().to_owned())
+    .collect()
+}
+
+#[test]
+fn rejects_parent_traversal_in_nested_cargo_paths_and_bin_names() {
+    let entries = cargo_entries(
+        &[
+            "crates/app/Cargo.toml",
+            "crates/app/src/main.rs",
+            "crates/app/src/secret.rs",
+            "crates/app/src/bin/sub/tool.rs",
+            "crates/other/src/lib.rs",
+            "crates/other/src/main.rs",
+        ],
+        "crates/app/Cargo.toml",
+        "[package]\nname = \"app\"\nautolib = false\nautobins = false\n[lib]\npath = \"../other/src/lib.rs\"\n[[bin]]\nname = \"escape_path\"\npath = \"../other/src/main.rs\"\n[[bin]]\nname = \"../secret\"\n[[bin]]\nname = \"../../other/src/main\"\n[[bin]]\nname = \"sub/tool\"\n[[bin]]\nname = \"..\"\n",
+    );
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn includes_default_lib_when_autolib_is_false_and_lib_table_has_no_path() {
+    let entries = cargo_entries(
+        &[
+            "crates/explicit_lib/Cargo.toml",
+            "crates/explicit_lib/src/lib.rs",
+            "crates/explicit_lib/src/main.rs",
+        ],
+        "crates/explicit_lib/Cargo.toml",
+        "[package]\nname = \"explicit_lib\"\nautolib = false\nautobins = false\n[lib]\ncrate-type = [\"cdylib\"]\n",
+    );
+    assert_eq!(entries, ["crates/explicit_lib/src/lib.rs"]);
+}

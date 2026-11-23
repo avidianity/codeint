@@ -74,3 +74,25 @@ fn returns_empty_when_composer_manifest_has_no_bin_or_is_invalid() {
         .sum::<usize>();
     assert_eq!(empty_count, 0);
 }
+
+#[test]
+fn rejects_parent_traversal_in_nested_composer_bin() {
+    let files = [
+        RepoPath::new("packages/cli/composer.json").unwrap(),
+        RepoPath::new("packages/cli/bin/run.php").unwrap(),
+        RepoPath::new("packages/other/secret.php").unwrap(),
+    ];
+    let entries = Php
+        .entry_points(
+            &files,
+            vec![Manifest {
+                path: "packages/cli/composer.json".into(),
+                text: r#"{"name": "acme/cli", "bin": ["../other/secret.php", "./../other/secret.php", "bin/../../other/secret.php", "bin/run.php"]}"#.into(),
+            }],
+        )
+        .expect("entry points");
+    assert_eq!(
+        entries,
+        [RepoPath::new("packages/cli/bin/run.php").unwrap()]
+    );
+}

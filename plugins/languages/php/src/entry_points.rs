@@ -44,7 +44,11 @@ fn bin_strings(value: &Value) -> Vec<String> {
 
 fn resolve_composer_bin(base_dir: &str, raw: &str, available: &HashSet<&str>) -> Option<String> {
     let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed.starts_with('/') || trimmed.contains('\\') {
+    if trimmed.is_empty()
+        || trimmed.starts_with('/')
+        || trimmed.contains('\\')
+        || trimmed.split('/').any(|segment| segment == "..")
+    {
         return None;
     }
     let normalized = normalize_relative_path(base_dir, trimmed)?;
