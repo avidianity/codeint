@@ -184,21 +184,46 @@ fn stage_and_pack_all(workspace: &Path) -> (PathBuf, PathBuf, Vec<PathBuf>) {
     let cache_dir = workspace.join("npm-cache");
     fs::create_dir_all(&cache_dir).expect("create npm cache folder");
 
-    let wrapper_tarball = pack_package(&npm_copy.join("codeint"), &tarballs_dir, &cache_dir);
-    let mut all_tarballs = vec![wrapper_tarball.clone()];
-    let mut host_tarball = None;
-
+    let mut targets: Vec<(&str, PathBuf)> = Vec::with_capacity(1 + PLATFORMS.len());
+    targets.push(("wrapper", npm_copy.join("codeint")));
     for platform in PLATFORMS {
-        let package_dir = npm_copy.join("platforms").join(platform.folder);
-        let tarball = pack_package(&package_dir, &tarballs_dir, &cache_dir);
-        if platform.folder == host.folder {
+        targets.push((
+            platform.folder,
+            npm_copy.join("platforms").join(platform.folder),
+        ));
+    }
+
+    let packed: Vec<(&str, PathBuf)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = targets
+            .into_iter()
+            .map(|(label, package_dir)| {
+                let pkg_cache = cache_dir.join(label);
+                fs::create_dir_all(&pkg_cache).expect("create per-package npm cache folder");
+                let tarballs_dir = &tarballs_dir;
+                scope.spawn(move || (label, pack_package(&package_dir, tarballs_dir, &pkg_cache)))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("npm pack thread"))
+            .collect()
+    });
+
+    let mut wrapper_tarball = None;
+    let mut host_tarball = None;
+    let mut all_tarballs = Vec::with_capacity(packed.len());
+    for (label, tarball) in packed {
+        if label == "wrapper" {
+            wrapper_tarball = Some(tarball.clone());
+        }
+        if label == host.folder {
             host_tarball = Some(tarball.clone());
         }
         all_tarballs.push(tarball);
     }
 
     (
-        wrapper_tarball,
+        wrapper_tarball.expect("wrapper tarball"),
         host_tarball.expect("host platform tarball"),
         all_tarballs,
     )

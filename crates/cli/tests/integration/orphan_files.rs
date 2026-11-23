@@ -1,11 +1,10 @@
-mod common;
-
 use std::path::Path;
 use std::process::Command;
 
-use common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 use serde_json::{Value, json};
 use tempfile::TempDir;
+
+use crate::common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 
 fn run_codeint(dir: &Path, cache_dir: Option<&Path>, args: &[&str], expected_code: i32) -> String {
     let mut command = Command::new(env!("CARGO_BIN_EXE_codeint"));
