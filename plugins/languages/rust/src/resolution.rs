@@ -5,7 +5,7 @@ use codeint_model::scan::normalize_relative_path;
 use toml::Value;
 
 use crate::dependencies::normalize_crate_name;
-use crate::imports::{MOD_PATH_PREFIX, MOD_PREFIX, PATH_PREFIX, USE_PREFIX};
+use crate::imports::{MOD_PATH_PREFIX, MOD_PREFIX, PATH_PREFIX, USE_LOCAL_PREFIX, USE_PREFIX};
 use crate::workspaces::{CARGO_MANIFEST, workspace_members_under};
 
 const STD_CRATES: [&str; 5] = ["std", "core", "alloc", "proc_macro", "test"];
@@ -113,8 +113,13 @@ impl RustResolver {
         if let Some(mod_name) = request.specifier.strip_prefix(MOD_PREFIX) {
             return self.resolve_mod(&request.importer, mod_name);
         }
-        if let Some(use_spec) = request.specifier.strip_prefix(USE_PREFIX) {
-            let (use_path, _) = split_use_alias(use_spec);
+        if let Some(use_spec) = request
+            .specifier
+            .strip_prefix(USE_PREFIX)
+            .or_else(|| request.specifier.strip_prefix(USE_LOCAL_PREFIX))
+        {
+            let (raw_path, _) = split_use_alias(use_spec);
+            let use_path = strip_glob_suffix(raw_path);
             let mut visited = HashSet::new();
             return self
                 .resolve_use(&request.importer, &request.importer, use_path, &mut visited)
@@ -204,33 +209,30 @@ impl RustResolver {
             return Some(Resolution::Builtin);
         }
         match head {
-            "crate" => {
-                let Some(src_dir) = self.crate_src_dir(context_file) else {
-                    return Some(Resolution::Builtin);
-                };
-                self.resolve_longest_module(original_importer, &src_dir, &segments[1..], visited)
-            }
-            "self" => {
-                let dir = self.module_child_dir(context_file);
-                self.resolve_longest_module(original_importer, &dir, &segments[1..], visited)
-            }
-            "super" => {
-                let mut current = module_parent_dir(context_file);
-                let mut idx = 1usize;
-                while idx < segments.len() && segments[idx] == "super" {
-                    current = parent_dir(&current);
-                    idx += 1;
-                }
-                if idx == segments.len() {
-                    return Some(
-                        self.resolve_dir_to_file(&current)
-                            .map_or(Resolution::Builtin, |target| {
-                                self.finalize_intra_crate_target(original_importer, target)
-                            }),
-                    );
-                }
-                self.resolve_longest_module(original_importer, &current, &segments[idx..], visited)
-            }
+            "crate" => match self.unambiguous_mod_root(context_file) {
+                Some(root_file) => self.resolve_in_module_file(
+                    original_importer,
+                    root_file,
+                    &segments[1..],
+                    visited,
+                ),
+                None => match self.crate_src_dir(context_file) {
+                    Some(src_dir) => self.resolve_longest_module(
+                        original_importer,
+                        &src_dir,
+                        &segments[1..],
+                        visited,
+                    ),
+                    None => Some(Resolution::Builtin),
+                },
+            },
+            "self" => self.resolve_in_module_file(
+                original_importer,
+                context_file,
+                &segments[1..],
+                visited,
+            ),
+            "super" => self.resolve_super_use(original_importer, context_file, &segments, visited),
             _ => self.resolve_top_level_use(
                 original_importer,
                 context_file,
@@ -239,6 +241,83 @@ impl RustResolver {
                 visited,
             ),
         }
+    }
+
+    fn resolve_super_use(
+        &self,
+        original_importer: &str,
+        context_file: &str,
+        segments: &[&str],
+        visited: &mut HashSet<(String, String)>,
+    ) -> Option<Resolution> {
+        let super_count = segments.iter().take_while(|&&seg| seg == "super").count();
+        let rest = &segments[super_count..];
+        let (current_file, taken) = self.walk_mod_parents(context_file, super_count);
+        if taken == super_count {
+            return self.resolve_in_module_file(original_importer, current_file, rest, visited);
+        }
+        let mut current_dir = module_parent_dir(current_file);
+        for _ in (taken + 1)..super_count {
+            current_dir = parent_dir(&current_dir);
+        }
+        if rest.is_empty() {
+            return Some(
+                self.resolve_dir_to_file(&current_dir)
+                    .map_or(Resolution::Builtin, |target| {
+                        self.finalize_intra_crate_target(original_importer, target)
+                    }),
+            );
+        }
+        self.resolve_longest_module(original_importer, &current_dir, rest, visited)
+    }
+
+    fn walk_mod_parents<'a>(&'a self, start: &'a str, max_steps: usize) -> (&'a str, usize) {
+        let mut current = start;
+        let mut seen = HashSet::new();
+        seen.insert(current);
+        let mut taken = 0usize;
+        while taken < max_steps {
+            let Some(parents) = self.mod_parents.get(current) else {
+                break;
+            };
+            if parents.len() != 1 {
+                break;
+            }
+            let parent = parents[0].as_str();
+            if !seen.insert(parent) {
+                break;
+            }
+            current = parent;
+            taken += 1;
+        }
+        (current, taken)
+    }
+
+    fn unambiguous_mod_root<'a>(&'a self, file: &'a str) -> Option<&'a str> {
+        let (top, steps) = self.walk_mod_parents(file, usize::MAX);
+        if self.mod_parents.contains_key(top) {
+            return None;
+        }
+        if steps > 0 {
+            self.is_crate_root_file(top).then_some(top)
+        } else {
+            self.is_primary_crate_root_file(top).then_some(top)
+        }
+    }
+
+    fn is_primary_crate_root_file(&self, file: &str) -> bool {
+        let file_name = file.rsplit_once('/').map_or(file, |(_, name)| name);
+        self.target_root_files.contains(file)
+            || matches!(file_name, "lib.rs" | "main.rs" | "build.rs")
+    }
+
+    fn is_crate_root_file(&self, file: &str) -> bool {
+        if self.is_primary_crate_root_file(file) {
+            return true;
+        }
+        let dir = parent_dir(file);
+        let parent_name = dir.rsplit_once('/').map_or(dir.as_str(), |(_, name)| name);
+        matches!(parent_name, "tests" | "benches" | "examples" | "bin")
     }
 
     fn resolve_top_level_use(
@@ -257,13 +336,7 @@ impl RustResolver {
             return match lib_target {
                 Some(path) if path == original_importer => Some(Resolution::Builtin),
                 Some(path) if self.is_mod_ancestor(original_importer, path) => {
-                    let src_dir = parent_dir(path);
-                    self.resolve_longest_module(
-                        original_importer,
-                        &src_dir,
-                        &segments[1..],
-                        visited,
-                    )
+                    self.resolve_in_module_file(original_importer, path, &segments[1..], visited)
                 }
                 Some(path) => Some(Resolution::Resolved(path.to_owned())),
                 None => Some(Resolution::Builtin),
@@ -322,6 +395,22 @@ impl RustResolver {
         ""
     }
 
+    fn resolve_in_module_file(
+        &self,
+        original_importer: &str,
+        module_file: &str,
+        segments: &[&str],
+        visited: &mut HashSet<(String, String)>,
+    ) -> Option<Resolution> {
+        let child_dir = self.module_child_dir(module_file);
+        if let Some(resolution) =
+            self.resolve_existing_submodule(original_importer, &child_dir, segments, visited)
+        {
+            return Some(resolution);
+        }
+        self.resolve_module_reexport_or_self(original_importer, module_file, segments, visited)
+    }
+
     fn resolve_longest_module(
         &self,
         original_importer: &str,
@@ -334,17 +423,27 @@ impl RustResolver {
         {
             return Some(resolution);
         }
-        if let Some(root_file) = self.resolve_dir_to_file(base_dir) {
-            if !segments.is_empty() {
-                match self.follow_reexport(original_importer, &root_file, segments, visited) {
-                    ReexportFollow::Resolved(followed) => return Some(followed),
-                    ReexportFollow::Cycle => return None,
-                    ReexportFollow::NotFound => {}
-                }
+        let Some(root_file) = self.resolve_dir_to_file(base_dir) else {
+            return Some(Resolution::Builtin);
+        };
+        self.resolve_module_reexport_or_self(original_importer, &root_file, segments, visited)
+    }
+
+    fn resolve_module_reexport_or_self(
+        &self,
+        original_importer: &str,
+        module_file: &str,
+        segments: &[&str],
+        visited: &mut HashSet<(String, String)>,
+    ) -> Option<Resolution> {
+        if !segments.is_empty() {
+            match self.follow_reexport(original_importer, module_file, segments, visited) {
+                ReexportFollow::Resolved(followed) => return Some(followed),
+                ReexportFollow::Cycle => return None,
+                ReexportFollow::NotFound => {}
             }
-            return Some(self.finalize_intra_crate_target(original_importer, root_file));
         }
-        Some(Resolution::Builtin)
+        Some(self.finalize_intra_crate_target(original_importer, module_file.to_owned()))
     }
 
     fn resolve_existing_submodule(
@@ -834,6 +933,10 @@ fn split_use_alias(use_spec: &str) -> (&str, Option<&str>) {
     }
 }
 
+fn strip_glob_suffix(use_path: &str) -> &str {
+    use_path.strip_suffix("::*").unwrap_or(use_path)
+}
+
 fn strip_raw_prefix(segment: &str) -> &str {
     segment.strip_prefix("r#").unwrap_or(segment)
 }
@@ -844,7 +947,7 @@ fn record_use_binding(
     bindings: &mut HashMap<String, HashMap<String, Option<String>>>,
 ) {
     let (use_path, explicit_alias) = split_use_alias(use_spec);
-    if explicit_alias == Some("_") {
+    if explicit_alias == Some("_") || use_path.ends_with("::*") || use_path == "*" {
         return;
     }
     let bound_name = match explicit_alias {
