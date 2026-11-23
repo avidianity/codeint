@@ -398,7 +398,7 @@ fn first_two_plugin_names(
     (names[0].to_owned(), names[1].to_owned())
 }
 
-fn read_manifests(
+pub(crate) fn read_manifests(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
 ) -> Result<Vec<Vec<Manifest>>, CheckError> {
@@ -419,7 +419,7 @@ fn read_manifests(
         .collect()
 }
 
-fn find_workspace(
+pub(crate) fn find_workspace(
     plugins: &[NamedLanguagePlugin<'_>],
     manifests_by_plugin: &[Vec<Manifest>],
 ) -> Result<Workspace, CheckError> {

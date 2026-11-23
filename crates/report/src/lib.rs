@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use codeint_config::{
-    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
-    FindingsShown, ReportFormat,
+    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets, DoctorFormat,
+    FindingsShown, GuardFormat, ReportFormat,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
@@ -20,6 +20,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod config;
 mod diff;
+mod doctor;
 mod guard;
 mod markdown;
 mod measurement;
@@ -32,6 +33,7 @@ mod trend;
 
 pub use config::ConfigReport;
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
+pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use measurement::CommitMeasurement;
 pub use saved::{SavedReport, SavedReportError};
@@ -59,6 +61,44 @@ pub(crate) fn encode_toon<T: Serialize>(value: &T) -> Result<String, ReportError
 
 pub(crate) fn encode_json<T: Serialize>(value: &T) -> Result<String, ReportError> {
     serde_json::to_string_pretty(value).map_err(ReportError::Json)
+}
+
+pub(crate) enum StructuredFormat {
+    Text,
+    Json,
+    Toon,
+}
+
+impl From<DoctorFormat> for StructuredFormat {
+    fn from(format: DoctorFormat) -> StructuredFormat {
+        match format {
+            DoctorFormat::Text => StructuredFormat::Text,
+            DoctorFormat::Json => StructuredFormat::Json,
+            DoctorFormat::Toon => StructuredFormat::Toon,
+        }
+    }
+}
+
+impl From<GuardFormat> for StructuredFormat {
+    fn from(format: GuardFormat) -> StructuredFormat {
+        match format {
+            GuardFormat::Text => StructuredFormat::Text,
+            GuardFormat::Json => StructuredFormat::Json,
+            GuardFormat::Toon => StructuredFormat::Toon,
+        }
+    }
+}
+
+pub(crate) fn render_structured<T: Serialize>(
+    value: &T,
+    format: impl Into<StructuredFormat>,
+    render_text: impl FnOnce(&T) -> String,
+) -> Result<String, ReportError> {
+    match format.into() {
+        StructuredFormat::Text => Ok(render_text(value)),
+        StructuredFormat::Json => encode_json(value),
+        StructuredFormat::Toon => encode_toon(value),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

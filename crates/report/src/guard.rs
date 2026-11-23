@@ -6,7 +6,7 @@ use codeint_config::{
 use codeint_model::RepoPath;
 use serde::Serialize;
 
-use crate::ReportError;
+use crate::{ReportError, render_structured};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GuardReport {
@@ -161,11 +161,7 @@ impl GuardReport {
     }
 
     pub fn render(&self, format: GuardFormat) -> Result<String, ReportError> {
-        match format {
-            GuardFormat::Text => Ok(self.render_text()),
-            GuardFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
-            GuardFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
-        }
+        render_structured(self, format, GuardReport::render_text)
     }
 
     fn render_text(&self) -> String {

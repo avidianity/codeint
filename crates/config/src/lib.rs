@@ -21,9 +21,10 @@ pub use cli_schema::{
     CliArgumentSchema, CliCommandSchema, CliFlagSchema, CliSchema, OutputFormatSchema, cli_schema,
 };
 pub use codeint_json::{
-    Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
-    PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
-    StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
+    Budget, Budgets, Configuration, ConfigurationInspection, DetectedLanguage, LanguageCoverage,
+    Languages, PluginDeclaration, PluginKind, PluginLimits, PluginSource, SchemaVersionStatus,
+    Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
+    inspect_configuration, published_schema_address, read_configuration,
     read_resolved_configuration, write_starter_configuration,
 };
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
@@ -153,6 +154,13 @@ pub enum ConfigFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum DoctorFormat {
+    Text,
+    Json,
+    Toon,
+}
+
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +227,11 @@ pub enum Command {
         input: ReportInput,
         destination: ReportDestination,
         format: ReportRenderFormat,
+    },
+    Doctor {
+        folder: PathBuf,
+        format: DoctorFormat,
+        plugin_host: PluginHostConfig,
     },
 }
 
@@ -419,6 +432,20 @@ enum CommandArguments {
         )]
         format: ReportRenderFormat,
     },
+    #[command(
+        about = "Run read-only diagnostics on codeint.json, Git repository status, detected languages, Workspace packages, and external Wasm Plugins"
+    )]
+    Doctor {
+        #[arg(help = "A folder to inspect; the current folder by default")]
+        path: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = DoctorFormat::Text,
+            help = "The format of the output"
+        )]
+        format: DoctorFormat,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -506,6 +533,11 @@ fn build_command(
             output,
             format,
         } => build_report_command(current_folder, input, output, format),
+        CommandArguments::Doctor { path, format } => Ok(Command::Doctor {
+            folder: existing_folder(current_folder, path)?,
+            format,
+            plugin_host: plugin_host_config_of_this_process(current_folder),
+        }),
     }
 }
 

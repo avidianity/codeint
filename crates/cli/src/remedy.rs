@@ -122,7 +122,7 @@ fn config_remedy(error: &ConfigError) -> &'static str {
     }
 }
 
-fn git_remedy(error: &GitError) -> &'static str {
+pub(crate) fn git_remedy(error: &GitError) -> &'static str {
     match error {
         GitError::NotInRepository { .. } => {
             "Run codeint inside a Git repository, or pass a folder inside one: codeint check <path>"
@@ -171,7 +171,7 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
     }
 }
 
-fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
+pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
     plugin_config_remedy(error)
         .or_else(|| boundary_config_remedy(error))
         .or_else(|| file_access_remedy(error))

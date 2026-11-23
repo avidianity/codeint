@@ -33,6 +33,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
 | `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
 | `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
+| `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -590,12 +591,34 @@ An input file that does not exist, malformed JSON, or an unsupported report sche
 codeint report missing.json --format sarif
 ```
 
+### `codeint doctor`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]` | A folder to inspect; the current folder by default |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
+| `-h, --help` | Print the help of `codeint doctor` |
+
+`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths and SHA-256 digests.
+It separates passing checks, warnings, and blocking errors, exiting with code 0 when no blocking error is found and code 1 when at least one blocking error is found.
+
+```sh exit=0
+codeint doctor
+codeint doctor src
+codeint doctor --format text
+codeint doctor --format json
+codeint doctor --format toon
+```
+
 ## Exit codes
 
 | Exit code | Meaning |
 | --------- | ------- |
-| `0` | The run succeeded, and no Budget or Regression failed |
-| `1` | The run succeeded, and at least one Budget or Regression failed; codeint still writes the whole report and names each failure on standard error |
+| `0` | The run succeeded, and no Budget, Regression, or blocking doctor error failed |
+| `1` | The run succeeded, and at least one Budget, Regression, or blocking doctor error failed; codeint still writes the whole report and names each failure on standard error |
 | `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, or an invalid `codeint.json`; codeint names the error on standard error |
 
 ## `codeint.json`

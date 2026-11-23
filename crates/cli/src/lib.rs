@@ -4,6 +4,7 @@ mod check;
 mod commit_measurement;
 mod config;
 mod diff;
+mod doctor;
 mod guard;
 mod init;
 mod mcp;
@@ -26,11 +27,13 @@ use codeint_git::ResultCache;
 use codeint_report::{ExitCodeSchema, ReportError};
 
 pub use codeint_config::{
-    BudgetOverride, CalendarDay, ConfigFormat, ConfigOverrides, FindingsShown, GuardFormat,
-    PluginHostConfig, ReportFormat, SchemaFormat, SourceSetOverride, TrendFormat, TrendRange,
+    BudgetOverride, CalendarDay, ConfigFormat, ConfigOverrides, DoctorFormat, FindingsShown,
+    GuardFormat, PluginHostConfig, ReportFormat, SchemaFormat, SourceSetOverride, TrendFormat,
+    TrendRange,
 };
 pub use codeint_report::{
-    ConfigReport, DiffReport, GuardReport, Report, SavedReport, SchemaReport, TrendReport,
+    ConfigReport, DiffReport, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary, GuardReport,
+    Report, SavedReport, SchemaReport, TrendReport,
 };
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
@@ -212,6 +215,10 @@ pub fn resolved_config(
         .map_err(|err| CodeintError::from_cli_error(CliError::ConfigCommand(err)))
 }
 
+pub fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
+    doctor::doctor(folder, plugin_host)
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
@@ -367,6 +374,11 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             format,
         } => run_report(&input, &destination, format),
+        Command::Doctor {
+            folder,
+            format,
+            plugin_host,
+        } => run_doctor(&folder, format, &plugin_host),
     }
 }
 
@@ -394,6 +406,16 @@ fn run_report(
     let rendered = report::rerender(input, format)?;
     write_report(&rendered, destination)?;
     Ok(Outcome::Passed)
+}
+
+fn run_doctor(
+    folder: &Path,
+    format: DoctorFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = doctor::doctor(folder, plugin_host);
+    print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::from_failures(report.blocking_error_messages()))
 }
 
 fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {
