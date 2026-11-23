@@ -1,5 +1,5 @@
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, CloneLocation, DuplicationSection,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation, DuplicationSection,
     ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
     ImportCycleFinding, ImportCyclesSection, MeasuredSection, PackageSection, ReferenceRangeEntry,
     Report, SourceSetSection, SourceSetSections, UnresolvedImportRow, VerbositySection,
@@ -80,6 +80,18 @@ pub(crate) const ERODED_FUNCTION: Noun = Noun {
 pub(crate) const CLONE_GROUP: Noun = Noun {
     one: "Clone group",
     many: "Clone groups",
+};
+pub(crate) const CLONE_FAMILY: Noun = Noun {
+    one: "Clone family",
+    many: "Clone families",
+};
+const DUPLICATED_LINE: Noun = Noun {
+    one: "duplicated line",
+    many: "duplicated lines",
+};
+const LOCATION: Noun = Noun {
+    one: "location",
+    many: "locations",
 };
 pub(crate) const IMPORT_CYCLE: Noun = Noun {
     one: "Import cycle",
@@ -375,6 +387,13 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
     );
     push_findings(
         &mut blocks,
+        "Clone families",
+        &section.duplication.clone_families,
+        &CLONE_FAMILY,
+        |listed| list(listed.iter().map(clone_family_item)),
+    );
+    push_findings(
+        &mut blocks,
         "Verbosity",
         &section.verbosity.findings,
         &FLAGGED_LINE,
@@ -470,6 +489,17 @@ pub(crate) fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<Strin
 pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     let locations: Vec<String> = group.locations.iter().map(clone_location).collect();
     format!("{} tokens: {}", group.tokens, locations.join(", "))
+}
+
+pub(crate) fn clone_family_item(family: &CloneFamilyFinding) -> String {
+    let locations: Vec<String> = family.locations.iter().map(clone_location).collect();
+    format!(
+        "{} across {} ({}): {}",
+        DUPLICATED_LINE.counted(family.duplicated_lines),
+        LOCATION.counted(family.locations.len() as u64),
+        CLONE_GROUP.counted(family.clone_group_ids.len() as u64),
+        locations.join(", "),
+    )
 }
 
 fn clone_location(location: &CloneLocation) -> String {

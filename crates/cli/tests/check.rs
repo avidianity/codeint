@@ -4740,3 +4740,198 @@ fn built_in_dart_plugin_measures_pub_workspace_metrics_and_cycles() {
     repository.commit_all();
     assert_built_in_workspace_cycle_report(&repository, 2, "packages/mobile");
 }
+
+fn family_location_ranges(family: &serde_json::Value) -> Vec<(&str, u64, u64)> {
+    family["locations"]
+        .as_array()
+        .expect("locations")
+        .iter()
+        .map(|entry| {
+            (
+                entry["path"].as_str().expect("path"),
+                entry["start_line"].as_u64().expect("start_line"),
+                entry["end_line"].as_u64().expect("end_line"),
+            )
+        })
+        .collect()
+}
+
+fn sarif_duplication_ids(sarif_output: &Output) -> Vec<String> {
+    let sarif: serde_json::Value =
+        serde_json::from_str(&stdout(sarif_output)).expect("SARIF parses");
+    sarif["runs"][0]["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter(|result| result["ruleId"] == "duplication")
+        .map(|result| {
+            result["partialFingerprints"]["codeintFindingId"]
+                .as_str()
+                .expect("codeintFindingId")
+                .to_owned()
+        })
+        .collect()
+}
+
+fn repo_with_files(files: &[(&str, String)]) -> Repository {
+    let repository = Repository::new();
+    for (path, content) in files {
+        repository.write(path, content);
+    }
+    repository.commit_all();
+    repository
+}
+
+fn check_json_and_sarif_duplication_ids(
+    repository: &Repository,
+) -> (serde_json::Value, Vec<String>) {
+    let json_output = repository.codeint(&["check", "--format", "json"]);
+    let sarif_output = repository.codeint(&["check", "--format", "sarif"]);
+    assert_success(&json_output);
+    assert_success(&sarif_output);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout(&json_output)).expect("JSON parses");
+    (report, sarif_duplication_ids(&sarif_output))
+}
+
+fn with_currency(code: &str, body: &str) -> String {
+    format!("const currency = '{code}';\n{body}")
+}
+
+fn production_duplication_and_families(
+    report: &serde_json::Value,
+) -> (&serde_json::Value, &[serde_json::Value]) {
+    let duplication = &report["source_sets"]["production"]["duplication"];
+    let families = duplication["clone_families"]
+        .as_array()
+        .expect("clone_families array");
+    (duplication, families.as_slice())
+}
+
+fn clone_family_ids(report: &serde_json::Value) -> Vec<String> {
+    let (_, families) = production_duplication_and_families(report);
+    families
+        .iter()
+        .map(|family| family["id"].as_str().expect("id").to_owned())
+        .collect()
+}
+
+fn check_clone_families_fixture(
+    files: &[(&str, String)],
+) -> (Repository, serde_json::Value, Vec<String>) {
+    let repository = repo_with_files(files);
+    let (report, sarif_ids) = check_json_and_sarif_duplication_ids(&repository);
+    (repository, report, sarif_ids)
+}
+
+fn three_cart_files(zeta_currency: Option<&str>) -> Vec<(&'static str, String)> {
+    let zeta = match zeta_currency {
+        Some(code) => with_currency(code, CART_TOTAL),
+        None => CART_TOTAL.to_owned(),
+    };
+    vec![
+        ("src/zeta.ts", zeta),
+        ("src/mid.ts", with_currency("EUR", ORDER_TOTAL_RENAMED)),
+        ("src/alpha.ts", CART_TOTAL.to_owned()),
+    ]
+}
+
+#[test]
+fn three_plus_copies_cluster_into_worst_first_clone_families_across_formats_with_stable_ids() {
+    let mut files = three_cart_files(None);
+    files.extend([
+        ("src/area_c.ts", AREA_OF_75_TOKENS.to_owned()),
+        ("src/area_a.ts", AREA_OF_75_TOKENS.to_owned()),
+        ("src/area_b.ts", AREA_OF_75_TOKENS.to_owned()),
+    ]);
+    let (repository, report, sarif_ids) = check_clone_families_fixture(&files);
+    let toon_output = repository.codeint(&["check"]);
+    let markdown_output = repository.codeint(&["check", "--format", "markdown"]);
+    assert_success(&toon_output);
+    assert_success(&markdown_output);
+
+    let (duplication, families) = production_duplication_and_families(&report);
+    let verbosity = &report["source_sets"]["production"]["verbosity"];
+    assert_eq!(duplication["clone_lines"], 57);
+    assert_eq!(duplication["ratio"], 0.9828);
+    assert_eq!(verbosity["clone_lines"], 57);
+    assert_eq!(verbosity["ratio"], 0.9828);
+    assert_eq!(duplication["reference_range"]["low"], 0.017);
+    assert_eq!(duplication["reference_range"]["high"], 0.346);
+
+    assert_eq!(families.len(), 2);
+    assert_eq!(families[0]["duplicated_lines"], 30);
+    assert_eq!(families[1]["duplicated_lines"], 27);
+    assert_eq!(
+        family_location_ranges(&families[0]),
+        [
+            ("src/area_a.ts", 1, 10),
+            ("src/area_b.ts", 1, 10),
+            ("src/area_c.ts", 1, 10),
+        ]
+    );
+    assert_eq!(
+        family_location_ranges(&families[1]),
+        [
+            ("src/alpha.ts", 1, 9),
+            ("src/mid.ts", 2, 10),
+            ("src/zeta.ts", 1, 9),
+        ]
+    );
+    let initial_ids = clone_family_ids(&report);
+    assert_eq!(sarif_ids, initial_ids);
+
+    let toon_duplication = production_section(&toon_output, "duplication");
+    assert!(
+        toon_duplication.contains("clone_families[2]:")
+            && toon_duplication.contains("duplicated_lines: 30")
+            && toon_duplication.contains("duplicated_lines: 27"),
+        "unexpected TOON duplication section:\n{toon_duplication}"
+    );
+
+    let markdown = stdout(&markdown_output);
+    assert!(
+        markdown.contains("### Clone families\n\n")
+            && markdown.contains(
+                "- 30 duplicated lines across 3 locations (1 Clone group): `src/area_a.ts:1-10`, `src/area_b.ts:1-10`, `src/area_c.ts:1-10`"
+            )
+            && markdown.contains(
+                "- 27 duplicated lines across 3 locations (1 Clone group): `src/alpha.ts:1-9`, `src/mid.ts:2-10`, `src/zeta.ts:1-9`"
+            ),
+        "unexpected Markdown:\n{markdown}"
+    );
+
+    repository.write(
+        "src/zeta.ts",
+        &format!("export function marker() {{ return 1 }}\n\n{CART_TOTAL}"),
+    );
+    let (shifted_report, _) = check_json_and_sarif_duplication_ids(&repository);
+    assert_eq!(clone_family_ids(&shifted_report), initial_ids);
+}
+
+#[test]
+fn overlapping_exact_clone_groups_across_three_files_collapse_into_one_clone_family_without_double_counting()
+ {
+    let (_, report, sarif_ids) = check_clone_families_fixture(&three_cart_files(Some("USD")));
+    let (duplication, families) = production_duplication_and_families(&report);
+    assert_eq!(duplication["clone_lines"], 29);
+    assert_eq!(
+        duplication["clone_groups"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(families.len(), 1);
+    assert_eq!(families[0]["duplicated_lines"], 29);
+    assert_eq!(
+        families[0]["clone_group_ids"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        family_location_ranges(&families[0]),
+        [
+            ("src/alpha.ts", 1, 9),
+            ("src/mid.ts", 1, 10),
+            ("src/zeta.ts", 1, 10),
+        ]
+    );
+    assert_eq!(sarif_ids, clone_family_ids(&report));
+}

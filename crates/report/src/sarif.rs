@@ -1,12 +1,13 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
 use codeint_model::{Metric, SourceSet};
 
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, CloneLocation, ErodedFunctionFinding,
-    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Report, SourceSetSection,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
+    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Report,
+    SourceSetSection,
 };
 
 #[cfg(test)]
@@ -139,6 +140,7 @@ pub(crate) struct ListedExternalMetric<'findings> {
 pub(crate) struct ListedFindings<'findings> {
     pub(crate) eroded_functions: &'findings [ErodedFunctionFinding],
     pub(crate) clone_groups: &'findings [CloneGroupFinding],
+    pub(crate) clone_families: &'findings [CloneFamilyFinding],
     pub(crate) flagged_lines: &'findings [FlaggedLineRow],
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
     pub(crate) boundaries: &'findings [BoundaryFindingRow],
@@ -348,6 +350,7 @@ impl<'findings> ListedFindings<'findings> {
         ListedFindings {
             eroded_functions: &section.erosion.findings.listed,
             clone_groups: &section.duplication.clone_groups.listed,
+            clone_families: &section.duplication.clone_families.listed,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
             boundaries: section
@@ -387,9 +390,19 @@ fn results(
             Vec::new(),
         )
     });
+    let clustered_group_ids: HashSet<&str> = listed
+        .clone_families
+        .iter()
+        .flat_map(|family| family.clone_group_ids.iter().map(String::as_str))
+        .collect();
+    let clone_families = listed
+        .clone_families
+        .iter()
+        .filter_map(|family| clone_family_result(source_set, family));
     let clone_groups = listed
         .clone_groups
         .iter()
+        .filter(move |group| !clustered_group_ids.contains(group.id.as_str()))
         .filter_map(|group| clone_group_result(source_set, group));
     let flagged_lines = listed.flagged_lines.iter().map(|flagged| {
         metric_result(
@@ -455,6 +468,7 @@ fn results(
         })
     });
     eroded_functions
+        .chain(clone_families)
         .chain(clone_groups)
         .chain(flagged_lines)
         .chain(import_cycles)
@@ -463,33 +477,58 @@ fn results(
         .collect()
 }
 
-fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {
-    let (first, others) = group.locations.split_first()?;
-    let fragment_location = |fragment: &CloneLocation| {
-        Location::in_repository(&fragment.path, fragment.start_line, Some(fragment.end_line))
+fn clone_family_result(source_set: SourceSet, family: &CloneFamilyFinding) -> Option<SarifResult> {
+    let group_noun = if family.clone_group_ids.len() == 1 {
+        "Clone group"
+    } else {
+        "Clone groups"
     };
-    let other_fragments: Vec<String> = others
+    let header = format!(
+        "Clone family of {} duplicated lines across {} locations ({} {group_noun}); the other locations",
+        family.duplicated_lines,
+        family.locations.len(),
+        family.clone_group_ids.len(),
+    );
+    duplication_result(source_set, &family.id, &family.locations, &header)
+}
+
+fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {
+    let header = format!(
+        "Clone group of {} tokens in {} fragments; the other fragments",
+        group.tokens,
+        group.locations.len(),
+    );
+    duplication_result(source_set, &group.id, &group.locations, &header)
+}
+
+fn duplication_result(
+    source_set: SourceSet,
+    finding_id: &str,
+    locations: &[CloneLocation],
+    header: &str,
+) -> Option<SarifResult> {
+    let (first, others) = locations.split_first()?;
+    let other_ranges: Vec<String> = others
         .iter()
-        .map(|fragment| {
+        .map(|location| {
             format!(
                 "{} lines {}-{}",
-                fragment.path, fragment.start_line, fragment.end_line
+                location.path, location.start_line, location.end_line
             )
         })
         .collect();
     Some(metric_result(
         Metric::Duplication,
         source_set,
-        &group.id,
-        format!(
-            "Clone group of {} tokens in {} fragments; the other fragments: {}.",
-            group.tokens,
-            group.locations.len(),
-            other_fragments.join(", ")
-        ),
+        finding_id,
+        format!("{header}: {}.", other_ranges.join(", ")),
         fragment_location(first),
         related(others.iter().map(fragment_location)),
     ))
+}
+
+fn fragment_location(fragment: &CloneLocation) -> Location {
+    Location::in_repository(&fragment.path, fragment.start_line, Some(fragment.end_line))
 }
 
 fn import_cycle_result(source_set: SourceSet, cycle: &ImportCycleFinding) -> Option<SarifResult> {

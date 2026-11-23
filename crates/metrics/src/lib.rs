@@ -12,7 +12,8 @@ pub use boundaries::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryFindingKind, BoundaryPolicy,
 };
 pub use duplication::{
-    CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens,
+    CloneFamily, CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens,
+    MinimumDistinctTokens,
 };
 pub use erosion::{ErodedFunction, Erosion, FunctionMasses};
 pub use finding_id::FindingId;

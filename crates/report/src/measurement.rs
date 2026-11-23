@@ -6,8 +6,8 @@ use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, ConfigBoundaryPolicy, ErodedFunctionFinding,
-    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, ConfigBoundaryPolicy,
+    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,6 +23,8 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) files: usize,
     pub(crate) erosion: MetricMeasurement<ErodedFunctionFinding>,
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) clone_families: Vec<CloneFamilyFinding>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
     pub(crate) import_cycles: MetricMeasurement<ImportCycleFinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +152,7 @@ impl SourceSetMeasurement {
             files: model.files.len(),
             erosion: erosion(&measured),
             duplication: duplication(&measured),
+            clone_families: clone_families(&measured),
             verbosity: verbosity(&measured),
             import_cycles: import_cycles(&measured),
             boundaries,
@@ -182,6 +185,15 @@ fn duplication(measured: &Measured) -> MetricMeasurement<CloneGroupFinding> {
             .map(CloneGroupFinding::new)
             .collect(),
     }
+}
+
+fn clone_families(measured: &Measured) -> Vec<CloneFamilyFinding> {
+    measured
+        .duplication
+        .clone_families
+        .iter()
+        .map(CloneFamilyFinding::new)
+        .collect()
 }
 
 fn verbosity(measured: &Measured) -> MetricMeasurement<FlaggedLineRow> {

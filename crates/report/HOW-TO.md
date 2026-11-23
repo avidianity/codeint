@@ -29,6 +29,7 @@ if !report.over_budget().is_empty() {
 - When two or more Language plugins measure files, the report adds a `languages` section per plugin and omits Reference ranges on the combined totals.
 - `render` formats the report as `Toon`, `Json`, `Sarif`, or `Markdown`.
 - SARIF output emits one result per listed Finding and stores each Finding id in `partialFingerprints.codeintFindingId`.
+  When overlapping or transitively related Clone groups form a Clone family across three or more locations, `duplication.clone_families` lists the Clone families worst-first by `duplicated_lines` in JSON, TOON, Markdown, and MCP, and SARIF emits one consolidated result per Clone family instead of duplicate results for its member Clone groups.
 - `over_budget` returns every `BudgetFailure` whose displayed ratio exceeds its configured `Budget`.
 
 ## Measure one commit with `CommitMeasurement`

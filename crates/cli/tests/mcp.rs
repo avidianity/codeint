@@ -205,3 +205,67 @@ fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
     assert_eq!(unzoned["configured"], true);
     assert!(unzoned.get("zone").is_none());
 }
+
+#[test]
+fn mcp_check_and_diff_expose_clone_families_for_three_or_more_copies() {
+    let repo = init_sample_repo();
+    let duplicated = concat!(
+        "export function computeInvoice(entries: { unit: number; tax: number; count: number }[]): number {\n",
+        "  let accumulator = 0;\n",
+        "  for (const entry of entries.filter(Boolean)) {\n",
+        "    if (entry.count > 0 && entry.unit >= 0) {\n",
+        "      accumulator += (entry.unit + entry.tax) * entry.count;\n",
+        "    }\n",
+        "  }\n",
+        "  return Math.floor(accumulator * 100) / 100;\n",
+        "}\n",
+    );
+    std::fs::write(repo.path().join("c.ts"), duplicated).unwrap();
+    std::fs::write(repo.path().join("a.ts"), duplicated).unwrap();
+    std::fs::write(repo.path().join("b.ts"), duplicated).unwrap();
+
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "check", "arguments": {}}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "diff", "arguments": {"base_ref": "main"}}}),
+        ],
+    );
+
+    assert_eq!(responses.len(), 2);
+    assert_eq!(responses[0]["result"]["isError"], false);
+    assert_eq!(responses[1]["result"]["isError"], false);
+
+    let check_payload: Value = serde_json::from_str(
+        responses[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let families =
+        check_payload["report"]["source_sets"]["production"]["duplication"]["clone_families"]
+            .as_array()
+            .expect("check clone_families");
+    assert_eq!(families.len(), 1);
+    assert_eq!(families[0]["duplicated_lines"], 27);
+    let paths: Vec<&str> = families[0]["locations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|loc| loc["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths, ["a.ts", "b.ts", "c.ts"]);
+
+    let diff_payload: Value = serde_json::from_str(
+        responses[1]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let new_families =
+        diff_payload["report"]["source_sets"]["production"]["duplication"]["clone_families"]["new"]
+            .as_array()
+            .expect("diff new clone_families");
+    assert_eq!(new_families.len(), 1);
+    assert_eq!(new_families[0]["id"], families[0]["id"]);
+}

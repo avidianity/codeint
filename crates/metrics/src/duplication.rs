@@ -1,7 +1,8 @@
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 
-use codeint_model::{CodeModel, Metric, Package, RepoPath, Token, TokenKind};
+use codeint_model::{CodeModel, Metric, Package, RepoPath, StableHasher, Token, TokenKind};
 
 use crate::line_share::{LineShare, line_shares_by_package};
 
@@ -39,6 +40,7 @@ pub struct Duplication {
     pub clone_lines: CloneLines,
     pub source_lines: u64,
     pub clone_groups: Vec<CloneGroup>,
+    pub clone_families: Vec<CloneFamily>,
 }
 
 impl Duplication {
@@ -68,6 +70,7 @@ impl Duplication {
                 .map(|token| normalized(token).hash_input())
                 .collect();
             let mut fragments = Vec::with_capacity(starts.len());
+            let mut spans = Vec::with_capacity(starts.len());
             for Position { file, token } in starts {
                 let covered = &model.files[file].model.tokens[token..token + tokens];
                 clone_lines_by_file
@@ -75,24 +78,47 @@ impl Duplication {
                     .or_default()
                     .extend(covered.iter().map(|covered| covered.line));
                 fragments.push(fragment(&model.files[file].path, covered));
+                spans.push(TokenSpan {
+                    file,
+                    start_token: token,
+                    end_token: token + tokens,
+                });
             }
             fragments.sort();
-            unidentified_groups.push((tokens, fragments, normalized_content));
-        }
-        unidentified_groups
-            .sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-        let mut ids = FindingIds::new(Metric::Duplication);
-        let clone_groups = unidentified_groups
-            .into_iter()
-            .map(|(tokens, fragments, normalized_content)| CloneGroup {
-                id: ids.next_in_source_order(
-                    fragments.iter().map(|fragment| &fragment.path),
-                    normalized_content,
-                ),
+            unidentified_groups.push(UnidentifiedGroup {
                 tokens,
                 fragments,
-            })
-            .collect();
+                spans,
+                normalized_content,
+            });
+        }
+        unidentified_groups.sort_by(|left, right| {
+            right
+                .tokens
+                .cmp(&left.tokens)
+                .then_with(|| left.fragments.cmp(&right.fragments))
+        });
+        let mut ids = FindingIds::new(Metric::Duplication);
+        let mut clone_groups = Vec::with_capacity(unidentified_groups.len());
+        let mut cluster_inputs = Vec::with_capacity(unidentified_groups.len());
+        for group in unidentified_groups {
+            let digest = content_digest(&group.normalized_content);
+            let id = ids.next_in_source_order(
+                group.fragments.iter().map(|fragment| &fragment.path),
+                group.normalized_content,
+            );
+            clone_groups.push(CloneGroup {
+                id,
+                tokens: group.tokens,
+                fragments: group.fragments,
+            });
+            cluster_inputs.push(GroupClusterInput {
+                id,
+                spans: group.spans,
+                content_digest: digest,
+            });
+        }
+        let clone_families = build_clone_families(model, &cluster_inputs);
         Duplication {
             clone_lines: CloneLines::of_files(model, clone_lines_by_file),
             source_lines: model
@@ -101,6 +127,7 @@ impl Duplication {
                 .map(|file| u64::from(file.model.source_lines))
                 .sum(),
             clone_groups,
+            clone_families,
         }
     }
 
@@ -155,11 +182,236 @@ pub struct CloneGroup {
     pub fragments: Vec<Fragment>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloneFamily {
+    pub id: FindingId,
+    pub duplicated_lines: u64,
+    pub clone_group_ids: Vec<FindingId>,
+    pub fragments: Vec<Fragment>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Fragment {
     pub path: RepoPath,
     pub start_line: u32,
     pub end_line: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct TokenSpan {
+    file: usize,
+    start_token: usize,
+    end_token: usize,
+}
+
+struct UnidentifiedGroup {
+    tokens: usize,
+    fragments: Vec<Fragment>,
+    spans: Vec<TokenSpan>,
+    normalized_content: Vec<u64>,
+}
+
+struct GroupClusterInput {
+    id: FindingId,
+    spans: Vec<TokenSpan>,
+    content_digest: u64,
+}
+
+struct UnidentifiedFamily {
+    duplicated_lines: u64,
+    clone_group_ids: Vec<FindingId>,
+    fragments: Vec<Fragment>,
+    content_digests: Vec<u64>,
+}
+
+struct DisjointSet {
+    parent: Vec<usize>,
+    rank: Vec<u8>,
+}
+
+impl DisjointSet {
+    fn new(len: usize) -> DisjointSet {
+        DisjointSet {
+            parent: (0..len).collect(),
+            rank: vec![0; len],
+        }
+    }
+
+    fn find(&mut self, mut node: usize) -> usize {
+        while self.parent[node] != node {
+            let grandparent = self.parent[self.parent[node]];
+            self.parent[node] = grandparent;
+            node = grandparent;
+        }
+        node
+    }
+
+    fn union(&mut self, left: usize, right: usize) {
+        let left_root = self.find(left);
+        let right_root = self.find(right);
+        if left_root == right_root {
+            return;
+        }
+        match self.rank[left_root].cmp(&self.rank[right_root]) {
+            std::cmp::Ordering::Less => self.parent[left_root] = right_root,
+            std::cmp::Ordering::Greater => self.parent[right_root] = left_root,
+            std::cmp::Ordering::Equal => {
+                self.parent[right_root] = left_root;
+                self.rank[left_root] += 1;
+            }
+        }
+    }
+}
+
+const MINIMUM_CLONE_FAMILY_LOCATIONS: usize = 3;
+
+fn content_digest(normalized_content: &[u64]) -> u64 {
+    normalized_content
+        .iter()
+        .fold(
+            StableHasher::new().write_u64(normalized_content.len() as u64),
+            |hasher, &token| hasher.write_u64(token),
+        )
+        .finish()
+}
+
+fn build_clone_families(model: &CodeModel, groups: &[GroupClusterInput]) -> Vec<CloneFamily> {
+    if groups.is_empty() {
+        return Vec::new();
+    }
+    let components = overlapping_group_components(groups);
+    let mut unidentified: Vec<UnidentifiedFamily> = components
+        .into_values()
+        .filter_map(|group_indices| family_from_component(model, groups, &group_indices))
+        .collect();
+    unidentified.sort_by(|left, right| left.fragments.cmp(&right.fragments));
+    let mut ids = FindingIds::for_key("clone_family");
+    let mut families: Vec<CloneFamily> = unidentified
+        .into_iter()
+        .map(|family| CloneFamily {
+            id: ids.next_in_source_order(
+                family.fragments.iter().map(|fragment| &fragment.path),
+                family.content_digests,
+            ),
+            duplicated_lines: family.duplicated_lines,
+            clone_group_ids: family.clone_group_ids,
+            fragments: family.fragments,
+        })
+        .collect();
+    families.sort_by(|left, right| {
+        right
+            .duplicated_lines
+            .cmp(&left.duplicated_lines)
+            .then_with(|| right.fragments.len().cmp(&left.fragments.len()))
+            .then_with(|| left.fragments.cmp(&right.fragments))
+    });
+    families
+}
+
+fn overlapping_group_components(groups: &[GroupClusterInput]) -> BTreeMap<usize, Vec<usize>> {
+    let mut occurrences: Vec<(usize, usize, usize, usize)> = groups
+        .iter()
+        .enumerate()
+        .flat_map(|(group_index, group)| {
+            group
+                .spans
+                .iter()
+                .map(move |span| (span.file, span.start_token, span.end_token, group_index))
+        })
+        .collect();
+    occurrences
+        .sort_unstable_by_key(|&(file, start, end, group)| (file, start, Reverse(end), group));
+    let mut dsu = DisjointSet::new(groups.len());
+    let mut active: Option<(usize, usize, usize)> = None;
+    for (file, start, end, group) in occurrences {
+        match active {
+            Some((active_file, active_end, active_group))
+                if active_file == file && start < active_end =>
+            {
+                dsu.union(active_group, group);
+                if end > active_end {
+                    active = Some((file, end, group));
+                }
+            }
+            _ => active = Some((file, end, group)),
+        }
+    }
+    let mut components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for group_index in 0..groups.len() {
+        components
+            .entry(dsu.find(group_index))
+            .or_default()
+            .push(group_index);
+    }
+    components
+}
+
+fn family_from_component(
+    model: &CodeModel,
+    groups: &[GroupClusterInput],
+    group_indices: &[usize],
+) -> Option<UnidentifiedFamily> {
+    let raw_spans: Vec<TokenSpan> = group_indices
+        .iter()
+        .flat_map(|&index| groups[index].spans.iter().copied())
+        .collect();
+    let merged_spans = merge_overlapping_spans(raw_spans);
+    let mut fragments: Vec<Fragment> = merged_spans
+        .iter()
+        .map(|span| {
+            let file = &model.files[span.file];
+            fragment(
+                &file.path,
+                &file.model.tokens[span.start_token..span.end_token],
+            )
+        })
+        .collect();
+    fragments.sort();
+    if fragments.len() < MINIMUM_CLONE_FAMILY_LOCATIONS {
+        return None;
+    }
+    let duplicated_lines = unique_line_count(model, &merged_spans);
+    let clone_group_ids: Vec<FindingId> = group_indices
+        .iter()
+        .map(|&index| groups[index].id)
+        .collect();
+    let mut content_digests: Vec<u64> = group_indices
+        .iter()
+        .map(|&index| groups[index].content_digest)
+        .collect();
+    content_digests.sort_unstable();
+    Some(UnidentifiedFamily {
+        duplicated_lines,
+        clone_group_ids,
+        fragments,
+        content_digests,
+    })
+}
+
+fn merge_overlapping_spans(mut spans: Vec<TokenSpan>) -> Vec<TokenSpan> {
+    spans.sort_unstable();
+    let mut merged: Vec<TokenSpan> = Vec::with_capacity(spans.len());
+    for span in spans {
+        match merged.last_mut() {
+            Some(last) if last.file == span.file && span.start_token < last.end_token => {
+                last.end_token = last.end_token.max(span.end_token);
+            }
+            _ => merged.push(span),
+        }
+    }
+    merged
+}
+
+fn unique_line_count(model: &CodeModel, spans: &[TokenSpan]) -> u64 {
+    let mut lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+    for span in spans {
+        let covered = &model.files[span.file].model.tokens[span.start_token..span.end_token];
+        lines_by_file
+            .entry(span.file)
+            .or_default()
+            .extend(covered.iter().map(|token| token.line));
+    }
+    lines_by_file.values().map(|lines| lines.len() as u64).sum()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

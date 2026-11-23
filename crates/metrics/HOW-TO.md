@@ -85,6 +85,9 @@ let ratio = duplication.ratio();
 - `clone_lines.count()` is the number of clone lines, and `clone_lines.contains(path, line)` tells whether a line is one.
 - `ratio` is `clone_lines.count() / source_lines`, and 0 when the model has no source lines.
 - Clone groups come largest first, then by their first fragment.
+- `clone_families` clusters overlapping or transitively related exact Clone groups whose merged canonical fragments span three or more locations into one `CloneFamily` per connected component.
+  Each `CloneFamily` holds its stable `FindingId` (hashed from the `clone_family` key, canonical fragment paths, and sorted normalized group digests), unique `duplicated_lines` without double-counting overlaps, constituent `clone_group_ids`, and canonical `fragments` ordered by path then start line.
+  Clone families are ordered worst-first by `duplicated_lines`, then by location count, then by their canonical fragments.
 - `MinimumCloneTokens::DEFAULT` is 75 tokens, and `MinimumDistinctTokens::DEFAULT` is 14 distinct normalized tokens, as [ADR 0007](../../docs/adr/0007-default-minimum-clone-size.md) decides.
 - `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its clone lines and its source lines.
   A Clone group that spans two packages adds each copy's lines to the package that holds it.

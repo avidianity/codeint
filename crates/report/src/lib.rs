@@ -7,8 +7,8 @@ use codeint_config::{
     FindingsShown, ReportFormat,
 };
 use codeint_metrics::{
-    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
-    ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
+    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneFamily, CloneGroup,
+    Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
     MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
@@ -227,6 +227,7 @@ struct ErosionSection {
 trait FindingKind: Serialize {
     const LIST_KEY: &'static str;
     const LEFT_OUT_KEY: &'static str = "findings_left_out";
+    const SKIP_WHEN_EMPTY: bool = false;
 }
 
 #[derive(Debug)]
@@ -252,6 +253,8 @@ struct DuplicationSection {
     clone_lines: u64,
     #[serde(flatten)]
     clone_groups: Findings<CloneGroupFinding>,
+    #[serde(flatten)]
+    clone_families: Findings<CloneFamilyFinding>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -261,7 +264,15 @@ struct CloneGroupFinding {
     locations: Vec<CloneLocation>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CloneFamilyFinding {
+    id: String,
+    duplicated_lines: u64,
+    clone_group_ids: Vec<String>,
+    locations: Vec<CloneLocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct CloneLocation {
     path: String,
     start_line: u32,
@@ -407,7 +418,9 @@ impl<T> Findings<T> {
 impl<T: FindingKind> Serialize for Findings<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry(T::LIST_KEY, &self.listed)?;
+        if !(T::SKIP_WHEN_EMPTY && self.listed.is_empty() && self.left_out == 0) {
+            map.serialize_entry(T::LIST_KEY, &self.listed)?;
+        }
         if self.left_out > 0 {
             map.serialize_entry(T::LEFT_OUT_KEY, &self.left_out)?;
         }
@@ -421,6 +434,12 @@ impl FindingKind for ErodedFunctionFinding {
 
 impl FindingKind for CloneGroupFinding {
     const LIST_KEY: &'static str = "clone_groups";
+}
+
+impl FindingKind for CloneFamilyFinding {
+    const LIST_KEY: &'static str = "clone_families";
+    const LEFT_OUT_KEY: &'static str = "clone_families_left_out";
+    const SKIP_WHEN_EMPTY: bool = true;
 }
 
 impl FindingKind for FlaggedLineRow {
@@ -711,6 +730,13 @@ impl DuplicationSection {
                 duplication.clone_groups.iter().map(CloneGroupFinding::new),
                 shown,
             ),
+            clone_families: Findings::worst_first(
+                duplication
+                    .clone_families
+                    .iter()
+                    .map(CloneFamilyFinding::new),
+                shown,
+            ),
         }
     }
 }
@@ -721,6 +747,21 @@ impl CloneGroupFinding {
             id: group.id.to_string(),
             tokens: group.tokens,
             locations: group.fragments.iter().map(CloneLocation::new).collect(),
+        }
+    }
+}
+
+impl CloneFamilyFinding {
+    fn new(family: &CloneFamily) -> CloneFamilyFinding {
+        CloneFamilyFinding {
+            id: family.id.to_string(),
+            duplicated_lines: family.duplicated_lines,
+            clone_group_ids: family
+                .clone_group_ids
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            locations: family.fragments.iter().map(CloneLocation::new).collect(),
         }
     }
 }

@@ -1032,6 +1032,7 @@ Each Metric object has these fields:
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
+- `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
 
 `import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
@@ -1042,6 +1043,7 @@ Each Finding is an object with an `id`, followed by fields that depend on its ki
 
 - An eroded function has `path`, `line`, `cyclomatic_complexity`, `source_lines`, and `function_mass`.
 - A Clone group has `tokens` and `locations`; each location has `path`, `start_line`, and `end_line`.
+- A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.
 - An Import cycle has `modules`, the paths of the modules in the cycle.
 
@@ -1053,6 +1055,7 @@ The content behind the `id` of each kind:
 
 - An eroded function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
 - A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
+- A Clone family: the sorted normalized token sequences of its constituent Clone groups and the canonical path of each member location.
 - A Flagged line: the rule and the tokens of the line.
 - An Import cycle: the paths of its modules.
 
@@ -1223,7 +1226,7 @@ The tool lists one rule per Metric, and each result names its Metric in `ruleId`
 | `ruleId` | Finding | Location |
 | -------- | ------- | -------- |
 | `erosion` | An eroded function | The line where the function starts |
-| `duplication` | A Clone group | The first fragment, from its start line to its end line; the other fragments are related locations |
+| `duplication` | A Clone group or Clone family | The first fragment or canonical location, from its start line to its end line; the other fragments or locations are related locations |
 | `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
 | `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
 

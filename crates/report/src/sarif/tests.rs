@@ -2,8 +2,8 @@ use codeint_model::SourceSet;
 
 use super::{ListedFindings, SarifLog, relative_uri};
 use crate::{
-    CloneGroupFinding, CloneLocation, Decimal, ErodedFunctionFinding, FlaggedLineRow,
-    ImportCycleFinding,
+    CloneFamilyFinding, CloneGroupFinding, CloneLocation, Decimal, ErodedFunctionFinding,
+    FlaggedLineRow, ImportCycleFinding,
 };
 
 #[test]
@@ -68,6 +68,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
     let listed = ListedFindings {
         eroded_functions: &eroded,
         clone_groups: &clones,
+        clone_families: &[],
         flagged_lines: &flagged,
         import_cycles: &cycles,
         boundaries: &[],
@@ -101,5 +102,104 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
             ("verbosity", "3333333333333333"),
             ("import_cycles", "4444444444444444"),
         ]
+    );
+}
+
+#[test]
+fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalone_groups() {
+    let clones = [
+        CloneGroupFinding {
+            id: "aaaa000000000001".to_owned(),
+            tokens: 80,
+            locations: vec![
+                CloneLocation {
+                    path: "src/a.ts".to_owned(),
+                    start_line: 1,
+                    end_line: 10,
+                },
+                CloneLocation {
+                    path: "src/b.ts".to_owned(),
+                    start_line: 1,
+                    end_line: 10,
+                },
+                CloneLocation {
+                    path: "src/c.ts".to_owned(),
+                    start_line: 1,
+                    end_line: 10,
+                },
+            ],
+        },
+        CloneGroupFinding {
+            id: "bbbb000000000002".to_owned(),
+            tokens: 75,
+            locations: vec![
+                CloneLocation {
+                    path: "src/x.ts".to_owned(),
+                    start_line: 1,
+                    end_line: 8,
+                },
+                CloneLocation {
+                    path: "src/y.ts".to_owned(),
+                    start_line: 1,
+                    end_line: 8,
+                },
+            ],
+        },
+    ];
+    let families = [CloneFamilyFinding {
+        id: "ffff000000000009".to_owned(),
+        duplicated_lines: 30,
+        clone_group_ids: vec!["aaaa000000000001".to_owned()],
+        locations: vec![
+            CloneLocation {
+                path: "src/a.ts".to_owned(),
+                start_line: 1,
+                end_line: 10,
+            },
+            CloneLocation {
+                path: "src/b.ts".to_owned(),
+                start_line: 1,
+                end_line: 10,
+            },
+            CloneLocation {
+                path: "src/c.ts".to_owned(),
+                start_line: 1,
+                end_line: 10,
+            },
+        ],
+    }];
+    let listed = ListedFindings {
+        eroded_functions: &[],
+        clone_groups: &clones,
+        clone_families: &families,
+        flagged_lines: &[],
+        import_cycles: &[],
+        boundaries: &[],
+        external_metrics: Vec::new(),
+    };
+
+    let log = serde_json::to_value(SarifLog::listing(std::iter::once((
+        SourceSet::Production,
+        listed,
+    ))))
+    .expect("SARIF serializes");
+
+    let results = log["runs"][0]["results"].as_array().expect("results");
+    assert_eq!(results.len(), 2);
+    assert_eq!(
+        results[0]["partialFingerprints"]["codeintFindingId"],
+        "ffff000000000009"
+    );
+    assert_eq!(
+        results[0]["message"]["text"],
+        "Clone family of 30 duplicated lines across 3 locations (1 Clone group); the other locations: src/b.ts lines 1-10, src/c.ts lines 1-10."
+    );
+    assert_eq!(
+        results[0]["relatedLocations"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        results[1]["partialFingerprints"]["codeintFindingId"],
+        "bbbb000000000002"
     );
 }

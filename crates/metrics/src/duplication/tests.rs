@@ -4,7 +4,7 @@ use codeint_model::{
     CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
 };
 
-use super::{Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens};
+use super::{CloneFamily, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens};
 
 fn file(path: &str, lines: &[&str]) -> SourceFile {
     let tokens = lines
@@ -275,5 +275,161 @@ fn a_copy_after_import_or_export_tokens_keeps_its_place_in_the_file() {
     assert_eq!(
         groups(&duplication),
         [(4, vec![fragment("one.ts", 2, 2), fragment("two.ts", 3, 3)])]
+    );
+}
+
+fn assert_single_family(
+    duplication: &Duplication,
+    expected_lines: u64,
+    expected_groups: usize,
+    expected_ranges: &[(&str, u32, u32)],
+) {
+    assert_eq!(duplication.clone_families.len(), 1);
+    let family: &CloneFamily = &duplication.clone_families[0];
+    let expected: Vec<Fragment> = expected_ranges
+        .iter()
+        .map(|&(path, start, end)| fragment(path, start, end))
+        .collect();
+    assert_eq!(family.duplicated_lines, expected_lines);
+    assert_eq!(family.clone_group_ids.len(), expected_groups);
+    assert_eq!(family.fragments, expected);
+}
+
+fn measure_files(specs: &[(&str, &[&str])], min_tokens: usize) -> Duplication {
+    let files = specs
+        .iter()
+        .map(|&(path, lines)| file(path, lines))
+        .collect();
+    measure(&model(files), minimum(min_tokens))
+}
+
+#[test]
+fn two_copies_alone_do_not_form_a_clone_family() {
+    let body = ["a b c", "d e f"];
+    let duplication = measure_files(&[("one.ts", &body), ("two.ts", &body)], 4);
+
+    assert_eq!(duplication.clone_groups.len(), 1);
+    assert!(duplication.clone_families.is_empty());
+}
+
+#[test]
+fn three_copies_across_files_form_one_clone_family_in_canonical_order() {
+    let body = ["a b c", "d e f"];
+    let padded = ["x", "a b c", "d e f", "y"];
+    let duplication = measure_files(
+        &[("zeta.ts", &body), ("mid.ts", &padded), ("alpha.ts", &body)],
+        4,
+    );
+
+    assert_single_family(
+        &duplication,
+        6,
+        1,
+        &[("alpha.ts", 1, 2), ("mid.ts", 2, 3), ("zeta.ts", 1, 2)],
+    );
+    assert_eq!(duplication.clone_lines.count(), 6);
+    assert_eq!(duplication.ratio(), 0.75);
+    assert_ne!(
+        duplication.clone_families[0].id,
+        duplication.clone_groups[0].id
+    );
+    assert_eq!(
+        duplication.clone_families[0].clone_group_ids,
+        vec![duplication.clone_groups[0].id]
+    );
+}
+
+#[test]
+fn transitively_overlapping_exact_clone_groups_cluster_into_one_family_without_double_counting() {
+    let duplication = measure_files(
+        &[
+            ("a.ts", &["p1 p2", "q1 q2"]),
+            ("b.ts", &["p1 p2", "q1 q2", "r1 r2"]),
+            ("c.ts", &["q1 q2", "r1 r2"]),
+        ],
+        4,
+    );
+
+    assert_eq!(duplication.clone_groups.len(), 2);
+    assert_single_family(
+        &duplication,
+        7,
+        2,
+        &[("a.ts", 1, 2), ("b.ts", 1, 3), ("c.ts", 1, 2)],
+    );
+    assert_eq!(duplication.clone_lines.count(), 7);
+    assert_eq!(duplication.source_lines, 7);
+    assert_eq!(duplication.ratio(), 1.0);
+}
+
+#[test]
+fn clone_families_are_ordered_worst_first_by_total_duplicated_lines() {
+    let model = model(vec![
+        file("small_a.ts", &["s1 s2 s3 s4 s5 s6"]),
+        file("small_b.ts", &["s1 s2 s3 s4 s5 s6"]),
+        file("small_c.ts", &["s1 s2 s3 s4 s5 s6"]),
+        file("tall_a.ts", &["t1", "t2", "t3", "t4"]),
+        file("tall_b.ts", &["t1", "t2", "t3", "t4"]),
+        file("tall_c.ts", &["t1", "t2", "t3", "t4"]),
+    ]);
+
+    let duplication = measure(&model, minimum(4));
+
+    assert_eq!(
+        duplication
+            .clone_groups
+            .iter()
+            .map(|group| group.tokens)
+            .collect::<Vec<_>>(),
+        [6, 4]
+    );
+    assert_eq!(
+        duplication
+            .clone_families
+            .iter()
+            .map(|family| family.duplicated_lines)
+            .collect::<Vec<_>>(),
+        [12, 3]
+    );
+}
+
+#[test]
+fn clone_family_id_is_order_independent_and_stable_when_fragments_move() {
+    let lines = ["a b c", "d e f"];
+    let first = measure(
+        &model(vec![
+            file("c.ts", &lines),
+            file("a.ts", &lines),
+            file("b.ts", &lines),
+        ]),
+        minimum(4),
+    );
+    let shifted = measure(
+        &model(vec![
+            file("a.ts", &lines),
+            file("b.ts", &["u", "v", "a b c", "d e f"]),
+            file("c.ts", &lines),
+        ]),
+        minimum(4),
+    );
+
+    assert_eq!(first.clone_families.len(), 1);
+    assert_eq!(shifted.clone_families.len(), 1);
+    assert_eq!(first.clone_families[0].id, shifted.clone_families[0].id);
+    assert_eq!(
+        first.clone_families[0].fragments,
+        vec![
+            fragment("a.ts", 1, 2),
+            fragment("b.ts", 1, 2),
+            fragment("c.ts", 1, 2),
+        ]
+    );
+    assert_eq!(
+        shifted.clone_families[0].fragments,
+        vec![
+            fragment("a.ts", 1, 2),
+            fragment("b.ts", 3, 4),
+            fragment("c.ts", 1, 2),
+        ]
     );
 }
