@@ -89,7 +89,7 @@ impl Guest for Rust {
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        let resolver = RustResolver::new(&repository_paths, &manifests);
+        let resolver = RustResolver::new(&repository_paths, &manifests, &requests);
         requests
             .iter()
             .map(|request| resolver.resolve(request))

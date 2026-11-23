@@ -1088,7 +1088,7 @@ fn qualified_path_matches_dev_dependencies_only_in_test_files() {
         lower("src/service.rs", prod_src)
             .expect("prod")
             .runtime_imports,
-        ["path:time", "use:crate"]
+        ["path:time", "use:crate::*"]
     );
     assert_eq!(
         lower("tests/integration.rs", test_src)
@@ -1138,5 +1138,405 @@ nix = "0.29"
                 Resolution::External("nix".to_owned()),
             ),
         ],
+    );
+}
+
+fn assert_intra_crate_targets(
+    paths: &[&str],
+    manifest: &str,
+    expected: &[(&str, &str, Option<&str>)],
+) {
+    let cases: Vec<(&str, &str, Resolution)> = expected
+        .iter()
+        .map(|(importer, specifier, target)| {
+            let outcome = target.map_or(Resolution::Builtin, |path| {
+                Resolution::Resolved(path.to_owned())
+            });
+            (*importer, *specifier, outcome)
+        })
+        .collect();
+    assert_rust_resolutions(paths, &[("Cargo.toml", manifest)], &cases);
+}
+
+#[test]
+fn follows_reexports_through_parent_modules_and_preserves_sibling_cycles() {
+    let lib_src = concat!(
+        "mod alpha;\n",
+        "mod beta;\n",
+        "mod gamma;\n",
+        "mod delta;\n",
+        "pub use alpha::Alpha;\n",
+        "pub use beta::Beta as RenamedBeta;\n",
+        "pub use gamma::Gamma;\n",
+        "pub use delta::self as dmod;\n",
+        "use std::fmt::Write as _;\n",
+        "pub struct RootError;\n",
+    );
+    let lowered_lib = lower("src/lib.rs", lib_src).expect("lower lib");
+    assert_eq!(
+        lowered_lib.runtime_imports,
+        [
+            "mod:alpha",
+            "mod:beta",
+            "mod:delta",
+            "mod:gamma",
+            "use:alpha::Alpha",
+            "use:beta::Beta as RenamedBeta",
+            "use:delta as dmod",
+            "use:gamma::Gamma",
+            "use:std::fmt::Write as _",
+        ]
+    );
+
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/main.rs",
+            "src/alpha.rs",
+            "src/beta.rs",
+            "src/gamma.rs",
+            "src/delta.rs",
+            "src/delta/leaf.rs",
+            "src/delta/tests.rs",
+        ],
+        "[package]\nname = \"demo\"\n",
+        &[
+            ("src/lib.rs", "mod:alpha", Some("src/alpha.rs")),
+            ("src/lib.rs", "mod:beta", Some("src/beta.rs")),
+            ("src/lib.rs", "mod:gamma", Some("src/gamma.rs")),
+            ("src/lib.rs", "mod:delta", Some("src/delta.rs")),
+            ("src/delta.rs", "mod:leaf", Some("src/delta/leaf.rs")),
+            ("src/lib.rs", "use:alpha::Alpha", Some("src/alpha.rs")),
+            (
+                "src/lib.rs",
+                "use:beta::Beta as RenamedBeta",
+                Some("src/beta.rs"),
+            ),
+            ("src/lib.rs", "use:gamma::Gamma", Some("src/gamma.rs")),
+            ("src/lib.rs", "use:delta as dmod", Some("src/delta.rs")),
+            (
+                "src/delta.rs",
+                "use:leaf::LeafItem",
+                Some("src/delta/leaf.rs"),
+            ),
+            (
+                "src/alpha.rs",
+                "use:crate::RenamedBeta",
+                Some("src/beta.rs"),
+            ),
+            ("src/beta.rs", "use:crate::Alpha", Some("src/alpha.rs")),
+            (
+                "src/gamma.rs",
+                "use:crate::dmod::LeafItem",
+                Some("src/delta/leaf.rs"),
+            ),
+            ("src/alpha.rs", "use:crate::RootError", None),
+            ("src/alpha.rs", "use:crate::Alpha", None),
+            ("src/delta/leaf.rs", "use:super::DeltaType", None),
+            ("src/delta/leaf.rs", "use:super", None),
+            ("src/delta/leaf.rs", "use:crate::delta::DeltaType", None),
+            ("src/delta/leaf.rs", "use:demo::RootError", None),
+            ("src/delta/leaf.rs", "path:demo", None),
+            ("src/delta/leaf.rs", "use:demo::Alpha", Some("src/alpha.rs")),
+            ("src/main.rs", "path:demo", Some("src/lib.rs")),
+            ("src/main.rs", "use:demo::Alpha", Some("src/lib.rs")),
+            (
+                "src/delta/tests.rs",
+                "use:super::DeltaType",
+                Some("src/delta.rs"),
+            ),
+        ],
+    );
+}
+
+#[test]
+fn handles_cyclic_and_ambiguous_reexports_without_looping() {
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/a.rs",
+            "src/b.rs",
+            "src/caller.rs",
+        ],
+        "[package]\nname = \"loopdemo\"\n",
+        &[
+            ("src/lib.rs", "mod:a", Some("src/a.rs")),
+            ("src/lib.rs", "mod:b", Some("src/b.rs")),
+            ("src/lib.rs", "mod:caller", Some("src/caller.rs")),
+            ("src/lib.rs", "use:a::LoopItem", Some("src/a.rs")),
+            ("src/a.rs", "use:crate::b::LoopItem", Some("src/b.rs")),
+            ("src/b.rs", "use:crate::a::LoopItem", Some("src/a.rs")),
+            ("src/lib.rs", "use:a::Dup", Some("src/a.rs")),
+            ("src/lib.rs", "use:b::Dup", Some("src/b.rs")),
+            ("src/caller.rs", "use:crate::LoopItem", Some("src/a.rs")),
+            ("src/caller.rs", "use:crate::Dup", None),
+        ],
+    );
+}
+
+#[test]
+fn function_local_and_inline_mod_uses_do_not_pollute_reexport_bindings() {
+    let lib_src = concat!(
+        "mod a;\n",
+        "mod b;\n",
+        "mod foo;\n",
+        "pub use a::Error;\n",
+        "fn helper() {\n",
+        "    use std::fmt::Error;\n",
+        "    use serde::Serialize;\n",
+        "}\n",
+    );
+    let a_src = concat!(
+        "pub struct Display;\n",
+        "pub fn f() {\n",
+        "    use std::fmt::Display;\n",
+        "}\n",
+    );
+    let foo_src = concat!(
+        "pub struct LocalType;\n",
+        "mod inner {\n",
+        "    use super::LocalType;\n",
+        "}\n",
+    );
+    assert_eq!(
+        lower("src/lib.rs", lib_src)
+            .expect("lower lib")
+            .runtime_imports,
+        [
+            "mod:a",
+            "mod:b",
+            "mod:foo",
+            "use-local:serde::Serialize",
+            "use-local:std::fmt::Error",
+            "use:a::Error",
+        ]
+    );
+    assert_eq!(
+        lower("src/a.rs", a_src).expect("lower a").runtime_imports,
+        ["use-local:std::fmt::Display"]
+    );
+    assert_eq!(
+        lower("src/foo/mod.rs", foo_src)
+            .expect("lower foo")
+            .runtime_imports,
+        ["use-local:super::LocalType"]
+    );
+
+    let paths = [
+        "Cargo.toml",
+        "src/lib.rs",
+        "src/a.rs",
+        "src/b.rs",
+        "src/foo/mod.rs",
+    ];
+    let manifest = "[package]\nname = \"scoped\"\n";
+    assert_intra_crate_targets(
+        &paths,
+        manifest,
+        &[
+            ("src/lib.rs", "mod:a", Some("src/a.rs")),
+            ("src/lib.rs", "mod:b", Some("src/b.rs")),
+            ("src/lib.rs", "mod:foo", Some("src/foo/mod.rs")),
+            ("src/lib.rs", "use:a::Error", Some("src/a.rs")),
+            ("src/lib.rs", "use-local:std::fmt::Error", None),
+            ("src/a.rs", "use-local:std::fmt::Display", None),
+            ("src/foo/mod.rs", "use-local:super::LocalType", None),
+            ("src/b.rs", "use:crate::Error", Some("src/a.rs")),
+            ("src/b.rs", "use:crate::a::Display", Some("src/a.rs")),
+            (
+                "src/b.rs",
+                "use:crate::foo::LocalType",
+                Some("src/foo/mod.rs"),
+            ),
+            ("src/b.rs", "use-local:crate::a::Display", Some("src/a.rs")),
+        ],
+    );
+    assert_rust_resolutions(
+        &paths,
+        &[("Cargo.toml", manifest)],
+        &[(
+            "src/lib.rs",
+            "use-local:serde::Serialize",
+            Resolution::External("serde".to_owned()),
+        )],
+    );
+}
+
+#[test]
+fn glob_uses_preserve_marker_and_do_not_bind_reexports() {
+    let lib_src = concat!(
+        "mod alpha;\n",
+        "mod beta;\n",
+        "mod kinds;\n",
+        "mod c;\n",
+        "pub use alpha::prelude::*;\n",
+        "pub use beta::prelude;\n",
+        "use kinds::Kind::*;\n",
+        "fn helper() {\n",
+        "    use alpha::prelude::*;\n",
+        "}\n",
+    );
+    assert_eq!(
+        lower("src/lib.rs", lib_src)
+            .expect("lower lib")
+            .runtime_imports,
+        [
+            "mod:alpha",
+            "mod:beta",
+            "mod:c",
+            "mod:kinds",
+            "use-local:alpha::prelude::*",
+            "use:alpha::prelude::*",
+            "use:beta::prelude",
+            "use:kinds::Kind::*",
+        ]
+    );
+
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/alpha/mod.rs",
+            "src/alpha/prelude.rs",
+            "src/beta.rs",
+            "src/kinds.rs",
+            "src/c.rs",
+        ],
+        "[package]\nname = \"globdemo\"\n",
+        &[
+            ("src/lib.rs", "mod:alpha", Some("src/alpha/mod.rs")),
+            ("src/lib.rs", "mod:beta", Some("src/beta.rs")),
+            ("src/lib.rs", "mod:kinds", Some("src/kinds.rs")),
+            ("src/lib.rs", "mod:c", Some("src/c.rs")),
+            (
+                "src/lib.rs",
+                "use:alpha::prelude::*",
+                Some("src/alpha/prelude.rs"),
+            ),
+            (
+                "src/lib.rs",
+                "use-local:alpha::prelude::*",
+                Some("src/alpha/prelude.rs"),
+            ),
+            ("src/lib.rs", "use:beta::prelude", Some("src/beta.rs")),
+            ("src/lib.rs", "use:kinds::Kind::*", Some("src/kinds.rs")),
+            ("src/c.rs", "use:crate::prelude", Some("src/beta.rs")),
+            ("src/c.rs", "use:crate::Kind", None),
+        ],
+    );
+}
+
+#[test]
+fn mod_parents_drive_crate_and_super_resolution_across_targets_and_path_attrs() {
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/main.rs",
+            "src/cli.rs",
+            "src/cli/sub.rs",
+            "src/helper.rs",
+        ],
+        "[package]\nname = \"dualtarget\"\n",
+        &[
+            ("src/main.rs", "mod:cli", Some("src/cli.rs")),
+            ("src/main.rs", "mod:helper", Some("src/helper.rs")),
+            ("src/cli.rs", "mod:sub", Some("src/cli/sub.rs")),
+            ("src/main.rs", "use:helper::Helper", Some("src/helper.rs")),
+            ("src/cli.rs", "use:crate::Helper", Some("src/helper.rs")),
+            ("src/cli.rs", "use:crate::MainConfig", None),
+            ("src/cli.rs", "use:super::MainConfig", None),
+            ("src/cli.rs", "use:super::Helper", Some("src/helper.rs")),
+            (
+                "src/cli/sub.rs",
+                "use:super::super::Helper",
+                Some("src/helper.rs"),
+            ),
+            ("src/cli/sub.rs", "use:super::super::MainConfig", None),
+            ("src/cli/sub.rs", "use:crate::MainConfig", None),
+        ],
+    );
+
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/custom_lib.rs",
+            "src/main.rs",
+            "src/sub.rs",
+            "src/alpha.rs",
+        ],
+        "[package]\nname = \"custom-demo\"\n[lib]\npath = \"src/custom_lib.rs\"\n",
+        &[
+            ("src/custom_lib.rs", "mod:sub", Some("src/sub.rs")),
+            ("src/custom_lib.rs", "mod:alpha", Some("src/alpha.rs")),
+            (
+                "src/custom_lib.rs",
+                "use:alpha::Alpha",
+                Some("src/alpha.rs"),
+            ),
+            ("src/sub.rs", "use:crate::Alpha", Some("src/alpha.rs")),
+            ("src/sub.rs", "use:crate::CustomRoot", None),
+            ("src/sub.rs", "use:super::CustomRoot", None),
+            ("src/sub.rs", "use:custom_demo::Alpha", Some("src/alpha.rs")),
+        ],
+    );
+
+    assert_intra_crate_targets(
+        &["Cargo.toml", "shared.rs", "src/lib.rs", "src/alpha.rs"],
+        "[package]\nname = \"pathmod\"\n",
+        &[
+            ("src/lib.rs", "mod-path:../shared.rs", Some("shared.rs")),
+            ("src/lib.rs", "mod:alpha", Some("src/alpha.rs")),
+            ("src/lib.rs", "use:alpha::Alpha", Some("src/alpha.rs")),
+            ("shared.rs", "use:crate::Alpha", Some("src/alpha.rs")),
+            ("shared.rs", "use:crate::RootOnly", None),
+            ("shared.rs", "use:super::Alpha", Some("src/alpha.rs")),
+        ],
+    );
+
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/alpha.rs",
+            "src/tests/mod.rs",
+            "src/tests/helpers.rs",
+            "src/bin/tool.rs",
+            "src/bin/helper.rs",
+        ],
+        "[package]\nname = \"testmod\"\n",
+        &[
+            ("src/lib.rs", "mod:alpha", Some("src/alpha.rs")),
+            (
+                "src/tests/mod.rs",
+                "mod:helpers",
+                Some("src/tests/helpers.rs"),
+            ),
+            (
+                "src/tests/helpers.rs",
+                "use:crate::alpha::Alpha",
+                Some("src/alpha.rs"),
+            ),
+            ("src/bin/tool.rs", "mod:helper", Some("src/bin/helper.rs")),
+            (
+                "src/bin/tool.rs",
+                "use-local:crate::helper::run",
+                Some("src/bin/helper.rs"),
+            ),
+        ],
+    );
+
+    let extern_src = concat!(
+        "extern crate serde as _;\n",
+        "pub extern crate serde as ser;\n",
+        "extern crate log;\n",
+    );
+    assert_eq!(
+        lower("src/lib.rs", extern_src)
+            .expect("lower extern crate")
+            .runtime_imports,
+        ["use:log", "use:serde as _", "use:serde as ser"]
     );
 }
