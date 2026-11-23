@@ -37,7 +37,7 @@ fn rust_sdk_supports_init_check_diff_trend_and_budget_failures() {
     let dir = setup_repo();
 
     let created = init(dir.path()).expect("init succeeds");
-    assert!(created.ends_with("codeint.json"));
+    assert!(created.ends_with("codeint.jsonc"));
 
     let checked = check(dir.path(), &CheckOptions::default()).expect("check succeeds");
     assert!(checked.passed);
@@ -49,7 +49,7 @@ fn rust_sdk_supports_init_check_diff_trend_and_budget_failures() {
     assert!(json.contains("\"files\": 1"));
 
     fs::write(
-        dir.path().join("codeint.json"),
+        dir.path().join("codeint.jsonc"),
         "{\"budgets\":{\"production\":{\"verbosity\":0}}}\n",
     )
     .expect("write tight budget");

@@ -158,7 +158,7 @@ fn impact_remedy(error: &ImpactCommandError) -> &'static str {
 fn init_remedy(error: &InitError) -> &'static str {
     match error {
         InitError::Git(GitError::NotInRepository { .. }) => {
-            "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
+            "Run codeint init inside a Git repository; it writes codeint.jsonc at the root of the repository."
         }
         InitError::Git(error) => git_remedy(error),
         InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
@@ -262,7 +262,7 @@ pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> &'sta
         .or_else(|| boundary_config_remedy(error))
         .or_else(|| file_access_remedy(error))
         .or_else(|| json_shape_remedy(error))
-        .unwrap_or("Check codeint.json against the JSON schema that $schema links to.")
+        .unwrap_or("Check the configuration file against the JSON schema that $schema links to.")
 }
 
 fn choose_file_remedy(
@@ -353,9 +353,11 @@ fn out_of_exclusive_min_range_remedy(exclusive_minimum: f64, maximum: f64) -> &'
 fn boundary_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
     use ConfigurationFileError::*;
     match error {
-        InvalidBoundaryZoneName { .. } => {
-            Some("Give each boundary zone in codeint.json a non-empty name other than \"*\".")
-        }
+        InvalidBoundaryZoneName { file, .. } => Some(choose_file_remedy(
+            *file,
+            "Give each boundary zone in codeint.json a non-empty name other than \"*\".",
+            "Give each boundary zone in codeint.jsonc a non-empty name other than \"*\".",
+        )),
         EmptyBoundaryZonePatterns { .. } => {
             Some("Add at least one path glob under patterns for every zone in boundaries.zones.")
         }
@@ -387,16 +389,26 @@ fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> 
         InvalidSha256 { .. } => {
             "Set sha256 to the 64-character hexadecimal SHA-256 digest of the plugin file."
         }
-        EmptyPluginField { .. } => "Set a non-empty value for the plugin field in codeint.json.",
-        MissingPluginSource { .. } => {
-            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.json."
-        }
-        AmbiguousPluginSource { .. } => {
-            "Keep either path or url on the plugin entry in codeint.json and remove the other."
-        }
-        NonHttpsPluginUrl { .. } => {
-            "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused."
-        }
+        EmptyPluginField { file, .. } => choose_file_remedy(
+            *file,
+            "Set a non-empty value for the plugin field in codeint.json.",
+            "Set a non-empty value for the plugin field in codeint.jsonc.",
+        ),
+        MissingPluginSource { file, .. } => choose_file_remedy(
+            *file,
+            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.json.",
+            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.jsonc.",
+        ),
+        AmbiguousPluginSource { file, .. } => choose_file_remedy(
+            *file,
+            "Keep either path or url on the plugin entry in codeint.json and remove the other.",
+            "Keep either path or url on the plugin entry in codeint.jsonc and remove the other.",
+        ),
+        NonHttpsPluginUrl { file, .. } => choose_file_remedy(
+            *file,
+            "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused.",
+            "Use an https:// URL for the plugin in codeint.jsonc; plain HTTP and other schemes are refused.",
+        ),
         _ => return None,
     })
 }

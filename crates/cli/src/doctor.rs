@@ -16,23 +16,33 @@ use crate::remedy::{configuration_file_remedy, git_remedy};
 const NEWER_SCHEMA_REMEDY_JSON: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.";
 const NEWER_SCHEMA_REMEDY_JSONC: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.jsonc.";
 
+struct ActiveConfiguration {
+    file_name: &'static str,
+    configuration: Configuration,
+}
+
 pub(crate) fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
     let mut checks = Vec::new();
     let (git_check, repository, root) = check_git(folder);
     checks.push(git_check);
 
-    let (config_checks, configuration, config_missing) = check_configuration(&root);
+    let (config_checks, active_config, config_missing) = check_configuration(&root);
     checks.extend(config_checks);
 
     if let Some(repository) = &repository {
         checks.extend(check_repository_contents(
             repository,
-            configuration.as_ref(),
+            active_config.as_ref().map(|active| &active.configuration),
         ));
     }
 
-    if let Some(configuration) = &configuration {
-        checks.extend(check_plugins(&root, configuration, plugin_host));
+    if let Some(active) = &active_config {
+        checks.extend(check_plugins(
+            &root,
+            &active.configuration,
+            active.file_name,
+            plugin_host,
+        ));
     } else if repository.is_some() && config_missing {
         checks.push(DoctorCheck::pass(
             "plugins",
@@ -72,12 +82,12 @@ fn check_git(folder: &Path) -> (DoctorCheck, Option<Repository>, PathBuf) {
     }
 }
 
-fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>, bool) {
+fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfiguration>, bool) {
     match inspect_configuration(root) {
         ConfigurationInspection::Missing { .. } => {
             let check =
                 DoctorCheck::warn("config", "No codeint.json found; using built-in defaults")
-                    .with_remedy("Run codeint init to write a starter codeint.json.");
+                    .with_remedy("Run codeint init to write a starter codeint.jsonc.");
             (vec![check], None, true)
         }
         ConfigurationInspection::Valid {
@@ -87,7 +97,14 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>,
         } => {
             let file_name = config_file_label(&path);
             let checks = valid_configuration_checks(file_name, &schema, &configuration);
-            (checks, Some(*configuration), false)
+            (
+                checks,
+                Some(ActiveConfiguration {
+                    file_name,
+                    configuration: *configuration,
+                }),
+                false,
+            )
         }
         ConfigurationInspection::Invalid {
             path,
@@ -304,6 +321,7 @@ fn check_workspace(tree: &Snapshot) -> DoctorCheck {
 fn check_plugins(
     root: &Path,
     configuration: &Configuration,
+    file_name: &'static str,
     plugin_host: &PluginHostConfig,
 ) -> Vec<DoctorCheck> {
     if configuration.plugins.is_empty() {
@@ -319,7 +337,9 @@ fn check_plugins(
     configuration
         .plugins
         .iter()
-        .map(|declaration| check_single_plugin(root, declaration, &mut seen_names, plugin_host))
+        .map(|declaration| {
+            check_single_plugin(root, declaration, &mut seen_names, file_name, plugin_host)
+        })
         .collect()
 }
 
@@ -327,6 +347,7 @@ fn check_single_plugin(
     root: &Path,
     declaration: &PluginDeclaration,
     seen_names: &mut BTreeSet<String>,
+    file_name: &'static str,
     plugin_host: &PluginHostConfig,
 ) -> DoctorCheck {
     let id = format!("plugin:{}", declaration.name);
@@ -338,9 +359,9 @@ fn check_single_plugin(
                 declaration.name
             ),
         )
-        .with_remedy(
-            "Give each external plugin in codeint.json a unique name that does not collide with built-in plugins.",
-        );
+        .with_remedy(format!(
+            "Give each external plugin in {file_name} a unique name that does not collide with built-in plugins."
+        ));
     }
     match &declaration.source {
         PluginSource::Path(declared_path) => {
@@ -355,9 +376,12 @@ fn check_single_plugin(
                 &resolved,
                 &declaration.sha256.to_hex(),
                 &declared_path.display().to_string(),
+                file_name,
             )
         }
-        PluginSource::HttpsUrl(url) => check_remote_plugin(id, declaration, url, plugin_host),
+        PluginSource::HttpsUrl(url) => {
+            check_remote_plugin(id, declaration, url, file_name, plugin_host)
+        }
     }
 }
 
@@ -365,6 +389,7 @@ fn check_remote_plugin(
     id: String,
     declaration: &PluginDeclaration,
     url: &str,
+    file_name: &'static str,
     plugin_host: &PluginHostConfig,
 ) -> DoctorCheck {
     let expected = declaration.sha256.to_hex();
@@ -373,7 +398,8 @@ fn check_remote_plugin(
         .as_ref()
         .map(|dir| dir.join(format!("{expected}.wasm")));
     if let Some(path) = cached_path
-        && let Some(check) = inspect_cached_plugin(&id, declaration, url, &path, &expected)
+        && let Some(check) =
+            inspect_cached_plugin(&id, declaration, url, &path, &expected, file_name)
     {
         return check;
     }
@@ -396,6 +422,7 @@ fn inspect_cached_plugin(
     url: &str,
     path: &Path,
     expected: &str,
+    file_name: &'static str,
 ) -> Option<DoctorCheck> {
     match std::fs::symlink_metadata(path) {
         Ok(_) if is_broken_symlink(path) => Some(
@@ -417,6 +444,7 @@ fn inspect_cached_plugin(
             path,
             expected,
             &format!("cached from {url}"),
+            file_name,
         )),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => Some(
@@ -441,15 +469,16 @@ fn verify_plugin_file(
     resolved_path: &Path,
     expected_hex: &str,
     label: &str,
+    file_name: &'static str,
 ) -> DoctorCheck {
     if is_broken_symlink(resolved_path) {
         return DoctorCheck::error(
             id,
             format!("External Wasm Plugin {name:?} at {label} is a broken symlink"),
         )
-        .with_remedy(
-            "Point the plugin symlink to an existing WebAssembly component file, or fix the path in codeint.json.",
-        );
+        .with_remedy(format!(
+            "Point the plugin symlink to an existing WebAssembly component file, or fix the path in {file_name}."
+        ));
     }
     let bytes = match std::fs::read(resolved_path) {
         Ok(bytes) => bytes,
@@ -458,9 +487,9 @@ fn verify_plugin_file(
                 id,
                 format!("Cannot read external Wasm Plugin {name:?} at {label}: {error}"),
             )
-            .with_remedy(
-                "Check that the plugin path in codeint.json points to an existing readable WebAssembly component file.",
-            );
+            .with_remedy(format!(
+                "Check that the plugin path in {file_name} points to an existing readable WebAssembly component file."
+            ));
         }
     };
     let actual_hex = sha256_hex(&sha256(&bytes));
@@ -470,9 +499,9 @@ fn verify_plugin_file(
             format!("SHA-256 hash mismatch for external Wasm Plugin {name:?} at {label}"),
         )
         .with_detail(format!("expected {expected_hex}, found {actual_hex}"))
-        .with_remedy(
-            "Verify the plugin file has not been modified, then update sha256 in codeint.json to match the trusted file.",
-        );
+        .with_remedy(format!(
+            "Verify the plugin file has not been modified, then update sha256 in {file_name} to match the trusted file."
+        ));
     }
     DoctorCheck::pass(
         id,

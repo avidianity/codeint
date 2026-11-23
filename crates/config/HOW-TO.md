@@ -123,7 +123,7 @@ for declaration in &configuration.plugins {
   It also names a key that the schema lists under `required` and the file leaves out.
   When a new type makes schemars write a keyword the shape check does not understand, `the_shape_check_understands_every_keyword_of_the_configuration_schema` fails; teach `src/codeint_json/shape.rs` that keyword first.
 
-## Write a starter codeint.json
+## Write a starter codeint.jsonc
 
 ```rust
 use codeint_config::{DetectedLanguage, write_starter_configuration};
@@ -135,7 +135,7 @@ let languages = vec![DetectedLanguage {
 let written = write_starter_configuration(tree.root(), &languages)?;
 ```
 
-- Pass the root of the working tree; the file lands at `{root}/codeint.json`.
+- Pass the root of the working tree; the file lands at `{root}/codeint.jsonc`.
 - It fails with `StarterConfigurationError::AlreadyExists` when either `codeint.json` or `codeint.jsonc` already exists, and never replaces it.
 - `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
 - An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.

@@ -457,3 +457,47 @@ fn doctor_validates_codeint_jsonc_and_reports_ambiguous_config_files() {
 fn doctor_reports_broken_symlink_for_codeint_jsonc() {
     let _ = assert_doctor_broken_config_symlink("codeint.jsonc", "missing-config.jsonc");
 }
+
+#[test]
+fn doctor_plugin_error_remedies_name_codeint_jsonc_when_active() {
+    let fixture = DoctorFixture::git_repo_with_ts();
+    let zeros = "0000000000000000000000000000000000000000000000000000000000000000";
+    fixture.write("plugins/sample.wasm", b"\0asm\x01\0\0\0");
+
+    let cases = [
+        (
+            "plugin:missing-plugin",
+            format!(
+                "{{\n  // missing local plugin\n  \"plugins\": [{{ \"name\": \"missing-plugin\", \"path\": \"plugins/missing.wasm\", \"sha256\": \"{zeros}\", }}],\n}}\n"
+            ),
+        ),
+        (
+            "plugin:sample-plugin",
+            format!(
+                "{{\n  // mismatched digest\n  \"plugins\": [{{ \"name\": \"sample-plugin\", \"path\": \"plugins/sample.wasm\", \"sha256\": \"{zeros}\", }}],\n}}\n"
+            ),
+        ),
+        (
+            "plugin:typescript-javascript",
+            format!(
+                "{{\n  // collides with built-in plugin\n  \"plugins\": [{{ \"name\": \"typescript-javascript\", \"path\": \"plugins/sample.wasm\", \"sha256\": \"{zeros}\", }}],\n}}\n"
+            ),
+        ),
+    ];
+
+    for (check_id, body) in cases {
+        fixture.write("codeint.jsonc", body);
+        let report = fixture.run_json(&[], 1);
+        let check = find_check(&report, check_id);
+        assert_eq!(check["status"], "error", "check: {check}");
+        let remedy = check["remedy"].as_str().unwrap_or_default();
+        assert!(
+            remedy.contains("codeint.jsonc"),
+            "expected codeint.jsonc in remedy for {check_id}: {remedy:?}"
+        );
+        assert!(
+            !remedy.replace("codeint.jsonc", "").contains("codeint.json"),
+            "unexpected codeint.json in remedy for {check_id}: {remedy:?}"
+        );
+    }
+}

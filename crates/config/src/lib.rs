@@ -26,11 +26,12 @@ pub use cli_schema::{
     CliArgumentSchema, CliCommandSchema, CliFlagSchema, CliSchema, OutputFormatSchema, cli_schema,
 };
 pub use codeint_json::{
-    Budget, Budgets, Configuration, ConfigurationInspection, DetectedLanguage, DuplicationConfig,
-    EntryPoints, LanguageCoverage, Languages, MinSimilarity, PluginDeclaration, PluginKind,
-    PluginLimits, PluginSource, SchemaVersionStatus, Sha256Digest, SourceSetOverrides,
-    StarterConfigurationError, configuration_schema, inspect_configuration, is_broken_symlink,
-    published_schema_address, read_configuration, read_resolved_configuration,
+    Budget, Budgets, Configuration, ConfigurationInspection, DetectedLanguage,
+    DiscoveredConfigFile, DuplicationConfig, EntryPoints, LanguageCoverage, Languages,
+    MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource, SchemaVersionStatus,
+    Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
+    discover_config_file, inspect_configuration, is_broken_symlink, published_schema_address,
+    read_configuration, read_resolved_configuration, schema_value_span,
     write_starter_configuration,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
@@ -444,7 +445,7 @@ enum CommandArguments {
     )]
     Impact(ImpactArguments),
     #[command(
-        about = "Write a starter codeint.json at the root of the Git repository that contains the current folder"
+        about = "Write a starter codeint.jsonc at the root of the Git repository that contains the current folder"
     )]
     Init,
     #[command(about = "Update a standalone codeint binary in place from GitHub Releases")]

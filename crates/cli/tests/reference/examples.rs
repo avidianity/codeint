@@ -4,6 +4,7 @@ use crate::markdown::{FencedBlock, Page};
 
 pub(crate) const EXAMPLE_LANGUAGE: &str = "sh";
 const CONFIGURATION_ATTRIBUTE: &str = "codeint.json";
+const CONFIGURATION_JSONC_ATTRIBUTE: &str = "codeint.jsonc";
 const ILLUSTRATION_ATTRIBUTE: &str = "illustration";
 
 pub(crate) struct Example {
@@ -115,6 +116,41 @@ fn command_line(text: &str, line: usize) -> Result<CommandLine, String> {
     ))
 }
 
+fn is_configuration_file(path: &str) -> bool {
+    matches!(
+        path,
+        CONFIGURATION_ATTRIBUTE | CONFIGURATION_JSONC_ATTRIBUTE
+    )
+}
+
+fn push_output(
+    examples: &mut [Example],
+    configuration_files: &mut Vec<String>,
+    previous_accepts_output: bool,
+    source: OutputSource,
+    block: &FencedBlock,
+    errors: &mut Vec<String>,
+) {
+    let line = block.content_lines.start;
+    match examples.last_mut() {
+        Some(example) if previous_accepts_output && example.commands.len() == 1 => {
+            if let OutputSource::File(path) = &source
+                && is_configuration_file(path)
+            {
+                configuration_files.push(block.content.clone());
+            }
+            example.outputs.push(ExpectedOutput {
+                source,
+                text: block.content.clone(),
+                content_lines: block.content_lines.clone(),
+            });
+        }
+        _ => errors.push(format!(
+            "line {line}: an output block follows an example of one command, or another output block of it"
+        )),
+    }
+}
+
 pub(crate) fn examples(page: &Page) -> Result<ExampleSet, Vec<String>> {
     let mut errors = Vec::new();
     let mut examples: Vec<Example> = Vec::new();
@@ -163,23 +199,14 @@ pub(crate) fn examples(page: &Page) -> Result<ExampleSet, Vec<String>> {
                 true
             }
             Ok(BlockRole::Output(source)) => {
-                match examples.last_mut() {
-                    Some(example) if previous_accepts_output && example.commands.len() == 1 => {
-                        if let OutputSource::File(path) = &source
-                            && path.as_str() == CONFIGURATION_ATTRIBUTE
-                        {
-                            configuration_files.push(block.content.clone());
-                        }
-                        example.outputs.push(ExpectedOutput {
-                            source,
-                            text: block.content.clone(),
-                            content_lines: block.content_lines.clone(),
-                        });
-                    }
-                    _ => errors.push(format!(
-                        "line {line}: an output block follows an example of one command, or another output block of it"
-                    )),
-                }
+                push_output(
+                    &mut examples,
+                    &mut configuration_files,
+                    previous_accepts_output,
+                    source,
+                    &block,
+                    &mut errors,
+                );
                 true
             }
         };

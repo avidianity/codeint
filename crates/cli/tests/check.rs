@@ -2868,6 +2868,59 @@ fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
     );
 }
 
+#[test]
+fn boundary_and_plugin_config_errors_in_codeint_jsonc_name_codeint_jsonc_in_remedies() {
+    let digest = "0000000000000000000000000000000000000000000000000000000000000000";
+    let cases = [
+        (
+            r#"{ "boundaries": { "zones": { "*": { "patterns": ["src/**"] } } } }"#.to_owned(),
+            "Give each boundary zone in codeint.jsonc a non-empty name other than \"*\".",
+        ),
+        (
+            format!(
+                r#"{{ "plugins": [{{ "name": " ", "path": "p.wasm", "sha256": "{digest}" }}] }}"#
+            ),
+            "Set a non-empty value for the plugin field in codeint.jsonc.",
+        ),
+        (
+            format!(r#"{{ "plugins": [{{ "name": "sample", "sha256": "{digest}" }}] }}"#),
+            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.jsonc.",
+        ),
+        (
+            format!(
+                r#"{{ "plugins": [{{ "name": "sample", "path": "p.wasm", "url": "https://example.invalid/p.wasm", "sha256": "{digest}" }}] }}"#
+            ),
+            "Keep either path or url on the plugin entry in codeint.jsonc and remove the other.",
+        ),
+        (
+            format!(
+                r#"{{ "plugins": [{{ "name": "sample", "url": "http://example.invalid/p.wasm", "sha256": "{digest}" }}] }}"#
+            ),
+            "Use an https:// URL for the plugin in codeint.jsonc; plain HTTP and other schemes are refused.",
+        ),
+    ];
+
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    for (config, expected_remedy) in cases {
+        repository.write("codeint.jsonc", &config);
+        let output = repository.codeint(&["check"]);
+        assert_eq!(output.status.code(), Some(2), "{config}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected_remedy),
+            "expected {expected_remedy:?} in stderr:\n{stderr}"
+        );
+        let without_jsonc = stderr.replace("codeint.jsonc", "");
+        assert!(
+            !without_jsonc.contains("codeint.json"),
+            "unexpected codeint.json reference in stderr:\n{stderr}"
+        );
+    }
+}
+
 fn write_files_of_distinct_line_counts(repository: &Repository, paths: &[&str]) {
     for (power, path) in paths.iter().enumerate() {
         let lines: String = (0..1usize << power)

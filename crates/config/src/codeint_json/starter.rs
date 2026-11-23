@@ -56,7 +56,7 @@ pub fn write_starter_configuration(
             }
         }
     }
-    let path = repository_root.join(CONFIGURATION_FILE_NAME);
+    let path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
     let text = starter_configuration_text(languages);
     let unwritable = |source| StarterConfigurationError::Unwritable {
         path: path.clone(),

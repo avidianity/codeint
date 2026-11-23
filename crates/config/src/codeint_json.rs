@@ -16,7 +16,9 @@ use crate::resolved::{
 };
 use globset::GlobSet;
 use jsonc_parser::errors::ParseError;
-use jsonc_parser::{ParseOptions, parse_to_serde_value, parse_to_value};
+use jsonc_parser::{
+    CollectOptions, ParseOptions, parse_to_ast, parse_to_serde_value, parse_to_value,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -790,9 +792,10 @@ pub fn read_configuration(repository_root: &Path) -> Result<Configuration, Confi
         .map(|resolved| resolved.configuration)
 }
 
-struct DiscoveredConfigFile {
-    kind: ConfigFileKind,
-    path: PathBuf,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredConfigFile {
+    pub kind: ConfigFileKind,
+    pub path: PathBuf,
 }
 
 fn path_exists_including_symlinks(
@@ -806,7 +809,7 @@ fn path_exists_including_symlinks(
     }
 }
 
-fn discover_config_file(
+pub fn discover_config_file(
     repository_root: &Path,
 ) -> Result<Option<DiscoveredConfigFile>, ConfigurationFileError> {
     let json_path = repository_root.join(CONFIGURATION_FILE_NAME);
@@ -825,6 +828,20 @@ fn discover_config_file(
         })),
         (false, false) => Ok(None),
     }
+}
+
+pub fn schema_value_span(text: &str) -> Option<std::ops::Range<usize>> {
+    let without_bom = text.strip_prefix('\u{FEFF}').unwrap_or(text);
+    let bom_len = text.len() - without_bom.len();
+    let parsed = parse_to_ast(
+        without_bom,
+        &CollectOptions::default(),
+        &JSONC_PARSE_OPTIONS,
+    )
+    .ok()?;
+    let value = parsed.value?;
+    let schema = value.as_object()?.get_string("$schema")?;
+    Some((schema.range.start + bom_len)..(schema.range.end + bom_len))
 }
 
 fn read_config_file(discovered: &DiscoveredConfigFile) -> Result<String, ConfigurationFileError> {

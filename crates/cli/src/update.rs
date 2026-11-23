@@ -96,13 +96,10 @@ fn append_schema_sync(mut message: String, target_tag: &str) -> String {
 fn find_codeint_json(start: &Path) -> Option<PathBuf> {
     let mut dir = Some(start);
     while let Some(current) = dir {
-        let json = current.join("codeint.json");
-        let jsonc = current.join("codeint.jsonc");
-        match (json.is_file(), jsonc.is_file()) {
-            (true, true) => return None,
-            (true, false) => return Some(json),
-            (false, true) => return Some(jsonc),
-            (false, false) => {}
+        match codeint_config::discover_config_file(current) {
+            Ok(Some(discovered)) => return discovered.path.is_file().then_some(discovered.path),
+            Ok(None) => {}
+            Err(_) => return None,
         }
         if current.join(".git").exists() {
             return None;
@@ -113,19 +110,23 @@ fn find_codeint_json(start: &Path) -> Option<PathBuf> {
 }
 
 fn replace_schema_tag(text: &str, target_tag: &str) -> Option<(String, String)> {
-    let start = text.find(SCHEMA_URL_PREFIX)?;
-    let rest = &text[start + SCHEMA_URL_PREFIX.len()..];
-    let end_offset = rest.find(SCHEMA_URL_SUFFIX)?;
-    let current_ref = &rest[..end_offset];
+    let span = codeint_config::schema_value_span(text)?;
+    let url = text
+        .get(span.clone())?
+        .strip_prefix('"')?
+        .strip_suffix('"')?;
+    let rest = url.strip_prefix(SCHEMA_URL_PREFIX)?;
+    let current_ref = rest.strip_suffix(SCHEMA_URL_SUFFIX)?;
     if current_ref.is_empty() || current_ref.contains('/') || current_ref == target_tag {
         return None;
     }
-    let old_end = start + SCHEMA_URL_PREFIX.len() + end_offset + SCHEMA_URL_SUFFIX.len();
     let new_url = format!("{SCHEMA_URL_PREFIX}{target_tag}{SCHEMA_URL_SUFFIX}");
     let mut updated = String::with_capacity(text.len() + target_tag.len());
-    updated.push_str(&text[..start]);
+    updated.push_str(&text[..span.start]);
+    updated.push('"');
     updated.push_str(&new_url);
-    updated.push_str(&text[old_end..]);
+    updated.push('"');
+    updated.push_str(&text[span.end..]);
     Some((updated, new_url))
 }
 

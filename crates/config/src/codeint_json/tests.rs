@@ -173,3 +173,29 @@ fn rejects_non_jsonc_extensions_invalid_commas_and_empty_input() {
         );
     }
 }
+
+#[test]
+fn schema_value_span_targets_active_top_level_schema_and_ignores_comments_and_nested_keys() {
+    let commented = concat!(
+        "\u{FEFF}{\n",
+        "  // \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.1/schema/codeint.schema.json\",\n",
+        "  /* \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.0.2/schema/codeint.schema.json\" */\n",
+        "  \"nested\": { \"$schema\": \"https://example.invalid/nested.json\" },\n",
+        "  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n",
+        "}\n",
+    );
+    let span = schema_value_span(commented).expect("active top-level $schema span");
+    assert_eq!(
+        &commented[span],
+        "\"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\""
+    );
+
+    assert_eq!(
+        schema_value_span(
+            "{\n  // \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\"\n}\n"
+        ),
+        None
+    );
+    assert_eq!(schema_value_span(r#"{ "$schema": 123 }"#), None);
+    assert_eq!(schema_value_span(r#"{ "$schema": "#), None);
+}
