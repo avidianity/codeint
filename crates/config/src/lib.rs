@@ -25,7 +25,7 @@ pub use codeint_json::{
     Budget, Budgets, Configuration, ConfigurationInspection, DetectedLanguage, LanguageCoverage,
     Languages, PluginDeclaration, PluginKind, PluginLimits, PluginSource, SchemaVersionStatus,
     Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
-    inspect_configuration, published_schema_address, read_configuration,
+    inspect_configuration, is_broken_symlink, published_schema_address, read_configuration,
     read_resolved_configuration, write_starter_configuration,
 };
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};

@@ -416,7 +416,7 @@ impl<T> MetricChanges<T> {
     }
 
     fn new_findings(&self) -> usize {
-        self.new.listed.len() + self.new.left_out
+        self.new.listed.len().saturating_add(self.new.left_out)
     }
 
     fn compared_values(&self, rule: RegressionRule) -> (Decimal, Decimal) {

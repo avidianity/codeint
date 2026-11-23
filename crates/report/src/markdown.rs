@@ -289,7 +289,11 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         ),
     ];
     if let Some(boundaries) = &section.boundaries {
-        let total_findings = boundaries.findings.listed.len() + boundaries.findings.left_out;
+        let total_findings = boundaries
+            .findings
+            .listed
+            .len()
+            .saturating_add(boundaries.findings.left_out);
         rows.push(vec![
             source_set.to_string(),
             "Boundaries".to_string(),

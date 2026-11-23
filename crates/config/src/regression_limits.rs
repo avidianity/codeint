@@ -7,9 +7,16 @@ use serde::{Deserialize, Serialize};
 use crate::ConfigProvenance;
 use crate::resolved::resolve_with_provenance;
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct RatioRise(f64);
+
+impl<'de> Deserialize<'de> for RatioRise {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<RatioRise, D::Error> {
+        let value = f64::deserialize(deserializer)?;
+        Ok(RatioRise(if value == 0.0 { 0.0 } else { value }))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -53,7 +60,7 @@ impl RatioRise {
     pub const DEFAULT: RatioRise = RatioRise(0.01);
 
     pub fn ratio(self) -> f64 {
-        self.0
+        if self.0 == 0.0 { 0.0 } else { self.0 }
     }
 
     pub fn admits(self, displayed_rise: f64) -> bool {

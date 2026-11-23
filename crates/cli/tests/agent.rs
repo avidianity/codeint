@@ -397,3 +397,197 @@ fn agent_rejects_malformed_or_invalid_config_without_modifying_files() {
     assert_eq!(bad_toml.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&bad_toml.stderr).contains("not valid TOML"));
 }
+
+#[test]
+fn agent_install_validates_all_clients_before_writing_any_file() {
+    let home = TempDir::new().expect("create temp home");
+    let claude_initial = serde_json::to_string_pretty(&json!({
+        "theme": "dark",
+        "mcpServers": {}
+    }))
+    .expect("serialize claude");
+    write_file(home.path(), ".claude.json", &claude_initial);
+    write_file(home.path(), ".cursor/mcp.json", "{ broken json");
+
+    let output = run_agent_cli(home.path(), home.path(), &["agent", "install"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("not valid JSON"));
+    assert_eq!(
+        fs::read_to_string(home.path().join(".claude.json")).expect("read claude"),
+        claude_initial
+    );
+    assert_eq!(
+        fs::read_to_string(home.path().join(".cursor/mcp.json")).expect("read cursor"),
+        "{ broken json"
+    );
+    assert_clean_temp_files(home.path());
+}
+
+#[test]
+fn agent_status_and_install_both_reject_non_object_codeint_entry() {
+    let home = TempDir::new().expect("create temp home");
+    write_file(
+        home.path(),
+        ".claude.json",
+        r#"{"mcpServers":{"codeint":"not-an-object"}}"#,
+    );
+    write_file(
+        home.path(),
+        ".codex/config.toml",
+        "[mcp_servers]\ncodeint = \"not-an-object\"\n",
+    );
+
+    for (subcommand, client) in [
+        ("status", "claude-code"),
+        ("install", "claude-code"),
+        ("status", "codex"),
+        ("install", "codex"),
+    ] {
+        let output = run_agent_cli(
+            home.path(),
+            home.path(),
+            &["agent", subcommand, "--client", client],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "expected exit 2 for agent {subcommand} --client {client}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("non-object codeint"),
+            "unexpected stderr for {subcommand}/{client}: {stderr}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_install_preserves_existing_file_permissions_and_creates_private_new_files() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = TempDir::new().expect("create temp home");
+    seed_three_detected_agents(home.path());
+
+    let claude_path = home.path().join(".claude.json");
+    let codex_path = home.path().join(".codex/config.toml");
+    let cursor_path = home.path().join(".cursor/mcp.json");
+
+    fs::set_permissions(&claude_path, fs::Permissions::from_mode(0o600)).expect("chmod claude");
+    fs::set_permissions(&codex_path, fs::Permissions::from_mode(0o640)).expect("chmod codex");
+
+    run_ok_json(
+        home.path(),
+        home.path(),
+        &["agent", "install", "--format", "json"],
+    );
+
+    let claude_mode = fs::metadata(&claude_path)
+        .expect("stat claude")
+        .permissions()
+        .mode()
+        & 0o777;
+    let codex_mode = fs::metadata(&codex_path)
+        .expect("stat codex")
+        .permissions()
+        .mode()
+        & 0o777;
+    let cursor_mode = fs::metadata(&cursor_path)
+        .expect("stat cursor")
+        .permissions()
+        .mode()
+        & 0o777;
+
+    assert_eq!(claude_mode, 0o600);
+    assert_eq!(codex_mode, 0o640);
+    assert_eq!(cursor_mode, 0o600);
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_install_and_status_preserve_symlinks_and_reject_dangling_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let home = TempDir::new().expect("create temp home");
+    let dotfiles = TempDir::new().expect("create dotfiles");
+
+    let claude_target = dotfiles.path().join("claude.json");
+    let cursor_target = dotfiles.path().join("cursor-mcp.json");
+    let codex_target = dotfiles.path().join("codex-config.toml");
+
+    fs::write(&claude_target, r#"{"theme":"dark"}"#).expect("write claude target");
+    fs::write(&cursor_target, r#"{"mcpServers":{}}"#).expect("write cursor target");
+    fs::write(&codex_target, "model = \"gpt-5\"\n").expect("write codex target");
+
+    fs::create_dir_all(home.path().join(".cursor")).expect("mkdir .cursor");
+    fs::create_dir_all(home.path().join(".codex")).expect("mkdir .codex");
+
+    let claude_link = home.path().join(".claude.json");
+    let cursor_link = home.path().join(".cursor/mcp.json");
+    let codex_link = home.path().join(".codex/config.toml");
+
+    symlink(&claude_target, &claude_link).expect("symlink claude");
+    symlink(&cursor_target, &cursor_link).expect("symlink cursor");
+    symlink(&codex_target, &codex_link).expect("symlink codex");
+
+    run_ok_json(
+        home.path(),
+        home.path(),
+        &["agent", "install", "--format", "json"],
+    );
+
+    for link in [&claude_link, &cursor_link, &codex_link] {
+        assert!(
+            fs::symlink_metadata(link)
+                .expect("lstat link")
+                .file_type()
+                .is_symlink(),
+            "{} must remain a symlink",
+            link.display()
+        );
+    }
+
+    let claude_doc: Value =
+        serde_json::from_str(&fs::read_to_string(&claude_target).expect("read claude target"))
+            .expect("parse claude target");
+    assert_eq!(claude_doc["theme"], "dark");
+    assert_eq!(
+        claude_doc["mcpServers"]["codeint"],
+        json!({"command": "codeint", "args": ["mcp"]})
+    );
+    let cursor_doc: Value =
+        serde_json::from_str(&fs::read_to_string(&cursor_target).expect("read cursor target"))
+            .expect("parse cursor target");
+    assert_eq!(
+        cursor_doc["mcpServers"]["codeint"],
+        json!({"command": "codeint", "args": ["mcp"]})
+    );
+    let codex_doc = fs::read_to_string(&codex_target).expect("read codex target");
+    assert!(codex_doc.contains("[mcp_servers.codeint]"));
+
+    let dangling_home = TempDir::new().expect("create dangling home");
+    let dangling_link = dangling_home.path().join(".claude.json");
+    symlink(dotfiles.path().join("does-not-exist.json"), &dangling_link)
+        .expect("create dangling symlink");
+
+    for subcommand in ["status", "install"] {
+        let output = run_agent_cli(
+            dangling_home.path(),
+            dangling_home.path(),
+            &["agent", subcommand],
+        );
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("dangling symlink"),
+            "unexpected stderr for {subcommand}: {stderr}"
+        );
+    }
+    assert!(
+        fs::symlink_metadata(&dangling_link)
+            .expect("lstat dangling link")
+            .file_type()
+            .is_symlink()
+    );
+    assert!(!dangling_link.exists());
+}

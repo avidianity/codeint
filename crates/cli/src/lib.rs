@@ -315,12 +315,12 @@ fn exit_codes() -> Vec<ExitCodeSchema> {
         ExitCodeSchema {
             code: SUCCESS,
             name: "success",
-            description: "The run succeeded, and no Budget or Regression failed.",
+            description: "The run succeeded, and no Budget, Regression, or codeint doctor blocking error failed.",
         },
         ExitCodeSchema {
             code: BUDGET_OR_REGRESSION_FAILED,
             name: "budget_or_regression_failed",
-            description: "The run succeeded, and at least one Budget or Regression failed.",
+            description: "The run succeeded, and at least one Budget, Regression, or codeint doctor blocking error failed.",
         },
         ExitCodeSchema {
             code: OPERATIONAL_ERROR,

@@ -110,6 +110,9 @@ fn agent_remedy(error: &AgentError) -> &'static str {
         E::Read { .. } | E::CreateDir { .. } | E::Write { .. } => {
             "Check file and folder permissions for the agent configuration path, then retry."
         }
+        E::DanglingSymlink { .. } => {
+            "Point the symlink to an existing configuration file, or remove the dangling symlink and retry."
+        }
         E::InvalidJson { .. }
         | E::ExpectedRootObject { .. }
         | E::InvalidToml { .. }
@@ -257,6 +260,9 @@ fn file_access_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
         E::Unreadable(_) => Some(
             "Check that codeint.json is a file you have permission to read, then run codeint again.",
         ),
+        E::BrokenSymlink => Some(
+            "Point the codeint.json symlink to an existing file, or remove the broken symlink and run codeint again.",
+        ),
         E::NotJson(_) => Some("Fix the JSON syntax of codeint.json at that line and column."),
         E::NewerSchemaVersion { .. } => Some(
             "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.",
@@ -269,6 +275,9 @@ fn json_shape_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
     use ConfigurationFileError::*;
     Some(match error {
         UnknownKey { .. } => "Remove the key, or correct its spelling to one of the allowed keys.",
+        UnknownCliBudgetMetric { .. } => {
+            "Pass one of the allowed Metric names to --budget, such as production.erosion=0.25."
+        }
         WrongType { .. } => {
             "Change the value to the expected type; the JSON schema that $schema links to describes every key."
         }
@@ -324,7 +333,7 @@ fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> 
         UnknownLanguagePlugin { .. } => {
             "Name one of the Language plugins listed, or remove the entry from languages."
         }
-        InvalidGlob { .. } => {
+        InvalidGlob { .. } | InvalidCliGlob { .. } => {
             "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
         }
         InvalidSha256 { .. } => {

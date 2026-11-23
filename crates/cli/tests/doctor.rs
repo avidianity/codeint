@@ -69,6 +69,15 @@ impl DoctorFixture {
         }));
     }
 
+    fn write_sample_remote_metric_plugin(&self, sha256: &str) {
+        self.write_plugin_config(json!({
+            "name": "remote-plugin",
+            "kind": "metric",
+            "url": "https://example.invalid/plugins/remote.wasm",
+            "sha256": sha256
+        }));
+    }
+
     fn run(&self, args: &[&str]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_codeint"));
         command.current_dir(self.dir.path());
@@ -323,12 +332,7 @@ fn doctor_verifies_external_wasm_plugins_and_fails_on_missing_or_mismatched_sha2
         "pass"
     );
 
-    fixture.write_plugin_config(json!({
-        "name": "remote-plugin",
-        "kind": "metric",
-        "url": "https://example.invalid/plugins/remote.wasm",
-        "sha256": actual_hash
-    }));
+    fixture.write_sample_remote_metric_plugin(&actual_hash);
     let remote_report = fixture.run_json(&[], 0);
     assert_eq!(remote_report["status"], "warn");
     assert_eq!(
@@ -341,5 +345,53 @@ fn doctor_verifies_external_wasm_plugins_and_fails_on_missing_or_mismatched_sha2
             .next()
             .is_none(),
         "doctor must not write to cache directory"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn doctor_reports_broken_symlink_for_codeint_json_and_cached_remote_plugin() {
+    use std::os::unix::fs::symlink;
+
+    let broken_config_fixture = DoctorFixture::git_repo_with_ts();
+    symlink(
+        broken_config_fixture.root().join("missing-config.json"),
+        broken_config_fixture.root().join("codeint.json"),
+    )
+    .expect("create broken codeint.json symlink");
+
+    let broken_config_report = broken_config_fixture.run_json(&[], 1);
+    assert_eq!(broken_config_report["status"], "error");
+    assert_check_field(
+        &broken_config_report,
+        "config",
+        "error",
+        "summary",
+        "broken symlink",
+    );
+    let checks = broken_config_report["checks"]
+        .as_array()
+        .expect("checks array");
+    assert!(!checks.iter().any(|check| check["id"] == "plugins"));
+
+    let remote_fixture = DoctorFixture::git_repo_with_ts();
+    let expected_hash = "0000000000000000000000000000000000000000000000000000000000000000";
+    remote_fixture.write_sample_remote_metric_plugin(expected_hash);
+    let plugins_cache_dir = remote_fixture.cache.path().join("plugins");
+    fs::create_dir_all(&plugins_cache_dir).expect("create plugins cache dir");
+    symlink(
+        plugins_cache_dir.join("missing.wasm"),
+        plugins_cache_dir.join(format!("{expected_hash}.wasm")),
+    )
+    .expect("create broken cached plugin symlink");
+
+    let broken_cache_report = remote_fixture.run_json(&[], 1);
+    assert_eq!(broken_cache_report["status"], "error");
+    assert_check_field(
+        &broken_cache_report,
+        "plugin:remote-plugin",
+        "error",
+        "summary",
+        "broken symlink",
     );
 }

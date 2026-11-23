@@ -206,6 +206,16 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
         .map(|entry| entry["code"].as_i64().expect("exit code integer"))
         .collect();
     assert_eq!(exit_codes, [0, 1, 2]);
+    let exit_one = manifest["exit_codes"]
+        .as_array()
+        .expect("exit_codes array")
+        .iter()
+        .find(|entry| entry["code"].as_i64() == Some(1))
+        .expect("exit code 1 entry");
+    let exit_one_desc = exit_one["description"].as_str().unwrap_or_default();
+    assert!(exit_one_desc.contains("Budget"));
+    assert!(exit_one_desc.contains("Regression"));
+    assert!(exit_one_desc.contains("doctor"));
 }
 
 #[test]

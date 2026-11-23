@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use codeint_config::{
     Configuration, ConfigurationInspection, LanguageCoverage, PluginDeclaration, PluginHostConfig,
-    PluginKind, PluginSource, SchemaVersionStatus, inspect_configuration,
+    PluginKind, PluginSource, SchemaVersionStatus, inspect_configuration, is_broken_symlink,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_plugin_host::{sha256, sha256_hex};
@@ -20,7 +20,7 @@ pub(crate) fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorRep
     let (git_check, repository, root) = check_git(folder);
     checks.push(git_check);
 
-    let (config_checks, configuration) = check_configuration(&root);
+    let (config_checks, configuration, config_missing) = check_configuration(&root);
     checks.extend(config_checks);
 
     if let Some(repository) = &repository {
@@ -32,7 +32,7 @@ pub(crate) fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorRep
 
     if let Some(configuration) = &configuration {
         checks.extend(check_plugins(&root, configuration, plugin_host));
-    } else if repository.is_some() && !root.join("codeint.json").exists() {
+    } else if repository.is_some() && config_missing {
         checks.push(DoctorCheck::pass(
             "plugins",
             "No external Wasm Plugins configured",
@@ -71,13 +71,13 @@ fn check_git(folder: &Path) -> (DoctorCheck, Option<Repository>, PathBuf) {
     }
 }
 
-fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>) {
+fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>, bool) {
     match inspect_configuration(root) {
         ConfigurationInspection::Missing { .. } => {
             let check =
                 DoctorCheck::warn("config", "No codeint.json found; using built-in defaults")
                     .with_remedy("Run codeint init to write a starter codeint.json.");
-            (vec![check], None)
+            (vec![check], None, true)
         }
         ConfigurationInspection::Valid {
             schema,
@@ -85,7 +85,7 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>)
             ..
         } => {
             let checks = valid_configuration_checks(&schema, &configuration);
-            (checks, Some(*configuration))
+            (checks, Some(*configuration), false)
         }
         ConfigurationInspection::Invalid { schema, error, .. } => {
             let config_check = DoctorCheck::error("config", describe(&error))
@@ -94,7 +94,7 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<Configuration>)
             if let Some(schema_status) = schema {
                 checks.push(schema_check(&schema_status));
             }
-            (checks, None)
+            (checks, None, false)
         }
     }
 }
@@ -353,15 +353,9 @@ fn check_remote_plugin(
         .as_ref()
         .map(|dir| dir.join(format!("{expected}.wasm")));
     if let Some(path) = cached_path
-        && path.exists()
+        && let Some(check) = inspect_cached_plugin(&id, declaration, url, &path, &expected)
     {
-        return verify_plugin_file(
-            id,
-            &declaration.name,
-            &path,
-            &expected,
-            &format!("cached from {url}"),
-        );
+        return check;
     }
     DoctorCheck::warn(
         id,
@@ -376,6 +370,51 @@ fn check_remote_plugin(
     .with_remedy("Run codeint check to download and verify this plugin into the local cache.")
 }
 
+fn inspect_cached_plugin(
+    id: &str,
+    declaration: &PluginDeclaration,
+    url: &str,
+    path: &Path,
+    expected: &str,
+) -> Option<DoctorCheck> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) if is_broken_symlink(path) => Some(
+            DoctorCheck::error(
+                id.to_owned(),
+                format!(
+                    "Cached external Wasm Plugin {:?} at {} is a broken symlink",
+                    declaration.name,
+                    path.display()
+                ),
+            )
+            .with_remedy(
+                "Remove the broken symlink in the plugin cache directory, then run codeint check to re-download the plugin.",
+            ),
+        ),
+        Ok(_) => Some(verify_plugin_file(
+            id.to_owned(),
+            &declaration.name,
+            path,
+            expected,
+            &format!("cached from {url}"),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => Some(
+            DoctorCheck::error(
+                id.to_owned(),
+                format!(
+                    "Cannot inspect cached external Wasm Plugin {:?} at {}: {error}",
+                    declaration.name,
+                    path.display()
+                ),
+            )
+            .with_remedy(
+                "Check permissions on the plugin cache directory, or set CODEINT_CACHE_DIR to a readable folder.",
+            ),
+        ),
+    }
+}
+
 fn verify_plugin_file(
     id: String,
     name: &str,
@@ -383,6 +422,15 @@ fn verify_plugin_file(
     expected_hex: &str,
     label: &str,
 ) -> DoctorCheck {
+    if is_broken_symlink(resolved_path) {
+        return DoctorCheck::error(
+            id,
+            format!("External Wasm Plugin {name:?} at {label} is a broken symlink"),
+        )
+        .with_remedy(
+            "Point the plugin symlink to an existing WebAssembly component file, or fix the path in codeint.json.",
+        );
+    }
     let bytes = match std::fs::read(resolved_path) {
         Ok(bytes) => bytes,
         Err(error) => {

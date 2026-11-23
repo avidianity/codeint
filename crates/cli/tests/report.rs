@@ -363,3 +363,84 @@ fn rerenders_multilanguage_boundaries_and_unresolved_imports_losslessly() {
         "multi-diff.json",
     );
 }
+
+fn assert_markdown_handles_max_left_out(
+    dir: &Path,
+    cache: &Path,
+    source_args: &[&str],
+    expected_code: i32,
+    left_out_field: &str,
+) {
+    let raw_json = invoke(dir, cache, source_args, None);
+    assert_eq!(raw_json.status.code(), Some(expected_code));
+    let mut doc: serde_json::Value =
+        serde_json::from_slice(&raw_json.stdout).expect("valid report json");
+    doc["source_sets"]["production"]["boundaries"][left_out_field] = serde_json::json!(usize::MAX);
+    let payload = serde_json::to_vec(&doc).expect("serialize report json");
+    let rendered = invoke(
+        dir,
+        cache,
+        &["report", "-", "--format", "markdown"],
+        Some(&payload),
+    );
+    assert_eq!(
+        rendered.status.code(),
+        Some(0),
+        "stderr: {}",
+        utf8(&rendered.stderr)
+    );
+    assert!(utf8(&rendered.stdout).contains(&usize::MAX.to_string()));
+}
+
+#[test]
+fn rerenders_markdown_without_overflow_when_left_out_is_usize_max() {
+    let (dir, cache) = setup_workspace(&[
+        (
+            "codeint.json",
+            r#"{
+  "boundaries": {
+    "zones": {
+      "domain": { "patterns": ["src/domain/**"] },
+      "infra": { "patterns": ["src/infra/**"] }
+    },
+    "rules": [
+      { "from": "domain", "deny": ["infra"] }
+    ]
+  }
+}
+"#,
+        ),
+        (
+            "src/infra/db.ts",
+            "export function query(): number {\n  return 1;\n}\n",
+        ),
+        (
+            "src/domain/service.ts",
+            "import { query } from \"../infra/db\";\nexport const run = (): number => query();\n",
+        ),
+    ]);
+    commit_all(dir.path(), "base");
+
+    assert_markdown_handles_max_left_out(
+        dir.path(),
+        cache.path(),
+        &["check", "--format", "json"],
+        0,
+        "findings_left_out",
+    );
+
+    populate(
+        dir.path(),
+        &[(
+            "src/domain/extra.ts",
+            "import { query } from \"../infra/db\";\nexport const extra = (): number => query();\n",
+        )],
+    );
+    assert_markdown_handles_max_left_out(
+        dir.path(),
+        cache.path(),
+        &["diff", "main", "--format", "json"],
+        1,
+        "new_left_out",
+    );
+}

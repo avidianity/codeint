@@ -79,7 +79,11 @@ impl FromStr for BudgetOverride {
             format!("{target:?} must name SOURCE_SET.METRIC, such as production.erosion")
         })?;
         let source_set = parse_source_set(source_set_text)?;
-        if metric.trim().is_empty() || metric.contains('.') {
+        if metric.is_empty()
+            || metric.trim() != metric
+            || metric.contains('.')
+            || metric.chars().any(char::is_whitespace)
+        {
             return Err(format!("{metric:?} is not a valid Metric key in {raw:?}"));
         }
         let ratio: f64 = ratio_text
@@ -106,6 +110,8 @@ impl FromStr for SourceSetOverride {
         if glob.trim().is_empty() {
             return Err(format!("glob in {raw:?} must not be empty"));
         }
+        crate::config_error::compile_glob(glob)
+            .map_err(|error| format!("glob {glob:?} in {raw:?} is not a valid glob: {error}"))?;
         Ok(SourceSetOverride {
             source_set,
             glob: glob.to_owned(),

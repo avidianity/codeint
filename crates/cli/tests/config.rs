@@ -271,3 +271,173 @@ fn config_resolved_accepts_subdirectory_path_argument() {
     assert_eq!(payload["config_file_present"], true);
     assert_setting(&payload, "plugin_limits.memory_mb", json!(96), "file");
 }
+
+fn assert_config_rejected(
+    cwd: &Path,
+    args: &[&str],
+    expected_stderr: &str,
+    forbidden_stderr: Option<&str>,
+) {
+    let output = invoke(cwd, args);
+    assert_eq!(output.status.code(), Some(2), "args={args:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(expected_stderr),
+        "expected {expected_stderr:?} in stderr: {stderr}"
+    );
+    if let Some(forbidden) = forbidden_stderr {
+        assert!(
+            !stderr.contains(forbidden),
+            "did not expect {forbidden:?} in stderr: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn config_resolved_tracks_boundary_provenance_normalizes_negative_zero_and_validates_keys() {
+    let empty_boundaries = init_repo_with_config(Some(json!({ "boundaries": {} })));
+    let empty_payload = resolved_json(empty_boundaries.path(), &[]);
+    assert_setting(&empty_payload, "boundaries.preset", Value::Null, "default");
+    assert_setting(&empty_payload, "boundaries.zones", json!({}), "default");
+    assert_setting(&empty_payload, "boundaries.rules", json!([]), "default");
+
+    let zones_only = init_repo_with_config(Some(json!({
+        "boundaries": {
+            "zones": {
+                "core": { "patterns": ["src/**"] }
+            }
+        }
+    })));
+    let zones_payload = resolved_json(zones_only.path(), &[]);
+    assert_setting(
+        &zones_payload,
+        "boundaries.zones",
+        json!({ "core": { "patterns": ["src/**"] } }),
+        "file",
+    );
+    assert_setting(&zones_payload, "boundaries.rules", json!([]), "default");
+
+    let neg_zero_repo = init_repo_with_config(None);
+    fs::write(
+        neg_zero_repo.path().join("codeint.json"),
+        r#"{"budgets":{"production":{"erosion":-0.0}},"regression_limits":{"production":{"erosion":{"ratio_rise":-0.0}}}}"#,
+    )
+    .expect("write negative zero config");
+    let neg_stdout = invoke_ok_stdout(
+        neg_zero_repo.path(),
+        &[
+            "config",
+            "--resolved",
+            "--format",
+            "json",
+            "--budget",
+            "production.duplication=-0.0",
+        ],
+    );
+    assert!(
+        !neg_stdout.contains("-0.0"),
+        "unexpected -0.0: {neg_stdout}"
+    );
+    let neg_payload: Value = serde_json::from_str(&neg_stdout).expect("valid json");
+    assert_setting(
+        &neg_payload,
+        "budgets.production.erosion",
+        json!(0.0),
+        "file",
+    );
+    assert_setting(
+        &neg_payload,
+        "budgets.production.duplication",
+        json!(0.0),
+        "cli",
+    );
+    assert_setting(
+        &neg_payload,
+        "regression_limits.production.erosion.ratio_rise",
+        json!(0.0),
+        "file",
+    );
+
+    let unknown_file_metric = init_repo_with_config(Some(json!({
+        "budgets": { "production": { "bogus_metric": 0.2 } }
+    })));
+    assert_config_rejected(
+        unknown_file_metric.path(),
+        &["config", "--resolved"],
+        "bogus_metric",
+        None,
+    );
+
+    let unknown_lang = init_repo_with_config(Some(json!({
+        "languages": [{ "plugin": "nonexistent-lang", "include": ["src/**"] }]
+    })));
+    assert_config_rejected(
+        unknown_lang.path(),
+        &["config", "--resolved"],
+        "nonexistent-lang",
+        None,
+    );
+
+    let with_metric_plugin = init_repo_with_config(Some(json!({
+        "plugins": [{
+            "name": "long-functions",
+            "kind": "metric",
+            "path": "plugins/long_functions.wasm",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }],
+        "budgets": { "production": { "long_functions": 0.25 } }
+    })));
+    let plugin_payload = resolved_json(with_metric_plugin.path(), &[]);
+    assert_setting(
+        &plugin_payload,
+        "budgets.production.long_functions",
+        json!(0.25),
+        "file",
+    );
+
+    let clean_repo = init_repo_with_config(None);
+    assert_config_rejected(
+        clean_repo.path(),
+        &["config", "--resolved", "--budget", "production.bogus=0.2"],
+        "--budget",
+        Some("codeint.json"),
+    );
+    assert_config_rejected(
+        clean_repo.path(),
+        &[
+            "config",
+            "--resolved",
+            "--budget",
+            "production. erosion =0.2",
+        ],
+        "not a valid Metric key",
+        None,
+    );
+    assert_config_rejected(
+        clean_repo.path(),
+        &["config", "--resolved", "--source-set", "test=[unclosed"],
+        "not a valid glob",
+        Some("codeint.json"),
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn config_resolved_reports_broken_symlink_for_codeint_json() {
+    use std::os::unix::fs::symlink;
+
+    let repo = init_repo_with_config(None);
+    symlink(
+        repo.path().join("missing-target.json"),
+        repo.path().join("codeint.json"),
+    )
+    .expect("create broken codeint.json symlink");
+
+    let output = invoke(repo.path(), &["config", "--resolved"]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("broken symlink"),
+        "expected broken symlink error, got: {stderr}"
+    );
+}

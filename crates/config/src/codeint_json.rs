@@ -6,7 +6,8 @@ use codeint_model::{Metric, RepoPath, SourceSet};
 use crate::RegressionLimits;
 use crate::boundaries::{Boundaries, BoundariesFile};
 use crate::config_error::{
-    CONFIGURATION_FILE_NAME, ConfigurationFileError, JsonType, KeyPath, KeySegment, glob_set,
+    CONFIGURATION_FILE_NAME, ConfigurationFileError, JsonType, KeyPath, KeySegment, compile_glob,
+    glob_set,
 };
 use crate::regression_limits::RegressionLimitSetting;
 use crate::resolved::{
@@ -128,39 +129,43 @@ pub struct PluginDeclaration {
 }
 
 impl Configuration {
+    pub fn validate_cli_budget_metrics(
+        &self,
+        overrides: &[BudgetOverride],
+        external_metric_keys: &[&str],
+    ) -> Result<(), ConfigurationFileError> {
+        for entry in overrides {
+            if !is_known_metric(&entry.metric, external_metric_keys) {
+                return Err(ConfigurationFileError::UnknownCliBudgetMetric {
+                    source_set: entry.source_set,
+                    metric: entry.metric.clone(),
+                    allowed: allowed_metric_keys(external_metric_keys),
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate_metrics(
         &self,
         external_metric_keys: &[&str],
     ) -> Result<(), ConfigurationFileError> {
-        let allowed_metrics = || -> Vec<String> {
-            Metric::BUILT_IN_KEYS
-                .iter()
-                .chain(["boundaries"].iter())
-                .chain(external_metric_keys.iter())
-                .map(|key| (*key).to_owned())
-                .collect()
-        };
-        let is_known = |key: &str| {
-            Metric::BUILT_IN_KEYS.contains(&key)
-                || key == "boundaries"
-                || external_metric_keys.contains(&key)
-        };
         for (source_set, metric_key, _) in &self.budgets.set {
-            if !is_known(metric_key) {
+            if !is_known_metric(metric_key, external_metric_keys) {
                 return Err(ConfigurationFileError::UnknownKey {
                     key: KeyPath::default()
                         .child(KeySegment::Key("budgets".to_owned()))
                         .child(KeySegment::Key(source_set.key().to_owned()))
                         .child(KeySegment::Key(metric_key.clone())),
-                    allowed: allowed_metrics(),
+                    allowed: allowed_metric_keys(external_metric_keys),
                 });
             }
         }
         for (source_set, metric_key) in self.regression_limits.metric_keys() {
-            if !is_known(metric_key) {
+            if !is_known_metric(metric_key, external_metric_keys) {
                 let mut path =
                     KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
-                let mut allowed = allowed_metrics();
+                let mut allowed = allowed_metric_keys(external_metric_keys);
                 if let Some(source_set) = source_set {
                     path = path.child(KeySegment::Key(source_set.key().to_owned()));
                 } else {
@@ -180,6 +185,21 @@ impl Configuration {
     }
 }
 
+fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
+    Metric::BUILT_IN_KEYS
+        .iter()
+        .chain(["boundaries"].iter())
+        .chain(external_metric_keys.iter())
+        .map(|key| (*key).to_owned())
+        .collect()
+}
+
+fn is_known_metric(key: &str, external_metric_keys: &[&str]) -> bool {
+    Metric::BUILT_IN_KEYS.contains(&key)
+        || key == "boundaries"
+        || external_metric_keys.contains(&key)
+}
+
 impl Serialize for Configuration {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.effective.serialize(serializer)
@@ -191,9 +211,20 @@ pub struct Budgets {
     set: Vec<(SourceSet, String, Budget)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, JsonSchema)]
 #[serde(transparent)]
 pub struct Budget(#[schemars(range(min = 0, max = 1))] f64);
+
+impl<'de> Deserialize<'de> for Budget {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Budget, D::Error> {
+        let value = f64::deserialize(deserializer)?;
+        Ok(Budget(normalize_zero(value)))
+    }
+}
+
+fn normalize_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
+}
 
 impl Budgets {
     pub fn budget(&self, source_set: SourceSet, metric: Metric) -> Option<Budget> {
@@ -210,15 +241,15 @@ impl Budgets {
 
 impl Budget {
     pub fn new(ratio: f64) -> Option<Budget> {
-        (ratio.is_finite() && (0.0..=1.0).contains(&ratio)).then_some(Budget(ratio))
+        (ratio.is_finite() && (0.0..=1.0).contains(&ratio)).then_some(Budget(normalize_zero(ratio)))
     }
 
     pub fn ratio(self) -> f64 {
-        self.0
+        normalize_zero(self.0)
     }
 
     pub fn admits(self, ratio: f64) -> bool {
-        ratio <= self.0
+        ratio <= self.ratio()
     }
 }
 
@@ -633,32 +664,49 @@ pub fn read_configuration(repository_root: &Path) -> Result<Configuration, Confi
         .map(|resolved| resolved.configuration)
 }
 
-pub fn read_resolved_configuration(
-    repository_root: &Path,
-    overrides: &ConfigOverrides,
-) -> Result<ResolvedConfiguration, ConfigurationFileError> {
-    let config_file = repository_root.join(CONFIGURATION_FILE_NAME);
-    match std::fs::read_to_string(&config_file) {
-        Ok(text) => parse_with_overrides(config_file, true, Some(&text), overrides),
+fn read_config_file_if_present(path: &Path) -> Result<Option<String>, ConfigurationFileError> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            parse_with_overrides(config_file, false, None, overrides)
+            if is_broken_symlink(path) {
+                Err(ConfigurationFileError::BrokenSymlink)
+            } else {
+                Ok(None)
+            }
         }
         Err(error) => Err(ConfigurationFileError::Unreadable(error)),
     }
 }
 
+pub fn is_broken_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+        && matches!(
+            std::fs::metadata(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        )
+}
+
+pub fn read_resolved_configuration(
+    repository_root: &Path,
+    overrides: &ConfigOverrides,
+) -> Result<ResolvedConfiguration, ConfigurationFileError> {
+    let config_file = repository_root.join(CONFIGURATION_FILE_NAME);
+    match read_config_file_if_present(&config_file)? {
+        Some(text) => parse_with_overrides(config_file, true, Some(&text), overrides),
+        None => parse_with_overrides(config_file, false, None, overrides),
+    }
+}
+
 pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection {
     let path = repository_root.join(CONFIGURATION_FILE_NAME);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return ConfigurationInspection::Missing { path };
-        }
+    let text = match read_config_file_if_present(&path) {
+        Ok(Some(text)) => text,
+        Ok(None) => return ConfigurationInspection::Missing { path },
         Err(error) => {
             return ConfigurationInspection::Invalid {
                 path,
                 schema: None,
-                error: ConfigurationFileError::Unreadable(error),
+                error,
             };
         }
     };
@@ -812,6 +860,13 @@ fn merge_source_sets(
     overrides: &[SourceSetOverride],
     settings: &mut Vec<ResolvedSetting>,
 ) -> Result<SourceSetOverrides, ConfigurationFileError> {
+    for entry in overrides {
+        compile_glob(&entry.glob).map_err(|source| ConfigurationFileError::InvalidCliGlob {
+            source_set: entry.source_set,
+            glob: entry.glob.clone(),
+            source,
+        })?;
+    }
     let cli_by_set = group_source_set_overrides(overrides);
     let slots = [
         (SourceSet::Production, &mut globs.production),
@@ -1048,17 +1103,27 @@ fn append_boundaries_settings(
         json!(boundaries.source_set_keys()),
         source_sets_source,
     );
+    let zones_source = if has_json_path(raw, &["boundaries", "zones"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
     push_setting(
         settings,
         "boundaries.zones",
         boundaries.resolved_zones_json(),
-        ConfigProvenance::File,
+        zones_source,
     );
+    let rules_source = if has_json_path(raw, &["boundaries", "rules"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
     push_setting(
         settings,
         "boundaries.rules",
         boundaries.resolved_rules_json(),
-        ConfigProvenance::File,
+        rules_source,
     );
 }
 

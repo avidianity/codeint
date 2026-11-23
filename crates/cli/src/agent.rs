@@ -1,5 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -64,6 +66,8 @@ pub(crate) enum AgentError {
         path.display()
     )]
     InvalidCodeintEntry { path: PathBuf, key: &'static str },
+    #[error("agent configuration file {} is a dangling symlink", path.display())]
+    DanglingSymlink { path: PathBuf },
     #[error("cannot create folder {}", path.display())]
     CreateDir {
         path: PathBuf,
@@ -92,8 +96,14 @@ enum MergeOutcome {
 struct PlannedUpdate {
     client: AgentClient,
     config_path: PathBuf,
+    write_path: PathBuf,
     action: AgentInstallAction,
     content: Option<String>,
+}
+
+enum ConfigTarget {
+    Missing { write_path: PathBuf },
+    Existing { write_path: PathBuf },
 }
 
 trait ConfigDocument: Sized {
@@ -260,9 +270,12 @@ pub(crate) fn install(
             ),
         });
     }
-    let mut results = Vec::with_capacity(targets.len());
+    let mut plans = Vec::with_capacity(targets.len());
     for client in targets {
-        let plan = plan_client_update(config_root, client)?;
+        plans.push(plan_client_update(config_root, client)?);
+    }
+    let mut results = Vec::with_capacity(plans.len());
+    for plan in plans {
         results.push(apply_or_preview(plan, dry_run)?);
     }
     Ok(AgentInstallReport {
@@ -287,7 +300,7 @@ fn apply_or_preview(plan: PlannedUpdate, dry_run: bool) -> Result<AgentInstallEn
     let (written, preview) = if dry_run {
         (false, plan.content)
     } else if let Some(content) = plan.content {
-        atomic_write(&plan.config_path, content.as_bytes())?;
+        atomic_write(&plan.write_path, content.as_bytes())?;
         (true, None)
     } else {
         (false, None)
@@ -305,17 +318,18 @@ fn apply_or_preview(plan: PlannedUpdate, dry_run: bool) -> Result<AgentInstallEn
 fn inspect_client(config_root: &Path, client: AgentClient) -> Result<AgentStatusEntry, AgentError> {
     let config_path = client_config_path(config_root, client);
     let detected = is_client_detected(config_root, client);
-    let config_exists = config_path.is_file();
-    let registered = if config_exists {
-        let raw = read_config_file(&config_path)?;
-        match client_format(client) {
-            ConfigFormat::Json => {
-                is_registered_in_doc::<JsonMap<String, JsonValue>>(&config_path, &raw)?
-            }
-            ConfigFormat::Toml => is_registered_in_doc::<toml::Table>(&config_path, &raw)?,
+    let (config_exists, registered) = match resolve_config_target(&config_path)? {
+        ConfigTarget::Missing { .. } => (false, false),
+        ConfigTarget::Existing { write_path } => {
+            let raw = read_config_file(&write_path)?;
+            let registered = match client_format(client) {
+                ConfigFormat::Json => {
+                    is_registered_in_doc::<JsonMap<String, JsonValue>>(&config_path, &raw)?
+                }
+                ConfigFormat::Toml => is_registered_in_doc::<toml::Table>(&config_path, &raw)?,
+            };
+            (true, registered)
         }
-    } else {
-        false
     };
     Ok(AgentStatusEntry {
         client: client.as_str(),
@@ -332,11 +346,12 @@ fn plan_client_update(
     client: AgentClient,
 ) -> Result<PlannedUpdate, AgentError> {
     let config_path = client_config_path(config_root, client);
-    let existed = config_path.is_file();
-    let existing = if existed {
-        Some(read_config_file(&config_path)?)
-    } else {
-        None
+    let (existed, write_path, existing) = match resolve_config_target(&config_path)? {
+        ConfigTarget::Missing { write_path } => (false, write_path, None),
+        ConfigTarget::Existing { write_path } => {
+            let raw = read_config_file(&write_path)?;
+            (true, write_path, Some(raw))
+        }
     };
     let merge = match client_format(client) {
         ConfigFormat::Json => {
@@ -358,6 +373,7 @@ fn plan_client_update(
     Ok(PlannedUpdate {
         client,
         config_path,
+        write_path,
         action,
         content,
     })
@@ -381,7 +397,13 @@ fn doc_has_codeint_mcp<D: ConfigDocument>(path: &Path, root: &D) -> Result<bool,
     else {
         return Ok(false);
     };
-    let Ok(Some(entry)) = servers.child_object(CODEINT_SERVER_NAME) else {
+    let Some(entry) = servers.child_object(CODEINT_SERVER_NAME).map_err(|()| {
+        AgentError::InvalidCodeintEntry {
+            path: path.to_path_buf(),
+            key: CODEINT_SERVER_NAME,
+        }
+    })?
+    else {
         return Ok(false);
     };
     Ok(entry.matches_codeint_mcp())
@@ -425,16 +447,65 @@ fn client_config_path(config_root: &Path, client: AgentClient) -> PathBuf {
 fn is_client_detected(config_root: &Path, client: AgentClient) -> bool {
     match client {
         AgentClient::ClaudeCode => {
-            config_root.join(".claude.json").is_file() || config_root.join(".claude").is_dir()
+            config_entry_present(&config_root.join(".claude.json"))
+                || config_root.join(".claude").is_dir()
         }
         AgentClient::Cursor => {
             config_root.join(".cursor").is_dir()
-                || config_root.join(".cursor").join("mcp.json").is_file()
+                || config_entry_present(&config_root.join(".cursor").join("mcp.json"))
         }
         AgentClient::Codex => {
             config_root.join(".codex").is_dir()
-                || config_root.join(".codex").join("config.toml").is_file()
+                || config_entry_present(&config_root.join(".codex").join("config.toml"))
         }
+    }
+}
+
+fn config_entry_present(path: &Path) -> bool {
+    path.is_file() || fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+fn resolve_config_target(path: &Path) -> Result<ConfigTarget, AgentError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ConfigTarget::Missing {
+                write_path: path.to_path_buf(),
+            });
+        }
+        Err(source) => {
+            return Err(AgentError::Read {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    if !metadata.file_type().is_symlink() {
+        return Ok(ConfigTarget::Existing {
+            write_path: path.to_path_buf(),
+        });
+    }
+    resolve_symlink_target(path)
+}
+
+fn resolve_symlink_target(path: &Path) -> Result<ConfigTarget, AgentError> {
+    match fs::metadata(path) {
+        Ok(_) => {
+            let write_path = fs::canonicalize(path).map_err(|source| AgentError::Read {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            Ok(ConfigTarget::Existing { write_path })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(AgentError::DanglingSymlink {
+                path: path.to_path_buf(),
+            })
+        }
+        Err(source) => Err(AgentError::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
     }
 }
 
@@ -458,9 +529,13 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<(), AgentError> {
         path: parent.to_path_buf(),
         source,
     })?;
+    let existing_permissions = existing_file_permissions(target)?;
     let (temp_path, mut file) = create_temp_file(parent, target)?;
     let commit = (|| -> std::io::Result<()> {
         file.write_all(bytes)?;
+        if let Some(permissions) = existing_permissions {
+            file.set_permissions(permissions)?;
+        }
         file.sync_all()?;
         drop(file);
         fs::rename(&temp_path, target)
@@ -475,6 +550,25 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<(), AgentError> {
     Ok(())
 }
 
+fn existing_file_permissions(target: &Path) -> Result<Option<fs::Permissions>, AgentError> {
+    match fs::metadata(target) {
+        Ok(metadata) => Ok(Some(metadata.permissions())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(AgentError::Write {
+            path: target.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn temp_file_open_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options
+}
+
 fn create_temp_file(parent: &Path, target: &Path) -> Result<(PathBuf, fs::File), AgentError> {
     let base_name = target
         .file_name()
@@ -484,11 +578,7 @@ fn create_temp_file(parent: &Path, target: &Path) -> Result<(PathBuf, fs::File),
     for _ in 0..64 {
         let seq = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let candidate = parent.join(format!(".{base_name}.codeint-tmp-{pid}-{seq}"));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
+        match temp_file_open_options().open(&candidate) {
             Ok(file) => return Ok((candidate, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(source) => {
