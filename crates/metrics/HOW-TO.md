@@ -168,3 +168,24 @@ for import in import_cycles.unresolved_imports() {
 - The list is sorted by importer path, and keeps source order within one importer.
 - An unresolved import adds no edge and never changes the ratio; it only shows how complete the import graph is.
 - The report shows the count and the first unresolved imports under `import_cycles.unresolved_imports` of each Source set, with the same limit and `--all` option as Findings.
+
+## Measure Dependency hygiene
+
+```rust
+use std::collections::BTreeSet;
+use codeint_metrics::DependencyHygiene;
+
+let hygiene = DependencyHygiene::measure(&model, &BTreeSet::new());
+println!("unused ratio {}", hygiene.unused_ratio());
+println!("unlisted ratio {}", hygiene.unlisted_ratio());
+println!("dev-in-production ratio {}", hygiene.dev_in_production_ratio());
+```
+
+- `DependencyHygiene::measure` reads one language's `CodeModel` across all Source sets before splitting by Source set, and never knows the source language.
+- It matches each file to the deepest package root in `model.dependency_manifests` (falling back to the root package `""` when present).
+- When a model has no dependency manifests, `measure` returns an empty result with no Findings.
+- `unused` lists declared `Runtime` and `Dev` dependencies not imported by any Production, Test, or Generated file in their package; `Optional` declarations satisfy imports without being flagged as unused.
+- `unlisted` lists external packages (`ImportResolution::External`) imported by Production or Test files in a package that has a manifest but does not declare them; built-ins, resolved internal imports, and unresolved imports are never flagged.
+- `dev_in_production` lists dependencies declared only as `Dev` that are imported by Production files; `Dev` dependencies imported by Test files are counted as used and not flagged.
+- Vendored files are excluded, and canonical package names in `ignored` are excluded from all three Metrics.
+- Use `DependencyHygiene::merge` to combine independent per-language measurements into a repository total.

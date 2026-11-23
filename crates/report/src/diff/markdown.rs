@@ -1,11 +1,14 @@
-use super::{DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges};
+use super::{
+    DependenciesChanges, DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges,
+};
 use crate::Findings;
 use crate::markdown::{
     BOUNDARY_FINDING_COLUMNS, CLONE_GROUP, COMPLEX_FUNCTION, COMPLEX_FUNCTION_COLUMNS,
     ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, EXTERNAL_FINDING_COLUMNS, FINDING, FLAGGED_LINE,
-    FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun, boundary_finding_row, clone_group_item, code,
-    complex_function_row, eroded_function_row, external_finding_row, findings_table,
-    flagged_line_row, import_cycle_item, list, push_findings, sentence_item, table,
+    FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, IMPORTED_DEPENDENCY_COLUMNS, Noun,
+    UNUSED_DEPENDENCY_COLUMNS, boundary_finding_row, clone_group_item, code, complex_function_row,
+    eroded_function_row, external_finding_row, findings_table, flagged_line_row, import_cycle_item,
+    imported_dependency_row, list, push_findings, sentence_item, table, unused_dependency_row,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -18,6 +21,7 @@ const METRIC_COLUMNS: [&str; 7] = [
     "Resolved",
     "Unchanged",
 ];
+const DEPENDENCY_COLUMNS: [&str; 6] = ["Metric", "Base", "Head", "New", "Resolved", "Unchanged"];
 
 pub(super) fn render(report: &DiffReport) -> String {
     let sections = report.source_sets.named();
@@ -30,6 +34,10 @@ pub(super) fn render(report: &DiffReport) -> String {
                 .flat_map(|(name, changes)| metric_rows(name, changes))
                 .collect(),
         ));
+    }
+    if let Some(dependencies) = &report.dependencies {
+        blocks.push("## Dependencies".to_string());
+        blocks.push(dependency_table(dependencies));
     }
     if !report.over_budget.is_empty() {
         blocks.push("## Over Budget".to_string());
@@ -45,6 +53,13 @@ pub(super) fn render(report: &DiffReport) -> String {
         let findings = findings_blocks(changes);
         if !findings.is_empty() {
             blocks.push(format!("## {name} changes"));
+            blocks.extend(findings);
+        }
+    }
+    if let Some(dependencies) = &report.dependencies {
+        let findings = dependency_findings_blocks(dependencies);
+        if !findings.is_empty() {
+            blocks.push("## Dependency changes".to_string());
             blocks.extend(findings);
         }
     }
@@ -153,6 +168,58 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
             &FINDING,
             |listed| findings_table(&EXTERNAL_FINDING_COLUMNS, listed, external_finding_row),
         );
+    }
+    blocks
+}
+
+fn dependency_table(changes: &DependenciesChanges) -> String {
+    table(
+        &DEPENDENCY_COLUMNS,
+        vec![
+            dependency_row("Unused dependencies", &changes.unused_dependencies),
+            dependency_row("Unlisted dependencies", &changes.unlisted_dependencies),
+            dependency_row(
+                "Dev dependencies in production",
+                &changes.dev_in_production_dependencies,
+            ),
+        ],
+    )
+}
+
+fn dependency_row<T>(metric: &str, changes: &MetricChanges<T>) -> Vec<String> {
+    vec![
+        metric.to_string(),
+        changes.base_ratio.0.to_string(),
+        changes.head_ratio.0.to_string(),
+        count(&changes.new).to_string(),
+        count(&changes.resolved).to_string(),
+        changes.unchanged.to_string(),
+    ]
+}
+
+fn dependency_findings_blocks(changes: &DependenciesChanges) -> Vec<String> {
+    let mut blocks = Vec::new();
+    push_changes(
+        &mut blocks,
+        "Unused dependencies",
+        &changes.unused_dependencies,
+        &FINDING,
+        |listed| findings_table(&UNUSED_DEPENDENCY_COLUMNS, listed, unused_dependency_row),
+    );
+    for (heading, metric_changes) in [
+        ("Unlisted dependencies", &changes.unlisted_dependencies),
+        (
+            "Dev dependencies in production",
+            &changes.dev_in_production_dependencies,
+        ),
+    ] {
+        push_changes(&mut blocks, heading, metric_changes, &FINDING, |listed| {
+            findings_table(
+                &IMPORTED_DEPENDENCY_COLUMNS,
+                listed,
+                imported_dependency_row,
+            )
+        });
     }
     blocks
 }

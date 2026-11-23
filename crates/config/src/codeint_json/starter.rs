@@ -69,6 +69,7 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
         plugins: Vec::new(),
         plugin_limits: Default::default(),
         boundaries: None,
+        dependencies: Default::default(),
         languages: (!languages.is_empty()).then(|| {
             languages
                 .iter()

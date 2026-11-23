@@ -134,6 +134,12 @@ pub struct SkippedFile {
     pub reason: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DependencyManifest {
+    pub package_root: String,
+    pub path: RepoPath,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CodeModel {
     pub files: Vec<SourceFile>,
@@ -141,6 +147,8 @@ pub struct CodeModel {
     pub declaration_only: Vec<RepoPath>,
     pub workspace: Workspace,
     pub runtime_imports: Vec<RuntimeImport>,
+    pub declared_dependencies: Vec<DeclaredDep>,
+    pub dependency_manifests: Vec<DependencyManifest>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -160,6 +168,12 @@ impl CodeModel {
             merged.declaration_only.extend(model.declaration_only);
             merged.runtime_imports.extend(model.runtime_imports);
             merged.workspace.join(model.workspace);
+            merged
+                .declared_dependencies
+                .extend(model.declared_dependencies);
+            merged
+                .dependency_manifests
+                .extend(model.dependency_manifests);
         }
         merged
             .files
@@ -168,6 +182,8 @@ impl CodeModel {
             .skipped
             .sort_by(|left, right| left.path.cmp(&right.path));
         merged.declaration_only.sort();
+        merged.dependency_manifests.sort();
+        merged.dependency_manifests.dedup();
         merged
     }
 

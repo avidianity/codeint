@@ -1,9 +1,10 @@
 use crate::ownership::OwnedFinding;
 use crate::{
     BoundaryFindingRow, CloneGroupFinding, CloneLocation, CognitiveComplexityFinding,
-    ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding,
-    ImportCyclesSection, MeasuredSection, MetricHeader, PackageSection, ReferenceRangeEntry,
-    Report, SourceSetSection, SourceSetSections, UnresolvedImportRow,
+    DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow,
+    ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow, MeasuredSection, MetricHeader,
+    PackageSection, ReferenceRangeEntry, Report, SourceSetSection, SourceSetSections,
+    UnresolvedImportRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -46,6 +47,11 @@ pub(crate) const BOUNDARY_FINDING_COLUMNS: [&str; 6] = [
     "Rule",
     "Reason",
 ];
+const DEPENDENCY_SUMMARY_COLUMNS: [&str; 3] = ["Metric", "Value", "Behind the value"];
+pub(crate) const UNUSED_DEPENDENCY_COLUMNS: [&str; 4] =
+    ["Package", "Manifest", "Dependency", "Kind"];
+pub(crate) const IMPORTED_DEPENDENCY_COLUMNS: [&str; 4] =
+    ["Package", "Manifest", "Dependency", "Importers"];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
 
 pub(crate) struct Noun {
@@ -117,6 +123,7 @@ pub(crate) fn render(report: &Report) -> String {
     let sections = report.measured.source_sets.named();
     let mut blocks = vec![TITLE.to_string(), measured_summary(&report.measured)];
     blocks.extend(metric_table(&sections));
+    push_dependencies_summary(&mut blocks, report.measured.dependencies.as_ref());
     if !report.over_budget.is_empty() {
         blocks.push("## Over Budget".to_string());
         blocks.push(list(report.over_budget.iter().map(sentence_item)));
@@ -125,26 +132,58 @@ pub(crate) fn render(report: &Report) -> String {
         blocks.push("## Workspace packages".to_string());
         blocks.push(packages);
     }
-    for (plugin, language) in &report.languages {
-        let language_sections = language.source_sets.named();
-        blocks.push(format!("## Language plugin {}", code(plugin)));
-        blocks.push(measured_summary(language));
-        blocks.extend(metric_table(&language_sections));
-        blocks.extend(package_table(&language_sections));
-    }
-    for (name, section) in &sections {
-        let findings = findings_blocks(section);
-        if !findings.is_empty() {
-            blocks.push(format!("## {name} Findings"));
-            blocks.extend(findings);
-        }
-    }
+    push_language_sections(&mut blocks, &report.languages);
+    push_source_set_findings(&mut blocks, &sections);
+    push_dependency_findings(&mut blocks, report.measured.dependencies.as_ref());
     let not_measured = files_not_measured(report);
     if !not_measured.is_empty() {
         blocks.push("## Files not measured".to_string());
         blocks.push(not_measured.join("\n"));
     }
     blocks.join("\n\n")
+}
+
+fn push_dependencies_summary(blocks: &mut Vec<String>, dependencies: Option<&DependenciesSection>) {
+    if let Some(dependencies) = dependencies {
+        blocks.push("## Dependencies".to_string());
+        blocks.push(dependencies_summary_table(dependencies));
+    }
+}
+
+fn push_language_sections(
+    blocks: &mut Vec<String>,
+    languages: &std::collections::BTreeMap<String, MeasuredSection>,
+) {
+    for (plugin, language) in languages {
+        let language_sections = language.source_sets.named();
+        blocks.push(format!("## Language plugin {}", code(plugin)));
+        blocks.push(measured_summary(language));
+        blocks.extend(metric_table(&language_sections));
+        if let Some(dependencies) = &language.dependencies {
+            blocks.push(dependencies_summary_table(dependencies));
+        }
+        blocks.extend(package_table(&language_sections));
+    }
+}
+
+fn push_source_set_findings(blocks: &mut Vec<String>, sections: &[(&str, &SourceSetSection)]) {
+    for (name, section) in sections {
+        let findings = findings_blocks(section);
+        if !findings.is_empty() {
+            blocks.push(format!("## {name} Findings"));
+            blocks.extend(findings);
+        }
+    }
+}
+
+fn push_dependency_findings(blocks: &mut Vec<String>, dependencies: Option<&DependenciesSection>) {
+    if let Some(dependencies) = dependencies {
+        let dep_findings = dependency_findings_blocks(dependencies);
+        if !dep_findings.is_empty() {
+            blocks.push("## Dependency Findings".to_string());
+            blocks.extend(dep_findings);
+        }
+    }
 }
 
 fn metric_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
@@ -566,6 +605,90 @@ pub(crate) fn boundary_finding_row(row: &BoundaryFindingRow) -> Vec<String> {
             .map_or_else(|| "-".to_owned(), prose),
         prose(&row.kind),
         prose(row.reason.as_deref().unwrap_or(&row.message)),
+    ]
+}
+
+fn dependencies_summary_table(dependencies: &DependenciesSection) -> String {
+    let unused = &dependencies.unused_dependencies;
+    let unlisted = &dependencies.unlisted_dependencies;
+    let dev_in_prod = &dependencies.dev_in_production_dependencies;
+    table(
+        &DEPENDENCY_SUMMARY_COLUMNS,
+        vec![
+            vec![
+                "Unused dependencies".to_string(),
+                unused.ratio.0.to_string(),
+                format!(
+                    "{} of {} declared dependencies unused",
+                    unused.unused, unused.declared
+                ),
+            ],
+            vec![
+                "Unlisted dependencies".to_string(),
+                unlisted.ratio.0.to_string(),
+                format!(
+                    "{} of {} imported external packages unlisted",
+                    unlisted.unlisted, unlisted.imported
+                ),
+            ],
+            vec![
+                "Dev dependencies in production".to_string(),
+                dev_in_prod.ratio.0.to_string(),
+                format!(
+                    "{} of {} production-imported external packages dev-only",
+                    dev_in_prod.dev_in_production, dev_in_prod.production_imported
+                ),
+            ],
+        ],
+    )
+}
+
+fn dependency_findings_blocks(dependencies: &DependenciesSection) -> Vec<String> {
+    let mut blocks = Vec::new();
+    push_findings(
+        &mut blocks,
+        "Unused dependencies",
+        &dependencies.unused_dependencies.findings,
+        &FINDING,
+        |listed| findings_table(&UNUSED_DEPENDENCY_COLUMNS, listed, unused_dependency_row),
+    );
+    for (heading, findings) in [
+        (
+            "Unlisted dependencies",
+            &dependencies.unlisted_dependencies.findings,
+        ),
+        (
+            "Dev dependencies in production",
+            &dependencies.dev_in_production_dependencies.findings,
+        ),
+    ] {
+        push_findings(&mut blocks, heading, findings, &FINDING, |listed| {
+            findings_table(
+                &IMPORTED_DEPENDENCY_COLUMNS,
+                listed,
+                imported_dependency_row,
+            )
+        });
+    }
+    blocks
+}
+
+pub(crate) fn unused_dependency_row(row: &UnusedDependencyRow) -> Vec<String> {
+    vec![
+        code(&row.package),
+        code(&row.manifest),
+        code(&row.dependency),
+        prose(&row.kind),
+    ]
+}
+
+pub(crate) fn imported_dependency_row(row: &ImportedDependencyRow) -> Vec<String> {
+    let importers: Vec<String> = row.importers.iter().map(String::as_str).map(code).collect();
+    vec![
+        code(&row.package),
+        code(&row.manifest),
+        code(&row.dependency),
+        importers.join(", "),
     ]
 }
 

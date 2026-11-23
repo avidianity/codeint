@@ -59,6 +59,10 @@
     "boundaries": {
       "$ref": "#/$defs/BoundariesFile",
       "description": "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
+    },
+    "dependencies": {
+      "$ref": "#/$defs/DependenciesFile",
+      "description": "Dependency hygiene settings, including the allowlist of external package names excluded from unused, unlisted, and dev-in-production Findings."
     }
   },
   "title": "codeint.json",
@@ -126,6 +130,27 @@
           "$ref": "#/$defs/MetricBudgets",
           "description": "The Budgets of the Vendored Source set.",
           "default": {}
+        },
+        "unused_dependencies": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest share of declared dependencies that may be unused, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "unlisted_dependencies": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest share of imported external packages that may be unlisted, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dev_in_production_dependencies": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest share of production-imported external packages that may be dev-only, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     },
@@ -211,6 +236,18 @@
         "boundaries": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Boundaries in every Source set."
+        },
+        "unused_dependencies": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of unused declared dependencies."
+        },
+        "unlisted_dependencies": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of unlisted external dependencies."
+        },
+        "dev_in_production_dependencies": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of dev dependencies imported in production."
         },
         "production": {
           "$ref": "#/$defs/MetricRegressionLimits",
@@ -488,6 +525,19 @@
         "generated",
         "vendored"
       ]
+    },
+    "DependenciesFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Canonical external package names excluded from unused, unlisted, and dev-in-production dependency Findings."
+        }
+      }
     }
   }
 }

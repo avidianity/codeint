@@ -11,6 +11,7 @@ mod codeint_json;
 mod codeowners;
 mod config_error;
 mod coupling;
+mod dependencies;
 mod regression_limits;
 mod result_cache_folder;
 
@@ -20,10 +21,10 @@ pub use boundaries::{
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use churn::{ChurnFormat, ChurnSince, ChurnSinceError, ChurnWindow, DEFAULT_CHURN_DAYS};
 pub use codeint_json::{
-    Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
-    PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
-    StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
-    write_starter_configuration,
+    Budget, Budgets, Configuration, DEPENDENCY_METRIC_KEYS, DetectedLanguage, LanguageCoverage,
+    Languages, PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest,
+    SourceSetOverrides, StarterConfigurationError, configuration_schema, published_schema_address,
+    read_configuration, write_starter_configuration,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
@@ -31,6 +32,7 @@ pub use coupling::{
     CouplingRatio, CouplingRatioError, CouplingSettings, DEFAULT_MAX_COMMIT_FILES,
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
 };
+pub use dependencies::DependenciesConfig;
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;

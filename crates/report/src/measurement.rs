@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 
-use codeint_config::Boundaries as BoundariesConfig;
-use codeint_metrics::Boundaries;
+use codeint_config::{Boundaries as BoundariesConfig, DependenciesConfig};
+use codeint_metrics::{Boundaries, DependencyHygiene};
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     BoundaryFindingRow, CloneGroupFinding, CognitiveComplexityFinding, ConfigBoundaryPolicy,
-    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
+    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding,
+    ImportedDependencyRow, Measured, UnusedDependencyRow,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,6 +17,15 @@ pub struct CommitMeasurement {
     test: SourceSetMeasurement,
     generated: SourceSetMeasurement,
     vendored: SourceSetMeasurement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dependencies: Option<DependenciesMeasurement>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(crate) struct DependenciesMeasurement {
+    pub(crate) unused_dependencies: MetricMeasurement<UnusedDependencyRow>,
+    pub(crate) unlisted_dependencies: MetricMeasurement<ImportedDependencyRow>,
+    pub(crate) dev_in_production_dependencies: MetricMeasurement<ImportedDependencyRow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,6 +84,29 @@ impl CommitMeasurement {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
+        let dependencies = DependenciesConfig::default();
+        CommitMeasurement::of_languages_with_options(
+            vec![model],
+            metric_plugins,
+            boundaries,
+            &dependencies,
+        )
+    }
+
+    pub fn of_languages_with_options(
+        languages: Vec<CodeModel>,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        dependencies_config: &DependenciesConfig,
+    ) -> Result<CommitMeasurement, MetricPluginError> {
+        let ignored = dependencies_config.ignored();
+        let hygiene = DependencyHygiene::merge(
+            languages
+                .iter()
+                .map(|model| DependencyHygiene::measure(model, ignored)),
+        );
+        let dependencies = DependenciesMeasurement::from_hygiene(&hygiene);
+        let model = CodeModel::merge(languages);
         let source_sets = model.into_source_sets();
         Ok(CommitMeasurement {
             production: SourceSetMeasurement::of(
@@ -96,6 +129,7 @@ impl CommitMeasurement {
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Vendored)),
             )?,
+            dependencies,
         })
     }
 
@@ -106,6 +140,51 @@ impl CommitMeasurement {
             (SourceSet::Generated, self.generated),
             (SourceSet::Vendored, self.vendored),
         ]
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        [(SourceSet, SourceSetMeasurement); 4],
+        Option<DependenciesMeasurement>,
+    ) {
+        (
+            [
+                (SourceSet::Production, self.production),
+                (SourceSet::Test, self.test),
+                (SourceSet::Generated, self.generated),
+                (SourceSet::Vendored, self.vendored),
+            ],
+            self.dependencies,
+        )
+    }
+}
+
+impl DependenciesMeasurement {
+    fn from_hygiene(hygiene: &DependencyHygiene) -> Option<DependenciesMeasurement> {
+        if !hygiene.has_activity() {
+            return None;
+        }
+        Some(DependenciesMeasurement {
+            unused_dependencies: MetricMeasurement::from_items(
+                hygiene.unused_ratio(),
+                hygiene.unused().len() as f64,
+                hygiene.unused(),
+                UnusedDependencyRow::from,
+            ),
+            unlisted_dependencies: MetricMeasurement::from_items(
+                hygiene.unlisted_ratio(),
+                hygiene.unlisted().len() as f64,
+                hygiene.unlisted(),
+                ImportedDependencyRow::from,
+            ),
+            dev_in_production_dependencies: MetricMeasurement::from_items(
+                hygiene.dev_in_production_ratio(),
+                hygiene.dev_in_production().len() as f64,
+                hygiene.dev_in_production(),
+                ImportedDependencyRow::from,
+            ),
+        })
     }
 }
 

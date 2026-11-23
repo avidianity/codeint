@@ -59,7 +59,7 @@ fn check_remedy(error: &CheckError) -> &'static str {
         CheckError::Configuration(error) => configuration_file_remedy(error),
         CheckError::Codeowners(error) => codeowners_remedy(error),
         CheckError::Workspace(error) => workspace_remedy(error),
-        CheckError::Resolve(_) => {
+        CheckError::Resolve(_) | CheckError::LanguagePlugin(_) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
         CheckError::ReferenceRange(_) => {
@@ -296,6 +296,9 @@ fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> 
         }
         NonHttpsPluginUrl { .. } => {
             "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused."
+        }
+        EmptyDependencyIgnore { .. } => {
+            "Set non-empty package names in dependencies.ignore in codeint.json, or remove the empty entry."
         }
         _ => return None,
     })

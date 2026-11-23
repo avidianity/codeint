@@ -4,13 +4,14 @@ use std::collections::BTreeMap;
 
 use codeint_config::{
     Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets, Codeowners,
-    FindingsShown, ImpactFormat, ReportFormat, TraceFormat,
+    DependenciesConfig, FindingsShown, ImpactFormat, ReportFormat, TraceFormat,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup,
-    CognitiveComplexity, ComplexFunction, Duplication, ErodedFunction, Erosion, FlaggedLineFinding,
-    Fragment, ImportCycle, ImportCycles, MinimumCloneTokens, MinimumDistinctTokens,
-    UnresolvedImport, Verbosity,
+    CognitiveComplexity, ComplexFunction, DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+    DependencyHygiene, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
+    ImportCycle, ImportCycles, MinimumCloneTokens, MinimumDistinctTokens,
+    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -21,6 +22,7 @@ use serde::{Deserialize, Serialize, Serializer};
 
 mod churn;
 mod coupling;
+mod dependencies;
 mod diff;
 mod guard;
 mod impact;
@@ -44,6 +46,7 @@ pub use ownership::OwnershipOptions;
 pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
 
+use dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 use ownership::OwnedFinding;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
@@ -80,7 +83,8 @@ pub struct Report {
 
 #[derive(Debug, Serialize)]
 pub struct BudgetFailure {
-    source_set: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_set: Option<&'static str>,
     metric: String,
     ratio: Decimal,
     budget: f64,
@@ -97,6 +101,42 @@ struct MeasuredSection {
     files: usize,
     source_lines: u64,
     source_sets: SourceSetSections,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependencies: Option<DependenciesSection>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DependenciesSection {
+    pub(crate) unused_dependencies: UnusedDependenciesSection,
+    pub(crate) unlisted_dependencies: UnlistedDependenciesSection,
+    pub(crate) dev_in_production_dependencies: DevInProductionDependenciesSection,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct UnusedDependenciesSection {
+    pub(crate) ratio: Decimal,
+    pub(crate) unused: usize,
+    pub(crate) declared: usize,
+    #[serde(flatten)]
+    pub(crate) findings: Findings<UnusedDependencyRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct UnlistedDependenciesSection {
+    pub(crate) ratio: Decimal,
+    pub(crate) unlisted: usize,
+    pub(crate) imported: usize,
+    #[serde(flatten)]
+    pub(crate) findings: Findings<ImportedDependencyRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DevInProductionDependenciesSection {
+    pub(crate) ratio: Decimal,
+    pub(crate) dev_in_production: usize,
+    pub(crate) production_imported: usize,
+    #[serde(flatten)]
+    pub(crate) findings: Findings<ImportedDependencyRow>,
 }
 
 enum ReferenceRangeScope {
@@ -406,11 +446,18 @@ struct SkippedEntry {
 
 impl std::fmt::Display for BudgetFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "the {} {} ratio {} is over its Budget {}",
-            self.source_set, self.metric, self.ratio.0, self.budget
-        )
+        match self.source_set {
+            Some(source_set) => write!(
+                formatter,
+                "the {source_set} {} ratio {} is over its Budget {}",
+                self.metric, self.ratio.0, self.budget
+            ),
+            None => write!(
+                formatter,
+                "the {} ratio {} is over its Budget {}",
+                self.metric, self.ratio.0, self.budget
+            ),
+        }
     }
 }
 
@@ -422,7 +469,7 @@ fn over_budget<'a>(
         .filter_map(|(source_set, metric, ratio)| {
             let budget = budgets.budget_for_key(source_set, metric)?;
             (!budget.admits(ratio)).then(|| BudgetFailure {
-                source_set: source_set.key(),
+                source_set: Some(source_set.key()),
                 metric: metric.to_owned(),
                 ratio: Decimal(ratio),
                 budget: budget.ratio(),
@@ -576,6 +623,83 @@ impl OwnedFinding for ImportCycleFinding {
 
 impl FindingKind for BoundaryFindingRow {
     const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for UnusedDependencyRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for ImportedDependencyRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl DependenciesSection {
+    fn from_hygiene(
+        hygiene: &DependencyHygiene,
+        view: FindingsView<'_>,
+    ) -> Option<DependenciesSection> {
+        if !hygiene.has_activity() {
+            return None;
+        }
+        Some(DependenciesSection {
+            unused_dependencies: UnusedDependenciesSection {
+                ratio: Decimal::rounded(hygiene.unused_ratio()),
+                unused: hygiene.unused().len(),
+                declared: hygiene.declared_count(),
+                findings: view.map(hygiene.unused()),
+            },
+            unlisted_dependencies: UnlistedDependenciesSection {
+                ratio: Decimal::rounded(hygiene.unlisted_ratio()),
+                unlisted: hygiene.unlisted().len(),
+                imported: hygiene.imported_count(),
+                findings: view.map(hygiene.unlisted()),
+            },
+            dev_in_production_dependencies: DevInProductionDependenciesSection {
+                ratio: Decimal::rounded(hygiene.dev_in_production_ratio()),
+                dev_in_production: hygiene.dev_in_production().len(),
+                production_imported: hygiene.production_imported_count(),
+                findings: view.map(hygiene.dev_in_production()),
+            },
+        })
+    }
+
+    fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
+        dependency_over_budget(
+            budgets,
+            [
+                (
+                    UNUSED_DEPENDENCIES_METRIC_KEY,
+                    self.unused_dependencies.ratio.0,
+                ),
+                (
+                    UNLISTED_DEPENDENCIES_METRIC_KEY,
+                    self.unlisted_dependencies.ratio.0,
+                ),
+                (
+                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+                    self.dev_in_production_dependencies.ratio.0,
+                ),
+            ],
+        )
+    }
+}
+
+pub(crate) fn dependency_over_budget(
+    budgets: &Budgets,
+    displayed_ratios: [(&'static str, f64); 3],
+) -> Vec<BudgetFailure> {
+    displayed_ratios
+        .into_iter()
+        .filter_map(|(metric, ratio)| {
+            let budget = budgets.dependency_budget(metric)?;
+            (!budget.admits(ratio)).then(|| BudgetFailure {
+                source_set: None,
+                metric: metric.to_owned(),
+                ratio: Decimal(ratio),
+                budget: budget.ratio(),
+            })
+        })
+        .collect()
 }
 
 struct ConfigBoundaryPolicy<'config>(&'config BoundariesConfig);
@@ -1087,9 +1211,19 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
         .collect()
 }
 
+pub struct ReportOptions<'a> {
+    pub findings: FindingsShown,
+    pub budgets: &'a Budgets,
+    pub metric_plugins: &'a [&'a dyn MetricPlugin],
+    pub boundaries: Option<&'a BoundariesConfig>,
+    pub dependencies: &'a DependenciesConfig,
+    pub ownership: OwnershipOptions<'a>,
+}
+
 impl MeasuredSection {
     fn new(
         model: CodeModel,
+        hygiene: &DependencyHygiene,
         ranges: &ReferenceRangeScope,
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
@@ -1098,6 +1232,11 @@ impl MeasuredSection {
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = model.files.len();
         let lines = source_lines(&model);
+        let view = FindingsView {
+            shown: findings,
+            ownership,
+        };
+        let dependencies = DependenciesSection::from_hygiene(hygiene, view);
         let source_sets = SourceSetSections::new(
             &model.into_source_sets(),
             ranges,
@@ -1110,6 +1249,7 @@ impl MeasuredSection {
             files,
             source_lines: lines,
             source_sets,
+            dependencies,
         })
     }
 }
@@ -1170,6 +1310,32 @@ impl Report {
         boundaries: Option<&BoundariesConfig>,
         ownership: OwnershipOptions<'_>,
     ) -> Result<Report, MetricPluginError> {
+        let dependencies = DependenciesConfig::default();
+        Report::summarize_with_options(
+            languages,
+            submodules,
+            ReportOptions {
+                findings,
+                budgets,
+                metric_plugins,
+                boundaries,
+                dependencies: &dependencies,
+                ownership,
+            },
+        )
+    }
+
+    pub fn summarize_with_options(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        options: ReportOptions<'_>,
+    ) -> Result<Report, MetricPluginError> {
+        let ignored = options.dependencies.ignored();
+        let total_hygiene = DependencyHygiene::merge(
+            languages
+                .iter()
+                .map(|language| DependencyHygiene::measure(&language.model, ignored)),
+        );
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -1185,15 +1351,17 @@ impl Report {
             _ => {
                 let mut per_language = BTreeMap::new();
                 for language in &measured {
+                    let language_hygiene = DependencyHygiene::measure(&language.model, ignored);
                     per_language.insert(
                         language.plugin.clone(),
                         MeasuredSection::new(
                             language.model.clone(),
+                            &language_hygiene,
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
-                            findings,
-                            metric_plugins,
-                            boundaries,
-                            ownership,
+                            options.findings,
+                            options.metric_plugins,
+                            options.boundaries,
+                            options.ownership,
                         )?,
                     );
                 }
@@ -1214,14 +1382,19 @@ impl Report {
             .collect();
         let measured = MeasuredSection::new(
             model,
+            &total_hygiene,
             &total_ranges,
-            findings,
-            metric_plugins,
-            boundaries,
-            ownership,
+            options.findings,
+            options.metric_plugins,
+            options.boundaries,
+            options.ownership,
         )?;
+        let mut failures = measured.source_sets.over_budget(options.budgets);
+        if let Some(dependencies) = &measured.dependencies {
+            failures.extend(dependencies.over_budget(options.budgets));
+        }
         Ok(Report {
-            over_budget: measured.source_sets.over_budget(budgets),
+            over_budget: failures,
             skipped,
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),

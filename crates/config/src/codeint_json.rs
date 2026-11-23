@@ -8,7 +8,14 @@ use crate::boundaries::{Boundaries, BoundariesFile};
 use crate::config_error::{
     CONFIGURATION_FILE_NAME, ConfigurationFileError, JsonType, KeyPath, KeySegment, glob_set,
 };
+use crate::dependencies::{DependenciesConfig, DependenciesFile};
 use crate::regression_limits::RegressionLimitSetting;
+
+pub const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
+    "unused_dependencies",
+    "unlisted_dependencies",
+    "dev_in_production_dependencies",
+];
 use globset::GlobSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -55,6 +62,7 @@ pub struct Configuration {
     pub plugins: Vec<PluginDeclaration>,
     pub plugin_limits: PluginLimits,
     pub boundaries: Option<Boundaries>,
+    pub dependencies: DependenciesConfig,
     effective: ConfigurationFile,
 }
 
@@ -153,28 +161,39 @@ impl Configuration {
                 });
             }
         }
-        for (source_set, metric_key) in self.regression_limits.metric_keys() {
-            if !is_known(metric_key) {
-                let mut path =
-                    KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
-                let mut allowed = allowed_metrics();
-                if let Some(source_set) = source_set {
-                    path = path.child(KeySegment::Key(source_set.key().to_owned()));
-                } else {
-                    allowed.extend(
-                        ["production", "test", "generated", "vendored"]
-                            .into_iter()
-                            .map(str::to_owned),
-                    );
-                }
-                return Err(ConfigurationFileError::UnknownKey {
-                    key: path.child(KeySegment::Key(metric_key.to_owned())),
-                    allowed,
-                });
-            }
-        }
-        Ok(())
+        validate_regression_limit_keys(&self.regression_limits, is_known, allowed_metrics)
     }
+}
+
+fn validate_regression_limit_keys(
+    limits: &RegressionLimits,
+    is_known: impl Fn(&str) -> bool,
+    allowed_metrics: impl Fn() -> Vec<String>,
+) -> Result<(), ConfigurationFileError> {
+    for (source_set, metric_key) in limits.metric_keys() {
+        let allowed_here = is_known(metric_key)
+            || (source_set.is_none() && DEPENDENCY_METRIC_KEYS.contains(&metric_key));
+        if !allowed_here {
+            let mut path =
+                KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
+            let mut allowed = allowed_metrics();
+            if let Some(source_set) = source_set {
+                path = path.child(KeySegment::Key(source_set.key().to_owned()));
+            } else {
+                allowed.extend(DEPENDENCY_METRIC_KEYS.into_iter().map(str::to_owned));
+                allowed.extend(
+                    ["production", "test", "generated", "vendored"]
+                        .into_iter()
+                        .map(str::to_owned),
+                );
+            }
+            return Err(ConfigurationFileError::UnknownKey {
+                key: path.child(KeySegment::Key(metric_key.to_owned())),
+                allowed,
+            });
+        }
+    }
+    Ok(())
 }
 
 impl Serialize for Configuration {
@@ -186,6 +205,7 @@ impl Serialize for Configuration {
 #[derive(Debug, Default)]
 pub struct Budgets {
     set: Vec<(SourceSet, String, Budget)>,
+    dependency_set: Vec<(String, Budget)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
@@ -202,6 +222,13 @@ impl Budgets {
             .iter()
             .find(|(set, measured, _)| *set == source_set && measured == metric_key)
             .map(|(_, _, budget)| *budget)
+    }
+
+    pub fn dependency_budget(&self, metric_key: &str) -> Option<Budget> {
+        self.dependency_set
+            .iter()
+            .find(|(measured, _)| measured == metric_key)
+            .map(|(_, budget)| *budget)
     }
 }
 
@@ -356,6 +383,11 @@ struct ConfigurationFile {
         description = "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
     )]
     boundaries: Option<BoundariesFile>,
+    #[serde(default, skip_serializing_if = "DependenciesFile::is_unset")]
+    #[schemars(
+        description = "Dependency hygiene settings, including the allowlist of external package names excluded from unused, unlisted, and dev-in-production Findings."
+    )]
+    dependencies: DependenciesFile,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -429,6 +461,15 @@ struct RegressionLimitsFile {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Boundaries in every Source set.")]
     boundaries: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of unused declared dependencies.")]
+    unused_dependencies: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of unlisted external dependencies.")]
+    unlisted_dependencies: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of dev dependencies imported in production.")]
+    dev_in_production_dependencies: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
     #[schemars(description = "The Regression limits of the Production Source set.")]
     production: MetricRegressionLimits,
@@ -523,6 +564,27 @@ struct SourceSetBudgets {
     #[serde(default)]
     #[schemars(description = "The Budgets of the Vendored Source set.")]
     vendored: MetricBudgets,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest share of declared dependencies that may be unused, from 0 to 1."
+    )]
+    unused_dependencies: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest share of imported external packages that may be unlisted, from 0 to 1."
+    )]
+    unlisted_dependencies: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest share of production-imported external packages that may be dev-only, from 0 to 1."
+    )]
+    dev_in_production_dependencies: Option<Budget>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -619,7 +681,7 @@ pub fn configuration_schema() -> String {
     format!("{:#}\n", schema.as_value())
 }
 
-fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
+pub(crate) fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
     let value: Value = serde_json::from_str(text).map_err(ConfigurationFileError::NotJson)?;
     check_schema_version(&value, env!("CARGO_PKG_VERSION"))?;
     let schema = schemars::schema_for!(ConfigurationFile);
@@ -628,6 +690,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
     let effective = file.without_schema_address();
     let parsed_boundaries = file.boundaries.map(Boundaries::from_file).transpose()?;
+    let parsed_dependencies = DependenciesConfig::from_file(file.dependencies)?;
     Ok(Configuration {
         effective,
         source_set_overrides: source_set_overrides(file.source_sets)?,
@@ -637,6 +700,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         plugins: plugins(file.plugins)?,
         plugin_limits: plugin_limits(file.plugin_limits),
         boundaries: parsed_boundaries,
+        dependencies: parsed_dependencies,
     })
 }
 
@@ -731,12 +795,25 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         verbosity,
         import_cycles,
         boundaries,
+        unused_dependencies,
+        unlisted_dependencies,
+        dev_in_production_dependencies,
         production,
         test,
         generated,
         vendored,
         external,
     } = file;
+    let dependency_limits = [
+        ("unused_dependencies".to_owned(), unused_dependencies),
+        ("unlisted_dependencies".to_owned(), unlisted_dependencies),
+        (
+            "dev_in_production_dependencies".to_owned(),
+            dev_in_production_dependencies,
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, setting)| !setting.is_unset());
     let every_source_set = MetricRegressionLimits {
         erosion,
         cognitive_complexity,
@@ -747,6 +824,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         external,
     }
     .by_metric()
+    .chain(dependency_limits)
     .collect();
     let one_source_set = [
         (SourceSet::Production, production),
@@ -779,7 +857,21 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
         test,
         generated,
         vendored,
+        unused_dependencies,
+        unlisted_dependencies,
+        dev_in_production_dependencies,
     } = file;
+    let dependency_set = [
+        ("unused_dependencies".to_owned(), unused_dependencies),
+        ("unlisted_dependencies".to_owned(), unlisted_dependencies),
+        (
+            "dev_in_production_dependencies".to_owned(),
+            dev_in_production_dependencies,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(metric, ratio)| Some((metric, ratio?)))
+    .collect();
     let set = [
         (SourceSet::Production, production),
         (SourceSet::Test, test),
@@ -814,7 +906,10 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
         )
     })
     .collect();
-    Budgets { set }
+    Budgets {
+        set,
+        dependency_set,
+    }
 }
 
 fn languages(entries: Option<Vec<LanguageGlobs>>) -> Result<Languages, ConfigurationFileError> {

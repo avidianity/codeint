@@ -3,18 +3,25 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use codeint_config::{
     Budgets, FindingsShown, NewFindingsRule, RegressionLimit, RegressionLimits, ReportFormat,
 };
+use codeint_metrics::{
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, UNLISTED_DEPENDENCIES_METRIC_KEY,
+    UNUSED_DEPENDENCIES_METRIC_KEY,
+};
 use codeint_model::{Metric, SourceSet};
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurement};
+use crate::measurement::{
+    CommitMeasurement, DependenciesMeasurement, MetricMeasurement, SourceSetMeasurement,
+};
 use crate::ownership::{OwnedFinding, OwnershipOptions};
-use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
+use crate::sarif::{ListedDependencies, ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
     BoundaryFindingRow, BudgetFailure, COGNITIVE_COMPLEXITY_KEY, CloneGroupFinding,
     CognitiveComplexityFinding, Decimal, ErodedFunctionFinding, ExternalMetricFinding, Findings,
-    FlaggedLineRow, ImportCycleFinding, ReportError,
+    FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow, ReportError, UnusedDependencyRow,
+    dependency_over_budget,
 };
 
 mod markdown;
@@ -43,6 +50,8 @@ pub struct DiffReport {
     base: BaseEntry,
     head: HeadEntry,
     source_sets: SourceSetChangesSections,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependencies: Option<DependenciesChanges>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     over_budget: Vec<BudgetFailure>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -51,7 +60,8 @@ pub struct DiffReport {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Regression {
-    source_set: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_set: Option<&'static str>,
     metric: String,
     rule: RegressionRule,
     base: Decimal,
@@ -177,8 +187,8 @@ impl DiffReport {
         options: DiffReportOptions<'_>,
     ) -> DiffReport {
         let mut source_sets = SourceSetChangesSections::default();
-        let base_sets = base_measurement.into_source_sets();
-        let head_sets = head_measurement.into_source_sets();
+        let (base_sets, base_dependencies) = base_measurement.into_parts();
+        let (head_sets, head_dependencies) = head_measurement.into_parts();
         for ((source_set, base), (_, head)) in base_sets.into_iter().zip(head_sets) {
             if base.files > 0 || head.files > 0 {
                 *source_sets.slot(source_set) = Some(source_set_changes(
@@ -189,15 +199,30 @@ impl DiffReport {
                 ));
             }
         }
+        let dependencies = dependencies_changes(
+            base_dependencies,
+            head_dependencies,
+            options.findings,
+            options.ownership,
+        );
+        let mut over_budget_failures = over_budget(&source_sets, options.budgets);
+        if let Some(deps) = &dependencies {
+            over_budget_failures.extend(deps.over_budget(options.budgets));
+        }
+        let mut regression_failures = regressions(&source_sets, options.limits);
+        if let Some(deps) = &dependencies {
+            regression_failures.extend(deps.regressions(options.limits));
+        }
         DiffReport {
             base: BaseEntry {
                 git_ref: base.git_ref,
                 merge_base: base.merge_base,
             },
             head: head_entry(head),
-            over_budget: over_budget(&source_sets, options.budgets),
-            regressions: regressions(&source_sets, options.limits),
+            over_budget: over_budget_failures,
+            regressions: regression_failures,
             source_sets,
+            dependencies,
         }
     }
 
@@ -229,32 +254,43 @@ fn head_entry(head: Head) -> HeadEntry {
 
 impl DiffReport {
     fn new_findings_as_sarif(&self) -> SarifLog {
-        SarifLog::listing(self.source_sets.iter().map(|(source_set, changes)| {
-            (
-                source_set,
-                ListedFindings {
-                    eroded_functions: &changes.erosion.new.listed,
-                    cognitive_complexity: &changes.cognitive_complexity.new.listed,
-                    clone_groups: &changes.duplication.new.listed,
-                    flagged_lines: &changes.verbosity.new.listed,
-                    import_cycles: &changes.import_cycles.new.listed,
-                    boundaries: changes
-                        .boundaries
-                        .as_ref()
-                        .map_or(&[], |boundaries| boundaries.new.listed.as_slice()),
-                    external_metrics: changes
-                        .external_metrics
-                        .iter()
-                        .map(|(key, external)| ListedExternalMetric {
-                            key: key.as_str(),
-                            name: external.name.as_str(),
-                            description: external.description.as_str(),
-                            findings: &external.changes.new.listed,
-                        })
-                        .collect(),
-                },
-            )
-        }))
+        let dependencies = match &self.dependencies {
+            Some(deps) => ListedDependencies {
+                unused: &deps.unused_dependencies.new.listed,
+                unlisted: &deps.unlisted_dependencies.new.listed,
+                dev_in_production: &deps.dev_in_production_dependencies.new.listed,
+            },
+            None => ListedDependencies::EMPTY,
+        };
+        SarifLog::listing(
+            self.source_sets.iter().map(|(source_set, changes)| {
+                (
+                    source_set,
+                    ListedFindings {
+                        eroded_functions: &changes.erosion.new.listed,
+                        cognitive_complexity: &changes.cognitive_complexity.new.listed,
+                        clone_groups: &changes.duplication.new.listed,
+                        flagged_lines: &changes.verbosity.new.listed,
+                        import_cycles: &changes.import_cycles.new.listed,
+                        boundaries: changes
+                            .boundaries
+                            .as_ref()
+                            .map_or(&[], |boundaries| boundaries.new.listed.as_slice()),
+                        external_metrics: changes
+                            .external_metrics
+                            .iter()
+                            .map(|(key, external)| ListedExternalMetric {
+                                key: key.as_str(),
+                                name: external.name.as_str(),
+                                description: external.description.as_str(),
+                                findings: &external.changes.new.listed,
+                            })
+                            .collect(),
+                    },
+                )
+            }),
+            dependencies,
+        )
     }
 }
 
@@ -387,6 +423,88 @@ impl SourceSetChanges {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct DependenciesChanges {
+    unused_dependencies: MetricChanges<UnusedDependencyRow>,
+    unlisted_dependencies: MetricChanges<ImportedDependencyRow>,
+    dev_in_production_dependencies: MetricChanges<ImportedDependencyRow>,
+}
+
+impl DependenciesChanges {
+    fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
+        dependency_over_budget(
+            budgets,
+            [
+                (
+                    UNUSED_DEPENDENCIES_METRIC_KEY,
+                    self.unused_dependencies.head_ratio.0,
+                ),
+                (
+                    UNLISTED_DEPENDENCIES_METRIC_KEY,
+                    self.unlisted_dependencies.head_ratio.0,
+                ),
+                (
+                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+                    self.dev_in_production_dependencies.head_ratio.0,
+                ),
+            ],
+        )
+    }
+
+    fn regressions(&self, limits: &RegressionLimits) -> Vec<Regression> {
+        let mut found = Vec::new();
+        found.extend(self.unused_dependencies.regressions_with_limit(
+            None,
+            UNUSED_DEPENDENCIES_METRIC_KEY,
+            limits.limit_for_dependency(UNUSED_DEPENDENCIES_METRIC_KEY),
+        ));
+        found.extend(self.unlisted_dependencies.regressions_with_limit(
+            None,
+            UNLISTED_DEPENDENCIES_METRIC_KEY,
+            limits.limit_for_dependency(UNLISTED_DEPENDENCIES_METRIC_KEY),
+        ));
+        found.extend(self.dev_in_production_dependencies.regressions_with_limit(
+            None,
+            DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+            limits.limit_for_dependency(DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY),
+        ));
+        found
+    }
+}
+
+fn dependencies_changes(
+    base: Option<DependenciesMeasurement>,
+    head: Option<DependenciesMeasurement>,
+    shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
+) -> Option<DependenciesChanges> {
+    if base.is_none() && head.is_none() {
+        return None;
+    }
+    let base = base.unwrap_or_default();
+    let head = head.unwrap_or_default();
+    Some(DependenciesChanges {
+        unused_dependencies: classify(
+            base.unused_dependencies,
+            head.unused_dependencies,
+            shown,
+            ownership,
+        ),
+        unlisted_dependencies: classify(
+            base.unlisted_dependencies,
+            head.unlisted_dependencies,
+            shown,
+            ownership,
+        ),
+        dev_in_production_dependencies: classify(
+            base.dev_in_production_dependencies,
+            head.dev_in_production_dependencies,
+            shown,
+            ownership,
+        ),
+    })
+}
+
 impl<T> MetricChanges<T> {
     fn regressions(
         &self,
@@ -394,14 +512,26 @@ impl<T> MetricChanges<T> {
         metric_key: &str,
         limits: &RegressionLimits,
     ) -> Vec<Regression> {
-        let limit = limits.limit_for_key(source_set, metric_key);
+        self.regressions_with_limit(
+            Some(source_set.key()),
+            metric_key,
+            limits.limit_for_key(source_set, metric_key),
+        )
+    }
+
+    fn regressions_with_limit(
+        &self,
+        source_set: Option<&'static str>,
+        metric_key: &str,
+        limit: RegressionLimit,
+    ) -> Vec<Regression> {
         REGRESSION_RULES
             .into_iter()
             .filter(|rule| self.breaks(*rule, limit))
             .map(|rule| {
                 let (base, head) = self.compared_values(rule);
                 Regression {
-                    source_set: source_set.key(),
+                    source_set,
                     metric: metric_key.to_owned(),
                     rule,
                     base,
@@ -455,9 +585,8 @@ impl Regression {
                 crate::markdown::sentence_item(self)
             }
             RegressionRule::NumeratorRiseWithNewFindings => format!(
-                "The {} {} numerator {} rose from {} to {} with {}.",
-                crate::markdown::prose(self.source_set),
-                crate::markdown::prose(&self.metric),
+                "The {} numerator {} rose from {} to {} with {}.",
+                self.scope_prose(),
                 crate::markdown::code(self.numerator_key),
                 self.base.0,
                 self.head.0,
@@ -465,34 +594,46 @@ impl Regression {
             ),
         }
     }
+
+    fn scope_prose(&self) -> String {
+        match self.source_set {
+            Some(source_set) => format!(
+                "{} {}",
+                crate::markdown::prose(source_set),
+                crate::markdown::prose(&self.metric)
+            ),
+            None => crate::markdown::prose(&self.metric),
+        }
+    }
+
+    fn scope_plain(&self) -> String {
+        match self.source_set {
+            Some(source_set) => format!("{source_set} {}", self.metric),
+            None => self.metric.clone(),
+        }
+    }
 }
 
 impl std::fmt::Display for Regression {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Regression {
-            source_set,
-            metric,
-            base,
-            head,
-            ..
-        } = self;
+        let scope = self.scope_plain();
         match self.rule {
             RegressionRule::RatioRise => write!(
                 formatter,
-                "the {source_set} {metric} ratio rose from {} to {}, more than its Regression limit {}",
-                base.0, head.0, self.ratio_rise_limit
+                "the {scope} ratio rose from {} to {}, more than its Regression limit {}",
+                self.base.0, self.head.0, self.ratio_rise_limit
             ),
             RegressionRule::NewFindings => write!(
                 formatter,
-                "the {source_set} {metric} Metric has {}, and its Regression limit allows none",
+                "the {scope} Metric has {}, and its Regression limit allows none",
                 new_findings_phrase(self.new_findings)
             ),
             RegressionRule::NumeratorRiseWithNewFindings => write!(
                 formatter,
-                "the {source_set} {metric} numerator {} rose from {} to {} with {}",
+                "the {scope} numerator {} rose from {} to {} with {}",
                 self.numerator_key,
-                base.0,
-                head.0,
+                self.base.0,
+                self.head.0,
                 new_findings_phrase(self.new_findings)
             ),
         }
@@ -507,6 +648,9 @@ fn numerator_key(metric_key: &str) -> &'static str {
         "verbosity" => "verbose_lines",
         "import_cycles" => "modules_in_import_cycles",
         "boundaries" => "boundary_findings",
+        "unused_dependencies" => "unused",
+        "unlisted_dependencies" => "unlisted",
+        "dev_in_production_dependencies" => "dev_in_production",
         _ => "numerator",
     }
 }
@@ -663,6 +807,18 @@ impl Identified for ExternalMetricFinding {
 }
 
 impl Identified for BoundaryFindingRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for UnusedDependencyRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for ImportedDependencyRow {
     fn id(&self) -> &str {
         &self.id
     }

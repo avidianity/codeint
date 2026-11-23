@@ -25,7 +25,8 @@ if !report.over_budget().is_empty() {
 ```
 
 - Pass one `MeasuredLanguage` per Language plugin that ran on the snapshot.
-- `Report::summarize` splits the merged `CodeModel` by Source set, computes all four Metrics per Source set, and checks every `Budget`.
+- `Report::summarize` splits the merged `CodeModel` by Source set, computes all Metrics per Source set, evaluates Dependency hygiene per Language plugin when manifests are present, and checks every `Budget`.
+- Use `Report::summarize_with_options` and `CommitMeasurement::of_languages_with_options` to pass `DependenciesConfig` (including `dependencies.ignore`), `Boundaries`, external Metric plugins, and `OwnershipOptions`.
 - When two or more Language plugins measure files, the report adds a `languages` section per plugin and omits Reference ranges on the combined totals.
 - `render` formats the report as `Toon`, `Json`, `Sarif`, or `Markdown`.
 - SARIF output emits one result per listed Finding and stores each Finding id in `partialFingerprints.codeintFindingId`.

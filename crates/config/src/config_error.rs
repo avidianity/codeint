@@ -135,6 +135,8 @@ pub enum ConfigurationFileError {
         "{CONFIGURATION_FILE_NAME}: {key} mixes allow and deny directives for boundary zone {from:?}"
     )]
     ConflictingBoundaryDirectives { key: KeyPath, from: String },
+    #[error("{CONFIGURATION_FILE_NAME}: {key} must not be empty")]
+    EmptyDependencyIgnore { key: KeyPath },
 }
 
 pub(crate) fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, ConfigurationFileError> {

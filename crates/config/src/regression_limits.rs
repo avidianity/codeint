@@ -68,7 +68,10 @@ impl RegressionLimit {
     };
 
     fn default_for_key(metric_key: &str) -> RegressionLimit {
-        if metric_key == Metric::ImportCycles.key() || metric_key == "boundaries" {
+        if metric_key == Metric::ImportCycles.key()
+            || metric_key == "boundaries"
+            || crate::DEPENDENCY_METRIC_KEYS.contains(&metric_key)
+        {
             RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES
         } else {
             RegressionLimit::DEFAULT
@@ -121,6 +124,15 @@ impl RegressionLimits {
         RegressionLimit::default_for_key(metric_key)
             .overridden_by(for_every_source_set)
             .overridden_by(for_this_source_set)
+    }
+
+    pub fn limit_for_dependency(&self, metric_key: &str) -> RegressionLimit {
+        let for_metric = self
+            .every_source_set
+            .iter()
+            .find(|(set_for, _)| set_for == metric_key)
+            .map(|(_, setting)| *setting);
+        RegressionLimit::default_for_key(metric_key).overridden_by(for_metric)
     }
 
     pub(crate) fn metric_keys(&self) -> impl Iterator<Item = (Option<SourceSet>, &str)> {

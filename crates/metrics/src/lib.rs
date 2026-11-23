@@ -2,6 +2,7 @@
 
 mod boundaries;
 mod cognitive_complexity;
+mod dependencies;
 mod duplication;
 mod erosion;
 mod finding_id;
@@ -15,6 +16,11 @@ pub use boundaries::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryFindingKind, BoundaryPolicy,
 };
 pub use cognitive_complexity::{CognitiveComplexity, CognitiveComplexityTotals, ComplexFunction};
+pub use dependencies::{
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, DependencyHygiene, DevInProductionDependencyFinding,
+    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY, UnlistedDependencyFinding,
+    UnusedDependencyFinding, UnusedDependencyKind,
+};
 pub use duplication::{
     CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens,
 };

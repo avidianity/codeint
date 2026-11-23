@@ -93,10 +93,10 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         external_metrics: Vec::new(),
     };
 
-    let log = serde_json::to_value(SarifLog::listing(std::iter::once((
-        SourceSet::Production,
-        listed,
-    ))))
+    let log = serde_json::to_value(SarifLog::listing(
+        std::iter::once((SourceSet::Production, listed)),
+        super::ListedDependencies::EMPTY,
+    ))
     .expect("SARIF serializes");
 
     let fingerprints: Vec<(&str, &str)> = log["runs"][0]["results"]

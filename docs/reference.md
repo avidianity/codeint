@@ -704,16 +704,18 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | ----------- | ------ |
 | `{source_set}` | `production`, `test`, `generated`, `vendored` |
 | `{metric}` | `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles` |
+| `{dependency_metric}` | `unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies` |
 
 | Key | Type | Meaning |
 | --- | ---- | ------- |
 | `$schema` | string | The address of the JSON schema, for editors; when it points to a newer official codeint release tag than the running binary, codeint exits with code 2 |
 | `source_sets` | object | Globs that put files into a Source set; see [Source sets](#source-sets) |
 | `source_sets.{source_set}` | list of strings | Globs of repository-relative paths that belong to this Source set; empty by default |
-| `budgets` | object | The Budgets of each Source set; see [Budgets](#budgets) |
+| `budgets` | object | The Budgets of each Source set and dependency hygiene Metric; see [Budgets](#budgets) |
 | `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
 | `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
+| `budgets.{dependency_metric}` | number from 0 to 1 | The highest ratio of this Dependency hygiene Metric across workspace packages |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -721,6 +723,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.boundaries` | object | The Regression limit of Boundaries in every Source set |
 | `regression_limits.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
 | `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{dependency_metric}` | object | The Regression limit of this Dependency hygiene Metric |
+| `regression_limits.{dependency_metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
+| `regression_limits.{dependency_metric}.new_findings` | string | When new Dependency hygiene Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
 | `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
 | `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -751,6 +756,8 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `boundaries.rules[].reason` | string | Optional human-readable explanation shown in boundary Findings |
 | `boundaries.strict_zones` | boolean | When `true`, report files in evaluated Source sets that do not match any configured zone; `false` by default |
 | `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
+| `dependencies` | object | Dependency hygiene settings; see [Dependencies](#dependencies) |
+| `dependencies.ignore` | list of strings | Canonical external package names excluded from unused, unlisted, and dev-in-production dependency Findings; empty by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -766,7 +773,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1024,6 +1031,42 @@ In `codeint diff`, each boundary Finding carries a stable content-based identifi
     ],
     "strict_zones": false,
     "source_sets": ["production"]
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+### Dependencies
+
+codeint compares declared manifest dependencies against imported external packages for every Workspace package that has a dependency manifest (`package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, or `pubspec.yaml`), reporting three independent Metrics:
+
+- `unused_dependencies`: declared runtime and dev dependencies not imported by any Production, Test, or Generated file in the owning package.
+  Optional declarations (such as `peerDependencies`, `optionalDependencies`, Cargo `optional = true`, Python `optional-dependencies`, and Composer `suggest`) satisfy imports without being flagged as unused.
+- `unlisted_dependencies`: external packages imported by Production or Test files in a package that has a dependency manifest but does not declare them.
+  Standard library and runtime built-ins are never flagged.
+- `dev_in_production_dependencies`: dependencies declared only as dev dependencies that are imported by Production files.
+  Dev dependencies imported by Test files are treated as used and are not flagged.
+
+List canonical external package names under `dependencies.ignore` to exclude them from all three dependency Metrics.
+Set independent Budgets under `budgets.unused_dependencies`, `budgets.unlisted_dependencies`, and `budgets.dev_in_production_dependencies`, and adjust `codeint diff` Regression limits under `regression_limits` (all three default to `new_findings: "any_new_finding"`):
+
+```json codeint.json
+{
+  "dependencies": {
+    "ignore": ["tailwindcss"]
+  },
+  "budgets": {
+    "unused_dependencies": 0,
+    "unlisted_dependencies": 0,
+    "dev_in_production_dependencies": 0
+  },
+  "regression_limits": {
+    "unused_dependencies": { "ratio_rise": 0.01, "new_findings": "any_new_finding" },
+    "unlisted_dependencies": { "ratio_rise": 0, "new_findings": "any_new_finding" },
+    "dev_in_production_dependencies": { "ratio_rise": 0, "new_findings": "any_new_finding" }
   }
 }
 ```
