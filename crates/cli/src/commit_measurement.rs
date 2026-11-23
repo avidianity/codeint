@@ -5,13 +5,13 @@ use serde::Serialize;
 
 use crate::check::{
     BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, MeasuredSnapshot, SelectedPackage,
-    compute_orphan_files, filter_languages_to_package, measure_snapshot, select_workspace_package,
-    workspace_of_languages,
+    compute_dependency_hygiene, compute_orphan_files, filter_languages_to_package,
+    measure_snapshot, select_workspace_package, workspace_of_languages,
 };
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MEASUREMENT_CACHE_VERSION: u32 = 4;
+const MEASUREMENT_CACHE_VERSION: u32 = 5;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {
@@ -161,6 +161,8 @@ fn measure_snapshot_to_commit(
 ) -> Result<CommitMeasurement, CheckError> {
     let metric_plugins = plugins.metric_plugins();
     let (orphan_files, _) = compute_orphan_files(&snapshot, selected);
+    let (dependency_hygiene, _) =
+        compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected);
     if let Some(selected) = selected {
         filter_languages_to_package(&mut snapshot.languages, selected);
     }
@@ -176,6 +178,7 @@ fn measure_snapshot_to_commit(
         &configuration.dependencies,
         configuration.duplication,
         orphan_files.as_ref(),
+        Some(&dependency_hygiene),
     )
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }

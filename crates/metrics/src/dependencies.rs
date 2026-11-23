@@ -114,8 +114,16 @@ struct MatchedImportFinding {
 
 impl DependencyHygiene {
     pub fn measure(model: &CodeModel, ignored: &BTreeSet<String>) -> DependencyHygiene {
+        DependencyHygiene::measure_filtered(model, ignored, |_| true)
+    }
+
+    pub fn measure_filtered(
+        model: &CodeModel,
+        ignored: &BTreeSet<String>,
+        include_package: impl Fn(&str) -> bool,
+    ) -> DependencyHygiene {
         let manifests = manifest_map(model);
-        if manifests.is_empty() {
+        if !manifests.keys().map(String::as_str).any(&include_package) {
             return DependencyHygiene::default();
         }
         let declared = collect_declared(&model.declared_dependencies, ignored);
@@ -127,14 +135,16 @@ impl DependencyHygiene {
             js_workspace_members: &js_workspace_members,
             imports: &imports,
         };
-        let (declared_count, unused) = tables.build_unused();
+        let (declared_count, unused) = tables.build_unused(&include_package);
         let (imported_count, unlisted_raw) = tables.build_imported_findings(
             UNLISTED_DEPENDENCIES_METRIC_KEY,
+            &include_package,
             |pkg| &pkg.checked,
             |declared_kinds| declared_kinds.is_none(),
         );
         let (production_imported_count, dev_raw) = tables.build_imported_findings(
             DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+            &include_package,
             |pkg| &pkg.production,
             |declared_kinds| declared_kinds.is_some_and(DeclaredKinds::is_dev_only),
         );
@@ -464,12 +474,16 @@ impl DependencyTables<'_> {
         None
     }
 
-    fn build_unused(&self) -> (usize, Vec<UnusedDependencyFinding>) {
+    fn build_unused(
+        &self,
+        include_package: impl Fn(&str) -> bool,
+    ) -> (usize, Vec<UnusedDependencyFinding>) {
         let mut ids = FindingIds::for_key(UNUSED_DEPENDENCIES_METRIC_KEY);
         let mut declared_count = 0usize;
         let findings = self
             .declared
             .iter()
+            .filter(|(root, _)| include_package(root))
             .flat_map(|(root, deps)| deps.iter().map(move |(dep, kinds)| (root, dep, kinds)))
             .filter_map(|(package_root, dependency, kinds)| {
                 let kind = kinds.unused_kind()?;
@@ -494,6 +508,7 @@ impl DependencyTables<'_> {
     fn build_imported_findings(
         &self,
         metric_key: &'static str,
+        include_package: impl Fn(&str) -> bool,
         select: impl Fn(&PackageImports) -> &BTreeMap<String, BTreeSet<RepoPath>>,
         should_flag: impl Fn(Option<DeclaredKinds>) -> bool,
     ) -> (usize, Vec<MatchedImportFinding>) {
@@ -501,6 +516,9 @@ impl DependencyTables<'_> {
         let mut total = 0usize;
         let mut findings = Vec::new();
         for (package_root, package_imports) in self.imports {
+            if !include_package(package_root) {
+                continue;
+            }
             let manifest = &self.manifests[package_root];
             for (dependency, importers) in select(package_imports) {
                 total += 1;

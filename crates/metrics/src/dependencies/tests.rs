@@ -331,8 +331,7 @@ fn manifest_used_dependencies_credit_usage_without_hiding_dev_in_production_or_d
     assert_eq!(result.dev_in_production()[0].dependency, "vitest");
 }
 
-#[test]
-fn js_workspace_hoisting_credits_root_and_preserves_dev_in_production_and_isolation() {
+fn js_workspace_hoisting_model() -> CodeModel {
     let mut js_model = model_with(
         source_files(&[
             ("packages/app/src/index.ts", SourceSet::Production),
@@ -361,6 +360,12 @@ fn js_workspace_hoisting_credits_root_and_preserves_dev_in_production_and_isolat
         ]),
     );
     js_model.workspace = Workspace::new([RepoPath::new("packages/app").expect("valid root")]);
+    js_model
+}
+
+#[test]
+fn js_workspace_hoisting_credits_root_and_preserves_dev_in_production_and_isolation() {
+    let js_model = js_workspace_hoisting_model();
 
     let result = DependencyHygiene::measure(&js_model, &BTreeSet::new());
 
@@ -397,4 +402,42 @@ fn js_workspace_hoisting_credits_root_and_preserves_dev_in_production_and_isolat
     assert_eq!(rust_result.unused().len(), 1);
     assert_eq!(rust_result.unlisted().len(), 1);
     assert_eq!(rust_result.unlisted()[0].dependency, "serde");
+}
+
+#[test]
+fn measure_filtered_preserves_workspace_hoisting_for_member_and_root_scopes() {
+    let model = js_workspace_hoisting_model();
+
+    let member = DependencyHygiene::measure_filtered(&model, &BTreeSet::new(), |root| {
+        root == "packages/app"
+    });
+    assert!(member.has_manifests());
+    assert_eq!(member.declared_count(), 1);
+    assert!(member.unused().is_empty());
+    assert_eq!(member.imported_count(), 5);
+    assert_eq!(member.production_imported_count(), 4);
+    assert_eq!(member.unlisted().len(), 1);
+    assert_eq!(member.unlisted()[0].package_root, "packages/app");
+    assert_eq!(member.unlisted()[0].dependency, "axios");
+    assert_eq!(member.dev_in_production().len(), 1);
+    assert_eq!(member.dev_in_production()[0].package_root, "packages/app");
+    assert_eq!(member.dev_in_production()[0].dependency, "faker");
+
+    let root_only =
+        DependencyHygiene::measure_filtered(&model, &BTreeSet::new(), |root| root.is_empty());
+    assert!(root_only.has_manifests());
+    assert_eq!(root_only.declared_count(), 4);
+    assert_eq!(root_only.unused().len(), 1);
+    assert_eq!(root_only.unused()[0].package_root, "");
+    assert_eq!(root_only.unused()[0].dependency, "unused-root");
+    assert_eq!(root_only.imported_count(), 0);
+    assert_eq!(root_only.production_imported_count(), 0);
+    assert!(root_only.unlisted().is_empty());
+    assert!(root_only.dev_in_production().is_empty());
+
+    let missing = DependencyHygiene::measure_filtered(&model, &BTreeSet::new(), |root| {
+        root == "packages/other"
+    });
+    assert!(!missing.has_manifests());
+    assert!(!missing.has_activity());
 }

@@ -5,8 +5,8 @@ use std::string::FromUtf8Error;
 
 use codeint_config::{
     Codeowners, CodeownersError, ConfigFileKind, Configuration, ConfigurationFileError,
-    EntryPoints, FindingsShown, LanguageCoverage, OwnerFilter, PluginHostConfig,
-    SourceSetOverrides, read_configuration,
+    DependenciesConfig, EntryPoints, FindingsShown, LanguageCoverage, OwnerFilter,
+    PluginHostConfig, SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_dart::Dart;
@@ -14,7 +14,7 @@ use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
-use codeint_metrics::OrphanFiles;
+use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
     LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, Package,
@@ -227,6 +227,21 @@ fn matches_selected_package_root(selected: &SelectedPackage, package_root: &str)
         SelectedPackage::Root => package_root.is_empty(),
         SelectedPackage::Member(root) => package_root == root.as_str(),
     }
+}
+
+fn package_root_matches_selected(
+    workspace: &Workspace,
+    selected: &SelectedPackage,
+    package_root: &str,
+) -> bool {
+    let actual = if package_root.is_empty() {
+        Package::Root
+    } else if let Ok(synthetic) = RepoPath::new(format!("{package_root}/manifest")) {
+        workspace.package_of(&synthetic)
+    } else {
+        return matches_selected_package_root(selected, package_root);
+    };
+    selected.matches(actual)
 }
 
 pub(crate) fn filter_languages_to_package(
@@ -492,6 +507,25 @@ pub(crate) fn compute_orphan_files(
     (total, by_language)
 }
 
+pub(crate) fn compute_dependency_hygiene(
+    snapshot: &MeasuredSnapshot,
+    dependencies: &DependenciesConfig,
+    selected: Option<&SelectedPackage>,
+) -> (DependencyHygiene, BTreeMap<String, DependencyHygiene>) {
+    let ignored = dependencies.ignored();
+    let mut by_language = BTreeMap::new();
+    for language in &snapshot.languages {
+        let measured = DependencyHygiene::measure_filtered(&language.model, ignored, |root| {
+            selected.is_none_or(|pkg| {
+                package_root_matches_selected(&language.model.workspace, pkg, root)
+            })
+        });
+        by_language.insert(language.plugin.clone(), measured);
+    }
+    let total = DependencyHygiene::merge(by_language.values().cloned());
+    (total, by_language)
+}
+
 fn check_loaded(
     repository: &Repository,
     configuration: &Configuration,
@@ -511,6 +545,8 @@ fn check_loaded(
     };
     let (orphan_files, orphan_files_by_language) =
         compute_orphan_files(&snapshot, selected.as_ref());
+    let (dependency_hygiene, dependency_hygiene_by_language) =
+        compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected.as_ref());
     if let Some(selected) = &selected {
         filter_languages_to_package(&mut snapshot.languages, selected);
     }
@@ -523,6 +559,8 @@ fn check_loaded(
             metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
             dependencies: &configuration.dependencies,
+            dependency_hygiene: Some(&dependency_hygiene),
+            dependency_hygiene_by_language: Some(&dependency_hygiene_by_language),
             duplication: configuration.duplication,
             orphan_files: orphan_files.as_ref(),
             orphan_files_by_language: Some(&orphan_files_by_language),

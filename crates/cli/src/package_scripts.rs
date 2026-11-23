@@ -100,7 +100,7 @@ pub(crate) fn extract_manifest_used_dependencies(
     plugin_members: &[RepoPath],
     declared: &[DeclaredDep],
 ) -> Vec<ManifestUsedDep> {
-    let mut tokens_by_root = collect_tokens_by_root(manifests, plugin_members);
+    let tokens_by_root = collect_tokens_by_root(manifests, plugin_members);
     if tokens_by_root.is_empty() {
         return Vec::new();
     }
@@ -109,7 +109,7 @@ pub(crate) fn extract_manifest_used_dependencies(
         if dep.kind != DepKind::Dev {
             continue;
         }
-        if let Some(tokens) = tokens_by_root.get_mut(dep.package_root.as_str())
+        if let Some(tokens) = tokens_by_root.get(dep.package_root.as_str())
             && is_invoked_in_scripts(&dep.name, tokens)
         {
             used.insert(ManifestUsedDep {

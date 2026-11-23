@@ -787,4 +787,61 @@ fn script_dev_dependencies_workspace_hoisting_and_ambient_types_work_end_to_end(
         dep_names(hoist_deps, "dev_in_production_dependencies"),
         ["vitest"]
     );
+
+    let member_report = expect_json(
+        hoist_repo.path(),
+        None,
+        &["check", "--package", "packages/app", "--format", "json"],
+        0,
+    );
+    let member_deps = &member_report["dependencies"];
+    assert!(dep_names(member_deps, "unused_dependencies").is_empty());
+    assert!(dep_names(member_deps, "unlisted_dependencies").is_empty());
+    assert_eq!(
+        dep_names(member_deps, "dev_in_production_dependencies"),
+        ["vitest"]
+    );
+
+    let root_report = expect_json(
+        hoist_repo.path(),
+        None,
+        &["check", "--package", ".", "--format", "json"],
+        0,
+    );
+    let root_deps = &root_report["dependencies"];
+    assert_eq!(root_deps["unused_dependencies"]["declared"], 2);
+    assert_all_dep_metrics_empty(root_deps);
+
+    let hoist_cache = tempfile::tempdir().expect("cache");
+    let member_diff = expect_json(
+        hoist_repo.path(),
+        Some(hoist_cache.path()),
+        &[
+            "diff",
+            "main",
+            "--package",
+            "packages/app",
+            "--format",
+            "json",
+        ],
+        0,
+    );
+    assert_eq!(
+        member_diff["dependencies"]["unlisted_dependencies"]["unchanged"],
+        0
+    );
+    assert_eq!(
+        member_diff["dependencies"]["dev_in_production_dependencies"]["unchanged"],
+        1
+    );
+    let root_diff = expect_json(
+        hoist_repo.path(),
+        Some(hoist_cache.path()),
+        &["diff", "main", "--package", ".", "--format", "json"],
+        0,
+    );
+    assert_eq!(
+        root_diff["dependencies"]["unused_dependencies"]["unchanged"],
+        0
+    );
 }

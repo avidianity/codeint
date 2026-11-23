@@ -1572,6 +1572,8 @@ pub struct ReportOptions<'a> {
     pub metric_plugins: &'a [&'a dyn MetricPlugin],
     pub boundaries: Option<&'a BoundariesConfig>,
     pub dependencies: &'a DependenciesConfig,
+    pub dependency_hygiene: Option<&'a DependencyHygiene>,
+    pub dependency_hygiene_by_language: Option<&'a BTreeMap<String, DependencyHygiene>>,
     pub duplication: DuplicationConfig,
     pub orphan_files: Option<&'a OrphanFiles>,
     pub orphan_files_by_language: Option<&'a BTreeMap<String, OrphanFiles>>,
@@ -1658,6 +1660,8 @@ impl Report {
                 metric_plugins,
                 boundaries,
                 dependencies: &dependencies,
+                dependency_hygiene: None,
+                dependency_hygiene_by_language: None,
                 duplication: DuplicationConfig::default(),
                 orphan_files: None,
                 orphan_files_by_language: None,
@@ -1685,6 +1689,8 @@ impl Report {
                 metric_plugins,
                 boundaries,
                 dependencies: &dependencies,
+                dependency_hygiene: None,
+                dependency_hygiene_by_language: None,
                 duplication,
                 orphan_files: None,
                 orphan_files_by_language: None,
@@ -1712,6 +1718,8 @@ impl Report {
                 metric_plugins,
                 boundaries,
                 dependencies: &dependencies,
+                dependency_hygiene: None,
+                dependency_hygiene_by_language: None,
                 duplication: DuplicationConfig::default(),
                 orphan_files: None,
                 orphan_files_by_language: None,
@@ -1726,11 +1734,18 @@ impl Report {
         options: ReportOptions<'_>,
     ) -> Result<Report, MetricPluginError> {
         let ignored = options.dependencies.ignored();
-        let total_hygiene = DependencyHygiene::merge(
-            languages
-                .iter()
-                .map(|language| DependencyHygiene::measure(&language.model, ignored)),
-        );
+        let measured_total_hygiene;
+        let total_hygiene = match options.dependency_hygiene {
+            Some(precomputed) => precomputed,
+            None => {
+                measured_total_hygiene = DependencyHygiene::merge(
+                    languages
+                        .iter()
+                        .map(|language| DependencyHygiene::measure(&language.model, ignored)),
+                );
+                &measured_total_hygiene
+            }
+        };
         let section_options = SectionOptions {
             findings: options.findings,
             metric_plugins: options.metric_plugins,
@@ -1754,7 +1769,18 @@ impl Report {
             _ => {
                 let mut per_language = BTreeMap::new();
                 for language in &measured {
-                    let language_hygiene = DependencyHygiene::measure(&language.model, ignored);
+                    let measured_language_hygiene;
+                    let language_hygiene = match options
+                        .dependency_hygiene_by_language
+                        .and_then(|map| map.get(&language.plugin))
+                    {
+                        Some(precomputed) => precomputed,
+                        None => {
+                            measured_language_hygiene =
+                                DependencyHygiene::measure(&language.model, ignored);
+                            &measured_language_hygiene
+                        }
+                    };
                     let language_orphans = options
                         .orphan_files_by_language
                         .and_then(|map| map.get(&language.plugin));
@@ -1762,7 +1788,7 @@ impl Report {
                         language.plugin.clone(),
                         MeasuredSection::new(
                             language.model.clone(),
-                            &language_hygiene,
+                            language_hygiene,
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
                             SectionOptions {
                                 orphan_files: language_orphans,
@@ -1786,7 +1812,7 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(model, &total_hygiene, &total_ranges, section_options)?;
+        let measured = MeasuredSection::new(model, total_hygiene, &total_ranges, section_options)?;
         let mut failures = measured.source_sets.over_budget(options.budgets);
         if let Some(dependencies) = &measured.dependencies {
             failures.extend(dependencies.over_budget(options.budgets));

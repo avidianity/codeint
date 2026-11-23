@@ -119,6 +119,7 @@ impl CommitMeasurement {
             &dependencies,
             duplication,
             orphan_files,
+            None,
         )
     }
 
@@ -129,14 +130,22 @@ impl CommitMeasurement {
         dependencies_config: &DependenciesConfig,
         duplication: DuplicationConfig,
         orphan_files: Option<&OrphanFiles>,
+        dependency_hygiene: Option<&DependencyHygiene>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
         let ignored = dependencies_config.ignored();
-        let hygiene = DependencyHygiene::merge(
-            languages
-                .iter()
-                .map(|model| DependencyHygiene::measure(model, ignored)),
-        );
-        let dependencies = DependenciesMeasurement::from_hygiene(&hygiene);
+        let measured_hygiene;
+        let hygiene = match dependency_hygiene {
+            Some(precomputed) => precomputed,
+            None => {
+                measured_hygiene = DependencyHygiene::merge(
+                    languages
+                        .iter()
+                        .map(|model| DependencyHygiene::measure(model, ignored)),
+                );
+                &measured_hygiene
+            }
+        };
+        let dependencies = DependenciesMeasurement::from_hygiene(hygiene);
         let model = CodeModel::merge(languages);
         let source_sets = model.into_source_sets();
         Ok(CommitMeasurement {
