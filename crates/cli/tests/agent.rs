@@ -32,9 +32,11 @@ fn run_ok_json(cwd: &Path, agent_home: &Path, args: &[&str]) -> Value {
 
 fn write_file(root: &Path, relative: &str, contents: &str) {
     let target = root.join(relative);
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).expect("create parent dirs");
-    }
+    target
+        .parent()
+        .map(fs::create_dir_all)
+        .transpose()
+        .expect("create parent dirs");
     fs::write(target, contents).expect("write file");
 }
 

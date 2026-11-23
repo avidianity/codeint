@@ -444,3 +444,48 @@ fn rerenders_markdown_without_overflow_when_left_out_is_usize_max() {
         "new_left_out",
     );
 }
+
+#[test]
+fn rerenders_check_and_diff_json_with_codeowners_owners_losslessly() {
+    let base_file = verbose_ts("sign");
+    let (dir, cache) = setup_workspace(&[
+        (".github/CODEOWNERS", "src/ @platform @alice\n"),
+        ("src/sign.ts", &base_file),
+    ]);
+    commit_all(dir.path(), "base");
+
+    let added = eroded_ts("route", 14);
+    populate(dir.path(), &[("src/route.ts", &added)]);
+
+    let check_json = invoke(
+        dir.path(),
+        cache.path(),
+        &["check", "--format", "json"],
+        None,
+    );
+    assert_eq!(check_json.status.code(), Some(0));
+    assert!(utf8(&check_json.stdout).contains("\"@platform\""));
+    verify_parity(
+        dir.path(),
+        cache.path(),
+        &["check"],
+        &check_json.stdout,
+        "owned-check.json",
+    );
+
+    let diff_json = invoke(
+        dir.path(),
+        cache.path(),
+        &["diff", "main", "--format", "json"],
+        None,
+    );
+    assert_eq!(diff_json.status.code(), Some(1));
+    assert!(utf8(&diff_json.stdout).contains("\"@platform\""));
+    verify_parity(
+        dir.path(),
+        cache.path(),
+        &["diff", "main"],
+        &diff_json.stdout,
+        "owned-diff.json",
+    );
+}
