@@ -3,7 +3,7 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
 use oxc_resolver::{ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
@@ -41,13 +41,16 @@ fn file_name(path: &str) -> &str {
 
 pub(crate) struct ProjectResolver {
     resolver: ResolverGeneric<Snapshot>,
-    package_names: HashSet<String>,
+    package_folders: HashMap<String, String>,
 }
 
 impl ProjectResolver {
     pub(crate) fn new(repository_paths: &[String], manifests: Vec<Manifest>) -> ProjectResolver {
         let links: Vec<PackageLink> = packages::package_links(&manifests);
-        let package_names = links.iter().map(|link| link.name.clone()).collect();
+        let package_folders = links
+            .iter()
+            .map(|link| (link.name.clone(), link.folder.clone()))
+            .collect();
         let file_system = Snapshot::new(repository_paths, manifests, links);
         let options = ResolveOptions {
             cwd: Some(snapshot::root()),
@@ -72,7 +75,7 @@ impl ProjectResolver {
         };
         ProjectResolver {
             resolver: ResolverGeneric::new_with_file_system(file_system, options),
-            package_names,
+            package_folders,
         }
     }
 
@@ -117,15 +120,55 @@ impl ProjectResolver {
                 },
                 Resolution::Resolved,
             ),
-            Err(ResolveError::Builtin { .. }) => Resolution::Builtin,
-            Err(_) if self.names_an_outside_module(importer, specifier) => {
-                Resolution::External(package_name(specifier).to_owned())
-            }
-            Err(ResolveError::NotFound(_)) => {
+            Err(error) => self.classify_error(importer, specifier, error),
+        }
+    }
+
+    fn classify_error(
+        &self,
+        importer: &std::path::Path,
+        specifier: &str,
+        error: ResolveError,
+    ) -> Resolution {
+        if matches!(error, ResolveError::Builtin { .. }) {
+            return Resolution::Builtin;
+        }
+        if matches!(error, ResolveError::NotFound(_))
+            && !is_relative(specifier)
+            && !specifier.starts_with('#')
+            && let Some(resolution) = self.resolve_workspace_fallback(specifier)
+        {
+            return resolution;
+        }
+        if self.names_an_outside_module(importer, specifier) {
+            return Resolution::External(package_name(specifier).to_owned());
+        }
+        match error {
+            ResolveError::NotFound(_) => {
                 Resolution::Unresolved(format!("no file of the repository matches {specifier:?}"))
             }
-            Err(error) => Resolution::Unresolved(format!("{specifier:?}: {error}")),
+            other => Resolution::Unresolved(format!("{specifier:?}: {other}")),
         }
+    }
+
+    fn resolve_workspace_fallback(&self, specifier: &str) -> Option<Resolution> {
+        let pkg = package_name(specifier);
+        let folder = self.package_folders.get(pkg)?;
+        let pkg_dir = snapshot::absolute(folder);
+        let subpath = package_subpath(specifier, pkg);
+        let candidates = if subpath.is_empty() {
+            vec!["./src/index".to_owned(), "./index".to_owned()]
+        } else {
+            vec![format!("./src/{subpath}"), format!("./{subpath}")]
+        };
+        for candidate in candidates {
+            if let Ok(resolution) = self.resolver.resolve(&pkg_dir, &candidate)
+                && let Some(repo_path) = snapshot::repository_path(resolution.path())
+            {
+                return Some(Resolution::Resolved(repo_path));
+            }
+        }
+        Some(Resolution::Builtin)
     }
 
     fn names_an_outside_module(&self, importer: &std::path::Path, specifier: &str) -> bool {
@@ -133,8 +176,11 @@ impl ProjectResolver {
             return false;
         }
         let name = package_name(specifier);
-        if name.is_empty() || self.package_names.contains(name) {
+        if name.is_empty() || self.package_folders.contains_key(name) {
             return false;
+        }
+        if specifier.starts_with("npm:") || specifier.starts_with("jsr:") {
+            return true;
         }
         let matches_path_alias = self
             .resolver
@@ -178,10 +224,13 @@ fn is_project_configuration_error(error: &ResolveError) -> bool {
 
 fn is_runtime_builtin(specifier: &str) -> bool {
     specifier == "bun"
-        || specifier.starts_with("bun:")
-        || specifier
-            .strip_prefix("node:")
-            .is_some_and(|rest| !rest.is_empty())
+        || ["bun:", "node:", "cloudflare:", "deno:"]
+            .iter()
+            .any(|prefix| {
+                specifier
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| !rest.is_empty())
+            })
 }
 
 fn is_relative(specifier: &str) -> bool {
@@ -205,12 +254,59 @@ fn package_name(specifier: &str) -> &str {
     let clean = specifier
         .split_once(['?', '#'])
         .map_or(specifier, |(head, _)| head);
-    let segments = if clean.starts_with('@') { 2 } else { 1 };
-    let end = clean
+    let (body, has_registry_prefix) = clean
+        .strip_prefix("npm:")
+        .or_else(|| clean.strip_prefix("jsr:"))
+        .map_or((clean, false), |rest| (rest, true));
+    if body.is_empty() {
+        return "";
+    }
+    let segments = if body.starts_with('@') { 2 } else { 1 };
+    let end = body
         .match_indices('/')
         .nth(segments - 1)
-        .map_or(clean.len(), |(index, _)| index);
-    &clean[..end]
+        .map_or(body.len(), |(index, _)| index);
+    let candidate = &body[..end];
+    if has_registry_prefix {
+        strip_registry_version(candidate)
+    } else {
+        candidate
+    }
+}
+
+fn strip_registry_version(candidate: &str) -> &str {
+    let search_start = if candidate.starts_with('@') {
+        match candidate.find('/') {
+            Some(slash) => slash + 1,
+            None => return candidate,
+        }
+    } else {
+        0
+    };
+    match candidate[search_start..].find('@') {
+        Some(0) => "",
+        Some(offset) => &candidate[..search_start + offset],
+        None => candidate,
+    }
+}
+
+fn package_subpath<'a>(specifier: &'a str, pkg: &str) -> &'a str {
+    let clean = specifier
+        .split_once(['?', '#'])
+        .map_or(specifier, |(head, _)| head);
+    let body = clean
+        .strip_prefix("npm:")
+        .or_else(|| clean.strip_prefix("jsr:"))
+        .unwrap_or(clean);
+    let Some(after_pkg) = body.strip_prefix(pkg) else {
+        return "";
+    };
+    let after_version = if after_pkg.starts_with('@') {
+        after_pkg.find('/').map_or("", |slash| &after_pkg[slash..])
+    } else {
+        after_pkg
+    };
+    after_version.strip_prefix('/').unwrap_or("")
 }
 
 fn alias_matches(key: &str, specifier: &str) -> bool {

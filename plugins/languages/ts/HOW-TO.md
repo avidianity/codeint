@@ -46,7 +46,7 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - `src/source_set.rs` puts a file in the Generated Source set when a comment before its first token of code holds a generated marker.
   `GENERATED_MARKERS` lists the markers; the match ignores case.
   A marker in a later comment or in a string never counts.
-- Otherwise it puts a file in the Test Source set when its name ends in `.test.{extension}` or `.spec.{extension}` after a non-empty stem, or when any of its folders, at any depth, is named `__tests__`, `test`, or `tests`.
+- Otherwise it puts a file in the Test Source set when its name ends in `.test.{extension}`, `.spec.{extension}`, `.test-d.{extension}`, or `.spec-d.{extension}` after a non-empty stem, or when any of its folders, at any depth, is named `__tests__`, `test`, `tests`, `test-dts`, or `type-tests`.
   `TEST_FOLDERS` lists the folder names; the match is exact and keeps case.
   Every other file is Production.
 - A file named only `test.ts` or `spec.ts` has an empty stem, so it stays Production.
@@ -68,12 +68,12 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - `src/resolution/snapshot.rs` is the virtual file system that `oxc_resolver` reads: the repository paths, the manifest texts, and a `node_modules` link for each package of the repository.
   It reads no real file, so a tsconfig never reaches outside the snapshot.
 - `manifest_paths` is also how the plugin asks for the `package.json` files that `workspace_packages` reads, so the host reads each manifest once.
-- `src/resolution/packages.rs` links the `package.json` of each workspace package that the workspace declares, when it has a valid `name`, so an import of a workspace package follows its `exports` field.
+- `src/resolution/packages.rs` links the `package.json` of each workspace package that the workspace declares, plus the root `package.json` when its `name` does not collide with a workspace member, so an import of a workspace package follows its `exports` field (falling back to source files or `Builtin` when build outputs are absent).
   It finds the workspace packages with `src/workspaces.rs`, the same rule that splits the report by package.
   A named package outside the declared workspaces, or in a repository without workspaces, is not linked, because npm, Yarn, and Bun do not install it in `node_modules`.
   Two packages with the same name are both left unlinked.
 - The `exports` conditions are `types`, `bun`, `import`, `require`, `node`, and `default`, so an export whose `types` or `bun` entry names a source file resolves to that file.
-- `bun` and `bun:*` specifiers are always `External` built-in runtime modules.
+- `bun`, `bun:*`, `node:*`, `cloudflare:*`, and `deno:*` specifiers are always `Builtin` runtime modules, and `npm:` / `jsr:` specifiers strip their registry prefix and optional `@version` before normalizing the external package name.
 - A bare specifier that fails to resolve is `External`, unless it names a linked package or matches a tsconfig `paths` key of the importer; then it is `Unresolved`.
 - Prove a change with `tests/conformance.rs` through `manifest_paths` and `resolve_imports`, and with a cycle test in `crates/cli/tests/check.rs`.
 

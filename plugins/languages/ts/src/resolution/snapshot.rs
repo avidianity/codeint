@@ -89,7 +89,11 @@ impl Snapshot {
             if (follow_last_link || !is_last)
                 && let Some(target) = self.links.get(&segments.join("/"))
             {
-                segments = target.split('/').map(str::to_owned).collect();
+                segments = if target.is_empty() {
+                    Vec::new()
+                } else {
+                    target.split('/').map(str::to_owned).collect()
+                };
             }
         }
         Ok(segments.join("/"))
