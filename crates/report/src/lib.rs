@@ -18,6 +18,7 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
+mod agent;
 mod diff;
 mod guard;
 mod markdown;
@@ -27,6 +28,9 @@ mod sarif;
 mod tests;
 mod trend;
 
+pub use agent::{
+    AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
+};
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use measurement::CommitMeasurement;

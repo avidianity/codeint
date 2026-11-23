@@ -30,6 +30,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `guard` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -512,6 +513,31 @@ codeint guard src/route.ts
 codeint guard src/route.ts --format text
 codeint guard src/route.ts --format toon
 codeint guard src/route.ts --format json
+```
+
+### `codeint agent`
+
+| Command | Meaning |
+| ------- | ------- |
+| `status` | Report detected local coding agents and whether `codeint mcp` is registered for each |
+| `install` | Register `codeint mcp` in supported local coding agent configuration files |
+| `help` | Print the help of `codeint agent`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint agent` |
+
+`codeint agent` manages local `codeint mcp` registration for Claude Code (`claude-code`, `.claude.json`), Cursor (`cursor`, `.cursor/mcp.json`), and Codex (`codex`, `.codex/config.toml`).
+Both `status` and `install` accept `--client <claude-code|cursor|codex>`, `--format <text|toon|json>`, and `--config-root <DIR>` (or the `CODEINT_AGENT_HOME` environment variable) to override the home folder.
+`codeint agent install` also accepts `--dry-run` to preview the exact resulting configuration without modifying any file on disk.
+When writing a configuration file, `codeint agent install` preserves unrelated keys and existing MCP servers, writes atomically via a temporary file rename, and leaves already-registered configurations untouched on repeated runs.
+
+```sh exit=0
+CODEINT_AGENT_HOME=.agent-home codeint agent status
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format json
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format toon
+CODEINT_AGENT_HOME=.agent-home codeint agent install --dry-run --client claude-code
+codeint agent help
 ```
 
 ## Exit codes

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod agent;
 mod check;
 mod commit_measurement;
 mod diff;
@@ -16,15 +17,18 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
+use codeint_config::{AgentCommand, Command, ConfigError, ReportDestination, read_invocation};
 use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
-    TrendRange,
+    AgentClient, AgentFormat, CalendarDay, FindingsShown, GuardFormat, PluginHostConfig,
+    ReportFormat, TrendFormat, TrendRange,
 };
-pub use codeint_report::{DiffReport, GuardReport, Report, TrendReport};
+pub use codeint_report::{
+    AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
+    DiffReport, GuardReport, Report, TrendReport,
+};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -188,6 +192,23 @@ pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> 
     guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
 }
 
+pub fn agent_status(
+    config_root: &Path,
+    client: Option<AgentClient>,
+) -> Result<AgentStatusReport, CodeintError> {
+    agent::status(config_root, client)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Agent(err)))
+}
+
+pub fn agent_install(
+    config_root: &Path,
+    client: Option<AgentClient>,
+    dry_run: bool,
+) -> Result<AgentInstallReport, CodeintError> {
+    agent::install(config_root, client, dry_run)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Agent(err)))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
@@ -196,6 +217,8 @@ enum CliError {
     Check(#[from] check::CheckError),
     #[error(transparent)]
     Guard(#[from] guard::GuardError),
+    #[error(transparent)]
+    Agent(#[from] agent::AgentError),
     #[error(transparent)]
     Init(#[from] init::InitError),
     #[error(transparent)]
@@ -304,6 +327,31 @@ fn run() -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Agent(command) => run_agent(command),
+    }
+}
+
+fn run_agent(command: AgentCommand) -> Result<Outcome, CliError> {
+    match command {
+        AgentCommand::Status {
+            config_root,
+            client,
+            format,
+        } => {
+            let report = agent::status(&config_root, client)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
+        AgentCommand::Install {
+            config_root,
+            client,
+            dry_run,
+            format,
+        } => {
+            let report = agent::install(&config_root, client, dry_run)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
     }
 }
 
