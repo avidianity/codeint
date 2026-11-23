@@ -1,4 +1,6 @@
-use codeint_model::RepoPath;
+use std::collections::HashSet;
+
+use codeint_model::{CodeModel, Package, RepoPath};
 
 #[cfg(test)]
 mod tests;
@@ -30,28 +32,75 @@ const ANY_DEPTH_TOOLING_FILENAMES: &[&str] = &["conftest.py"];
 
 const ROOT_LEVEL_TOOLING_FILENAMES: &[&str] = &["conf.py", "setup.py", "noxfile.py", "fabfile.py"];
 
-pub(crate) fn is_non_runtime_tooling_path(path: &RepoPath, package_root: Option<&str>) -> bool {
-    let repo_rel = path.as_str();
-    let (repo_dir, file_name) = split_dir_and_file(repo_rel);
-    if file_name.is_empty() {
-        return false;
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ToolingPaths {
+    package_roots: HashSet<String>,
+}
+
+impl ToolingPaths {
+    pub(crate) fn from_model(model: &CodeModel) -> ToolingPaths {
+        let workspace_roots = model
+            .workspace
+            .packages()
+            .filter_map(|package| match package {
+                Package::Root => None,
+                Package::Member(root) => Some(root.as_str()),
+            });
+        let manifest_roots = model
+            .dependency_manifests
+            .iter()
+            .map(|entry| entry.package_root.as_str());
+        let declared_roots = model
+            .declared_dependencies
+            .iter()
+            .map(|dep| dep.package_root.as_str());
+        ToolingPaths::from_roots(workspace_roots.chain(manifest_roots).chain(declared_roots))
     }
 
-    if let Some(dir_path) = repo_dir
-        && dir_path
-            .split('/')
+    pub(crate) fn from_roots<'a>(roots: impl IntoIterator<Item = &'a str>) -> ToolingPaths {
+        let package_roots = roots
+            .into_iter()
+            .map(|root| root.trim_end_matches('/'))
+            .filter(|root| !root.is_empty())
+            .map(str::to_owned)
+            .collect();
+        ToolingPaths { package_roots }
+    }
+
+    pub(crate) fn is_non_runtime_tooling_path(&self, path: &RepoPath) -> bool {
+        let repo_rel = path.as_str();
+        let (repo_dir, file_name) = split_dir_and_file(repo_rel);
+        if file_name.is_empty() {
+            return false;
+        }
+        if has_tooling_dot_dir(repo_dir) || starts_with_tooling_dir(repo_rel) {
+            return true;
+        }
+
+        let mut deepest_pkg_rel: Option<&str> = None;
+        let mut folder = repo_rel;
+        while let Some((prefix, _)) = folder.rsplit_once('/') {
+            if self.package_roots.contains(prefix) {
+                let pkg_rel = &repo_rel[prefix.len() + 1..];
+                deepest_pkg_rel.get_or_insert(pkg_rel);
+                if starts_with_tooling_dir(pkg_rel) {
+                    return true;
+                }
+            }
+            folder = prefix;
+        }
+
+        let at_root =
+            !repo_rel.contains('/') || deepest_pkg_rel.is_some_and(|rel| !rel.contains('/'));
+        is_tooling_config_filename(file_name, at_root)
+    }
+}
+
+fn has_tooling_dot_dir(dir_path: Option<&str>) -> bool {
+    dir_path.is_some_and(|dir| {
+        dir.split('/')
             .any(|segment| TOOLING_DOT_DIRS.contains(&segment.to_ascii_lowercase().as_str()))
-    {
-        return true;
-    }
-
-    let pkg_rel = strip_package_root(repo_rel, package_root);
-    if starts_with_tooling_dir(repo_rel) || starts_with_tooling_dir(pkg_rel) {
-        return true;
-    }
-
-    let at_root = !repo_rel.contains('/') || !pkg_rel.contains('/');
-    is_tooling_config_filename(file_name, at_root)
+    })
 }
 
 fn split_dir_and_file(path: &str) -> (Option<&str>, &str) {
@@ -59,19 +108,6 @@ fn split_dir_and_file(path: &str) -> (Option<&str>, &str) {
         Some((dir, file)) => (Some(dir), file),
         None => (None, path),
     }
-}
-
-fn strip_package_root<'a>(repo_rel: &'a str, package_root: Option<&str>) -> &'a str {
-    let Some(root) = package_root
-        .map(|root| root.trim_end_matches('/'))
-        .filter(|root| !root.is_empty())
-    else {
-        return repo_rel;
-    };
-    repo_rel
-        .strip_prefix(root)
-        .and_then(|rest| rest.strip_prefix('/'))
-        .unwrap_or(repo_rel)
 }
 
 fn starts_with_tooling_dir(relative_path: &str) -> bool {

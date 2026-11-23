@@ -53,6 +53,14 @@ fn production_orphans(report: &Value) -> &Value {
     &report["source_sets"]["production"]["orphan_files"]
 }
 
+fn assert_production_orphans(dir: &Path, expected_evaluated: usize, expected_paths: &[&str]) {
+    let report = check_json(dir, 0);
+    let orphan = production_orphans(&report);
+    assert_eq!(orphan["evaluated_files"], expected_evaluated);
+    assert_eq!(orphan["orphan_files"], expected_paths.len());
+    assert_eq!(orphan_finding_paths(orphan), expected_paths);
+}
+
 fn diff_main_json(dir: &Path, cache: &Path, expected_code: i32) -> Value {
     run_json(
         dir,
@@ -222,14 +230,7 @@ fn monorepo_cross_package_reachability_and_isolated_package_safety() {
         ),
     ]);
 
-    let report = check_json(repo.path(), 0);
-    let orphan = production_orphans(&report);
-    assert_eq!(orphan["evaluated_files"], 3);
-    assert_eq!(orphan["orphan_files"], 1);
-    assert_eq!(
-        orphan_finding_paths(orphan),
-        vec!["packages/lib/src/unused.ts"]
-    );
+    assert_production_orphans(repo.path(), 3, &["packages/lib/src/unused.ts"]);
 }
 
 fn init_single_entry_repo(name: &str, extra: &[(&str, &str)]) -> (TempDir, TempDir) {
@@ -444,9 +445,24 @@ fn non_runtime_tooling_config_script_and_example_files_are_not_flagged_as_orphan
         ],
     );
 
-    let checked = check_json(repo.path(), 0);
-    let section = &checked["source_sets"]["production"]["orphan_files"];
-    assert_eq!(section["evaluated_files"], 2);
-    assert_eq!(section["orphan_files"], 1);
-    assert_eq!(orphan_finding_paths(section), vec!["src/dead.ts"]);
+    assert_production_orphans(repo.path(), 2, &["src/dead.ts"]);
+}
+
+#[test]
+fn non_workspace_subdirectory_package_excludes_package_tooling_from_orphans() {
+    let repo = init_git_repo(&[
+        (
+            "frontend/package.json",
+            r#"{"name": "frontend", "main": "./src/index.ts"}"#,
+        ),
+        ("frontend/src/index.ts", "export const start = () => 1;\n"),
+        ("frontend/src/dead.ts", "export const dead = () => 2;\n"),
+        ("frontend/vite.config.ts", "export default { base: '/' };\n"),
+        (
+            "frontend/scripts/release.ts",
+            "export const release = () => 3;\n",
+        ),
+    ]);
+
+    assert_production_orphans(repo.path(), 2, &["frontend/src/dead.ts"]);
 }

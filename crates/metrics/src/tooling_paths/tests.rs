@@ -1,12 +1,13 @@
-use codeint_model::RepoPath;
+use codeint_model::{CodeModel, DeclaredDep, DepKind, DependencyManifest, RepoPath, Workspace};
 
-use super::is_non_runtime_tooling_path;
+use super::ToolingPaths;
 
 fn assert_root_paths(paths: &[&str], expected: bool) {
+    let tooling = ToolingPaths::default();
     for &path in paths {
         let repo_path = RepoPath::new(path).expect("valid repo path");
         assert_eq!(
-            is_non_runtime_tooling_path(&repo_path, None),
+            tooling.is_non_runtime_tooling_path(&repo_path),
             expected,
             "unexpected repo-root classification for {path}"
         );
@@ -15,11 +16,24 @@ fn assert_root_paths(paths: &[&str], expected: bool) {
 
 fn assert_package_paths(cases: &[(&str, &str)], expected: bool) {
     for &(path, package_root) in cases {
+        let tooling = ToolingPaths::from_roots([package_root]);
         let repo_path = RepoPath::new(path).expect("valid repo path");
         assert_eq!(
-            is_non_runtime_tooling_path(&repo_path, Some(package_root)),
+            tooling.is_non_runtime_tooling_path(&repo_path),
             expected,
             "unexpected package-root classification for {path} (package_root={package_root})"
+        );
+    }
+}
+
+fn assert_paths_with_roots(roots: &[&str], paths: &[&str], expected: bool) {
+    let tooling = ToolingPaths::from_roots(roots.iter().copied());
+    for &path in paths {
+        let repo_path = RepoPath::new(path).expect("valid repo path");
+        assert_eq!(
+            tooling.is_non_runtime_tooling_path(&repo_path),
+            expected,
+            "unexpected multi-root classification for {path} (roots={roots:?})"
         );
     }
 }
@@ -190,4 +204,71 @@ fn preserves_nested_config_and_runtime_filenames_below_repo_and_package_roots() 
         ],
         false,
     );
+}
+
+#[test]
+fn matches_nested_example_and_tool_subpackages_while_preserving_tooling_named_packages() {
+    assert_paths_with_roots(
+        &["pkgs/foo", "pkgs/foo/example"],
+        &["pkgs/foo/example/lib/main.dart"],
+        true,
+    );
+    assert_paths_with_roots(
+        &["packages/sdk", "packages/sdk/examples/demo"],
+        &["packages/sdk/examples/demo/src/index.ts"],
+        true,
+    );
+    assert_paths_with_roots(
+        &["pkgs/foo", "pkgs/foo/tool/gen"],
+        &["pkgs/foo/tool/gen/bin/main.dart"],
+        true,
+    );
+    assert_paths_with_roots(
+        &["packages/tools", "packages/sdk"],
+        &["packages/tools/src/index.ts"],
+        false,
+    );
+    assert_paths_with_roots(
+        &["pkgs/foo", "pkgs/foo/sub"],
+        &["pkgs/foo/sub/vite.config.ts"],
+        true,
+    );
+    assert_paths_with_roots(
+        &["pkgs/foo", "pkgs/foo/sub"],
+        &["pkgs/foo/sub/src/app.config.ts"],
+        false,
+    );
+    assert_paths_with_roots(&["pkgs/foo"], &["pkgs/foo/sub/vite.config.ts"], false);
+}
+
+#[test]
+fn from_model_combines_workspace_manifests_and_declared_dependency_roots() {
+    let model = CodeModel {
+        workspace: Workspace::new([RepoPath::new("packages/ws").expect("valid root")]),
+        dependency_manifests: vec![DependencyManifest {
+            package_root: "frontend".to_owned(),
+            path: RepoPath::new("frontend/package.json").expect("valid manifest"),
+        }],
+        declared_dependencies: vec![DeclaredDep {
+            package_root: "services/py".to_owned(),
+            name: "pytest".to_owned(),
+            kind: DepKind::Dev,
+        }],
+        ..CodeModel::default()
+    };
+    let tooling = ToolingPaths::from_model(&model);
+    for expected_tooling in [
+        "packages/ws/vite.config.ts",
+        "frontend/vite.config.ts",
+        "frontend/scripts/release.ts",
+        "services/py/setup.py",
+    ] {
+        let path = RepoPath::new(expected_tooling).expect("valid path");
+        assert!(
+            tooling.is_non_runtime_tooling_path(&path),
+            "expected tooling path: {expected_tooling}"
+        );
+    }
+    let runtime_path = RepoPath::new("frontend/src/index.ts").expect("valid path");
+    assert!(!tooling.is_non_runtime_tooling_path(&runtime_path));
 }
