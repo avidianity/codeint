@@ -14,7 +14,7 @@ If your config file pins an official `$schema` tag newer than the running binary
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.4.0/schema/codeint.schema.json",
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/main/schema/codeint.schema.json",
   // Override default Source-set classification
   "source_sets": {
     "generated": ["src/**/*.generated.ts"],
