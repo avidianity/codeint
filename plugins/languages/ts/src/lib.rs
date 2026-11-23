@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod entry_points;
 mod functions;
 mod nesting;
 mod resolution;
@@ -78,8 +79,8 @@ impl Guest for TypeScriptAndJavaScript {
         Vec::new()
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        entry_points::entry_points(&repository_paths, &manifests)
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

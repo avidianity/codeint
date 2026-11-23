@@ -1,0 +1,69 @@
+use codeint_lang_php::Php;
+use codeint_model::{LanguagePlugin, Manifest, RepoPath};
+
+#[test]
+fn extracts_bin_entry_points_from_composer_manifests() {
+    let manifest = |path: &str, text: &str| Manifest {
+        path: path.into(),
+        text: text.into(),
+    };
+    let repo_paths = [
+        "composer.json",
+        "bin/console",
+        "bin/worker.php",
+        "src/Helper.php",
+        "packages/cli/composer.json",
+        "packages/cli/scripts/run.php",
+        "packages/tool/composer.json",
+        "packages/tool/tool.php",
+    ]
+    .map(|path| RepoPath::new(path).unwrap());
+
+    let manifests = vec![
+        manifest(
+            "composer.json",
+            r#"{"name": "acme/app", "bin": ["bin/console", "./bin/worker.php", "bin/missing.php", "../outside.php", "/abs.php", "bin/console"]}"#,
+        ),
+        manifest(
+            "packages/cli/composer.json",
+            r#"{"name": "acme/cli", "bin": ["scripts/run.php"]}"#,
+        ),
+        manifest(
+            "packages/tool/composer.json",
+            r#"{"name": "acme/tool", "bin": "tool.php"}"#,
+        ),
+    ];
+
+    assert_eq!(
+        Php.entry_points(&repo_paths, manifests),
+        [
+            "bin/console",
+            "bin/worker.php",
+            "packages/cli/scripts/run.php",
+            "packages/tool/tool.php",
+        ]
+    );
+}
+
+#[test]
+fn returns_empty_when_composer_manifest_has_no_bin_or_is_invalid() {
+    let paths = [
+        RepoPath::new("composer.json").unwrap(),
+        RepoPath::new("src/App.php").unwrap(),
+    ];
+    let psr4_only = r#"{"name": "acme/lib", "autoload": {"psr-4": {"Acme\\": "src/"}}}"#;
+    let empty_count = [psr4_only, "{invalid"]
+        .into_iter()
+        .map(|body| {
+            Php.entry_points(
+                &paths,
+                vec![Manifest {
+                    path: "composer.json".into(),
+                    text: body.into(),
+                }],
+            )
+            .len()
+        })
+        .sum::<usize>();
+    assert_eq!(empty_count, 0);
+}

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod entry_points;
 mod functions;
 mod imports;
 mod lexer;
@@ -95,8 +96,8 @@ impl Guest for Dart {
         lower_dart(&path, &text)
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        entry_points::discover(&repository_paths, &manifests)
     }
 
     fn extensions() -> Vec<String> {

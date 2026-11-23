@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod entry_points;
 mod functions;
 mod imports;
 mod lexer;
@@ -102,7 +103,7 @@ impl Guest for Php {
         Vec::new()
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        entry_points::extract(&repository_paths, &manifests)
     }
 }

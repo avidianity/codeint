@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod cfg_test;
+mod entry_points;
 mod functions;
 mod imports;
 mod resolution;
@@ -69,10 +70,6 @@ impl Guest for Rust {
         Vec::new()
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
-    }
-
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
         manifest_paths(&repository_paths)
     }
@@ -103,5 +100,9 @@ impl Guest for Rust {
                 ("import_cycles", 0.021, 0.506),
             ],
         )
+    }
+
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        entry_points::entry_points(&repository_paths, &manifests)
     }
 }
