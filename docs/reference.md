@@ -128,6 +128,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 
 | Option | Meaning |
 | ------ | ------- |
+| `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
@@ -215,6 +216,12 @@ codeint: missing does not exist
 Pass a folder that exists, or leave the path out to measure the current folder.
 ```
 
+Passing `--package <PATH>` in a repository without that Workspace package stops the run with exit code 2:
+
+```sh exit=2
+codeint check --package packages/missing
+```
+
 ### `codeint diff`
 
 | Argument | Meaning |
@@ -224,6 +231,7 @@ Pass a folder that exists, or leave the path out to measure the current folder.
 | Option | Meaning |
 | ------ | ------- |
 | `--head <REF>` | Measure this Git ref from Git objects instead of the working tree; the merge-base is then taken with this ref instead of HEAD |
+| `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown` |
@@ -306,6 +314,12 @@ codeint diff no-such-branch
 ```text stderr
 codeint: the Git ref "no-such-branch" does not name a commit in this repository: couldn't parse revision, input="no-such-branch": Reference "no-such-branch" could not be found: NotFound
 Pass a branch, tag, or commit that exists in this repository; fetch it first when it lives on a remote: git fetch origin main
+```
+
+Passing `--package <PATH>` for a Workspace package that does not exist stops the run with exit code 2:
+
+```sh exit=2
+codeint diff main --package packages/missing
 ```
 
 #### Compare two refs
@@ -471,6 +485,7 @@ Each commit goes through the [result cache](#result-cache), so a repeated trend 
 | ------ | ------- |
 | `--changed <BASE_REF>` | Analyze files changed since the merge-base of this Git ref and HEAD |
 | `--depth <N>` | Maximum reverse-dependency hop distance to traverse |
+| `--package <PATH>` | Scope reported dependents to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `text` |
 | `-h, --help` | Print the help of `codeint impact` |
@@ -485,6 +500,12 @@ codeint impact src/sign.ts --format toon
 codeint impact src/sign.ts --format json --output impact.json
 ```
 
+Passing `--package <PATH>` for a Workspace package that does not exist stops the run with exit code 2:
+
+```sh exit=2
+codeint impact src/sign.ts --package packages/missing
+```
+
 ### `codeint trace`
 
 | Argument | Meaning |
@@ -496,6 +517,7 @@ codeint impact src/sign.ts --format json --output impact.json
 | ------ | ------- |
 | `--all` | List all shortest runtime import paths up to `--max-paths` |
 | `--max-paths <COUNT>` | Maximum number of shortest paths to list when `--all` is set |
+| `--package <PATH>` | Scope the query to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `text` |
 | `-h, --help` | Print the help of `codeint trace` |
@@ -522,6 +544,12 @@ These commands exercise `--all`, `--max-paths`, `--output`, and each output form
 codeint trace src/sign.ts src/parse.ts --format toon
 codeint trace src/sign.ts src/parse.ts --format text
 codeint trace src/sign.ts src/parse.ts --all --max-paths 5 --format json --output trace.json
+```
+
+Passing `--package <PATH>` for a Workspace package that does not exist stops the run with exit code 2:
+
+```sh exit=2
+codeint trace src/sign.ts src/parse.ts --package packages/missing
 ```
 
 ### `codeint update`

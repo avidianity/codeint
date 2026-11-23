@@ -5,7 +5,7 @@ use codeint_git::{CommitId, GitError, Repository, ResultCache};
 use codeint_report::{BaseCommit, DiffReport, Head, HeadCommit};
 
 use crate::check::{CheckError, LoadedPlugins};
-use crate::commit_measurement::{CommitMeasurer, measure_all_languages};
+use crate::commit_measurement::{CommitMeasurer, measure_all_languages_for_package};
 
 pub(crate) struct Refs<'a> {
     pub(crate) base: &'a str,
@@ -22,6 +22,7 @@ pub(crate) fn diff(
     folder: &Path,
     refs: Refs<'_>,
     findings: FindingsShown,
+    package: Option<&str>,
     result_cache: Option<&ResultCache>,
     plugin_host: &PluginHostConfig,
 ) -> Result<DiffReport, CheckError> {
@@ -33,12 +34,36 @@ pub(crate) fn diff(
         head,
         head_commit,
     } = sides(&repository, &refs)?;
-    let measurer = CommitMeasurer::new(&repository, &configuration, &plugins, result_cache);
-    let base_measurement = measurer.measure(merge_base)?;
-    let head_measurement = match head_commit {
-        Some(commit) => measurer.measure(commit)?,
-        None => measure_all_languages(&repository.working_tree()?, &plugins, &configuration)?,
+    let (selected, head_measurement) = match head_commit {
+        Some(commit) => {
+            if let Some(requested) = package {
+                measure_all_languages_for_package(
+                    &repository.commit(commit)?,
+                    &plugins,
+                    &configuration,
+                    Some(requested),
+                )?
+            } else {
+                let measurer =
+                    CommitMeasurer::new(&repository, &configuration, &plugins, result_cache);
+                (None, measurer.measure(commit)?)
+            }
+        }
+        None => measure_all_languages_for_package(
+            &repository.working_tree()?,
+            &plugins,
+            &configuration,
+            package,
+        )?,
     };
+    let base_measurer = CommitMeasurer::for_package(
+        &repository,
+        &configuration,
+        &plugins,
+        result_cache,
+        selected.as_ref().map(|pkg| pkg.as_str()),
+    );
+    let base_measurement = base_measurer.measure_selected_package(merge_base, selected.as_ref())?;
     Ok(DiffReport::compare(
         BaseCommit {
             git_ref: refs.base.to_owned(),

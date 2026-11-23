@@ -4,7 +4,10 @@ use codeint_model::CodeModel;
 use codeint_report::CommitMeasurement;
 use serde::Serialize;
 
-use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, measure_with};
+use crate::check::{
+    BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, SelectedPackage, filter_model_to_package,
+    measure_with, select_workspace_package,
+};
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -14,6 +17,8 @@ struct MeasurementSettings<'configuration> {
     codeint_version: &'static str,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    package: Option<&'configuration str>,
 }
 
 #[derive(Serialize)]
@@ -37,6 +42,16 @@ impl<'run> CommitMeasurer<'run> {
         plugins: &'run LoadedPlugins,
         result_cache: Option<&'run ResultCache>,
     ) -> CommitMeasurer<'run> {
+        CommitMeasurer::for_package(repository, configuration, plugins, result_cache, None)
+    }
+
+    pub(crate) fn for_package(
+        repository: &'run Repository,
+        configuration: &'run Configuration,
+        plugins: &'run LoadedPlugins,
+        result_cache: Option<&'run ResultCache>,
+        package: Option<&'run str>,
+    ) -> CommitMeasurer<'run> {
         let mut language_plugins: Vec<PluginIdentity> = BUILT_IN_LANGUAGE_PLUGINS
             .iter()
             .map(|named| PluginIdentity {
@@ -58,22 +73,40 @@ impl<'run> CommitMeasurer<'run> {
                 codeint_version: CODEINT_VERSION,
                 language_plugins,
                 configuration,
+                package,
             },
             result_cache,
         }
     }
 
     pub(crate) fn measure(&self, commit: CommitId) -> Result<CommitMeasurement, CheckError> {
+        self.measure_with_package(commit, None)
+    }
+
+    pub(crate) fn measure_selected_package(
+        &self,
+        commit: CommitId,
+        selected: Option<&SelectedPackage>,
+    ) -> Result<CommitMeasurement, CheckError> {
+        self.measure_with_package(commit, selected)
+    }
+
+    fn measure_with_package(
+        &self,
+        commit: CommitId,
+        selected: Option<&SelectedPackage>,
+    ) -> Result<CommitMeasurement, CheckError> {
         if let Some(cached) = self
             .result_cache
             .and_then(|cache| cache.read(commit, &self.settings))
         {
             return Ok(cached);
         }
-        let measurement = measure_all_languages(
+        let measurement = measure_all_languages_selected(
             &self.repository.commit(commit)?,
             self.plugins,
             self.configuration,
+            selected,
         )?;
         if let Some(cache) = self.result_cache
             && let Err(error) = cache.write(commit, &self.settings, &measurement)
@@ -87,16 +120,39 @@ impl<'run> CommitMeasurer<'run> {
     }
 }
 
-pub(crate) fn measure_all_languages(
+pub(crate) fn measure_all_languages_for_package(
     tree: &Snapshot,
     plugins: &LoadedPlugins,
     configuration: &Configuration,
+    package: Option<&str>,
+) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
+    let named = plugins.as_named();
+    let metric_plugins = plugins.metric_plugins();
+    let languages = measure_with(tree, &named, configuration)?;
+    let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+    let selected = if let Some(requested) = package {
+        let selected = select_workspace_package(&model.workspace, requested)?;
+        filter_model_to_package(&mut model, &selected);
+        Some(selected)
+    } else {
+        None
+    };
+    let measurement = CommitMeasurement::of_with_metrics(model, &metric_plugins)?;
+    Ok((selected, measurement))
+}
+
+fn measure_all_languages_selected(
+    tree: &Snapshot,
+    plugins: &LoadedPlugins,
+    configuration: &Configuration,
+    selected: Option<&SelectedPackage>,
 ) -> Result<CommitMeasurement, CheckError> {
     let named = plugins.as_named();
     let metric_plugins = plugins.metric_plugins();
     let languages = measure_with(tree, &named, configuration)?;
-    Ok(CommitMeasurement::of_with_metrics(
-        CodeModel::merge(languages.into_iter().map(|language| language.model)),
-        &metric_plugins,
-    )?)
+    let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+    if let Some(selected) = selected {
+        filter_model_to_package(&mut model, selected);
+    }
+    Ok(CommitMeasurement::of_with_metrics(model, &metric_plugins)?)
 }

@@ -11,6 +11,8 @@ pub(crate) fn init_git_repo(files: &[(&str, &str)]) -> TempDir {
         let status = Command::new("git")
             .args(args)
             .current_dir(dir.path())
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_AUTHOR_NAME", "Test")
             .env("GIT_AUTHOR_EMAIL", "test@example.com")
             .env("GIT_COMMITTER_NAME", "Test")

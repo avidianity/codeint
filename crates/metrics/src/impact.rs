@@ -163,6 +163,31 @@ impl ImpactAnalysis {
             affected_packages,
         })
     }
+
+    pub fn scoped_to_package(mut self, package: &str) -> ImpactAnalysis {
+        self.dependents
+            .retain(|dep| dep.package.as_deref() == Some(package));
+        let direct_dependents = self
+            .dependents
+            .iter()
+            .filter(|dep| dep.distance == 1)
+            .count();
+        let total_dependents = self.dependents.len();
+        let transitive_dependents = total_dependents - direct_dependents;
+        self.summary.direct_dependents = direct_dependents;
+        self.summary.transitive_dependents = transitive_dependents;
+        self.summary.total_dependents = total_dependents;
+        self.summary.fan_in = direct_dependents;
+        self.summary.transitive_import_weight = total_dependents;
+        self.affected_packages = self
+            .dependents
+            .iter()
+            .filter_map(|dep| dep.package.clone())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        self
+    }
 }
 
 fn reverse_reachable_count(

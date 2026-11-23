@@ -7,7 +7,7 @@ use codeint_metrics::{ImpactAnalysis, ImpactError};
 use codeint_model::{CodeModel, RepoPath};
 use codeint_report::{ChangedBase, ImpactReport};
 
-use crate::check::{CheckError, LoadedPlugins, measure_with};
+use crate::check::{CheckError, LoadedPlugins, measure_with, select_workspace_package};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ImpactCommandError {
@@ -27,6 +27,7 @@ pub(crate) struct ImpactRequest<'a> {
     pub(crate) paths: &'a [String],
     pub(crate) changed: Option<&'a str>,
     pub(crate) depth: Option<usize>,
+    pub(crate) package: Option<&'a str>,
     pub(crate) plugin_host: &'a PluginHostConfig,
 }
 
@@ -44,6 +45,10 @@ pub(crate) fn impact(
     let tree = repository.working_tree().map_err(CheckError::Git)?;
     let languages = measure_with(&tree, &plugins, &configuration)?;
     let model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+    let selected_package = match request.package {
+        Some(requested) => Some(select_workspace_package(&model.workspace, requested)?),
+        None => None,
+    };
 
     let mut target_paths = Vec::new();
     for raw in request.paths {
@@ -69,7 +74,10 @@ pub(crate) fn impact(
         None
     };
 
-    let analysis = ImpactAnalysis::compute(&model, &target_paths, request.depth)?;
+    let mut analysis = ImpactAnalysis::compute(&model, &target_paths, request.depth)?;
+    if let Some(selected) = selected_package {
+        analysis = analysis.scoped_to_package(selected.as_str());
+    }
     Ok(ImpactReport::from_analysis(analysis, changed_base))
 }
 

@@ -133,6 +133,7 @@ fn handle_tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
                         "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                     }
                 }
@@ -147,6 +148,7 @@ fn handle_tools_list() -> Value {
                         "base_ref": { "type": "string", "description": "Base Git ref such as main or origin/main." },
                         "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
                         "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
                         "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                     }
                 }
@@ -175,7 +177,8 @@ fn handle_tools_list() -> Value {
                             "description": "Repository-relative file paths to analyze."
                         },
                         "changed": { "type": "string", "description": "Optional base Git ref; analyze files changed since its merge-base with HEAD." },
-                        "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." }
+                        "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope reported dependents." }
                     }
                 }
             },
@@ -189,6 +192,7 @@ fn handle_tools_list() -> Value {
                         "from": { "type": "string", "description": "Repository-relative path of the starting module." },
                         "to": { "type": "string", "description": "Repository-relative path of the target module." },
                         "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope the query." },
                         "all": { "type": "boolean", "description": "Return all shortest paths up to max_paths instead of a single shortest path." },
                         "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
                     }
@@ -221,6 +225,7 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let folder = resolve_folder(args, ctx.default_folder);
     let options = CheckOptions {
         findings: parse_findings(args),
+        package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
     match check(&folder, &options) {
@@ -244,6 +249,7 @@ fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
             .and_then(Value::as_str)
             .map(str::to_owned),
         findings: parse_findings(args),
+        package: parse_package(args),
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
@@ -332,6 +338,7 @@ fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         paths,
         changed,
         depth,
+        package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
     match impact(&folder, &options) {
@@ -362,12 +369,19 @@ fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let options = TraceOptions {
         all,
         max_paths,
+        package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
     match trace(&folder, from, to, &options) {
         Ok(report) => render_json_report(report.render(TraceFormat::Json)),
         Err(err) => tool_err(&err.to_string()),
     }
+}
+
+fn parse_package(args: Option<&Value>) -> Option<String> {
+    args.and_then(|a| a.get("package"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 fn render_json_report(rendered: Result<String, codeint_report::ReportError>) -> Value {

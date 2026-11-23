@@ -59,6 +59,9 @@ fn check_remedy(error: &CheckError) -> &'static str {
         CheckError::ExtensionConflict { .. } => {
             "Assign separate directories to each Language plugin in the languages setting of codeint.json."
         }
+        CheckError::UnknownWorkspacePackage { .. } => {
+            "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository."
+        }
     }
 }
 

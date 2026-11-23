@@ -123,6 +123,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        package: Option<String>,
         plugin_host: PluginHostConfig,
     },
     Diff {
@@ -132,6 +133,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        package: Option<String>,
         result_cache: Option<PathBuf>,
         plugin_host: PluginHostConfig,
     },
@@ -148,6 +150,7 @@ pub enum Command {
         paths: Vec<String>,
         changed: Option<String>,
         depth: Option<usize>,
+        package: Option<String>,
         destination: ReportDestination,
         format: ImpactFormat,
         plugin_host: PluginHostConfig,
@@ -158,6 +161,7 @@ pub enum Command {
         to: String,
         all: bool,
         max_paths: usize,
+        package: Option<String>,
         destination: ReportDestination,
         format: TraceFormat,
         plugin_host: PluginHostConfig,
@@ -272,6 +276,12 @@ enum CommandArguments {
         max_paths: usize,
         #[arg(
             long,
+            value_name = "PATH",
+            help = "Scope the query to this Workspace package"
+        )]
+        package: Option<String>,
+        #[arg(
+            long,
             value_name = "FILE",
             help = "Write the report to this file instead of standard output"
         )]
@@ -306,6 +316,12 @@ enum CommandArguments {
             help = "Maximum reverse-dependency hop distance to traverse"
         )]
         depth: Option<usize>,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Scope reported dependents to this Workspace package"
+        )]
+        package: Option<String>,
         #[arg(
             long,
             value_name = "FILE",
@@ -346,6 +362,12 @@ enum CommandArguments {
 
 #[derive(Debug, clap::Args)]
 struct ReportArguments {
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Scope measurement and output to this Workspace package"
+    )]
+    package: Option<String>,
     #[arg(
         long,
         value_name = "FILE",
@@ -394,6 +416,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             paths,
             changed,
             depth,
+            package,
             output,
             format,
         } => Command::Impact {
@@ -401,6 +424,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             paths,
             changed,
             depth,
+            package,
             destination: report_destination(&current_folder, output)?,
             format,
             plugin_host: plugin_host_config_of_this_process(&current_folder),
@@ -410,6 +434,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             to,
             all,
             max_paths,
+            package,
             output,
             format,
         } => Command::Trace {
@@ -418,6 +443,7 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             to,
             all,
             max_paths,
+            package,
             destination: report_destination(&current_folder, output)?,
             format,
             plugin_host: plugin_host_config_of_this_process(&current_folder),
@@ -445,6 +471,7 @@ fn build_check_command(
         destination: report_destination(current_folder, report.output)?,
         findings: findings_shown(report.all),
         format: report.format,
+        package: report.package,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }
@@ -462,6 +489,7 @@ fn build_diff_command(
         destination: report_destination(current_folder, report.output)?,
         findings: findings_shown(report.all),
         format: report.format,
+        package: report.package,
         result_cache: result_cache_folder_of_this_process(current_folder),
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
