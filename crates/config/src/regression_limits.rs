@@ -83,6 +83,7 @@ impl RegressionLimit {
         if metric_key == Metric::ImportCycles.key()
             || metric_key == "boundaries"
             || metric_key == "orphan_files"
+            || crate::DEPENDENCY_METRIC_KEYS.contains(&metric_key)
         {
             RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES
         } else {
@@ -159,12 +160,50 @@ impl RegressionLimits {
     pub(crate) fn extra_metric_keys(&self) -> Vec<String> {
         let mut keys = BTreeSet::new();
         for (_, key) in self.metric_keys() {
-            if !Metric::BUILT_IN_KEYS.contains(&key) && key != "boundaries" && key != "orphan_files"
+            if !Metric::BUILT_IN_KEYS.contains(&key)
+                && key != "cognitive_complexity"
+                && key != "boundaries"
+                && key != "orphan_files"
+                && !crate::DEPENDENCY_METRIC_KEYS.contains(&key)
             {
                 keys.insert(key.to_owned());
             }
         }
         keys.into_iter().collect()
+    }
+
+    pub fn limit_for_dependency(&self, metric_key: &str) -> RegressionLimit {
+        self.resolved_limit_for_dependency(metric_key).limit
+    }
+
+    pub(crate) fn resolved_limit_for_dependency(
+        &self,
+        metric_key: &str,
+    ) -> ResolvedRegressionLimit {
+        let for_metric = self
+            .every_source_set
+            .iter()
+            .find(|(set_for, _)| set_for == metric_key)
+            .map(|(_, setting)| *setting);
+        let base = RegressionLimit::default_for_key(metric_key);
+        let (ratio_rise, ratio_rise_source) = resolve_with_provenance(
+            base.ratio_rise,
+            for_metric.and_then(|setting| setting.ratio_rise),
+            None,
+        );
+        let (new_findings, new_findings_source) = resolve_with_provenance(
+            base.new_findings,
+            for_metric.and_then(|setting| setting.new_findings),
+            None,
+        );
+        ResolvedRegressionLimit {
+            limit: RegressionLimit {
+                ratio_rise,
+                new_findings,
+            },
+            ratio_rise_source,
+            new_findings_source,
+        }
     }
 
     pub(crate) fn metric_keys(&self) -> impl Iterator<Item = (Option<SourceSet>, &str)> {

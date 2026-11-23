@@ -418,6 +418,11 @@ fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> 
             "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused.",
             "Use an https:// URL for the plugin in codeint.jsonc; plain HTTP and other schemes are refused.",
         ),
+        EmptyDependencyIgnore { file, .. } => choose_file_remedy(
+            *file,
+            "Set non-empty package names in dependencies.ignore in codeint.json, or remove the empty entry.",
+            "Set non-empty package names in dependencies.ignore in codeint.jsonc, or remove the empty entry.",
+        ),
         _ => return None,
     })
 }

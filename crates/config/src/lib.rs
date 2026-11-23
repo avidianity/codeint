@@ -13,6 +13,7 @@ mod codeint_json;
 mod codeowners;
 mod config_error;
 mod coupling;
+mod dependencies;
 mod regression_limits;
 mod resolved;
 mod result_cache_folder;
@@ -26,13 +27,13 @@ pub use cli_schema::{
     CliArgumentSchema, CliCommandSchema, CliFlagSchema, CliSchema, OutputFormatSchema, cli_schema,
 };
 pub use codeint_json::{
-    Budget, Budgets, Configuration, ConfigurationInspection, DetectedLanguage,
-    DiscoveredConfigFile, DuplicationConfig, EntryPoints, LanguageCoverage, Languages,
-    MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource, SchemaValueSpan,
-    SchemaVersionStatus, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
-    configuration_schema, discover_config_file, inspect_configuration, is_broken_symlink,
-    published_schema_address, read_configuration, read_resolved_configuration, schema_value_span,
-    write_starter_configuration,
+    Budget, Budgets, Configuration, ConfigurationInspection, DEPENDENCY_METRIC_KEYS,
+    DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, LanguageCoverage,
+    Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource,
+    SchemaValueSpan, SchemaVersionStatus, Sha256Digest, SourceSetOverrides,
+    StarterConfigurationError, configuration_schema, discover_config_file, inspect_configuration,
+    is_broken_symlink, published_schema_address, read_configuration, read_resolved_configuration,
+    schema_value_span, write_starter_configuration,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use config_error::{
@@ -42,6 +43,7 @@ pub use coupling::{
     CouplingRatio, CouplingRatioError, CouplingSettings, DEFAULT_MAX_COMMIT_FILES,
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
 };
+pub use dependencies::DependenciesConfig;
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 pub use resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,

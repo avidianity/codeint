@@ -151,6 +151,50 @@ fn run_mcp_check_and_diff(repo: &std::path::Path) -> (Value, Value) {
 }
 
 #[test]
+fn mcp_check_and_diff_surface_function_names_and_cognitive_complexity() {
+    let source = concat!(
+        "export function processOrder(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean, f: boolean, x: number): number {\n",
+        "  if (a) {\n",
+        "    if (b) {\n",
+        "      if (c) {\n",
+        "        if (d) {\n",
+        "          if (e) {\n",
+        "            if (f) {\n",
+        "              if (x === 1 || x === 2 || x === 3 || x === 4 || x === 5) {\n",
+        "                return 1;\n",
+        "              }\n",
+        "            }\n",
+        "          }\n",
+        "        }\n",
+        "      }\n",
+        "    }\n",
+        "  }\n",
+        "  return 0;\n",
+        "}\n",
+    );
+    let repo = init_git_repo(&[("src/order.ts", source)]);
+    let (check_payload, diff_payload) = run_mcp_check_and_diff(repo.path());
+    let prod = &check_payload["report"]["source_sets"]["production"];
+    assert_eq!(prod["erosion"]["findings"][0]["name"], "processOrder");
+    assert_eq!(prod["erosion"]["findings"][0]["line"], 1);
+    assert_eq!(prod["erosion"]["findings"][0]["end_line"], 18);
+    assert!(
+        prod["erosion"]["findings"][0]["cognitive_complexity"]
+            .as_u64()
+            .unwrap()
+            > 15
+    );
+    assert_eq!(
+        prod["cognitive_complexity"]["findings"][0]["name"],
+        "processOrder"
+    );
+    assert_eq!(
+        diff_payload["report"]["source_sets"]["production"]["cognitive_complexity"]["unchanged"],
+        1
+    );
+}
+
+#[test]
 fn mcp_check_and_diff_expose_clone_families_for_three_or_more_copies() {
     let repo = init_sample_repo();
     std::fs::write(repo.path().join("c.ts"), DUPLICATED_INVOICE_TS).unwrap();

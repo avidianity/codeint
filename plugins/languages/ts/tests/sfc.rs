@@ -12,7 +12,11 @@ fn vue_2_options_api_extracts_script_and_preserves_line_numbers() {
     assert_eq!(model.runtime_imports, ["./helper"]);
     assert_eq!(model.functions.len(), 2);
     assert_eq!(model.functions[0].line, 8);
+    assert_eq!(model.functions[0].name.as_deref(), Some("data"));
+    assert_eq!(model.functions[0].cognitive_complexity, 0);
     assert_eq!(model.functions[1].line, 12);
+    assert_eq!(model.functions[1].name.as_deref(), Some("check"));
+    assert_eq!(model.functions[1].cognitive_complexity, 2);
     assert!(
         model
             .flagged_lines
@@ -30,7 +34,9 @@ fn vue_3_dual_script_setup_ts_merges_both_blocks() {
     assert_eq!(model.runtime_imports, ["./shared", "./Child.vue"]);
     assert_eq!(model.functions.len(), 1);
     assert_eq!(model.functions[0].line, 9);
+    assert_eq!(model.functions[0].name.as_deref(), Some("doubled"));
     assert_eq!(model.functions[0].decision_points, 1);
+    assert_eq!(model.functions[0].cognitive_complexity, 1);
 }
 
 #[test]

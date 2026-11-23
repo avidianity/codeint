@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::path::Path;
 use std::string::FromUtf8Error;
@@ -16,10 +16,10 @@ use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
 use codeint_metrics::OrphanFiles;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
-    MetricPlugin, MetricPluginError, Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile,
-    SourceFile, Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports,
-    settle_source_set,
+    CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
+    LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, Package,
+    ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
+    choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
@@ -204,6 +204,25 @@ pub(crate) fn filter_model_to_package(model: &mut CodeModel, selected: &Selected
     model
         .runtime_imports
         .retain(|import| selected.matches(workspace.package_of(&import.importer)));
+    model
+        .dependency_manifests
+        .retain(|manifest| selected.matches(workspace.package_of(&manifest.path)));
+    let retained_roots: HashSet<String> = model
+        .dependency_manifests
+        .iter()
+        .map(|manifest| manifest.package_root.clone())
+        .collect();
+    model.declared_dependencies.retain(|dep| {
+        retained_roots.contains(&dep.package_root)
+            || matches_selected_package_root(selected, &dep.package_root)
+    });
+}
+
+fn matches_selected_package_root(selected: &SelectedPackage, package_root: &str) -> bool {
+    match selected {
+        SelectedPackage::Root => package_root.is_empty(),
+        SelectedPackage::Member(root) => package_root == root.as_str(),
+    }
 }
 
 pub(crate) fn filter_languages_to_package(
@@ -499,6 +518,7 @@ fn check_loaded(
             budgets: &configuration.budgets,
             metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
+            dependencies: &configuration.dependencies,
             duplication: configuration.duplication,
             orphan_files: orphan_files.as_ref(),
             orphan_files_by_language: Some(&orphan_files_by_language),
@@ -543,7 +563,8 @@ fn measure(
 ) -> Result<MeasuredSnapshot, CheckError> {
     let covered_files = assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
-    let workspace = find_workspace(plugins, &manifests_by_plugin)?;
+    let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
+    let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
     let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides)?;
     let models = collect_plugin_models(plugins.len(), workspace, outcomes);
     resolve_measured_snapshot(
@@ -551,6 +572,7 @@ fn measure(
         plugins,
         models,
         manifests_by_plugin,
+        &plugin_members,
         configured_entry_points,
         config_file,
     )
@@ -616,29 +638,28 @@ fn resolve_measured_snapshot(
     plugins: &[NamedLanguagePlugin<'_>],
     models: Vec<CodeModel>,
     manifests_by_plugin: Vec<Vec<Manifest>>,
+    plugin_members: &[Vec<RepoPath>],
     configured_entry_points: &EntryPoints,
     config_file: ConfigFileKind,
 ) -> Result<MeasuredSnapshot, CheckError> {
     let mut languages = Vec::with_capacity(plugins.len());
     let mut entry_points_by_language = BTreeMap::new();
-    for ((named, mut model), manifests) in plugins.iter().zip(models).zip(manifests_by_plugin) {
-        let importers: Vec<&SourceFile> = model.files.iter().collect();
-        let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
+    for (((named, model), manifests), members) in plugins
+        .iter()
+        .zip(models)
+        .zip(manifests_by_plugin)
+        .zip(plugin_members)
+    {
         let manifest_entries = named
             .plugin
             .entry_points(tree.files(), manifests.clone())
             .map_err(|error| CheckError::language_plugin(config_file, error))?;
         let combined_entries =
             combine_entry_points(manifest_entries, &model.files, configured_entry_points);
-        model.runtime_imports =
-            resolve_runtime_imports(named.plugin, tree.files(), manifests, &importers)
-                .map_err(CheckError::Resolve)?;
+        let measured =
+            finalize_language_model(named, model, manifests, members, tree.files(), config_file)?;
         entry_points_by_language.insert(named.name.to_owned(), combined_entries);
-        languages.push(MeasuredLanguage {
-            plugin: named.name.to_owned(),
-            model,
-            reference_ranges,
-        });
+        languages.push(measured);
     }
     Ok(MeasuredSnapshot {
         languages,
@@ -660,6 +681,119 @@ fn combine_entry_points(
         }
     }
     entries.into_iter().collect()
+}
+
+fn finalize_language_model(
+    named: &NamedLanguagePlugin<'_>,
+    mut model: CodeModel,
+    manifests: Vec<Manifest>,
+    plugin_members: &[RepoPath],
+    repository_paths: &[RepoPath],
+    config_file: ConfigFileKind,
+) -> Result<MeasuredLanguage, CheckError> {
+    let importers: Vec<&SourceFile> = model.files.iter().collect();
+    let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
+    let declared_dependencies = named
+        .plugin
+        .declared_dependencies(manifests.clone())
+        .map_err(|error| CheckError::language_plugin(config_file, error))?;
+    model.dependency_manifests = collect_dependency_manifests(
+        &manifests,
+        plugin_members,
+        &declared_dependencies,
+        &model.files,
+    );
+    model.declared_dependencies = declared_dependencies;
+    model.runtime_imports =
+        resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
+            .map_err(CheckError::Resolve)?;
+    Ok(MeasuredLanguage {
+        plugin: named.name.to_owned(),
+        model,
+        reference_ranges,
+    })
+}
+
+fn collect_dependency_manifests(
+    manifests: &[Manifest],
+    plugin_members: &[RepoPath],
+    declared: &[DeclaredDep],
+    files: &[SourceFile],
+) -> Vec<DependencyManifest> {
+    let declared_roots: HashSet<&str> = declared
+        .iter()
+        .map(|dep| dep.package_root.as_str())
+        .collect();
+    let member_roots: HashSet<&str> = plugin_members.iter().map(RepoPath::as_str).collect();
+    let mut collected: Vec<DependencyManifest> = manifests
+        .iter()
+        .filter(|manifest| should_include_manifest(manifest, &declared_roots, &member_roots, files))
+        .filter_map(|manifest| {
+            let repo_path = RepoPath::new(&manifest.path).ok()?;
+            Some(DependencyManifest {
+                package_root: manifest_root(&manifest.path).to_owned(),
+                path: repo_path,
+            })
+        })
+        .collect();
+    collected.sort();
+    collected.dedup();
+    collected
+}
+
+fn should_include_manifest(
+    manifest: &Manifest,
+    declared_roots: &HashSet<&str>,
+    member_roots: &HashSet<&str>,
+    files: &[SourceFile],
+) -> bool {
+    if !is_dependency_manifest_path(&manifest.path) || is_virtual_cargo_workspace(manifest) {
+        return false;
+    }
+    let root = manifest_root(&manifest.path);
+    if declared_roots.contains(root) || member_roots.contains(root) {
+        return true;
+    }
+    owns_any_file(root, files)
+}
+
+fn is_virtual_cargo_workspace(manifest: &Manifest) -> bool {
+    let is_cargo = manifest.path == "Cargo.toml" || manifest.path.ends_with("/Cargo.toml");
+    if !is_cargo {
+        return false;
+    }
+    toml::from_str::<toml::Value>(&manifest.text)
+        .ok()
+        .is_some_and(|doc| doc.get("workspace").is_some() && doc.get("package").is_none())
+}
+
+fn owns_any_file(root: &str, files: &[SourceFile]) -> bool {
+    if root.is_empty() {
+        return !files.is_empty();
+    }
+    let prefix = format!("{root}/");
+    files
+        .iter()
+        .any(|file| file.path.as_str().starts_with(&prefix))
+}
+
+fn is_dependency_manifest_path(path: &str) -> bool {
+    let ignored_dir = path.split('/').any(|segment| {
+        matches!(
+            segment,
+            "node_modules" | "target" | "vendor" | ".venv" | "venv" | ".dart_tool"
+        )
+    });
+    if ignored_dir {
+        return false;
+    }
+    let file_name = path.rsplit_once('/').map_or(path, |(_, name)| name);
+    let is_ts_config = file_name.starts_with("tsconfig") && file_name.ends_with(".json");
+    !is_ts_config && file_name != "pnpm-workspace.yaml"
+}
+
+fn manifest_root(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
 fn select_reference_ranges(
@@ -782,11 +916,21 @@ pub(crate) fn find_workspace(
     plugins: &[NamedLanguagePlugin<'_>],
     manifests_by_plugin: &[Vec<Manifest>],
 ) -> Result<Workspace, CheckError> {
-    let mut member_roots = Vec::new();
-    for (named, manifests) in plugins.iter().zip(manifests_by_plugin) {
-        member_roots.extend(named.plugin.workspace_packages(manifests.clone())?);
-    }
+    let member_roots = find_plugin_workspaces(plugins, manifests_by_plugin)?
+        .into_iter()
+        .flatten();
     Ok(Workspace::new(member_roots))
+}
+
+fn find_plugin_workspaces(
+    plugins: &[NamedLanguagePlugin<'_>],
+    manifests_by_plugin: &[Vec<Manifest>],
+) -> Result<Vec<Vec<RepoPath>>, CheckError> {
+    plugins
+        .iter()
+        .zip(manifests_by_plugin)
+        .map(|(named, manifests)| Ok(named.plugin.workspace_packages(manifests.clone())?))
+        .collect()
 }
 
 enum LoweredFile {

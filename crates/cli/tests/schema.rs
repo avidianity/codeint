@@ -180,7 +180,11 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
             "duplication",
             "verbosity",
             "import_cycles",
+            "cognitive_complexity",
             "orphan_files",
+            "unused_dependencies",
+            "unlisted_dependencies",
+            "dev_in_production_dependencies",
         ]
     );
     for metric in manifest["metrics"].as_array().expect("metrics array") {

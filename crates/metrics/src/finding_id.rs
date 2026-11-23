@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
-use codeint_model::{Metric, RepoPath, StableHasher};
+use codeint_model::language::Function;
+use codeint_model::{CodeModel, Metric, Package, RepoPath, StableHasher, Token};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FindingId(u64);
@@ -61,4 +62,46 @@ impl FindingIds {
 
 fn length_prefixed(hasher: StableHasher, bytes: &[u8]) -> StableHasher {
     hasher.write_u64(bytes.len() as u64).write_bytes(bytes)
+}
+
+pub(crate) fn group_by_package<'model, T: Default + Copy>(
+    model: &'model CodeModel,
+    by_file: &BTreeMap<RepoPath, T>,
+    merge: fn(&mut T, T),
+) -> BTreeMap<Package<'model>, T> {
+    let workspace = &model.workspace;
+    let mut totals: BTreeMap<Package<'model>, T> = workspace
+        .packages()
+        .map(|package| (package, T::default()))
+        .collect();
+    for (path, file_value) in by_file {
+        merge(
+            totals.entry(workspace.package_of(path)).or_default(),
+            *file_value,
+        );
+    }
+    totals
+}
+
+pub(crate) fn function_finding_id(
+    ids: &mut FindingIds,
+    path: &RepoPath,
+    function: &Function,
+    tokens: &[Token],
+) -> FindingId {
+    ids.next_in_source_order(
+        [path],
+        tokens_of(function, tokens)
+            .iter()
+            .map(|token| token.text_hash),
+    )
+}
+
+pub(crate) fn tokens_of<'tokens>(
+    function: &Function,
+    tokens: &'tokens [Token],
+) -> &'tokens [Token] {
+    let first = tokens.partition_point(|token| token.line < function.line);
+    let after_last = tokens.partition_point(|token| token.line <= function.end_line);
+    &tokens[first..after_last.max(first)]
 }

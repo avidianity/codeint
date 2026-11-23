@@ -164,8 +164,14 @@ source_sets:
         source: "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
       eroded_function_mass: 67.8823
       total_function_mass: 85.0032
-      findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        f0740d06c0975d68,src/route.ts,1,16,18,67.8823
+      findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        f0740d06c0975d68,src/route.ts,1,18,route,16,15,18,67.8823
+    cognitive_complexity:
+      ratio: 0
+      reference_range: no published Reference range for this language
+      complex_cognitive_complexity: 0
+      total_cognitive_complexity: 20
+      findings: []
     duplication:
       ratio: 0
       reference_range:
@@ -265,10 +271,16 @@ source_sets:
     erosion:
       base_ratio: 0.8946
       head_ratio: 0.7986
-      new[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        f0740d06c0975d68,src/route.ts,1,16,18,67.8823
-      resolved[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        1b3d7d358ce8632e,src/parse.ts,1,12,14,44.8999
+      new[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        f0740d06c0975d68,src/route.ts,1,18,route,16,15,18,67.8823
+      resolved[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        1b3d7d358ce8632e,src/parse.ts,1,14,parse,12,11,14,44.8999
+      unchanged: 0
+    cognitive_complexity:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
       unchanged: 0
     duplication:
       base_ratio: 0
@@ -355,8 +367,14 @@ source_sets:
       base_ratio: 0.8946
       head_ratio: 0
       new: []
-      resolved[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        1b3d7d358ce8632e,src/parse.ts,1,12,14,44.8999
+      resolved[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        1b3d7d358ce8632e,src/parse.ts,1,14,parse,12,11,14,44.8999
+      unchanged: 0
+    cognitive_complexity:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
       unchanged: 0
     duplication:
       base_ratio: 0
@@ -409,7 +427,7 @@ A Regression is a Metric that got worse from the merge-base to the head side by 
 - A ratio rise over 0.01 is a Regression.
   codeint compares the ratios as the report shows them, rounded to four decimal places, so a rise of exactly 0.01 passes.
 - A numerator rise that adds new Findings is a Regression.
-  The numerator is `eroded_function_mass`, `clone_lines`, `verbose_lines`, or `modules_in_import_cycles`.
+  The numerator is `eroded_function_mass`, `complex_cognitive_complexity`, `clone_lines`, `verbose_lines`, or `modules_in_import_cycles`.
   A Finding that only moves, so the numerator stays the same, is not a Regression.
 
 [`regression_limits`](#regression-limits) in `codeint.json` changes these limits.
@@ -439,10 +457,10 @@ codeint trend
 ```text stdout
 commits: 3
 source_sets:
-  production[3]{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}:
-    2864291867e0e3a3ef91cd050c1893d5ae9eb809,2026-11-02,1,0,0,0.1429,0
-    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0.0476,0
-    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0.0476,0
+  production[3]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
+    2864291867e0e3a3ef91cd050c1893d5ae9eb809,2026-11-02,1,0,0,0,0.1429,0
+    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0,0.0476,0
+    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0,0.0476,0
 ```
 
 The main line is the first-parent history of HEAD: a merge commit is a row, and the commits of the branch it merged are not.
@@ -456,9 +474,9 @@ codeint trend --since 2026-11-05
 ```text stdout
 commits: 2
 source_sets:
-  production[2]{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}:
-    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0.0476,0
-    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0.0476,0
+  production[2]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
+    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0,0.0476,0
+    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0,0.0476,0
 ```
 
 codeint compares the committer date, the date that `git log --since` uses, and stops at the first main-line commit committed before that day.
@@ -812,18 +830,20 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | Placeholder | Values |
 | ----------- | ------ |
 | `{source_set}` | `production`, `test`, `generated`, `vendored` |
-| `{metric}` | `erosion`, `duplication`, `verbosity`, `import_cycles` |
+| `{metric}` | `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles` |
+| `{dependency_metric}` | `unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies` |
 
 | Key | Type | Meaning |
 | --- | ---- | ------- |
 | `$schema` | string | The address of the JSON schema, for editors; when it points to a newer official codeint release tag than the running binary, codeint exits with code 2 |
 | `source_sets` | object | Globs that put files into a Source set; see [Source sets](#source-sets) |
 | `source_sets.{source_set}` | list of strings | Globs of repository-relative paths that belong to this Source set; empty by default |
-| `budgets` | object | The Budgets of each Source set; see [Budgets](#budgets) |
+| `budgets` | object | The Budgets of each Source set and dependency hygiene Metric; see [Budgets](#budgets) |
 | `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
 | `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
 | `budgets.{source_set}.orphan_files` | number from 0 to 1 | The highest Orphan files ratio in this Source set |
+| `budgets.{dependency_metric}` | number from 0 to 1 | The highest ratio of this Dependency hygiene Metric across workspace packages |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -834,6 +854,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.orphan_files` | object | The Regression limit of Orphan files in every Source set |
 | `regression_limits.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
 | `regression_limits.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{dependency_metric}` | object | The Regression limit of this Dependency hygiene Metric |
+| `regression_limits.{dependency_metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
+| `regression_limits.{dependency_metric}.new_findings` | string | When new Dependency hygiene Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
 | `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
 | `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -867,6 +890,8 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `boundaries.rules[].reason` | string | Optional human-readable explanation shown in boundary Findings |
 | `boundaries.strict_zones` | boolean | When `true`, report files in evaluated Source sets that do not match any configured zone; `false` by default |
 | `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
+| `dependencies` | object | Dependency hygiene settings; see [Dependencies](#dependencies) |
+| `dependencies.ignore` | list of strings | Canonical external package names excluded from unused, unlisted, and dev-in-production dependency Findings; empty by default |
 | `duplication` | object | Settings for Duplication detection, including opt-in shingle-based near-clone detection; see [Duplication](#duplication) |
 | `duplication.near_clones` | boolean | When `true`, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; `false` by default |
 | `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
@@ -886,7 +911,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, duplication, entry_points
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1152,6 +1177,42 @@ In `codeint diff`, each boundary Finding carries a stable content-based identifi
 codeint check
 ```
 
+### Dependencies
+
+codeint compares declared manifest dependencies against imported external packages for every Workspace package that has a dependency manifest (`package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, or `pubspec.yaml`), reporting three independent Metrics:
+
+- `unused_dependencies`: declared runtime and dev dependencies not imported by any Production, Test, or Generated file in the owning package.
+  Optional declarations (such as `peerDependencies`, `optionalDependencies`, Cargo `optional = true`, Python `optional-dependencies`, and Composer `suggest`) satisfy imports without being flagged as unused.
+- `unlisted_dependencies`: external packages imported by Production or Test files in a package that has a dependency manifest but does not declare them.
+  Standard library and runtime built-ins are never flagged.
+- `dev_in_production_dependencies`: dependencies declared only as dev dependencies that are imported by Production files.
+  Dev dependencies imported by Test files are treated as used and are not flagged.
+
+List canonical external package names under `dependencies.ignore` to exclude them from all three dependency Metrics.
+Set independent Budgets under `budgets.unused_dependencies`, `budgets.unlisted_dependencies`, and `budgets.dev_in_production_dependencies`, and adjust `codeint diff` Regression limits under `regression_limits` (all three default to `new_findings: "any_new_finding"`):
+
+```json codeint.json
+{
+  "dependencies": {
+    "ignore": ["tailwindcss"]
+  },
+  "budgets": {
+    "unused_dependencies": 0,
+    "unlisted_dependencies": 0,
+    "dev_in_production_dependencies": 0
+  },
+  "regression_limits": {
+    "unused_dependencies": { "ratio_rise": 0.01, "new_findings": "any_new_finding" },
+    "unlisted_dependencies": { "ratio_rise": 0, "new_findings": "any_new_finding" },
+    "dev_in_production_dependencies": { "ratio_rise": 0, "new_findings": "any_new_finding" }
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
 ### Duplication
 
 By default, Duplication reports exact normalized Clone groups so calibrated Reference ranges stay unchanged.
@@ -1287,11 +1348,21 @@ codeint check --format json
             "id": "f0740d06c0975d68",
             "path": "src/route.ts",
             "line": 1,
+            "end_line": 18,
+            "name": "route",
             "cyclomatic_complexity": 16,
+            "cognitive_complexity": 15,
             "source_lines": 18,
             "function_mass": 67.8823
           }
         ]
+      },
+      "cognitive_complexity": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "complex_cognitive_complexity": 0,
+        "total_cognitive_complexity": 20,
+        "findings": []
       },
       "duplication": {
         "ratio": 0.0,
@@ -1363,14 +1434,14 @@ The top-level object has these fields:
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
-A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `duplication`, `verbosity`, and `import_cycles`.
+A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and `import_cycles`.
 Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
 - `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
   The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
 - The counts behind the ratio:
-  `eroded_function_mass` and `total_function_mass` for Erosion, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
+  `eroded_function_mass` and `total_function_mass` for Erosion, `complex_cognitive_complexity` and `total_cognitive_complexity` for Cognitive complexity, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
   Duplication and Verbosity divide by the `source_lines` of the Source set.
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
@@ -1385,7 +1456,8 @@ Each import has `importer`, the path of the importing file, `specifier`, the tex
 
 Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
-- An eroded function has `path`, `line`, `cyclomatic_complexity`, `source_lines`, and `function_mass`.
+- An eroded function has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cyclomatic_complexity`, `cognitive_complexity`, `source_lines`, and `function_mass`.
+- A complex function (Cognitive complexity) has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cognitive_complexity`, `cyclomatic_complexity`, and `source_lines`.
 - A Clone group has `tokens`, optional `similarity` (present on near-clone Findings as a ratio in `(0, 1]`), and `locations`; each location has `path`, `start_line`, and `end_line`.
 - A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.
@@ -1397,7 +1469,7 @@ It is the same in every run and on every operating system, and CRLF line endings
 Two Findings with the same content in one file get different ids, numbered in the order they appear.
 The content behind the `id` of each kind:
 
-- An eroded function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
+- An eroded or complex function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
 - A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
 - A Clone family: the sorted normalized token sequences of its constituent Clone groups and the canonical path of each member location.
 - A Flagged line: the rule and the tokens of the line.
@@ -1493,6 +1565,19 @@ codeint check --format sarif
               "help": {
                 "text": "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them."
               }
+            },
+            {
+              "id": "cognitive_complexity",
+              "name": "Cognitive complexity",
+              "shortDescription": {
+                "text": "A function with cognitive complexity over 15"
+              },
+              "fullDescription": {
+                "text": "Cognitive complexity is the share of total cognitive complexity held by functions whose cognitive complexity is greater than 15. Cognitive complexity weights control-flow structures by nesting depth."
+              },
+              "help": {
+                "text": "Flatten nested control flow or split the function into smaller functions, each with a cognitive complexity of 15 or less."
+              }
             }
           ]
         }
@@ -1510,7 +1595,7 @@ codeint check --format sarif
           "ruleIndex": 0,
           "level": "note",
           "message": {
-            "text": "Eroded function: cyclomatic complexity 16, over 10; 18 source lines; Function mass 67.8823."
+            "text": "Eroded function route: cyclomatic complexity 16, over 10; 18 source lines; Function mass 67.8823."
           },
           "locations": [
             {
@@ -1570,6 +1655,7 @@ The tool lists one rule per Metric, and each result names its Metric in `ruleId`
 | `ruleId` | Finding | Location |
 | -------- | ------- | -------- |
 | `erosion` | An eroded function | The line where the function starts |
+| `cognitive_complexity` | A function with cognitive complexity over 15 | The line where the function starts |
 | `duplication` | A Clone group or Clone family | The first fragment or canonical location, from its start line to its end line; the other fragments or locations are related locations |
 | `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
 | `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
@@ -1601,6 +1687,7 @@ codeint measured 4 files with 39 source lines.
 | Source set | Metric | Value | Behind the value | Reference range |
 | ---------- | ------ | ----- | ---------------- | --------------- |
 | Production | Erosion | 0.7986 | 67.8823 of 85.0032 Function mass in eroded functions | 0.352 to 0.6, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Production | Cognitive complexity | 0 | 0 of 20 cognitive complexity in functions over 15 | no published Reference range for this language |
 | Production | Duplication | 0 | 0 clone lines of 39 source lines | 0.017 to 0.346, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 | Production | Verbosity | 0.0256 | 1 verbose line of 39 source lines: 1 Flagged line, 0 clone lines | 0.018 to 0.347, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 | Production | Import cycles | 0 | 0 of 4 modules in an Import cycle | 0 to 0.308, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
@@ -1611,7 +1698,7 @@ codeint measured 4 files with 39 source lines.
 
 | Function | Cyclomatic complexity | Source lines | Function mass |
 | -------- | --------------------- | ------------ | ------------- |
-| `src/route.ts:1` | 16 | 18 | 67.8823 |
+| `route` (`src/route.ts:1`) | 16 | 18 | 67.8823 |
 
 ### Verbosity
 

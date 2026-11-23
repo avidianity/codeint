@@ -246,6 +246,8 @@ pub enum ConfigurationFileError {
         key: KeyPath,
         from: String,
     },
+    #[error("{file}: {key} must not be empty")]
+    EmptyDependencyIgnore { file: ConfigFileKind, key: KeyPath },
 }
 
 impl ConfigurationFileError {
@@ -275,7 +277,8 @@ impl ConfigurationFileError {
             | UnknownBoundaryZone { file, .. }
             | ConflictingBoundaryRule { file, .. }
             | MissingBoundaryRuleDirective { file, .. }
-            | ConflictingBoundaryDirectives { file, .. } => *file = file_kind,
+            | ConflictingBoundaryDirectives { file, .. }
+            | EmptyDependencyIgnore { file, .. } => *file = file_kind,
             AmbiguousConfigFiles | UnknownCliBudgetMetric { .. } | InvalidCliGlob { .. } => {}
         }
         self

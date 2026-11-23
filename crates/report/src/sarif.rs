@@ -2,13 +2,22 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
+use codeint_metrics::{
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, UNLISTED_DEPENDENCIES_METRIC_KEY,
+    UNUSED_DEPENDENCIES_METRIC_KEY,
+};
 use codeint_model::{Metric, SourceSet};
 
-use crate::schema::{BUILT_IN_METRICS, ORPHAN_FILES_DESCRIPTOR, built_in_metric_descriptor};
+use crate::schema::{
+    BUILT_IN_METRICS, BuiltInMetricDescriptor, COGNITIVE_COMPLEXITY_DESCRIPTOR,
+    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR, ORPHAN_FILES_DESCRIPTOR,
+    UNLISTED_DEPENDENCIES_DESCRIPTOR, UNUSED_DEPENDENCIES_DESCRIPTOR, built_in_metric_descriptor,
+};
 use crate::{
-    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
-    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding,
-    OrphanFileRow, Report, SourceSetSection,
+    BoundaryFindingRow, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding, CloneGroupFinding,
+    CloneLocation, CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding,
+    FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, Report,
+    SourceSetSection, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -98,7 +107,10 @@ struct PartialFingerprints {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ResultProperties {
-    source_set: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_set: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    package: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +152,7 @@ pub(crate) struct ListedExternalMetric<'findings> {
 
 pub(crate) struct ListedFindings<'findings> {
     pub(crate) eroded_functions: &'findings [ErodedFunctionFinding],
+    pub(crate) cognitive_complexity: &'findings [CognitiveComplexityFinding],
     pub(crate) clone_groups: &'findings [CloneGroupFinding],
     pub(crate) clone_families: &'findings [CloneFamilyFinding],
     pub(crate) clustered_clone_group_ids: &'findings [String],
@@ -150,58 +163,73 @@ pub(crate) struct ListedFindings<'findings> {
     pub(crate) external_metrics: Vec<ListedExternalMetric<'findings>>,
 }
 
+pub(crate) struct ListedDependencies<'findings> {
+    pub(crate) unused: &'findings [UnusedDependencyRow],
+    pub(crate) unlisted: &'findings [ImportedDependencyRow],
+    pub(crate) dev_in_production: &'findings [ImportedDependencyRow],
+}
+
+impl ListedDependencies<'static> {
+    pub(crate) const EMPTY: ListedDependencies<'static> = ListedDependencies {
+        unused: &[],
+        unlisted: &[],
+        dev_in_production: &[],
+    };
+}
+
 impl SarifLog {
     pub(crate) fn new(report: &Report) -> SarifLog {
+        let dependencies = match &report.measured.dependencies {
+            Some(deps) => ListedDependencies {
+                unused: &deps.unused_dependencies.findings.listed,
+                unlisted: &deps.unlisted_dependencies.findings.listed,
+                dev_in_production: &deps.dev_in_production_dependencies.findings.listed,
+            },
+            None => ListedDependencies::EMPTY,
+        };
         SarifLog::listing(
             report
                 .measured
                 .source_sets
                 .iter()
                 .map(|(source_set, section)| (source_set, ListedFindings::of_section(section))),
+            dependencies,
         )
     }
 
     pub(crate) fn listing<'findings>(
         findings: impl Iterator<Item = (SourceSet, ListedFindings<'findings>)>,
+        dependencies: ListedDependencies<'findings>,
     ) -> SarifLog {
         let collected: Vec<(SourceSet, ListedFindings<'findings>)> = findings.collect();
-        let has_boundaries = collected
-            .iter()
-            .any(|(_, listed)| !listed.boundaries.is_empty());
-        let has_orphan_files = collected
-            .iter()
-            .any(|(_, listed)| !listed.orphan_files.is_empty());
-        let mut external_rules: BTreeMap<String, (&str, &str)> = BTreeMap::new();
-        for (_, listed) in &collected {
-            for external in &listed.external_metrics {
-                external_rules
-                    .entry(external.key.to_owned())
-                    .or_insert((external.name, external.description));
-            }
-        }
         let mut rules: Vec<Rule> = RULES.map(descriptor).into();
-        let boundaries_rule_index = has_boundaries.then(|| {
-            let index = rules.len();
-            rules.push(boundaries_descriptor());
-            index
-        });
-        let orphan_files_rule_index = has_orphan_files.then(|| {
-            let index = rules.len();
-            rules.push(orphan_files_descriptor());
-            index
-        });
-        let mut external_rule_indices: BTreeMap<String, usize> = BTreeMap::new();
-        for (key, (name, description)) in external_rules {
-            let index = rules.len();
-            external_rule_indices.insert(key.clone(), index);
-            rules.push(Rule {
-                id: key,
-                name: name.to_owned(),
-                short_description: Text::from(description),
-                full_description: Text::from(description),
-                help: Text::from(description),
-            });
-        }
+        rules.push(rule_from_descriptor(
+            COGNITIVE_COMPLEXITY_KEY,
+            COGNITIVE_COMPLEXITY_DESCRIPTOR,
+        ));
+        let boundaries_rule_index = collected
+            .iter()
+            .any(|(_, listed)| !listed.boundaries.is_empty())
+            .then(|| push_rule(&mut rules, boundaries_descriptor()));
+        let orphan_files_rule_index = collected
+            .iter()
+            .any(|(_, listed)| !listed.orphan_files.is_empty())
+            .then(|| push_rule(&mut rules, orphan_files_descriptor()));
+        let dependency_rules = register_dependency_rules(&mut rules, &dependencies);
+        let external_rule_indices = register_external_rules(&mut rules, &collected);
+        let mut all_results: Vec<SarifResult> = collected
+            .iter()
+            .flat_map(|(source_set, listed)| {
+                results(
+                    *source_set,
+                    listed,
+                    boundaries_rule_index,
+                    orphan_files_rule_index,
+                    &external_rule_indices,
+                )
+            })
+            .collect();
+        all_results.extend(dependency_results(&dependencies, &dependency_rules));
         SarifLog {
             schema: SARIF_SCHEMA,
             version: SARIF_VERSION,
@@ -221,24 +249,186 @@ impl SarifLog {
                         },
                     },
                 },
-                results: collected
-                    .iter()
-                    .flat_map(|(source_set, listed)| {
-                        results(
-                            *source_set,
-                            listed,
-                            boundaries_rule_index,
-                            orphan_files_rule_index,
-                            &external_rule_indices,
-                        )
-                    })
-                    .collect(),
+                results: all_results,
             }],
         }
     }
 }
 
+fn push_rule(rules: &mut Vec<Rule>, rule: Rule) -> usize {
+    let index = rules.len();
+    rules.push(rule);
+    index
+}
+
+fn rule_from_descriptor(id: &str, info: BuiltInMetricDescriptor) -> Rule {
+    Rule {
+        id: id.to_owned(),
+        name: info.name.to_owned(),
+        short_description: Text::from(info.short_description),
+        full_description: Text::from(info.full_description),
+        help: Text::from(info.help),
+    }
+}
+
+fn register_external_rules(
+    rules: &mut Vec<Rule>,
+    collected: &[(SourceSet, ListedFindings<'_>)],
+) -> BTreeMap<String, usize> {
+    let mut external_rules: BTreeMap<String, (&str, &str)> = BTreeMap::new();
+    for (_, listed) in collected {
+        for external in &listed.external_metrics {
+            external_rules
+                .entry(external.key.to_owned())
+                .or_insert((external.name, external.description));
+        }
+    }
+    let mut indices = BTreeMap::new();
+    for (key, (name, description)) in external_rules {
+        let index = push_rule(
+            rules,
+            Rule {
+                id: key.clone(),
+                name: name.to_owned(),
+                short_description: Text::from(description),
+                full_description: Text::from(description),
+                help: Text::from(description),
+            },
+        );
+        indices.insert(key, index);
+    }
+    indices
+}
+
+struct DependencyRuleIndices {
+    unused: Option<usize>,
+    unlisted: Option<usize>,
+    dev_in_production: Option<usize>,
+}
+
+fn register_dependency_rules(
+    rules: &mut Vec<Rule>,
+    dependencies: &ListedDependencies<'_>,
+) -> DependencyRuleIndices {
+    DependencyRuleIndices {
+        unused: (!dependencies.unused.is_empty()).then(|| {
+            push_rule(
+                rules,
+                rule_from_descriptor(
+                    UNUSED_DEPENDENCIES_METRIC_KEY,
+                    UNUSED_DEPENDENCIES_DESCRIPTOR,
+                ),
+            )
+        }),
+        unlisted: (!dependencies.unlisted.is_empty()).then(|| {
+            push_rule(
+                rules,
+                rule_from_descriptor(
+                    UNLISTED_DEPENDENCIES_METRIC_KEY,
+                    UNLISTED_DEPENDENCIES_DESCRIPTOR,
+                ),
+            )
+        }),
+        dev_in_production: (!dependencies.dev_in_production.is_empty()).then(|| {
+            push_rule(
+                rules,
+                rule_from_descriptor(
+                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+                    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR,
+                ),
+            )
+        }),
+    }
+}
+
+fn dependency_results(
+    dependencies: &ListedDependencies<'_>,
+    indices: &DependencyRuleIndices,
+) -> Vec<SarifResult> {
+    let unused = dependencies.unused.iter().map(|finding| SarifResult {
+        rule_id: UNUSED_DEPENDENCIES_METRIC_KEY.to_owned(),
+        rule_index: indices.unused.unwrap_or_default(),
+        level: "note",
+        message: Text {
+            text: format!(
+                "Unused {} dependency {} declared in {} (package {}).",
+                finding.kind, finding.dependency, finding.manifest, finding.package
+            ),
+        },
+        locations: [Location::in_repository(&finding.manifest, 1, None)],
+        related_locations: Vec::new(),
+        partial_fingerprints: PartialFingerprints {
+            codeint_finding_id: finding.id.clone(),
+        },
+        properties: ResultProperties {
+            source_set: None,
+            package: Some(finding.package.clone()),
+        },
+    });
+    let unlisted = dependencies.unlisted.iter().map(|finding| {
+        imported_dependency_sarif_result(
+            UNLISTED_DEPENDENCIES_METRIC_KEY,
+            indices.unlisted.unwrap_or_default(),
+            finding,
+            format!(
+                "Unlisted dependency {} imported in {} (not declared in {} for package {}).",
+                finding.dependency,
+                finding.importers.join(", "),
+                finding.manifest,
+                finding.package
+            ),
+        )
+    });
+    let dev_in_production = dependencies.dev_in_production.iter().map(|finding| {
+        imported_dependency_sarif_result(
+            DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+            indices.dev_in_production.unwrap_or_default(),
+            finding,
+            format!(
+                "Dev dependency {} imported in production file {} (declared only as dev in {} for package {}).",
+                finding.dependency,
+                finding.importers.join(", "),
+                finding.manifest,
+                finding.package
+            ),
+        )
+    });
+    unused.chain(unlisted).chain(dev_in_production).collect()
+}
+
+fn imported_dependency_sarif_result(
+    rule_id: &str,
+    rule_index: usize,
+    finding: &ImportedDependencyRow,
+    message: String,
+) -> SarifResult {
+    let (primary, others) = match finding.importers.split_first() {
+        Some((first, rest)) => (first.as_str(), rest),
+        None => (finding.manifest.as_str(), &[][..]),
+    };
+    SarifResult {
+        rule_id: rule_id.to_owned(),
+        rule_index,
+        level: "note",
+        message: Text { text: message },
+        locations: [Location::in_repository(primary, 1, None)],
+        related_locations: related(
+            others
+                .iter()
+                .map(|path| Location::in_repository(path, 1, None)),
+        ),
+        partial_fingerprints: PartialFingerprints {
+            codeint_finding_id: finding.id.clone(),
+        },
+        properties: ResultProperties {
+            source_set: None,
+            package: Some(finding.package.clone()),
+        },
+    }
+}
+
 const RULES: [Metric; 4] = BUILT_IN_METRICS;
+const COGNITIVE_COMPLEXITY_RULE_INDEX: usize = RULES.len();
 
 fn descriptor(metric: Metric) -> Rule {
     let info = built_in_metric_descriptor(metric);
@@ -273,7 +463,8 @@ fn metric_result(
             codeint_finding_id: finding_id.to_owned(),
         },
         properties: ResultProperties {
-            source_set: source_set.key(),
+            source_set: Some(source_set.key()),
+            package: None,
         },
     }
 }
@@ -341,6 +532,7 @@ impl<'findings> ListedFindings<'findings> {
     fn of_section(section: &'findings SourceSetSection) -> ListedFindings<'findings> {
         ListedFindings {
             eroded_functions: &section.erosion.findings.listed,
+            cognitive_complexity: &section.cognitive_complexity.findings.listed,
             clone_groups: &section.duplication.clone_groups.listed,
             clone_families: &section.duplication.clone_families.listed,
             clustered_clone_group_ids: &section.duplication.unlisted_clone_family_group_ids,
@@ -380,14 +572,31 @@ fn results(
             Metric::Erosion,
             source_set,
             &function.id,
-            format!(
-                "Eroded function: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
-                function.cyclomatic_complexity, function.source_lines, function.function_mass.0
-            ),
+            eroded_function_message(function),
             Location::in_repository(&function.path, function.line, None),
             Vec::new(),
         )
     });
+    let cognitive_complexity = listed
+        .cognitive_complexity
+        .iter()
+        .map(|function| SarifResult {
+            rule_id: COGNITIVE_COMPLEXITY_KEY.to_owned(),
+            rule_index: COGNITIVE_COMPLEXITY_RULE_INDEX,
+            level: "note",
+            message: Text {
+                text: complex_function_message(function),
+            },
+            locations: [Location::in_repository(&function.path, function.line, None)],
+            related_locations: Vec::new(),
+            partial_fingerprints: PartialFingerprints {
+                codeint_finding_id: function.id.clone(),
+            },
+            properties: ResultProperties {
+                source_set: Some(source_set.key()),
+                package: None,
+            },
+        });
     let clustered_group_ids: HashSet<&str> = listed
         .clone_families
         .iter()
@@ -436,7 +645,8 @@ fn results(
                 codeint_finding_id: finding.id.clone(),
             },
             properties: ResultProperties {
-                source_set: source_set.key(),
+                source_set: Some(source_set.key()),
+                package: None,
             },
         }
     });
@@ -458,7 +668,8 @@ fn results(
             codeint_finding_id: finding.id.clone(),
         },
         properties: ResultProperties {
-            source_set: source_set.key(),
+            source_set: Some(source_set.key()),
+            package: None,
         },
     });
     let external_findings = listed.external_metrics.iter().flat_map(|external| {
@@ -483,11 +694,13 @@ fn results(
                 codeint_finding_id: finding.id.clone(),
             },
             properties: ResultProperties {
-                source_set: source_set.key(),
+                source_set: Some(source_set.key()),
+                package: None,
             },
         })
     });
     eroded_functions
+        .chain(cognitive_complexity)
         .chain(clone_families)
         .chain(clone_groups)
         .chain(flagged_lines)
@@ -496,6 +709,32 @@ fn results(
         .chain(orphan_files)
         .chain(external_findings)
         .collect()
+}
+
+fn eroded_function_message(function: &ErodedFunctionFinding) -> String {
+    match function.name.as_deref() {
+        Some(name) => format!(
+            "Eroded function {name}: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
+            function.cyclomatic_complexity, function.source_lines, function.function_mass.0
+        ),
+        None => format!(
+            "Eroded function: cyclomatic complexity {}, over 10; {} source lines; Function mass {}.",
+            function.cyclomatic_complexity, function.source_lines, function.function_mass.0
+        ),
+    }
+}
+
+fn complex_function_message(function: &CognitiveComplexityFinding) -> String {
+    match function.name.as_deref() {
+        Some(name) => format!(
+            "Complex function {name}: cognitive complexity {}, over 15; {} source lines.",
+            function.cognitive_complexity, function.source_lines
+        ),
+        None => format!(
+            "Complex function: cognitive complexity {}, over 15; {} source lines.",
+            function.cognitive_complexity, function.source_lines
+        ),
+    }
 }
 
 fn clone_family_result(source_set: SourceSet, family: &CloneFamilyFinding) -> Option<SarifResult> {

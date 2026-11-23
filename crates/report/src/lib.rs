@@ -4,14 +4,16 @@ use std::collections::{BTreeMap, HashSet};
 
 use codeint_config::{
     AgentFormat, Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
-    Codeowners, ConfigFormat, DoctorFormat, DuplicationConfig, FindingsShown, GuardFormat,
-    ImpactFormat, ReportFormat, TraceFormat,
+    Codeowners, ConfigFormat, DependenciesConfig, DoctorFormat, DuplicationConfig, FindingsShown,
+    GuardFormat, ImpactFormat, ReportFormat, TraceFormat,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneFamily, CloneGroup,
-    Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
-    MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig, OrphanFileFinding, OrphanFiles,
-    UnresolvedImport, Verbosity,
+    CognitiveComplexity, ComplexFunction, DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+    DependencyHygiene, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
+    ImportCycle, ImportCycles, MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig,
+    OrphanFileFinding, OrphanFiles, UNLISTED_DEPENDENCIES_METRIC_KEY,
+    UNUSED_DEPENDENCIES_METRIC_KEY, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -24,6 +26,7 @@ mod agent;
 mod churn;
 mod config;
 mod coupling;
+mod dependencies;
 mod diff;
 mod doctor;
 mod guard;
@@ -57,9 +60,11 @@ pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, Sc
 pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
 
+use dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 use ownership::OwnedFinding;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
+const COGNITIVE_COMPLEXITY_KEY: &str = "cognitive_complexity";
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
@@ -93,7 +98,8 @@ pub struct Report {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BudgetFailure {
-    source_set: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_set: Option<String>,
     metric: String,
     ratio: Decimal,
     budget: f64,
@@ -110,6 +116,42 @@ struct MeasuredSection {
     files: usize,
     source_lines: u64,
     source_sets: SourceSetSections,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dependencies: Option<DependenciesSection>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct DependenciesSection {
+    pub(crate) unused_dependencies: UnusedDependenciesSection,
+    pub(crate) unlisted_dependencies: UnlistedDependenciesSection,
+    pub(crate) dev_in_production_dependencies: DevInProductionDependenciesSection,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct UnusedDependenciesSection {
+    pub(crate) ratio: Decimal,
+    pub(crate) unused: usize,
+    pub(crate) declared: usize,
+    #[serde(flatten)]
+    pub(crate) findings: Findings<UnusedDependencyRow>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct UnlistedDependenciesSection {
+    pub(crate) ratio: Decimal,
+    pub(crate) unlisted: usize,
+    pub(crate) imported: usize,
+    #[serde(flatten)]
+    pub(crate) findings: Findings<ImportedDependencyRow>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct DevInProductionDependenciesSection {
+    pub(crate) ratio: Decimal,
+    pub(crate) dev_in_production: usize,
+    pub(crate) production_imported: usize,
+    #[serde(flatten)]
+    pub(crate) findings: Findings<ImportedDependencyRow>,
 }
 
 enum ReferenceRangeScope {
@@ -206,9 +248,10 @@ type SourceSetSections = PerSourceSet<SourceSetSection>;
 struct SourceSetSection {
     files: usize,
     source_lines: u64,
-    erosion: ErosionSection,
+    erosion: MetricSection<ErosionTotals, ErodedFunctionFinding>,
+    cognitive_complexity: MetricSection<CognitiveComplexityTotals, CognitiveComplexityFinding>,
     duplication: DuplicationSection,
-    verbosity: VerbositySection,
+    verbosity: MetricSection<VerbosityTotals, FlaggedLineRow>,
     import_cycles: ImportCyclesSection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<BoundariesSection>,
@@ -273,13 +316,28 @@ struct BoundaryFindingRow {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct MetricHeader {
+    ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
+}
+
+impl MetricHeader {
+    fn new(ratio: f64, ranges: &ReferenceRangeScope, key: &str) -> MetricHeader {
+        MetricHeader {
+            ratio: Decimal::rounded(ratio),
+            reference_range: ranges.entry(key),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ExternalMetricSection {
     #[serde(skip)]
     name: String,
     #[serde(skip)]
     description: String,
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
+    #[serde(flatten)]
+    header: MetricHeader,
     numerator: Decimal,
     denominator: Decimal,
     #[serde(flatten)]
@@ -304,6 +362,7 @@ struct PackageSection {
     files: usize,
     source_lines: u64,
     erosion: PackageErosion,
+    cognitive_complexity: PackageCognitiveComplexity,
     duplication: PackageDuplication,
     verbosity: PackageVerbosity,
     import_cycles: PackageImportCycles,
@@ -314,6 +373,13 @@ struct PackageErosion {
     ratio: Decimal,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PackageCognitiveComplexity {
+    ratio: Decimal,
+    complex_cognitive_complexity: u64,
+    total_cognitive_complexity: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -335,13 +401,33 @@ struct PackageImportCycles {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ErosionSection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
+#[serde(bound(deserialize = "Totals: Deserialize<'de>, Finding: FindingKind + Deserialize<'de>"))]
+struct MetricSection<Totals, Finding: FindingKind> {
+    #[serde(flatten)]
+    header: MetricHeader,
+    #[serde(flatten)]
+    totals: Totals,
+    #[serde(flatten)]
+    findings: Findings<Finding>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ErosionTotals {
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
-    #[serde(flatten)]
-    findings: Findings<ErodedFunctionFinding>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CognitiveComplexityTotals {
+    complex_cognitive_complexity: u64,
+    total_cognitive_complexity: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct VerbosityTotals {
+    verbose_lines: u64,
+    flagged_lines: u64,
+    clone_lines: u64,
 }
 
 trait FindingKind: Serialize {
@@ -361,17 +447,36 @@ struct ErodedFunctionFinding {
     id: String,
     path: String,
     line: u32,
+    end_line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     cyclomatic_complexity: u32,
+    cognitive_complexity: u32,
     source_lines: u32,
     function_mass: Decimal,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     owners: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct CognitiveComplexityFinding {
+    id: String,
+    path: String,
+    line: u32,
+    end_line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    cognitive_complexity: u32,
+    cyclomatic_complexity: u32,
+    source_lines: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct DuplicationSection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
+    #[serde(flatten)]
+    header: MetricHeader,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     near_clones: Option<NearClonesSummary>,
     clone_lines: u64,
@@ -410,8 +515,10 @@ impl<'de> Deserialize<'de> for DuplicationSection {
 
         let raw = RawDuplicationSection::deserialize(deserializer)?;
         Ok(DuplicationSection {
-            ratio: raw.ratio,
-            reference_range: raw.reference_range,
+            header: MetricHeader {
+                ratio: raw.ratio,
+                reference_range: raw.reference_range,
+            },
             near_clones: raw.near_clones,
             clone_lines: raw.clone_lines,
             clone_groups: Findings {
@@ -456,17 +563,6 @@ struct CloneLocation {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct VerbositySection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
-    verbose_lines: u64,
-    flagged_lines: u64,
-    clone_lines: u64,
-    #[serde(flatten)]
-    findings: Findings<FlaggedLineRow>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct FlaggedLineRow {
     id: String,
     path: String,
@@ -478,8 +574,8 @@ struct FlaggedLineRow {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ImportCyclesSection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
+    #[serde(flatten)]
+    header: MetricHeader,
     modules_in_import_cycles: usize,
     modules: usize,
     #[serde(flatten)]
@@ -523,11 +619,18 @@ struct SkippedEntry {
 
 impl std::fmt::Display for BudgetFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "the {} {} ratio {} is over its Budget {}",
-            self.source_set, self.metric, self.ratio.0, self.budget
-        )
+        match self.source_set.as_deref() {
+            Some(source_set) => write!(
+                formatter,
+                "the {source_set} {} ratio {} is over its Budget {}",
+                self.metric, self.ratio.0, self.budget
+            ),
+            None => write!(
+                formatter,
+                "the {} ratio {} is over its Budget {}",
+                self.metric, self.ratio.0, self.budget
+            ),
+        }
     }
 }
 
@@ -539,7 +642,7 @@ fn over_budget<'a>(
         .filter_map(|(source_set, metric, ratio)| {
             let budget = budgets.budget_for_key(source_set, metric)?;
             (!budget.admits(ratio)).then(|| BudgetFailure {
-                source_set: source_set.key().to_owned(),
+                source_set: Some(source_set.key().to_owned()),
                 metric: metric.to_owned(),
                 ratio: Decimal(ratio),
                 budget: budget.ratio(),
@@ -663,6 +766,10 @@ impl FindingKind for ErodedFunctionFinding {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl FindingKind for CognitiveComplexityFinding {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl FindingKind for CloneGroupFinding {
     const LIST_KEY: &'static str = "clone_groups";
 }
@@ -705,6 +812,7 @@ macro_rules! impl_single_path_owner {
 }
 
 impl_single_path_owner!(ErodedFunctionFinding, path);
+impl_single_path_owner!(CognitiveComplexityFinding, path);
 impl_single_path_owner!(FlaggedLineRow, path);
 impl_single_path_owner!(UnresolvedImportRow, importer);
 impl_single_path_owner!(ExternalMetricFinding, path);
@@ -747,10 +855,86 @@ impl FindingKind for BoundaryFindingRow {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl FindingKind for UnusedDependencyRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for ImportedDependencyRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl FindingKind for OrphanFileRow {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl DependenciesSection {
+    fn from_hygiene(
+        hygiene: &DependencyHygiene,
+        view: FindingsView<'_>,
+    ) -> Option<DependenciesSection> {
+        if !hygiene.has_activity() {
+            return None;
+        }
+        Some(DependenciesSection {
+            unused_dependencies: UnusedDependenciesSection {
+                ratio: Decimal::rounded(hygiene.unused_ratio()),
+                unused: hygiene.unused().len(),
+                declared: hygiene.declared_count(),
+                findings: view.map(hygiene.unused()),
+            },
+            unlisted_dependencies: UnlistedDependenciesSection {
+                ratio: Decimal::rounded(hygiene.unlisted_ratio()),
+                unlisted: hygiene.unlisted().len(),
+                imported: hygiene.imported_count(),
+                findings: view.map(hygiene.unlisted()),
+            },
+            dev_in_production_dependencies: DevInProductionDependenciesSection {
+                ratio: Decimal::rounded(hygiene.dev_in_production_ratio()),
+                dev_in_production: hygiene.dev_in_production().len(),
+                production_imported: hygiene.production_imported_count(),
+                findings: view.map(hygiene.dev_in_production()),
+            },
+        })
+    }
+
+    fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
+        dependency_over_budget(
+            budgets,
+            [
+                (
+                    UNUSED_DEPENDENCIES_METRIC_KEY,
+                    self.unused_dependencies.ratio.0,
+                ),
+                (
+                    UNLISTED_DEPENDENCIES_METRIC_KEY,
+                    self.unlisted_dependencies.ratio.0,
+                ),
+                (
+                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+                    self.dev_in_production_dependencies.ratio.0,
+                ),
+            ],
+        )
+    }
+}
+
+pub(crate) fn dependency_over_budget(
+    budgets: &Budgets,
+    displayed_ratios: [(&'static str, f64); 3],
+) -> Vec<BudgetFailure> {
+    displayed_ratios
+        .into_iter()
+        .filter_map(|(metric, ratio)| {
+            let budget = budgets.dependency_budget(metric)?;
+            (!budget.admits(ratio)).then(|| BudgetFailure {
+                source_set: None,
+                metric: metric.to_owned(),
+                ratio: Decimal(ratio),
+                budget: budget.ratio(),
+            })
+        })
+        .collect()
+}
 struct ConfigBoundaryPolicy<'config>(&'config BoundariesConfig);
 
 impl BoundaryPolicy for ConfigBoundaryPolicy<'_> {
@@ -915,21 +1099,30 @@ impl SourceSetSections {
             budgets,
             self.iter().flat_map(|(source_set, section)| {
                 [
-                    (source_set, Metric::Erosion.key(), section.erosion.ratio.0),
+                    (
+                        source_set,
+                        Metric::Erosion.key(),
+                        section.erosion.header.ratio.0,
+                    ),
+                    (
+                        source_set,
+                        COGNITIVE_COMPLEXITY_KEY,
+                        section.cognitive_complexity.header.ratio.0,
+                    ),
                     (
                         source_set,
                         Metric::Duplication.key(),
-                        section.duplication.ratio.0,
+                        section.duplication.header.ratio.0,
                     ),
                     (
                         source_set,
                         Metric::Verbosity.key(),
-                        section.verbosity.ratio.0,
+                        section.verbosity.header.ratio.0,
                     ),
                     (
                         source_set,
                         Metric::ImportCycles.key(),
-                        section.import_cycles.ratio.0,
+                        section.import_cycles.header.ratio.0,
                     ),
                 ]
                 .into_iter()
@@ -946,10 +1139,9 @@ impl SourceSetSections {
                         .map(move |orphans| (source_set, "orphan_files", orphans.ratio.0)),
                 )
                 .chain(
-                    section
-                        .external_metrics
-                        .iter()
-                        .map(move |(key, metric)| (source_set, key.as_str(), metric.ratio.0)),
+                    section.external_metrics.iter().map(move |(key, metric)| {
+                        (source_set, key.as_str(), metric.header.ratio.0)
+                    }),
                 )
             }),
         )
@@ -982,8 +1174,7 @@ impl SourceSetSection {
                 ExternalMetricSection {
                     name: plugin.name().to_owned(),
                     description: plugin.description().to_owned(),
-                    ratio: Decimal::rounded(result.ratio),
-                    reference_range: ranges.entry(plugin.key()),
+                    header: MetricHeader::new(result.ratio, ranges, plugin.key()),
                     numerator: Decimal::rounded(result.numerator),
                     denominator: Decimal::rounded(result.denominator),
                     findings: view.select(
@@ -998,11 +1189,12 @@ impl SourceSetSection {
         Ok(SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
-            erosion: ErosionSection {
-                ratio: Decimal::rounded(measured.erosion.ratio()),
-                reference_range: ranges.entry(Metric::Erosion.key()),
-                eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
-                total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
+            erosion: MetricSection {
+                header: MetricHeader::new(measured.erosion.ratio(), ranges, Metric::Erosion.key()),
+                totals: ErosionTotals {
+                    eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
+                    total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
+                },
                 findings: view.select(
                     measured
                         .erosion
@@ -1011,23 +1203,53 @@ impl SourceSetSection {
                         .map(ErodedFunctionFinding::new),
                 ),
             },
+            cognitive_complexity: MetricSection {
+                header: MetricHeader::new(
+                    measured.cognitive_complexity.ratio(),
+                    ranges,
+                    COGNITIVE_COMPLEXITY_KEY,
+                ),
+                totals: CognitiveComplexityTotals {
+                    complex_cognitive_complexity: measured
+                        .cognitive_complexity
+                        .complex_cognitive_complexity(),
+                    total_cognitive_complexity: measured
+                        .cognitive_complexity
+                        .total_cognitive_complexity(),
+                },
+                findings: view.select(
+                    measured
+                        .cognitive_complexity
+                        .complex_functions()
+                        .iter()
+                        .map(CognitiveComplexityFinding::new),
+                ),
+            },
             duplication: DuplicationSection::new(
                 &measured.duplication,
                 ranges,
                 view,
                 options.duplication,
             ),
-            verbosity: VerbositySection {
-                ratio: Decimal::rounded(measured.verbosity.ratio()),
-                reference_range: ranges.entry(Metric::Verbosity.key()),
-                verbose_lines: measured.verbosity.verbose_lines(),
-                flagged_lines: measured.verbosity.flagged_line_count(),
-                clone_lines: measured.verbosity.clone_line_count(),
+            verbosity: MetricSection {
+                header: MetricHeader::new(
+                    measured.verbosity.ratio(),
+                    ranges,
+                    Metric::Verbosity.key(),
+                ),
+                totals: VerbosityTotals {
+                    verbose_lines: measured.verbosity.verbose_lines(),
+                    flagged_lines: measured.verbosity.flagged_line_count(),
+                    clone_lines: measured.verbosity.clone_line_count(),
+                },
                 findings: view.map(measured.verbosity.flagged_lines()),
             },
             import_cycles: ImportCyclesSection {
-                ratio: Decimal::rounded(measured.import_cycles.ratio()),
-                reference_range: ranges.entry(Metric::ImportCycles.key()),
+                header: MetricHeader::new(
+                    measured.import_cycles.ratio(),
+                    ranges,
+                    Metric::ImportCycles.key(),
+                ),
                 modules_in_import_cycles: measured.import_cycles.modules_in_import_cycles(),
                 modules: measured.import_cycles.modules(),
                 findings: view.select(
@@ -1061,9 +1283,28 @@ impl ErodedFunctionFinding {
             id: function.id.to_string(),
             path: function.path.to_string(),
             line: function.line,
+            end_line: function.end_line,
+            name: function.name.clone(),
             cyclomatic_complexity: function.cyclomatic_complexity,
+            cognitive_complexity: function.cognitive_complexity,
             source_lines: function.source_lines,
             function_mass: Decimal::rounded(function.function_mass),
+            owners: Vec::new(),
+        }
+    }
+}
+
+impl CognitiveComplexityFinding {
+    fn new(function: &ComplexFunction) -> CognitiveComplexityFinding {
+        CognitiveComplexityFinding {
+            id: function.id.to_string(),
+            path: function.path.to_string(),
+            line: function.line,
+            end_line: function.end_line,
+            name: function.name.clone(),
+            cognitive_complexity: function.cognitive_complexity,
+            cyclomatic_complexity: function.cyclomatic_complexity,
+            source_lines: function.source_lines,
             owners: Vec::new(),
         }
     }
@@ -1102,8 +1343,10 @@ impl DuplicationSection {
             &all_clustered,
         );
         DuplicationSection {
-            ratio: Decimal::rounded(duplication.ratio()),
-            reference_range,
+            header: MetricHeader {
+                ratio: Decimal::rounded(duplication.ratio()),
+                reference_range,
+            },
             near_clones,
             clone_lines: duplication.clone_lines.count(),
             clone_groups,
@@ -1141,7 +1384,6 @@ pub(crate) fn unlisted_clone_family_group_ids(
         .map(|group| group.id.clone())
         .collect()
 }
-
 impl CloneGroupFinding {
     fn new(group: &CloneGroup) -> CloneGroupFinding {
         CloneGroupFinding {
@@ -1234,6 +1476,7 @@ impl From<&SkippedFile> for SkippedEntry {
 
 struct Measured {
     erosion: Erosion,
+    cognitive_complexity: CognitiveComplexity,
     duplication: Duplication,
     verbosity: Verbosity,
     import_cycles: ImportCycles,
@@ -1260,6 +1503,7 @@ impl Measured {
             boundaries.map(|config| Boundaries::measure(model, &ConfigBoundaryPolicy(config)));
         Measured {
             erosion: Erosion::measure(model),
+            cognitive_complexity: CognitiveComplexity::measure(model),
             verbosity: Verbosity::measure(model, &duplication.exact_clone_lines),
             duplication,
             import_cycles: ImportCycles::measure(model),
@@ -1278,6 +1522,7 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
             .entry(model.workspace.package_of(&file.path))
             .or_default() += 1;
     }
+    let mut cognitive = measured.cognitive_complexity.by_package(model);
     let mut duplication = measured.duplication.by_package(model);
     let mut verbosity = measured.verbosity.by_package(model);
     let mut import_cycles = measured.import_cycles.by_package(model);
@@ -1286,6 +1531,7 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
         .by_package(model)
         .into_iter()
         .map(|(package, masses)| {
+            let cognitive_totals = cognitive.remove(&package).unwrap_or_default();
             let clone_lines = duplication.remove(&package).unwrap_or_default();
             let verbose_lines = verbosity.remove(&package).unwrap_or_default();
             let modules = import_cycles.remove(&package).unwrap_or_default();
@@ -1297,6 +1543,11 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
                     ratio: Decimal::rounded(masses.ratio()),
                     eroded_function_mass: Decimal::rounded(masses.eroded),
                     total_function_mass: Decimal::rounded(masses.total),
+                },
+                cognitive_complexity: PackageCognitiveComplexity {
+                    ratio: Decimal::rounded(cognitive_totals.ratio()),
+                    complex_cognitive_complexity: cognitive_totals.complex,
+                    total_cognitive_complexity: cognitive_totals.total,
                 },
                 duplication: PackageDuplication {
                     ratio: Decimal::rounded(clone_lines.ratio()),
@@ -1320,6 +1571,7 @@ pub struct ReportOptions<'a> {
     pub budgets: &'a Budgets,
     pub metric_plugins: &'a [&'a dyn MetricPlugin],
     pub boundaries: Option<&'a BoundariesConfig>,
+    pub dependencies: &'a DependenciesConfig,
     pub duplication: DuplicationConfig,
     pub orphan_files: Option<&'a OrphanFiles>,
     pub orphan_files_by_language: Option<&'a BTreeMap<String, OrphanFiles>>,
@@ -1329,16 +1581,23 @@ pub struct ReportOptions<'a> {
 impl MeasuredSection {
     fn new(
         model: CodeModel,
+        hygiene: &DependencyHygiene,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = model.files.len();
         let lines = source_lines(&model);
+        let view = FindingsView {
+            shown: options.findings,
+            ownership: options.ownership,
+        };
+        let dependencies = DependenciesSection::from_hygiene(hygiene, view);
         let source_sets = SourceSetSections::new(&model.into_source_sets(), ranges, options)?;
         Ok(MeasuredSection {
             files,
             source_lines: lines,
             source_sets,
+            dependencies,
         })
     }
 
@@ -1389,6 +1648,7 @@ impl Report {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<Report, MetricPluginError> {
+        let dependencies = DependenciesConfig::default();
         Report::summarize_with_options(
             languages,
             submodules,
@@ -1397,6 +1657,7 @@ impl Report {
                 budgets,
                 metric_plugins,
                 boundaries,
+                dependencies: &dependencies,
                 duplication: DuplicationConfig::default(),
                 orphan_files: None,
                 orphan_files_by_language: None,
@@ -1414,6 +1675,7 @@ impl Report {
         boundaries: Option<&BoundariesConfig>,
         duplication: DuplicationConfig,
     ) -> Result<Report, MetricPluginError> {
+        let dependencies = DependenciesConfig::default();
         Report::summarize_with_options(
             languages,
             submodules,
@@ -1422,6 +1684,7 @@ impl Report {
                 budgets,
                 metric_plugins,
                 boundaries,
+                dependencies: &dependencies,
                 duplication,
                 orphan_files: None,
                 orphan_files_by_language: None,
@@ -1439,6 +1702,7 @@ impl Report {
         boundaries: Option<&BoundariesConfig>,
         ownership: OwnershipOptions<'_>,
     ) -> Result<Report, MetricPluginError> {
+        let dependencies = DependenciesConfig::default();
         Report::summarize_with_options(
             languages,
             submodules,
@@ -1447,6 +1711,7 @@ impl Report {
                 budgets,
                 metric_plugins,
                 boundaries,
+                dependencies: &dependencies,
                 duplication: DuplicationConfig::default(),
                 orphan_files: None,
                 orphan_files_by_language: None,
@@ -1460,6 +1725,12 @@ impl Report {
         submodules: Vec<RepoPath>,
         options: ReportOptions<'_>,
     ) -> Result<Report, MetricPluginError> {
+        let ignored = options.dependencies.ignored();
+        let total_hygiene = DependencyHygiene::merge(
+            languages
+                .iter()
+                .map(|language| DependencyHygiene::measure(&language.model, ignored)),
+        );
         let section_options = SectionOptions {
             findings: options.findings,
             metric_plugins: options.metric_plugins,
@@ -1483,6 +1754,7 @@ impl Report {
             _ => {
                 let mut per_language = BTreeMap::new();
                 for language in &measured {
+                    let language_hygiene = DependencyHygiene::measure(&language.model, ignored);
                     let language_orphans = options
                         .orphan_files_by_language
                         .and_then(|map| map.get(&language.plugin));
@@ -1490,6 +1762,7 @@ impl Report {
                         language.plugin.clone(),
                         MeasuredSection::new(
                             language.model.clone(),
+                            &language_hygiene,
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
                             SectionOptions {
                                 orphan_files: language_orphans,
@@ -1513,9 +1786,13 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(model, &total_ranges, section_options)?;
+        let measured = MeasuredSection::new(model, &total_hygiene, &total_ranges, section_options)?;
+        let mut failures = measured.source_sets.over_budget(options.budgets);
+        if let Some(dependencies) = &measured.dependencies {
+            failures.extend(dependencies.over_budget(options.budgets));
+        }
         Ok(Report {
-            over_budget: measured.source_sets.over_budget(options.budgets),
+            over_budget: failures,
             skipped,
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),

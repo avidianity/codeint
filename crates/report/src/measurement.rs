@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 
-use codeint_config::{Boundaries as BoundariesConfig, DuplicationConfig};
-use codeint_metrics::OrphanFiles;
+use codeint_config::{Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig};
+use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, ErodedFunctionFinding,
-    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured, OrphanFileRow,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding,
+    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding,
+    ImportedDependencyRow, Measured, OrphanFileRow, UnusedDependencyRow,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,12 +17,23 @@ pub struct CommitMeasurement {
     test: SourceSetMeasurement,
     generated: SourceSetMeasurement,
     vendored: SourceSetMeasurement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dependencies: Option<DependenciesMeasurement>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(crate) struct DependenciesMeasurement {
+    pub(crate) unused_dependencies: MetricMeasurement<UnusedDependencyRow>,
+    pub(crate) unlisted_dependencies: MetricMeasurement<ImportedDependencyRow>,
+    pub(crate) dev_in_production_dependencies: MetricMeasurement<ImportedDependencyRow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SourceSetMeasurement {
     pub(crate) files: usize,
     pub(crate) erosion: MetricMeasurement<ErodedFunctionFinding>,
+    #[serde(default)]
+    pub(crate) cognitive_complexity: MetricMeasurement<CognitiveComplexityFinding>,
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
     pub(crate) clone_families: Vec<CloneFamilyFinding>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
@@ -99,6 +111,33 @@ impl CommitMeasurement {
         duplication: DuplicationConfig,
         orphan_files: Option<&OrphanFiles>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
+        let dependencies = DependenciesConfig::default();
+        CommitMeasurement::of_languages_with_options(
+            vec![model],
+            metric_plugins,
+            boundaries,
+            &dependencies,
+            duplication,
+            orphan_files,
+        )
+    }
+
+    pub fn of_languages_with_options(
+        languages: Vec<CodeModel>,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        dependencies_config: &DependenciesConfig,
+        duplication: DuplicationConfig,
+        orphan_files: Option<&OrphanFiles>,
+    ) -> Result<CommitMeasurement, MetricPluginError> {
+        let ignored = dependencies_config.ignored();
+        let hygiene = DependencyHygiene::merge(
+            languages
+                .iter()
+                .map(|model| DependencyHygiene::measure(model, ignored)),
+        );
+        let dependencies = DependenciesMeasurement::from_hygiene(&hygiene);
+        let model = CodeModel::merge(languages);
         let source_sets = model.into_source_sets();
         Ok(CommitMeasurement {
             production: SourceSetMeasurement::of(
@@ -129,6 +168,7 @@ impl CommitMeasurement {
                 duplication,
                 None,
             )?,
+            dependencies,
         })
     }
 
@@ -139,6 +179,51 @@ impl CommitMeasurement {
             (SourceSet::Generated, self.generated),
             (SourceSet::Vendored, self.vendored),
         ]
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        [(SourceSet, SourceSetMeasurement); 4],
+        Option<DependenciesMeasurement>,
+    ) {
+        (
+            [
+                (SourceSet::Production, self.production),
+                (SourceSet::Test, self.test),
+                (SourceSet::Generated, self.generated),
+                (SourceSet::Vendored, self.vendored),
+            ],
+            self.dependencies,
+        )
+    }
+}
+
+impl DependenciesMeasurement {
+    fn from_hygiene(hygiene: &DependencyHygiene) -> Option<DependenciesMeasurement> {
+        if !hygiene.has_activity() {
+            return None;
+        }
+        Some(DependenciesMeasurement {
+            unused_dependencies: MetricMeasurement::from_items(
+                hygiene.unused_ratio(),
+                hygiene.unused().len() as f64,
+                hygiene.unused(),
+                UnusedDependencyRow::from,
+            ),
+            unlisted_dependencies: MetricMeasurement::from_items(
+                hygiene.unlisted_ratio(),
+                hygiene.unlisted().len() as f64,
+                hygiene.unlisted(),
+                ImportedDependencyRow::from,
+            ),
+            dev_in_production_dependencies: MetricMeasurement::from_items(
+                hygiene.dev_in_production_ratio(),
+                hygiene.dev_in_production().len() as f64,
+                hygiene.dev_in_production(),
+                ImportedDependencyRow::from,
+            ),
+        })
     }
 }
 
@@ -179,11 +264,42 @@ impl SourceSetMeasurement {
         }
         Ok(SourceSetMeasurement {
             files: model.files.len(),
-            erosion: erosion(&measured),
-            duplication: duplication(&measured),
-            clone_families: clone_families(&measured),
-            verbosity: verbosity(&measured),
-            import_cycles: import_cycles(&measured),
+            erosion: MetricMeasurement::from_items(
+                measured.erosion.ratio(),
+                measured.erosion.eroded_function_mass(),
+                measured.erosion.eroded_functions(),
+                ErodedFunctionFinding::new,
+            ),
+            cognitive_complexity: MetricMeasurement::from_items(
+                measured.cognitive_complexity.ratio(),
+                measured.cognitive_complexity.complex_cognitive_complexity() as f64,
+                measured.cognitive_complexity.complex_functions(),
+                CognitiveComplexityFinding::new,
+            ),
+            duplication: MetricMeasurement::from_items(
+                measured.duplication.ratio(),
+                measured.duplication.clone_lines.count() as f64,
+                &measured.duplication.clone_groups,
+                CloneGroupFinding::new,
+            ),
+            clone_families: measured
+                .duplication
+                .clone_families
+                .iter()
+                .map(CloneFamilyFinding::new)
+                .collect(),
+            verbosity: MetricMeasurement::from_items(
+                measured.verbosity.ratio(),
+                measured.verbosity.verbose_lines() as f64,
+                measured.verbosity.flagged_lines(),
+                FlaggedLineRow::from,
+            ),
+            import_cycles: MetricMeasurement::from_items(
+                measured.import_cycles.ratio(),
+                measured.import_cycles.modules_in_import_cycles() as f64,
+                measured.import_cycles.cycles(),
+                ImportCycleFinding::new,
+            ),
             boundaries,
             orphan_files,
             external_metrics,
@@ -191,74 +307,24 @@ impl SourceSetMeasurement {
     }
 }
 
+impl<F> MetricMeasurement<F> {
+    fn from_items<'a, T>(
+        ratio: f64,
+        numerator: f64,
+        items: &'a [T],
+        convert: impl Fn(&'a T) -> F,
+    ) -> MetricMeasurement<F> {
+        MetricMeasurement {
+            ratio,
+            numerator,
+            findings_worst_first: items.iter().map(convert).collect(),
+        }
+    }
+}
+
 fn finding_measurement<'a, T: 'a, R: From<&'a T>>(
     ratio: f64,
     findings: &'a [T],
 ) -> MetricMeasurement<R> {
-    MetricMeasurement {
-        ratio,
-        numerator: findings.len() as f64,
-        findings_worst_first: findings.iter().map(R::from).collect(),
-    }
-}
-
-fn erosion(measured: &Measured) -> MetricMeasurement<ErodedFunctionFinding> {
-    MetricMeasurement {
-        ratio: measured.erosion.ratio(),
-        numerator: measured.erosion.eroded_function_mass(),
-        findings_worst_first: measured
-            .erosion
-            .eroded_functions()
-            .iter()
-            .map(ErodedFunctionFinding::new)
-            .collect(),
-    }
-}
-
-fn duplication(measured: &Measured) -> MetricMeasurement<CloneGroupFinding> {
-    MetricMeasurement {
-        ratio: measured.duplication.ratio(),
-        numerator: measured.duplication.clone_lines.count() as f64,
-        findings_worst_first: measured
-            .duplication
-            .clone_groups
-            .iter()
-            .map(CloneGroupFinding::new)
-            .collect(),
-    }
-}
-
-fn clone_families(measured: &Measured) -> Vec<CloneFamilyFinding> {
-    measured
-        .duplication
-        .clone_families
-        .iter()
-        .map(CloneFamilyFinding::new)
-        .collect()
-}
-
-fn verbosity(measured: &Measured) -> MetricMeasurement<FlaggedLineRow> {
-    MetricMeasurement {
-        ratio: measured.verbosity.ratio(),
-        numerator: measured.verbosity.verbose_lines() as f64,
-        findings_worst_first: measured
-            .verbosity
-            .flagged_lines()
-            .iter()
-            .map(FlaggedLineRow::from)
-            .collect(),
-    }
-}
-
-fn import_cycles(measured: &Measured) -> MetricMeasurement<ImportCycleFinding> {
-    MetricMeasurement {
-        ratio: measured.import_cycles.ratio(),
-        numerator: measured.import_cycles.modules_in_import_cycles() as f64,
-        findings_worst_first: measured
-            .import_cycles
-            .cycles()
-            .iter()
-            .map(ImportCycleFinding::new)
-            .collect(),
-    }
+    MetricMeasurement::from_items(ratio, findings.len() as f64, findings, R::from)
 }

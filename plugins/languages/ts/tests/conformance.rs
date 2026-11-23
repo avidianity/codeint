@@ -1,5 +1,5 @@
 use codeint_lang_ts::TypeScriptAndJavaScript;
-use codeint_model::language::{Function, ImportRequest, Resolution};
+use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{
     FileModel, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind,
     token_text_hash,
@@ -177,13 +177,20 @@ fn javascript_files_with_jsx_lower_their_functions_and_tokens() {
         let model =
             lower(path, esm).unwrap_or_else(|error| panic!("{path} did not lower: {error}"));
         assert_eq!(model.source_lines, from_jsx.source_lines, "{path}");
-        assert_eq!(model.functions, [function(1, 6, 1, 6)], "{path}");
+        assert_eq!(
+            model.functions,
+            [named_function(1, 6, 1, 6, Some("Badge"), 1)],
+            "{path}"
+        );
         assert_eq!(model.tokens, from_jsx.tokens, "{path}");
     }
 
     let cjs_model = lower("src/badge.cjs", cjs).expect("cjs file with jsx lowers");
     assert_eq!(cjs_model.source_lines, 7);
-    assert_eq!(cjs_model.functions, [function(1, 6, 1, 6)]);
+    assert_eq!(
+        cjs_model.functions,
+        [named_function(1, 6, 1, 6, Some("Badge"), 1)]
+    );
     assert!(!cjs_model.tokens.is_empty());
 }
 
@@ -195,7 +202,10 @@ fn a_javascript_file_without_jsx_keeps_its_functions_and_comparison_tokens() {
         "}\n",
     );
 
-    assert_eq!(functions("src/range.js", text), [function(1, 3, 1, 3)]);
+    assert_eq!(
+        functions("src/range.js", text),
+        [named_function(1, 3, 1, 3, Some("inRange"), 1)]
+    );
     assert_token_kinds(
         "src/range.js",
         text,
@@ -318,14 +328,21 @@ fn functions(path: &str, text: &str) -> Vec<Function> {
     }
 }
 
-fn function(line: u32, end_line: u32, decision_points: u32, source_lines: u32) -> Function {
+fn named_function(
+    line: u32,
+    end_line: u32,
+    decision_points: u32,
+    source_lines: u32,
+    name: Option<&str>,
+    cognitive_complexity: u32,
+) -> Function {
     Function {
         line,
         end_line,
         decision_points,
         source_lines,
-        name: None,
-        cognitive_complexity: 0,
+        name: name.map(str::to_owned),
+        cognitive_complexity,
     }
 }
 
@@ -358,14 +375,20 @@ fn each_if_statement_and_loop_is_a_decision_point_of_its_function() {
         "}\n",
     );
 
-    assert_eq!(functions("src/walk.ts", text), [function(1, 24, 7, 23)]);
+    assert_eq!(
+        functions("src/walk.ts", text),
+        [named_function(1, 24, 7, 23, Some("walk"), 8)]
+    );
 }
 
 #[test]
 fn a_function_without_branches_or_loops_has_no_decision_points() {
     let text = "export function one(): number {\n  return 1;\n}\n";
 
-    assert_eq!(functions("src/one.ts", text), [function(1, 3, 0, 3)]);
+    assert_eq!(
+        functions("src/one.ts", text),
+        [named_function(1, 3, 0, 3, Some("one"), 0)]
+    );
 }
 
 #[test]
@@ -415,14 +438,14 @@ fn every_kind_of_function_is_lowered_in_the_order_of_its_first_line() {
     assert_eq!(
         functions("src/kinds.ts", text),
         [
-            function(1, 6, 1, 6),
-            function(7, 9, 0, 3),
-            function(10, 14, 1, 5),
-            function(15, 15, 0, 1),
-            function(18, 20, 0, 3),
-            function(21, 23, 0, 3),
-            function(24, 28, 1, 5),
-            function(31, 33, 0, 3),
+            named_function(1, 6, 1, 6, Some("declared"), 1),
+            named_function(7, 9, 0, 3, Some("expressed"), 0),
+            named_function(10, 14, 1, 5, Some("arrow"), 1),
+            named_function(15, 15, 0, 1, Some("concise"), 0),
+            named_function(18, 20, 0, 3, Some("constructor"), 0),
+            named_function(21, 23, 0, 3, Some("doubled"), 0),
+            named_function(24, 28, 1, 5, Some("increment"), 1),
+            named_function(31, 33, 0, 3, Some("method"), 0),
         ]
     );
 }
@@ -446,7 +469,10 @@ fn a_nested_function_adds_no_decision_points_to_the_function_around_it() {
 
     assert_eq!(
         functions("src/nested.ts", text),
-        [function(1, 12, 1, 5), function(5, 11, 2, 7)]
+        [
+            named_function(1, 12, 1, 5, Some("outer"), 1),
+            named_function(5, 11, 2, 7, None, 3),
+        ]
     );
 }
 
@@ -489,52 +515,57 @@ fn each_nested_function_takes_its_lines_and_decision_points_away_from_its_parent
     assert_eq!(
         functions("src/build.ts", text),
         [
-            function(1, 31, 0, 8),
-            function(3, 5, 0, 3),
-            function(9, 11, 0, 3),
-            function(12, 14, 0, 3),
-            function(15, 19, 1, 5),
-            function(21, 23, 0, 3),
-            function(24, 24, 0, 1),
-            function(24, 24, 0, 1),
-            function(26, 28, 0, 3),
-            function(28, 30, 0, 3),
+            named_function(1, 31, 0, 8, Some("build"), 0),
+            named_function(3, 5, 0, 3, Some("method"), 0),
+            named_function(9, 11, 0, 3, Some("size"), 0),
+            named_function(12, 14, 0, 3, Some("size"), 0),
+            named_function(15, 19, 1, 5, Some("grow"), 1),
+            named_function(21, 23, 0, 3, Some("named"), 0),
+            named_function(24, 24, 0, 1, None, 0),
+            named_function(24, 24, 0, 1, None, 0),
+            named_function(26, 28, 0, 3, None, 0),
+            named_function(28, 30, 0, 3, None, 0),
         ]
     );
 }
 
+fn assert_lowered_functions(path: &str, text: &str, expected: &[Function]) {
+    assert_eq!(functions(path, text), expected);
+}
+
 #[test]
 fn a_function_nested_on_every_line_of_its_parent_takes_every_line() {
-    let text = concat!(
-        "export const handler = (rows: number[]) => rows.map((row) => {\n",
-        "  return row + 1;\n",
-        "});\n",
-    );
-
-    assert_eq!(
-        functions("src/handler.ts", text),
-        [function(1, 3, 0, 0), function(1, 3, 0, 3)]
+    assert_lowered_functions(
+        "src/handler.ts",
+        "export const handler = (rows: number[]) => rows.map((row) => {\n  return row + 1;\n});\n",
+        &[
+            named_function(1, 3, 0, 0, Some("handler"), 0),
+            named_function(1, 3, 0, 3, None, 0),
+        ],
     );
 }
 
 #[test]
 fn blank_and_comment_only_lines_of_a_function_are_not_its_source_lines() {
-    let text = concat!(
-        "export function documented(flag: boolean) {\n",
-        "  // a comment that explains nothing\n",
-        "\n",
-        "  /* a block\n",
-        "     comment */\n",
-        "  if (flag) {\n",
-        "    return 1;\n",
-        "  }\n",
-        "  return 0;\n",
-        "}\n",
-    );
+    let source = [
+        "export function documented(flag: boolean) {",
+        "  // a comment that explains nothing",
+        "",
+        "  /* a block",
+        "     comment */",
+        "  if (flag) {",
+        "    return 1;",
+        "  }",
+        "  return 0;",
+        "}",
+        "",
+    ]
+    .join("\n");
 
-    assert_eq!(
-        functions("src/documented.ts", text),
-        [function(1, 10, 1, 6)]
+    assert_lowered_functions(
+        "src/documented.ts",
+        &source,
+        &[named_function(1, 10, 1, 6, Some("documented"), 1)],
     );
 }
 
@@ -552,7 +583,10 @@ fn a_function_signature_without_a_body_is_not_a_function() {
         "}\n",
     );
 
-    assert_eq!(functions("src/overloads.ts", text), [function(3, 5, 0, 3)]);
+    assert_eq!(
+        functions("src/overloads.ts", text),
+        [named_function(3, 5, 0, 3, Some("pick"), 0)]
+    );
 }
 
 #[test]
@@ -566,7 +600,10 @@ fn a_function_in_a_javascript_file_is_lowered_too() {
         "}\n",
     );
 
-    assert_eq!(functions("src/sign.js", text), [function(1, 6, 1, 6)]);
+    assert_eq!(
+        functions("src/sign.js", text),
+        [named_function(1, 6, 1, 6, Some("sign"), 1)]
+    );
 }
 
 #[test]
@@ -576,14 +613,20 @@ fn a_function_after_a_comment_with_multibyte_characters_starts_on_the_right_line
         "\u{2713}".repeat(20)
     );
 
-    assert_eq!(functions("src/marks.ts", &text), [function(3, 5, 0, 3)]);
+    assert_eq!(
+        functions("src/marks.ts", &text),
+        [named_function(3, 5, 0, 3, Some("later"), 0)]
+    );
 }
 
 #[test]
 fn a_function_that_starts_after_crlf_lines_starts_on_the_right_line() {
     let text = "const first = 1;\r\n\r\nfunction later() {\r\n  return first;\r\n}\r\n";
 
-    assert_eq!(functions("src/crlf.ts", text), [function(3, 5, 0, 3)]);
+    assert_eq!(
+        functions("src/crlf.ts", text),
+        [named_function(3, 5, 0, 3, Some("later"), 0)]
+    );
 }
 
 fn cyclomatic_complexity(path: &str, text: &str) -> u32 {
@@ -768,7 +811,10 @@ fn a_default_parameter_of_a_nested_function_counts_only_toward_the_nested_functi
 
     assert_eq!(
         functions("src/outer.ts", text),
-        [function(1, 4, 0, 3), function(2, 2, 1, 1)]
+        [
+            named_function(1, 4, 0, 3, Some("outer"), 0),
+            named_function(2, 2, 1, 1, Some("inner"), 0),
+        ]
     );
 }
 
@@ -2026,4 +2072,336 @@ fn workspaces_and_cross_package_imports_work_for_bun_npm_yarn_and_pnpm() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn named_functions_methods_and_anonymous_callbacks_report_expected_names() {
+    let text = concat!(
+        "export function declared() { return 1; }\n",
+        "export const arrowNamed = (x: number) => x + 1;\n",
+        "export const exprNamed = function () { return 2; };\n",
+        "export const exprSelfNamed = function innerName() { return 3; };\n",
+        "export default function () { return 4; }\n",
+        "export class Widget {\n",
+        "  constructor() {}\n",
+        "  render() { return 1; }\n",
+        "  #secret() { return 2; }\n",
+        "  onClick = () => 3;\n",
+        "}\n",
+        "export const obj = {\n",
+        "  shorthand() { return 1; },\n",
+        "  propFn: () => 2,\n",
+        "};\n",
+        "export function withCallbacks(items: number[]) {\n",
+        "  return items.map((item) => item * 2).filter(function (v) { return v > 0; });\n",
+        "}\n",
+    );
+
+    let names: Vec<Option<String>> = functions("src/names.ts", text)
+        .into_iter()
+        .map(|f| f.name)
+        .collect();
+
+    assert_eq!(
+        names,
+        vec![
+            Some("declared".to_owned()),
+            Some("arrowNamed".to_owned()),
+            Some("exprNamed".to_owned()),
+            Some("innerName".to_owned()),
+            None,
+            Some("constructor".to_owned()),
+            Some("render".to_owned()),
+            Some("#secret".to_owned()),
+            Some("onClick".to_owned()),
+            Some("shorthand".to_owned()),
+            Some("propFn".to_owned()),
+            Some("withCallbacks".to_owned()),
+            None,
+            None,
+        ]
+    );
+}
+
+#[test]
+fn cognitive_complexity_distinguishes_flat_branching_from_deeply_nested_control_flow() {
+    let flat_switch = concat!(
+        "export function flatSwitch(x: number): number {\n",
+        "  switch (x) {\n",
+        "    case 1: return 1;\n",
+        "    case 2: return 2;\n",
+        "    case 3: return 3;\n",
+        "    case 4: return 4;\n",
+        "    default: return 0;\n",
+        "  }\n",
+        "}\n",
+    );
+    let flat_ifs = concat!(
+        "export function flatIfs(a: boolean, b: boolean, c: boolean, d: boolean): number {\n",
+        "  let n = 0;\n",
+        "  if (a) { n += 1; }\n",
+        "  if (b) { n += 1; }\n",
+        "  if (c) { n += 1; }\n",
+        "  if (d) { n += 1; }\n",
+        "  return n;\n",
+        "}\n",
+    );
+    let deeply_nested = r#"export function deeplyNested(a: boolean, b: boolean, c: boolean, d: boolean): number {
+  if (a) {
+    if (b) {
+      if (c) {
+        if (d) { return 1; }
+      }
+    }
+  }
+  return 0;
+}
+"#;
+
+    let switch_fn = &functions("src/flat_switch.ts", flat_switch)[0];
+    let flat_fn = &functions("src/flat_ifs.ts", flat_ifs)[0];
+    let nested_fn = &functions("src/deeply_nested.ts", deeply_nested)[0];
+
+    assert_eq!(switch_fn.decision_points, 4);
+    assert_eq!(switch_fn.cognitive_complexity, 1);
+    assert_eq!(flat_fn.decision_points, 4);
+    assert_eq!(flat_fn.cognitive_complexity, 4);
+    assert_eq!(nested_fn.decision_points, 4);
+    assert_eq!(nested_fn.cognitive_complexity, 10);
+}
+
+#[test]
+fn cognitive_complexity_handles_else_if_boolean_sequences_labels_recursion_and_nested_isolation() {
+    let text = r#"export function complex(a: boolean, b: boolean, c: boolean, d: boolean, items: number[]): number {
+  if (a && b && c) {
+    outer: for (const item of items) {
+      if (item < 0 || item > 10 && d) {
+        break outer;
+      } else if (item === 0) {
+        continue outer;
+      } else {
+        try {
+          items.map((inner) => {
+            if (inner > 0) {
+              if (inner > 1) { return inner; }
+            }
+            return 0;
+          });
+        } catch (err) {
+          return complex(false, b, c, d, []);
+        }
+      }
+    }
+  }
+  return 0;
+}
+"#;
+
+    let found = functions("src/complex.ts", text);
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].name.as_deref(), Some("complex"));
+    assert_eq!(found[0].cognitive_complexity, 18);
+    assert_eq!(found[1].name, None);
+    assert_eq!(found[1].cognitive_complexity, 3);
+}
+
+fn declared_deps(manifests: &[(&str, &str)]) -> Vec<DeclaredDep> {
+    plugin()
+        .declared_dependencies(
+            manifests
+                .iter()
+                .map(|(path, text)| manifest(path, text))
+                .collect(),
+        )
+        .expect("declared dependencies")
+}
+
+fn expected_declared(rows: &[(&str, &str, DepKind)]) -> Vec<DeclaredDep> {
+    rows.iter()
+        .map(|(root, name, kind)| DeclaredDep {
+            package_root: (*root).to_owned(),
+            name: (*name).to_owned(),
+            kind: *kind,
+        })
+        .collect()
+}
+
+fn resolve_with_tsconfig(tsconfig: &str, specifiers: &[&str]) -> Vec<Resolution> {
+    let requests: Vec<(&str, &str)> = specifiers
+        .iter()
+        .map(|specifier| ("src/app.ts", *specifier))
+        .collect();
+    resolve_for(
+        &["tsconfig.json", "src/app.ts"],
+        &[("tsconfig.json", tsconfig)],
+        &requests,
+    )
+}
+
+#[test]
+fn node_and_bun_builtins_and_canonical_external_packages_classify_accurately() {
+    let catch_all_builtins = resolve_with_tsconfig(
+        r#"{"compilerOptions": {"baseUrl": ".", "paths": {"*": ["./src/*"]}}}"#,
+        &[
+            "node:fs",
+            "node:test",
+            "node:sqlite",
+            "node:path/posix",
+            "fs",
+            "fs/promises",
+            "path/posix",
+            "stream/promises",
+            "bun",
+            "bun:sqlite",
+        ],
+    );
+    assert_eq!(catch_all_builtins, vec![Resolution::Builtin; 10]);
+
+    let normal_resolutions = resolve_with_tsconfig(
+        r#"{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}"#,
+        &[
+            "node:crypto",
+            "fs/promises",
+            "lodash/fp/map",
+            "@scope/pkg/sub/deep",
+            "@scope/pkg/sub?raw#hash",
+        ],
+    );
+    assert_eq!(
+        normal_resolutions,
+        vec![
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::External("lodash".to_owned()),
+            Resolution::External("@scope/pkg".to_owned()),
+            Resolution::External("@scope/pkg".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn single_package_json_parses_runtime_dev_optional_and_peer_dependencies() {
+    let deps = declared_deps(&[
+        (
+            "package.json",
+            r#"{
+              "name": "solo-app",
+              "dependencies": {
+                "react": "^18.3.0",
+                "@scope/ui": "^1.0.0",
+                "solo-app": "^1.0.0",
+                "   ": "^1.0.0"
+              },
+              "devDependencies": {
+                "vitest": "^2.0.0",
+                "@types/node": "^22.0.0"
+              },
+              "optionalDependencies": {
+                "fsevents": "^2.3.0"
+              },
+              "peerDependencies": {
+                "react-dom": "^18.3.0",
+                "fsevents": "^2.3.0"
+              }
+            }"#,
+        ),
+        ("tsconfig.json", r#"{"compilerOptions": {"strict": true}}"#),
+        (
+            "node_modules/ignored/package.json",
+            r#"{"name": "ignored", "dependencies": {"leak": "1.0.0"}}"#,
+        ),
+        (
+            "examples/demo/package.json",
+            r#"{"name": "demo", "dependencies": {"non-workspace": "1.0.0"}}"#,
+        ),
+    ]);
+
+    assert_eq!(
+        deps,
+        expected_declared(&[
+            ("", "@scope/ui", DepKind::Runtime),
+            ("", "react", DepKind::Runtime),
+            ("", "@types/node", DepKind::Dev),
+            ("", "vitest", DepKind::Dev),
+            ("", "fsevents", DepKind::Optional),
+            ("", "react-dom", DepKind::Optional),
+            ("examples/demo", "non-workspace", DepKind::Runtime),
+        ])
+    );
+}
+
+#[test]
+fn workspace_package_jsons_emit_per_package_deps_and_exclude_local_members() {
+    let expected = expected_declared(&[
+        ("", "vitest", DepKind::Dev),
+        ("packages/core", "zod", DepKind::Runtime),
+        ("packages/retired", "old-dep", DepKind::Runtime),
+        ("packages/web", "react", DepKind::Runtime),
+        ("packages/web", "tsx", DepKind::Dev),
+        ("packages/web", "react-dom", DepKind::Optional),
+    ]);
+
+    for (label, root_path, root_text) in [
+        (
+            "npm_yarn_bun",
+            "package.json",
+            r#"{"workspaces": ["packages/*", "!packages/retired"], "devDependencies": {"vitest": "^2.0.0"}}"#,
+        ),
+        (
+            "pnpm",
+            "pnpm-workspace.yaml",
+            "packages:\n  - 'packages/*'\n  - '!packages/retired'\n",
+        ),
+    ] {
+        let mut manifests = vec![
+            (root_path, root_text),
+            (
+                "packages/core/package.json",
+                r#"{"name": "@acme/core", "dependencies": {"zod": "^3.23.0"}}"#,
+            ),
+            (
+                "packages/web/package.json",
+                r#"{
+                  "name": "@acme/web",
+                  "dependencies": {
+                    "@acme/core": "^1.0.0",
+                    "@acme/other": "workspace:*",
+                    "react": "^18.3.0"
+                  },
+                  "devDependencies": {"tsx": "^4.0.0"},
+                  "peerDependencies": {"react-dom": "^18.3.0"}
+                }"#,
+            ),
+            (
+                "packages/retired/package.json",
+                r#"{"name": "@acme/retired", "dependencies": {"old-dep": "1.0.0"}}"#,
+            ),
+        ];
+        if root_path == "pnpm-workspace.yaml" {
+            manifests.push((
+                "package.json",
+                r#"{"devDependencies": {"vitest": "^2.0.0"}}"#,
+            ));
+        }
+        assert_eq!(declared_deps(&manifests), expected, "{label}");
+    }
+
+    let polyglot = declared_deps(&[
+        (
+            "frontend/package.json",
+            r#"{"name": "frontend", "dependencies": {"svelte": "^5.0.0"}, "devDependencies": {"vite": "^6.0.0"}}"#,
+        ),
+        ("broken/package.json", "{ not valid json"),
+        (
+            "frontend/node_modules/pkg/package.json",
+            r#"{"dependencies": {"leaked": "^1.0.0"}}"#,
+        ),
+    ]);
+    assert_eq!(
+        polyglot,
+        expected_declared(&[
+            ("frontend", "svelte", DepKind::Runtime),
+            ("frontend", "vite", DepKind::Dev),
+        ])
+    );
 }

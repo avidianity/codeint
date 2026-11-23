@@ -8,10 +8,19 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 fn run_exe(exe: &Path, args: &[&str], release_base: Option<&Path>) -> Output {
+    run_exe_in_dir(exe, exe.parent(), args, release_base)
+}
+
+fn run_exe_in_dir(
+    exe: &Path,
+    working_dir: Option<&Path>,
+    args: &[&str],
+    release_base: Option<&Path>,
+) -> Output {
     for attempt in 0..20 {
         let mut command = Command::new(exe);
         command.args(args);
-        if let Some(dir) = exe.parent() {
+        if let Some(dir) = working_dir {
             command.current_dir(dir);
         }
         if let Some(base) = release_base {
@@ -244,12 +253,7 @@ fn run_update_in_repo(temp: &TempDir, repo_dir: &Path, latest_tag: &str) -> Outp
         format!("{digest}  {}\n", host_archive_name()),
     )
     .expect("sums");
-    Command::new(&exe)
-        .arg("update")
-        .current_dir(repo_dir)
-        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
-        .output()
-        .expect("run update")
+    run_exe_in_dir(&exe, Some(repo_dir), &["update"], Some(&release_dir))
 }
 
 #[test]

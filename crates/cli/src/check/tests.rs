@@ -667,7 +667,7 @@ fn the_markdown_report_shows_the_metrics_and_packages_of_each_language_after_the
         "unexpected report: {report}"
     );
     assert!(
-        alpha.ends_with("| Production | `packages/one` | 1 | 1 | 0 | 0 | 0 | 0 |"),
+        alpha.ends_with("| Production | `packages/one` | 1 | 1 | 0 | 0 | 0 | 0 | 0 |"),
         "unexpected report: {report}"
     );
     assert!(
@@ -679,7 +679,7 @@ fn the_markdown_report_shows_the_metrics_and_packages_of_each_language_after_the
         "unexpected report: {report}"
     );
     assert!(
-        flagged.ends_with("| Production | `packages/one` | 1 | 1 | 0 | 0 | 1 | 0 |"),
+        flagged.ends_with("| Production | `packages/one` | 1 | 1 | 0 | 0 | 0 | 1 | 0 |"),
         "unexpected report: {report}"
     );
 }

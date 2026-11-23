@@ -2,8 +2,8 @@ use codeint_model::SourceSet;
 
 use super::{ListedFindings, SarifLog, relative_uri};
 use crate::{
-    CloneFamilyFinding, CloneGroupFinding, CloneLocation, Decimal, ErodedFunctionFinding,
-    FlaggedLineRow, ImportCycleFinding,
+    CloneFamilyFinding, CloneGroupFinding, CloneLocation, CognitiveComplexityFinding, Decimal,
+    ErodedFunctionFinding, FlaggedLineRow, ImportCycleFinding,
 };
 
 #[test]
@@ -35,9 +35,23 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         id: "1111111111111111".to_owned(),
         path: "src/big.ts".to_owned(),
         line: 3,
+        end_line: 23,
+        name: Some("big".to_owned()),
         cyclomatic_complexity: 12,
+        cognitive_complexity: 14,
         source_lines: 20,
         function_mass: Decimal(53.6656),
+        owners: Vec::new(),
+    }];
+    let complex = [CognitiveComplexityFinding {
+        id: "5555555555555555".to_owned(),
+        path: "src/deep.ts".to_owned(),
+        line: 5,
+        end_line: 30,
+        name: Some("deep".to_owned()),
+        cognitive_complexity: 21,
+        cyclomatic_complexity: 7,
+        source_lines: 25,
         owners: Vec::new(),
     }];
     let clones = [CloneGroupFinding {
@@ -72,6 +86,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
     }];
     let listed = ListedFindings {
         eroded_functions: &eroded,
+        cognitive_complexity: &complex,
         clone_groups: &clones,
         clone_families: &[],
         clustered_clone_group_ids: &[],
@@ -82,10 +97,10 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         external_metrics: Vec::new(),
     };
 
-    let log = serde_json::to_value(SarifLog::listing(std::iter::once((
-        SourceSet::Production,
-        listed,
-    ))))
+    let log = serde_json::to_value(SarifLog::listing(
+        std::iter::once((SourceSet::Production, listed)),
+        super::ListedDependencies::EMPTY,
+    ))
     .expect("SARIF serializes");
 
     let fingerprints: Vec<(&str, &str)> = log["runs"][0]["results"]
@@ -105,6 +120,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         fingerprints,
         [
             ("erosion", "1111111111111111"),
+            ("cognitive_complexity", "5555555555555555"),
             ("duplication", "2222222222222222"),
             ("verbosity", "3333333333333333"),
             ("import_cycles", "4444444444444444"),
@@ -182,6 +198,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
     }];
     let listed = ListedFindings {
         eroded_functions: &[],
+        cognitive_complexity: &[],
         clone_groups: &clones,
         clone_families: &families,
         clustered_clone_group_ids: &[],
@@ -192,10 +209,10 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
         external_metrics: Vec::new(),
     };
 
-    let log = serde_json::to_value(SarifLog::listing(std::iter::once((
-        SourceSet::Production,
-        listed,
-    ))))
+    let log = serde_json::to_value(SarifLog::listing(
+        std::iter::once((SourceSet::Production, listed)),
+        super::ListedDependencies::EMPTY,
+    ))
     .expect("SARIF serializes");
 
     let results = log["runs"][0]["results"].as_array().expect("results");

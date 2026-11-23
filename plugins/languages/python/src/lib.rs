@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod dependencies;
 mod entry_points;
 mod functions;
 mod imports;
@@ -7,6 +8,7 @@ mod lexer;
 mod resolution;
 mod rules;
 mod source_set;
+mod stdlib;
 mod workspaces;
 
 use codeint_model::language::{
@@ -16,7 +18,9 @@ use codeint_model::language::{
 use codeint_model::scan::build_reference_ranges;
 use codeint_model::token_text_hash;
 
+use crate::dependencies::extract_declared;
 use crate::entry_points::discover as discover_entry_points;
+use crate::resolution::{find_pyprojects, resolve_all};
 
 pub use rules::flagged_line_rules;
 
@@ -40,7 +44,7 @@ impl Guest for Python {
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        resolution::find_pyprojects(&repository_paths)
+        find_pyprojects(&repository_paths)
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
@@ -52,11 +56,11 @@ impl Guest for Python {
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        resolution::resolve_all(&repository_paths, &manifests, &requests)
+        resolve_all(&repository_paths, &manifests, &requests)
     }
 
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        extract_declared(&manifests)
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {

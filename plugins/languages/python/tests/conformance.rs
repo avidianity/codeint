@@ -1,5 +1,5 @@
 use codeint_lang_python::{Python, flagged_line_rules};
-use codeint_model::language::{Function, ImportRequest, Resolution};
+use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 #[test]
@@ -56,11 +56,13 @@ fn python_functions_decisions_and_source_sets() {
             end_line: 10,
             decision_points: 4,
             source_lines: 10,
-            name: None,
-            cognitive_complexity: 0,
+            name: Some("evaluate".to_owned()),
+            cognitive_complexity: 5,
         }
     );
     assert_eq!(model.functions[1].decision_points, 1);
+    assert_eq!(model.functions[1].name, None);
+    assert_eq!(model.functions[1].cognitive_complexity, 1);
 
     for (path, body, expected) in [
         ("tests/test_app.py", "x = 1\n", SourceSet::Test),
@@ -145,7 +147,7 @@ fn python_imports_type_checking_resolution_and_workspaces() {
         resolutions[1],
         Resolution::Resolved("src/demo/utils.py".into())
     );
-    assert_eq!(resolutions[2], Resolution::External(String::new()));
+    assert_eq!(resolutions[2], Resolution::Builtin);
     assert!(matches!(resolutions[3], Resolution::Unresolved(_)));
 
     let packages = Python
@@ -213,5 +215,239 @@ fn python_verbosity_rules() {
         let good_model = Python.lower(&RepoPath::new("b.py").unwrap(), good).unwrap();
         assert!(bad_model.flagged_lines.iter().any(|l| l.rule == rule));
         assert!(!good_model.flagged_lines.iter().any(|l| l.rule == rule));
+    }
+}
+
+#[test]
+fn python_stdlib_pep503_external_normalization_and_declared_dependencies() {
+    const ROOT_PYPROJECT: &str = r#"[project]
+name = "acme-root"
+dependencies = [
+    "Requests>=2.31.0",
+    "Pydantic_Settings[dotenv]>=2.4 ; python_version >= '3.10'",
+]
+
+[project.optional-dependencies]
+postgres = ["Psycopg_Pool>=3.2"]
+
+[dependency-groups]
+dev = [
+    { include-group = "lint" },
+    "pytest>=8.3",
+]
+lint = ["ruff>=0.7"]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+"#;
+    const CORE_PYPROJECT: &str = r#"[project]
+name = "acme_core"
+dependencies = [
+    "acme-root",
+    "zope.interface>=7.0",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+httpx = "^0.27"
+orjson = { version = "^3.10", optional = true }
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.11"
+"#;
+    const CLIENT_PY: &str = r#"import os.path
+from collections.abc import Mapping
+import tomllib
+from pydantic_settings.sources import EnvSettingsSource
+import httpx
+from zope.interface import Interface
+
+
+def fetch(cfg: Mapping[str, str]) -> str:
+    return os.path.join(cfg.get("root", "."), str(EnvSettingsSource), str(httpx), str(Interface), str(tomllib))
+"#;
+    let client_path = "packages/core/src/acme_core/client.py";
+    let model = Python
+        .lower(&RepoPath::new(client_path).unwrap(), CLIENT_PY)
+        .unwrap();
+    let repo: Vec<RepoPath> = [
+        "pyproject.toml",
+        "packages/core/pyproject.toml",
+        "packages/core/src/acme_core/__init__.py",
+        client_path,
+    ]
+    .map(|p| RepoPath::new(p).unwrap())
+    .into();
+    let manifests = vec![
+        Manifest {
+            path: "pyproject.toml".into(),
+            text: ROOT_PYPROJECT.into(),
+        },
+        Manifest {
+            path: "packages/core/pyproject.toml".into(),
+            text: CORE_PYPROJECT.into(),
+        },
+    ];
+    let requests = model
+        .runtime_imports
+        .iter()
+        .map(|spec| ImportRequest {
+            importer: client_path.into(),
+            specifier: spec.clone(),
+        })
+        .collect();
+    let resolutions = Python.resolve_imports(&repo, manifests.clone(), requests);
+    let expected = [
+        ("collections.abc", Resolution::Builtin),
+        ("httpx", Resolution::External("httpx".into())),
+        ("os.path", Resolution::Builtin),
+        (
+            "pydantic_settings.sources",
+            Resolution::External("pydantic-settings".into()),
+        ),
+        ("tomllib", Resolution::Builtin),
+        ("zope.interface", Resolution::External("zope".into())),
+    ];
+    for ((spec, actual), (want_spec, want_res)) in
+        model.runtime_imports.iter().zip(resolutions).zip(expected)
+    {
+        assert_eq!((spec.as_str(), actual), (want_spec, want_res));
+    }
+
+    let deps = Python.declared_dependencies(manifests).unwrap();
+    let expected_deps = [
+        ("", "pydantic-settings", DepKind::Runtime),
+        ("", "requests", DepKind::Runtime),
+        ("", "pytest", DepKind::Dev),
+        ("", "ruff", DepKind::Dev),
+        ("", "psycopg-pool", DepKind::Optional),
+        ("packages/core", "httpx", DepKind::Runtime),
+        ("packages/core", "zope-interface", DepKind::Runtime),
+        ("packages/core", "mypy", DepKind::Dev),
+        ("packages/core", "orjson", DepKind::Optional),
+    ]
+    .map(|(root, name, kind)| DeclaredDep {
+        package_root: root.to_owned(),
+        name: name.to_owned(),
+        kind,
+    });
+    assert_eq!(deps, expected_deps);
+}
+
+#[test]
+fn python_function_names_cover_defs_async_methods_nested_and_anonymous_lambdas() {
+    let src = [
+        "def top_level(x):",
+        "    return x + 1",
+        "async def fetch_data(url):",
+        "    return url",
+        "class Service:",
+        "    def __init__(self, client):",
+        "        self.client = client",
+        "    async def process(self, items):",
+        "        def helper(v):",
+        "            return v * 2",
+        "        return list(map(lambda item: helper(item), items))",
+    ]
+    .join("\n");
+    let model = Python
+        .lower(&RepoPath::new("src/names.py").unwrap(), &src)
+        .unwrap();
+    let extracted: Vec<(u32, Option<&str>)> = model
+        .functions
+        .iter()
+        .map(|f| (f.line, f.name.as_deref()))
+        .collect();
+    assert_eq!(
+        extracted,
+        [
+            (1, Some("top_level")),
+            (3, Some("fetch_data")),
+            (6, Some("__init__")),
+            (8, Some("process")),
+            (9, Some("helper")),
+            (11, None),
+        ]
+    );
+}
+
+#[test]
+fn python_cognitive_complexity_distinguishes_flat_vs_nested_and_isolates_inner_functions() {
+    let src = [
+        "def flat_match(x):",
+        "    match x:",
+        "        case 1:",
+        "            return 10",
+        "        case 2:",
+        "            return 20",
+        "        case 3:",
+        "            return 30",
+        "        case 4:",
+        "            return 40",
+        "        case _:",
+        "            return 0",
+        "def flat_ifs(a, b, c, d):",
+        "    n = 0",
+        "    if a:",
+        "        n += 1",
+        "    if b:",
+        "        n += 1",
+        "    if c:",
+        "        n += 1",
+        "    if d:",
+        "        n += 1",
+        "    return n",
+        "def deeply_nested(a, b, c, d):",
+        "    if a:",
+        "        if b:",
+        "            if c:",
+        "                if d:",
+        "                    return 1",
+        "    return 0",
+        "def sibling_ternaries(a, b):",
+        "    return (1 if a else 2) + (3 if b else 4)",
+        "def outer(items, a, b, c):",
+        "    if a and b or c:",
+        "        for item in items:",
+        "            if item < 0:",
+        "                return -1",
+        "            elif item == 0:",
+        "                continue",
+        "            else:",
+        "                try:",
+        "                    def inner(v):",
+        "                        if v > 0:",
+        "                            if v > 1:",
+        "                                return v",
+        "                        return 0",
+        "                    fn = lambda z: z if z > 0 else 0",
+        "                    return inner(fn(item))",
+        "                except ValueError:",
+        "                    return outer([], False, b, c)",
+        "    return 0",
+    ]
+    .join("\n");
+    let model = Python
+        .lower(&RepoPath::new("src/cognitive.py").unwrap(), &src)
+        .unwrap();
+    let expected = [
+        (Some("flat_match"), 4u32, 1u32),
+        (Some("flat_ifs"), 4, 4),
+        (Some("deeply_nested"), 4, 10),
+        (Some("sibling_ternaries"), 2, 2),
+        (Some("outer"), 7, 15),
+        (Some("inner"), 2, 3),
+        (None, 1, 1),
+    ];
+    assert_eq!(model.functions.len(), expected.len());
+    for (func, (name, dp, cog)) in model.functions.iter().zip(expected) {
+        assert_eq!(
+            (
+                func.name.as_deref(),
+                func.decision_points,
+                func.cognitive_complexity
+            ),
+            (name, dp, cog)
+        );
     }
 }

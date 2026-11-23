@@ -48,6 +48,7 @@ if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric
 ```
 
 - `budget` returns `None` when `codeint.json` sets no Budget for that Metric in that Source set; that Metric then never fails.
+- `dependency_budget` reads top-level Dependency hygiene Budgets (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`).
 - A Budget applies to the total of every Language plugin; the report never checks the section of one Language plugin against it.
 - A Budget is a ratio from 0 to 1; the shape check rejects any other number with exit code 2.
 - `admits` passes a ratio equal to the Budget.

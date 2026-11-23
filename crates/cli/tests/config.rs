@@ -97,6 +97,7 @@ fn config_resolved_reports_defaults_only_across_text_json_and_toon_formats() {
     assert_setting(&payload, "plugin_limits.memory_mb", json!(64), "default");
     assert_setting(&payload, "plugin_limits.timeout_ms", json!(5000), "default");
     assert_setting(&payload, "boundaries", Value::Null, "default");
+    assert_setting(&payload, "dependencies.ignore", json!([]), "default");
     assert_setting(&payload, "duplication.near_clones", json!(false), "default");
     assert_setting(
         &payload,
@@ -107,7 +108,19 @@ fn config_resolved_reports_defaults_only_across_text_json_and_toon_formats() {
     assert_setting(&payload, "entry_points", json!([]), "default");
     assert_setting(
         &payload,
+        "regression_limits.production.cognitive_complexity.new_findings",
+        json!("numerator_rise_with_new_findings"),
+        "default",
+    );
+    assert_setting(
+        &payload,
         "regression_limits.production.orphan_files.new_findings",
+        json!("any_new_finding"),
+        "default",
+    );
+    assert_setting(
+        &payload,
+        "regression_limits.unused_dependencies.new_findings",
         json!("any_new_finding"),
         "default",
     );
@@ -133,11 +146,15 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
             "production": {
                 "erosion": 0.25,
                 "duplication": 0.1
-            }
+            },
+            "unused_dependencies": 0.0
         },
         "regression_limits": {
             "erosion": {
                 "ratio_rise": 0.05
+            },
+            "unused_dependencies": {
+                "ratio_rise": 0.02
             },
             "test": {
                 "erosion": {
@@ -151,6 +168,9 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
         "boundaries": {
             "preset": "layered",
             "strict_zones": true
+        },
+        "dependencies": {
+            "ignore": ["tailwindcss"]
         },
         "duplication": {
             "near_clones": true,
@@ -177,8 +197,20 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
     );
     assert_setting(
         &file_only,
+        "budgets.unused_dependencies",
+        json!(0.0),
+        "file",
+    );
+    assert_setting(
+        &file_only,
         "regression_limits.production.erosion.ratio_rise",
         json!(0.05),
+        "file",
+    );
+    assert_setting(
+        &file_only,
+        "regression_limits.unused_dependencies.ratio_rise",
+        json!(0.02),
         "file",
     );
     assert_setting(
@@ -208,6 +240,12 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
         json!(["production"]),
         "default",
     );
+    assert_setting(
+        &file_only,
+        "dependencies.ignore",
+        json!(["tailwindcss"]),
+        "file",
+    );
     assert_setting(&file_only, "duplication.near_clones", json!(true), "file");
     assert_setting(&file_only, "duplication.min_similarity", json!(0.9), "file");
     assert_setting(&file_only, "entry_points", json!(["src/worker.ts"]), "file");
@@ -217,6 +255,8 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
         &[
             "--budget",
             "production.erosion=0.15",
+            "--budget",
+            "production.cognitive_complexity=0.2",
             "--budget",
             "test.verbosity=0.3",
             "--source-set",
@@ -228,6 +268,12 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
         ],
     );
     assert_setting(&with_cli, "budgets.production.erosion", json!(0.15), "cli");
+    assert_setting(
+        &with_cli,
+        "budgets.production.cognitive_complexity",
+        json!(0.2),
+        "cli",
+    );
     assert_setting(
         &with_cli,
         "budgets.production.duplication",

@@ -772,3 +772,42 @@ fn rerenders_truncated_clone_families_check_and_diff_json_with_exact_sarif_parit
         |doc| &doc["source_sets"]["production"]["duplication"]["clone_families"],
     );
 }
+
+#[test]
+fn rerenders_check_and_diff_json_with_cognitive_complexity_and_dependencies_losslessly() {
+    let deep_fn = concat!(
+        "import ghost from \"unlisted-pkg\";\n",
+        "import devOnly from \"dev-pkg\";\n",
+        "export function deepProcess(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean, f: boolean): number {\n",
+        "  if (a) { if (b) { if (c) { if (d) { if (e) { if (f) { return Number(ghost) + Number(devOnly); } } } } } }\n",
+        "  return 0;\n",
+        "}\n",
+    );
+    let (dir, cache) = setup_workspace(&[
+        (
+            "package.json",
+            r#"{"name":"app","main":"src/index.ts","dependencies":{"unused-pkg":"^1.0.0"},"devDependencies":{"dev-pkg":"^1.0.0"}}"#,
+        ),
+        ("src/index.ts", "export const ok = (): number => 1;\n"),
+    ]);
+    commit_all(dir.path(), "base");
+
+    populate(dir.path(), &[("src/deep.ts", deep_fn)]);
+
+    capture_containing_and_verify_parity(
+        dir.path(),
+        cache.path(),
+        &["check"],
+        0,
+        "\"dev_in_production_dependencies\"",
+        "deps-check.json",
+    );
+    capture_containing_and_verify_parity(
+        dir.path(),
+        cache.path(),
+        &["diff", "main"],
+        1,
+        "\"cognitive_complexity\"",
+        "deps-diff.json",
+    );
+}

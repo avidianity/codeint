@@ -2,11 +2,15 @@ use codeint_config::{
     CliCommandSchema, CliSchema, NewFindingsRule, OutputFormatSchema, RegressionLimits,
     SchemaFormat,
 };
+use codeint_metrics::{
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, UNLISTED_DEPENDENCIES_METRIC_KEY,
+    UNUSED_DEPENDENCIES_METRIC_KEY,
+};
 use codeint_model::{Metric, SourceSet};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::ReportError;
+use crate::{COGNITIVE_COMPLEXITY_KEY, ReportError};
 
 pub(crate) const BUILT_IN_METRICS: [Metric; 4] = [
     Metric::Erosion,
@@ -59,12 +63,44 @@ pub(crate) fn built_in_metric_descriptor(metric: Metric) -> BuiltInMetricDescrip
     }
 }
 
+pub(crate) const COGNITIVE_COMPLEXITY_DESCRIPTOR: BuiltInMetricDescriptor =
+    BuiltInMetricDescriptor {
+        name: "Cognitive complexity",
+        short_description: "A function with cognitive complexity over 15",
+        full_description: "Cognitive complexity is the share of total cognitive complexity held by functions whose cognitive complexity is greater than 15. Cognitive complexity weights control-flow structures by nesting depth.",
+        help: "Flatten nested control flow or split the function into smaller functions, each with a cognitive complexity of 15 or less.",
+    };
+
 pub(crate) const ORPHAN_FILES_DESCRIPTOR: BuiltInMetricDescriptor = BuiltInMetricDescriptor {
     name: "Orphan files",
     short_description: "A Production file unreachable from any entry point",
     full_description: "Orphan files measures the share of Production files that cannot be reached through resolved runtime imports from any manifest-declared or configured entry point, annotating files imported only by tests as test-only.",
     help: "Delete the unused Production file (and any stale tests that only import it), wire it into an entry point, or add its path glob to entry_points in codeint.json.",
 };
+
+pub(crate) const UNUSED_DEPENDENCIES_DESCRIPTOR: BuiltInMetricDescriptor =
+    BuiltInMetricDescriptor {
+        name: "Unused dependencies",
+        short_description: "A declared dependency that no file in the package imports",
+        full_description: "Unused dependencies is the share of declared runtime and dev dependencies in package manifests that are not imported by any source file in the owning package.",
+        help: "Remove the unused dependency from the package manifest, or add it to dependencies.ignore in codeint.json if it is used outside source imports.",
+    };
+
+pub(crate) const UNLISTED_DEPENDENCIES_DESCRIPTOR: BuiltInMetricDescriptor =
+    BuiltInMetricDescriptor {
+        name: "Unlisted dependencies",
+        short_description: "An external package imported without being declared in the package manifest",
+        full_description: "Unlisted dependencies is the share of imported external packages that are missing from the owning package manifest.",
+        help: "Declare the package in the owning package manifest, or remove the import.",
+    };
+
+pub(crate) const DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR: BuiltInMetricDescriptor =
+    BuiltInMetricDescriptor {
+        name: "Dev dependencies in production",
+        short_description: "A dev-only dependency imported by a Production source file",
+        full_description: "Dev dependencies in production is the share of production-imported external packages that are declared only as dev dependencies in the package manifest.",
+        help: "Move the dependency to runtime dependencies in the package manifest, or stop importing it from Production files.",
+    };
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SchemaReport {
@@ -125,27 +161,33 @@ impl SchemaReport {
             .map(|metric| {
                 let descriptor = built_in_metric_descriptor(metric);
                 let limit = default_limits.limit(SourceSet::Production, metric);
-                MetricSchema {
-                    key: metric.key(),
-                    name: descriptor.name,
-                    short_description: descriptor.short_description,
-                    description: descriptor.full_description,
-                    unit: "ratio",
-                    default_ratio_rise_limit: limit.ratio_rise.ratio(),
-                    default_new_findings_rule: limit.new_findings,
-                }
+                metric_schema(metric.key(), descriptor, limit)
             })
             .collect();
-        let orphan_limit = default_limits.limit_for_key(SourceSet::Production, "orphan_files");
-        metrics.push(MetricSchema {
-            key: "orphan_files",
-            name: ORPHAN_FILES_DESCRIPTOR.name,
-            short_description: ORPHAN_FILES_DESCRIPTOR.short_description,
-            description: ORPHAN_FILES_DESCRIPTOR.full_description,
-            unit: "ratio",
-            default_ratio_rise_limit: orphan_limit.ratio_rise.ratio(),
-            default_new_findings_rule: orphan_limit.new_findings,
-        });
+        for (key, descriptor) in [
+            (COGNITIVE_COMPLEXITY_KEY, COGNITIVE_COMPLEXITY_DESCRIPTOR),
+            ("orphan_files", ORPHAN_FILES_DESCRIPTOR),
+        ] {
+            let limit = default_limits.limit_for_key(SourceSet::Production, key);
+            metrics.push(metric_schema(key, descriptor, limit));
+        }
+        for (key, descriptor) in [
+            (
+                UNUSED_DEPENDENCIES_METRIC_KEY,
+                UNUSED_DEPENDENCIES_DESCRIPTOR,
+            ),
+            (
+                UNLISTED_DEPENDENCIES_METRIC_KEY,
+                UNLISTED_DEPENDENCIES_DESCRIPTOR,
+            ),
+            (
+                DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+                DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR,
+            ),
+        ] {
+            let limit = default_limits.limit_for_dependency(key);
+            metrics.push(metric_schema(key, descriptor, limit));
+        }
         let source_sets = SOURCE_SETS.into_iter().map(SourceSet::key).collect();
         SchemaReport {
             name: cli.name,
@@ -166,5 +208,21 @@ impl SchemaReport {
             SchemaFormat::Json => crate::render_json(self),
             SchemaFormat::Toon => crate::render_toon(self),
         }
+    }
+}
+
+fn metric_schema(
+    key: &'static str,
+    descriptor: BuiltInMetricDescriptor,
+    limit: codeint_config::RegressionLimit,
+) -> MetricSchema {
+    MetricSchema {
+        key,
+        name: descriptor.name,
+        short_description: descriptor.short_description,
+        description: descriptor.full_description,
+        unit: "ratio",
+        default_ratio_rise_limit: limit.ratio_rise.ratio(),
+        default_new_findings_rule: limit.new_findings,
     }
 }
