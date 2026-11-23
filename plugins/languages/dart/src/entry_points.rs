@@ -8,7 +8,6 @@ use crate::workspaces::PUBSPEC_MANIFEST;
 
 #[derive(Deserialize)]
 struct PubspecEntryPoints {
-    name: Option<String>,
     executables: Option<BTreeMap<String, Option<String>>>,
 }
 
@@ -44,20 +43,12 @@ impl PubspecEntryPoints {
         dart_files: &HashSet<&str>,
         out: &mut BTreeSet<String>,
     ) {
-        if let Some(pkg) = self
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|n| !n.is_empty() && !n.contains('/') && !n.contains('\\') && *n != "..")
-            && let Some(lib_file) = normalize_relative_path(base_dir, &format!("lib/{pkg}.dart"))
-            && dart_files.contains(lib_file.as_str())
-        {
-            out.insert(lib_file);
-        }
+        collect_top_level_dart_files(base_dir, "lib", repository_paths, out);
         if let Some(executables) = self.executables.as_ref() {
             collect_declared_executables(base_dir, executables, dart_files, out);
         }
-        collect_bin_directory(base_dir, repository_paths, out);
+        collect_top_level_dart_files(base_dir, "bin", repository_paths, out);
+        collect_hook_entries(base_dir, dart_files, out);
     }
 }
 
@@ -93,11 +84,16 @@ fn collect_declared_executables(
     }
 }
 
-fn collect_bin_directory(base_dir: &str, repository_paths: &[String], out: &mut BTreeSet<String>) {
+fn collect_top_level_dart_files(
+    base_dir: &str,
+    subdir: &str,
+    repository_paths: &[String],
+    out: &mut BTreeSet<String>,
+) {
     let prefix = if base_dir.is_empty() {
-        "bin/".to_owned()
+        format!("{subdir}/")
     } else {
-        format!("{base_dir}/bin/")
+        format!("{base_dir}/{subdir}/")
     };
     for path in repository_paths {
         if let Some(rest) = path.strip_prefix(&prefix)
@@ -105,6 +101,16 @@ fn collect_bin_directory(base_dir: &str, repository_paths: &[String], out: &mut 
             && rest.ends_with(".dart")
         {
             out.insert(path.clone());
+        }
+    }
+}
+
+fn collect_hook_entries(base_dir: &str, dart_files: &HashSet<&str>, out: &mut BTreeSet<String>) {
+    for rel in ["hook/build.dart", "hook/link.dart"] {
+        if let Some(candidate) = normalize_relative_path(base_dir, rel)
+            && dart_files.contains(candidate.as_str())
+        {
+            out.insert(candidate);
         }
     }
 }

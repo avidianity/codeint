@@ -32,15 +32,24 @@ pub(super) fn package_links(manifests: &[Manifest]) -> Vec<PackageLink> {
         }
     }
     let mut links: Vec<PackageLink> = folders_by_name
-        .into_iter()
+        .iter()
         .filter_map(|(name, folders)| match folders.as_slice() {
             [folder] => Some(PackageLink {
-                name,
+                name: name.clone(),
                 folder: (*folder).to_owned(),
             }),
             _ => None,
         })
         .collect();
+    if let Some(root) = manifests.iter().find(|m| m.path == PACKAGE_MANIFEST)
+        && let Some(name) = package_name(&root.text)
+        && !folders_by_name.contains_key(&name)
+    {
+        links.push(PackageLink {
+            name,
+            folder: String::new(),
+        });
+    }
     links.sort_by(|left, right| left.name.cmp(&right.name));
     links
 }
@@ -51,12 +60,12 @@ fn package_name(text: &str) -> Option<String> {
     is_package_name(name).then(|| name.to_owned())
 }
 
-fn is_package_name(name: &str) -> bool {
-    let segments: Vec<&str> = name.split('/').collect();
-    let valid = |segment: &&str| !segment.is_empty() && *segment != "." && *segment != "..";
-    match segments.as_slice() {
-        [scope, package] => scope.starts_with('@') && scope.len() > 1 && valid(package),
-        [package] => !package.starts_with('@') && valid(package),
-        _ => false,
+pub(super) fn is_package_name(name: &str) -> bool {
+    let valid = |segment: &str| !segment.is_empty() && segment != "." && segment != "..";
+    match name.split_once('/') {
+        Some((scope, package)) => {
+            !package.contains('/') && scope.starts_with('@') && valid(&scope[1..]) && valid(package)
+        }
+        None => !name.starts_with('@') && valid(name),
     }
 }

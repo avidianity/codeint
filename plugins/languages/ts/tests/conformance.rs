@@ -2238,10 +2238,13 @@ fn resolve_with_tsconfig(tsconfig: &str, specifiers: &[&str]) -> Vec<Resolution>
     )
 }
 
+const CATCH_ALL_TSCONFIG: &str =
+    r#"{"compilerOptions": {"baseUrl": ".", "paths": {"*": ["./src/*"]}}}"#;
+
 #[test]
 fn node_and_bun_builtins_and_canonical_external_packages_classify_accurately() {
     let catch_all_builtins = resolve_with_tsconfig(
-        r#"{"compilerOptions": {"baseUrl": ".", "paths": {"*": ["./src/*"]}}}"#,
+        CATCH_ALL_TSCONFIG,
         &[
             "node:fs",
             "node:test",
@@ -2404,4 +2407,147 @@ fn workspace_package_jsons_emit_per_package_deps_and_exclude_local_members() {
             ("frontend", "vite", DepKind::Dev),
         ])
     );
+}
+
+const MONOREPO_WORKSPACE_FILES: &[(&str, &str)] = &[
+    ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
+    ("package.json", r#"{"name": "monorepo", "private": true}"#),
+    ("packages/index.ts", ""),
+    (
+        "packages/zod/package.json",
+        r#"{
+          "name": "zod",
+          "exports": {
+            ".": "./dist/index.js",
+            "./v4": "./dist/v4/index.js"
+          }
+        }"#,
+    ),
+    ("packages/zod/src/index.ts", ""),
+    ("packages/zod/src/v4/index.ts", ""),
+    (
+        "packages/pinia/package.json",
+        r#"{"name": "pinia", "main": "dist/pinia.cjs"}"#,
+    ),
+    ("packages/pinia/src/index.ts", ""),
+    ("packages/app/package.json", r#"{"name": "app"}"#),
+    ("packages/app/src/main.ts", ""),
+];
+
+#[test]
+fn root_workspace_package_and_unbuilt_member_exports_do_not_resolve_as_external() {
+    let hono_files = [
+        (
+            "package.json",
+            r#"{
+              "name": "hono",
+              "workspaces": ["adapters/*"],
+              "exports": {
+                ".": { "types": "./dist/types/index.d.ts", "import": "./dist/index.js" },
+                "./adapter": { "types": "./dist/types/adapter/index.d.ts", "import": "./dist/adapter/index.js" },
+                "./generated": { "import": "./dist/generated.js" }
+              }
+            }"#,
+        ),
+        ("src/index.ts", ""),
+        ("src/adapter/index.ts", ""),
+        (
+            "adapters/aws-lambda/package.json",
+            r#"{
+              "name": "@hono/aws-lambda",
+              "peerDependencies": { "hono": ">=4.13.9" },
+              "devDependencies": { "hono": "workspace:*" }
+            }"#,
+        ),
+        ("adapters/aws-lambda/src/index.ts", ""),
+    ];
+    for (specifier, expected) in [
+        ("hono", resolved("src/index.ts")),
+        ("hono/adapter", resolved("src/adapter/index.ts")),
+        ("hono/generated", Resolution::Builtin),
+    ] {
+        assert_eq!(
+            resolve_in_project(&hono_files, "adapters/aws-lambda/src/index.ts", specifier),
+            expected,
+            "{specifier}"
+        );
+    }
+
+    for (specifier, expected) in [
+        ("zod", resolved("packages/zod/src/index.ts")),
+        ("zod/v4", resolved("packages/zod/src/v4/index.ts")),
+        ("pinia", resolved("packages/pinia/src/index.ts")),
+    ] {
+        assert_eq!(
+            resolve_in_project(
+                MONOREPO_WORKSPACE_FILES,
+                "packages/app/src/main.ts",
+                specifier
+            ),
+            expected,
+            "{specifier}"
+        );
+    }
+}
+
+#[test]
+fn workspace_fallback_cannot_escape_the_package_directory() {
+    for specifier in [
+        "zod/../../pinia/src/index",
+        "zod/..",
+        "pinia/../../zod/src/index",
+        "pinia/..",
+    ] {
+        let resolution = resolve_in_project(
+            MONOREPO_WORKSPACE_FILES,
+            "packages/app/src/main.ts",
+            specifier,
+        );
+        assert!(
+            matches!(resolution, Resolution::Unresolved(_)),
+            "{specifier} escaped workspace package: {resolution:?}"
+        );
+    }
+}
+
+#[test]
+fn cloudflare_deno_builtins_and_npm_specifiers_classify_accurately() {
+    let cases = [
+        ("cloudflare:workers", Resolution::Builtin),
+        ("deno:kv", Resolution::Builtin),
+        (
+            "npm:@medley/router",
+            Resolution::External("@medley/router".to_owned()),
+        ),
+        (
+            "npm:@medley/router@1.2.3/sub",
+            Resolution::External("@medley/router".to_owned()),
+        ),
+        ("npm:chalk@^5/foo", Resolution::External("chalk".to_owned())),
+    ];
+    let specifiers: Vec<&str> = cases.iter().map(|(spec, _)| *spec).collect();
+    let expected: Vec<Resolution> = cases.into_iter().map(|(_, res)| res).collect();
+    assert_eq!(
+        resolve_with_tsconfig(CATCH_ALL_TSCONFIG, &specifiers),
+        expected
+    );
+}
+
+#[test]
+fn type_test_files_and_folders_are_classified_as_test_source_set() {
+    for path in [
+        "packages/pinia/test-dts/store.test-d.ts",
+        "packages/pinia/test-dts/helper.ts",
+        "packages/pinia/type-tests/store.ts",
+        "src/store.test-d.ts",
+        "src/store.test-d.mts",
+        "src/store.test-d.cts",
+        "src/store.test-d.tsx",
+        "src/store.spec-d.ts",
+    ] {
+        assert_eq!(source_set(path), SourceSet::Test, "{path}");
+    }
+    for path in ["src/test-d.ts", "src/.test-d.ts"] {
+        assert_eq!(source_set(path), SourceSet::Production, "{path}");
+    }
 }

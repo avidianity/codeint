@@ -520,3 +520,35 @@ fn php_cognitive_complexity_distinguishes_flat_vs_nested_and_isolates_closures()
         (None, 3)
     );
 }
+
+#[test]
+fn php_psr4_subpackage_collision_and_global_single_segment_uses_resolve_accurately() {
+    let out = resolve_single_manifest_php(
+        &[
+            "composer.json",
+            "src/Client.php",
+            "src/Handler/CurlHandler.php",
+        ],
+        r#"{
+            "name": "guzzlehttp/guzzle",
+            "autoload": { "psr-4": { "GuzzleHttp\\": "src/" } },
+            "require": {
+                "guzzlehttp/psr7": "^2.7",
+                "guzzlehttp/promises": "^2.0"
+            }
+        }"#,
+        "src/Client.php",
+        &[
+            "use:GuzzleHttp\\Psr7\\Request",
+            "use:GuzzleHttp\\Promise\\PromiseInterface",
+            "use:GuzzleHttp\\Handler",
+            "use:CarbonTimezoneTrait",
+            "use:SubCarbon",
+        ],
+    );
+    assert_eq!(out[0], Resolution::External("guzzlehttp/psr7".into()));
+    assert_eq!(out[1], Resolution::External("guzzlehttp/promises".into()));
+    assert!(matches!(out[2], Resolution::Unresolved(_)));
+    assert_eq!(out[3], Resolution::Builtin);
+    assert_eq!(out[4], Resolution::Builtin);
+}

@@ -17,7 +17,7 @@
 
 ## Imports and PSR-4 resolution
 
-- `src/imports.rs` and `src/resolution.rs` extract top-level `use` statements (including grouped and aliased imports) and static relative `require`/`include` paths, resolving PSR-4 namespaces through `composer.json` `autoload.psr-4` and `autoload-dev.psr-4`, classifying PHP built-in classes and namespaces as `Builtin`, and normalizing external namespaces to Composer `vendor/package` names.
+- `src/imports.rs` and `src/resolution.rs` extract top-level `use` statements (including grouped and aliased imports) and static relative `require`/`include` paths, resolving PSR-4 namespaces through `composer.json` `autoload.psr-4` and `autoload-dev.psr-4` (falling back to declared Composer sub-packages when no local file or directory matches), classifying PHP built-in classes, built-in namespaces, and single-segment global symbols as `Builtin`, and normalizing multi-segment external namespaces to Composer `vendor/package` names.
 - `src/dependencies.rs` parses `composer.json` `require` (`Runtime`), `require-dev` (`Dev`), and `suggest` (`Optional`) dependencies per Workspace package while excluding platform requirements (`php`, `ext-*`, `lib-*`) and local workspace package names.
 
 ## Reference ranges

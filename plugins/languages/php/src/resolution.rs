@@ -23,6 +23,7 @@ struct Psr4Rule {
 
 enum Psr4Match {
     Resolved(Resolution),
+    LocalNamespace,
     PrefixOnly,
     NoMatch,
 }
@@ -68,49 +69,87 @@ impl PhpResolver {
     }
 
     fn resolve_psr4(&self, importer: &str, ns_path: &str) -> Resolution {
-        let normalized = ns_path.trim_start_matches('\\');
+        let normalized = ns_path.trim_matches('\\');
         if normalized.is_empty() {
             return Resolution::Unresolved(format!("empty PHP namespace import {ns_path:?}"));
         }
-        let mut matched_local_prefix = false;
+        match self.scan_psr4_rules(importer, normalized) {
+            Psr4Match::Resolved(resolution) => resolution,
+            Psr4Match::LocalNamespace => unresolved_internal_namespace(normalized),
+            Psr4Match::PrefixOnly => self.resolve_psr4_prefix_fallback(normalized),
+            Psr4Match::NoMatch => self.resolve_non_psr4_namespace(normalized),
+        }
+    }
+
+    fn scan_psr4_rules(&self, importer: &str, normalized: &str) -> Psr4Match {
+        let mut fallback = Psr4Match::NoMatch;
         for rule in &self.rules {
             match self.match_psr4_rule(importer, normalized, rule) {
-                Psr4Match::Resolved(resolution) => return resolution,
-                Psr4Match::PrefixOnly => matched_local_prefix = true,
-                Psr4Match::NoMatch => {}
+                Psr4Match::Resolved(resolution) => return Psr4Match::Resolved(resolution),
+                Psr4Match::LocalNamespace => fallback = Psr4Match::LocalNamespace,
+                Psr4Match::PrefixOnly if matches!(fallback, Psr4Match::NoMatch) => {
+                    fallback = Psr4Match::PrefixOnly;
+                }
+                Psr4Match::PrefixOnly | Psr4Match::NoMatch => {}
             }
         }
-        if matched_local_prefix {
-            return Resolution::Unresolved(format!(
-                "no local PHP file found for internal namespace {normalized:?}"
-            ));
+        fallback
+    }
+
+    fn resolve_psr4_prefix_fallback(&self, normalized: &str) -> Resolution {
+        match match_declared_external_namespace(normalized, &self.declared_packages, false) {
+            Some(external) => Resolution::External(external),
+            None => unresolved_internal_namespace(normalized),
         }
-        if is_builtin_symbol(normalized) {
-            return Resolution::Builtin;
+    }
+
+    fn resolve_non_psr4_namespace(&self, normalized: &str) -> Resolution {
+        if is_builtin_symbol(normalized) || !normalized.contains('\\') {
+            Resolution::Builtin
+        } else {
+            Resolution::External(normalize_external_namespace(
+                normalized,
+                &self.declared_packages,
+            ))
         }
-        Resolution::External(normalize_external_namespace(
-            normalized,
-            &self.declared_packages,
-        ))
     }
 
     fn match_psr4_rule(&self, importer: &str, normalized: &str, rule: &Psr4Rule) -> Psr4Match {
         let Some(rest) = normalized.strip_prefix(&rule.prefix) else {
             return if normalized == rule.prefix.trim_end_matches('\\') {
-                Psr4Match::PrefixOnly
+                Psr4Match::LocalNamespace
             } else {
                 Psr4Match::NoMatch
             };
         };
         if rest.is_empty() {
-            return Psr4Match::PrefixOnly;
+            return Psr4Match::LocalNamespace;
         }
         let rel = rest.replace('\\', "/");
-        match self.first_matching_file(&rule.dirs, &rel) {
-            Some(hit) if hit == importer => Psr4Match::Resolved(Resolution::Builtin),
-            Some(hit) => Psr4Match::Resolved(Resolution::Resolved(hit)),
-            None => Psr4Match::PrefixOnly,
+        if let Some(hit) = self.first_matching_file(&rule.dirs, &rel) {
+            let resolution = if hit == importer {
+                Resolution::Builtin
+            } else {
+                Resolution::Resolved(hit)
+            };
+            return Psr4Match::Resolved(resolution);
         }
+        if self.has_local_files_under(&rule.dirs, &rel) {
+            Psr4Match::LocalNamespace
+        } else {
+            Psr4Match::PrefixOnly
+        }
+    }
+
+    fn has_local_files_under(&self, dirs: &[String], rel: &str) -> bool {
+        dirs.iter().any(|dir| {
+            let prefix = if dir.is_empty() {
+                format!("{rel}/")
+            } else {
+                format!("{dir}/{rel}/")
+            };
+            self.files.iter().any(|file| file.starts_with(&prefix))
+        })
     }
 
     fn first_matching_file(&self, dirs: &[String], rel: &str) -> Option<String> {
@@ -136,6 +175,12 @@ impl PhpResolver {
             other => other,
         }
     }
+}
+
+fn unresolved_internal_namespace(normalized: &str) -> Resolution {
+    Resolution::Unresolved(format!(
+        "no local PHP file found for internal namespace {normalized:?}"
+    ))
 }
 
 fn classify_vendor_require(importer: &str, req_path: &str) -> Option<Resolution> {
@@ -166,21 +211,47 @@ pub(crate) fn normalize_external_namespace(ns: &str, declared: &HashSet<String>)
     if segments.len() == 1 {
         return to_kebab_segment(first);
     }
-    let vendor = first.to_ascii_lowercase();
-    let primary = format!("{vendor}/{}", to_kebab_segment(segments[1]));
-    let lower_pkg = format!("{vendor}/{}", segments[1].to_ascii_lowercase());
-    let mut candidates = vec![primary.clone(), lower_pkg];
+    if let Some(matched) = match_declared_external_namespace(ns, declared, true) {
+        return matched;
+    }
+    format!(
+        "{}/{}",
+        first.to_ascii_lowercase(),
+        to_kebab_segment(segments[1])
+    )
+}
+
+fn match_declared_external_namespace(
+    ns: &str,
+    declared: &HashSet<String>,
+    allow_vendor_self: bool,
+) -> Option<String> {
+    let segments: Vec<&str> = ns.split('\\').filter(|s| !s.is_empty()).collect();
+    if segments.len() < 2 {
+        return None;
+    }
+    let vendor = segments[0].to_ascii_lowercase();
+    let mut candidates = Vec::with_capacity(11);
+    push_segment_candidates(&vendor, segments[1], &mut candidates);
     if let Some(&third) = segments.get(2) {
-        candidates.push(format!("{vendor}/{}", to_kebab_segment(third)));
-        candidates.push(format!("{vendor}/{}", third.to_ascii_lowercase()));
+        push_segment_candidates(&vendor, third, &mut candidates);
     }
-    candidates.push(format!("{vendor}/{vendor}"));
-    for candidate in candidates {
-        if declared.contains(&candidate) {
-            return candidate;
-        }
+    if allow_vendor_self {
+        candidates.push(format!("{vendor}/{vendor}"));
     }
-    primary
+    candidates
+        .into_iter()
+        .find(|candidate| declared.contains(candidate))
+}
+
+fn push_segment_candidates(vendor: &str, segment: &str, out: &mut Vec<String>) {
+    let kebab = to_kebab_segment(segment);
+    let lower = segment.to_ascii_lowercase();
+    for base in [kebab, lower] {
+        out.push(format!("{vendor}/{base}"));
+        out.push(format!("{vendor}/{base}s"));
+        out.push(format!("{vendor}/{base}es"));
+    }
 }
 
 fn to_kebab_segment(segment: &str) -> String {
