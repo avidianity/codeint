@@ -1,6 +1,7 @@
 use std::fmt;
 
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use codeint_model::SourceSet;
+use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
 pub(crate) const CONFIGURATION_FILE_NAME: &str = "codeint.json";
@@ -29,6 +30,8 @@ pub struct KeyPath(Vec<KeySegment>);
 pub enum ConfigurationFileError {
     #[error("cannot read {CONFIGURATION_FILE_NAME}")]
     Unreadable(#[source] std::io::Error),
+    #[error("{CONFIGURATION_FILE_NAME} is a broken symlink")]
+    BrokenSymlink,
     #[error("{CONFIGURATION_FILE_NAME} is not valid JSON")]
     NotJson(#[source] serde_json::Error),
     #[error(
@@ -36,6 +39,16 @@ pub enum ConfigurationFileError {
         allowed.join(", ")
     )]
     UnknownKey { key: KeyPath, allowed: Vec<String> },
+    #[error(
+        "--budget {}.{metric} names an unknown Metric {metric:?}; the Metrics allowed are {}",
+        source_set.key(),
+        allowed.join(", ")
+    )]
+    UnknownCliBudgetMetric {
+        source_set: SourceSet,
+        metric: String,
+        allowed: Vec<String>,
+    },
     #[error(
         "{CONFIGURATION_FILE_NAME}: {key} must be {}, not {}",
         any_of(expected),
@@ -87,6 +100,13 @@ pub enum ConfigurationFileError {
     #[error("{CONFIGURATION_FILE_NAME}: {key} is not a valid glob")]
     InvalidGlob {
         key: KeyPath,
+        #[source]
+        source: globset::Error,
+    },
+    #[error("--source-set {}: {glob:?} is not a valid glob", source_set.key())]
+    InvalidCliGlob {
+        source_set: SourceSet,
+        glob: String,
         #[source]
         source: globset::Error,
     },
@@ -146,14 +166,18 @@ pub enum ConfigurationFileError {
     ConflictingBoundaryDirectives { key: KeyPath, from: String },
 }
 
+pub(crate) fn compile_glob(glob: &str) -> Result<Glob, globset::Error> {
+    GlobBuilder::new(glob)
+        .literal_separator(true)
+        .backslash_escape(true)
+        .build()
+}
+
 pub(crate) fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, ConfigurationFileError> {
     let mut builder = GlobSetBuilder::new();
     for (index, glob) in globs.iter().enumerate() {
-        let compiled = GlobBuilder::new(glob)
-            .literal_separator(true)
-            .backslash_escape(true)
-            .build()
-            .map_err(|source| ConfigurationFileError::InvalidGlob {
+        let compiled =
+            compile_glob(glob).map_err(|source| ConfigurationFileError::InvalidGlob {
                 key: key.child(KeySegment::Index(index)),
                 source,
             })?;

@@ -32,6 +32,11 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
+| `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
+| `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
+| `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
+| `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
 | `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
 | `coupling` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports; see [`codeint coupling`](#codeint-coupling) |
 | `help` | Print the help of codeint, or of the command that follows it |
@@ -618,6 +623,126 @@ codeint guard src/route.ts --format toon
 codeint guard src/route.ts --format json
 ```
 
+### `codeint schema`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--output <FILE>` | Write the schema manifest to this file instead of standard output |
+| `--format <FORMAT>` | The format of the schema manifest: `json`, the default, or `toon` |
+| `-h, --help` | Print the help of `codeint schema` |
+
+`codeint schema` prints a deterministic, machine-readable manifest describing the running binary version, every CLI command and flag, built-in Metrics, Source sets, built-in Language plugins, output formats, MCP tools, and exit codes.
+It is derived directly from live CLI and MCP definitions, works outside a Git repository, and stays 100% local and offline.
+
+```sh exit=0
+codeint schema
+codeint schema --format json
+codeint schema --format toon
+codeint schema --output schema.json
+```
+
+### `codeint config`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]` | A folder inside the Git repository to inspect; the current folder by default |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--resolved` | Print the effective active configuration and per-field provenance |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
+| `--budget <SPEC>` | Override a Budget ratio as `SOURCE_SET.METRIC=RATIO` |
+| `--source-set <SPEC>` | Override a Source set glob as `SOURCE_SET=GLOB` |
+| `--plugin-memory-mb <MB>` | Override `plugin_limits.memory_mb` (1 to 4096) |
+| `--plugin-timeout-ms <MS>` | Override `plugin_limits.timeout_ms` (1 to 300000) |
+| `-h, --help` | Print the help of `codeint config` |
+
+`codeint config --resolved` prints every effective active setting merged from built-in defaults, `codeint.json`, and CLI overrides alongside its provenance (`default`, `file`, or `cli`).
+
+```sh exit=0
+codeint config --resolved
+codeint config --resolved src --format text
+codeint config --resolved --format toon
+codeint config --resolved --format json --budget production.erosion=0.25 --source-set test=spec/** --plugin-memory-mb 128 --plugin-timeout-ms 10000
+```
+
+### `codeint report`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<INPUT>` | Path to a saved `check` or `diff` JSON report, or `-` to read from standard input |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, `markdown`, or `text` |
+| `-h, --help` | Print the help of `codeint report` |
+
+`codeint report` re-renders a saved `codeint check --format json` or `codeint diff --format json` payload into another format without re-running analysis.
+Pass `-` as `<INPUT>` to read the JSON payload from standard input.
+`--format text` prints the same compact text report as `--format toon`.
+
+```sh exit=0
+codeint report report.json --format toon
+codeint report report.json --format json
+codeint report report.json --format sarif --output report.sarif
+codeint report report.json --format markdown
+codeint report report.json --format text
+```
+
+An input file that does not exist, malformed JSON, or an unsupported report schema version stops the run with exit code 2:
+
+```sh exit=2
+codeint report missing.json --format sarif
+```
+
+### `codeint doctor`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]` | A folder to inspect; the current folder by default |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
+| `-h, --help` | Print the help of `codeint doctor` |
+
+`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths and SHA-256 digests.
+It separates passing checks, warnings, and blocking errors, exiting with code 0 when no blocking error is found and code 1 when at least one blocking error is found.
+
+```sh exit=0
+codeint doctor
+codeint doctor src
+codeint doctor --format text
+codeint doctor --format json
+codeint doctor --format toon
+```
+
+### `codeint agent`
+
+| Command | Meaning |
+| ------- | ------- |
+| `status` | Report detected local coding agents and whether `codeint mcp` is registered for each |
+| `install` | Register `codeint mcp` in supported local coding agent configuration files |
+| `help` | Print the help of `codeint agent`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint agent` |
+
+`codeint agent` manages local `codeint mcp` registration for Claude Code (`claude-code`, `.claude.json`), Cursor (`cursor`, `.cursor/mcp.json`), and Codex (`codex`, `.codex/config.toml`).
+Both `status` and `install` accept `--client <claude-code|cursor|codex>`, `--format <text|toon|json>`, and `--config-root <DIR>` (or the `CODEINT_AGENT_HOME` environment variable) to override the home folder.
+`codeint agent install` also accepts `--dry-run` to preview the exact resulting configuration without modifying any file on disk.
+When writing a configuration file, `codeint agent install` preserves unrelated keys and existing MCP servers, writes atomically via a temporary file rename, and leaves already-registered configurations untouched on repeated runs.
+
+```sh exit=0
+CODEINT_AGENT_HOME=.agent-home codeint agent status
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format json
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format toon
+CODEINT_AGENT_HOME=.agent-home codeint agent install --dry-run --client claude-code
+codeint agent help
+```
+
 ### `codeint churn`
 
 | Option | Meaning |
@@ -670,8 +795,8 @@ codeint coupling --format markdown
 
 | Exit code | Meaning |
 | --------- | ------- |
-| `0` | The run succeeded, and no Budget or Regression failed |
-| `1` | The run succeeded, and at least one Budget or Regression failed; codeint still writes the whole report and names each failure on standard error |
+| `0` | The run succeeded, and no Budget, Regression, or blocking doctor error failed |
+| `1` | The run succeeded, and at least one Budget, Regression, or blocking doctor error failed; codeint still writes the whole report and names each failure on standard error |
 | `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, or an invalid `codeint.json`; codeint names the error on standard error |
 
 ## `codeint.json`

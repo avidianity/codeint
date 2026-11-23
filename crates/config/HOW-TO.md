@@ -10,6 +10,7 @@ let configuration = read_configuration(repository.root())?;
 ```
 
 - `read_configuration` reads `codeint.json` at the root of the repository, so pass the root of the working tree, never the folder the user named.
+- `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
 - It returns `Configuration::default()` when the file is absent; codeint runs with defaults.
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.

@@ -151,6 +151,9 @@ struct CompiledRule {
 
 #[derive(Debug, Clone)]
 pub struct Boundaries {
+    preset: Option<BoundaryPreset>,
+    resolved_zones: BTreeMap<String, BoundaryZoneFile>,
+    resolved_rules: Vec<BoundaryRuleFile>,
     zones: BTreeMap<String, CompiledZone>,
     rules: Vec<CompiledRule>,
     strict_zones: bool,
@@ -159,17 +162,39 @@ pub struct Boundaries {
 
 impl Boundaries {
     pub(crate) fn from_file(file: BoundariesFile) -> Result<Boundaries, ConfigurationFileError> {
-        let (merged_zones, merged_rules) = merge_preset(file.preset, file.zones, file.rules);
+        let preset = file.preset;
+        let (merged_zones, merged_rules) = merge_preset(preset, file.zones, file.rules);
+        let resolved_zones = merged_zones.clone();
+        let resolved_rules = merged_rules.clone();
         let boundaries_key = KeyPath::default().child(KeySegment::Key("boundaries".to_owned()));
         let zones = compile_zones(&boundaries_key, merged_zones)?;
         let rules = compile_rules(&boundaries_key, &zones, merged_rules)?;
         let source_sets = resolve_source_sets(file.source_sets);
         Ok(Boundaries {
+            preset,
+            resolved_zones,
+            resolved_rules,
             zones,
             rules,
             strict_zones: file.strict_zones,
             source_sets,
         })
+    }
+
+    pub(crate) fn preset(&self) -> Option<BoundaryPreset> {
+        self.preset
+    }
+
+    pub(crate) fn source_set_keys(&self) -> Vec<&'static str> {
+        self.source_sets.iter().map(|set| set.key()).collect()
+    }
+
+    pub(crate) fn resolved_zones_json(&self) -> serde_json::Value {
+        serde_json::to_value(&self.resolved_zones).unwrap_or(serde_json::Value::Null)
+    }
+
+    pub(crate) fn resolved_rules_json(&self) -> serde_json::Value {
+        serde_json::to_value(&self.resolved_rules).unwrap_or(serde_json::Value::Null)
     }
 
     pub fn applies_to_source_set(&self, source_set: SourceSet) -> bool {

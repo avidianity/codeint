@@ -1,5 +1,15 @@
 use super::*;
 
+fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
+    parse_with_overrides(
+        PathBuf::from(CONFIGURATION_FILE_NAME),
+        true,
+        Some(text),
+        &ConfigOverrides::default(),
+    )
+    .map(|resolved| resolved.configuration)
+}
+
 #[test]
 fn defaults_disable_near_clones_with_0_85_min_similarity() {
     let config = parse("{}").expect("empty config parses");

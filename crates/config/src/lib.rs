@@ -4,14 +4,17 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod agent_home;
 mod boundaries;
 mod calendar_day;
 mod churn;
+mod cli_schema;
 mod codeint_json;
 mod codeowners;
 mod config_error;
 mod coupling;
 mod regression_limits;
+mod resolved;
 mod result_cache_folder;
 
 pub use boundaries::{
@@ -19,11 +22,15 @@ pub use boundaries::{
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use churn::{ChurnFormat, ChurnSince, ChurnSinceError, ChurnWindow, DEFAULT_CHURN_DAYS};
+pub use cli_schema::{
+    CliArgumentSchema, CliCommandSchema, CliFlagSchema, CliSchema, OutputFormatSchema, cli_schema,
+};
 pub use codeint_json::{
-    Budget, Budgets, Configuration, DetectedLanguage, DuplicationConfig, LanguageCoverage,
-    Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource,
-    Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
-    published_schema_address, read_configuration, write_starter_configuration,
+    Budget, Budgets, Configuration, ConfigurationInspection, DetectedLanguage, DuplicationConfig,
+    LanguageCoverage, Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits,
+    PluginSource, SchemaVersionStatus, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
+    configuration_schema, inspect_configuration, is_broken_symlink, published_schema_address,
+    read_configuration, read_resolved_configuration, write_starter_configuration,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
@@ -32,6 +39,10 @@ pub use coupling::{
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
 };
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
+pub use resolved::{
+    BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
+    SourceSetOverride,
+};
 
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
 
@@ -76,11 +87,19 @@ pub enum ConfigError {
         folder.display()
     )]
     MissingOutputFolder { path: PathBuf, folder: PathBuf },
+    #[error("cannot determine the home folder for agent configuration")]
+    MissingAgentHome,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReportDestination {
     StandardOutput,
+    File(PathBuf),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportInput {
+    StandardInput,
     File(PathBuf),
 }
 
@@ -107,6 +126,26 @@ pub enum ReportFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ReportRenderFormat {
+    Toon,
+    Json,
+    Sarif,
+    Markdown,
+    Text,
+}
+
+impl ReportRenderFormat {
+    pub fn as_report_format(self) -> ReportFormat {
+        match self {
+            ReportRenderFormat::Toon | ReportRenderFormat::Text => ReportFormat::Toon,
+            ReportRenderFormat::Json => ReportFormat::Json,
+            ReportRenderFormat::Sarif => ReportFormat::Sarif,
+            ReportRenderFormat::Markdown => ReportFormat::Markdown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum TrendFormat {
     Toon,
     Json,
@@ -121,6 +160,33 @@ pub enum GuardFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum SchemaFormat {
+    Json,
+    Toon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ConfigFormat {
+    Text,
+    Toon,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum AgentFormat {
+    Text,
+    Toon,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum DoctorFormat {
+    Text,
+    Json,
+    Toon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ImpactFormat {
     Toon,
     Json,
@@ -132,6 +198,52 @@ pub enum TraceFormat {
     Toon,
     Json,
     Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum AgentClient {
+    ClaudeCode,
+    Cursor,
+    Codex,
+}
+
+impl AgentClient {
+    pub const ALL: [AgentClient; 3] = [
+        AgentClient::ClaudeCode,
+        AgentClient::Cursor,
+        AgentClient::Codex,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentClient::ClaudeCode => "claude-code",
+            AgentClient::Cursor => "cursor",
+            AgentClient::Codex => "codex",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            AgentClient::ClaudeCode => "Claude Code",
+            AgentClient::Cursor => "Cursor",
+            AgentClient::Codex => "Codex",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentCommand {
+    Status {
+        config_root: PathBuf,
+        client: Option<AgentClient>,
+        format: AgentFormat,
+    },
+    Install {
+        config_root: PathBuf,
+        client: Option<AgentClient>,
+        dry_run: bool,
+        format: AgentFormat,
+    },
 }
 
 pub const DEFAULT_MAX_TRACE_PATHS: usize = 10;
@@ -149,7 +261,7 @@ impl Default for TrendRange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Check {
         folder: PathBuf,
@@ -219,6 +331,26 @@ pub enum Command {
         target: PathBuf,
         format: GuardFormat,
     },
+    Schema {
+        destination: ReportDestination,
+        format: SchemaFormat,
+    },
+    Config {
+        folder: PathBuf,
+        format: ConfigFormat,
+        overrides: ConfigOverrides,
+    },
+    Report {
+        input: ReportInput,
+        destination: ReportDestination,
+        format: ReportRenderFormat,
+    },
+    Doctor {
+        folder: PathBuf,
+        format: DoctorFormat,
+        plugin_host: PluginHostConfig,
+    },
+    Agent(AgentCommand),
     Churn {
         folder: PathBuf,
         window: ChurnWindow,
@@ -348,6 +480,106 @@ enum CommandArguments {
         format: GuardFormat,
     },
     #[command(
+        about = "Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes"
+    )]
+    Schema {
+        #[command(flatten)]
+        output: OutputArgument,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = SchemaFormat::Json,
+            help = "The format of the schema manifest"
+        )]
+        format: SchemaFormat,
+    },
+    #[command(
+        about = "Inspect the effective active configuration and where each setting came from"
+    )]
+    Config {
+        #[arg(
+            help = "A folder inside the Git repository to inspect; the current folder by default"
+        )]
+        path: Option<PathBuf>,
+        #[arg(
+            long,
+            required = true,
+            help = "Print the effective active configuration and per-field provenance"
+        )]
+        resolved: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = ConfigFormat::Text,
+            help = "The format of the output"
+        )]
+        format: ConfigFormat,
+        #[arg(
+            long = "budget",
+            value_name = "SPEC",
+            help = "Override a Budget ratio as SOURCE_SET.METRIC=RATIO"
+        )]
+        budgets: Vec<BudgetOverride>,
+        #[arg(
+            long = "source-set",
+            value_name = "SPEC",
+            help = "Override a Source set glob as SOURCE_SET=GLOB"
+        )]
+        source_sets: Vec<SourceSetOverride>,
+        #[arg(
+            long = "plugin-memory-mb",
+            value_name = "MB",
+            value_parser = clap::value_parser!(u64).range(1..=4096),
+            help = "Override plugin_limits.memory_mb (1 to 4096)"
+        )]
+        plugin_memory_mb: Option<u64>,
+        #[arg(
+            long = "plugin-timeout-ms",
+            value_name = "MS",
+            value_parser = clap::value_parser!(u64).range(1..=300_000),
+            help = "Override plugin_limits.timeout_ms (1 to 300000)"
+        )]
+        plugin_timeout_ms: Option<u64>,
+    },
+    #[command(
+        about = "Re-render a saved check or diff JSON report into another format without re-running analysis"
+    )]
+    Report {
+        #[arg(
+            value_name = "INPUT",
+            help = "Path to a saved check or diff JSON report, or - to read from standard input"
+        )]
+        input: PathBuf,
+        #[command(flatten)]
+        output: OutputArgument,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = ReportRenderFormat::Toon,
+            help = "The format of the report"
+        )]
+        format: ReportRenderFormat,
+    },
+    #[command(
+        about = "Run read-only diagnostics on codeint.json, Git repository status, detected languages, Workspace packages, and external Wasm Plugins"
+    )]
+    Doctor {
+        #[arg(help = "A folder to inspect; the current folder by default")]
+        path: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = DoctorFormat::Text,
+            help = "The format of the output"
+        )]
+        format: DoctorFormat,
+    },
+    #[command(about = "Inspect and configure codeint MCP integration for local coding agents")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentSubcommandArguments,
+    },
+    #[command(
         about = "Rank eroded and duplicated files alongside their Git commit churn independently per Metric"
     )]
     Churn {
@@ -389,6 +621,57 @@ enum CommandArguments {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum AgentSubcommandArguments {
+    #[command(
+        about = "Report detected local coding agents and whether codeint mcp is registered for each"
+    )]
+    Status {
+        #[arg(long, value_enum, help = "Inspect only this coding agent")]
+        client: Option<AgentClient>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = AgentFormat::Text,
+            help = "The format of the output"
+        )]
+        format: AgentFormat,
+        #[arg(
+            long,
+            value_name = "DIR",
+            help = "Override the home folder containing agent configuration files"
+        )]
+        config_root: Option<PathBuf>,
+    },
+    #[command(about = "Register codeint mcp in supported local coding agent configuration files")]
+    Install {
+        #[arg(
+            long,
+            help = "Preview exact configuration changes without modifying any files"
+        )]
+        dry_run: bool,
+        #[arg(
+            long,
+            value_enum,
+            help = "Configure only this coding agent instead of all detected ones"
+        )]
+        client: Option<AgentClient>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = AgentFormat::Text,
+            help = "The format of the output"
+        )]
+        format: AgentFormat,
+        #[arg(
+            long,
+            value_name = "DIR",
+            help = "Override the home folder containing agent configuration files"
+        )]
+        config_root: Option<PathBuf>,
+    },
+}
+
 #[derive(Debug, clap::Args)]
 struct HistoryReportArguments {
     #[arg(
@@ -405,12 +688,8 @@ struct HistoryReportArguments {
         help = "Walk at most this many main-line commits from HEAD"
     )]
     commits: Option<std::num::NonZeroUsize>,
-    #[arg(
-        long,
-        value_name = "FILE",
-        help = "Write the report to this file instead of standard output"
-    )]
-    output: Option<PathBuf>,
+    #[command(flatten)]
+    output: OutputArgument,
     #[arg(long, help = "List every Finding instead of the 20 worst per Metric")]
     all: bool,
     #[arg(
@@ -602,8 +881,138 @@ fn build_auxiliary_command(
             min_ratio,
             include_tests,
         ),
-        _ => unreachable!("analysis commands are handled by build_command"),
+        other => build_tooling_command(current_folder, other),
     }
+}
+
+fn build_tooling_command(
+    current_folder: &Path,
+    arguments: CommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
+        CommandArguments::Schema { output, format } => {
+            build_schema_command(current_folder, output.output, format)
+        }
+        CommandArguments::Config {
+            path,
+            resolved: _,
+            format,
+            budgets,
+            source_sets,
+            plugin_memory_mb,
+            plugin_timeout_ms,
+        } => build_config_command(
+            current_folder,
+            path,
+            format,
+            ConfigOverrides {
+                budgets,
+                source_sets,
+                plugin_memory_mb,
+                plugin_timeout_ms,
+            },
+        ),
+        CommandArguments::Report {
+            input,
+            output,
+            format,
+        } => build_report_command(current_folder, input, output.output, format),
+        CommandArguments::Doctor { path, format } => Ok(Command::Doctor {
+            folder: existing_folder(current_folder, path)?,
+            format,
+            plugin_host: plugin_host_config_of_this_process(current_folder),
+        }),
+        CommandArguments::Agent { command } => build_agent_command(current_folder, command),
+        CommandArguments::Check { .. }
+        | CommandArguments::Diff { .. }
+        | CommandArguments::Trend { .. }
+        | CommandArguments::Impact(_)
+        | CommandArguments::Trace(_)
+        | CommandArguments::Init
+        | CommandArguments::Update { .. }
+        | CommandArguments::Mcp
+        | CommandArguments::Guard { .. }
+        | CommandArguments::Churn { .. }
+        | CommandArguments::Coupling { .. } => unreachable!("handled by build_command"),
+    }
+}
+
+fn build_schema_command(
+    current_folder: &Path,
+    output: Option<PathBuf>,
+    format: SchemaFormat,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Schema {
+        destination: report_destination(current_folder, output)?,
+        format,
+    })
+}
+
+fn build_report_command(
+    current_folder: &Path,
+    input: PathBuf,
+    output: Option<PathBuf>,
+    format: ReportRenderFormat,
+) -> Result<Command, ConfigError> {
+    let source = if input.as_os_str() == "-" {
+        ReportInput::StandardInput
+    } else {
+        ReportInput::File(input)
+    };
+    Ok(Command::Report {
+        input: source,
+        destination: report_destination(current_folder, output)?,
+        format,
+    })
+}
+
+fn build_config_command(
+    current_folder: &Path,
+    path: Option<PathBuf>,
+    format: ConfigFormat,
+    overrides: ConfigOverrides,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Config {
+        folder: existing_folder(current_folder, path)?,
+        format,
+        overrides,
+    })
+}
+
+fn build_agent_command(
+    current_folder: &Path,
+    arguments: AgentSubcommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
+        AgentSubcommandArguments::Status {
+            client,
+            format,
+            config_root,
+        } => Ok(Command::Agent(AgentCommand::Status {
+            config_root: agent_home_of_this_process(current_folder, config_root.as_deref())?,
+            client,
+            format,
+        })),
+        AgentSubcommandArguments::Install {
+            dry_run,
+            client,
+            format,
+            config_root,
+        } => Ok(Command::Agent(AgentCommand::Install {
+            config_root: agent_home_of_this_process(current_folder, config_root.as_deref())?,
+            client,
+            dry_run,
+            format,
+        })),
+    }
+}
+
+fn agent_home_of_this_process(
+    current_folder: &Path,
+    explicit: Option<&Path>,
+) -> Result<PathBuf, ConfigError> {
+    agent_home::resolve_agent_home(current_folder, explicit, cfg!(windows), std::env::var_os)
+        .ok_or(ConfigError::MissingAgentHome)
 }
 
 fn resolve_churn_window(
@@ -624,7 +1033,7 @@ fn build_churn_command(
     Ok(Command::Churn {
         folder: current_folder.to_path_buf(),
         window: resolve_churn_window(history.since, history.commits),
-        destination: report_destination(current_folder, history.output)?,
+        destination: report_destination(current_folder, history.output.output)?,
         findings: findings_shown(history.all),
         format: history.format,
         plugin_host: plugin_host_config_of_this_process(current_folder),
@@ -648,13 +1057,12 @@ fn build_coupling_command(
             min_ratio,
             include_tests,
         },
-        destination: report_destination(current_folder, history.output)?,
+        destination: report_destination(current_folder, history.output.output)?,
         findings: findings_shown(history.all),
         format: history.format,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }
-
 fn build_check_command(
     current_folder: &Path,
     path: Option<PathBuf>,

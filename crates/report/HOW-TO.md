@@ -91,3 +91,17 @@ let text = trend.render(TrendFormat::Toon)?;
 - Pass `TrendPoint` values oldest first.
 - `TrendReport::of` records the four Metric ratios per Source set across commits and omits Source sets that have zero files in every commit.
 - `render` formats the trend as `Toon`, `Json`, or `Markdown`.
+
+## Re-render a saved JSON report with `SavedReport`
+
+```rust
+use codeint_config::ReportRenderFormat;
+use codeint_report::SavedReport;
+
+let saved = SavedReport::from_json(&json_text)?;
+let sarif = saved.render(ReportRenderFormat::Sarif)?;
+```
+
+- `SavedReport::from_json` accepts JSON produced by `Report::render(ReportFormat::Json)` or `DiffReport::render(ReportFormat::Json)`.
+- It rejects malformed JSON, non-object JSON, unsupported schema versions, and unrecognized payloads with `SavedReportError`.
+- `render` formats the saved report as `Toon`, `Json`, `Sarif`, `Markdown`, or `Text` without re-running analysis.
