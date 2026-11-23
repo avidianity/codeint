@@ -7,9 +7,10 @@ use codeint_config::{
     FindingsShown, ImpactFormat, ReportFormat, TraceFormat,
 };
 use codeint_metrics::{
-    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
-    ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
-    MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
+    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup,
+    CognitiveComplexity, ComplexFunction, Duplication, ErodedFunction, Erosion, FlaggedLineFinding,
+    Fragment, ImportCycle, ImportCycles, MinimumCloneTokens, MinimumDistinctTokens,
+    UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -38,6 +39,7 @@ pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
+const COGNITIVE_COMPLEXITY_KEY: &str = "cognitive_complexity";
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
@@ -122,6 +124,7 @@ struct SourceSetSection {
     files: usize,
     source_lines: u64,
     erosion: ErosionSection,
+    cognitive_complexity: CognitiveComplexitySection,
     duplication: DuplicationSection,
     verbosity: VerbositySection,
     import_cycles: ImportCyclesSection,
@@ -189,6 +192,7 @@ struct PackageSection {
     files: usize,
     source_lines: u64,
     erosion: PackageErosion,
+    cognitive_complexity: PackageCognitiveComplexity,
     duplication: PackageDuplication,
     verbosity: PackageVerbosity,
     import_cycles: PackageImportCycles,
@@ -199,6 +203,13 @@ struct PackageErosion {
     ratio: Decimal,
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct PackageCognitiveComplexity {
+    ratio: Decimal,
+    complex_cognitive_complexity: u64,
+    total_cognitive_complexity: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -245,9 +256,36 @@ struct ErodedFunctionFinding {
     id: String,
     path: String,
     line: u32,
+    end_line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     cyclomatic_complexity: u32,
+    cognitive_complexity: u32,
     source_lines: u32,
     function_mass: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+struct CognitiveComplexitySection {
+    ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
+    complex_cognitive_complexity: u64,
+    total_cognitive_complexity: u64,
+    #[serde(flatten)]
+    findings: Findings<CognitiveComplexityFinding>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CognitiveComplexityFinding {
+    id: String,
+    path: String,
+    line: u32,
+    end_line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    cognitive_complexity: u32,
+    cyclomatic_complexity: u32,
+    source_lines: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -424,6 +462,10 @@ impl FindingKind for ErodedFunctionFinding {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl FindingKind for CognitiveComplexityFinding {
+    const LIST_KEY: &'static str = "findings";
+}
+
 impl FindingKind for CloneGroupFinding {
     const LIST_KEY: &'static str = "clone_groups";
 }
@@ -569,6 +611,11 @@ impl SourceSetSections {
                     (source_set, Metric::Erosion.key(), section.erosion.ratio.0),
                     (
                         source_set,
+                        COGNITIVE_COMPLEXITY_KEY,
+                        section.cognitive_complexity.ratio.0,
+                    ),
+                    (
+                        source_set,
                         Metric::Duplication.key(),
                         section.duplication.ratio.0,
                     ),
@@ -649,6 +696,11 @@ impl SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: ErosionSection::new(&measured.erosion, ranges, findings),
+            cognitive_complexity: CognitiveComplexitySection::new(
+                &measured.cognitive_complexity,
+                ranges,
+                findings,
+            ),
             duplication: DuplicationSection::new(&measured.duplication, ranges, findings),
             verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
             import_cycles: ImportCyclesSection::new(&measured.import_cycles, ranges, findings),
@@ -695,9 +747,49 @@ impl ErodedFunctionFinding {
             id: function.id.to_string(),
             path: function.path.to_string(),
             line: function.line,
+            end_line: function.end_line,
+            name: function.name.clone(),
             cyclomatic_complexity: function.cyclomatic_complexity,
+            cognitive_complexity: function.cognitive_complexity,
             source_lines: function.source_lines,
             function_mass: Decimal::rounded(function.function_mass),
+        }
+    }
+}
+
+impl CognitiveComplexitySection {
+    fn new(
+        cognitive: &CognitiveComplexity,
+        ranges: &ReferenceRangeScope,
+        shown: FindingsShown,
+    ) -> CognitiveComplexitySection {
+        CognitiveComplexitySection {
+            ratio: Decimal::rounded(cognitive.ratio()),
+            reference_range: ranges.entry(COGNITIVE_COMPLEXITY_KEY),
+            complex_cognitive_complexity: cognitive.complex_cognitive_complexity(),
+            total_cognitive_complexity: cognitive.total_cognitive_complexity(),
+            findings: Findings::worst_first(
+                cognitive
+                    .complex_functions()
+                    .iter()
+                    .map(CognitiveComplexityFinding::new),
+                shown,
+            ),
+        }
+    }
+}
+
+impl CognitiveComplexityFinding {
+    fn new(function: &ComplexFunction) -> CognitiveComplexityFinding {
+        CognitiveComplexityFinding {
+            id: function.id.to_string(),
+            path: function.path.to_string(),
+            line: function.line,
+            end_line: function.end_line,
+            name: function.name.clone(),
+            cognitive_complexity: function.cognitive_complexity,
+            cyclomatic_complexity: function.cyclomatic_complexity,
+            source_lines: function.source_lines,
         }
     }
 }
@@ -828,6 +920,7 @@ impl From<&SkippedFile> for SkippedEntry {
 
 struct Measured {
     erosion: Erosion,
+    cognitive_complexity: CognitiveComplexity,
     duplication: Duplication,
     verbosity: Verbosity,
     import_cycles: ImportCycles,
@@ -842,6 +935,7 @@ impl Measured {
         );
         Measured {
             erosion: Erosion::measure(model),
+            cognitive_complexity: CognitiveComplexity::measure(model),
             verbosity: Verbosity::measure(model, &duplication.clone_lines),
             duplication,
             import_cycles: ImportCycles::measure(model),
@@ -859,6 +953,7 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
             .entry(model.workspace.package_of(&file.path))
             .or_default() += 1;
     }
+    let mut cognitive = measured.cognitive_complexity.by_package(model);
     let mut duplication = measured.duplication.by_package(model);
     let mut verbosity = measured.verbosity.by_package(model);
     let mut import_cycles = measured.import_cycles.by_package(model);
@@ -867,6 +962,7 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
         .by_package(model)
         .into_iter()
         .map(|(package, masses)| {
+            let cognitive_totals = cognitive.remove(&package).unwrap_or_default();
             let clone_lines = duplication.remove(&package).unwrap_or_default();
             let verbose_lines = verbosity.remove(&package).unwrap_or_default();
             let modules = import_cycles.remove(&package).unwrap_or_default();
@@ -878,6 +974,11 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
                     ratio: Decimal::rounded(masses.ratio()),
                     eroded_function_mass: Decimal::rounded(masses.eroded),
                     total_function_mass: Decimal::rounded(masses.total),
+                },
+                cognitive_complexity: PackageCognitiveComplexity {
+                    ratio: Decimal::rounded(cognitive_totals.ratio()),
+                    complex_cognitive_complexity: cognitive_totals.complex,
+                    total_cognitive_complexity: cognitive_totals.total,
                 },
                 duplication: PackageDuplication {
                     ratio: Decimal::rounded(clone_lines.ratio()),

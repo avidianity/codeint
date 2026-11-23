@@ -2,8 +2,8 @@ use codeint_model::SourceSet;
 
 use super::{ListedFindings, SarifLog, relative_uri};
 use crate::{
-    CloneGroupFinding, CloneLocation, Decimal, ErodedFunctionFinding, FlaggedLineRow,
-    ImportCycleFinding,
+    CloneGroupFinding, CloneLocation, CognitiveComplexityFinding, Decimal, ErodedFunctionFinding,
+    FlaggedLineRow, ImportCycleFinding,
 };
 
 #[test]
@@ -35,9 +35,22 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         id: "1111111111111111".to_owned(),
         path: "src/big.ts".to_owned(),
         line: 3,
+        end_line: 23,
+        name: Some("big".to_owned()),
         cyclomatic_complexity: 12,
+        cognitive_complexity: 14,
         source_lines: 20,
         function_mass: Decimal(53.6656),
+    }];
+    let complex = [CognitiveComplexityFinding {
+        id: "5555555555555555".to_owned(),
+        path: "src/deep.ts".to_owned(),
+        line: 5,
+        end_line: 30,
+        name: Some("deep".to_owned()),
+        cognitive_complexity: 21,
+        cyclomatic_complexity: 7,
+        source_lines: 25,
     }];
     let clones = [CloneGroupFinding {
         id: "2222222222222222".to_owned(),
@@ -67,6 +80,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
     }];
     let listed = ListedFindings {
         eroded_functions: &eroded,
+        cognitive_complexity: &complex,
         clone_groups: &clones,
         flagged_lines: &flagged,
         import_cycles: &cycles,
@@ -97,6 +111,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         fingerprints,
         [
             ("erosion", "1111111111111111"),
+            ("cognitive_complexity", "5555555555555555"),
             ("duplication", "2222222222222222"),
             ("verbosity", "3333333333333333"),
             ("import_cycles", "4444444444444444"),

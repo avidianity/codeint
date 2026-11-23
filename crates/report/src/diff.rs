@@ -11,8 +11,9 @@ use serde::{Serialize, Serializer};
 use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurement};
 use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
-    BoundaryFindingRow, BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding,
-    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ReportError,
+    BoundaryFindingRow, BudgetFailure, COGNITIVE_COMPLEXITY_KEY, CloneGroupFinding,
+    CognitiveComplexityFinding, Decimal, ErodedFunctionFinding, ExternalMetricFinding, Findings,
+    FlaggedLineRow, ImportCycleFinding, ReportError,
 };
 
 mod markdown;
@@ -101,6 +102,7 @@ struct SourceSetChangesSections {
 #[derive(Debug, Serialize)]
 struct SourceSetChanges {
     erosion: MetricChanges<ErodedFunctionFinding>,
+    cognitive_complexity: MetricChanges<CognitiveComplexityFinding>,
     duplication: MetricChanges<CloneGroupFinding>,
     verbosity: MetricChanges<FlaggedLineRow>,
     import_cycles: MetricChanges<ImportCycleFinding>,
@@ -198,6 +200,7 @@ impl DiffReport {
                 source_set,
                 ListedFindings {
                     eroded_functions: &changes.erosion.new.listed,
+                    cognitive_complexity: &changes.cognitive_complexity.new.listed,
                     clone_groups: &changes.duplication.new.listed,
                     flagged_lines: &changes.verbosity.new.listed,
                     import_cycles: &changes.import_cycles.new.listed,
@@ -275,6 +278,11 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                 ),
                 (
                     source_set,
+                    COGNITIVE_COMPLEXITY_KEY,
+                    changes.cognitive_complexity.head_ratio.0,
+                ),
+                (
+                    source_set,
                     Metric::Duplication.key(),
                     changes.duplication.head_ratio.0,
                 ),
@@ -320,6 +328,8 @@ impl SourceSetChanges {
         let mut found: Vec<Regression> = [
             self.erosion
                 .regressions(source_set, Metric::Erosion.key(), limits),
+            self.cognitive_complexity
+                .regressions(source_set, COGNITIVE_COMPLEXITY_KEY, limits),
             self.duplication
                 .regressions(source_set, Metric::Duplication.key(), limits),
             self.verbosity
@@ -455,6 +465,7 @@ impl std::fmt::Display for Regression {
 fn numerator_key(metric_key: &str) -> &'static str {
     match metric_key {
         "erosion" => "eroded_function_mass",
+        "cognitive_complexity" => "complex_cognitive_complexity",
         "duplication" => "clone_lines",
         "verbosity" => "verbose_lines",
         "import_cycles" => "modules_in_import_cycles",
@@ -534,6 +545,7 @@ fn source_set_changes(
     };
     SourceSetChanges {
         erosion: classify(base.erosion, head.erosion, shown),
+        cognitive_complexity: classify(base.cognitive_complexity, head.cognitive_complexity, shown),
         duplication: classify(base.duplication, head.duplication, shown),
         verbosity: classify(base.verbosity, head.verbosity, shown),
         import_cycles: classify(base.import_cycles, head.import_cycles, shown),
@@ -571,6 +583,12 @@ impl SourceSetChangesSections {
 }
 
 impl Identified for ErodedFunctionFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for CognitiveComplexityFinding {
     fn id(&self) -> &str {
         &self.id
     }

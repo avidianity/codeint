@@ -213,22 +213,33 @@ struct FunctionCollector<'a> {
 }
 
 impl FunctionCollector<'_> {
-    fn record_function(&mut self, start_line: u32, end_line: u32, block: &Block) {
-        let mut counter = DecisionCounter {
+    fn record_function(
+        &mut self,
+        start_line: u32,
+        end_line: u32,
+        name: Option<String>,
+        block: &Block,
+    ) {
+        let mut counter = FunctionMetrics {
             decisions: 0,
+            cognitive: 0,
+            nesting: 0,
+            name: name.clone(),
+            counted_recursion: false,
             exclude_cfg_test: self.exclude_cfg_test,
             nested_collector: self,
         };
         counter.visit_block(block);
         let decision_points = counter.decisions;
+        let cognitive_complexity = counter.cognitive;
         let source_lines = self.code_lines.count_in_range(start_line, end_line);
         self.functions.push(Function {
             line: start_line,
             end_line,
             decision_points,
             source_lines,
-            name: None,
-            cognitive_complexity: 0,
+            name,
+            cognitive_complexity,
         });
     }
 }
@@ -247,7 +258,7 @@ impl<'ast> Visit<'ast> for FunctionCollector<'_> {
         }
         let start = node.sig.span().start().line as u32;
         let end = node.block.span().end().line as u32;
-        self.record_function(start, end, &node.block);
+        self.record_function(start, end, Some(node.sig.ident.to_string()), &node.block);
     }
 
     fn visit_impl_item_fn(&mut self, node: &'ast ImplItemFn) {
@@ -256,7 +267,7 @@ impl<'ast> Visit<'ast> for FunctionCollector<'_> {
         }
         let start = node.sig.span().start().line as u32;
         let end = node.block.span().end().line as u32;
-        self.record_function(start, end, &node.block);
+        self.record_function(start, end, Some(node.sig.ident.to_string()), &node.block);
     }
 
     fn visit_trait_item_fn(&mut self, node: &'ast TraitItemFn) {
@@ -266,18 +277,154 @@ impl<'ast> Visit<'ast> for FunctionCollector<'_> {
         if let Some(block) = &node.default {
             let start = node.sig.span().start().line as u32;
             let end = block.span().end().line as u32;
-            self.record_function(start, end, block);
+            self.record_function(start, end, Some(node.sig.ident.to_string()), block);
         }
     }
 }
 
-struct DecisionCounter<'a, 'b> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LogicalKind {
+    And,
+    Or,
+}
+
+struct FunctionMetrics<'a, 'b> {
     decisions: u32,
+    cognitive: u32,
+    nesting: u32,
+    name: Option<String>,
+    counted_recursion: bool,
     exclude_cfg_test: bool,
     nested_collector: &'a mut FunctionCollector<'b>,
 }
 
-impl<'ast> Visit<'ast> for DecisionCounter<'_, '_> {
+impl FunctionMetrics<'_, '_> {
+    fn add_cognitive_nested(&mut self) {
+        self.cognitive = self
+            .cognitive
+            .saturating_add(self.nesting.saturating_add(1));
+    }
+
+    fn with_nesting(&mut self, visit: impl FnOnce(&mut Self)) {
+        self.nesting = self.nesting.saturating_add(1);
+        visit(self);
+        self.nesting = self.nesting.saturating_sub(1);
+    }
+
+    fn mark_recursion(&mut self) {
+        if !self.counted_recursion {
+            self.counted_recursion = true;
+            self.cognitive = self.cognitive.saturating_add(1);
+        }
+    }
+
+    fn visit_if_chain(&mut self, expr_if: &syn::ExprIf, is_else_if: bool) {
+        self.decisions += 1;
+        if is_else_if {
+            self.cognitive = self.cognitive.saturating_add(1);
+        } else {
+            self.add_cognitive_nested();
+        }
+        self.visit_expr(&expr_if.cond);
+        self.with_nesting(|metrics| metrics.visit_block(&expr_if.then_branch));
+        if let Some((_, else_expr)) = &expr_if.else_branch {
+            if let Expr::If(else_if) = else_expr.as_ref() {
+                self.visit_if_chain(else_if, true);
+            } else {
+                self.cognitive = self.cognitive.saturating_add(1);
+                self.with_nesting(|metrics| metrics.visit_expr(else_expr));
+            }
+        }
+    }
+
+    fn visit_logical_chain(&mut self, binary: &syn::ExprBinary) {
+        let mut operators = Vec::new();
+        let mut leaves = Vec::new();
+        collect_logical_chain(binary, &mut operators, &mut leaves);
+        self.decisions += operators.len() as u32;
+        self.cognitive = self
+            .cognitive
+            .saturating_add(count_logical_runs(&operators));
+        for leaf in leaves {
+            self.visit_expr(leaf);
+        }
+    }
+    fn visit_control_flow_expr(&mut self, expr: &Expr) -> bool {
+        match expr {
+            Expr::If(expr_if) => self.visit_if_chain(expr_if, false),
+            Expr::While(expr_while) => {
+                self.decisions += 1;
+                self.add_cognitive_nested();
+                self.visit_expr(&expr_while.cond);
+                self.with_nesting(|metrics| metrics.visit_block(&expr_while.body));
+            }
+            Expr::ForLoop(expr_for) => {
+                self.decisions += 1;
+                self.add_cognitive_nested();
+                self.visit_pat(&expr_for.pat);
+                self.visit_expr(&expr_for.expr);
+                self.with_nesting(|metrics| metrics.visit_block(&expr_for.body));
+            }
+            Expr::Loop(expr_loop) => {
+                self.decisions += 1;
+                self.add_cognitive_nested();
+                self.with_nesting(|metrics| metrics.visit_block(&expr_loop.body));
+            }
+            Expr::Match(expr_match) => {
+                self.decisions += expr_match.arms.len().saturating_sub(1) as u32;
+                self.add_cognitive_nested();
+                self.visit_expr(&expr_match.expr);
+                self.with_nesting(|metrics| {
+                    for arm in &expr_match.arms {
+                        if arm.guard.is_some() {
+                            metrics.decisions += 1;
+                        }
+                        metrics.visit_arm(arm);
+                    }
+                });
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    fn visit_other_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Binary(binary) if matches!(binary.op, BinOp::And(_) | BinOp::Or(_)) => {
+                self.visit_logical_chain(binary);
+            }
+            Expr::Closure(closure) => {
+                self.with_nesting(|metrics| metrics.visit_expr(&closure.body));
+            }
+            Expr::Try(_) => {
+                self.decisions += 1;
+                visit::visit_expr(self, expr);
+            }
+            _ => self.visit_jump_or_call_expr(expr),
+        }
+    }
+
+    fn visit_jump_or_call_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Break(expr_break) if expr_break.label.is_some() => {
+                self.cognitive = self.cognitive.saturating_add(1);
+            }
+            Expr::Continue(expr_continue) if expr_continue.label.is_some() => {
+                self.cognitive = self.cognitive.saturating_add(1);
+            }
+            Expr::Call(call) if is_direct_call(call, self.name.as_deref()) => {
+                self.mark_recursion();
+            }
+            Expr::MethodCall(call) if is_direct_self_method_call(call, self.name.as_deref()) => {
+                self.mark_recursion();
+            }
+            _ => {}
+        }
+        visit::visit_expr(self, expr);
+    }
+}
+
+impl<'ast> Visit<'ast> for FunctionMetrics<'_, '_> {
     fn visit_item(&mut self, item: &'ast Item) {
         if self.exclude_cfg_test && has_cfg_test(item_attrs(item)) {
             return;
@@ -286,23 +433,83 @@ impl<'ast> Visit<'ast> for DecisionCounter<'_, '_> {
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
-        match expr {
-            Expr::If(_) | Expr::While(_) | Expr::ForLoop(_) | Expr::Loop(_) | Expr::Try(_) => {
-                self.decisions += 1;
-            }
-            Expr::Binary(binary) if matches!(binary.op, BinOp::And(_) | BinOp::Or(_)) => {
-                self.decisions += 1;
-            }
-            Expr::Match(expr_match) => {
-                self.decisions += expr_match.arms.len().saturating_sub(1) as u32;
-                for arm in &expr_match.arms {
-                    if arm.guard.is_some() {
-                        self.decisions += 1;
-                    }
-                }
-            }
-            _ => {}
+        if !self.visit_control_flow_expr(expr) {
+            self.visit_other_expr(expr);
         }
-        visit::visit_expr(self, expr);
     }
+}
+
+fn collect_logical_chain<'ast>(
+    binary: &'ast syn::ExprBinary,
+    operators: &mut Vec<LogicalKind>,
+    leaves: &mut Vec<&'ast Expr>,
+) {
+    let Some(kind) = logical_kind(&binary.op) else {
+        return;
+    };
+    collect_logical_operand(&binary.left, operators, leaves);
+    operators.push(kind);
+    collect_logical_operand(&binary.right, operators, leaves);
+}
+
+fn collect_logical_operand<'ast>(
+    expr: &'ast Expr,
+    operators: &mut Vec<LogicalKind>,
+    leaves: &mut Vec<&'ast Expr>,
+) {
+    match expr {
+        Expr::Paren(paren) => collect_logical_operand(&paren.expr, operators, leaves),
+        Expr::Group(group) => collect_logical_operand(&group.expr, operators, leaves),
+        Expr::Binary(binary) if logical_kind(&binary.op).is_some() => {
+            collect_logical_chain(binary, operators, leaves);
+        }
+        other => leaves.push(other),
+    }
+}
+
+fn logical_kind(op: &BinOp) -> Option<LogicalKind> {
+    match op {
+        BinOp::And(_) => Some(LogicalKind::And),
+        BinOp::Or(_) => Some(LogicalKind::Or),
+        _ => None,
+    }
+}
+
+fn count_logical_runs(operators: &[LogicalKind]) -> u32 {
+    if operators.is_empty() {
+        return 0;
+    }
+    let switches = operators
+        .windows(2)
+        .filter(|pair| pair[0] != pair[1])
+        .count();
+    (switches + 1) as u32
+}
+
+fn is_direct_call(call: &syn::ExprCall, current_name: Option<&str>) -> bool {
+    let Some(expected) = current_name else {
+        return false;
+    };
+    let Expr::Path(expr_path) = call.func.as_ref() else {
+        return false;
+    };
+    let segments = &expr_path.path.segments;
+    match segments.len() {
+        1 => segments[0].ident == expected,
+        2 => segments[0].ident == "Self" && segments[1].ident == expected,
+        _ => false,
+    }
+}
+
+fn is_direct_self_method_call(call: &syn::ExprMethodCall, current_name: Option<&str>) -> bool {
+    let Some(expected) = current_name else {
+        return false;
+    };
+    if call.method != expected {
+        return false;
+    }
+    matches!(
+        call.receiver.as_ref(),
+        Expr::Path(path) if path.path.is_ident("self")
+    )
 }

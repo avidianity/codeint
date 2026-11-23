@@ -156,8 +156,14 @@ source_sets:
         source: "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
       eroded_function_mass: 67.8823
       total_function_mass: 85.0032
-      findings[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        f0740d06c0975d68,src/route.ts,1,16,18,67.8823
+      findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        f0740d06c0975d68,src/route.ts,1,18,route,16,15,18,67.8823
+    cognitive_complexity:
+      ratio: 0
+      reference_range: no published Reference range for this language
+      complex_cognitive_complexity: 0
+      total_cognitive_complexity: 20
+      findings: []
     duplication:
       ratio: 0
       reference_range:
@@ -255,10 +261,16 @@ source_sets:
     erosion:
       base_ratio: 0.8946
       head_ratio: 0.7986
-      new[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        f0740d06c0975d68,src/route.ts,1,16,18,67.8823
-      resolved[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        1b3d7d358ce8632e,src/parse.ts,1,12,14,44.8999
+      new[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        f0740d06c0975d68,src/route.ts,1,18,route,16,15,18,67.8823
+      resolved[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        1b3d7d358ce8632e,src/parse.ts,1,14,parse,12,11,14,44.8999
+      unchanged: 0
+    cognitive_complexity:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
       unchanged: 0
     duplication:
       base_ratio: 0
@@ -345,8 +357,14 @@ source_sets:
       base_ratio: 0.8946
       head_ratio: 0
       new: []
-      resolved[1]{id,path,line,cyclomatic_complexity,source_lines,function_mass}:
-        1b3d7d358ce8632e,src/parse.ts,1,12,14,44.8999
+      resolved[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
+        1b3d7d358ce8632e,src/parse.ts,1,14,parse,12,11,14,44.8999
+      unchanged: 0
+    cognitive_complexity:
+      base_ratio: 0
+      head_ratio: 0
+      new: []
+      resolved: []
       unchanged: 0
     duplication:
       base_ratio: 0
@@ -393,7 +411,7 @@ A Regression is a Metric that got worse from the merge-base to the head side by 
 - A ratio rise over 0.01 is a Regression.
   codeint compares the ratios as the report shows them, rounded to four decimal places, so a rise of exactly 0.01 passes.
 - A numerator rise that adds new Findings is a Regression.
-  The numerator is `eroded_function_mass`, `clone_lines`, `verbose_lines`, or `modules_in_import_cycles`.
+  The numerator is `eroded_function_mass`, `complex_cognitive_complexity`, `clone_lines`, `verbose_lines`, or `modules_in_import_cycles`.
   A Finding that only moves, so the numerator stays the same, is not a Regression.
 
 [`regression_limits`](#regression-limits) in `codeint.json` changes these limits.
@@ -423,10 +441,10 @@ codeint trend
 ```text stdout
 commits: 3
 source_sets:
-  production[3]{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}:
-    2864291867e0e3a3ef91cd050c1893d5ae9eb809,2026-11-02,1,0,0,0.1429,0
-    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0.0476,0
-    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0.0476,0
+  production[3]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
+    2864291867e0e3a3ef91cd050c1893d5ae9eb809,2026-11-02,1,0,0,0,0.1429,0
+    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0,0.0476,0
+    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0,0.0476,0
 ```
 
 The main line is the first-parent history of HEAD: a merge commit is a row, and the commits of the branch it merged are not.
@@ -440,9 +458,9 @@ codeint trend --since 2026-11-05
 ```text stdout
 commits: 2
 source_sets:
-  production[2]{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}:
-    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0.0476,0
-    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0.0476,0
+  production[2]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
+    2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0,0.0476,0
+    e3bc223e22791aa541f8104438ce1606515231ce,2026-11-16,3,0,0,0,0.0476,0
 ```
 
 codeint compares the committer date, the date that `git log --since` uses, and stops at the first main-line commit committed before that day.
@@ -626,7 +644,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | Placeholder | Values |
 | ----------- | ------ |
 | `{source_set}` | `production`, `test`, `generated`, `vendored` |
-| `{metric}` | `erosion`, `duplication`, `verbosity`, `import_cycles` |
+| `{metric}` | `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles` |
 
 | Key | Type | Meaning |
 | --- | ---- | ------- |
@@ -1037,11 +1055,21 @@ codeint check --format json
             "id": "f0740d06c0975d68",
             "path": "src/route.ts",
             "line": 1,
+            "end_line": 18,
+            "name": "route",
             "cyclomatic_complexity": 16,
+            "cognitive_complexity": 15,
             "source_lines": 18,
             "function_mass": 67.8823
           }
         ]
+      },
+      "cognitive_complexity": {
+        "ratio": 0.0,
+        "reference_range": "no published Reference range for this language",
+        "complex_cognitive_complexity": 0,
+        "total_cognitive_complexity": 20,
+        "findings": []
       },
       "duplication": {
         "ratio": 0.0,
@@ -1113,14 +1141,14 @@ The top-level object has these fields:
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
-A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `duplication`, `verbosity`, and `import_cycles`.
+A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and `import_cycles`.
 Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
 - `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
   The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
 - The counts behind the ratio:
-  `eroded_function_mass` and `total_function_mass` for Erosion, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
+  `eroded_function_mass` and `total_function_mass` for Erosion, `complex_cognitive_complexity` and `total_cognitive_complexity` for Cognitive complexity, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
   Duplication and Verbosity divide by the `source_lines` of the Source set.
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
@@ -1133,7 +1161,8 @@ Each import has `importer`, the path of the importing file, `specifier`, the tex
 
 Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
-- An eroded function has `path`, `line`, `cyclomatic_complexity`, `source_lines`, and `function_mass`.
+- An eroded function has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cyclomatic_complexity`, `cognitive_complexity`, `source_lines`, and `function_mass`.
+- A complex function (Cognitive complexity) has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cognitive_complexity`, `cyclomatic_complexity`, and `source_lines`.
 - A Clone group has `tokens` and `locations`; each location has `path`, `start_line`, and `end_line`.
 - A Flagged line has `path`, `line`, and `rule`.
 - An Import cycle has `modules`, the paths of the modules in the cycle.
@@ -1144,7 +1173,7 @@ It is the same in every run and on every operating system, and CRLF line endings
 Two Findings with the same content in one file get different ids, numbered in the order they appear.
 The content behind the `id` of each kind:
 
-- An eroded function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
+- An eroded or complex function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
 - A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
 - A Flagged line: the rule and the tokens of the line.
 - An Import cycle: the paths of its modules.
@@ -1239,6 +1268,19 @@ codeint check --format sarif
               "help": {
                 "text": "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them."
               }
+            },
+            {
+              "id": "cognitive_complexity",
+              "name": "Cognitive complexity",
+              "shortDescription": {
+                "text": "A function with cognitive complexity over 15"
+              },
+              "fullDescription": {
+                "text": "Cognitive complexity is the share of total cognitive complexity held by functions whose cognitive complexity is greater than 15. Cognitive complexity weights control-flow structures by nesting depth."
+              },
+              "help": {
+                "text": "Flatten nested control flow or split the function into smaller functions, each with a cognitive complexity of 15 or less."
+              }
             }
           ]
         }
@@ -1256,7 +1298,7 @@ codeint check --format sarif
           "ruleIndex": 0,
           "level": "note",
           "message": {
-            "text": "Eroded function: cyclomatic complexity 16, over 10; 18 source lines; Function mass 67.8823."
+            "text": "Eroded function route: cyclomatic complexity 16, over 10; 18 source lines; Function mass 67.8823."
           },
           "locations": [
             {
@@ -1316,6 +1358,7 @@ The tool lists one rule per Metric, and each result names its Metric in `ruleId`
 | `ruleId` | Finding | Location |
 | -------- | ------- | -------- |
 | `erosion` | An eroded function | The line where the function starts |
+| `cognitive_complexity` | A function with cognitive complexity over 15 | The line where the function starts |
 | `duplication` | A Clone group | The first fragment, from its start line to its end line; the other fragments are related locations |
 | `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
 | `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
@@ -1347,6 +1390,7 @@ codeint measured 4 files with 39 source lines.
 | Source set | Metric | Value | Behind the value | Reference range |
 | ---------- | ------ | ----- | ---------------- | --------------- |
 | Production | Erosion | 0.7986 | 67.8823 of 85.0032 Function mass in eroded functions | 0.352 to 0.6, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Production | Cognitive complexity | 0 | 0 of 20 cognitive complexity in functions over 15 | no published Reference range for this language |
 | Production | Duplication | 0 | 0 clone lines of 39 source lines | 0.017 to 0.346, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 | Production | Verbosity | 0.0256 | 1 verbose line of 39 source lines: 1 Flagged line, 0 clone lines | 0.018 to 0.347, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 | Production | Import cycles | 0 | 0 of 4 modules in an Import cycle | 0 to 0.308, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
@@ -1357,7 +1401,7 @@ codeint measured 4 files with 39 source lines.
 
 | Function | Cyclomatic complexity | Source lines | Function mass |
 | -------- | --------------------- | ------------ | ------------- |
-| `src/route.ts:1` | 16 | 18 | 67.8823 |
+| `route` (`src/route.ts:1`) | 16 | 18 | 67.8823 |
 
 ### Verbosity
 

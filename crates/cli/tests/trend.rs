@@ -289,9 +289,9 @@ fn trend_prints_toon_by_default_with_one_table_per_source_set() {
     let output = history.trend(&[]);
 
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
-    let columns = "{commit,committed_on,files,erosion,duplication,verbosity,import_cycles}";
+    let columns = "{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}";
     let expected = format!(
-        "commits: 3\nsource_sets:\n  production[3]{columns}:\n    {first},2026-03-01,1,0,0,0,0\n    {second},2026-03-01,2,0,0,0,0\n    {third},2026-03-02,2,0,0,0,0\n  test[3]{columns}:\n    {first},2026-03-01,0,0,0,0,0\n    {second},2026-03-01,0,0,0,0,0\n    {third},2026-03-02,1,0,0,0,0\n"
+        "commits: 3\nsource_sets:\n  production[3]{columns}:\n    {first},2026-03-01,1,0,0,0,0,0\n    {second},2026-03-01,2,0,0,0,0,0\n    {third},2026-03-02,2,0,0,0,0,0\n  test[3]{columns}:\n    {first},2026-03-01,0,0,0,0,0,0\n    {second},2026-03-01,0,0,0,0,0,0\n    {third},2026-03-02,1,0,0,0,0,0\n"
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
@@ -306,7 +306,7 @@ fn format_markdown_shows_one_table_per_source_set_oldest_commit_first() {
 
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     let expected = format!(
-        "# codeint trend\n\ncodeint measured 2 commits of the main line of HEAD, oldest first.\n\n## Production\n\n| Commit | Committed on | Files | Erosion | Duplication | Verbosity | Import cycles |\n| ------ | ------------ | ----- | ------- | ----------- | --------- | ------------- |\n| `{first}` | 2026-03-01 | 1 | 0 | 0 | 0 | 0 |\n| `{second}` | 2026-03-01 | 2 | 0 | 0 | 0 | 0 |\n"
+        "# codeint trend\n\ncodeint measured 2 commits of the main line of HEAD, oldest first.\n\n## Production\n\n| Commit | Committed on | Files | Erosion | Cognitive complexity | Duplication | Verbosity | Import cycles |\n| ------ | ------------ | ----- | ------- | -------------------- | ----------- | --------- | ------------- |\n| `{first}` | 2026-03-01 | 1 | 0 | 0 | 0 | 0 | 0 |\n| `{second}` | 2026-03-01 | 2 | 0 | 0 | 0 | 0 | 0 |\n"
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }

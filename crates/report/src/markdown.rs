@@ -1,8 +1,9 @@
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, CloneLocation, DuplicationSection,
-    ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
-    ImportCycleFinding, ImportCyclesSection, MeasuredSection, PackageSection, ReferenceRangeEntry,
-    Report, SourceSetSection, SourceSetSections, UnresolvedImportRow, VerbositySection,
+    BoundaryFindingRow, CloneGroupFinding, CloneLocation, CognitiveComplexityFinding,
+    CognitiveComplexitySection, DuplicationSection, ErodedFunctionFinding, ErosionSection,
+    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection,
+    MeasuredSection, PackageSection, ReferenceRangeEntry, Report, SourceSetSection,
+    SourceSetSections, UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -22,12 +23,15 @@ pub(crate) const ERODED_FUNCTION_COLUMNS: [&str; 4] = [
     "Source lines",
     "Function mass",
 ];
-const PACKAGE_COLUMNS: [&str; 8] = [
+pub(crate) const COMPLEX_FUNCTION_COLUMNS: [&str; 3] =
+    ["Function", "Cognitive complexity", "Source lines"];
+const PACKAGE_COLUMNS: [&str; 9] = [
     "Source set",
     "Package",
     "Files",
     "Source lines",
     "Erosion",
+    "Cognitive complexity",
     "Duplication",
     "Verbosity",
     "Import cycles",
@@ -76,6 +80,10 @@ const MODULE: Noun = Noun {
 pub(crate) const ERODED_FUNCTION: Noun = Noun {
     one: "eroded function",
     many: "eroded functions",
+};
+pub(crate) const COMPLEX_FUNCTION: Noun = Noun {
+    one: "complex function",
+    many: "complex functions",
 };
 pub(crate) const CLONE_GROUP: Noun = Noun {
     one: "Clone group",
@@ -185,6 +193,7 @@ fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
         package.files.to_string(),
         package.source_lines.to_string(),
         package.erosion.ratio.0.to_string(),
+        package.cognitive_complexity.ratio.0.to_string(),
         package.duplication.ratio.0.to_string(),
         package.verbosity.ratio.0.to_string(),
         package.import_cycles.ratio.0.to_string(),
@@ -248,6 +257,13 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         total_function_mass,
         ..
     } = &section.erosion;
+    let CognitiveComplexitySection {
+        ratio: cognitive_ratio,
+        reference_range: cognitive_range,
+        complex_cognitive_complexity,
+        total_cognitive_complexity,
+        ..
+    } = &section.cognitive_complexity;
     let DuplicationSection {
         ratio: duplication_ratio,
         reference_range: duplication_range,
@@ -272,6 +288,14 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
                 eroded_function_mass.0, total_function_mass.0
             ),
             erosion_range,
+        ),
+        row(
+            "Cognitive complexity",
+            cognitive_ratio.0,
+            format!(
+                "{complex_cognitive_complexity} of {total_cognitive_complexity} cognitive complexity in functions over 15"
+            ),
+            cognitive_range,
         ),
         row(
             "Duplication",
@@ -368,6 +392,18 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
     );
     push_findings(
         &mut blocks,
+        "Cognitive complexity",
+        &section.cognitive_complexity.findings,
+        &COMPLEX_FUNCTION,
+        |listed| {
+            table(
+                &COMPLEX_FUNCTION_COLUMNS,
+                listed.iter().map(complex_function_row).collect(),
+            )
+        },
+    );
+    push_findings(
+        &mut blocks,
         "Duplication",
         &section.duplication.clone_groups,
         &CLONE_GROUP,
@@ -458,12 +494,28 @@ pub(crate) fn push_findings<T>(
     }
 }
 
+fn function_label(name: Option<&str>, path: &str, line: u32) -> String {
+    let location = code(&format!("{path}:{line}"));
+    match name {
+        Some(name) => format!("{} ({location})", code(name)),
+        None => location,
+    }
+}
+
 pub(crate) fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<String> {
     vec![
-        code(&format!("{}:{}", function.path, function.line)),
+        function_label(function.name.as_deref(), &function.path, function.line),
         function.cyclomatic_complexity.to_string(),
         function.source_lines.to_string(),
         function.function_mass.0.to_string(),
+    ]
+}
+
+pub(crate) fn complex_function_row(function: &CognitiveComplexityFinding) -> Vec<String> {
+    vec![
+        function_label(function.name.as_deref(), &function.path, function.line),
+        function.cognitive_complexity.to_string(),
+        function.source_lines.to_string(),
     ]
 }
 

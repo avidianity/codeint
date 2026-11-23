@@ -139,6 +139,13 @@
           "minimum": 0,
           "maximum": 1
         },
+        "cognitive_complexity": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Cognitive complexity ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
         "duplication": {
           "type": "number",
           "format": "double",
@@ -184,6 +191,10 @@
         "erosion": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Erosion in every Source set."
+        },
+        "cognitive_complexity": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Cognitive complexity in every Source set."
         },
         "duplication": {
           "$ref": "#/$defs/RegressionLimitSetting",
@@ -253,6 +264,10 @@
         "erosion": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Erosion in this Source set."
+        },
+        "cognitive_complexity": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Cognitive complexity in this Source set."
         },
         "duplication": {
           "$ref": "#/$defs/RegressionLimitSetting",

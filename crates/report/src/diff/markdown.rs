@@ -1,10 +1,11 @@
 use super::{DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges};
 use crate::Findings;
 use crate::markdown::{
-    BOUNDARY_FINDING_COLUMNS, CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS,
-    EXTERNAL_FINDING_COLUMNS, FINDING, FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun,
-    boundary_finding_row, clone_group_item, code, eroded_function_row, external_finding_row,
-    flagged_line_row, import_cycle_item, list, push_findings, sentence_item, table,
+    BOUNDARY_FINDING_COLUMNS, CLONE_GROUP, COMPLEX_FUNCTION, COMPLEX_FUNCTION_COLUMNS,
+    ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, EXTERNAL_FINDING_COLUMNS, FINDING, FLAGGED_LINE,
+    FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun, boundary_finding_row, clone_group_item, code,
+    complex_function_row, eroded_function_row, external_finding_row, flagged_line_row,
+    import_cycle_item, list, push_findings, sentence_item, table,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -68,6 +69,11 @@ fn comparison_sentence(report: &DiffReport) -> String {
 fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>> {
     let mut rows = vec![
         metric_row(source_set, "Erosion", &changes.erosion),
+        metric_row(
+            source_set,
+            "Cognitive complexity",
+            &changes.cognitive_complexity,
+        ),
         metric_row(source_set, "Duplication", &changes.duplication),
         metric_row(source_set, "Verbosity", &changes.verbosity),
         metric_row(source_set, "Import cycles", &changes.import_cycles),
@@ -108,6 +114,18 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
             table(
                 &ERODED_FUNCTION_COLUMNS,
                 listed.iter().map(eroded_function_row).collect(),
+            )
+        },
+    );
+    push_changes(
+        &mut blocks,
+        "Cognitive complexity",
+        &changes.cognitive_complexity,
+        &COMPLEX_FUNCTION,
+        |listed| {
+            table(
+                &COMPLEX_FUNCTION_COLUMNS,
+                listed.iter().map(complex_function_row).collect(),
             )
         },
     );

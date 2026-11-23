@@ -75,8 +75,8 @@ fn php_decision_points_cover_control_flow_match_and_arrow_functions() {
                 end_line: 16,
                 decision_points: 8,
                 source_lines: 15,
-                name: None,
-                cognitive_complexity: 0,
+                name: Some("evaluate".to_owned()),
+                cognitive_complexity: 7,
             },
             Function {
                 line: 10,
@@ -84,7 +84,7 @@ fn php_decision_points_cover_control_flow_match_and_arrow_functions() {
                 decision_points: 1,
                 source_lines: 1,
                 name: None,
-                cognitive_complexity: 0,
+                cognitive_complexity: 1,
             },
         ]
     );
@@ -314,5 +314,116 @@ fn php_builtins_composer_normalization_and_declared_dependencies() {
             ),
             ("packages/billing", "phpstan/phpstan", DepKind::Dev),
         ]
+    );
+}
+
+#[test]
+fn php_function_names_cover_functions_methods_refs_and_anonymous_closures() {
+    let source = "<?php\n\
+        function freeHelper(int $x): int { return $x; }\n\
+        function &byRef(array &$items): array { return $items; }\n\
+        class OrderService {\n\
+            public function __construct(private int $id) {}\n\
+            public static function create(): self { return new self(1); }\n\
+            public function process(array $items): array {\n\
+                $doubled = array_map(function ($v) { return $v * 2; }, $items);\n\
+                return array_filter($doubled, fn($v) => $v > 0);\n\
+            }\n\
+        }\n";
+    let model = lower_php("src/Names.php", source).expect("lower names");
+    assert_eq!(model.functions.len(), 7);
+    assert_eq!(model.functions[0].name.as_deref(), Some("freeHelper"));
+    assert_eq!(model.functions[1].name.as_deref(), Some("byRef"));
+    assert_eq!(model.functions[2].name.as_deref(), Some("__construct"));
+    assert_eq!(model.functions[3].name.as_deref(), Some("create"));
+    assert_eq!(model.functions[4].name.as_deref(), Some("process"));
+    assert_eq!(model.functions[5].name, None);
+    assert_eq!(model.functions[6].name, None);
+}
+
+#[test]
+fn php_cognitive_complexity_distinguishes_flat_vs_nested_and_isolates_closures() {
+    let source = "<?php\n\
+        function flatSwitch(int $x): int {\n\
+            switch ($x) {\n\
+                case 1: return 10;\n\
+                case 2: return 20;\n\
+                case 3: return 30;\n\
+                case 4: return 40;\n\
+                default: return 0;\n\
+            }\n\
+        }\n\
+        function flatIfs(bool $a, bool $b, bool $c, bool $d): int {\n\
+            $n = 0;\n\
+            if ($a) { $n += 1; }\n\
+            if ($b) { $n += 1; }\n\
+            if ($c) { $n += 1; }\n\
+            if ($d) { $n += 1; }\n\
+            return $n;\n\
+        }\n\
+        function deeplyNested(bool $a, bool $b, bool $c, bool $d): int {\n\
+            if ($a) {\n\
+                if ($b) {\n\
+                    if ($c) {\n\
+                        if ($d) { return 1; }\n\
+                    }\n\
+                }\n\
+            }\n\
+            return 0;\n\
+        }\n\
+        function methodCallsNotControlFlow(object $router): int {\n\
+            return $router->match(1) + $router->for(2);\n\
+        }\n\
+        function complex(bool $a, bool $b, bool $c, array $items): int {\n\
+            if ($a && $b || $c) {\n\
+                foreach ($items as $item) {\n\
+                    if ($item < 0) {\n\
+                        break 2;\n\
+                    } elseif ($item === 0) {\n\
+                        continue;\n\
+                    } else {\n\
+                        try {\n\
+                            $cb = function ($v) {\n\
+                                if ($v > 0) {\n\
+                                    if ($v > 1) { return $v; }\n\
+                                }\n\
+                                return 0;\n\
+                            };\n\
+                            return $cb($item);\n\
+                        } catch (Exception $e) {\n\
+                            return complex(false, $b, $c, []);\n\
+                        }\n\
+                    }\n\
+                }\n\
+            }\n\
+            return 0;\n\
+        }\n";
+    let fns = lower_php("src/Cognitive.php", source)
+        .expect("lower cognitive")
+        .functions;
+    assert_eq!(fns.len(), 6);
+    assert_eq!(
+        (fns[0].name.as_deref(), fns[0].cognitive_complexity),
+        (Some("flatSwitch"), 1)
+    );
+    assert_eq!(
+        (fns[1].name.as_deref(), fns[1].cognitive_complexity),
+        (Some("flatIfs"), 4)
+    );
+    assert_eq!(
+        (fns[2].name.as_deref(), fns[2].cognitive_complexity),
+        (Some("deeplyNested"), 10)
+    );
+    assert_eq!(
+        (fns[3].name.as_deref(), fns[3].cognitive_complexity),
+        (Some("methodCallsNotControlFlow"), 0)
+    );
+    assert_eq!(
+        (fns[4].name.as_deref(), fns[4].cognitive_complexity),
+        (Some("complex"), 16)
+    );
+    assert_eq!(
+        (fns[5].name.as_deref(), fns[5].cognitive_complexity),
+        (None, 3)
     );
 }

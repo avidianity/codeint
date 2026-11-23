@@ -73,16 +73,16 @@ fn counts_decision_points_and_nested_functions_separately() {
                 end_line: 16,
                 decision_points: 7,
                 source_lines: 16,
-                name: None,
-                cognitive_complexity: 0,
+                name: Some("outer".to_owned()),
+                cognitive_complexity: 5,
             },
             Function {
                 line: 7,
                 end_line: 9,
                 decision_points: 2,
                 source_lines: 3,
-                name: None,
-                cognitive_complexity: 0,
+                name: Some("inner".to_owned()),
+                cognitive_complexity: 3,
             },
         ]
     );
@@ -257,6 +257,102 @@ fn resolves_intra_crate_mod_and_use_imports_and_marks_external_crates() {
             Resolution::Resolved("src/alpha.rs".to_owned()),
             Resolution::Builtin,
             Resolution::External(String::new()),
+        ]
+    );
+}
+
+#[test]
+fn named_functions_impl_methods_and_trait_defaults_report_expected_names() {
+    let source = concat!(
+        "fn free_fn() -> i32 { 1 }\n",
+        "struct Widget;\n",
+        "impl Widget {\n",
+        "    fn compute(&self) -> i32 { 2 }\n",
+        "}\n",
+        "trait Runner {\n",
+        "    fn required(&self);\n",
+        "    fn default_run(&self) -> i32 { 3 }\n",
+        "}\n",
+    );
+    let model = lower("src/names.rs", source).expect("lower");
+    let names: Vec<Option<String>> = model.functions.into_iter().map(|f| f.name).collect();
+    assert_eq!(
+        names,
+        vec![
+            Some("free_fn".to_owned()),
+            Some("compute".to_owned()),
+            Some("default_run".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn cognitive_complexity_distinguishes_flat_match_from_nested_control_flow_and_isolates_nested_fn() {
+    let source = r#"
+fn flat_match(x: i32) -> i32 {
+    match x {
+        1 => 10,
+        2 => 20,
+        3 => 30,
+        4 => 40,
+        _ => 0,
+    }
+}
+fn deeply_nested(a: bool, b: bool, c: bool, d: bool) -> i32 {
+    if a {
+        if b {
+            if c {
+                if d {
+                    return 1;
+                }
+            }
+        }
+    }
+    0
+}
+fn outer(items: &[i32], a: bool, b: bool, c: bool) -> i32 {
+    if a && b || c {
+        'outer: for &item in items {
+            if item < 0 {
+                break 'outer;
+            } else if item == 0 {
+                continue 'outer;
+            } else {
+                fn inner(v: i32) -> i32 {
+                    if v > 0 {
+                        if v > 1 {
+                            return v;
+                        }
+                    }
+                    0
+                }
+                let _ = items.iter().filter(|&&x| {
+                    if x > 5 {
+                        true
+                    } else {
+                        false
+                    }
+                }).count();
+                return inner(item) + outer(&[], false, b, c);
+            }
+        }
+    }
+    0
+}
+"#;
+    let model = lower("src/cognitive.rs", source).expect("lower");
+    let summary: Vec<(Option<&str>, u32)> = model
+        .functions
+        .iter()
+        .map(|f| (f.name.as_deref(), f.cognitive_complexity))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (Some("flat_match"), 1),
+            (Some("deeply_nested"), 10),
+            (Some("outer"), 19),
+            (Some("inner"), 3),
         ]
     );
 }

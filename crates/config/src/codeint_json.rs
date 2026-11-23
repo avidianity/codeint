@@ -131,13 +131,14 @@ impl Configuration {
         let allowed_metrics = || -> Vec<String> {
             Metric::BUILT_IN_KEYS
                 .iter()
-                .chain(["boundaries"].iter())
+                .chain(["cognitive_complexity", "boundaries"].iter())
                 .chain(external_metric_keys.iter())
                 .map(|key| (*key).to_owned())
                 .collect()
         };
         let is_known = |key: &str| {
             Metric::BUILT_IN_KEYS.contains(&key)
+                || key == "cognitive_complexity"
                 || key == "boundaries"
                 || external_metric_keys.contains(&key)
         };
@@ -414,6 +415,9 @@ struct RegressionLimitsFile {
     #[schemars(description = "The Regression limit of Erosion in every Source set.")]
     erosion: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Cognitive complexity in every Source set.")]
+    cognitive_complexity: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Duplication in every Source set.")]
     duplication: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
@@ -447,6 +451,9 @@ struct MetricRegressionLimits {
     #[schemars(description = "The Regression limit of Erosion in this Source set.")]
     erosion: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Cognitive complexity in this Source set.")]
+    cognitive_complexity: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Duplication in this Source set.")]
     duplication: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
@@ -466,6 +473,7 @@ impl MetricRegressionLimits {
     fn is_unset(&self) -> bool {
         [
             &self.erosion,
+            &self.cognitive_complexity,
             &self.duplication,
             &self.verbosity,
             &self.import_cycles,
@@ -479,6 +487,7 @@ impl MetricRegressionLimits {
     fn by_metric(self) -> impl Iterator<Item = (String, RegressionLimitSetting)> {
         let MetricRegressionLimits {
             erosion,
+            cognitive_complexity,
             duplication,
             verbosity,
             import_cycles,
@@ -487,6 +496,7 @@ impl MetricRegressionLimits {
         } = self;
         [
             (Metric::Erosion.key().to_owned(), erosion),
+            ("cognitive_complexity".to_owned(), cognitive_complexity),
             (Metric::Duplication.key().to_owned(), duplication),
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),
@@ -524,6 +534,13 @@ struct MetricBudgets {
         description = "The highest Erosion ratio, from 0 to 1."
     )]
     erosion: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Cognitive complexity ratio, from 0 to 1."
+    )]
+    cognitive_complexity: Option<Budget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
@@ -709,6 +726,7 @@ fn normalize_https_url(url: &str) -> Option<String> {
 fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
     let RegressionLimitsFile {
         erosion,
+        cognitive_complexity,
         duplication,
         verbosity,
         import_cycles,
@@ -721,6 +739,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
     } = file;
     let every_source_set = MetricRegressionLimits {
         erosion,
+        cognitive_complexity,
         duplication,
         verbosity,
         import_cycles,
@@ -771,6 +790,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
     .flat_map(|(source_set, metric_budgets)| {
         let MetricBudgets {
             erosion,
+            cognitive_complexity,
             duplication,
             verbosity,
             import_cycles,
@@ -779,6 +799,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
         } = metric_budgets;
         [
             (Metric::Erosion.key().to_owned(), erosion),
+            ("cognitive_complexity".to_owned(), cognitive_complexity),
             (Metric::Duplication.key().to_owned(), duplication),
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),

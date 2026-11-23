@@ -1,5 +1,5 @@
 use codeint_lang_dart::{Dart, flagged_line_rules};
-use codeint_model::language::{Function, ImportRequest, Resolution};
+use codeint_model::language::{ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 fn lower(path: &str, src: &str) -> Result<codeint_model::FileModel, LowerError> {
@@ -30,17 +30,6 @@ fn dart_contract_basics() {
     );
 }
 
-fn func(line: u32, end_line: u32, decision_points: u32, source_lines: u32) -> Function {
-    Function {
-        line,
-        end_line,
-        decision_points,
-        source_lines,
-        name: None,
-        cognitive_complexity: 0,
-    }
-}
-
 #[test]
 fn dart_functions_and_decisions() {
     let model = lower(
@@ -54,7 +43,31 @@ fn dart_functions_and_decisions() {
          }\n",
     )
     .unwrap();
-    assert_eq!(model.functions, [func(1, 7, 6, 7), func(5, 5, 1, 1)]);
+    assert_eq!(model.functions.len(), 2);
+    let eval_fn = &model.functions[0];
+    assert_eq!(
+        (
+            eval_fn.line,
+            eval_fn.end_line,
+            eval_fn.decision_points,
+            eval_fn.source_lines,
+            eval_fn.name.as_deref(),
+            eval_fn.cognitive_complexity,
+        ),
+        (1, 7, 6, 7, Some("eval"), 5)
+    );
+    let arrow_fn = &model.functions[1];
+    assert_eq!(
+        (
+            arrow_fn.line,
+            arrow_fn.end_line,
+            arrow_fn.decision_points,
+            arrow_fn.source_lines,
+            arrow_fn.name.as_deref(),
+            arrow_fn.cognitive_complexity,
+        ),
+        (5, 5, 1, 1, None, 1)
+    );
 }
 
 #[test]
@@ -231,4 +244,125 @@ fn dart_builtins_package_normalization_and_declared_dependencies() {
             "packages/core|collection|DepKind::Runtime",
         ]
     );
+}
+
+#[test]
+fn dart_function_names_cover_functions_generics_methods_ctors_getters_and_closures() {
+    let src = "\
+T identity<T>(T value) => value;
+class Counter {
+  int _value;
+  Counter(this._value);
+  Counter.zero() : _value = 0;
+  Counter.fromInt(int start) : _value = start {
+    _value += 0;
+  }
+  int get current => _value;
+  set current(int next) { _value = next; }
+  bool operator ==(Object other) => identical(this, other);
+  List<int> transform(List<int> items) {
+    int localDouble(int n) => n * 2;
+    return items.map((item) => localDouble(item)).where((item) {
+      return item > 0;
+    }).toList();
+  }
+}
+";
+    let model = lower("lib/names.dart", src).unwrap();
+    let expected = [
+        Some("identity"),
+        Some("Counter.fromInt"),
+        Some("current"),
+        Some("current"),
+        Some("operator =="),
+        Some("transform"),
+        Some("localDouble"),
+        None,
+        None,
+    ];
+    assert_eq!(model.functions.len(), expected.len());
+    for (idx, want) in expected.into_iter().enumerate() {
+        assert_eq!(model.functions[idx].name.as_deref(), want, "index {idx}");
+    }
+}
+
+#[test]
+fn dart_cognitive_complexity_distinguishes_flat_vs_nested_and_isolates_nested_functions() {
+    let src = "\
+int flatSwitch(int x) {
+  switch (x) {
+    case 1: return 10;
+    case 2: return 20;
+    case 3: return 30;
+    case 4: return 40;
+    default: return 0;
+  }
+}
+int flatIfs(bool a, bool b, bool c, bool d) {
+  var n = 0;
+  if (a) { n += 1; }
+  if (b) { n += 1; }
+  if (c) { n += 1; }
+  if (d) { n += 1; }
+  return n;
+}
+int deeplyNested(bool a, bool b, bool c, bool d) {
+  if (a) {
+    if (b) {
+      if (c) {
+        if (d) { return 1; }
+      }
+    }
+  }
+  return 0;
+}
+int bareOnAndDoWhile(int n) {
+  do {
+    try {
+      n -= 1;
+    } on FormatException {
+      return -1;
+    }
+  } while (n > 0);
+  return n;
+}
+int complex(bool a, bool b, bool c, List<int> items) {
+  if (a && b || c) {
+    outer: for (final item in items) {
+      if (item < 0) {
+        break outer;
+      } else if (item == 0) {
+        continue outer;
+      } else {
+        try {
+          final fn = (int v) {
+            if (v > 0) {
+              if (v > 1) { return v; }
+            }
+            return 0;
+          };
+          return fn(item);
+        } on FormatException catch (e) {
+          return complex(false, b, c, []);
+        }
+      }
+    }
+  }
+  return 0;
+}
+";
+    let model = lower("lib/cognitive.dart", src).unwrap();
+    let expected: &[(Option<&str>, u32)] = &[
+        (Some("flatSwitch"), 1),
+        (Some("flatIfs"), 4),
+        (Some("deeplyNested"), 10),
+        (Some("bareOnAndDoWhile"), 3),
+        (Some("complex"), 17),
+        (None, 3),
+    ];
+    assert_eq!(model.functions.len(), expected.len());
+    for (got, &(want_name, want_cog)) in model.functions.iter().zip(expected) {
+        assert_eq!(got.name.as_deref(), want_name);
+        assert_eq!(got.cognitive_complexity, want_cog, "for {want_name:?}");
+    }
 }
