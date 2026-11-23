@@ -37,12 +37,14 @@ const DEFAULT_TREND_COMMITS: usize = 20;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckOptions {
     pub findings: FindingsShown,
+    pub owner: Option<String>,
     pub plugin_host: PluginHostConfig,
 }
 
 impl Default for CheckOptions {
     fn default() -> CheckOptions {
         CheckOptions {
+            owner: None,
             findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
             plugin_host: PluginHostConfig::default(),
         }
@@ -53,6 +55,7 @@ impl Default for CheckOptions {
 pub struct DiffOptions {
     pub head_ref: Option<String>,
     pub findings: FindingsShown,
+    pub owner: Option<String>,
     pub result_cache: Option<PathBuf>,
     pub plugin_host: PluginHostConfig,
 }
@@ -62,6 +65,7 @@ impl Default for DiffOptions {
         DiffOptions {
             head_ref: None,
             findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
+            owner: None,
             result_cache: None,
             plugin_host: PluginHostConfig::default(),
         }
@@ -163,8 +167,13 @@ impl fmt::Display for CodeintError {
 impl Error for CodeintError {}
 
 pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, CodeintError> {
-    let report = check::check(folder, options.findings, &options.plugin_host)
-        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    let report = check::check(
+        folder,
+        options.findings,
+        options.owner.as_deref(),
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures: Vec<String> = report
         .over_budget()
         .iter()
@@ -208,6 +217,7 @@ fn measure_diff(
         folder,
         refs,
         options.findings,
+        options.owner.as_deref(),
         cache.as_ref(),
         &options.plugin_host,
     )
@@ -312,8 +322,16 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             findings,
             format,
+            owner,
             plugin_host,
-        } => run_check(&folder, &destination, findings, format, &plugin_host),
+        } => run_check(
+            &folder,
+            &destination,
+            findings,
+            format,
+            owner.as_deref(),
+            &plugin_host,
+        ),
         Command::Diff {
             folder,
             base_ref,
@@ -321,12 +339,14 @@ fn run() -> Result<Outcome, CliError> {
             destination,
             findings,
             format,
+            owner,
             result_cache,
             plugin_host,
         } => {
             let options = DiffOptions {
                 head_ref,
                 findings,
+                owner,
                 result_cache,
                 plugin_host,
             };
@@ -458,9 +478,10 @@ fn run_check(
     destination: &ReportDestination,
     findings: FindingsShown,
     format: ReportFormat,
+    owner: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
-    let report = check::check(folder, findings, plugin_host)?;
+    let report = check::check(folder, findings, owner, plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::from_failures(
         report

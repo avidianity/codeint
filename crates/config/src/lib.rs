@@ -8,6 +8,7 @@ mod boundaries;
 mod calendar_day;
 mod churn;
 mod codeint_json;
+mod codeowners;
 mod config_error;
 mod coupling;
 mod regression_limits;
@@ -24,6 +25,7 @@ pub use codeint_json::{
     StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
     write_starter_configuration,
 };
+pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
 pub use coupling::{
     CouplingRatio, CouplingRatioError, CouplingSettings, DEFAULT_MAX_COMMIT_FILES,
@@ -127,6 +129,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        owner: Option<String>,
         plugin_host: PluginHostConfig,
     },
     Diff {
@@ -136,6 +139,7 @@ pub enum Command {
         destination: ReportDestination,
         findings: FindingsShown,
         format: ReportFormat,
+        owner: Option<String>,
         result_cache: Option<PathBuf>,
         plugin_host: PluginHostConfig,
     },
@@ -383,6 +387,12 @@ struct ReportArguments {
         help = "The format of the report"
     )]
     format: ReportFormat,
+    #[arg(
+        long,
+        value_name = "OWNER",
+        help = "Include only Findings whose CODEOWNERS owner matches this pattern"
+    )]
+    owner: Option<String>,
 }
 
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
@@ -520,6 +530,7 @@ fn build_check_command(
         destination: report_destination(current_folder, report.output)?,
         findings: findings_shown(report.all),
         format: report.format,
+        owner: report.owner,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }
@@ -537,6 +548,7 @@ fn build_diff_command(
         destination: report_destination(current_folder, report.output)?,
         findings: findings_shown(report.all),
         format: report.format,
+        owner: report.owner,
         result_cache: result_cache_folder_of_this_process(current_folder),
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })

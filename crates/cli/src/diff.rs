@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use codeint_config::{FindingsShown, PluginHostConfig, read_configuration};
+use codeint_config::{FindingsShown, PluginHostConfig};
 use codeint_git::{CommitId, GitError, Repository, ResultCache};
-use codeint_report::{BaseCommit, DiffReport, Head, HeadCommit};
+use codeint_report::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
 
-use crate::check::{CheckError, LoadedPlugins};
+use crate::check::{CheckError, PreparedRun};
 use crate::commit_measurement::{CommitMeasurer, measure_all_languages};
 
 pub(crate) struct Refs<'a> {
@@ -22,24 +22,32 @@ pub(crate) fn diff(
     folder: &Path,
     refs: Refs<'_>,
     findings: FindingsShown,
+    owner: Option<&str>,
     result_cache: Option<&ResultCache>,
     plugin_host: &PluginHostConfig,
 ) -> Result<DiffReport, CheckError> {
-    let repository = Repository::discover(folder)?;
-    let configuration = read_configuration(repository.root())?;
-    let plugins = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+    let run = PreparedRun::load(folder, owner, plugin_host)?;
     let Sides {
         merge_base,
         head,
         head_commit,
-    } = sides(&repository, &refs)?;
-    let measurer = CommitMeasurer::new(&repository, &configuration, &plugins, result_cache);
+    } = sides(&run.repository, &refs)?;
+    let measurer = CommitMeasurer::new(
+        &run.repository,
+        &run.configuration,
+        &run.loaded,
+        result_cache,
+    );
     let base_measurement = measurer.measure(merge_base)?;
     let head_measurement = match head_commit {
         Some(commit) => measurer.measure(commit)?,
-        None => measure_all_languages(&repository.working_tree()?, &plugins, &configuration)?,
+        None => measure_all_languages(
+            &run.repository.working_tree()?,
+            &run.loaded,
+            &run.configuration,
+        )?,
     };
-    Ok(DiffReport::compare(
+    Ok(DiffReport::compare_with_options(
         BaseCommit {
             git_ref: refs.base.to_owned(),
             merge_base: merge_base.to_string(),
@@ -47,9 +55,12 @@ pub(crate) fn diff(
         head,
         base_measurement,
         head_measurement,
-        findings,
-        &configuration.budgets,
-        &configuration.regression_limits,
+        DiffReportOptions {
+            findings,
+            budgets: &run.configuration.budgets,
+            limits: &run.configuration.regression_limits,
+            ownership: run.ownership(),
+        },
     ))
 }
 
