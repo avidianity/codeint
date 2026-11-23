@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod boundaries;
 mod duplication;
 mod erosion;
 mod finding_id;
@@ -9,6 +10,9 @@ mod line_share;
 mod trace;
 mod verbosity;
 
+pub use boundaries::{
+    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryFindingKind, BoundaryPolicy,
+};
 pub use duplication::{
     CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens,
 };

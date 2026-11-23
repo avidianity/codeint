@@ -1,12 +1,15 @@
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use codeint_model::{Metric, RepoPath, SourceSet};
 
 use crate::RegressionLimits;
+use crate::boundaries::{Boundaries, BoundariesFile};
+use crate::config_error::{
+    CONFIGURATION_FILE_NAME, ConfigurationFileError, JsonType, KeyPath, KeySegment, glob_set,
+};
 use crate::regression_limits::RegressionLimitSetting;
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use globset::GlobSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,7 +22,6 @@ pub use starter::{
     write_starter_configuration,
 };
 
-const CONFIGURATION_FILE_NAME: &str = "codeint.json";
 const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
 const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
 
@@ -52,6 +54,7 @@ pub struct Configuration {
     pub regression_limits: RegressionLimits,
     pub plugins: Vec<PluginDeclaration>,
     pub plugin_limits: PluginLimits,
+    pub boundaries: Option<Boundaries>,
     effective: ConfigurationFile,
 }
 
@@ -128,12 +131,16 @@ impl Configuration {
         let allowed_metrics = || -> Vec<String> {
             Metric::BUILT_IN_KEYS
                 .iter()
+                .chain(["boundaries"].iter())
                 .chain(external_metric_keys.iter())
                 .map(|key| (*key).to_owned())
                 .collect()
         };
-        let is_known =
-            |key: &str| Metric::BUILT_IN_KEYS.contains(&key) || external_metric_keys.contains(&key);
+        let is_known = |key: &str| {
+            Metric::BUILT_IN_KEYS.contains(&key)
+                || key == "boundaries"
+                || external_metric_keys.contains(&key)
+        };
         for (source_set, metric_key, _) in &self.budgets.set {
             if !is_known(metric_key) {
                 return Err(ConfigurationFileError::UnknownKey {
@@ -300,111 +307,6 @@ impl SourceSetOverrides {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JsonType {
-    Object,
-    Array,
-    String,
-    Number,
-    Integer,
-    Boolean,
-    Null,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum KeySegment {
-    Key(String),
-    Index(usize),
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct KeyPath(Vec<KeySegment>);
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigurationFileError {
-    #[error("cannot read {CONFIGURATION_FILE_NAME}")]
-    Unreadable(#[source] std::io::Error),
-    #[error("{CONFIGURATION_FILE_NAME} is not valid JSON")]
-    NotJson(#[source] serde_json::Error),
-    #[error(
-        "{CONFIGURATION_FILE_NAME} has an unknown key {key}; the keys allowed there are {}",
-        allowed.join(", ")
-    )]
-    UnknownKey { key: KeyPath, allowed: Vec<String> },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be {}, not {}",
-        any_of(expected),
-        found.with_article()
-    )]
-    WrongType {
-        key: KeyPath,
-        expected: Vec<JsonType>,
-        found: JsonType,
-    },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be between {minimum} and {maximum}, not {found}"
-    )]
-    OutOfRange {
-        key: KeyPath,
-        minimum: f64,
-        maximum: f64,
-        found: f64,
-    },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be one of {}, not {found}",
-        allowed.join(", ")
-    )]
-    NotOneOf {
-        key: KeyPath,
-        allowed: Vec<String>,
-        found: Value,
-    },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} needs the key {missing}")]
-    MissingKey { key: KeyPath, missing: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME} names an unknown Language plugin {name} at {key}; the Language plugins are {}",
-        known.join(", ")
-    )]
-    UnknownLanguagePlugin {
-        key: KeyPath,
-        name: String,
-        known: Vec<String>,
-    },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} is not a valid glob")]
-    InvalidGlob {
-        key: KeyPath,
-        #[source]
-        source: globset::Error,
-    },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} must be a 64-character hexadecimal SHA-256 digest, not {found:?}"
-    )]
-    InvalidSha256 { key: KeyPath, found: String },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} must not be empty")]
-    EmptyPluginField { key: KeyPath },
-    #[error("{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must set either path or url")]
-    MissingPluginSource { key: KeyPath, name: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must set either path or url, not both"
-    )]
-    AmbiguousPluginSource { key: KeyPath, name: String },
-    #[error(
-        "{CONFIGURATION_FILE_NAME}: {key} for Plugin {name:?} must use an HTTPS URL (https://), not {url:?}"
-    )]
-    NonHttpsPluginUrl {
-        key: KeyPath,
-        name: String,
-        url: String,
-    },
-    #[error(
-        "{CONFIGURATION_FILE_NAME} targets codeint v{config_version} via $schema, which is newer than this binary (v{binary_version})"
-    )]
-    NewerSchemaVersion {
-        config_version: String,
-        binary_version: String,
-    },
-}
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(
@@ -447,6 +349,12 @@ struct ConfigurationFile {
         description = "Memory cap and time limit enforced on each WebAssembly Plugin. Defaults are 64 MiB and 5000 ms."
     )]
     plugin_limits: PluginLimitsFile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "BoundariesFile",
+        description = "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
+    )]
+    boundaries: Option<BoundariesFile>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -514,6 +422,9 @@ struct RegressionLimitsFile {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Import cycles in every Source set.")]
     import_cycles: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Boundaries in every Source set.")]
+    boundaries: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
     #[schemars(description = "The Regression limits of the Production Source set.")]
     production: MetricRegressionLimits,
@@ -544,6 +455,9 @@ struct MetricRegressionLimits {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Import cycles in this Source set.")]
     import_cycles: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Boundaries in this Source set.")]
+    boundaries: RegressionLimitSetting,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, RegressionLimitSetting>,
 }
@@ -555,6 +469,7 @@ impl MetricRegressionLimits {
             &self.duplication,
             &self.verbosity,
             &self.import_cycles,
+            &self.boundaries,
         ]
         .into_iter()
         .chain(self.external.values())
@@ -567,6 +482,7 @@ impl MetricRegressionLimits {
             duplication,
             verbosity,
             import_cycles,
+            boundaries,
             external,
         } = self;
         [
@@ -574,6 +490,7 @@ impl MetricRegressionLimits {
             (Metric::Duplication.key().to_owned(), duplication),
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),
+            ("boundaries".to_owned(), boundaries),
         ]
         .into_iter()
         .chain(external)
@@ -628,6 +545,13 @@ struct MetricBudgets {
         description = "The highest Import cycles ratio, from 0 to 1."
     )]
     import_cycles: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Boundaries ratio, from 0 to 1."
+    )]
+    boundaries: Option<Budget>,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, Budget>,
 }
@@ -686,6 +610,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
     let file: ConfigurationFile =
         serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
     let effective = file.without_schema_address();
+    let parsed_boundaries = file.boundaries.map(Boundaries::from_file).transpose()?;
     Ok(Configuration {
         effective,
         source_set_overrides: source_set_overrides(file.source_sets)?,
@@ -694,6 +619,7 @@ fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
         regression_limits: regression_limits(file.regression_limits),
         plugins: plugins(file.plugins)?,
         plugin_limits: plugin_limits(file.plugin_limits),
+        boundaries: parsed_boundaries,
     })
 }
 
@@ -786,6 +712,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         duplication,
         verbosity,
         import_cycles,
+        boundaries,
         production,
         test,
         generated,
@@ -797,6 +724,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         duplication,
         verbosity,
         import_cycles,
+        boundaries,
         external,
     }
     .by_metric()
@@ -846,6 +774,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             duplication,
             verbosity,
             import_cycles,
+            boundaries,
             external,
         } = metric_budgets;
         [
@@ -853,6 +782,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             (Metric::Duplication.key().to_owned(), duplication),
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),
+            ("boundaries".to_owned(), boundaries),
         ]
         .into_iter()
         .filter_map(move |(metric, ratio)| Some((source_set, metric, ratio?)))
@@ -920,100 +850,6 @@ fn source_set_overrides(
     })
     .collect::<Result<_, ConfigurationFileError>>()?;
     Ok(SourceSetOverrides { by_precedence })
-}
-
-fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, ConfigurationFileError> {
-    let mut builder = GlobSetBuilder::new();
-    for (index, glob) in globs.iter().enumerate() {
-        let compiled = GlobBuilder::new(glob)
-            .literal_separator(true)
-            .backslash_escape(true)
-            .build()
-            .map_err(|source| ConfigurationFileError::InvalidGlob {
-                key: key.child(KeySegment::Index(index)),
-                source,
-            })?;
-        builder.add(compiled);
-    }
-    builder
-        .build()
-        .map_err(|source| ConfigurationFileError::InvalidGlob {
-            key: key.clone(),
-            source,
-        })
-}
-
-impl KeyPath {
-    fn child(&self, segment: KeySegment) -> KeyPath {
-        let mut segments = self.0.clone();
-        segments.push(segment);
-        KeyPath(segments)
-    }
-}
-
-impl fmt::Display for KeyPath {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (position, segment) in self.0.iter().enumerate() {
-            match segment {
-                KeySegment::Key(key) if position == 0 => write!(formatter, "{key}")?,
-                KeySegment::Key(key) => write!(formatter, ".{key}")?,
-                KeySegment::Index(index) => write!(formatter, "[{index}]")?,
-            }
-        }
-        Ok(())
-    }
-}
-
-impl JsonType {
-    fn of(value: &Value) -> JsonType {
-        match value {
-            Value::Object(_) => JsonType::Object,
-            Value::Array(_) => JsonType::Array,
-            Value::String(_) => JsonType::String,
-            Value::Number(number) if number.is_i64() || number.is_u64() => JsonType::Integer,
-            Value::Number(_) => JsonType::Number,
-            Value::Bool(_) => JsonType::Boolean,
-            Value::Null => JsonType::Null,
-        }
-    }
-
-    fn from_schema_name(name: &str) -> Option<JsonType> {
-        match name {
-            "object" => Some(JsonType::Object),
-            "array" => Some(JsonType::Array),
-            "string" => Some(JsonType::String),
-            "number" => Some(JsonType::Number),
-            "integer" => Some(JsonType::Integer),
-            "boolean" => Some(JsonType::Boolean),
-            "null" => Some(JsonType::Null),
-            _ => None,
-        }
-    }
-
-    fn accepts(self, value: &Value) -> bool {
-        let found = JsonType::of(value);
-        found == self || (self == JsonType::Number && found == JsonType::Integer)
-    }
-
-    fn with_article(self) -> &'static str {
-        match self {
-            JsonType::Object => "an object",
-            JsonType::Array => "an array",
-            JsonType::String => "a string",
-            JsonType::Number => "a number",
-            JsonType::Integer => "an integer",
-            JsonType::Boolean => "a boolean",
-            JsonType::Null => "null",
-        }
-    }
-}
-
-fn any_of(types: &[JsonType]) -> String {
-    types
-        .iter()
-        .map(|json_type| json_type.with_article())
-        .collect::<Vec<_>>()
-        .join(" or ")
 }
 
 const OFFICIAL_SCHEMA_PREFIX: &str = "https://raw.githubusercontent.com/avidianity/codeint/v";

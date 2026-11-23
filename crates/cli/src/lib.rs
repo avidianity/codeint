@@ -3,6 +3,7 @@
 mod check;
 mod commit_measurement;
 mod diff;
+mod guard;
 mod impact;
 mod init;
 mod mcp;
@@ -24,10 +25,10 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, ImpactFormat, PluginHostConfig, ReportFormat, TraceFormat,
-    TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
+    TraceFormat, TrendFormat, TrendRange,
 };
-pub use codeint_report::{DiffReport, ImpactReport, Report, TraceReport, TrendReport};
+pub use codeint_report::{DiffReport, GuardReport, ImpactReport, Report, TraceReport, TrendReport};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CheckOptions {
@@ -219,12 +220,18 @@ pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
     init::init(folder).map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
 }
 
+pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> {
+    guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error(transparent)]
+    Guard(#[from] guard::GuardError),
     #[error(transparent)]
     Impact(#[from] impact::ImpactCommandError),
     #[error(transparent)]
@@ -380,7 +387,18 @@ fn run() -> Result<Outcome, CliError> {
             result_cache,
             plugin_host,
         } => run_mcp(&folder, result_cache, plugin_host),
+        Command::Guard {
+            folder,
+            target,
+            format,
+        } => run_guard(&folder, &target, format),
     }
+}
+
+fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {
+    let report = guard::guard(folder, target)?;
+    print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::Passed)
 }
 
 fn run_init(folder: &Path) -> Result<Outcome, CliError> {

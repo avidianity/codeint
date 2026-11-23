@@ -137,7 +137,11 @@ pub(crate) fn measure_all_languages_for_package(
     } else {
         None
     };
-    let measurement = CommitMeasurement::of_with_metrics(model, &metric_plugins)?;
+    let measurement = CommitMeasurement::of_with_metrics_and_boundaries(
+        model,
+        &metric_plugins,
+        configuration.boundaries.as_ref(),
+    )?;
     Ok((selected, measurement))
 }
 
@@ -154,5 +158,9 @@ fn measure_all_languages_selected(
     if let Some(selected) = selected {
         filter_model_to_package(&mut model, selected);
     }
-    Ok(CommitMeasurement::of_with_metrics(model, &metric_plugins)?)
+    Ok(CommitMeasurement::of_with_metrics_and_boundaries(
+        model,
+        &metric_plugins,
+        configuration.boundaries.as_ref(),
+    )?)
 }

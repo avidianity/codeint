@@ -70,6 +70,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         clone_groups: &clones,
         flagged_lines: &flagged,
         import_cycles: &cycles,
+        boundaries: &[],
         external_metrics: Vec::new(),
     };
 

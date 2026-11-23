@@ -3,14 +3,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, ImpactFormat, PluginHostConfig, ReportFormat, TraceFormat,
-    TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
+    TraceFormat, TrendFormat, TrendRange,
 };
 use serde_json::{Value, json};
 
 use crate::{
-    CheckOptions, DiffOptions, ImpactOptions, TraceOptions, TrendOptions, check, diff, impact,
-    trace, trend,
+    CheckOptions, DiffOptions, ImpactOptions, TraceOptions, TrendOptions, check, diff, guard,
+    impact, trace, trend,
 };
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
@@ -165,6 +165,18 @@ fn handle_tools_list() -> Value {
                 }
             },
             {
+                "name": "guard",
+                "description": "Query the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for an existing or planned file path.",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {
+                        "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
+                    }
+                }
+            },
+            {
                 "name": "impact",
                 "description": "Compute the transitive reverse-dependency blast radius of one or more repository files (or files changed since a base Git ref), separating Production and Test dependents and listing affected Workspace packages.",
                 "inputSchema": {
@@ -215,6 +227,7 @@ fn handle_tools_call(
         "check" => Ok(call_check(args, ctx)),
         "diff" => Ok(call_diff(args, ctx)),
         "trend" => Ok(call_trend(args, ctx)),
+        "guard" => Ok(call_guard(args, ctx)),
         "impact" => Ok(call_impact(args, ctx)),
         "trace" => Ok(call_trace(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
@@ -239,7 +252,7 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
 }
 
 fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let base_ref = match required_str(args, "base_ref") {
+    let base_ref = match required_str_arg(args, "base_ref") {
         Ok(value) => value,
         Err(err) => return err,
     };
@@ -282,6 +295,28 @@ fn render_outcome(
     }
 }
 
+fn render_json_tool<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
+) -> Value {
+    match result {
+        Ok(report) => match render(report) {
+            Ok(rendered) => {
+                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
+                tool_ok(payload)
+            }
+            Err(err) => tool_err(&err.to_string()),
+        },
+        Err(err) => tool_err(&err.to_string()),
+    }
+}
+
+fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, Value> {
+    args.and_then(|a| a.get(name))
+        .and_then(Value::as_str)
+        .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
+}
+
 fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let folder = resolve_folder(args, ctx.default_folder);
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
@@ -296,8 +331,19 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
-    render_tool_result(trend(&folder, &options), |report| {
+    render_json_tool(trend(&folder, &options), |report| {
         report.render(TrendFormat::Json)
+    })
+}
+
+fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let file = match required_str_arg(args, "file") {
+        Ok(value) => value,
+        Err(err) => return err,
+    };
+    let folder = resolve_folder(args, ctx.default_folder);
+    render_json_tool(guard(&folder, Path::new(file)), |report| {
+        report.render(GuardFormat::Json)
     })
 }
 
@@ -335,17 +381,17 @@ fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    render_tool_result(impact(&folder, &options), |report| {
+    render_json_tool(impact(&folder, &options), |report| {
         report.render(ImpactFormat::Json)
     })
 }
 
 fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let from = match required_str(args, "from") {
+    let from = match required_str_arg(args, "from") {
         Ok(value) => value,
         Err(err) => return err,
     };
-    let to = match required_str(args, "to") {
+    let to = match required_str_arg(args, "to") {
         Ok(value) => value,
         Err(err) => return err,
     };
@@ -367,41 +413,15 @@ fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    render_tool_result(trace(&folder, from, to, &options), |report| {
+    render_json_tool(trace(&folder, from, to, &options), |report| {
         report.render(TraceFormat::Json)
     })
-}
-
-fn render_tool_result<T, E: std::fmt::Display>(
-    result: Result<T, E>,
-    render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
-) -> Value {
-    match result {
-        Ok(report) => render_json_report(render(report)),
-        Err(err) => tool_err(&err.to_string()),
-    }
-}
-
-fn required_str<'a>(args: Option<&'a Value>, key: &str) -> Result<&'a str, Value> {
-    args.and_then(|a| a.get(key))
-        .and_then(Value::as_str)
-        .ok_or_else(|| tool_err(&format!("Missing required argument: {key}")))
 }
 
 fn parse_package(args: Option<&Value>) -> Option<String> {
     args.and_then(|a| a.get("package"))
         .and_then(Value::as_str)
         .map(str::to_owned)
-}
-
-fn render_json_report(rendered: Result<String, codeint_report::ReportError>) -> Value {
-    match rendered {
-        Ok(text) => {
-            let payload: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-            tool_ok(payload)
-        }
-        Err(err) => tool_err(&err.to_string()),
-    }
 }
 
 fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {

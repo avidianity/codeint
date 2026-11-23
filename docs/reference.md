@@ -30,7 +30,8 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `trace` | Find the shortest runtime import path between two files in the repository; see [`codeint trace`](#codeint-trace) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
-| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `impact`, and `trace` tools; see [`codeint mcp`](#codeint-mcp) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, and `trace` tools; see [`codeint mcp`](#codeint-mcp) |
+| `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -579,11 +580,31 @@ codeint 0.5.0 is already up to date (v0.5.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes five read-only tools (`check`, `diff`, `trend`, `impact`, and `trace`) so coding agents can measure Software entropy, inspect reverse-dependency blast radius and import paths, and fix Regressions before opening a pull request.
+It exposes six read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, and `trace`) so coding agents can measure Software entropy, inspect architectural boundaries, reverse-dependency blast radius, and import paths, and fix Regressions before opening a pull request.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
 codeint mcp
+```
+
+### `codeint guard`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<PATH>` | Path to an existing or planned file inside the Git repository |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
+| `-h, --help` | Print the help of `codeint guard` |
+
+`codeint guard <path>` evaluates the architectural boundary rules in `codeint.json` for an existing or planned file path without requiring the file to exist on disk.
+
+```sh exit=0
+codeint guard src/route.ts
+codeint guard src/route.ts --format text
+codeint guard src/route.ts --format toon
+codeint guard src/route.ts --format json
 ```
 
 ## Exit codes
@@ -615,14 +636,21 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets` | object | The Budgets of each Source set; see [Budgets](#budgets) |
 | `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
+| `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
 | `regression_limits.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.boundaries` | object | The Regression limit of Boundaries in every Source set |
+| `regression_limits.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
+| `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
 | `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
 | `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
 | `regression_limits.{source_set}.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{source_set}.boundaries` | object | The Regression limit of Boundaries in this Source set |
+| `regression_limits.{source_set}.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
+| `regression_limits.{source_set}.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
@@ -636,6 +664,16 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `plugin_limits` | object | Memory cap and time limit enforced on each WebAssembly Plugin; see [Plugins](#plugins) |
 | `plugin_limits.memory_mb` | integer from 1 to 4096 | Maximum linear memory in MiB that a WebAssembly Plugin may allocate; `64` by default |
 | `plugin_limits.timeout_ms` | integer from 1 to 300000 | Maximum wall-clock time in milliseconds for each WebAssembly Plugin call; `5000` by default |
+| `boundaries` | object | Architectural import boundaries defining named zones, optional `public_files` entry points, directional `allow` or `deny` rules, and optional `strict_zones` mode |
+| `boundaries.preset` | string | Optional built-in architecture preset (`layered` or `hexagonal`) providing default zones and rules that can be overridden or extended |
+| `boundaries.zones` | object | Map of zone name to zone definition (`patterns` globs and optional `public_files` globs) |
+| `boundaries.rules` | list of objects | Directional import rules between architectural zones |
+| `boundaries.rules[].from` | string | Source zone name, or `*` to match any zone without a specific rule |
+| `boundaries.rules[].allow` | list of strings | Target zone names (or `*`) that the source zone is allowed to import; mutually exclusive with `deny` |
+| `boundaries.rules[].deny` | list of strings | Target zone names (or `*`) that the source zone is forbidden to import; mutually exclusive with `allow` |
+| `boundaries.rules[].reason` | string | Optional human-readable explanation shown in boundary Findings |
+| `boundaries.strict_zones` | boolean | When `true`, report files in evaluated Source sets that do not match any configured zone; `false` by default |
+| `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -651,7 +689,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -846,6 +884,69 @@ Use `plugin_limits` to raise or adjust these limits:
   "plugin_limits": {
     "memory_mb": 128,
     "timeout_ms": 10000
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+### Boundaries
+
+`boundaries` enforces directional import rules and `public_files` encapsulation over resolved runtime imports across every supported Language plugin.
+When `boundaries` is omitted, boundary evaluation is completely inactive.
+Set `boundaries.preset` to `layered` (`presentation`, `application`, `domain`, `infrastructure`) or `hexagonal` (`domain`, `ports`, `application`, `adapters`) to start from built-in zone globs and directional rules; entries in `boundaries.zones` override matching preset zones or add new ones, and rules in `boundaries.rules` replace preset rules for matching `from` zones.
+Each zone in `boundaries.zones` declares repository-relative `patterns` globs and optional `public_files` globs naming the only files external zones may import.
+When a file matches patterns in multiple zones, the most specific pattern (most literal characters, then longest pattern, then zone name alphabetically) wins.
+Each rule in `boundaries.rules` sets `from` (a zone name or `*`), either `allow` or `deny` (mutually exclusive), and an optional `reason`.
+By default, `boundaries` evaluates the `production` Source set only; set `source_sets` to evaluate additional Source sets, and set `strict_zones` to `true` to report files matching no zone.
+In `codeint diff`, each boundary Finding carries a stable content-based identifier so pre-existing Findings are classified as unchanged while any newly introduced boundary Finding fails by default (`new_findings: "any_new_finding"`).
+
+```json codeint.json
+{
+  "budgets": {
+    "production": {
+      "boundaries": 0
+    }
+  },
+  "regression_limits": {
+    "boundaries": {
+      "ratio_rise": 0.01,
+      "new_findings": "any_new_finding"
+    },
+    "production": {
+      "boundaries": {
+        "ratio_rise": 0,
+        "new_findings": "any_new_finding"
+      }
+    }
+  },
+  "boundaries": {
+    "preset": "layered",
+    "zones": {
+      "app": {
+        "patterns": ["src/**"],
+        "public_files": ["src/**"]
+      },
+      "infra": {
+        "patterns": ["infra/**"]
+      }
+    },
+    "rules": [
+      {
+        "from": "app",
+        "allow": ["app"],
+        "reason": "App layer stays independent of infrastructure"
+      },
+      {
+        "from": "infra",
+        "deny": ["app"],
+        "reason": "Infrastructure must not import application code"
+      }
+    ],
+    "strict_zones": false,
+    "source_sets": ["production"]
   }
 }
 ```

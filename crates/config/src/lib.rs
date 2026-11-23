@@ -4,19 +4,24 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
+mod boundaries;
 mod calendar_day;
 mod codeint_json;
+mod config_error;
 mod regression_limits;
 mod result_cache_folder;
 
+pub use boundaries::{
+    Boundaries, BoundaryDirective, BoundaryPreset, BoundaryRuleDecision, BoundarySourceSet,
+};
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
-    Budget, Budgets, Configuration, ConfigurationFileError, DetectedLanguage, JsonType, KeyPath,
-    KeySegment, LanguageCoverage, Languages, PluginDeclaration, PluginKind, PluginLimits,
-    PluginSource, Sha256Digest, SourceSetOverrides, StarterConfigurationError,
-    configuration_schema, published_schema_address, read_configuration,
+    Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
+    PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
+    StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
     write_starter_configuration,
 };
+pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
@@ -97,6 +102,13 @@ pub enum TrendFormat {
     Toon,
     Json,
     Markdown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum GuardFormat {
+    Text,
+    Toon,
+    Json,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -191,6 +203,11 @@ pub enum Command {
         result_cache: Option<PathBuf>,
         plugin_host: PluginHostConfig,
     },
+    Guard {
+        folder: PathBuf,
+        target: PathBuf,
+        format: GuardFormat,
+    },
 }
 
 #[derive(Debug)]
@@ -283,9 +300,26 @@ enum CommandArguments {
         version: Option<String>,
     },
     #[command(
-        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, impact, and trace tools"
+        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, guard, impact, and trace tools"
     )]
     Mcp,
+    #[command(
+        about = "Show the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for a file path"
+    )]
+    Guard {
+        #[arg(
+            value_name = "PATH",
+            help = "Path to an existing or planned file inside the Git repository"
+        )]
+        path: PathBuf,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = GuardFormat::Text,
+            help = "The format of the output"
+        )]
+        format: GuardFormat,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -400,38 +434,43 @@ struct ImpactArguments {
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
     let arguments = Arguments::parse();
     let current_folder = std::env::current_dir().map_err(ConfigError::CurrentFolder)?;
-    let command = build_command(arguments.command, current_folder)?;
+    let command = build_command(&current_folder, arguments.command)?;
     Ok(Invocation { command })
 }
 
 fn build_command(
+    current_folder: &Path,
     arguments: CommandArguments,
-    current_folder: PathBuf,
 ) -> Result<Command, ConfigError> {
     match arguments {
         CommandArguments::Check { path, report } => {
-            build_check_command(&current_folder, path, report)
+            build_check_command(current_folder, path, report)
         }
         CommandArguments::Diff {
             base_ref,
             head_ref,
             report,
-        } => build_diff_command(&current_folder, base_ref, head_ref, report),
+        } => build_diff_command(current_folder, base_ref, head_ref, report),
         CommandArguments::Trend {
             since,
             output,
             format,
-        } => build_trend_command(&current_folder, since, output.output, format),
-        CommandArguments::Impact(args) => build_impact_command(&current_folder, args),
-        CommandArguments::Trace(args) => build_trace_command(&current_folder, args),
+        } => build_trend_command(current_folder, since, output.output, format),
+        CommandArguments::Impact(args) => build_impact_command(current_folder, args),
+        CommandArguments::Trace(args) => build_trace_command(current_folder, args),
         CommandArguments::Init => Ok(Command::Init {
-            folder: current_folder,
+            folder: current_folder.to_path_buf(),
         }),
         CommandArguments::Update { check, version } => Ok(build_update_command(check, version)),
         CommandArguments::Mcp => Ok(Command::Mcp {
-            result_cache: result_cache_folder_of_this_process(&current_folder),
-            plugin_host: plugin_host_config_of_this_process(&current_folder),
-            folder: current_folder,
+            result_cache: result_cache_folder_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder),
+            folder: current_folder.to_path_buf(),
+        }),
+        CommandArguments::Guard { path, format } => Ok(Command::Guard {
+            folder: current_folder.to_path_buf(),
+            target: path,
+            format,
         }),
     }
 }

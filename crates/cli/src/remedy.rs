@@ -7,6 +7,7 @@ use codeint_report::TraceError;
 
 use crate::CliError;
 use crate::check::CheckError;
+use crate::guard::GuardError;
 use crate::impact::ImpactCommandError;
 use crate::init::InitError;
 use crate::trace::TraceCommandError;
@@ -16,6 +17,7 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(error) => check_remedy(error),
+        CliError::Guard(error) => guard_remedy(error),
         CliError::Impact(error) => impact_remedy(error),
         CliError::Trace(error) => trace_remedy(error),
         CliError::Init(error) => init_remedy(error),
@@ -43,16 +45,6 @@ fn trace_remedy(error: &TraceCommandError) -> &'static str {
     }
 }
 
-fn init_remedy(error: &InitError) -> &'static str {
-    match error {
-        InitError::Git(GitError::NotInRepository { .. }) => {
-            "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
-        }
-        InitError::Git(error) => git_remedy(error),
-        InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
-    }
-}
-
 fn check_remedy(error: &CheckError) -> &'static str {
     match error {
         CheckError::Git(error) => git_remedy(error),
@@ -75,6 +67,19 @@ fn check_remedy(error: &CheckError) -> &'static str {
     }
 }
 
+fn guard_remedy(error: &GuardError) -> &'static str {
+    match error {
+        GuardError::Git(error) => git_remedy(error),
+        GuardError::Configuration(error) => configuration_file_remedy(error),
+        GuardError::OutsideRepository { .. } => {
+            "Pass a file path inside the Git repository, such as src/domain/service.ts."
+        }
+        GuardError::NonUtf8Path { .. } | GuardError::InvalidPath { .. } => {
+            "Pass a valid UTF-8 file path inside the Git repository."
+        }
+    }
+}
+
 fn impact_remedy(error: &ImpactCommandError) -> &'static str {
     match error {
         ImpactCommandError::Check(error) => check_remedy(error),
@@ -90,6 +95,16 @@ fn impact_remedy(error: &ImpactCommandError) -> &'static str {
         ImpactCommandError::InvalidTargetPath { .. } => {
             "Pass a repository-relative file path using forward slashes."
         }
+    }
+}
+
+fn init_remedy(error: &InitError) -> &'static str {
+    match error {
+        InitError::Git(GitError::NotInRepository { .. }) => {
+            "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
+        }
+        InitError::Git(error) => git_remedy(error),
+        InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
     }
 }
 fn update_remedy(error: &UpdateError) -> &'static str {
@@ -183,64 +198,100 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
 }
 
 fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
-    if let Some(message) = plugin_config_remedy(error) {
-        return message;
-    }
+    plugin_config_remedy(error)
+        .or_else(|| boundary_config_remedy(error))
+        .or_else(|| file_access_remedy(error))
+        .or_else(|| json_shape_remedy(error))
+        .unwrap_or("Check codeint.json against the JSON schema that $schema links to.")
+}
+
+fn file_access_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+    use ConfigurationFileError as E;
     match error {
-        ConfigurationFileError::Unreadable(_) => {
-            "Check that codeint.json is a file you have permission to read, then run codeint again."
-        }
-        ConfigurationFileError::NotJson(_) => {
-            "Fix the JSON syntax of codeint.json at that line and column."
-        }
-        ConfigurationFileError::UnknownKey { .. } => {
-            "Remove the key, or correct its spelling to one of the allowed keys."
-        }
-        ConfigurationFileError::WrongType { .. } => {
+        E::Unreadable(_) => Some(
+            "Check that codeint.json is a file you have permission to read, then run codeint again.",
+        ),
+        E::NotJson(_) => Some("Fix the JSON syntax of codeint.json at that line and column."),
+        E::NewerSchemaVersion { .. } => Some(
+            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.",
+        ),
+        _ => None,
+    }
+}
+
+fn json_shape_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+    use ConfigurationFileError::*;
+    Some(match error {
+        UnknownKey { .. } => "Remove the key, or correct its spelling to one of the allowed keys.",
+        WrongType { .. } => {
             "Change the value to the expected type; the JSON schema that $schema links to describes every key."
         }
-        ConfigurationFileError::OutOfRange {
+        OutOfRange {
             minimum, maximum, ..
-        } if *minimum == 0.0 && *maximum == 1.0 => {
-            "Set the value to a ratio from 0 to 1, as the report shows ratios."
-        }
-        ConfigurationFileError::OutOfRange { .. } => {
-            "Set the value within the allowed range; the JSON schema that $schema links to describes every key."
-        }
-        ConfigurationFileError::NotOneOf { .. } => {
+        } => out_of_range_remedy(*minimum, *maximum),
+        NotOneOf { .. } => {
             "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one."
         }
-        ConfigurationFileError::MissingKey { .. } => {
+        MissingKey { .. } => {
             "Add the key; the JSON schema that $schema links to describes every key."
         }
-        ConfigurationFileError::NewerSchemaVersion { .. } => {
-            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json."
+        _ => return None,
+    })
+}
+
+fn out_of_range_remedy(minimum: f64, maximum: f64) -> &'static str {
+    if minimum == 0.0 && maximum == 1.0 {
+        "Set the value to a ratio from 0 to 1, as the report shows ratios."
+    } else {
+        "Set the value within the allowed range; the JSON schema that $schema links to describes every key."
+    }
+}
+
+fn boundary_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+    use ConfigurationFileError::*;
+    match error {
+        InvalidBoundaryZoneName { .. } => {
+            Some("Give each boundary zone in codeint.json a non-empty name other than \"*\".")
         }
-        _ => "Check codeint.json against the JSON schema that $schema links to.",
+        EmptyBoundaryZonePatterns { .. } => {
+            Some("Add at least one path glob under patterns for every zone in boundaries.zones.")
+        }
+        UnknownBoundaryZone { .. } => Some(
+            "Reference only zones defined under boundaries.zones (or \"*\") in boundaries.rules.",
+        ),
+        ConflictingBoundaryRule { .. } => {
+            Some("Set either allow or deny on each rule in boundaries.rules, not both.")
+        }
+        MissingBoundaryRuleDirective { .. } => {
+            Some("Set either allow or deny on each rule in boundaries.rules.")
+        }
+        ConflictingBoundaryDirectives { .. } => Some(
+            "Use either allow rules or deny rules for a given source zone in boundaries.rules, not both.",
+        ),
+        _ => None,
     }
 }
 
 fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+    use ConfigurationFileError::*;
     Some(match error {
-        ConfigurationFileError::UnknownLanguagePlugin { .. } => {
+        UnknownLanguagePlugin { .. } => {
             "Name one of the Language plugins listed, or remove the entry from languages."
         }
-        ConfigurationFileError::InvalidGlob { .. } => {
+        InvalidGlob { .. } => {
             "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
         }
-        ConfigurationFileError::InvalidSha256 { .. } => {
+        InvalidSha256 { .. } => {
             "Set sha256 to the 64-character hexadecimal SHA-256 digest of the plugin file."
         }
-        ConfigurationFileError::EmptyPluginField { .. } => {
-            "Set a non-empty value for the plugin field in codeint.json."
-        }
-        ConfigurationFileError::MissingPluginSource { .. } => {
+        EmptyPluginField { .. } => "Set a non-empty value for the plugin field in codeint.json.",
+        MissingPluginSource { .. } => {
             "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.json."
         }
-        ConfigurationFileError::AmbiguousPluginSource { .. } => {
+        AmbiguousPluginSource { .. } => {
             "Keep either path or url on the plugin entry in codeint.json and remove the other."
         }
-        ConfigurationFileError::NonHttpsPluginUrl { .. } => {
+        NonHttpsPluginUrl { .. } => {
             "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused."
         }
         _ => return None,

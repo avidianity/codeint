@@ -352,12 +352,13 @@ fn check_loaded(
         let selected = select_workspace_package(&workspace, requested)?;
         filter_languages_to_package(&mut languages, &selected);
     }
-    Ok(Report::summarize_with_metrics(
+    Ok(Report::summarize_with_metrics_and_boundaries(
         languages,
         tree.submodules().to_vec(),
         findings,
         &configuration.budgets,
         metric_plugins,
+        configuration.boundaries.as_ref(),
     )?)
 }
 

@@ -13,14 +13,18 @@ impl fmt::Display for FindingId {
 }
 
 pub(crate) struct FindingIds {
-    metric: Metric,
+    metric_key: &'static str,
     occurrences: HashMap<u64, u64>,
 }
 
 impl FindingIds {
     pub(crate) fn new(metric: Metric) -> FindingIds {
+        FindingIds::for_key(metric.key())
+    }
+
+    pub(crate) fn for_key(metric_key: &'static str) -> FindingIds {
         FindingIds {
-            metric,
+            metric_key,
             occurrences: HashMap::new(),
         }
     }
@@ -30,7 +34,7 @@ impl FindingIds {
         paths: impl IntoIterator<Item = &'path RepoPath>,
         content: impl IntoIterator<Item = u64>,
     ) -> FindingId {
-        let with_metric = length_prefixed(StableHasher::new(), self.metric.key().as_bytes());
+        let with_metric = length_prefixed(StableHasher::new(), self.metric_key.as_bytes());
         let mut path_count = 0;
         let with_paths = paths.into_iter().fold(with_metric, |hasher, path| {
             path_count += 1;

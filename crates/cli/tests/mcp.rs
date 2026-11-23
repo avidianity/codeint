@@ -26,7 +26,10 @@ fn mcp_initialize_list_and_call_tools() {
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "codeint");
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["check", "diff", "trend", "impact", "trace"]);
+    assert_eq!(
+        names,
+        ["check", "diff", "trend", "guard", "impact", "trace"]
+    );
 
     let check_payload = mcp_payload(&responses[2]);
     assert_eq!(check_payload["passed"], true);
@@ -38,4 +41,75 @@ fn mcp_initialize_list_and_call_tools() {
     assert_eq!(impact_payload["targets"][0]["path"], "app.ts");
     assert_eq!(impact_payload["summary"]["total_dependents"], 0);
     assert_eq!(responses[6]["error"]["code"], -32601);
+}
+
+#[test]
+fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
+    let repo = init_git_repo(&[(
+        "app.ts",
+        "export function greet(x: number): number {\n  return x + 1;\n}\n",
+    )]);
+    let unconfigured = send_mcp_requests(
+        repo.path(),
+        &[mcp_tool_call(1, "guard", json!({"file": "app.ts"}))],
+    );
+    let unconfigured_payload = mcp_payload(&unconfigured[0]);
+    assert_eq!(unconfigured_payload["configured"], false);
+    assert_eq!(unconfigured_payload["exists"], true);
+
+    std::fs::write(
+        repo.path().join("codeint.json"),
+        json!({
+            "boundaries": {
+                "zones": {
+                    "core": { "patterns": ["src/core/**"], "public_files": ["src/core/api.ts"] },
+                    "adapter": { "patterns": ["src/adapter/**"] },
+                    "web": { "patterns": ["src/web/**"] }
+                },
+                "rules": [
+                    { "from": "core", "deny": ["adapter"], "reason": "Core must stay independent of adapters" },
+                    { "from": "web", "allow": ["core"], "reason": "Web may only import core" }
+                ]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo.path().join("src/core")).unwrap();
+    std::fs::write(
+        repo.path().join("src/core/internal.ts"),
+        "export const internal = 1;\n",
+    )
+    .unwrap();
+
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            mcp_tool_call(1, "guard", json!({"file": "src/core/internal.ts"})),
+            mcp_tool_call(2, "guard", json!({"file": "src/web/planned/view.ts"})),
+            mcp_tool_call(3, "guard", json!({"file": "app.ts"})),
+        ],
+    );
+
+    assert_eq!(responses.len(), 3);
+
+    let existing = mcp_payload(&responses[0]);
+    assert_eq!(existing["zone"], "core");
+    assert_eq!(existing["exists"], true);
+    assert_eq!(existing["is_public_file"], false);
+    assert_eq!(existing["allowed_importers"], json!(["core"]));
+    assert_eq!(existing["denied_targets"][0]["zone"], "adapter");
+    assert_eq!(
+        existing["denied_targets"][0]["reason"],
+        "Core must stay independent of adapters"
+    );
+
+    let planned = mcp_payload(&responses[1]);
+    assert_eq!(planned["zone"], "web");
+    assert_eq!(planned["exists"], false);
+    assert_eq!(planned["denied_targets"][0]["zone"], "adapter");
+
+    let unzoned = mcp_payload(&responses[2]);
+    assert_eq!(unzoned["configured"], true);
+    assert!(unzoned.get("zone").is_none());
 }
