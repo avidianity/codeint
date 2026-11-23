@@ -60,6 +60,7 @@ Never delete a long-lived branch.
 ## Mandatory: pull requests
 
 - Before you open a pull request, review the full diff from the base, every commit, and the remote tracking state.
+- Use a valid Conventional Commit subject for the pull request title (checked by `cargo xtask commit-message --file` in `.github/workflows/pull-request.yml`).
 - Write the pull request body with the [Evidence bundle](./review-and-merge.md#mandatory-evidence-bundle).
 - Always name the base branch.
 - Merge with squash unless the Project's ADR says otherwise, and delete only the pull request's own head branch.
