@@ -98,7 +98,7 @@ fn metric_row<T>(source_set: &str, metric: &str, changes: &MetricChanges<T>) -> 
 }
 
 fn count<T>(findings: &Findings<T>) -> usize {
-    findings.listed.len() + findings.left_out
+    findings.listed.len().saturating_add(findings.left_out)
 }
 
 fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {

@@ -7,6 +7,7 @@ use codeint_config::{
     FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat, TraceFormat,
     TrendFormat, TrendRange,
 };
+use codeint_report::McpToolSchema;
 use serde_json::{Value, json};
 
 use crate::{
@@ -124,124 +125,128 @@ fn handle_initialize(params: Option<&Value>) -> Value {
     })
 }
 
+pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
+    vec![
+        McpToolSchema {
+            name: "check".to_owned(),
+            description: "Measure Software entropy of a Git repository working tree (Erosion, Duplication, Verbosity, Import cycles, Boundaries, Orphan files) and report any Budget failures.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "diff".to_owned(),
+            description: "Compare the working tree (or a head Git ref) against the merge-base of base_ref and classify Findings as new, resolved, or unchanged.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["base_ref"],
+                "properties": {
+                    "base_ref": { "type": "string", "description": "Base Git ref such as main or origin/main." },
+                    "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "trend".to_owned(),
+            description: "Measure each main-line commit over time (latest 20 commits or since YYYY-MM-DD).".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "guard".to_owned(),
+            description: "Query the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for an existing or planned file path.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "impact".to_owned(),
+            description: "Compute the transitive reverse-dependency blast radius of one or more repository files (or files changed since a base Git ref), separating Production and Test dependents and listing affected Workspace packages.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "paths": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Repository-relative file paths to analyze."
+                    },
+                    "changed": { "type": "string", "description": "Optional base Git ref; analyze files changed since its merge-base with HEAD." },
+                    "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope reported dependents." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "trace".to_owned(),
+            description: "Find the shortest runtime import path(s) connecting two repository files.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["from", "to"],
+                "properties": {
+                    "from": { "type": "string", "description": "Repository-relative path of the starting module." },
+                    "to": { "type": "string", "description": "Repository-relative path of the target module." },
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "package": { "type": "string", "description": "Optional Workspace package path to scope the query." },
+                    "all": { "type": "boolean", "description": "Return all shortest paths up to max_paths instead of a single shortest path." },
+                    "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "churn".to_owned(),
+            description: "Rank eroded and duplicated files alongside their Git commit churn independently per Metric over a configurable lookback window.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
+                    "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "coupling".to_owned(),
+            description: "Detect pairs of files that repeatedly change together in the same commits, excluding bulk commits and flagging direct runtime imports.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
+                    "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
+                    "max_commit_files": { "type": "integer", "minimum": 1, "description": "Exclude commits touching more than this many files (defaults to 50)." },
+                    "min_co_changes": { "type": "integer", "minimum": 1, "description": "Minimum co-changing commits required to report a pair (defaults to 3)." },
+                    "min_ratio": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum coupling ratio between 0 and 1 required to report a pair (defaults to 0.3)." },
+                    "include_tests": { "type": "boolean", "description": "Include Test Source set files alongside Production files (defaults to false)." },
+                    "all": { "type": "boolean", "description": "Return all coupled pairs instead of the top 20." }
+                }
+            }),
+        },
+    ]
+}
+
 fn handle_tools_list() -> Value {
     json!({
-        "tools": [
-            {
-                "name": "check",
-                "description": "Measure Software entropy of a Git repository working tree (Erosion, Duplication, Verbosity, Import cycles, Boundaries, Orphan files) and report any Budget failures.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
-                        "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
-                    }
-                }
-            },
-            {
-                "name": "diff",
-                "description": "Compare the working tree (or a head Git ref) against the merge-base of base_ref and classify Findings as new, resolved, or unchanged.",
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["base_ref"],
-                    "properties": {
-                        "base_ref": { "type": "string", "description": "Base Git ref such as main or origin/main." },
-                        "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
-                        "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
-                    }
-                }
-            },
-            {
-                "name": "trend",
-                "description": "Measure each main-line commit over time (latest 20 commits or since YYYY-MM-DD).",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
-                    }
-                }
-            },
-            {
-                "name": "guard",
-                "description": "Query the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for an existing or planned file path.",
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["file"],
-                    "properties": {
-                        "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
-                    }
-                }
-            },
-            {
-                "name": "impact",
-                "description": "Compute the transitive reverse-dependency blast radius of one or more repository files (or files changed since a base Git ref), separating Production and Test dependents and listing affected Workspace packages.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "paths": {
-                            "type": "array",
-                            "items": { "type": "string" },
-                            "description": "Repository-relative file paths to analyze."
-                        },
-                        "changed": { "type": "string", "description": "Optional base Git ref; analyze files changed since its merge-base with HEAD." },
-                        "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." },
-                        "package": { "type": "string", "description": "Optional Workspace package path to scope reported dependents." }
-                    }
-                }
-            },
-            {
-                "name": "trace",
-                "description": "Find the shortest runtime import path(s) connecting two repository files.",
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["from", "to"],
-                    "properties": {
-                        "from": { "type": "string", "description": "Repository-relative path of the starting module." },
-                        "to": { "type": "string", "description": "Repository-relative path of the target module." },
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "package": { "type": "string", "description": "Optional Workspace package path to scope the query." },
-                        "all": { "type": "boolean", "description": "Return all shortest paths up to max_paths instead of a single shortest path." },
-                        "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
-                    }
-                }
-            },
-            {
-                "name": "churn",
-                "description": "Rank eroded and duplicated files alongside their Git commit churn independently per Metric over a configurable lookback window.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
-                        "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
-                        "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
-                    }
-                }
-            },
-            {
-                "name": "coupling",
-                "description": "Detect pairs of files that repeatedly change together in the same commits, excluding bulk commits and flagging direct runtime imports.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
-                        "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
-                        "max_commit_files": { "type": "integer", "minimum": 1, "description": "Exclude commits touching more than this many files (defaults to 50)." },
-                        "min_co_changes": { "type": "integer", "minimum": 1, "description": "Minimum co-changing commits required to report a pair (defaults to 3)." },
-                        "min_ratio": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum coupling ratio between 0 and 1 required to report a pair (defaults to 0.3)." },
-                        "include_tests": { "type": "boolean", "description": "Include Test Source set files alongside Production files (defaults to false)." },
-                        "all": { "type": "boolean", "description": "Return all coupled pairs instead of the top 20." }
-                    }
-                }
-            }
-        ]
+        "tools": tool_definitions(),
     })
 }
 

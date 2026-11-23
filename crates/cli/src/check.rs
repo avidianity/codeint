@@ -23,7 +23,7 @@ use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
+use codeint_report::{LanguageSchema, MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
@@ -214,6 +214,16 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 5] = 
         plugin: &Python,
     },
 ];
+
+pub(crate) fn built_in_languages() -> Vec<LanguageSchema> {
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .map(|named| LanguageSchema {
+            name: named.name.to_owned(),
+            extensions: named.plugin.extensions(),
+        })
+        .collect()
+}
 
 pub(crate) struct LoadedPlugins {
     external_languages: Vec<(String, WasmLanguagePlugin)>,
@@ -687,7 +697,7 @@ fn first_two_plugin_names(
     (names[0].to_owned(), names[1].to_owned())
 }
 
-fn read_manifests(
+pub(crate) fn read_manifests(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
 ) -> Result<Vec<Vec<Manifest>>, CheckError> {
@@ -708,7 +718,7 @@ fn read_manifests(
         .collect()
 }
 
-fn find_workspace(
+pub(crate) fn find_workspace(
     plugins: &[NamedLanguagePlugin<'_>],
     manifests_by_plugin: &[Vec<Manifest>],
 ) -> Result<Workspace, CheckError> {

@@ -93,6 +93,16 @@ impl Template {
             "src/route.ts",
             &branching_function("route", "path: string", "path === \"/", 15),
         );
+        let saved = Command::new(env!("CARGO_BIN_EXE_codeint"))
+            .args(["check", "--format", "json", "--output", "report.json"])
+            .current_dir(root)
+            .output()
+            .expect("generate sample report.json");
+        assert!(
+            saved.status.success(),
+            "generate sample report.json failed: {}",
+            String::from_utf8_lossy(&saved.stderr)
+        );
         template
     }
 

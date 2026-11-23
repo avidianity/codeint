@@ -3,8 +3,7 @@ use crate::{
     BoundaryFindingRow, CloneGroupFinding, CloneLocation, DuplicationSection,
     ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
     ImportCycleFinding, ImportCyclesSection, MeasuredSection, OrphanFileRow, PackageSection,
-    ReferenceRangeEntry, Report, SourceSetSection, SourceSetSections, UnresolvedImportRow,
-    VerbositySection,
+    ReferenceRangeEntry, Report, SourceSetSection, UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -198,20 +197,6 @@ fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
     ]
 }
 
-impl SourceSetSections {
-    fn named(&self) -> Vec<(&'static str, &SourceSetSection)> {
-        [
-            ("Production", &self.production),
-            ("Test", &self.test),
-            ("Generated", &self.generated),
-            ("Vendored", &self.vendored),
-        ]
-        .into_iter()
-        .filter_map(|(name, section)| section.as_ref().map(|section| (name, section)))
-        .collect()
-    }
-}
-
 fn measured_summary(measured: &MeasuredSection) -> String {
     let sections = measured.source_sets.named();
     let total = files_and_lines(measured.files, measured.source_lines);
@@ -310,7 +295,11 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         ),
     ];
     if let Some(boundaries) = &section.boundaries {
-        let total_findings = boundaries.findings.listed.len() + boundaries.findings.left_out;
+        let total_findings = boundaries
+            .findings
+            .listed
+            .len()
+            .saturating_add(boundaries.findings.left_out);
         rows.push(vec![
             source_set.to_string(),
             "Boundaries".to_string(),

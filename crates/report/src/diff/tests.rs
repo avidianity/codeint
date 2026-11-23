@@ -34,3 +34,14 @@ fn a_displayed_rise_of_0_0101_is_a_regression() {
 
     assert!(changes.breaks(RegressionRule::RatioRise, RegressionLimit::DEFAULT));
 }
+
+#[test]
+fn new_findings_saturates_when_left_out_is_usize_max() {
+    let mut changes = ratio_changes(0.0, 0.0);
+    changes.new = Findings {
+        listed: vec![()],
+        left_out: usize::MAX,
+    };
+
+    assert_eq!(changes.new_findings(), usize::MAX);
+}

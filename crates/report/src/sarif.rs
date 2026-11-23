@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use codeint_model::{Metric, SourceSet};
 
+use crate::schema::{BUILT_IN_METRICS, ORPHAN_FILES_DESCRIPTOR, built_in_metric_descriptor};
 use crate::{
     BoundaryFindingRow, CloneGroupFinding, CloneLocation, ErodedFunctionFinding,
     ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, OrphanFileRow, Report,
@@ -235,46 +236,16 @@ impl SarifLog {
     }
 }
 
-const RULES: [Metric; 4] = [
-    Metric::Erosion,
-    Metric::Duplication,
-    Metric::Verbosity,
-    Metric::ImportCycles,
-];
+const RULES: [Metric; 4] = BUILT_IN_METRICS;
 
 fn descriptor(metric: Metric) -> Rule {
-    let (name, short_description, full_description, help) = match metric {
-        Metric::Erosion => (
-            "Erosion",
-            "A function with cyclomatic complexity over 10",
-            "Erosion is the share of total Function mass held by functions whose cyclomatic complexity is greater than 10. Function mass is cyclomatic complexity times the square root of source lines.",
-            "Split the function into smaller functions, each with a cyclomatic complexity of 10 or less.",
-        ),
-        Metric::Duplication => (
-            "Duplication",
-            "A Clone group: code fragments with the same token sequence",
-            "Duplication is the share of source lines that belong to at least one Clone group. A Clone group is two or more code fragments with the same token sequence once identifiers and literals are normalized.",
-            "Extract the fragments of the Clone group into one shared function or module.",
-        ),
-        Metric::Verbosity => (
-            "Verbosity",
-            "A Flagged line: code that can be deleted or collapsed",
-            "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches.",
-            "Delete or collapse the line as its rule describes; the behavior stays the same.",
-        ),
-        Metric::ImportCycles => (
-            "Import cycles",
-            "An Import cycle among runtime imports",
-            "Import cycles is the share of modules that belong to at least one Import cycle. An Import cycle is a group of modules in which every module can reach every other module through runtime imports.",
-            "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them.",
-        ),
-    };
+    let info = built_in_metric_descriptor(metric);
     Rule {
         id: metric.key().to_owned(),
-        name: name.to_owned(),
-        short_description: Text::from(short_description),
-        full_description: Text::from(full_description),
-        help: Text::from(help),
+        name: info.name.to_owned(),
+        short_description: Text::from(info.short_description),
+        full_description: Text::from(info.full_description),
+        help: Text::from(info.help),
     }
 }
 
@@ -357,14 +328,10 @@ fn boundaries_descriptor() -> Rule {
 fn orphan_files_descriptor() -> Rule {
     Rule {
         id: "orphan_files".to_owned(),
-        name: "Orphan files".to_owned(),
-        short_description: Text::from("A Production file unreachable from any entry point"),
-        full_description: Text::from(
-            "Orphan files measures the share of Production files that cannot be reached through resolved runtime imports from any manifest-declared or configured entry point, annotating files imported only by tests as test-only.",
-        ),
-        help: Text::from(
-            "Delete the unused Production file (and any stale tests that only import it), wire it into an entry point, or add its path glob to entry_points in codeint.json.",
-        ),
+        name: ORPHAN_FILES_DESCRIPTOR.name.to_owned(),
+        short_description: Text::from(ORPHAN_FILES_DESCRIPTOR.short_description),
+        full_description: Text::from(ORPHAN_FILES_DESCRIPTOR.full_description),
+        help: Text::from(ORPHAN_FILES_DESCRIPTOR.help),
     }
 }
 
