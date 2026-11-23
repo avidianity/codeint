@@ -2,6 +2,7 @@
 
 mod check;
 mod commit_measurement;
+mod config;
 mod diff;
 mod guard;
 mod init;
@@ -21,10 +22,10 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
-    TrendRange,
+    BudgetOverride, CalendarDay, ConfigFormat, ConfigOverrides, FindingsShown, GuardFormat,
+    PluginHostConfig, ReportFormat, SourceSetOverride, TrendFormat, TrendRange,
 };
-pub use codeint_report::{DiffReport, GuardReport, Report, TrendReport};
+pub use codeint_report::{ConfigReport, DiffReport, GuardReport, Report, TrendReport};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -188,10 +189,20 @@ pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> 
     guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
 }
 
+pub fn resolved_config(
+    folder: &Path,
+    overrides: &ConfigOverrides,
+) -> Result<ConfigReport, CodeintError> {
+    config::resolved_config(folder, overrides)
+        .map_err(|err| CodeintError::from_cli_error(CliError::ConfigCommand(err)))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
     Config(#[from] ConfigError),
+    #[error(transparent)]
+    ConfigCommand(#[from] config::ConfigCommandError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
     #[error(transparent)]
@@ -304,7 +315,22 @@ fn run() -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Config {
+            folder,
+            format,
+            overrides,
+        } => run_config(&folder, format, &overrides),
     }
+}
+
+fn run_config(
+    folder: &Path,
+    format: ConfigFormat,
+    overrides: &ConfigOverrides,
+) -> Result<Outcome, CliError> {
+    let report = config::resolved_config(folder, overrides)?;
+    print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::Passed)
 }
 
 fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {

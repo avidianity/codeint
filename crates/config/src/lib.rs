@@ -9,6 +9,7 @@ mod calendar_day;
 mod codeint_json;
 mod config_error;
 mod regression_limits;
+mod resolved;
 mod result_cache_folder;
 
 pub use boundaries::{
@@ -19,10 +20,14 @@ pub use codeint_json::{
     Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
     PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
     StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
-    write_starter_configuration,
+    read_resolved_configuration, write_starter_configuration,
 };
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
+pub use resolved::{
+    BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
+    SourceSetOverride,
+};
 
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
 
@@ -105,6 +110,13 @@ pub enum GuardFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ConfigFormat {
+    Text,
+    Toon,
+    Json,
+}
+
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,7 +125,7 @@ pub enum TrendRange {
     Since(CalendarDay),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Check {
         folder: PathBuf,
@@ -157,6 +169,11 @@ pub enum Command {
         folder: PathBuf,
         target: PathBuf,
         format: GuardFormat,
+    },
+    Config {
+        folder: PathBuf,
+        format: ConfigFormat,
+        overrides: ConfigOverrides,
     },
 }
 
@@ -268,6 +285,54 @@ enum CommandArguments {
         )]
         format: GuardFormat,
     },
+    #[command(
+        about = "Inspect the effective active configuration and where each setting came from"
+    )]
+    Config {
+        #[arg(
+            help = "A folder inside the Git repository to inspect; the current folder by default"
+        )]
+        path: Option<PathBuf>,
+        #[arg(
+            long,
+            required = true,
+            help = "Print the effective active configuration and per-field provenance"
+        )]
+        resolved: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = ConfigFormat::Text,
+            help = "The format of the output"
+        )]
+        format: ConfigFormat,
+        #[arg(
+            long = "budget",
+            value_name = "SPEC",
+            help = "Override a Budget ratio as SOURCE_SET.METRIC=RATIO"
+        )]
+        budgets: Vec<BudgetOverride>,
+        #[arg(
+            long = "source-set",
+            value_name = "SPEC",
+            help = "Override a Source set glob as SOURCE_SET=GLOB"
+        )]
+        source_sets: Vec<SourceSetOverride>,
+        #[arg(
+            long = "plugin-memory-mb",
+            value_name = "MB",
+            value_parser = clap::value_parser!(u64).range(1..=4096),
+            help = "Override plugin_limits.memory_mb (1 to 4096)"
+        )]
+        plugin_memory_mb: Option<u64>,
+        #[arg(
+            long = "plugin-timeout-ms",
+            value_name = "MS",
+            value_parser = clap::value_parser!(u64).range(1..=300_000),
+            help = "Override plugin_limits.timeout_ms (1 to 300000)"
+        )]
+        plugin_timeout_ms: Option<u64>,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -327,6 +392,24 @@ fn build_command(
             folder: current_folder.to_path_buf(),
             target: path,
             format,
+        }),
+        CommandArguments::Config {
+            path,
+            resolved: _,
+            format,
+            budgets,
+            source_sets,
+            plugin_memory_mb,
+            plugin_timeout_ms,
+        } => Ok(Command::Config {
+            folder: existing_folder(current_folder, path)?,
+            format,
+            overrides: ConfigOverrides {
+                budgets,
+                source_sets,
+                plugin_memory_mb,
+                plugin_timeout_ms,
+            },
         }),
     }
 }

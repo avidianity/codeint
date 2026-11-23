@@ -1,6 +1,11 @@
+use std::collections::BTreeSet;
+
 use codeint_model::{Metric, SourceSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+use crate::ConfigProvenance;
+use crate::resolved::resolve_with_provenance;
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
@@ -74,16 +79,6 @@ impl RegressionLimit {
             RegressionLimit::DEFAULT
         }
     }
-
-    fn overridden_by(self, setting: Option<RegressionLimitSetting>) -> RegressionLimit {
-        let Some(setting) = setting else {
-            return self;
-        };
-        RegressionLimit {
-            ratio_rise: setting.ratio_rise.unwrap_or(self.ratio_rise),
-            new_findings: setting.new_findings.unwrap_or(self.new_findings),
-        }
-    }
 }
 
 impl RegressionLimitSetting {
@@ -108,6 +103,14 @@ impl RegressionLimits {
     }
 
     pub fn limit_for_key(&self, source_set: SourceSet, metric_key: &str) -> RegressionLimit {
+        self.resolved_limit_for_key(source_set, metric_key).limit
+    }
+
+    pub(crate) fn resolved_limit_for_key(
+        &self,
+        source_set: SourceSet,
+        metric_key: &str,
+    ) -> ResolvedRegressionLimit {
         let for_every_source_set = self
             .every_source_set
             .iter()
@@ -118,9 +121,39 @@ impl RegressionLimits {
             .iter()
             .find(|(set_in, set_for, _)| *set_in == source_set && set_for == metric_key)
             .map(|(_, _, setting)| *setting);
-        RegressionLimit::default_for_key(metric_key)
-            .overridden_by(for_every_source_set)
-            .overridden_by(for_this_source_set)
+        let base = RegressionLimit::default_for_key(metric_key);
+        let (ratio_rise, ratio_rise_source) = resolve_with_provenance(
+            base.ratio_rise,
+            for_this_source_set
+                .and_then(|setting| setting.ratio_rise)
+                .or_else(|| for_every_source_set.and_then(|setting| setting.ratio_rise)),
+            None,
+        );
+        let (new_findings, new_findings_source) = resolve_with_provenance(
+            base.new_findings,
+            for_this_source_set
+                .and_then(|setting| setting.new_findings)
+                .or_else(|| for_every_source_set.and_then(|setting| setting.new_findings)),
+            None,
+        );
+        ResolvedRegressionLimit {
+            limit: RegressionLimit {
+                ratio_rise,
+                new_findings,
+            },
+            ratio_rise_source,
+            new_findings_source,
+        }
+    }
+
+    pub(crate) fn extra_metric_keys(&self) -> Vec<String> {
+        let mut keys = BTreeSet::new();
+        for (_, key) in self.metric_keys() {
+            if !Metric::BUILT_IN_KEYS.contains(&key) && key != "boundaries" {
+                keys.insert(key.to_owned());
+            }
+        }
+        keys.into_iter().collect()
     }
 
     pub(crate) fn metric_keys(&self) -> impl Iterator<Item = (Option<SourceSet>, &str)> {
@@ -133,4 +166,11 @@ impl RegressionLimits {
                     .map(|(source_set, metric, _)| (Some(*source_set), metric.as_str())),
             )
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ResolvedRegressionLimit {
+    pub(crate) limit: RegressionLimit,
+    pub(crate) ratio_rise_source: ConfigProvenance,
+    pub(crate) new_findings_source: ConfigProvenance,
 }

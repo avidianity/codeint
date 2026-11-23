@@ -18,6 +18,7 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
+mod config;
 mod diff;
 mod guard;
 mod markdown;
@@ -27,6 +28,7 @@ mod sarif;
 mod tests;
 mod trend;
 
+pub use config::ConfigReport;
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use measurement::CommitMeasurement;
@@ -45,6 +47,14 @@ pub enum ReportError {
     Json(#[source] serde_json::Error),
     #[error("cannot render the report as SARIF")]
     Sarif(#[source] serde_json::Error),
+}
+
+pub(crate) fn encode_toon<T: Serialize>(value: &T) -> Result<String, ReportError> {
+    toon_format::encode_default(value).map_err(ReportError::Toon)
+}
+
+pub(crate) fn encode_json<T: Serialize>(value: &T) -> Result<String, ReportError> {
+    serde_json::to_string_pretty(value).map_err(ReportError::Json)
 }
 
 #[derive(Debug, Serialize)]
