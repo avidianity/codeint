@@ -5,8 +5,8 @@ use codeint_report::CommitMeasurement;
 use serde::Serialize;
 
 use crate::check::{
-    BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, SelectedPackage, filter_model_to_package,
-    measure_with, select_workspace_package,
+    BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, SelectedPackage, compute_orphan_files,
+    filter_model_to_package, measure_snapshot, select_workspace_package, workspace_of_languages,
 };
 use crate::describe;
 
@@ -128,19 +128,28 @@ pub(crate) fn measure_all_languages_for_package(
 ) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
     let named = plugins.as_named();
     let metric_plugins = plugins.metric_plugins();
-    let languages = measure_with(tree, &named, configuration)?;
-    let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+    let snapshot = measure_snapshot(tree, &named, configuration)?;
     let selected = if let Some(requested) = package {
-        let selected = select_workspace_package(&model.workspace, requested)?;
-        filter_model_to_package(&mut model, &selected);
-        Some(selected)
+        let workspace = workspace_of_languages(&snapshot.languages);
+        Some(select_workspace_package(&workspace, requested)?)
     } else {
         None
     };
-    let measurement = CommitMeasurement::of_with_metrics_and_boundaries(
+    let (orphan_files, _) = compute_orphan_files(&snapshot, selected.as_ref());
+    let mut model = CodeModel::merge(
+        snapshot
+            .languages
+            .into_iter()
+            .map(|language| language.model),
+    );
+    if let Some(selected) = &selected {
+        filter_model_to_package(&mut model, selected);
+    }
+    let measurement = CommitMeasurement::of_with_options(
         model,
         &metric_plugins,
         configuration.boundaries.as_ref(),
+        orphan_files.as_ref(),
     )?;
     Ok((selected, measurement))
 }
@@ -153,14 +162,21 @@ fn measure_all_languages_selected(
 ) -> Result<CommitMeasurement, CheckError> {
     let named = plugins.as_named();
     let metric_plugins = plugins.metric_plugins();
-    let languages = measure_with(tree, &named, configuration)?;
-    let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+    let snapshot = measure_snapshot(tree, &named, configuration)?;
+    let (orphan_files, _) = compute_orphan_files(&snapshot, selected);
+    let mut model = CodeModel::merge(
+        snapshot
+            .languages
+            .into_iter()
+            .map(|language| language.model),
+    );
     if let Some(selected) = selected {
         filter_model_to_package(&mut model, selected);
     }
-    Ok(CommitMeasurement::of_with_metrics_and_boundaries(
+    Ok(CommitMeasurement::of_with_options(
         model,
         &metric_plugins,
         configuration.boundaries.as_ref(),
+        orphan_files.as_ref(),
     )?)
 }

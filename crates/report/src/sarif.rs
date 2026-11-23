@@ -6,7 +6,8 @@ use codeint_model::{Metric, SourceSet};
 
 use crate::{
     BoundaryFindingRow, CloneGroupFinding, CloneLocation, ErodedFunctionFinding,
-    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Report, SourceSetSection,
+    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, OrphanFileRow, Report,
+    SourceSetSection,
 };
 
 #[cfg(test)]
@@ -142,6 +143,7 @@ pub(crate) struct ListedFindings<'findings> {
     pub(crate) flagged_lines: &'findings [FlaggedLineRow],
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
     pub(crate) boundaries: &'findings [BoundaryFindingRow],
+    pub(crate) orphan_files: &'findings [OrphanFileRow],
     pub(crate) external_metrics: Vec<ListedExternalMetric<'findings>>,
 }
 
@@ -163,6 +165,9 @@ impl SarifLog {
         let has_boundaries = collected
             .iter()
             .any(|(_, listed)| !listed.boundaries.is_empty());
+        let has_orphan_files = collected
+            .iter()
+            .any(|(_, listed)| !listed.orphan_files.is_empty());
         let mut external_rules: BTreeMap<String, (&str, &str)> = BTreeMap::new();
         for (_, listed) in &collected {
             for external in &listed.external_metrics {
@@ -175,6 +180,11 @@ impl SarifLog {
         let boundaries_rule_index = has_boundaries.then(|| {
             let index = rules.len();
             rules.push(boundaries_descriptor());
+            index
+        });
+        let orphan_files_rule_index = has_orphan_files.then(|| {
+            let index = rules.len();
+            rules.push(orphan_files_descriptor());
             index
         });
         let mut external_rule_indices: BTreeMap<String, usize> = BTreeMap::new();
@@ -215,6 +225,7 @@ impl SarifLog {
                             *source_set,
                             listed,
                             boundaries_rule_index,
+                            orphan_files_rule_index,
                             &external_rule_indices,
                         )
                     })
@@ -343,6 +354,20 @@ fn boundaries_descriptor() -> Rule {
     }
 }
 
+fn orphan_files_descriptor() -> Rule {
+    Rule {
+        id: "orphan_files".to_owned(),
+        name: "Orphan files".to_owned(),
+        short_description: Text::from("A Production file unreachable from any entry point"),
+        full_description: Text::from(
+            "Orphan files measures the share of Production files that cannot be reached through resolved runtime imports from any manifest-declared or configured entry point, annotating files imported only by tests as test-only.",
+        ),
+        help: Text::from(
+            "Delete the unused Production file (and any stale tests that only import it), wire it into an entry point, or add its path glob to entry_points in codeint.json.",
+        ),
+    }
+}
+
 impl<'findings> ListedFindings<'findings> {
     fn of_section(section: &'findings SourceSetSection) -> ListedFindings<'findings> {
         ListedFindings {
@@ -354,6 +379,10 @@ impl<'findings> ListedFindings<'findings> {
                 .boundaries
                 .as_ref()
                 .map_or(&[], |boundaries| boundaries.findings.listed.as_slice()),
+            orphan_files: section
+                .orphan_files
+                .as_ref()
+                .map_or(&[], |orphans| orphans.findings.listed.as_slice()),
             external_metrics: section
                 .external_metrics
                 .iter()
@@ -372,6 +401,7 @@ fn results(
     source_set: SourceSet,
     listed: &ListedFindings<'_>,
     boundaries_rule_index: Option<usize>,
+    orphan_files_rule_index: Option<usize>,
     external_rule_indices: &BTreeMap<String, usize>,
 ) -> Vec<SarifResult> {
     let eroded_functions = listed.eroded_functions.iter().map(|function| {
@@ -428,6 +458,27 @@ fn results(
             },
         }
     });
+    let orphan_files = listed.orphan_files.iter().map(|finding| SarifResult {
+        rule_id: "orphan_files".to_owned(),
+        rule_index: orphan_files_rule_index.unwrap_or_default(),
+        level: "note",
+        message: Text {
+            text: finding.message.clone(),
+        },
+        locations: [Location::in_repository(&finding.path, 1, None)],
+        related_locations: related(
+            finding
+                .test_importers
+                .iter()
+                .map(|importer| Location::in_repository(importer, 1, None)),
+        ),
+        partial_fingerprints: PartialFingerprints {
+            codeint_finding_id: finding.id.clone(),
+        },
+        properties: ResultProperties {
+            source_set: source_set.key(),
+        },
+    });
     let external_findings = listed.external_metrics.iter().flat_map(|external| {
         let rule_index = external_rule_indices
             .get(external.key)
@@ -459,6 +510,7 @@ fn results(
         .chain(flagged_lines)
         .chain(import_cycles)
         .chain(boundaries)
+        .chain(orphan_files)
         .chain(external_findings)
         .collect()
 }

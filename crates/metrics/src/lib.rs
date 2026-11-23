@@ -7,9 +7,11 @@ mod finding_id;
 mod impact;
 mod import_cycles;
 mod line_share;
+mod orphan_files;
 mod trace;
 mod verbosity;
 
+pub use crate::orphan_files::{OrphanFileFinding, OrphanFileKind, OrphanFiles};
 pub use boundaries::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryFindingKind, BoundaryPolicy,
 };

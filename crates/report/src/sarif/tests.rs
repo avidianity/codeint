@@ -71,6 +71,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         flagged_lines: &flagged,
         import_cycles: &cycles,
         boundaries: &[],
+        orphan_files: &[],
         external_metrics: Vec::new(),
     };
 

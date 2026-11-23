@@ -128,7 +128,7 @@ fn handle_tools_list() -> Value {
         "tools": [
             {
                 "name": "check",
-                "description": "Measure Software entropy of a Git repository working tree (Erosion, Duplication, Verbosity, Import cycles) and report any Budget failures.",
+                "description": "Measure Software entropy of a Git repository working tree (Erosion, Duplication, Verbosity, Import cycles, Boundaries, Orphan files) and report any Budget failures.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {

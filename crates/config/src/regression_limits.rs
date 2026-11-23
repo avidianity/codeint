@@ -68,7 +68,10 @@ impl RegressionLimit {
     };
 
     fn default_for_key(metric_key: &str) -> RegressionLimit {
-        if metric_key == Metric::ImportCycles.key() || metric_key == "boundaries" {
+        if metric_key == Metric::ImportCycles.key()
+            || metric_key == "boundaries"
+            || metric_key == "orphan_files"
+        {
             RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES
         } else {
             RegressionLimit::DEFAULT

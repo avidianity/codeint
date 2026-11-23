@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::string::FromUtf8Error;
 
 use codeint_config::{
-    Configuration, ConfigurationFileError, FindingsShown, LanguageCoverage, PluginHostConfig,
-    SourceSetOverrides, read_configuration,
+    Configuration, ConfigurationFileError, EntryPoints, FindingsShown, LanguageCoverage,
+    PluginHostConfig, SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_dart::Dart;
@@ -12,6 +12,7 @@ use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
+use codeint_metrics::OrphanFiles;
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, MetricPlugin,
     MetricPluginError, Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile,
@@ -21,7 +22,7 @@ use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{MeasuredLanguage, Report};
+use codeint_report::{MeasuredLanguage, Report, ReportOptions};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
@@ -337,6 +338,34 @@ fn check_with(
     check_loaded(&repository, &configuration, plugins, &[], findings, None)
 }
 
+pub(crate) struct MeasuredSnapshot {
+    pub(crate) languages: Vec<MeasuredLanguage>,
+    pub(crate) entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
+}
+
+pub(crate) fn compute_orphan_files(
+    snapshot: &MeasuredSnapshot,
+    selected: Option<&SelectedPackage>,
+) -> (Option<OrphanFiles>, BTreeMap<String, OrphanFiles>) {
+    let mut by_language = BTreeMap::new();
+    for language in &snapshot.languages {
+        let entry_points = snapshot
+            .entry_points_by_language
+            .get(&language.plugin)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if let Some(measured) =
+            OrphanFiles::measure_filtered(&language.model, entry_points, |path| {
+                selected.is_none_or(|pkg| pkg.matches(language.model.workspace.package_of(path)))
+            })
+        {
+            by_language.insert(language.plugin.clone(), measured);
+        }
+    }
+    let total = OrphanFiles::merge(by_language.values().cloned());
+    (total, by_language)
+}
+
 fn check_loaded(
     repository: &Repository,
     configuration: &Configuration,
@@ -346,19 +375,29 @@ fn check_loaded(
     package: Option<&str>,
 ) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
-    let mut languages = measure_with(&tree, plugins, configuration)?;
-    if let Some(requested) = package {
-        let workspace = workspace_of_languages(&languages);
-        let selected = select_workspace_package(&workspace, requested)?;
-        filter_languages_to_package(&mut languages, &selected);
+    let mut snapshot = measure_snapshot(&tree, plugins, configuration)?;
+    let selected = if let Some(requested) = package {
+        let workspace = workspace_of_languages(&snapshot.languages);
+        Some(select_workspace_package(&workspace, requested)?)
+    } else {
+        None
+    };
+    let (orphan_files, orphan_files_by_language) =
+        compute_orphan_files(&snapshot, selected.as_ref());
+    if let Some(selected) = &selected {
+        filter_languages_to_package(&mut snapshot.languages, selected);
     }
-    Ok(Report::summarize_with_metrics_and_boundaries(
-        languages,
+    Ok(Report::summarize_with_options(
+        snapshot.languages,
         tree.submodules().to_vec(),
         findings,
         &configuration.budgets,
-        metric_plugins,
-        configuration.boundaries.as_ref(),
+        ReportOptions {
+            metric_plugins,
+            boundaries: configuration.boundaries.as_ref(),
+            orphan_files: orphan_files.as_ref(),
+            orphan_files_by_language: Some(&orphan_files_by_language),
+        },
     )?)
 }
 
@@ -367,6 +406,14 @@ pub(crate) fn measure_with(
     plugins: &[NamedLanguagePlugin<'_>],
     configuration: &Configuration,
 ) -> Result<Vec<MeasuredLanguage>, CheckError> {
+    Ok(measure_snapshot(tree, plugins, configuration)?.languages)
+}
+
+pub(crate) fn measure_snapshot(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    configuration: &Configuration,
+) -> Result<MeasuredSnapshot, CheckError> {
     let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
     let coverage = configuration.languages.coverage_of(&names)?;
     measure(
@@ -374,6 +421,7 @@ pub(crate) fn measure_with(
         plugins,
         &coverage,
         &configuration.source_set_overrides,
+        &configuration.entry_points,
     )
 }
 
@@ -382,19 +430,30 @@ fn measure(
     plugins: &[NamedLanguagePlugin<'_>],
     coverage: &[LanguageCoverage<'_>],
     overrides: &SourceSetOverrides,
-) -> Result<Vec<MeasuredLanguage>, CheckError> {
+    configured_entry_points: &EntryPoints,
+) -> Result<MeasuredSnapshot, CheckError> {
     let covered_files = assign_files_to_plugins(tree, plugins, coverage)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let workspace = find_workspace(plugins, &manifests_by_plugin)?;
-    let mut models: Vec<CodeModel> = plugins
-        .iter()
-        .map(|_| CodeModel {
-            workspace: workspace.clone(),
-            ..CodeModel::default()
-        })
-        .collect();
-    let outcomes = if let Some(reader) = tree.working_tree_reader() {
-        covered_files
+    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides)?;
+    let models = collect_plugin_models(plugins.len(), workspace, outcomes);
+    resolve_measured_snapshot(
+        tree,
+        plugins,
+        models,
+        manifests_by_plugin,
+        configured_entry_points,
+    )
+}
+
+fn lower_covered_files(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    covered_files: &[(&RepoPath, usize)],
+    overrides: &SourceSetOverrides,
+) -> Result<Vec<(usize, LoweredFile)>, CheckError> {
+    if let Some(reader) = tree.working_tree_reader() {
+        return covered_files
             .par_iter()
             .map(|&(path, index)| {
                 let bytes = reader.read(path)?;
@@ -403,22 +462,34 @@ fn measure(
                     lower_bytes(bytes, path, plugins[index].plugin, overrides),
                 ))
             })
-            .collect::<Result<Vec<_>, CheckError>>()?
-    } else {
-        let loaded = covered_files
-            .iter()
-            .map(|&(path, index)| Ok((path, index, tree.read(path)?)))
-            .collect::<Result<Vec<_>, CheckError>>()?;
-        loaded
-            .into_par_iter()
-            .map(|(path, index, bytes)| {
-                (
-                    index,
-                    lower_bytes(bytes, path, plugins[index].plugin, overrides),
-                )
-            })
-            .collect()
-    };
+            .collect();
+    }
+    let loaded = covered_files
+        .iter()
+        .map(|&(path, index)| Ok((path, index, tree.read(path)?)))
+        .collect::<Result<Vec<_>, CheckError>>()?;
+    Ok(loaded
+        .into_par_iter()
+        .map(|(path, index, bytes)| {
+            (
+                index,
+                lower_bytes(bytes, path, plugins[index].plugin, overrides),
+            )
+        })
+        .collect())
+}
+
+fn collect_plugin_models(
+    plugin_count: usize,
+    workspace: Workspace,
+    outcomes: Vec<(usize, LoweredFile)>,
+) -> Vec<CodeModel> {
+    let mut models: Vec<CodeModel> = (0..plugin_count)
+        .map(|_| CodeModel {
+            workspace: workspace.clone(),
+            ..CodeModel::default()
+        })
+        .collect();
     for (index, outcome) in outcomes {
         let model = &mut models[index];
         match outcome {
@@ -427,23 +498,59 @@ fn measure(
             LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
         }
     }
-    plugins
-        .iter()
-        .zip(models)
-        .zip(manifests_by_plugin)
-        .map(|((named, mut model), manifests)| {
-            let importers: Vec<&SourceFile> = model.files.iter().collect();
-            let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
-            model.runtime_imports =
-                resolve_runtime_imports(named.plugin, tree.files(), manifests, &importers)
-                    .map_err(CheckError::Resolve)?;
-            Ok(MeasuredLanguage {
-                plugin: named.name.to_owned(),
-                model,
-                reference_ranges,
-            })
-        })
-        .collect()
+    models
+}
+
+fn resolve_measured_snapshot(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    models: Vec<CodeModel>,
+    manifests_by_plugin: Vec<Vec<Manifest>>,
+    configured_entry_points: &EntryPoints,
+) -> Result<MeasuredSnapshot, CheckError> {
+    let mut languages = Vec::with_capacity(plugins.len());
+    let mut entry_points_by_language = BTreeMap::new();
+    for ((named, mut model), manifests) in plugins.iter().zip(models).zip(manifests_by_plugin) {
+        let importers: Vec<&SourceFile> = model.files.iter().collect();
+        let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
+        let manifest_entries = named.plugin.entry_points(tree.files(), manifests.clone());
+        let combined_entries =
+            combine_entry_points(manifest_entries, &model.files, configured_entry_points);
+        model.runtime_imports =
+            resolve_runtime_imports(named.plugin, tree.files(), manifests, &importers)
+                .map_err(CheckError::Resolve)?;
+        entry_points_by_language.insert(named.name.to_owned(), combined_entries);
+        languages.push(MeasuredLanguage {
+            plugin: named.name.to_owned(),
+            model,
+            reference_ranges,
+        });
+    }
+    Ok(MeasuredSnapshot {
+        languages,
+        entry_points_by_language,
+    })
+}
+
+fn combine_entry_points(
+    manifest_entries: Vec<String>,
+    files: &[SourceFile],
+    configured: &EntryPoints,
+) -> Vec<RepoPath> {
+    let mut entries = BTreeSet::new();
+    for raw in manifest_entries {
+        if let Ok(path) = RepoPath::new(raw) {
+            entries.insert(path);
+        }
+    }
+    if !configured.is_empty() {
+        for file in files {
+            if configured.matches(&file.path) {
+                entries.insert(file.path.clone());
+            }
+        }
+    }
+    entries.into_iter().collect()
 }
 
 fn select_reference_ranges(

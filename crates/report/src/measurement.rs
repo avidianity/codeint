@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
 use codeint_config::Boundaries as BoundariesConfig;
-use codeint_metrics::Boundaries;
+use codeint_metrics::OrphanFiles;
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, ConfigBoundaryPolicy, ErodedFunctionFinding,
-    ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding, Measured,
+    BoundaryFindingRow, CloneGroupFinding, ErodedFunctionFinding, ExternalMetricFinding,
+    FlaggedLineRow, ImportCycleFinding, Measured, OrphanFileRow, evaluate_boundaries,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,6 +27,8 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) import_cycles: MetricMeasurement<ImportCycleFinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) boundaries: Option<MetricMeasurement<BoundaryFindingRow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) orphan_files: Option<MetricMeasurement<OrphanFileRow>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) external_metrics: BTreeMap<String, ExternalMetricCommitMeasurement>,
 }
@@ -72,27 +74,40 @@ impl CommitMeasurement {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
+        CommitMeasurement::of_with_options(model, metric_plugins, boundaries, None)
+    }
+
+    pub fn of_with_options(
+        model: CodeModel,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        orphan_files: Option<&OrphanFiles>,
+    ) -> Result<CommitMeasurement, MetricPluginError> {
         let source_sets = model.into_source_sets();
         Ok(CommitMeasurement {
             production: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Production),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Production)),
+                orphan_files,
             )?,
             test: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Test),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Test)),
+                None,
             )?,
             generated: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Generated),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Generated)),
+                None,
             )?,
             vendored: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Vendored),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Vendored)),
+                None,
             )?,
         })
     }
@@ -112,20 +127,13 @@ impl SourceSetMeasurement {
         model: &CodeModel,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        orphan_files: Option<&OrphanFiles>,
     ) -> Result<SourceSetMeasurement, MetricPluginError> {
         let measured = Measured::new(model);
-        let boundaries = boundaries.map(|config| {
-            let evaluated = Boundaries::measure(model, &ConfigBoundaryPolicy(config));
-            MetricMeasurement {
-                ratio: evaluated.ratio(),
-                numerator: evaluated.findings().len() as f64,
-                findings_worst_first: evaluated
-                    .findings()
-                    .iter()
-                    .map(BoundaryFindingRow::from)
-                    .collect(),
-            }
-        });
+        let boundaries = evaluate_boundaries(model, boundaries)
+            .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
+        let orphan_files = orphan_files
+            .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
         let mut external_metrics = BTreeMap::new();
         for plugin in metric_plugins {
             let result = plugin.measure(model)?;
@@ -153,8 +161,20 @@ impl SourceSetMeasurement {
             verbosity: verbosity(&measured),
             import_cycles: import_cycles(&measured),
             boundaries,
+            orphan_files,
             external_metrics,
         })
+    }
+}
+
+fn finding_measurement<'a, T: 'a, R: From<&'a T>>(
+    ratio: f64,
+    findings: &'a [T],
+) -> MetricMeasurement<R> {
+    MetricMeasurement {
+        ratio,
+        numerator: findings.len() as f64,
+        findings_worst_first: findings.iter().map(R::from).collect(),
     }
 }
 

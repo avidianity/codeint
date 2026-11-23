@@ -16,7 +16,7 @@ pub use boundaries::{
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
-    Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
+    Budget, Budgets, Configuration, DetectedLanguage, EntryPoints, LanguageCoverage, Languages,
     PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
     StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
     write_starter_configuration,

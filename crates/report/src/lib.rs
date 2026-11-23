@@ -9,7 +9,8 @@ use codeint_config::{
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
     ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
-    MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
+    MinimumCloneTokens, MinimumDistinctTokens, OrphanFileFinding, OrphanFiles, UnresolvedImport,
+    Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -82,6 +83,14 @@ pub struct MeasuredLanguage {
     pub reference_ranges: ReferenceRanges,
 }
 
+#[derive(Default)]
+pub struct ReportOptions<'a> {
+    pub metric_plugins: &'a [&'a dyn MetricPlugin],
+    pub boundaries: Option<&'a BoundariesConfig>,
+    pub orphan_files: Option<&'a OrphanFiles>,
+    pub orphan_files_by_language: Option<&'a BTreeMap<String, OrphanFiles>>,
+}
+
 #[derive(Debug, Serialize)]
 struct MeasuredSection {
     files: usize,
@@ -127,10 +136,34 @@ struct SourceSetSection {
     import_cycles: ImportCyclesSection,
     #[serde(skip_serializing_if = "Option::is_none")]
     boundaries: Option<BoundariesSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    orphan_files: Option<OrphanFilesSection>,
     #[serde(flatten)]
     external_metrics: BTreeMap<String, ExternalMetricSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
+}
+
+#[derive(Debug, Serialize)]
+struct OrphanFilesSection {
+    ratio: Decimal,
+    orphan_files: usize,
+    evaluated_files: usize,
+    entry_points: usize,
+    unreferenced: usize,
+    test_only: usize,
+    #[serde(flatten)]
+    findings: Findings<OrphanFileRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OrphanFileRow {
+    id: String,
+    path: String,
+    kind: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    test_importers: Vec<String>,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -449,6 +482,10 @@ impl FindingKind for BoundaryFindingRow {
     const LIST_KEY: &'static str = "findings";
 }
 
+impl FindingKind for OrphanFileRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
 struct ConfigBoundaryPolicy<'config>(&'config BoundariesConfig);
 
 impl BoundaryPolicy for ConfigBoundaryPolicy<'_> {
@@ -525,6 +562,46 @@ impl ExternalMetricFinding {
     }
 }
 
+pub(crate) fn evaluate_boundaries(
+    model: &CodeModel,
+    config: Option<&BoundariesConfig>,
+) -> Option<Boundaries> {
+    config.map(|policy| Boundaries::measure(model, &ConfigBoundaryPolicy(policy)))
+}
+
+impl OrphanFilesSection {
+    fn new(orphan_files: &OrphanFiles, shown: FindingsShown) -> OrphanFilesSection {
+        let all_findings = orphan_files.findings();
+        let findings = mapped_findings(all_findings, shown);
+        OrphanFilesSection {
+            ratio: Decimal::rounded(orphan_files.ratio()),
+            orphan_files: all_findings.len(),
+            evaluated_files: orphan_files.evaluated_files(),
+            entry_points: orphan_files.entry_points().len(),
+            unreferenced: orphan_files.unreferenced_count(),
+            test_only: orphan_files.test_only_count(),
+            findings,
+        }
+    }
+}
+
+impl From<&OrphanFileFinding> for OrphanFileRow {
+    fn from(finding: &OrphanFileFinding) -> OrphanFileRow {
+        let test_importers = finding
+            .test_importers
+            .iter()
+            .map(RepoPath::to_string)
+            .collect();
+        OrphanFileRow {
+            id: finding.id.to_string(),
+            path: finding.path.to_string(),
+            kind: finding.kind.key().to_owned(),
+            test_importers,
+            message: finding.message.clone(),
+        }
+    }
+}
+
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
@@ -532,18 +609,22 @@ impl SourceSetSections {
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        orphan_files: Option<&OrphanFiles>,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
                 let source_set_boundaries =
                     boundaries.filter(|config| config.applies_to_source_set(source_set));
+                let source_set_orphans =
+                    orphan_files.filter(|_| source_set == SourceSet::Production);
                 *sections.slot(source_set) = Some(SourceSetSection::new(
                     model,
                     ranges,
                     findings,
                     metric_plugins,
                     source_set_boundaries,
+                    source_set_orphans,
                 )?);
             }
         }
@@ -592,6 +673,12 @@ impl SourceSetSections {
                 )
                 .chain(
                     section
+                        .orphan_files
+                        .iter()
+                        .map(move |orphans| (source_set, "orphan_files", orphans.ratio.0)),
+                )
+                .chain(
+                    section
                         .external_metrics
                         .iter()
                         .map(move |(key, metric)| (source_set, key.as_str(), metric.ratio.0)),
@@ -617,12 +704,12 @@ impl SourceSetSection {
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        orphan_files: Option<&OrphanFiles>,
     ) -> Result<SourceSetSection, MetricPluginError> {
         let measured = Measured::new(model);
-        let boundaries = boundaries.map(|config| {
-            let evaluated = Boundaries::measure(model, &ConfigBoundaryPolicy(config));
-            BoundariesSection::new(&evaluated, findings)
-        });
+        let boundaries = evaluate_boundaries(model, boundaries)
+            .map(|evaluated| BoundariesSection::new(&evaluated, findings));
+        let orphan_files = orphan_files.map(|measured| OrphanFilesSection::new(measured, findings));
         let mut external_metrics = BTreeMap::new();
         for plugin in metric_plugins {
             let result = plugin.measure(model)?;
@@ -653,6 +740,7 @@ impl SourceSetSection {
             verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
             import_cycles: ImportCyclesSection::new(&measured.import_cycles, ranges, findings),
             boundaries,
+            orphan_files,
             external_metrics,
             packages: package_sections(model, &measured),
         })
@@ -903,6 +991,7 @@ impl MeasuredSection {
         findings: FindingsShown,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        orphan_files: Option<&OrphanFiles>,
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = model.files.len();
         let lines = source_lines(&model);
@@ -912,6 +1001,7 @@ impl MeasuredSection {
             findings,
             metric_plugins,
             boundaries,
+            orphan_files,
         )?;
         Ok(MeasuredSection {
             files,
@@ -957,6 +1047,27 @@ impl Report {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_options(
+            languages,
+            submodules,
+            findings,
+            budgets,
+            ReportOptions {
+                metric_plugins,
+                boundaries,
+                orphan_files: None,
+                orphan_files_by_language: None,
+            },
+        )
+    }
+
+    pub fn summarize_with_options(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
+        budgets: &Budgets,
+        options: ReportOptions<'_>,
+    ) -> Result<Report, MetricPluginError> {
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -972,14 +1083,18 @@ impl Report {
             _ => {
                 let mut per_language = BTreeMap::new();
                 for language in &measured {
+                    let language_orphans = options
+                        .orphan_files_by_language
+                        .and_then(|map| map.get(&language.plugin));
                     per_language.insert(
                         language.plugin.clone(),
                         MeasuredSection::new(
                             language.model.clone(),
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
                             findings,
-                            metric_plugins,
-                            boundaries,
+                            options.metric_plugins,
+                            options.boundaries,
+                            language_orphans,
                         )?,
                     );
                 }
@@ -998,8 +1113,14 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured =
-            MeasuredSection::new(model, &total_ranges, findings, metric_plugins, boundaries)?;
+        let measured = MeasuredSection::new(
+            model,
+            &total_ranges,
+            findings,
+            options.metric_plugins,
+            options.boundaries,
+            options.orphan_files,
+        )?;
         Ok(Report {
             over_budget: measured.source_sets.over_budget(budgets),
             skipped,
