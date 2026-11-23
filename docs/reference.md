@@ -31,6 +31,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `guard` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
 | `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
+| `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -531,6 +532,31 @@ codeint schema
 codeint schema --format json
 codeint schema --format toon
 codeint schema --output schema.json
+```
+
+### `codeint config`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]` | A folder inside the Git repository to inspect; the current folder by default |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--resolved` | Print the effective active configuration and per-field provenance |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
+| `--budget <SPEC>` | Override a Budget ratio as `SOURCE_SET.METRIC=RATIO` |
+| `--source-set <SPEC>` | Override a Source set glob as `SOURCE_SET=GLOB` |
+| `--plugin-memory-mb <MB>` | Override `plugin_limits.memory_mb` (1 to 4096) |
+| `--plugin-timeout-ms <MS>` | Override `plugin_limits.timeout_ms` (1 to 300000) |
+| `-h, --help` | Print the help of `codeint config` |
+
+`codeint config --resolved` prints every effective active setting merged from built-in defaults, `codeint.json`, and CLI overrides alongside its provenance (`default`, `file`, or `cli`).
+
+```sh exit=0
+codeint config --resolved
+codeint config --resolved src --format text
+codeint config --resolved --format toon
+codeint config --resolved --format json --budget production.erosion=0.25 --source-set test=spec/** --plugin-memory-mb 128 --plugin-timeout-ms 10000
 ```
 
 ## Exit codes

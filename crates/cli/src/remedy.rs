@@ -5,6 +5,7 @@ use codeint_plugin_host::PluginHostError;
 
 use crate::CliError;
 use crate::check::CheckError;
+use crate::config::ConfigCommandError;
 use crate::guard::GuardError;
 use crate::init::InitError;
 use crate::update::UpdateError;
@@ -12,6 +13,7 @@ use crate::update::UpdateError;
 pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
         CliError::Config(error) => config_remedy(error),
+        CliError::ConfigCommand(error) => config_command_remedy(error),
         CliError::Check(error) => check_remedy(error),
         CliError::Guard(error) => guard_remedy(error),
         CliError::Init(error) => init_remedy(error),
@@ -42,6 +44,13 @@ fn check_remedy(error: &CheckError) -> &'static str {
         CheckError::ExtensionConflict { .. } => {
             "Assign separate directories to each Language plugin in the languages setting of codeint.json."
         }
+    }
+}
+
+fn config_command_remedy(error: &ConfigCommandError) -> &'static str {
+    match error {
+        ConfigCommandError::Git(error) => git_remedy(error),
+        ConfigCommandError::Configuration(error) => configuration_file_remedy(error),
     }
 }
 
