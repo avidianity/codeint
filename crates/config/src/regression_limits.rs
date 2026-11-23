@@ -80,7 +80,10 @@ impl RegressionLimit {
     };
 
     fn default_for_key(metric_key: &str) -> RegressionLimit {
-        if metric_key == Metric::ImportCycles.key() || metric_key == "boundaries" {
+        if metric_key == Metric::ImportCycles.key()
+            || metric_key == "boundaries"
+            || metric_key == "orphan_files"
+        {
             RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES
         } else {
             RegressionLimit::DEFAULT
@@ -156,7 +159,8 @@ impl RegressionLimits {
     pub(crate) fn extra_metric_keys(&self) -> Vec<String> {
         let mut keys = BTreeSet::new();
         for (_, key) in self.metric_keys() {
-            if !Metric::BUILT_IN_KEYS.contains(&key) && key != "boundaries" {
+            if !Metric::BUILT_IN_KEYS.contains(&key) && key != "boundaries" && key != "orphan_files"
+            {
                 keys.insert(key.to_owned());
             }
         }

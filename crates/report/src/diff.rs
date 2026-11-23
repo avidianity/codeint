@@ -14,7 +14,8 @@ use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
     BoundaryFindingRow, BudgetFailure, CloneFamilyFinding, CloneGroupFinding, Decimal,
     ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding,
-    PerSourceSet, ReportError, clustered_clone_group_ids, unlisted_clone_family_group_ids,
+    OrphanFileRow, PerSourceSet, ReportError, clustered_clone_group_ids,
+    unlisted_clone_family_group_ids,
 };
 
 mod markdown;
@@ -96,6 +97,8 @@ struct SourceSetChanges {
     import_cycles: MetricChanges<ImportCycleFinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<MetricChanges<BoundaryFindingRow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    orphan_files: Option<MetricChanges<OrphanFileRow>>,
     #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricChanges>,
 }
@@ -264,6 +267,10 @@ impl DiffReport {
                         .boundaries
                         .as_ref()
                         .map_or(&[], |boundaries| boundaries.new.listed.as_slice()),
+                    orphan_files: changes
+                        .orphan_files
+                        .as_ref()
+                        .map_or(&[], |orphans| orphans.new.listed.as_slice()),
                     external_metrics: changes
                         .external_metrics
                         .iter()
@@ -500,6 +507,12 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                     .map(move |boundaries| (source_set, "boundaries", boundaries.head_ratio.0)),
             )
             .chain(
+                changes
+                    .orphan_files
+                    .iter()
+                    .map(move |orphans| (source_set, "orphan_files", orphans.head_ratio.0)),
+            )
+            .chain(
                 changes.external_metrics.iter().map(move |(key, metric)| {
                     (source_set, key.as_str(), metric.changes.head_ratio.0)
                 }),
@@ -536,6 +549,9 @@ impl SourceSetChanges {
         .collect();
         if let Some(boundaries) = &self.boundaries {
             found.extend(boundaries.regressions(source_set, "boundaries", limits));
+        }
+        if let Some(orphan_files) = &self.orphan_files {
+            found.extend(orphan_files.regressions(source_set, "orphan_files", limits));
         }
         for (key, external) in &self.external_metrics {
             found.extend(external.changes.regressions(source_set, key, limits));
@@ -662,6 +678,7 @@ fn numerator_key(metric_key: &str) -> &'static str {
         "verbosity" => "verbose_lines",
         "import_cycles" => "modules_in_import_cycles",
         "boundaries" => "boundary_findings",
+        "orphan_files" => "orphan_files",
         _ => "numerator",
     }
 }
@@ -737,6 +754,15 @@ fn source_set_changes(
             ownership,
         )),
     };
+    let orphan_files = match (base.orphan_files, head.orphan_files) {
+        (None, None) => None,
+        (base_orphans, head_orphans) => Some(classify(
+            base_orphans.unwrap_or_default(),
+            head_orphans.unwrap_or_default(),
+            shown,
+            ownership,
+        )),
+    };
     let duplication_groups = classify(base.duplication, head.duplication, shown, ownership);
     let base_families = ownership.apply(base.clone_families);
     let head_families = ownership.apply(head.clone_families);
@@ -769,6 +795,7 @@ fn source_set_changes(
         verbosity: classify(base.verbosity, head.verbosity, shown, ownership),
         import_cycles: classify(base.import_cycles, head.import_cycles, shown, ownership),
         boundaries,
+        orphan_files,
         external_metrics,
     }
 }
@@ -810,6 +837,12 @@ impl Identified for ExternalMetricFinding {
 }
 
 impl Identified for BoundaryFindingRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for OrphanFileRow {
     fn id(&self) -> &str {
         &self.id
     }

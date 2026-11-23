@@ -175,7 +175,13 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
         .collect();
     assert_eq!(
         metric_keys,
-        ["erosion", "duplication", "verbosity", "import_cycles"]
+        [
+            "erosion",
+            "duplication",
+            "verbosity",
+            "import_cycles",
+            "orphan_files",
+        ]
     );
     for metric in manifest["metrics"].as_array().expect("metrics array") {
         assert!(!metric["name"].as_str().unwrap_or_default().is_empty());

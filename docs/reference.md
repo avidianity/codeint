@@ -821,6 +821,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
 | `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
+| `budgets.{source_set}.orphan_files` | number from 0 to 1 | The highest Orphan files ratio in this Source set |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -828,6 +829,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.boundaries` | object | The Regression limit of Boundaries in every Source set |
 | `regression_limits.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
 | `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.orphan_files` | object | The Regression limit of Orphan files in every Source set |
+| `regression_limits.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
+| `regression_limits.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
 | `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
 | `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -835,6 +839,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.{source_set}.boundaries` | object | The Regression limit of Boundaries in this Source set |
 | `regression_limits.{source_set}.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
 | `regression_limits.{source_set}.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{source_set}.orphan_files` | object | The Regression limit of Orphan files in this Source set |
+| `regression_limits.{source_set}.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
+| `regression_limits.{source_set}.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
@@ -861,6 +868,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `duplication` | object | Settings for Duplication detection, including opt-in shingle-based near-clone detection; see [Duplication](#duplication) |
 | `duplication.near_clones` | boolean | When `true`, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; `false` by default |
 | `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
+| `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection; empty by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -876,7 +884,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, duplication
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, duplication, entry_points
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1153,6 +1161,40 @@ Near-clone mode honors the same `import-or-export`, minimum token, and minimum d
   "duplication": {
     "near_clones": true,
     "min_similarity": 0.85
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+### Orphan files
+
+Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`) and configured `entry_points` globs in `codeint.json`.
+Production files unreachable from any Production entry point are reported as `unreferenced`, or as `test-only` when still imported by Test files.
+Generated and Vendored Source sets are excluded, and when no entry points exist for a language or isolated Workspace package, Orphan files reporting stays silently inactive.
+In `codeint diff`, each Orphan files Finding carries a stable `id` so pre-existing orphans remain unchanged while newly introduced orphans fail by default (`new_findings: "any_new_finding"`).
+
+```json codeint.json
+{
+  "entry_points": ["src/*.ts"],
+  "budgets": {
+    "production": {
+      "orphan_files": 0
+    }
+  },
+  "regression_limits": {
+    "orphan_files": {
+      "ratio_rise": 0.01,
+      "new_findings": "any_new_finding"
+    },
+    "production": {
+      "orphan_files": {
+        "ratio_rise": 0,
+        "new_findings": "any_new_finding"
+      }
+    }
   }
 }
 ```

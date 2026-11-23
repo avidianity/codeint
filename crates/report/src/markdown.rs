@@ -2,8 +2,8 @@ use crate::ownership::OwnedFinding;
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation, DuplicationSection,
     ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
-    ImportCycleFinding, ImportCyclesSection, MeasuredSection, PackageSection, ReferenceRangeEntry,
-    Report, SourceSetSection, UnresolvedImportRow, VerbositySection,
+    ImportCycleFinding, ImportCyclesSection, MeasuredSection, OrphanFileRow, PackageSection,
+    ReferenceRangeEntry, Report, SourceSetSection, UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -43,6 +43,7 @@ pub(crate) const BOUNDARY_FINDING_COLUMNS: [&str; 6] = [
     "Rule",
     "Reason",
 ];
+pub(crate) const ORPHAN_FILE_COLUMNS: [&str; 3] = ["File", "Kind", "Details"];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
 
 pub(crate) struct Noun {
@@ -101,6 +102,10 @@ pub(crate) const IMPORT_CYCLE: Noun = Noun {
 pub(crate) const FINDING: Noun = Noun {
     one: "Finding",
     many: "Findings",
+};
+pub(crate) const ORPHAN_FILE: Noun = Noun {
+    one: "orphan file",
+    many: "orphan files",
 };
 const UNRESOLVED_IMPORT: Noun = Noun {
     one: "unresolved import",
@@ -329,6 +334,21 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
             "not applicable".to_string(),
         ]);
     }
+    if let Some(orphan_files) = &section.orphan_files {
+        rows.push(vec![
+            source_set.to_string(),
+            "Orphan files".to_string(),
+            orphan_files.ratio.0.to_string(),
+            format!(
+                "{} of {} evaluated files unreachable ({} unreferenced, {} test-only)",
+                orphan_files.orphan_files,
+                orphan_files.evaluated_files,
+                orphan_files.unreferenced,
+                orphan_files.test_only
+            ),
+            "not applicable".to_string(),
+        ]);
+    }
     for external in section.external_metrics.values() {
         rows.push(row(
             &external.name,
@@ -416,6 +436,15 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             &boundaries.findings,
             &FINDING,
             |listed| findings_table(&BOUNDARY_FINDING_COLUMNS, listed, boundary_finding_row),
+        );
+    }
+    if let Some(orphan_files) = &section.orphan_files {
+        push_findings(
+            &mut blocks,
+            "Orphan files",
+            &orphan_files.findings,
+            &ORPHAN_FILE,
+            |listed| findings_table(&ORPHAN_FILE_COLUMNS, listed, orphan_file_row),
         );
     }
     for external in section.external_metrics.values() {
@@ -596,6 +625,21 @@ pub(crate) fn boundary_finding_row(row: &BoundaryFindingRow) -> Vec<String> {
         prose(&row.kind),
         prose(row.reason.as_deref().unwrap_or(&row.message)),
     ]
+}
+
+pub(crate) fn orphan_file_row(row: &OrphanFileRow) -> Vec<String> {
+    let details = if row.test_importers.is_empty() {
+        prose(&row.message)
+    } else {
+        let importers: Vec<String> = row
+            .test_importers
+            .iter()
+            .map(String::as_str)
+            .map(code)
+            .collect();
+        format!("only imported by tests: {}", importers.join(", "))
+    };
+    vec![code(&row.path), prose(&row.kind), details]
 }
 
 fn files_not_measured(report: &Report) -> Vec<String> {

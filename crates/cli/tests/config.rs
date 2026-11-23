@@ -104,6 +104,13 @@ fn config_resolved_reports_defaults_only_across_text_json_and_toon_formats() {
         json!(0.85),
         "default",
     );
+    assert_setting(&payload, "entry_points", json!([]), "default");
+    assert_setting(
+        &payload,
+        "regression_limits.production.orphan_files.new_findings",
+        json!("any_new_finding"),
+        "default",
+    );
 
     let text = invoke_ok_stdout(repo.path(), &["config", "--resolved"]);
     assert!(text.contains("source_sets.production = [] [default]"));
@@ -148,7 +155,8 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
         "duplication": {
             "near_clones": true,
             "min_similarity": 0.9
-        }
+        },
+        "entry_points": ["src/worker.ts"]
     })));
 
     let file_only = resolved_json(repo.path(), &[]);
@@ -202,6 +210,7 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
     );
     assert_setting(&file_only, "duplication.near_clones", json!(true), "file");
     assert_setting(&file_only, "duplication.min_similarity", json!(0.9), "file");
+    assert_setting(&file_only, "entry_points", json!(["src/worker.ts"]), "file");
 
     let with_cli = resolved_json(
         repo.path(),

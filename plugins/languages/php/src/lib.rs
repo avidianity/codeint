@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod entry_points;
 mod functions;
 mod imports;
 mod lexer;
@@ -16,6 +17,7 @@ use codeint_model::language::{
 };
 use codeint_model::token_text_hash;
 
+use crate::entry_points::extract as extract_entry_points;
 use crate::lexer::{RawKind, RawToken};
 
 pub use rules::flagged_line_rules;
@@ -102,7 +104,7 @@ impl Guest for Php {
         Vec::new()
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        extract_entry_points(&repository_paths, &manifests)
     }
 }

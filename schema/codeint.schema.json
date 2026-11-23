@@ -63,6 +63,13 @@
     "duplication": {
       "$ref": "#/$defs/DuplicationConfigFile",
       "description": "Settings for Duplication detection, including opt-in shingle-based near-clone detection. Exact Clone groups remain the default when omitted."
+    },
+    "entry_points": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Globs of repository-relative paths treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points."
     }
   },
   "title": "codeint.json",
@@ -170,6 +177,13 @@
           "description": "The highest Boundaries ratio, from 0 to 1.",
           "minimum": 0,
           "maximum": 1
+        },
+        "orphan_files": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Orphan files ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": {
@@ -204,6 +218,10 @@
         "boundaries": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Boundaries in every Source set."
+        },
+        "orphan_files": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Orphan files in every Source set."
         },
         "production": {
           "$ref": "#/$defs/MetricRegressionLimits",
@@ -273,6 +291,10 @@
         "boundaries": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Boundaries in this Source set."
+        },
+        "orphan_files": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Orphan files in this Source set."
         }
       },
       "additionalProperties": {

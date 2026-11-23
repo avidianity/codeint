@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod entry_points;
 mod functions;
 mod imports;
 mod lexer;
@@ -14,6 +15,8 @@ use codeint_model::language::{
 };
 use codeint_model::scan::build_reference_ranges;
 use codeint_model::token_text_hash;
+
+use crate::entry_points::discover as discover_entry_points;
 
 pub use rules::flagged_line_rules;
 
@@ -56,8 +59,8 @@ impl Guest for Python {
         Vec::new()
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        discover_entry_points(&repository_paths, &manifests)
     }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {

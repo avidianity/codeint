@@ -10,7 +10,8 @@ use codeint_config::{
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneFamily, CloneGroup,
     Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
-    MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig, UnresolvedImport, Verbosity,
+    MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig, OrphanFileFinding, OrphanFiles,
+    UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -211,10 +212,36 @@ struct SourceSetSection {
     import_cycles: ImportCyclesSection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<BoundariesSection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    orphan_files: Option<OrphanFilesSection>,
     #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricSection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OrphanFilesSection {
+    ratio: Decimal,
+    orphan_files: usize,
+    evaluated_files: usize,
+    entry_points: usize,
+    unreferenced: usize,
+    test_only: usize,
+    #[serde(flatten)]
+    findings: Findings<OrphanFileRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OrphanFileRow {
+    id: String,
+    path: String,
+    kind: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    test_importers: Vec<String>,
+    message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -682,6 +709,7 @@ impl_single_path_owner!(FlaggedLineRow, path);
 impl_single_path_owner!(UnresolvedImportRow, importer);
 impl_single_path_owner!(ExternalMetricFinding, path);
 impl_single_path_owner!(BoundaryFindingRow, importer);
+impl_single_path_owner!(OrphanFileRow, path);
 
 impl OwnedFinding for CloneGroupFinding {
     fn assign_owners(&mut self, codeowners: &Codeowners) {
@@ -716,6 +744,10 @@ impl OwnedFinding for ImportCycleFinding {
 }
 
 impl FindingKind for BoundaryFindingRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for OrphanFileRow {
     const LIST_KEY: &'static str = "findings";
 }
 
@@ -809,12 +841,47 @@ impl ExternalMetricFinding {
     }
 }
 
+impl OrphanFilesSection {
+    fn new(orphan_files: &OrphanFiles, view: FindingsView<'_>) -> OrphanFilesSection {
+        let all_findings = orphan_files.findings();
+        let findings = view.map(all_findings);
+        OrphanFilesSection {
+            ratio: Decimal::rounded(orphan_files.ratio()),
+            orphan_files: all_findings.len(),
+            evaluated_files: orphan_files.evaluated_files(),
+            entry_points: orphan_files.entry_points().len(),
+            unreferenced: orphan_files.unreferenced_count(),
+            test_only: orphan_files.test_only_count(),
+            findings,
+        }
+    }
+}
+
+impl From<&OrphanFileFinding> for OrphanFileRow {
+    fn from(finding: &OrphanFileFinding) -> OrphanFileRow {
+        let test_importers = finding
+            .test_importers
+            .iter()
+            .map(RepoPath::to_string)
+            .collect();
+        OrphanFileRow {
+            id: finding.id.to_string(),
+            path: finding.path.to_string(),
+            kind: finding.kind.key().to_owned(),
+            test_importers,
+            message: finding.message.clone(),
+            owners: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct SectionOptions<'a> {
     findings: FindingsShown,
     metric_plugins: &'a [&'a dyn MetricPlugin],
     boundaries: Option<&'a BoundariesConfig>,
     duplication: DuplicationConfig,
+    orphan_files: Option<&'a OrphanFiles>,
     ownership: OwnershipOptions<'a>,
 }
 
@@ -831,6 +898,9 @@ impl SourceSetSections {
                     boundaries: options
                         .boundaries
                         .filter(|config| config.applies_to_source_set(source_set)),
+                    orphan_files: options
+                        .orphan_files
+                        .filter(|_| source_set == SourceSet::Production),
                     ..options
                 };
                 *sections.slot(source_set) =
@@ -871,6 +941,12 @@ impl SourceSetSections {
                 )
                 .chain(
                     section
+                        .orphan_files
+                        .iter()
+                        .map(move |orphans| (source_set, "orphan_files", orphans.ratio.0)),
+                )
+                .chain(
+                    section
                         .external_metrics
                         .iter()
                         .map(move |(key, metric)| (source_set, key.as_str(), metric.ratio.0)),
@@ -895,6 +971,9 @@ impl SourceSetSection {
             .boundaries
             .as_ref()
             .map(|evaluated| BoundariesSection::new(evaluated, view));
+        let orphan_files = options
+            .orphan_files
+            .map(|measured| OrphanFilesSection::new(measured, view));
         let mut external_metrics = BTreeMap::new();
         for plugin in options.metric_plugins {
             let result = plugin.measure(model)?;
@@ -961,6 +1040,7 @@ impl SourceSetSection {
                 unresolved_imports: UnresolvedImportsSection::new(&measured.import_cycles, view),
             },
             boundaries,
+            orphan_files,
             external_metrics,
             packages: package_sections(model, &measured),
         })
@@ -1241,6 +1321,8 @@ pub struct ReportOptions<'a> {
     pub metric_plugins: &'a [&'a dyn MetricPlugin],
     pub boundaries: Option<&'a BoundariesConfig>,
     pub duplication: DuplicationConfig,
+    pub orphan_files: Option<&'a OrphanFiles>,
+    pub orphan_files_by_language: Option<&'a BTreeMap<String, OrphanFiles>>,
     pub ownership: OwnershipOptions<'a>,
 }
 
@@ -1316,6 +1398,8 @@ impl Report {
                 metric_plugins,
                 boundaries,
                 duplication: DuplicationConfig::default(),
+                orphan_files: None,
+                orphan_files_by_language: None,
                 ownership: OwnershipOptions::default(),
             },
         )
@@ -1339,6 +1423,8 @@ impl Report {
                 metric_plugins,
                 boundaries,
                 duplication,
+                orphan_files: None,
+                orphan_files_by_language: None,
                 ownership: OwnershipOptions::default(),
             },
         )
@@ -1362,6 +1448,8 @@ impl Report {
                 metric_plugins,
                 boundaries,
                 duplication: DuplicationConfig::default(),
+                orphan_files: None,
+                orphan_files_by_language: None,
                 ownership,
             },
         )
@@ -1377,6 +1465,7 @@ impl Report {
             metric_plugins: options.metric_plugins,
             boundaries: options.boundaries,
             duplication: options.duplication,
+            orphan_files: options.orphan_files,
             ownership: options.ownership,
         };
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
@@ -1394,12 +1483,18 @@ impl Report {
             _ => {
                 let mut per_language = BTreeMap::new();
                 for language in &measured {
+                    let language_orphans = options
+                        .orphan_files_by_language
+                        .and_then(|map| map.get(&language.plugin));
                     per_language.insert(
                         language.plugin.clone(),
                         MeasuredSection::new(
                             language.model.clone(),
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
-                            section_options,
+                            SectionOptions {
+                                orphan_files: language_orphans,
+                                ..section_options
+                            },
                         )?,
                     );
                 }

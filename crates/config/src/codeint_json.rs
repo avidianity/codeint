@@ -100,7 +100,25 @@ pub struct Configuration {
     pub plugin_limits: PluginLimits,
     pub boundaries: Option<Boundaries>,
     pub duplication: DuplicationConfig,
+    pub entry_points: EntryPoints,
     effective: ConfigurationFile,
+}
+
+#[derive(Debug, Default)]
+pub struct EntryPoints {
+    globs: Option<GlobSet>,
+}
+
+impl EntryPoints {
+    pub fn is_empty(&self) -> bool {
+        self.globs.is_none()
+    }
+
+    pub fn matches(&self, path: &RepoPath) -> bool {
+        self.globs
+            .as_ref()
+            .is_some_and(|globs| globs.is_match(path.as_str()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,7 +246,7 @@ impl Configuration {
 fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
     Metric::BUILT_IN_KEYS
         .iter()
-        .chain(["boundaries"].iter())
+        .chain(["boundaries", "orphan_files"].iter())
         .chain(external_metric_keys.iter())
         .map(|key| (*key).to_owned())
         .collect()
@@ -237,6 +255,7 @@ fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
 fn is_known_metric(key: &str, external_metric_keys: &[&str]) -> bool {
     Metric::BUILT_IN_KEYS.contains(&key)
         || key == "boundaries"
+        || key == "orphan_files"
         || external_metric_keys.contains(&key)
 }
 
@@ -439,6 +458,11 @@ struct ConfigurationFile {
         description = "Settings for Duplication detection, including opt-in shingle-based near-clone detection. Exact Clone groups remain the default when omitted."
     )]
     duplication: DuplicationConfigFile,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Globs of repository-relative paths treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points."
+    )]
+    entry_points: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -543,6 +567,9 @@ struct RegressionLimitsFile {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Boundaries in every Source set.")]
     boundaries: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Orphan files in every Source set.")]
+    orphan_files: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
     #[schemars(description = "The Regression limits of the Production Source set.")]
     production: MetricRegressionLimits,
@@ -576,6 +603,9 @@ struct MetricRegressionLimits {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Boundaries in this Source set.")]
     boundaries: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Orphan files in this Source set.")]
+    orphan_files: RegressionLimitSetting,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, RegressionLimitSetting>,
 }
@@ -588,6 +618,7 @@ impl MetricRegressionLimits {
             &self.verbosity,
             &self.import_cycles,
             &self.boundaries,
+            &self.orphan_files,
         ]
         .into_iter()
         .chain(self.external.values())
@@ -601,6 +632,7 @@ impl MetricRegressionLimits {
             verbosity,
             import_cycles,
             boundaries,
+            orphan_files,
             external,
         } = self;
         [
@@ -609,6 +641,7 @@ impl MetricRegressionLimits {
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),
             ("boundaries".to_owned(), boundaries),
+            ("orphan_files".to_owned(), orphan_files),
         ]
         .into_iter()
         .chain(external)
@@ -670,6 +703,13 @@ struct MetricBudgets {
         description = "The highest Boundaries ratio, from 0 to 1."
     )]
     boundaries: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Orphan files ratio, from 0 to 1."
+    )]
+    orphan_files: Option<Budget>,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, Budget>,
 }
@@ -883,6 +923,8 @@ fn parse_value_with_overrides(
     append_boundaries_settings(raw.as_ref(), parsed_boundaries.as_ref(), &mut settings);
     let parsed_duplication = duplication_config(file.duplication)?;
     append_duplication_settings(raw.as_ref(), parsed_duplication, &mut settings);
+    let parsed_entry_points = entry_points(&file.entry_points)?;
+    append_entry_points_setting(raw.as_ref(), &effective.entry_points, &mut settings);
     let configuration = Configuration {
         effective,
         source_set_overrides,
@@ -893,6 +935,7 @@ fn parse_value_with_overrides(
         plugin_limits,
         boundaries: parsed_boundaries,
         duplication: parsed_duplication,
+        entry_points: parsed_entry_points,
     };
     Ok(ResolvedConfiguration {
         config_file,
@@ -900,6 +943,29 @@ fn parse_value_with_overrides(
         configuration,
         settings,
     })
+}
+
+fn entry_points(globs: &[String]) -> Result<EntryPoints, ConfigurationFileError> {
+    if globs.is_empty() {
+        return Ok(EntryPoints::default());
+    }
+    let key = KeyPath::default().child(KeySegment::Key("entry_points".to_owned()));
+    Ok(EntryPoints {
+        globs: Some(glob_set(&key, globs)?),
+    })
+}
+
+fn append_entry_points_setting(
+    raw: Option<&Value>,
+    entries: &[String],
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let source = if has_json_path(raw, &["entry_points"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(settings, "entry_points", json!(entries), source);
 }
 
 fn duplication_config(
@@ -1083,7 +1149,7 @@ fn append_regression_limit_settings(
 ) {
     let mut metric_keys: Vec<String> = Metric::BUILT_IN_KEYS
         .iter()
-        .chain(["boundaries"].iter())
+        .chain(["boundaries", "orphan_files"].iter())
         .map(|key| (*key).to_owned())
         .collect();
     metric_keys.extend(limits.extra_metric_keys());
@@ -1282,6 +1348,7 @@ impl MetricBudgets {
             "verbosity" => self.verbosity = Some(budget),
             "import_cycles" => self.import_cycles = Some(budget),
             "boundaries" => self.boundaries = Some(budget),
+            "orphan_files" => self.orphan_files = Some(budget),
             other => {
                 self.external.insert(other.to_owned(), budget);
             }
@@ -1372,6 +1439,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         verbosity,
         import_cycles,
         boundaries,
+        orphan_files,
         production,
         test,
         generated,
@@ -1384,6 +1452,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         verbosity,
         import_cycles,
         boundaries,
+        orphan_files,
         external,
     }
     .by_metric()
@@ -1435,6 +1504,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             verbosity,
             import_cycles,
             boundaries,
+            orphan_files,
             external,
         } = metric_budgets;
         [
@@ -1443,6 +1513,7 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),
             ("boundaries".to_owned(), boundaries),
+            ("orphan_files".to_owned(), orphan_files),
         ]
         .into_iter()
         .filter_map(move |(metric, ratio)| Some((source_set, metric, ratio?)))

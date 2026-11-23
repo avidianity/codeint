@@ -78,6 +78,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         flagged_lines: &flagged,
         import_cycles: &cycles,
         boundaries: &[],
+        orphan_files: &[],
         external_metrics: Vec::new(),
     };
 
@@ -187,6 +188,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
         flagged_lines: &[],
         import_cycles: &[],
         boundaries: &[],
+        orphan_files: &[],
         external_metrics: Vec::new(),
     };
 

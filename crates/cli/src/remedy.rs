@@ -3,7 +3,7 @@ use codeint_config::{
 };
 use codeint_git::GitError;
 use codeint_metrics::ImpactError;
-use codeint_model::{MetricPluginError, WorkspaceError};
+use codeint_model::{LanguagePluginError, MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
 use codeint_report::{SavedReportError, TraceError};
 
@@ -76,6 +76,12 @@ fn check_remedy(error: &CheckError) -> &'static str {
         CheckError::Configuration(error) => configuration_file_remedy(error),
         CheckError::Codeowners(error) => codeowners_remedy(error),
         CheckError::Workspace(error) => workspace_remedy(error),
+        other => check_plugin_remedy(other),
+    }
+}
+
+fn check_plugin_remedy(error: &CheckError) -> &'static str {
+    match error {
         CheckError::Resolve(_) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
@@ -83,7 +89,9 @@ fn check_remedy(error: &CheckError) -> &'static str {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
         CheckError::PluginHost(error) => plugin_host_remedy(error),
+        CheckError::LanguagePlugin(error) => language_plugin_remedy(error),
         CheckError::MetricPlugin(error) => metric_plugin_remedy(error),
+        _ => "Check the plugin configuration in codeint.json.",
     }
 }
 
@@ -424,6 +432,16 @@ fn plugin_runtime_remedy(error: &PluginHostError) -> &'static str {
             "Remove one of the Metric plugins that declare the same Metric key."
         }
         _ => "Check the plugin configuration in codeint.json.",
+    }
+}
+
+fn language_plugin_remedy(error: &LanguagePluginError) -> &'static str {
+    match error {
+        LanguagePluginError::MemoryLimitExceeded { .. }
+        | LanguagePluginError::TimeLimitExceeded { .. } => {
+            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Language plugin needs more resources, or fix the defect in the plugin."
+        }
+        _ => "Fix the defect in the Language plugin, or report it to the plugin's author.",
     }
 }
 

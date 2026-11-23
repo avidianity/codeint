@@ -445,6 +445,22 @@ fn rerenders_markdown_without_overflow_when_left_out_is_usize_max() {
     );
 }
 
+fn capture_containing_and_verify_parity(
+    root: &Path,
+    cache: &Path,
+    base_args: &[&str],
+    expected_code: i32,
+    expected_snippet: &str,
+    file_name: &str,
+) {
+    let mut json_args = base_args.to_vec();
+    json_args.extend(["--format", "json"]);
+    let json_run = invoke(root, cache, &json_args, None);
+    assert_eq!(json_run.status.code(), Some(expected_code));
+    assert!(utf8(&json_run.stdout).contains(expected_snippet));
+    verify_parity(root, cache, base_args, &json_run.stdout, file_name);
+}
+
 #[test]
 fn rerenders_check_and_diff_json_with_codeowners_owners_losslessly() {
     let base_file = verbose_ts("sign");
@@ -457,36 +473,68 @@ fn rerenders_check_and_diff_json_with_codeowners_owners_losslessly() {
     let added = eroded_ts("route", 14);
     populate(dir.path(), &[("src/route.ts", &added)]);
 
-    let check_json = invoke(
-        dir.path(),
-        cache.path(),
-        &["check", "--format", "json"],
-        None,
-    );
-    assert_eq!(check_json.status.code(), Some(0));
-    assert!(utf8(&check_json.stdout).contains("\"@platform\""));
-    verify_parity(
+    capture_containing_and_verify_parity(
         dir.path(),
         cache.path(),
         &["check"],
-        &check_json.stdout,
+        0,
+        "\"@platform\"",
         "owned-check.json",
     );
-
-    let diff_json = invoke(
-        dir.path(),
-        cache.path(),
-        &["diff", "main", "--format", "json"],
-        None,
-    );
-    assert_eq!(diff_json.status.code(), Some(1));
-    assert!(utf8(&diff_json.stdout).contains("\"@platform\""));
-    verify_parity(
+    capture_containing_and_verify_parity(
         dir.path(),
         cache.path(),
         &["diff", "main"],
-        &diff_json.stdout,
+        1,
+        "\"@platform\"",
         "owned-diff.json",
+    );
+}
+
+#[test]
+fn rerenders_check_and_diff_json_with_orphan_files_losslessly() {
+    let (dir, cache) = setup_workspace(&[
+        ("package.json", r#"{"name":"app","main":"src/index.ts"}"#),
+        (
+            "src/index.ts",
+            "import { live } from \"./live\";\nexport const run = (): number => live();\n",
+        ),
+        ("src/live.ts", "export const live = (): number => 1;\n"),
+        ("src/unused.ts", "export const unused = (): number => 2;\n"),
+        (
+            "src/tested_only.ts",
+            "export const onlyTest = (): number => 3;\n",
+        ),
+        (
+            "src/tested_only.test.ts",
+            "import { onlyTest } from \"./tested_only\";\nexport const check = (): number => onlyTest();\n",
+        ),
+    ]);
+    commit_all(dir.path(), "base");
+
+    capture_containing_and_verify_parity(
+        dir.path(),
+        cache.path(),
+        &["check"],
+        0,
+        "\"orphan_files\"",
+        "orphans-check.json",
+    );
+
+    populate(
+        dir.path(),
+        &[(
+            "src/new_orphan.ts",
+            "export const extra = (): number => 4;\n",
+        )],
+    );
+    capture_containing_and_verify_parity(
+        dir.path(),
+        cache.path(),
+        &["diff", "main"],
+        1,
+        "\"orphan_files\"",
+        "orphans-diff.json",
     );
 }
 

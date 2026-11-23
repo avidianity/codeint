@@ -59,6 +59,13 @@ pub(crate) fn built_in_metric_descriptor(metric: Metric) -> BuiltInMetricDescrip
     }
 }
 
+pub(crate) const ORPHAN_FILES_DESCRIPTOR: BuiltInMetricDescriptor = BuiltInMetricDescriptor {
+    name: "Orphan files",
+    short_description: "A Production file unreachable from any entry point",
+    full_description: "Orphan files measures the share of Production files that cannot be reached through resolved runtime imports from any manifest-declared or configured entry point, annotating files imported only by tests as test-only.",
+    help: "Delete the unused Production file (and any stale tests that only import it), wire it into an entry point, or add its path glob to entry_points in codeint.json.",
+};
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SchemaReport {
     name: String,
@@ -113,7 +120,7 @@ impl SchemaReport {
         exit_codes: Vec<ExitCodeSchema>,
     ) -> SchemaReport {
         let default_limits = RegressionLimits::default();
-        let metrics = BUILT_IN_METRICS
+        let mut metrics: Vec<MetricSchema> = BUILT_IN_METRICS
             .into_iter()
             .map(|metric| {
                 let descriptor = built_in_metric_descriptor(metric);
@@ -129,6 +136,16 @@ impl SchemaReport {
                 }
             })
             .collect();
+        let orphan_limit = default_limits.limit_for_key(SourceSet::Production, "orphan_files");
+        metrics.push(MetricSchema {
+            key: "orphan_files",
+            name: ORPHAN_FILES_DESCRIPTOR.name,
+            short_description: ORPHAN_FILES_DESCRIPTOR.short_description,
+            description: ORPHAN_FILES_DESCRIPTOR.full_description,
+            unit: "ratio",
+            default_ratio_rise_limit: orphan_limit.ratio_rise.ratio(),
+            default_new_findings_rule: orphan_limit.new_findings,
+        });
         let source_sets = SOURCE_SETS.into_iter().map(SourceSet::key).collect();
         SchemaReport {
             name: cli.name,

@@ -3,9 +3,9 @@ use crate::Findings;
 use crate::markdown::{
     BOUNDARY_FINDING_COLUMNS, CLONE_FAMILY, CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS,
     EXTERNAL_FINDING_COLUMNS, FINDING, FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun,
-    boundary_finding_row, clone_family_item, clone_group_item, code, eroded_function_row,
-    external_finding_row, findings_table, flagged_line_row, import_cycle_item, list, push_findings,
-    sentence_item, table,
+    ORPHAN_FILE, ORPHAN_FILE_COLUMNS, boundary_finding_row, clone_family_item, clone_group_item,
+    code, eroded_function_row, external_finding_row, findings_table, flagged_line_row,
+    import_cycle_item, list, orphan_file_row, push_findings, sentence_item, table,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -75,6 +75,9 @@ fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>>
     ];
     if let Some(boundaries) = &changes.boundaries {
         rows.push(metric_row(source_set, "Boundaries", boundaries));
+    }
+    if let Some(orphan_files) = &changes.orphan_files {
+        rows.push(metric_row(source_set, "Orphan files", orphan_files));
     }
     for external in changes.external_metrics.values() {
         rows.push(metric_row(source_set, &external.name, &external.changes));
@@ -148,6 +151,15 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
         push_changes(&mut blocks, "Boundaries", boundaries, &FINDING, |listed| {
             findings_table(&BOUNDARY_FINDING_COLUMNS, listed, boundary_finding_row)
         });
+    }
+    if let Some(orphan_files) = &changes.orphan_files {
+        push_changes(
+            &mut blocks,
+            "Orphan files",
+            orphan_files,
+            &ORPHAN_FILE,
+            |listed| findings_table(&ORPHAN_FILE_COLUMNS, listed, orphan_file_row),
+        );
     }
     for external in changes.external_metrics.values() {
         push_changes(
