@@ -549,3 +549,38 @@ fn dart_deep_ternaries_and_null_aware_index_chains_avoid_exponential_scan() {
     assert_eq!(chained.decision_points, 0);
     assert_eq!(chained.cognitive_complexity, 0);
 }
+
+#[test]
+fn dart_conditional_imports_and_exports_extract_all_target_uris() {
+    let src = "\
+import 'adapters/io_adapter.dart'
+    if (dart.library.js_interop) 'adapters/browser_adapter.dart'
+    if (dart.library.html) 'adapters/browser_adapter.dart'
+    as adapter;
+import 'compute_io.dart' if (dart.library.html == 'true') 'compute_web.dart';
+export 'stub.dart'
+    if (dart.library.io) 'dio_for_native.dart'
+    if (dart.library.html) 'dio_for_browser.dart';
+int ready() => 1;
+";
+    let model = lower("lib/src/adapter.dart", src).unwrap();
+    assert_eq!(
+        model.runtime_imports,
+        [
+            "adapters/browser_adapter.dart",
+            "adapters/io_adapter.dart",
+            "compute_io.dart",
+            "compute_web.dart",
+            "dio_for_browser.dart",
+            "dio_for_native.dart",
+            "stub.dart",
+        ]
+    );
+    assert!(
+        model
+            .tokens
+            .iter()
+            .filter(|t| t.line <= 8)
+            .all(|t| t.kind == TokenKind::ImportOrExport)
+    );
+}

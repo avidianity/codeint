@@ -78,3 +78,58 @@ fn normalizes_composer_namespaces_and_vendor_requires() {
         ]
     );
 }
+
+#[test]
+fn psr4_collision_resolves_declared_composer_subpackages_and_globals_are_never_external() {
+    let files = vec![
+        "composer.json".into(),
+        "src/Client.php".into(),
+        "src/Handler/CurlHandler.php".into(),
+    ];
+    let manifests = vec![Manifest {
+        path: "composer.json".into(),
+        text: r#"{
+            "name": "guzzlehttp/guzzle",
+            "autoload": { "psr-4": { "GuzzleHttp\\": "src/" } },
+            "require": {
+                "guzzlehttp/psr7": "^2.7",
+                "guzzlehttp/promises": "^2.0"
+            }
+        }"#
+        .into(),
+    }];
+    let check = |spec: &str| {
+        resolve_batch(
+            &files,
+            &manifests,
+            &[ImportRequest {
+                importer: "src/Client.php".into(),
+                specifier: spec.into(),
+            }],
+        )
+        .remove(0)
+    };
+    assert_eq!(check("use:GuzzleHttp\\Client"), Resolution::Builtin);
+    assert!(matches!(
+        check("use:GuzzleHttp\\Handler"),
+        Resolution::Unresolved(_)
+    ));
+    assert_eq!(
+        check("use:GuzzleHttp\\Psr7\\Request"),
+        Resolution::External("guzzlehttp/psr7".into())
+    );
+    assert_eq!(
+        check("use:GuzzleHttp\\Psr7"),
+        Resolution::External("guzzlehttp/psr7".into())
+    );
+    assert_eq!(
+        check("use:GuzzleHttp\\Promise\\Create"),
+        Resolution::External("guzzlehttp/promises".into())
+    );
+    assert!(matches!(
+        check("use:GuzzleHttp\\MissingInternal"),
+        Resolution::Unresolved(_)
+    ));
+    assert_eq!(check("use:CarbonTimezoneTrait"), Resolution::Builtin);
+    assert_eq!(check("use:SubCarbon"), Resolution::Builtin);
+}

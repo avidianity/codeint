@@ -38,31 +38,72 @@ fn try_directive(
     match kw {
         "library" => Some(mark_to_semicolon(tokens, idx, marked) + 1),
         "import" | "export" => {
-            if let Some(uri) = tokens
-                .get(idx + 1)
-                .filter(|t| t.kind == DartKind::StringLit)
-                .and_then(|t| unquote_dart_string(&t.text))
-            {
-                specifiers.insert(uri.to_owned());
+            let end = mark_to_semicolon(tokens, idx, marked);
+            if let Some(uri) = extract_string_uri(tokens.get(idx + 1)) {
+                specifiers.insert(uri);
+                if idx + 2 <= end {
+                    collect_conditional_uris(&tokens[idx + 2..=end], specifiers);
+                }
             }
-            Some(mark_to_semicolon(tokens, idx, marked) + 1)
+            Some(end + 1)
         }
         "part" => {
             let is_part_of = tokens
                 .get(idx + 1)
                 .is_some_and(|t| t.kind == DartKind::Keyword && t.text == "of");
-            if !is_part_of
-                && let Some(uri) = tokens
-                    .get(idx + 1)
-                    .filter(|t| t.kind == DartKind::StringLit)
-                    .and_then(|t| unquote_dart_string(&t.text))
-            {
-                specifiers.insert(uri.to_owned());
+            if !is_part_of && let Some(uri) = extract_string_uri(tokens.get(idx + 1)) {
+                specifiers.insert(uri);
             }
             Some(mark_to_semicolon(tokens, idx, marked) + 1)
         }
         _ => None,
     }
+}
+
+fn extract_string_uri(token: Option<&DartToken>) -> Option<String> {
+    token
+        .filter(|t| t.kind == DartKind::StringLit)
+        .and_then(|t| unquote_dart_string(&t.text))
+        .map(str::to_owned)
+}
+
+fn collect_conditional_uris(slice: &[DartToken], specifiers: &mut BTreeSet<String>) {
+    let mut cursor = 0usize;
+    while cursor < slice.len() {
+        if slice[cursor].kind == DartKind::Keyword
+            && slice[cursor].text == "if"
+            && slice.get(cursor + 1).is_some_and(|t| t.text == "(")
+        {
+            let after_cond = skip_parenthesized(slice, cursor + 1);
+            if let Some(uri) = extract_string_uri(slice.get(after_cond)) {
+                specifiers.insert(uri);
+                cursor = after_cond + 1;
+                continue;
+            }
+            cursor = after_cond;
+            continue;
+        }
+        cursor += 1;
+    }
+}
+
+fn skip_parenthesized(slice: &[DartToken], open_paren: usize) -> usize {
+    let mut depth = 0usize;
+    let mut i = open_paren;
+    while i < slice.len() {
+        match slice[i].text.as_str() {
+            "(" => depth += 1,
+            ")" => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return i + 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    slice.len()
 }
 
 fn mark_to_semicolon(tokens: &[DartToken], start: usize, marked: &mut BTreeSet<usize>) -> usize {
