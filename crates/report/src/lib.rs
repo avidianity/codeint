@@ -19,6 +19,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
 mod diff;
+mod guard;
 mod markdown;
 mod measurement;
 mod sarif;
@@ -27,6 +28,7 @@ mod tests;
 mod trend;
 
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
+pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use measurement::CommitMeasurement;
 pub use trend::{TrendPoint, TrendReport};
 

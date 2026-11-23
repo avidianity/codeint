@@ -3,6 +3,7 @@
 mod check;
 mod commit_measurement;
 mod diff;
+mod guard;
 mod init;
 mod mcp;
 mod remedy;
@@ -20,9 +21,10 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
+    TrendRange,
 };
-pub use codeint_report::{DiffReport, Report, TrendReport};
+pub use codeint_report::{DiffReport, GuardReport, Report, TrendReport};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -182,12 +184,18 @@ pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
     init::init(folder).map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
 }
 
+pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> {
+    guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error(transparent)]
+    Guard(#[from] guard::GuardError),
     #[error(transparent)]
     Init(#[from] init::InitError),
     #[error(transparent)]
@@ -291,7 +299,18 @@ fn run() -> Result<Outcome, CliError> {
             result_cache,
             plugin_host,
         } => run_mcp(&folder, result_cache, plugin_host),
+        Command::Guard {
+            folder,
+            target,
+            format,
+        } => run_guard(&folder, &target, format),
     }
+}
+
+fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {
+    let report = guard::guard(folder, target)?;
+    print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::Passed)
 }
 
 fn run_init(folder: &Path) -> Result<Outcome, CliError> {

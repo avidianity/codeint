@@ -28,7 +28,8 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
-| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, and `trend` tools; see [`codeint mcp`](#codeint-mcp) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `guard` tools; see [`codeint mcp`](#codeint-mcp) |
+| `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -486,11 +487,31 @@ codeint 0.5.0 is already up to date (v0.5.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes three read-only tools (`check`, `diff`, and `trend`) so coding agents can measure Software entropy and fix Regressions before opening a pull request.
+It exposes four read-only tools (`check`, `diff`, `trend`, and `guard`) so coding agents can measure Software entropy, inspect architectural boundaries, and fix Regressions before opening a pull request.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
 codeint mcp
+```
+
+### `codeint guard`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<PATH>` | Path to an existing or planned file inside the Git repository |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
+| `-h, --help` | Print the help of `codeint guard` |
+
+`codeint guard <path>` evaluates the architectural boundary rules in `codeint.json` for an existing or planned file path without requiring the file to exist on disk.
+
+```sh exit=0
+codeint guard src/route.ts
+codeint guard src/route.ts --format text
+codeint guard src/route.ts --format toon
+codeint guard src/route.ts --format json
 ```
 
 ## Exit codes

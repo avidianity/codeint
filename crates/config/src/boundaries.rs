@@ -125,6 +125,7 @@ struct CompiledPattern {
 struct CompiledZone {
     patterns: Vec<CompiledPattern>,
     public_files: Option<GlobSet>,
+    public_file_patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,17 +165,19 @@ impl Boundaries {
             }
             let patterns_key = zone_key.child(KeySegment::Key("patterns".to_owned()));
             let patterns = compile_patterns(&patterns_key, &zone_file.patterns)?;
-            let public_files = if zone_file.public_files.is_empty() {
+            let public_file_patterns = zone_file.public_files;
+            let public_files = if public_file_patterns.is_empty() {
                 None
             } else {
                 let public_key = zone_key.child(KeySegment::Key("public_files".to_owned()));
-                Some(glob_set(&public_key, &zone_file.public_files)?)
+                Some(glob_set(&public_key, &public_file_patterns)?)
             };
             zones.insert(
                 name,
                 CompiledZone {
                     patterns,
                     public_files,
+                    public_file_patterns,
                 },
             );
         }
@@ -259,6 +262,51 @@ impl Boundaries {
         self.strict_zones
     }
 
+    pub fn zone_names(&self) -> Vec<&str> {
+        self.zones.keys().map(String::as_str).collect()
+    }
+
+    pub fn public_file_patterns(&self, zone: &str) -> &[String] {
+        self.zones
+            .get(zone)
+            .map_or(&[], |compiled| compiled.public_file_patterns.as_slice())
+    }
+
+    pub fn allow_reason(&self, source_zone: &str, target_zone: &str) -> Option<&str> {
+        if source_zone == target_zone {
+            return None;
+        }
+        let applicable = self.applicable_rules(source_zone);
+        let first = applicable.first()?;
+        if first.directive != BoundaryDirective::Allow {
+            return None;
+        }
+        applicable
+            .iter()
+            .find(|rule| {
+                rule.targets
+                    .iter()
+                    .any(|target| target == target_zone || target == WILDCARD_ZONE)
+            })
+            .and_then(|rule| rule.reason.as_deref())
+    }
+
+    fn applicable_rules(&self, source_zone: &str) -> Vec<&CompiledRule> {
+        let specific: Vec<&CompiledRule> = self
+            .rules
+            .iter()
+            .filter(|rule| rule.from == source_zone)
+            .collect();
+        if specific.is_empty() {
+            self.rules
+                .iter()
+                .filter(|rule| rule.from == WILDCARD_ZONE)
+                .collect()
+        } else {
+            specific
+        }
+    }
+
     pub fn zone_of(&self, path: &RepoPath) -> Option<&str> {
         let mut best: Option<(&str, usize, usize)> = None;
         for (zone_name, zone) in &self.zones {
@@ -303,19 +351,7 @@ impl Boundaries {
         if source_zone == target_zone {
             return BoundaryRuleDecision::Allowed;
         }
-        let specific: Vec<&CompiledRule> = self
-            .rules
-            .iter()
-            .filter(|rule| rule.from == source_zone)
-            .collect();
-        let applicable: Vec<&CompiledRule> = if specific.is_empty() {
-            self.rules
-                .iter()
-                .filter(|rule| rule.from == WILDCARD_ZONE)
-                .collect()
-        } else {
-            specific
-        };
+        let applicable = self.applicable_rules(source_zone);
         let Some(first) = applicable.first() else {
             return BoundaryRuleDecision::Allowed;
         };

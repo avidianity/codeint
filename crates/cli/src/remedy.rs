@@ -5,6 +5,7 @@ use codeint_plugin_host::PluginHostError;
 
 use crate::CliError;
 use crate::check::CheckError;
+use crate::guard::GuardError;
 use crate::init::InitError;
 use crate::update::UpdateError;
 
@@ -24,6 +25,14 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Check(CheckError::MetricPlugin(error)) => metric_plugin_remedy(error),
         CliError::Check(CheckError::ExtensionConflict { .. }) => {
             "Assign separate directories to each Language plugin in the languages setting of codeint.json."
+        }
+        CliError::Guard(GuardError::Git(error)) => git_remedy(error),
+        CliError::Guard(GuardError::Configuration(error)) => configuration_file_remedy(error),
+        CliError::Guard(GuardError::OutsideRepository { .. }) => {
+            "Pass a file path inside the Git repository, such as src/domain/service.ts."
+        }
+        CliError::Guard(GuardError::NonUtf8Path { .. } | GuardError::InvalidPath { .. }) => {
+            "Pass a valid UTF-8 file path inside the Git repository."
         }
         CliError::Init(InitError::Git(GitError::NotInRepository { .. })) => {
             "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."

@@ -95,6 +95,13 @@ pub enum TrendFormat {
     Markdown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum GuardFormat {
+    Text,
+    Toon,
+    Json,
+}
+
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,6 +149,11 @@ pub enum Command {
         folder: PathBuf,
         result_cache: Option<PathBuf>,
         plugin_host: PluginHostConfig,
+    },
+    Guard {
+        folder: PathBuf,
+        target: PathBuf,
+        format: GuardFormat,
     },
 }
 
@@ -233,9 +245,26 @@ enum CommandArguments {
         version: Option<String>,
     },
     #[command(
-        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, and trend tools"
+        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, and guard tools"
     )]
     Mcp,
+    #[command(
+        about = "Show the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for a file path"
+    )]
+    Guard {
+        #[arg(
+            value_name = "PATH",
+            help = "Path to an existing or planned file inside the Git repository"
+        )]
+        path: PathBuf,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = GuardFormat::Text,
+            help = "The format of the output"
+        )]
+        format: GuardFormat,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -292,6 +321,11 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             result_cache: result_cache_folder_of_this_process(&current_folder),
             plugin_host: plugin_host_config_of_this_process(&current_folder),
             folder: current_folder,
+        },
+        CommandArguments::Guard { path, format } => Command::Guard {
+            folder: current_folder,
+            target: path,
+            format,
         },
     };
     Ok(Invocation { command })

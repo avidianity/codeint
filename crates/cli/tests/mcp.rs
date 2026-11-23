@@ -77,7 +77,7 @@ fn mcp_initialize_list_and_call_tools() {
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "codeint");
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["check", "diff", "trend"]);
+    assert_eq!(names, ["check", "diff", "trend", "guard"]);
 
     assert_eq!(responses[2]["result"]["isError"], false);
     let check_payload: Value = serde_json::from_str(
@@ -92,4 +92,116 @@ fn mcp_initialize_list_and_call_tools() {
     assert_eq!(responses[3]["result"]["isError"], false);
     assert_eq!(responses[4]["result"]["isError"], false);
     assert_eq!(responses[5]["error"]["code"], -32601);
+}
+
+#[test]
+fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
+    let repo = init_sample_repo();
+    let unconfigured = send_mcp_requests(
+        repo.path(),
+        &[json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "guard", "arguments": {"file": "app.ts"}}
+        })],
+    );
+    assert_eq!(unconfigured[0]["result"]["isError"], false);
+    let unconfigured_payload: Value = serde_json::from_str(
+        unconfigured[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(unconfigured_payload["configured"], false);
+    assert_eq!(unconfigured_payload["exists"], true);
+
+    std::fs::write(
+        repo.path().join("codeint.json"),
+        json!({
+            "boundaries": {
+                "zones": {
+                    "core": { "patterns": ["src/core/**"], "public_files": ["src/core/api.ts"] },
+                    "adapter": { "patterns": ["src/adapter/**"] },
+                    "web": { "patterns": ["src/web/**"] }
+                },
+                "rules": [
+                    { "from": "core", "deny": ["adapter"], "reason": "Core must stay independent of adapters" },
+                    { "from": "web", "allow": ["core"], "reason": "Web may only import core" }
+                ]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo.path().join("src/core")).unwrap();
+    std::fs::write(
+        repo.path().join("src/core/internal.ts"),
+        "export const internal = 1;\n",
+    )
+    .unwrap();
+
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "guard", "arguments": {"file": "src/core/internal.ts"}}
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "guard", "arguments": {"file": "src/web/planned/view.ts"}}
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "guard", "arguments": {"file": "app.ts"}}
+            }),
+        ],
+    );
+
+    assert_eq!(responses.len(), 3);
+    for response in &responses {
+        assert_eq!(response["result"]["isError"], false);
+    }
+
+    let existing: Value = serde_json::from_str(
+        responses[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(existing["zone"], "core");
+    assert_eq!(existing["exists"], true);
+    assert_eq!(existing["is_public_file"], false);
+    assert_eq!(existing["allowed_importers"], json!(["core"]));
+    assert_eq!(existing["denied_targets"][0]["zone"], "adapter");
+    assert_eq!(
+        existing["denied_targets"][0]["reason"],
+        "Core must stay independent of adapters"
+    );
+
+    let planned: Value = serde_json::from_str(
+        responses[1]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(planned["zone"], "web");
+    assert_eq!(planned["exists"], false);
+    assert_eq!(planned["denied_targets"][0]["zone"], "adapter");
+
+    let unzoned: Value = serde_json::from_str(
+        responses[2]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(unzoned["configured"], true);
+    assert!(unzoned.get("zone").is_none());
 }

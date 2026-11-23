@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
+    TrendRange,
 };
 use serde_json::{Value, json};
 
-use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, trend};
+use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, guard, trend};
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -157,6 +158,18 @@ fn handle_tools_list() -> Value {
                         "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
                     }
                 }
+            },
+            {
+                "name": "guard",
+                "description": "Query the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for an existing or planned file path.",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {
+                        "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
+                    }
+                }
             }
         ]
     })
@@ -175,6 +188,7 @@ fn handle_tools_call(
         "check" => Ok(call_check(args, ctx)),
         "diff" => Ok(call_diff(args, ctx)),
         "trend" => Ok(call_trend(args, ctx)),
+        "guard" => Ok(call_guard(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
 }
@@ -253,6 +267,23 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     };
     match trend(&folder, &options) {
         Ok(report) => match report.render(TrendFormat::Json) {
+            Ok(rendered) => {
+                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
+                tool_ok(payload)
+            }
+            Err(err) => tool_err(&err.to_string()),
+        },
+        Err(err) => tool_err(&err.to_string()),
+    }
+}
+
+fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let Some(file) = args.and_then(|a| a.get("file")).and_then(Value::as_str) else {
+        return tool_err("Missing required argument: file");
+    };
+    let folder = resolve_folder(args, ctx.default_folder);
+    match guard(&folder, Path::new(file)) {
+        Ok(report) => match report.render(GuardFormat::Json) {
             Ok(rendered) => {
                 let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
                 tool_ok(payload)
