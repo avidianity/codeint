@@ -526,3 +526,26 @@ int nestedUnparenthesized(bool a, bool b) {
         ]
     );
 }
+
+#[test]
+fn dart_deep_ternaries_and_null_aware_index_chains_avoid_exponential_scan() {
+    let nested_conds: String = (0..30).map(|i| format!("c{i} ? ")).collect();
+    let nested_alts: String = (1..=30).map(|i| format!(" : {i}")).collect();
+    let null_indexes: String = (0..30).map(|i| format!("?[{i}]")).collect();
+    let src = format!(
+        "int deeplyNestedTernary(bool c0) {{\n  return {nested_conds}0{nested_alts};\n}}\n\
+         dynamic chainedNullAwareIndex(dynamic a) {{\n  return a{null_indexes};\n}}\n"
+    );
+    let model = lower("lib/deep_ternary_perf.dart", &src).unwrap();
+    assert_eq!(model.functions.len(), 2);
+
+    let nested = &model.functions[0];
+    assert_eq!(nested.name.as_deref(), Some("deeplyNestedTernary"));
+    assert_eq!(nested.decision_points + 1, 31);
+    assert_eq!(nested.cognitive_complexity, 465);
+
+    let chained = &model.functions[1];
+    assert_eq!(chained.name.as_deref(), Some("chainedNullAwareIndex"));
+    assert_eq!(chained.decision_points, 0);
+    assert_eq!(chained.cognitive_complexity, 0);
+}

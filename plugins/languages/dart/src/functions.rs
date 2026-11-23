@@ -45,10 +45,13 @@ pub(crate) fn extract(tokens: &[DartToken], code_lines: &BTreeSet<u32>) -> Vec<F
         .iter()
         .map(|s| (s.body_start, s.body_end, s.start_line, s.end_line))
         .collect();
-    let mut functions = score_function_spans(tokens, code_lines, &raw_spans, decision_weight);
+    let ternary_mask = compute_ternary_mask(tokens);
+    let mut functions = score_function_spans(tokens, code_lines, &raw_spans, |toks, idx| {
+        decision_weight(toks, idx, &ternary_mask)
+    });
     for (owner, func) in functions.iter_mut().enumerate() {
         func.name = spans[owner].name.clone();
-        func.cognitive_complexity = compute_dart_cognitive(tokens, &spans, owner);
+        func.cognitive_complexity = compute_dart_cognitive(tokens, &spans, owner, &ternary_mask);
     }
     functions
 }
@@ -223,13 +226,13 @@ fn skip_initializer_list(tokens: &[DartToken], mut pos: usize) -> Option<usize> 
     None
 }
 
-fn decision_weight(tokens: &[DartToken], idx: usize) -> u32 {
+fn decision_weight(tokens: &[DartToken], idx: usize, ternary_mask: &[bool]) -> u32 {
     let tok = &tokens[idx];
     match (tok.kind, tok.text.as_str()) {
         (DartKind::Keyword, "if" | "for" | "while" | "do" | "case" | "catch") => 1,
         (DartKind::Keyword, "switch") => count_switch_expr_arms(tokens, idx),
         (DartKind::Punct, "&&" | "||" | "??") => 1,
-        (DartKind::Punct, "?") if is_ternary_operator(tokens, idx) => 1,
+        (DartKind::Punct, "?") if ternary_mask[idx] => 1,
         _ => 0,
     }
 }
@@ -241,14 +244,28 @@ enum CaseHeaderContext {
     Guard,
 }
 
-fn is_ternary_operator(tokens: &[DartToken], q_idx: usize) -> bool {
+fn compute_ternary_mask(tokens: &[DartToken]) -> Vec<bool> {
+    let mut mask = vec![false; tokens.len()];
+    for idx in (0..tokens.len()).rev() {
+        if tokens[idx].kind == DartKind::Punct && tokens[idx].text == "?" {
+            mask[idx] = is_ternary_operator(tokens, idx, &mask);
+        }
+    }
+    mask
+}
+
+fn is_ternary_operator(tokens: &[DartToken], q_idx: usize, ternary_mask: &[bool]) -> bool {
     if tokens.get(q_idx + 1).is_some_and(|tok| tok.text == ":") {
         return false;
     }
     match case_header_context(tokens, q_idx) {
         CaseHeaderContext::Pattern => false,
-        CaseHeaderContext::Guard => has_required_ternary_colons(tokens, q_idx, 2, true),
-        CaseHeaderContext::Outside => has_required_ternary_colons(tokens, q_idx, 1, false),
+        CaseHeaderContext::Guard => {
+            has_required_ternary_colons(tokens, q_idx, 2, true, ternary_mask)
+        }
+        CaseHeaderContext::Outside => {
+            has_required_ternary_colons(tokens, q_idx, 1, false, ternary_mask)
+        }
     }
 }
 
@@ -302,7 +319,8 @@ fn step_case_header_back(
     None
 }
 
-struct TernaryColonScan {
+struct TernaryColonScan<'a> {
+    ternary_mask: &'a [bool],
     depth: usize,
     nested: usize,
     colons: usize,
@@ -315,8 +333,10 @@ fn has_required_ternary_colons(
     q_idx: usize,
     required_colons: usize,
     stop_on_stmt_kw: bool,
+    ternary_mask: &[bool],
 ) -> bool {
     let mut scan = TernaryColonScan {
+        ternary_mask,
         depth: 0,
         nested: 0,
         colons: 0,
@@ -334,7 +354,7 @@ fn has_required_ternary_colons(
 fn step_ternary_colon_scan(
     tokens: &[DartToken],
     idx: usize,
-    scan: &mut TernaryColonScan,
+    scan: &mut TernaryColonScan<'_>,
 ) -> Option<bool> {
     let text = tokens[idx].text.as_str();
     if is_open_delim(text) {
@@ -351,7 +371,7 @@ fn step_ternary_colon_scan(
     if scan.depth > 0 {
         return None;
     }
-    if text == "?" && is_ternary_operator(tokens, idx) {
+    if scan.ternary_mask[idx] {
         scan.nested += 1;
         return None;
     }
@@ -361,7 +381,7 @@ fn step_ternary_colon_scan(
     is_ternary_colon_boundary(tokens, idx, scan.stop_on_stmt_kw).then_some(false)
 }
 
-fn step_ternary_colon_hit(scan: &mut TernaryColonScan) -> Option<bool> {
+fn step_ternary_colon_hit(scan: &mut TernaryColonScan<'_>) -> Option<bool> {
     if scan.nested > 0 {
         scan.nested -= 1;
         return None;
@@ -438,7 +458,12 @@ fn is_kw(tok: &DartToken, kw: &str) -> bool {
     tok.kind == DartKind::Keyword && tok.text == kw
 }
 
-fn compute_dart_cognitive(tokens: &[DartToken], spans: &[DartFunctionSpan], owner: usize) -> u32 {
+fn compute_dart_cognitive(
+    tokens: &[DartToken],
+    spans: &[DartFunctionSpan],
+    owner: usize,
+    ternary_mask: &[bool],
+) -> u32 {
     let span = &spans[owner];
     let simple_name = span
         .name
@@ -447,6 +472,7 @@ fn compute_dart_cognitive(tokens: &[DartToken], spans: &[DartFunctionSpan], owne
     let mut analyzer = DartCognitiveAnalyzer {
         tokens,
         spans,
+        ternary_mask,
         owner,
         simple_name,
         complexity: 0,
@@ -507,6 +533,7 @@ impl DartBoolTracker {
 struct DartCognitiveAnalyzer<'a> {
     tokens: &'a [DartToken],
     spans: &'a [DartFunctionSpan],
+    ternary_mask: &'a [bool],
     owner: usize,
     simple_name: Option<&'a str>,
     complexity: u32,
@@ -620,12 +647,12 @@ impl DartCognitiveAnalyzer<'_> {
         depth: u32,
         tracker: &mut DartBoolTracker,
     ) -> usize {
-        let text = self.tokens[cursor].text.as_str();
-        if text == "?" && is_ternary_operator(self.tokens, cursor) {
+        if self.ternary_mask[cursor] {
             self.complexity = self.complexity.saturating_add(depth.saturating_add(1));
             tracker.clear();
             return self.consume_ternary(cursor + 1, to, depth);
         }
+        let text = self.tokens[cursor].text.as_str();
         if !self.apply_non_ternary_symbol(text, cursor, from, tracker) {
             self.detect_direct_recursion(cursor);
         }
@@ -714,13 +741,13 @@ impl DartCognitiveAnalyzer<'_> {
     }
 
     fn consume_ternary(&mut self, start: usize, to: usize, depth: u32) -> usize {
-        let Some(colon) = find_dart_ternary_colon(self.tokens, start, to) else {
+        let Some(colon) = find_dart_ternary_colon(self.tokens, self.ternary_mask, start, to) else {
             return start;
         };
         if start < colon {
             self.analyze_span(start, colon, depth + 1);
         }
-        let alt_end = find_dart_ternary_alt_end(self.tokens, colon + 1, to);
+        let alt_end = find_dart_ternary_alt_end(self.tokens, self.ternary_mask, colon + 1, to);
         if colon + 1 < alt_end {
             self.analyze_span(colon + 1, alt_end, depth + 1);
         }
@@ -866,13 +893,19 @@ fn is_dart_continuation(next: Option<&DartToken>) -> bool {
     })
 }
 
-fn find_dart_ternary_colon(tokens: &[DartToken], start: usize, to: usize) -> Option<usize> {
+fn find_dart_ternary_colon(
+    tokens: &[DartToken],
+    ternary_mask: &[bool],
+    start: usize,
+    to: usize,
+) -> Option<usize> {
     let mut depth = 0usize;
     let mut nested = 0usize;
     let mut idx = start;
     while idx < to {
         let text = tokens[idx].text.as_str();
-        if let Some(hit) = step_ternary_scan(tokens, idx, text, &mut depth, &mut nested) {
+        if let Some(hit) = step_ternary_scan(ternary_mask[idx], idx, text, &mut depth, &mut nested)
+        {
             return hit;
         }
         idx += 1;
@@ -881,7 +914,7 @@ fn find_dart_ternary_colon(tokens: &[DartToken], start: usize, to: usize) -> Opt
 }
 
 fn step_ternary_scan(
-    tokens: &[DartToken],
+    is_ternary: bool,
     idx: usize,
     text: &str,
     depth: &mut usize,
@@ -901,7 +934,7 @@ fn step_ternary_scan(
     if *depth > 0 {
         return None;
     }
-    if text == "?" && is_ternary_operator(tokens, idx) {
+    if is_ternary {
         *nested += 1;
     } else if text == ":" {
         if *nested == 0 {
@@ -914,12 +947,22 @@ fn step_ternary_scan(
     None
 }
 
-fn find_dart_ternary_alt_end(tokens: &[DartToken], start: usize, to: usize) -> usize {
+fn find_dart_ternary_alt_end(
+    tokens: &[DartToken],
+    ternary_mask: &[bool],
+    start: usize,
+    to: usize,
+) -> usize {
     let mut depth = 0usize;
     let mut nested_ternary = 0usize;
     let mut idx = start;
     while idx < to {
-        if step_ternary_alt_end(tokens, idx, &mut depth, &mut nested_ternary) {
+        if step_ternary_alt_end(
+            tokens[idx].text.as_str(),
+            ternary_mask[idx],
+            &mut depth,
+            &mut nested_ternary,
+        ) {
             return idx;
         }
         idx += 1;
@@ -928,12 +971,11 @@ fn find_dart_ternary_alt_end(tokens: &[DartToken], start: usize, to: usize) -> u
 }
 
 fn step_ternary_alt_end(
-    tokens: &[DartToken],
-    idx: usize,
+    text: &str,
+    is_ternary: bool,
     depth: &mut usize,
     nested_ternary: &mut usize,
 ) -> bool {
-    let text = tokens[idx].text.as_str();
     if is_open_delim(text) {
         *depth += 1;
         return false;
@@ -948,7 +990,7 @@ fn step_ternary_alt_end(
     if *depth > 0 {
         return false;
     }
-    if text == "?" && is_ternary_operator(tokens, idx) {
+    if is_ternary {
         *nested_ternary += 1;
         return false;
     }
