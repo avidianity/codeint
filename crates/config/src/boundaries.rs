@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::{RepoPath, SourceSet};
 use globset::{GlobBuilder, GlobMatcher, GlobSet};
@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 use crate::codeint_json::{ConfigurationFileError, KeyPath, KeySegment, glob_set};
 
 const WILDCARD_ZONE: &str = "*";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundaryPreset {
+    Layered,
+    Hexagonal,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoundaryDirective {
@@ -47,6 +54,12 @@ impl From<BoundarySourceSet> for SourceSet {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BoundariesFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "BoundaryPreset",
+        description = "Optional built-in architecture preset (\"layered\" or \"hexagonal\") providing default zones and rules that can be overridden or extended by zones and rules."
+    )]
+    preset: Option<BoundaryPreset>,
     #[serde(default)]
     #[schemars(
         description = "Named architectural zones, each defined by repository-relative path globs and optional public_files globs."
@@ -146,10 +159,11 @@ pub struct Boundaries {
 
 impl Boundaries {
     pub(crate) fn from_file(file: BoundariesFile) -> Result<Boundaries, ConfigurationFileError> {
+        let (merged_zones, merged_rules) = merge_preset(file.preset, file.zones, file.rules);
         let boundaries_key = KeyPath::default().child(KeySegment::Key("boundaries".to_owned()));
         let zones_key = boundaries_key.child(KeySegment::Key("zones".to_owned()));
         let mut zones = BTreeMap::new();
-        for (name, zone_file) in file.zones {
+        for (name, zone_file) in merged_zones {
             let zone_key = zones_key.child(KeySegment::Key(name.clone()));
             if name.trim().is_empty() || name == WILDCARD_ZONE {
                 return Err(ConfigurationFileError::InvalidBoundaryZoneName {
@@ -184,10 +198,10 @@ impl Boundaries {
 
         let known_zones: Vec<String> = zones.keys().cloned().collect();
         let rules_key = boundaries_key.child(KeySegment::Key("rules".to_owned()));
-        let mut rules = Vec::with_capacity(file.rules.len());
+        let mut rules = Vec::with_capacity(merged_rules.len());
         let mut directive_by_from: BTreeMap<String, BoundaryDirective> = BTreeMap::new();
 
-        for (index, rule) in file.rules.into_iter().enumerate() {
+        for (index, rule) in merged_rules.into_iter().enumerate() {
             let rule_key = rules_key.child(KeySegment::Index(index));
             if rule.from != WILDCARD_ZONE && !zones.contains_key(&rule.from) {
                 return Err(ConfigurationFileError::UnknownBoundaryZone {
@@ -420,4 +434,177 @@ fn literal_char_count(pattern: &str) -> usize {
         .chars()
         .filter(|character| !matches!(character, '*' | '?' | '[' | ']' | '{' | '}'))
         .count()
+}
+
+fn merge_preset(
+    preset: Option<BoundaryPreset>,
+    user_zones: BTreeMap<String, BoundaryZoneFile>,
+    user_rules: Vec<BoundaryRuleFile>,
+) -> (BTreeMap<String, BoundaryZoneFile>, Vec<BoundaryRuleFile>) {
+    let Some(preset) = preset else {
+        return (user_zones, user_rules);
+    };
+    let (mut zones, preset_rules) = preset_defaults(preset);
+    for (name, zone) in user_zones {
+        zones.insert(name, zone);
+    }
+    let overridden_from: BTreeSet<String> =
+        user_rules.iter().map(|rule| rule.from.clone()).collect();
+    let mut rules: Vec<BoundaryRuleFile> = preset_rules
+        .into_iter()
+        .filter(|rule| !overridden_from.contains(&rule.from))
+        .collect();
+    rules.extend(user_rules);
+    (zones, rules)
+}
+
+fn preset_defaults(
+    preset: BoundaryPreset,
+) -> (BTreeMap<String, BoundaryZoneFile>, Vec<BoundaryRuleFile>) {
+    match preset {
+        BoundaryPreset::Layered => layered_preset(),
+        BoundaryPreset::Hexagonal => hexagonal_preset(),
+    }
+}
+
+fn zone_patterns(patterns: &[&str]) -> BoundaryZoneFile {
+    BoundaryZoneFile {
+        patterns: patterns
+            .iter()
+            .map(|pattern| (*pattern).to_owned())
+            .collect(),
+        public_files: Vec::new(),
+    }
+}
+
+fn allow_rule(from: &str, allow: &[&str], reason: &str) -> BoundaryRuleFile {
+    BoundaryRuleFile {
+        from: from.to_owned(),
+        allow: Some(allow.iter().map(|target| (*target).to_owned()).collect()),
+        deny: None,
+        reason: Some(reason.to_owned()),
+    }
+}
+
+fn layered_preset() -> (BTreeMap<String, BoundaryZoneFile>, Vec<BoundaryRuleFile>) {
+    let mut zones = BTreeMap::new();
+    zones.insert(
+        "presentation".to_owned(),
+        zone_patterns(&[
+            "**/presentation/**",
+            "**/ui/**",
+            "**/web/**",
+            "**/api/**",
+            "**/controllers/**",
+            "**/routes/**",
+        ]),
+    );
+    zones.insert(
+        "application".to_owned(),
+        zone_patterns(&[
+            "**/application/**",
+            "**/app/**",
+            "**/services/**",
+            "**/usecases/**",
+            "**/use-cases/**",
+            "**/use_cases/**",
+        ]),
+    );
+    zones.insert(
+        "domain".to_owned(),
+        zone_patterns(&[
+            "**/domain/**",
+            "**/core/**",
+            "**/entities/**",
+            "**/models/**",
+        ]),
+    );
+    zones.insert(
+        "infrastructure".to_owned(),
+        zone_patterns(&[
+            "**/infrastructure/**",
+            "**/infra/**",
+            "**/adapters/**",
+            "**/repositories/**",
+            "**/db/**",
+            "**/persistence/**",
+        ]),
+    );
+    let rules = vec![
+        allow_rule(
+            "domain",
+            &["domain"],
+            "Layered preset: domain layer must not depend on outer layers",
+        ),
+        allow_rule(
+            "application",
+            &["domain"],
+            "Layered preset: application layer may only depend on domain",
+        ),
+        allow_rule(
+            "infrastructure",
+            &["domain", "application"],
+            "Layered preset: infrastructure layer may only depend on domain and application",
+        ),
+        allow_rule(
+            "presentation",
+            &["application", "domain"],
+            "Layered preset: presentation layer must not depend directly on infrastructure",
+        ),
+    ];
+    (zones, rules)
+}
+
+fn hexagonal_preset() -> (BTreeMap<String, BoundaryZoneFile>, Vec<BoundaryRuleFile>) {
+    let mut zones = BTreeMap::new();
+    zones.insert(
+        "domain".to_owned(),
+        zone_patterns(&["**/domain/**", "**/core/**", "**/entities/**"]),
+    );
+    zones.insert("ports".to_owned(), zone_patterns(&["**/ports/**"]));
+    zones.insert(
+        "application".to_owned(),
+        zone_patterns(&[
+            "**/application/**",
+            "**/app/**",
+            "**/usecases/**",
+            "**/use-cases/**",
+            "**/use_cases/**",
+        ]),
+    );
+    zones.insert(
+        "adapters".to_owned(),
+        zone_patterns(&[
+            "**/adapters/**",
+            "**/infrastructure/**",
+            "**/infra/**",
+            "**/driving/**",
+            "**/driven/**",
+            "**/inbound/**",
+            "**/outbound/**",
+        ]),
+    );
+    let rules = vec![
+        allow_rule(
+            "domain",
+            &["domain"],
+            "Hexagonal preset: domain must stay independent of ports, application, and adapters",
+        ),
+        allow_rule(
+            "ports",
+            &["domain"],
+            "Hexagonal preset: ports may only depend on domain",
+        ),
+        allow_rule(
+            "application",
+            &["domain", "ports"],
+            "Hexagonal preset: application may only depend on domain and ports, not adapters",
+        ),
+        allow_rule(
+            "adapters",
+            &["domain", "ports", "application"],
+            "Hexagonal preset: adapters may depend on domain, ports, and application",
+        ),
+    ];
+    (zones, rules)
 }
