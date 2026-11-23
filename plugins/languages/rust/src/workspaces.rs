@@ -51,6 +51,45 @@ pub(crate) fn workspace_packages(manifests: &[Manifest]) -> Result<Vec<String>, 
     Ok(packages.into_iter().collect())
 }
 
+pub(crate) fn workspace_members_under(
+    ws_root: &str,
+    ws_text: &str,
+    manifest_roots: &[String],
+) -> Vec<String> {
+    let Some((included, excluded)) = compile_workspace_globs(ws_text) else {
+        return Vec::new();
+    };
+    let mut members = BTreeSet::new();
+    for root in manifest_roots {
+        if let Some(rel) = relative_member_root(ws_root, root)
+            && included.is_match(rel)
+            && !excluded.is_match(rel)
+        {
+            members.insert(root.clone());
+        }
+    }
+    members.into_iter().collect()
+}
+
+fn compile_workspace_globs(ws_text: &str) -> Option<(GlobSet, GlobSet)> {
+    let parsed: RootCargoManifest = toml::from_str(ws_text).ok()?;
+    let workspace = parsed.workspace?;
+    if workspace.members.is_empty() {
+        return None;
+    }
+    let included = build_glob_set(&workspace.members, "members").ok()?;
+    let excluded = build_glob_set(&workspace.exclude, "exclude").ok()?;
+    Some((included, excluded))
+}
+
+fn relative_member_root<'a>(ws_root: &str, root: &'a str) -> Option<&'a str> {
+    if ws_root.is_empty() {
+        return (!root.is_empty()).then_some(root);
+    }
+    let rest = root.strip_prefix(ws_root)?.strip_prefix('/')?;
+    (!rest.is_empty()).then_some(rest)
+}
+
 fn build_glob_set(patterns: &[String], field: &str) -> Result<GlobSet, WorkspaceError> {
     let mut builder = GlobSetBuilder::new();
     for written in patterns {

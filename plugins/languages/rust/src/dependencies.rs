@@ -37,7 +37,7 @@ pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
         .collect()
 }
 
-pub(crate) fn load_active_manifests(manifests: &[Manifest]) -> Vec<(String, Value)> {
+fn load_active_manifests(manifests: &[Manifest]) -> Vec<(String, Value)> {
     let members: HashSet<String> = workspace_packages(manifests)
         .unwrap_or_default()
         .into_iter()
@@ -120,7 +120,13 @@ fn collect_manifest_tables(
 ) {
     collect_dep_table(root, doc.get("dependencies"), false, local_crates, out);
     collect_dep_table(root, doc.get("dev-dependencies"), true, local_crates, out);
-    collect_dep_table(root, doc.get("build-dependencies"), true, local_crates, out);
+    collect_dep_table(
+        root,
+        doc.get("build-dependencies"),
+        false,
+        local_crates,
+        out,
+    );
 
     if let Some(targets) = doc.get("target").and_then(Value::as_table) {
         for cfg_table in targets.values() {
@@ -141,7 +147,7 @@ fn collect_manifest_tables(
             collect_dep_table(
                 root,
                 cfg_table.get("build-dependencies"),
-                true,
+                false,
                 local_crates,
                 out,
             );

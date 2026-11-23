@@ -401,3 +401,43 @@ int complex(bool a, bool b, bool c, List<int> items) {
         assert_eq!(got.cognitive_complexity, want_cog, "for {want_name:?}");
     }
 }
+
+#[test]
+fn dart_switch_case_nullable_type_patterns_are_not_counted_as_ternaries() {
+    let src = "\
+int classify(Object? value) {
+  switch (value) {
+    case int? _: return 1;
+    case double? _: return 2;
+    case String? _: return 3;
+    case bool? _: return 4;
+    case List? _: return 5;
+    case Map? _: return 6;
+    case Set? _: return 7;
+    case num? _: return 8;
+    default: return 0;
+  }
+}
+int guarded(Object? value, bool flag) {
+  switch (value) {
+    case int? x when flag ? x != null : false:
+      return 1;
+    case String? _:
+    default:
+      return 0;
+  }
+}
+";
+    let model = lower("lib/patterns.dart", src).unwrap();
+    assert_eq!(model.functions.len(), 2);
+
+    let classify = &model.functions[0];
+    assert_eq!(classify.name.as_deref(), Some("classify"));
+    assert_eq!(classify.cognitive_complexity, 1);
+    assert_eq!(classify.decision_points + 1, 9);
+
+    let guarded = &model.functions[1];
+    assert_eq!(guarded.name.as_deref(), Some("guarded"));
+    assert_eq!(guarded.cognitive_complexity, 3);
+    assert_eq!(guarded.decision_points + 1, 4);
+}

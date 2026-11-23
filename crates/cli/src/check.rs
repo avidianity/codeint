@@ -512,7 +512,8 @@ fn measure(
 ) -> Result<MeasuredSnapshot, CheckError> {
     let covered_files = assign_files_to_plugins(tree, plugins, coverage)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
-    let workspace = find_workspace(plugins, &manifests_by_plugin)?;
+    let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
+    let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
     let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides)?;
     let models = collect_plugin_models(plugins.len(), workspace, outcomes);
     resolve_measured_snapshot(
@@ -520,6 +521,7 @@ fn measure(
         plugins,
         models,
         manifests_by_plugin,
+        &plugin_members,
         configured_entry_points,
     )
 }
@@ -584,15 +586,21 @@ fn resolve_measured_snapshot(
     plugins: &[NamedLanguagePlugin<'_>],
     models: Vec<CodeModel>,
     manifests_by_plugin: Vec<Vec<Manifest>>,
+    plugin_members: &[Vec<RepoPath>],
     configured_entry_points: &EntryPoints,
 ) -> Result<MeasuredSnapshot, CheckError> {
     let mut languages = Vec::with_capacity(plugins.len());
     let mut entry_points_by_language = BTreeMap::new();
-    for ((named, model), manifests) in plugins.iter().zip(models).zip(manifests_by_plugin) {
+    for (((named, model), manifests), members) in plugins
+        .iter()
+        .zip(models)
+        .zip(manifests_by_plugin)
+        .zip(plugin_members)
+    {
         let manifest_entries = named.plugin.entry_points(tree.files(), manifests.clone())?;
         let combined_entries =
             combine_entry_points(manifest_entries, &model.files, configured_entry_points);
-        let measured = finalize_language_model(named, model, manifests, tree.files())?;
+        let measured = finalize_language_model(named, model, manifests, members, tree.files())?;
         entry_points_by_language.insert(named.name.to_owned(), combined_entries);
         languages.push(measured);
     }
@@ -622,13 +630,18 @@ fn finalize_language_model(
     named: &NamedLanguagePlugin<'_>,
     mut model: CodeModel,
     manifests: Vec<Manifest>,
+    plugin_members: &[RepoPath],
     repository_paths: &[RepoPath],
 ) -> Result<MeasuredLanguage, CheckError> {
     let importers: Vec<&SourceFile> = model.files.iter().collect();
     let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
     let declared_dependencies = named.plugin.declared_dependencies(manifests.clone())?;
-    model.dependency_manifests =
-        collect_dependency_manifests(&manifests, &model.workspace, &declared_dependencies);
+    model.dependency_manifests = collect_dependency_manifests(
+        &manifests,
+        plugin_members,
+        &declared_dependencies,
+        &model.files,
+    );
     model.declared_dependencies = declared_dependencies;
     model.runtime_imports =
         resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
@@ -642,27 +655,27 @@ fn finalize_language_model(
 
 fn collect_dependency_manifests(
     manifests: &[Manifest],
-    workspace: &Workspace,
+    plugin_members: &[RepoPath],
     declared: &[DeclaredDep],
+    files: &[SourceFile],
 ) -> Vec<DependencyManifest> {
     let declared_roots: HashSet<&str> = declared
         .iter()
         .map(|dep| dep.package_root.as_str())
         .collect();
+    let member_roots: HashSet<&str> = plugin_members.iter().map(RepoPath::as_str).collect();
+    let has_members = !member_roots.is_empty();
     let active: Vec<(&str, &str)> = manifests
         .iter()
         .filter(|manifest| is_dependency_manifest_path(&manifest.path))
         .map(|manifest| (manifest_root(&manifest.path), manifest.path.as_str()))
         .collect();
-    let has_root = active.iter().any(|(root, _)| root.is_empty());
     let mut collected = Vec::new();
     for (root, path) in active {
         let selected = declared_roots.contains(root)
             || root.is_empty()
-            || workspace
-                .member_roots()
-                .any(|member| member.as_str() == root)
-            || (!workspace.has_members() && !has_root);
+            || member_roots.contains(root)
+            || (!has_members && owns_any_file(root, files));
         if selected && let Ok(repo_path) = RepoPath::new(path) {
             collected.push(DependencyManifest {
                 package_root: root.to_owned(),
@@ -673,6 +686,16 @@ fn collect_dependency_manifests(
     collected.sort();
     collected.dedup();
     collected
+}
+
+fn owns_any_file(root: &str, files: &[SourceFile]) -> bool {
+    if root.is_empty() {
+        return !files.is_empty();
+    }
+    let prefix = format!("{root}/");
+    files
+        .iter()
+        .any(|file| file.path.as_str().starts_with(&prefix))
 }
 
 fn is_dependency_manifest_path(path: &str) -> bool {
@@ -811,11 +834,21 @@ pub(crate) fn find_workspace(
     plugins: &[NamedLanguagePlugin<'_>],
     manifests_by_plugin: &[Vec<Manifest>],
 ) -> Result<Workspace, CheckError> {
-    let mut member_roots = Vec::new();
-    for (named, manifests) in plugins.iter().zip(manifests_by_plugin) {
-        member_roots.extend(named.plugin.workspace_packages(manifests.clone())?);
-    }
+    let member_roots = find_plugin_workspaces(plugins, manifests_by_plugin)?
+        .into_iter()
+        .flatten();
     Ok(Workspace::new(member_roots))
+}
+
+fn find_plugin_workspaces(
+    plugins: &[NamedLanguagePlugin<'_>],
+    manifests_by_plugin: &[Vec<Manifest>],
+) -> Result<Vec<Vec<RepoPath>>, CheckError> {
+    plugins
+        .iter()
+        .zip(manifests_by_plugin)
+        .map(|(named, manifests)| Ok(named.plugin.workspace_packages(manifests.clone())?))
+        .collect()
 }
 
 enum LoweredFile {

@@ -234,19 +234,154 @@ fn decision_weight(tokens: &[DartToken], idx: usize) -> u32 {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CaseHeaderContext {
+    Outside,
+    Pattern,
+    Guard,
+}
+
 fn is_ternary_operator(tokens: &[DartToken], q_idx: usize) -> bool {
+    if tokens.get(q_idx + 1).is_some_and(|tok| tok.text == ":") {
+        return false;
+    }
+    match case_header_context(tokens, q_idx) {
+        CaseHeaderContext::Pattern => false,
+        CaseHeaderContext::Guard => has_required_ternary_colons(tokens, q_idx, 2, true),
+        CaseHeaderContext::Outside => has_required_ternary_colons(tokens, q_idx, 1, false),
+    }
+}
+
+fn case_header_context(tokens: &[DartToken], q_idx: usize) -> CaseHeaderContext {
     let mut depth = 0usize;
+    let mut saw_when = false;
+    let mut idx = q_idx;
+    while idx > 0 {
+        idx -= 1;
+        if let Some(found) = step_case_header_back(tokens, idx, &mut depth, &mut saw_when) {
+            return found;
+        }
+    }
+    CaseHeaderContext::Outside
+}
+
+fn step_case_header_back(
+    tokens: &[DartToken],
+    idx: usize,
+    depth: &mut usize,
+    saw_when: &mut bool,
+) -> Option<CaseHeaderContext> {
+    let tok = &tokens[idx];
+    let text = tok.text.as_str();
+    if is_close_delim(text) {
+        *depth += 1;
+        return None;
+    }
+    if is_open_delim(text) {
+        if *depth == 0 {
+            return Some(CaseHeaderContext::Outside);
+        }
+        *depth -= 1;
+        return None;
+    }
+    if *depth > 0 {
+        return None;
+    }
+    if matches!(text, ";" | ":") {
+        return Some(CaseHeaderContext::Outside);
+    }
+    if is_kw(tok, "when") {
+        *saw_when = true;
+    } else if is_kw(tok, "case") && !is_dart_member_access(tokens, idx) {
+        return Some(if *saw_when {
+            CaseHeaderContext::Guard
+        } else {
+            CaseHeaderContext::Pattern
+        });
+    }
+    None
+}
+
+fn has_required_ternary_colons(
+    tokens: &[DartToken],
+    q_idx: usize,
+    required_colons: usize,
+    stop_on_stmt_kw: bool,
+) -> bool {
+    let mut depth = 0usize;
+    let mut colons = 0usize;
     for tok in tokens.iter().skip(q_idx + 1) {
-        match tok.text.as_str() {
-            "(" | "[" | "{" => depth += 1,
-            ")" | "]" | "}" if depth == 0 => return false,
-            ")" | "]" | "}" => depth -= 1,
-            ":" if depth == 0 => return true,
-            ";" | "," if depth == 0 => return false,
-            _ => {}
+        if let Some(done) = step_ternary_colon_scan(
+            tok,
+            &mut depth,
+            &mut colons,
+            required_colons,
+            stop_on_stmt_kw,
+        ) {
+            return done;
         }
     }
     false
+}
+
+fn step_ternary_colon_scan(
+    tok: &DartToken,
+    depth: &mut usize,
+    colons: &mut usize,
+    required_colons: usize,
+    stop_on_stmt_kw: bool,
+) -> Option<bool> {
+    let text = tok.text.as_str();
+    if is_open_delim(text) {
+        *depth += 1;
+        return None;
+    }
+    if is_close_delim(text) {
+        if *depth == 0 {
+            return Some(false);
+        }
+        *depth -= 1;
+        return None;
+    }
+    if *depth > 0 {
+        return None;
+    }
+    if text == ":" {
+        *colons += 1;
+        return (*colons >= required_colons).then_some(true);
+    }
+    let stopped = matches!(text, ";" | ",") || (stop_on_stmt_kw && is_case_body_boundary_kw(tok));
+    stopped.then_some(false)
+}
+
+fn is_open_delim(text: &str) -> bool {
+    matches!(text, "(" | "[" | "{")
+}
+
+fn is_close_delim(text: &str) -> bool {
+    matches!(text, ")" | "]" | "}")
+}
+
+fn is_case_body_boundary_kw(tok: &DartToken) -> bool {
+    tok.kind == DartKind::Keyword
+        && matches!(
+            tok.text.as_str(),
+            "case"
+                | "default"
+                | "return"
+                | "break"
+                | "continue"
+                | "throw"
+                | "if"
+                | "for"
+                | "while"
+                | "do"
+                | "switch"
+                | "try"
+                | "yield"
+                | "rethrow"
+                | "assert"
+        )
 }
 
 fn count_switch_expr_arms(tokens: &[DartToken], switch_idx: usize) -> u32 {
@@ -757,20 +892,48 @@ fn step_ternary_scan(
 
 fn find_dart_ternary_alt_end(tokens: &[DartToken], start: usize, to: usize) -> usize {
     let mut depth = 0usize;
+    let mut nested_ternary = 0usize;
     let mut idx = start;
     while idx < to {
-        let text = tokens[idx].text.as_str();
-        if matches!(text, "(" | "[" | "{") {
-            depth += 1;
-        } else if matches!(text, ")" | "]" | "}") {
-            if depth == 0 {
-                return idx;
-            }
-            depth -= 1;
-        } else if depth == 0 && matches!(text, ";" | "," | "=>") {
+        if step_ternary_alt_end(tokens, idx, &mut depth, &mut nested_ternary) {
             return idx;
         }
         idx += 1;
     }
     to
+}
+
+fn step_ternary_alt_end(
+    tokens: &[DartToken],
+    idx: usize,
+    depth: &mut usize,
+    nested_ternary: &mut usize,
+) -> bool {
+    let text = tokens[idx].text.as_str();
+    if is_open_delim(text) {
+        *depth += 1;
+        return false;
+    }
+    if is_close_delim(text) {
+        if *depth == 0 {
+            return true;
+        }
+        *depth -= 1;
+        return false;
+    }
+    if *depth > 0 {
+        return false;
+    }
+    if text == "?" && is_ternary_operator(tokens, idx) {
+        *nested_ternary += 1;
+        return false;
+    }
+    if text == ":" {
+        if *nested_ternary == 0 {
+            return true;
+        }
+        *nested_ternary -= 1;
+        return false;
+    }
+    matches!(text, ";" | "," | "=>")
 }

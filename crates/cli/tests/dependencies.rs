@@ -443,3 +443,79 @@ fn dependency_budgets_diff_regressions_resolution_and_mcp_work_end_to_end() {
         "legacy-unused"
     );
 }
+
+#[test]
+fn rust_build_dependencies_php_internal_namespace_and_polyglot_empty_manifests_behave_cleanly() {
+    assert_language_hygiene(
+        &[
+            (
+                "Cargo.toml",
+                concat!(
+                    "[package]\nname = \"build-demo\"\nversion = \"0.1.0\"\n",
+                    "[build-dependencies]\ncc = \"1.0\"\n",
+                ),
+            ),
+            (
+                "build.rs",
+                "use cc::Build;\nfn main() { let _ = Build::new(); }\n",
+            ),
+            ("src/lib.rs", "pub fn ready() -> bool { true }\n"),
+        ],
+        &[],
+        &[],
+        &[],
+    );
+
+    assert_language_hygiene(
+        &[
+            (
+                "composer.json",
+                r#"{
+  "name": "acme/shop",
+  "autoload": { "psr-4": { "Acme\\Shop\\": "src/" } },
+  "require": { "php": "^8.3", "monolog/monolog": "^3.0" }
+}"#,
+            ),
+            (
+                "src/Models/User.php",
+                "<?php\nnamespace Acme\\Shop\\Models;\nclass User {}\n",
+            ),
+            (
+                "src/Service.php",
+                "<?php\nnamespace Acme\\Shop;\nuse Acme\\Shop\\Models;\nuse Monolog\\Logger;\nclass Service { public function user(): Models\\User { new Logger('shop'); return new Models\\User(); } }\n",
+            ),
+        ],
+        &[],
+        &[],
+        &[],
+    );
+
+    let root_pkg = json!({
+        "name": "polyglot-root",
+        "private": true,
+        "workspaces": ["apps/*"],
+    })
+    .to_string();
+    let web_pkg = json!({
+        "name": "@polyglot/web",
+        "dependencies": {},
+    })
+    .to_string();
+    let repo = init_git_repo(&[
+        ("package.json", &root_pkg),
+        ("apps/web/package.json", &web_pkg),
+        ("apps/web/src/index.ts", "export const ok = true;\n"),
+        (
+            "services/ml/pyproject.toml",
+            "[project]\nname = \"ml\"\ndependencies = []\n",
+        ),
+        ("services/ml/app.py", "import requests\nCLIENT = requests\n"),
+    ]);
+    let report = expect_json(repo.path(), None, &["check", "--format", "json"], 0);
+    let unlisted = report["dependencies"]["unlisted_dependencies"]["findings"]
+        .as_array()
+        .expect("unlisted findings");
+    assert_eq!(unlisted.len(), 1);
+    assert_eq!(unlisted[0]["dependency"], "requests");
+    assert_eq!(unlisted[0]["manifest"], "services/ml/pyproject.toml");
+}

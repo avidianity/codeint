@@ -21,6 +21,12 @@ struct Psr4Rule {
     dirs: Vec<String>,
 }
 
+enum Psr4Match {
+    Resolved(Resolution),
+    PrefixOnly,
+    NoMatch,
+}
+
 pub(crate) fn resolve_batch(
     repository_paths: &[String],
     manifests: &[Manifest],
@@ -66,21 +72,18 @@ impl PhpResolver {
         if normalized.is_empty() {
             return Resolution::Unresolved(format!("empty PHP namespace import {ns_path:?}"));
         }
+        let mut matched_local_prefix = false;
         for rule in &self.rules {
-            let Some(rest) = normalized.strip_prefix(&rule.prefix) else {
-                continue;
-            };
-            if rest.is_empty() {
-                continue;
+            match self.match_psr4_rule(importer, normalized, rule) {
+                Psr4Match::Resolved(resolution) => return resolution,
+                Psr4Match::PrefixOnly => matched_local_prefix = true,
+                Psr4Match::NoMatch => {}
             }
-            let rel = rest.replace('\\', "/");
-            if let Some(hit) = self.first_matching_file(&rule.dirs, &rel) {
-                return if hit == importer {
-                    Resolution::Builtin
-                } else {
-                    Resolution::Resolved(hit)
-                };
-            }
+        }
+        if matched_local_prefix {
+            return Resolution::Unresolved(format!(
+                "no local PHP file found for internal namespace {normalized:?}"
+            ));
         }
         if is_builtin_symbol(normalized) {
             return Resolution::Builtin;
@@ -89,6 +92,25 @@ impl PhpResolver {
             normalized,
             &self.declared_packages,
         ))
+    }
+
+    fn match_psr4_rule(&self, importer: &str, normalized: &str, rule: &Psr4Rule) -> Psr4Match {
+        let Some(rest) = normalized.strip_prefix(&rule.prefix) else {
+            return if normalized == rule.prefix.trim_end_matches('\\') {
+                Psr4Match::PrefixOnly
+            } else {
+                Psr4Match::NoMatch
+            };
+        };
+        if rest.is_empty() {
+            return Psr4Match::PrefixOnly;
+        }
+        let rel = rest.replace('\\', "/");
+        match self.first_matching_file(&rule.dirs, &rel) {
+            Some(hit) if hit == importer => Psr4Match::Resolved(Resolution::Builtin),
+            Some(hit) => Psr4Match::Resolved(Resolution::Resolved(hit)),
+            None => Psr4Match::PrefixOnly,
+        }
     }
 
     fn first_matching_file(&self, dirs: &[String], rel: &str) -> Option<String> {

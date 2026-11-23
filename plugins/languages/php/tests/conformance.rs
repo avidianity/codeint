@@ -167,33 +167,46 @@ fn php_verbosity_rules_flag_only_verbose_constructs() {
     );
 }
 
-#[test]
-fn php_resolver_handles_psr4_and_static_require() {
-    let repo: Vec<RepoPath> = [
-        "composer.json",
-        "app/Services/OrderService.php",
-        "app/Models/Order.php",
-        "app/helpers.php",
-    ]
-    .into_iter()
-    .map(|p| RepoPath::new(p).expect("path"))
-    .collect();
+fn resolve_single_manifest_php(
+    paths: &[&str],
+    composer_json: &str,
+    importer: &str,
+    specs: &[&str],
+) -> Vec<Resolution> {
+    let repo: Vec<RepoPath> = paths
+        .iter()
+        .map(|p| RepoPath::new(*p).expect("path"))
+        .collect();
     let manifests = vec![Manifest {
         path: "composer.json".to_owned(),
-        text: r#"{"autoload": {"psr-4": {"App\\": "app/"}}}"#.to_owned(),
+        text: composer_json.to_owned(),
     }];
-    let req = |spec: &str| ImportRequest {
-        importer: "app/Services/OrderService.php".to_owned(),
-        specifier: spec.to_owned(),
-    };
-    let out = Php.resolve_imports(
-        &repo,
-        manifests,
-        vec![
-            req("use:App\\Models\\Order"),
-            req("req:../helpers.php"),
-            req("use:Illuminate\\Support\\Collection"),
-            req("req:./missing.php"),
+    let requests = specs
+        .iter()
+        .map(|spec| ImportRequest {
+            importer: importer.to_owned(),
+            specifier: (*spec).to_owned(),
+        })
+        .collect();
+    Php.resolve_imports(&repo, manifests, requests)
+}
+
+#[test]
+fn php_resolver_handles_psr4_and_static_require() {
+    let out = resolve_single_manifest_php(
+        &[
+            "composer.json",
+            "app/Services/OrderService.php",
+            "app/Models/Order.php",
+            "app/helpers.php",
+        ],
+        r#"{"autoload": {"psr-4": {"App\\": "app/"}}}"#,
+        "app/Services/OrderService.php",
+        &[
+            "use:App\\Models\\Order",
+            "req:../helpers.php",
+            "use:Illuminate\\Support\\Collection",
+            "req:./missing.php",
         ],
     );
     assert_eq!(
@@ -203,6 +216,25 @@ fn php_resolver_handles_psr4_and_static_require() {
     assert_eq!(out[1], Resolution::Resolved("app/helpers.php".to_owned()));
     assert_eq!(out[2], Resolution::External("illuminate/support".into()));
     assert!(matches!(out[3], Resolution::Unresolved(_)));
+}
+
+#[test]
+fn php_internal_psr4_namespace_import_does_not_fall_through_to_external() {
+    let out = resolve_single_manifest_php(
+        &["composer.json", "src/Service.php", "src/Models/User.php"],
+        r#"{"name": "acme/shop", "autoload": {"psr-4": {"Acme\\Shop\\": "src/"}}}"#,
+        "src/Service.php",
+        &[
+            "use:Acme\\Shop\\Models",
+            "use:Acme\\Shop",
+            "use:Acme\\Shop\\Models\\User",
+            "use:Acme\\HttpClient\\Client",
+        ],
+    );
+    assert!(matches!(out[0], Resolution::Unresolved(_)));
+    assert!(matches!(out[1], Resolution::Unresolved(_)));
+    assert_eq!(out[2], Resolution::Resolved("src/Models/User.php".into()));
+    assert_eq!(out[3], Resolution::External("acme/http-client".into()));
 }
 
 #[test]

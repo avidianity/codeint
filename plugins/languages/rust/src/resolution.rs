@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
+use codeint_model::scan::normalize_relative_path;
 use toml::Value;
 
-use crate::dependencies::{load_active_manifests, normalize_crate_name};
+use crate::dependencies::normalize_crate_name;
 use crate::imports::{MOD_PREFIX, USE_PREFIX};
-use crate::workspaces::CARGO_MANIFEST;
+use crate::workspaces::{CARGO_MANIFEST, workspace_members_under};
 
 const STD_CRATES: [&str; 5] = ["std", "core", "alloc", "proc_macro", "test"];
 
@@ -20,7 +21,8 @@ pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
 pub(crate) struct RustResolver {
     files: HashSet<String>,
     crate_roots: Vec<String>,
-    local_crates: HashMap<String, Option<String>>,
+    package_local_crates: HashMap<String, HashMap<String, Option<String>>>,
+    workspace_local_crates: HashMap<String, HashMap<String, Option<String>>>,
 }
 
 impl RustResolver {
@@ -28,23 +30,16 @@ impl RustResolver {
         let files: HashSet<String> = repository_paths.iter().cloned().collect();
         let mut crate_roots: Vec<String> = manifests
             .iter()
-            .filter_map(|manifest| {
-                if manifest.path == CARGO_MANIFEST {
-                    Some(String::new())
-                } else {
-                    manifest
-                        .path
-                        .strip_suffix(&format!("/{CARGO_MANIFEST}"))
-                        .map(str::to_owned)
-                }
-            })
+            .filter_map(|manifest| manifest_dir(&manifest.path))
             .collect();
         crate_roots.sort_by_key(|root| std::cmp::Reverse(root.len()));
-        let local_crates = build_local_crate_map(&files, manifests);
+        let (package_local_crates, workspace_local_crates) =
+            build_scoped_local_crate_maps(&files, manifests);
         RustResolver {
             files,
             crate_roots,
-            local_crates,
+            package_local_crates,
+            workspace_local_crates,
         }
     }
 
@@ -112,10 +107,13 @@ impl RustResolver {
     }
 
     fn resolve_top_level_use(&self, importer: &str, head: &str) -> Resolution {
+        if head.bytes().next().is_some_and(|b| b.is_ascii_uppercase()) {
+            return Resolution::Builtin;
+        }
         let crate_ident = normalize_crate_name(head);
-        if let Some(lib_target) = self.local_crates.get(&crate_ident) {
+        if let Some(lib_target) = self.find_local_crate(importer, &crate_ident) {
             return match lib_target {
-                Some(path) if path != importer => Resolution::Resolved(path.clone()),
+                Some(path) if path != importer => Resolution::Resolved(path.to_owned()),
                 _ => Resolution::Builtin,
             };
         }
@@ -128,6 +126,38 @@ impl RustResolver {
             };
         }
         Resolution::External(crate_ident)
+    }
+
+    fn find_local_crate(&self, importer: &str, crate_ident: &str) -> Option<Option<&str>> {
+        let pkg_root = self.owning_crate_root(importer);
+        if let Some(pkg_map) = self.package_local_crates.get(pkg_root)
+            && let Some(target) = pkg_map.get(crate_ident)
+        {
+            return Some(target.as_deref());
+        }
+        let mut cursor = pkg_root;
+        loop {
+            if let Some(ws_map) = self.workspace_local_crates.get(cursor) {
+                return ws_map.get(crate_ident).map(Option::as_deref);
+            }
+            if cursor.is_empty() {
+                break;
+            }
+            cursor = cursor.rsplit_once('/').map_or("", |(parent, _)| parent);
+        }
+        None
+    }
+
+    fn owning_crate_root(&self, importer: &str) -> &str {
+        for root in &self.crate_roots {
+            if root.is_empty() {
+                return "";
+            }
+            if importer.starts_with(&format!("{root}/")) {
+                return root.as_str();
+            }
+        }
+        ""
     }
 
     fn resolve_longest_module(
@@ -203,36 +233,187 @@ impl RustResolver {
     }
 }
 
-fn build_local_crate_map(
+type ScopedCrateMaps = (
+    HashMap<String, HashMap<String, Option<String>>>,
+    HashMap<String, HashMap<String, Option<String>>>,
+);
+
+fn build_scoped_local_crate_maps(
     files: &HashSet<String>,
     manifests: &[Manifest],
+) -> ScopedCrateMaps {
+    let (parsed, manifest_roots) = parse_cargo_manifests(manifests);
+    let mut package_maps = HashMap::new();
+    let mut workspace_maps = HashMap::new();
+    for (root, (text, doc)) in &parsed {
+        let pkg_map = build_package_crate_map(files, root, doc);
+        if !pkg_map.is_empty() {
+            package_maps.insert(root.clone(), pkg_map);
+        }
+        if doc.get("workspace").is_some() {
+            let ws_map =
+                build_workspace_crate_map(files, root, text, doc, &parsed, &manifest_roots);
+            workspace_maps.insert(root.clone(), ws_map);
+        }
+    }
+    (package_maps, workspace_maps)
+}
+
+fn parse_cargo_manifests(
+    manifests: &[Manifest],
+) -> (HashMap<String, (String, Value)>, Vec<String>) {
+    let mut parsed = HashMap::new();
+    let mut manifest_roots = Vec::new();
+    for manifest in manifests {
+        let Some(root) = manifest_dir(&manifest.path) else {
+            continue;
+        };
+        if root.split('/').any(|seg| seg == "target") {
+            continue;
+        }
+        if let Ok(doc) = toml::from_str::<Value>(&manifest.text) {
+            manifest_roots.push(root.clone());
+            parsed.insert(root, (manifest.text.clone(), doc));
+        }
+    }
+    (parsed, manifest_roots)
+}
+
+fn build_package_crate_map(
+    files: &HashSet<String>,
+    root: &str,
+    doc: &Value,
 ) -> HashMap<String, Option<String>> {
-    let mut map = HashMap::new();
-    for (root, doc) in load_active_manifests(manifests) {
-        let lib_rel = doc
-            .get("lib")
-            .and_then(|lib| lib.get("path"))
-            .and_then(Value::as_str)
-            .unwrap_or("src/lib.rs");
-        let candidate = join(&root, lib_rel.trim_start_matches("./"));
-        let lib_path = files.contains(&candidate).then_some(candidate);
-        let crate_name = doc
-            .get("lib")
-            .and_then(|lib| lib.get("name"))
-            .and_then(Value::as_str)
-            .or_else(|| {
-                doc.get("package")
-                    .and_then(|pkg| pkg.get("name"))
-                    .and_then(Value::as_str)
-            });
-        if let Some(raw_name) = crate_name {
-            let ident = normalize_crate_name(raw_name);
-            if !ident.is_empty() {
-                map.insert(ident, lib_path);
+    let mut pkg_map = HashMap::new();
+    insert_crate_entry(files, root, doc, &mut pkg_map);
+    collect_manifest_path_deps(files, root, doc, &mut pkg_map);
+    pkg_map
+}
+
+fn build_workspace_crate_map(
+    files: &HashSet<String>,
+    root: &str,
+    text: &str,
+    doc: &Value,
+    parsed: &HashMap<String, (String, Value)>,
+    manifest_roots: &[String],
+) -> HashMap<String, Option<String>> {
+    let mut ws_map = HashMap::new();
+    insert_crate_entry(files, root, doc, &mut ws_map);
+    collect_workspace_dep_paths(files, root, doc, &mut ws_map);
+    for member_root in workspace_members_under(root, text, manifest_roots) {
+        if let Some((_, member_doc)) = parsed.get(&member_root) {
+            insert_crate_entry(files, &member_root, member_doc, &mut ws_map);
+        }
+    }
+    ws_map
+}
+
+fn manifest_dir(path: &str) -> Option<String> {
+    if path == CARGO_MANIFEST {
+        Some(String::new())
+    } else {
+        path.strip_suffix(&format!("/{CARGO_MANIFEST}"))
+            .map(str::to_owned)
+    }
+}
+
+fn insert_crate_entry(
+    files: &HashSet<String>,
+    root: &str,
+    doc: &Value,
+    out: &mut HashMap<String, Option<String>>,
+) {
+    let lib_rel = doc
+        .get("lib")
+        .and_then(|lib| lib.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or("src/lib.rs");
+    let candidate = join(root, lib_rel.trim_start_matches("./"));
+    let lib_path = files.contains(&candidate).then_some(candidate);
+    let crate_name = doc
+        .get("lib")
+        .and_then(|lib| lib.get("name"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            doc.get("package")
+                .and_then(|pkg| pkg.get("name"))
+                .and_then(Value::as_str)
+        });
+    if let Some(raw_name) = crate_name {
+        let ident = normalize_crate_name(raw_name);
+        if !ident.is_empty() {
+            out.insert(ident, lib_path);
+        }
+    }
+}
+
+fn collect_workspace_dep_paths(
+    files: &HashSet<String>,
+    ws_root: &str,
+    doc: &Value,
+    out: &mut HashMap<String, Option<String>>,
+) {
+    let Some(ws_deps) = doc
+        .get("workspace")
+        .and_then(|ws| ws.get("dependencies"))
+        .and_then(Value::as_table)
+    else {
+        return;
+    };
+    collect_path_dep_table(files, ws_root, ws_deps, out);
+}
+
+fn collect_manifest_path_deps(
+    files: &HashSet<String>,
+    root: &str,
+    doc: &Value,
+    out: &mut HashMap<String, Option<String>>,
+) {
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        if let Some(table) = doc.get(section).and_then(Value::as_table) {
+            collect_path_dep_table(files, root, table, out);
+        }
+    }
+    if let Some(targets) = doc.get("target").and_then(Value::as_table) {
+        for cfg_table in targets.values() {
+            for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+                if let Some(table) = cfg_table.get(section).and_then(Value::as_table) {
+                    collect_path_dep_table(files, root, table, out);
+                }
             }
         }
     }
-    map
+}
+
+fn collect_path_dep_table(
+    files: &HashSet<String>,
+    base_dir: &str,
+    table: &toml::map::Map<String, Value>,
+    out: &mut HashMap<String, Option<String>>,
+) {
+    for (dep_key, spec) in table {
+        let Some(dep_table) = spec.as_table() else {
+            continue;
+        };
+        let Some(rel_path) = dep_table.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        let lib_path = normalize_relative_path(base_dir, rel_path).and_then(|target_dir| {
+            let candidate = join(&target_dir, "src/lib.rs");
+            files.contains(&candidate).then_some(candidate)
+        });
+        let key_ident = normalize_crate_name(dep_key);
+        if !key_ident.is_empty() {
+            out.entry(key_ident).or_insert_with(|| lib_path.clone());
+        }
+        if let Some(pkg) = dep_table.get("package").and_then(Value::as_str) {
+            let pkg_ident = normalize_crate_name(pkg);
+            if !pkg_ident.is_empty() {
+                out.entry(pkg_ident).or_insert(lib_path);
+            }
+        }
+    }
 }
 
 fn join(dir: &str, file: &str) -> String {

@@ -481,6 +481,9 @@ cc = "1.0"
 [target.'cfg(unix)'.dependencies]
 nix = "0.29"
 libc = { version = "0.2", optional = true }
+
+[target.'cfg(unix)'.build-dependencies]
+pkg-config = "0.3"
 "#,
             ),
             (
@@ -493,11 +496,12 @@ libc = { version = "0.2", optional = true }
             ),
         ],
         &[
+            ("", "cc", DepKind::Runtime),
             ("", "my_alias", DepKind::Runtime),
             ("", "nix", DepKind::Runtime),
+            ("", "pkg_config", DepKind::Runtime),
             ("", "serde_json", DepKind::Runtime),
             ("", "assert_cmd", DepKind::Dev),
-            ("", "cc", DepKind::Dev),
             ("", "insta", DepKind::Dev),
             ("", "libc", DepKind::Optional),
             ("", "tracing", DepKind::Optional),
@@ -562,5 +566,97 @@ old-dep = "1.0"
             ("crates/app", "proc_macro2", DepKind::Optional),
             ("crates/core", "serde", DepKind::Runtime),
         ],
+    );
+}
+
+#[test]
+fn local_uses_inline_mods_bindgen_exports_pascalcase_and_nested_workspaces_are_not_external() {
+    let source = concat!(
+        "use serde::Serialize;\n",
+        "use crate::errors::{CliError, AgentError};\n",
+        "mod bindings {\n",
+        "    wit_bindgen::generate!({ world: \"plugin\" });\n",
+        "}\n",
+        "pub use bindings::exports::codeint::plugin::language;\n",
+        "pub use language::Token;\n",
+        "wit_bindgen::generate!({ world: \"guest\" });\n",
+        "use exports::codeint::plugin::language::Guest;\n",
+        "enum LocalKind { A, B }\n",
+        "fn handle() {\n",
+        "    use CliError::*;\n",
+        "    use AgentError as E;\n",
+        "    use LocalKind::A;\n",
+        "}\n",
+    );
+    let lowered = lower("crates/app/src/lib.rs", source).expect("lower");
+    assert_eq!(
+        lowered.runtime_imports,
+        vec![
+            "use:crate::errors::AgentError",
+            "use:crate::errors::CliError",
+            "use:serde::Serialize",
+        ]
+    );
+
+    let paths: Vec<RepoPath> = [
+        "Cargo.toml",
+        "crates/app/Cargo.toml",
+        "crates/app/src/lib.rs",
+        "crates/app/tests/fixtures/probes/Cargo.toml",
+        "crates/app/tests/fixtures/probes/probe-runtime/Cargo.toml",
+        "crates/app/tests/fixtures/probes/probe-runtime/src/lib.rs",
+        "crates/app/tests/fixtures/probes/clock/Cargo.toml",
+        "crates/app/tests/fixtures/probes/clock/src/lib.rs",
+    ]
+    .into_iter()
+    .map(|p| RepoPath::new(p).expect("valid"))
+    .collect();
+    let manifests: Vec<Manifest> = [
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        ("crates/app/Cargo.toml", "[package]\nname = \"demo-app\"\n"),
+        (
+            "crates/app/tests/fixtures/probes/Cargo.toml",
+            "[workspace]\nmembers = [\"probe-runtime\", \"clock\"]\n",
+        ),
+        (
+            "crates/app/tests/fixtures/probes/probe-runtime/Cargo.toml",
+            "[package]\nname = \"probe-runtime\"\n",
+        ),
+        (
+            "crates/app/tests/fixtures/probes/clock/Cargo.toml",
+            "[package]\nname = \"clock\"\n[dependencies]\nprobe-runtime = { path = \"../probe-runtime\" }\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(path, text)| Manifest {
+        path: path.to_owned(),
+        text: text.to_owned(),
+    })
+    .collect();
+    let requests: Vec<ImportRequest> = [
+        ("crates/app/src/lib.rs", "use:TokenKind::Identifier"),
+        ("crates/app/src/lib.rs", "use:serde::Serialize"),
+        ("crates/app/src/lib.rs", "use:probe_runtime::run"),
+        (
+            "crates/app/tests/fixtures/probes/clock/src/lib.rs",
+            "use:probe_runtime",
+        ),
+    ]
+    .into_iter()
+    .map(|(importer, specifier)| ImportRequest {
+        importer: importer.to_owned(),
+        specifier: specifier.to_owned(),
+    })
+    .collect();
+    assert_eq!(
+        plugin().resolve_imports(&paths, manifests, requests),
+        vec![
+            Resolution::Builtin,
+            Resolution::External("serde".to_owned()),
+            Resolution::External("probe_runtime".to_owned()),
+            Resolution::Resolved(
+                "crates/app/tests/fixtures/probes/probe-runtime/src/lib.rs".to_owned()
+            ),
+        ]
     );
 }
