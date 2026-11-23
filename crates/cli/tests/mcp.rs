@@ -1,121 +1,64 @@
-use std::io::Write;
-use std::process::{Command, Stdio};
+mod common;
 
+use std::process::Command;
+
+use common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-fn init_sample_repo() -> TempDir {
-    let dir = TempDir::new().unwrap();
-    let run_git = |args: &[&str]| {
-        let status = Command::new("git")
-            .args(args)
-            .current_dir(dir.path())
-            .env("GIT_AUTHOR_NAME", "Test")
-            .env("GIT_AUTHOR_EMAIL", "test@example.com")
-            .env("GIT_COMMITTER_NAME", "Test")
-            .env("GIT_COMMITTER_EMAIL", "test@example.com")
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    };
-    run_git(&["init", "-q", "-b", "main"]);
-    std::fs::write(
-        dir.path().join("app.ts"),
-        "export function greet(x: number): number {\n  return x + 1;\n}\n",
-    )
-    .unwrap();
-    run_git(&["add", "."]);
-    run_git(&["commit", "-q", "-m", "initial"]);
-    dir
-}
-
-fn send_mcp_requests(dir: &std::path::Path, requests: &[Value]) -> Vec<Value> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_codeint"))
-        .arg("mcp")
-        .current_dir(dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    {
-        let mut stdin = child.stdin.take().unwrap();
-        for req in requests {
-            writeln!(stdin, "{req}").unwrap();
-        }
-    }
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "codeint mcp failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout)
-        .unwrap()
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect()
-}
-
 #[test]
 fn mcp_initialize_list_and_call_tools() {
-    let repo = init_sample_repo();
+    let repo = init_git_repo(&[(
+        "app.ts",
+        "export function greet(x: number): number {\n  return x + 1;\n}\n",
+    )]);
     let responses = send_mcp_requests(
         repo.path(),
         &[
             json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}),
             json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
             json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
-            json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "check", "arguments": {}}}),
-            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "diff", "arguments": {"base_ref": "main"}}}),
-            json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "trend", "arguments": {}}}),
-            json!({"jsonrpc": "2.0", "id": 6, "method": "unknown/method"}),
+            mcp_tool_call(3, "check", json!({})),
+            mcp_tool_call(4, "diff", json!({"base_ref": "main"})),
+            mcp_tool_call(5, "trend", json!({})),
+            mcp_tool_call(6, "impact", json!({"paths": ["app.ts"]})),
+            json!({"jsonrpc": "2.0", "id": 7, "method": "unknown/method"}),
         ],
     );
-    assert_eq!(responses.len(), 6);
+    assert_eq!(responses.len(), 7);
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "codeint");
     let tools = responses[1]["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert_eq!(
         names,
-        ["check", "diff", "trend", "guard", "churn", "coupling"]
+        [
+            "check", "diff", "trend", "guard", "impact", "trace", "churn", "coupling"
+        ]
     );
 
-    assert_eq!(responses[2]["result"]["isError"], false);
-    let check_payload: Value = serde_json::from_str(
-        responses[2]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let check_payload = mcp_payload(&responses[2]);
     assert_eq!(check_payload["passed"], true);
     assert_eq!(check_payload["report"]["files"], 1);
 
     assert_eq!(responses[3]["result"]["isError"], false);
     assert_eq!(responses[4]["result"]["isError"], false);
-    assert_eq!(responses[5]["error"]["code"], -32601);
+    let impact_payload = mcp_payload(&responses[5]);
+    assert_eq!(impact_payload["targets"][0]["path"], "app.ts");
+    assert_eq!(impact_payload["summary"]["total_dependents"], 0);
+    assert_eq!(responses[6]["error"]["code"], -32601);
 }
 
 #[test]
 fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
-    let repo = init_sample_repo();
+    let repo = init_git_repo(&[(
+        "app.ts",
+        "export function greet(x: number): number {\n  return x + 1;\n}\n",
+    )]);
     let unconfigured = send_mcp_requests(
         repo.path(),
-        &[json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {"name": "guard", "arguments": {"file": "app.ts"}}
-        })],
+        &[mcp_tool_call(1, "guard", json!({"file": "app.ts"}))],
     );
-    assert_eq!(unconfigured[0]["result"]["isError"], false);
-    let unconfigured_payload: Value = serde_json::from_str(
-        unconfigured[0]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let unconfigured_payload = mcp_payload(&unconfigured[0]);
     assert_eq!(unconfigured_payload["configured"], false);
     assert_eq!(unconfigured_payload["exists"], true);
 
@@ -147,38 +90,15 @@ fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
     let responses = send_mcp_requests(
         repo.path(),
         &[
-            json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "guard", "arguments": {"file": "src/core/internal.ts"}}
-            }),
-            json!({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "guard", "arguments": {"file": "src/web/planned/view.ts"}}
-            }),
-            json!({
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {"name": "guard", "arguments": {"file": "app.ts"}}
-            }),
+            mcp_tool_call(1, "guard", json!({"file": "src/core/internal.ts"})),
+            mcp_tool_call(2, "guard", json!({"file": "src/web/planned/view.ts"})),
+            mcp_tool_call(3, "guard", json!({"file": "app.ts"})),
         ],
     );
 
     assert_eq!(responses.len(), 3);
-    for response in &responses {
-        assert_eq!(response["result"]["isError"], false);
-    }
 
-    let existing: Value = serde_json::from_str(
-        responses[0]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let existing = mcp_payload(&responses[0]);
     assert_eq!(existing["zone"], "core");
     assert_eq!(existing["exists"], true);
     assert_eq!(existing["is_public_file"], false);
@@ -189,38 +109,21 @@ fn mcp_guard_tool_reports_existing_planned_unzoned_and_unconfigured_paths() {
         "Core must stay independent of adapters"
     );
 
-    let planned: Value = serde_json::from_str(
-        responses[1]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let planned = mcp_payload(&responses[1]);
     assert_eq!(planned["zone"], "web");
     assert_eq!(planned["exists"], false);
     assert_eq!(planned["denied_targets"][0]["zone"], "adapter");
 
-    let unzoned: Value = serde_json::from_str(
-        responses[2]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let unzoned = mcp_payload(&responses[2]);
     assert_eq!(unzoned["configured"], true);
     assert!(unzoned.get("zone").is_none());
 }
 
-fn tool_call(id: u64, name: &str, arguments: Value) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "method": "tools/call",
-        "params": { "name": name, "arguments": arguments }
-    })
-}
-
-fn parse_tool_ok(response: &Value) -> Value {
-    assert_eq!(response["result"]["isError"], false);
-    serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+fn init_sample_repo() -> TempDir {
+    init_git_repo(&[(
+        "app.ts",
+        "export function greet(x: number): number {\n  return x + 1;\n}\n",
+    )])
 }
 
 fn assert_tool_err_contains(response: &Value, needle: &str) {
@@ -236,8 +139,8 @@ fn mcp_churn_tool_reports_file_churn_and_handles_non_git_directory() {
     let responses = send_mcp_requests(
         repo.path(),
         &[
-            tool_call(1, "churn", json!({"commits": 10})),
-            tool_call(
+            mcp_tool_call(1, "churn", json!({"commits": 10})),
+            mcp_tool_call(
                 2,
                 "churn",
                 json!({"path": non_git.path().to_string_lossy()}),
@@ -245,7 +148,7 @@ fn mcp_churn_tool_reports_file_churn_and_handles_non_git_directory() {
         ],
     );
     assert_eq!(responses.len(), 2);
-    let payload = parse_tool_ok(&responses[0]);
+    let payload = mcp_payload(&responses[0]);
     assert_eq!(payload["commits_analyzed"], 1);
     assert_eq!(payload["shallow"], false);
     assert!(payload.get("score").is_none());
@@ -292,12 +195,12 @@ fn mcp_coupling_tool_reports_co_change_pairs_bulk_exclusion_and_errors() {
     let responses = send_mcp_requests(
         repo.path(),
         &[
-            tool_call(
+            mcp_tool_call(
                 1,
                 "coupling",
                 json!({"commits": 10, "max_commit_files": 20, "min_co_changes": 3, "min_ratio": 0.5}),
             ),
-            tool_call(
+            mcp_tool_call(
                 2,
                 "coupling",
                 json!({"path": non_git.path().to_string_lossy()}),
@@ -305,7 +208,7 @@ fn mcp_coupling_tool_reports_co_change_pairs_bulk_exclusion_and_errors() {
         ],
     );
     assert_eq!(responses.len(), 2);
-    let payload = parse_tool_ok(&responses[0]);
+    let payload = mcp_payload(&responses[0]);
     assert_eq!(payload["commits_analyzed"], 4);
     assert_eq!(payload["pairs"][0]["file_a"], "src/a.ts");
     assert_eq!(payload["pairs"][0]["file_b"], "src/b.ts");

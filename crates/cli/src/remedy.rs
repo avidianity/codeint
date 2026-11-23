@@ -2,13 +2,17 @@ use codeint_config::{
     CodeownersError, ConfigError, ConfigurationFileError, StarterConfigurationError,
 };
 use codeint_git::GitError;
+use codeint_metrics::ImpactError;
 use codeint_model::{MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
+use codeint_report::TraceError;
 
 use crate::CliError;
 use crate::check::CheckError;
 use crate::guard::GuardError;
+use crate::impact::ImpactCommandError;
 use crate::init::InitError;
+use crate::trace::TraceCommandError;
 use crate::update::UpdateError;
 
 pub(crate) fn remedy(error: &CliError) -> &'static str {
@@ -16,6 +20,8 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Config(error) => config_remedy(error),
         CliError::Check(error) => check_remedy(error),
         CliError::Guard(error) => guard_remedy(error),
+        CliError::Impact(error) => impact_remedy(error),
+        CliError::Trace(error) => trace_remedy(error),
         CliError::Init(error) => init_remedy(error),
         CliError::Update(error) => update_remedy(error),
         CliError::Report(_) => {
@@ -28,16 +34,30 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
     }
 }
 
+fn trace_remedy(error: &TraceCommandError) -> &'static str {
+    match error {
+        TraceCommandError::Check(error) => check_remedy(error),
+        TraceCommandError::UnknownModule { .. }
+        | TraceCommandError::Trace(TraceError::UnknownModule { .. }) => {
+            "Pass repository-relative paths of files measured by codeint (not ignored, unparsable, declaration-only, or outside the repository)."
+        }
+        TraceCommandError::Trace(TraceError::InvalidMaxPaths) => {
+            "Pass a positive integer (at least 1) for --max-paths."
+        }
+    }
+}
+
 fn check_remedy(error: &CheckError) -> &'static str {
     match error {
+        CheckError::ExtensionConflict { .. } => {
+            "Assign separate directories to each Language plugin in the languages setting of codeint.json."
+        }
+        CheckError::UnknownWorkspacePackage { .. } => {
+            "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository."
+        }
         CheckError::Git(error) => git_remedy(error),
         CheckError::Configuration(error) => configuration_file_remedy(error),
-        CheckError::Codeowners(CodeownersError::Read { .. }) => {
-            "Check that the CODEOWNERS file is readable UTF-8, then run codeint again."
-        }
-        CheckError::Codeowners(CodeownersError::InvalidOwnerPattern { .. }) => {
-            "Pass a valid glob pattern to --owner, such as @org/team or @org/*."
-        }
+        CheckError::Codeowners(error) => codeowners_remedy(error),
         CheckError::Workspace(error) => workspace_remedy(error),
         CheckError::Resolve(_) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
@@ -47,8 +67,16 @@ fn check_remedy(error: &CheckError) -> &'static str {
         }
         CheckError::PluginHost(error) => plugin_host_remedy(error),
         CheckError::MetricPlugin(error) => metric_plugin_remedy(error),
-        CheckError::ExtensionConflict { .. } => {
-            "Assign separate directories to each Language plugin in the languages setting of codeint.json."
+    }
+}
+
+fn codeowners_remedy(error: &CodeownersError) -> &'static str {
+    match error {
+        CodeownersError::Read { .. } => {
+            "Check that the CODEOWNERS file is readable UTF-8, then run codeint again."
+        }
+        CodeownersError::InvalidOwnerPattern { .. } => {
+            "Pass a valid glob pattern to --owner, such as @org/team or @org/*."
         }
     }
 }
@@ -66,6 +94,24 @@ fn guard_remedy(error: &GuardError) -> &'static str {
     }
 }
 
+fn impact_remedy(error: &ImpactCommandError) -> &'static str {
+    match error {
+        ImpactCommandError::Check(error) => check_remedy(error),
+        ImpactCommandError::Analysis(ImpactError::TargetNotInCodeModel { .. }) => {
+            "Pass a tracked or non-ignored source file that a Language plugin measures, or check the file path."
+        }
+        ImpactCommandError::MissingTargets => {
+            "Pass one or more repository file paths, or pass --changed <base> to analyze changed files."
+        }
+        ImpactCommandError::PathOutsideRepository { .. } => {
+            "Pass a file path inside the Git repository."
+        }
+        ImpactCommandError::InvalidTargetPath { .. } => {
+            "Pass a repository-relative file path using forward slashes."
+        }
+    }
+}
+
 fn init_remedy(error: &InitError) -> &'static str {
     match error {
         InitError::Git(GitError::NotInRepository { .. }) => {
@@ -75,7 +121,6 @@ fn init_remedy(error: &InitError) -> &'static str {
         InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
     }
 }
-
 fn update_remedy(error: &UpdateError) -> &'static str {
     match error {
         UpdateError::ManagedByPackageManager { .. } => {

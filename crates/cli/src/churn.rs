@@ -4,7 +4,7 @@ use codeint_config::{ChurnWindow, FindingsShown, PluginHostConfig};
 use codeint_git::ChurnRange;
 use codeint_report::{ChurnHistoryInput, ChurnReport};
 
-use crate::check::{CheckError, load_workspace, measure_with};
+use crate::check::{CheckError, WorkspaceContext, measure_with};
 
 pub(crate) fn churn(
     folder: &Path,
@@ -12,11 +12,11 @@ pub(crate) fn churn(
     findings: FindingsShown,
     plugin_host: &PluginHostConfig,
 ) -> Result<ChurnReport, CheckError> {
-    let (repository, configuration, loaded) = load_workspace(folder, plugin_host)?;
-    let plugins = loaded.as_named();
-    let history = repository.file_churn(churn_range(window))?;
-    let tree = repository.working_tree()?;
-    let languages = measure_with(&tree, &plugins, &configuration)?;
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    let plugins = context.plugins.as_named();
+    let history = context.repository.file_churn(churn_range(window))?;
+    let tree = context.repository.working_tree()?;
+    let languages = measure_with(&tree, &plugins, &context.configuration)?;
     let input = ChurnHistoryInput {
         window,
         commits_analyzed: history.commits_analyzed,

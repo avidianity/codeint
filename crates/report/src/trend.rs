@@ -69,8 +69,8 @@ impl TrendReport {
 
     pub fn render(&self, format: TrendFormat) -> Result<String, ReportError> {
         match format {
-            TrendFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
-            TrendFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            TrendFormat::Toon => crate::render_toon(self),
+            TrendFormat::Json => crate::render_json(self),
             TrendFormat::Markdown => Ok(markdown::render(self)),
         }
     }

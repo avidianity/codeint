@@ -4,13 +4,14 @@ use std::str::FromStr;
 
 use codeint_config::{
     CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings,
-    FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat, TraceFormat,
+    TrendFormat, TrendRange,
 };
 use serde_json::{Value, json};
 
 use crate::{
-    CheckOptions, ChurnOptions, CouplingOptions, DiffOptions, TrendOptions, check, churn, coupling,
-    diff, guard, trend,
+    CheckOptions, ChurnOptions, CouplingOptions, DiffOptions, ImpactOptions, TraceOptions,
+    TrendOptions, check, churn, coupling, diff, guard, impact, trace, trend,
 };
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
@@ -133,6 +134,7 @@ fn handle_tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
                         "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                     }
                 }
@@ -147,6 +149,7 @@ fn handle_tools_list() -> Value {
                         "base_ref": { "type": "string", "description": "Base Git ref such as main or origin/main." },
                         "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
                         "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
                         "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                     }
                 }
@@ -171,6 +174,40 @@ fn handle_tools_list() -> Value {
                     "properties": {
                         "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
                         "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
+                    }
+                }
+            },
+            {
+                "name": "impact",
+                "description": "Compute the transitive reverse-dependency blast radius of one or more repository files (or files changed since a base Git ref), separating Production and Test dependents and listing affected Workspace packages.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "paths": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Repository-relative file paths to analyze."
+                        },
+                        "changed": { "type": "string", "description": "Optional base Git ref; analyze files changed since its merge-base with HEAD." },
+                        "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope reported dependents." }
+                    }
+                }
+            },
+            {
+                "name": "trace",
+                "description": "Find the shortest runtime import path(s) connecting two repository files.",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["from", "to"],
+                    "properties": {
+                        "from": { "type": "string", "description": "Repository-relative path of the starting module." },
+                        "to": { "type": "string", "description": "Repository-relative path of the target module." },
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "package": { "type": "string", "description": "Optional Workspace package path to scope the query." },
+                        "all": { "type": "boolean", "description": "Return all shortest paths up to max_paths instead of a single shortest path." },
+                        "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
                     }
                 }
             },
@@ -219,19 +256,26 @@ fn handle_tools_call(
     let args = params.and_then(|p| p.get("arguments"));
     match name {
         "check" => Ok(call_check(args, ctx)),
-        "diff" => Ok(call_diff(args, ctx)),
+        "diff" => Ok(unwrap_tool_result(call_diff(args, ctx))),
         "trend" => Ok(call_trend(args, ctx)),
-        "guard" => Ok(call_guard(args, ctx)),
-        "churn" => Ok(call_churn(args, ctx)),
-        "coupling" => Ok(call_coupling(args, ctx)),
+        "guard" => Ok(unwrap_tool_result(call_guard(args, ctx))),
+        "impact" => Ok(unwrap_tool_result(call_impact(args, ctx))),
+        "trace" => Ok(unwrap_tool_result(call_trace(args, ctx))),
+        "churn" => Ok(unwrap_tool_result(call_churn(args, ctx))),
+        "coupling" => Ok(unwrap_tool_result(call_coupling(args, ctx))),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
+}
+
+fn unwrap_tool_result(result: Result<Value, Value>) -> Value {
+    result.unwrap_or_else(|err| err)
 }
 
 fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let folder = resolve_folder(args, ctx.default_folder);
     let options = CheckOptions {
         findings: parse_findings(args),
+        package: parse_package(args),
         owner: None,
         plugin_host: ctx.plugin_host.clone(),
     };
@@ -245,11 +289,8 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     }
 }
 
-fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let base_ref = match required_str_arg(args, "base_ref") {
-        Ok(value) => value,
-        Err(err) => return err,
-    };
+fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let base_ref = required_str_arg(args, "base_ref")?;
     let folder = resolve_folder(args, ctx.default_folder);
     let options = DiffOptions {
         head_ref: args
@@ -257,18 +298,19 @@ fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
             .and_then(Value::as_str)
             .map(str::to_owned),
         findings: parse_findings(args),
+        package: parse_package(args),
         owner: None,
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
-    match diff(&folder, base_ref, &options) {
+    Ok(match diff(&folder, base_ref, &options) {
         Ok(outcome) => render_outcome(
             outcome.passed,
             outcome.failures,
             outcome.report.render(ReportFormat::Json),
         ),
         Err(err) => tool_err(&err.to_string()),
-    }
+    })
 }
 
 fn render_outcome(
@@ -330,47 +372,115 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     })
 }
 
-fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let file = match required_str_arg(args, "file") {
-        Ok(value) => value,
-        Err(err) => return err,
-    };
+fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let file = required_str_arg(args, "file")?;
     let folder = resolve_folder(args, ctx.default_folder);
-    render_json_tool(guard(&folder, Path::new(file)), |report| {
-        report.render(GuardFormat::Json)
-    })
+    Ok(render_json_tool(
+        guard(&folder, Path::new(file)),
+        |report| report.render(GuardFormat::Json),
+    ))
 }
 
-fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let window = match parse_churn_window(args) {
-        Ok(window) => window,
-        Err(err) => return err,
-    };
+fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder);
+    let paths = parse_string_array(args, "paths")?;
+    let changed = args
+        .and_then(|a| a.get("changed"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let depth = match args.and_then(|a| a.get("depth")) {
+        Some(value) => Some(parse_usize_arg(
+            value,
+            "Invalid depth argument: expected a non-negative integer",
+        )?),
+        None => None,
+    };
+    let options = ImpactOptions {
+        paths,
+        changed,
+        depth,
+        package: parse_package(args),
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    Ok(render_json_tool(impact(&folder, &options), |report| {
+        report.render(ImpactFormat::Json)
+    }))
+}
+
+fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let from = required_str_arg(args, "from")?;
+    let to = required_str_arg(args, "to")?;
+    let folder = resolve_folder(args, ctx.default_folder);
+    let max_paths = match args.and_then(|a| a.get("max_paths")) {
+        Some(value) => parse_usize_arg(
+            value,
+            "Invalid argument: max_paths must be a positive integer",
+        )?,
+        None => TraceOptions::default().max_paths,
+    };
+    let options = TraceOptions {
+        all: args
+            .and_then(|a| a.get("all"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        max_paths,
+        package: parse_package(args),
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    Ok(render_json_tool(
+        trace(&folder, from, to, &options),
+        |report| report.render(TraceFormat::Json),
+    ))
+}
+
+fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let options = ChurnOptions {
-        window,
+        window: parse_churn_window(args)?,
         findings: parse_findings(args),
         plugin_host: ctx.plugin_host.clone(),
-    };
-    render_json_tool(churn(&folder, &options), |report| {
-        report.render(ChurnFormat::Json)
-    })
-}
-
-fn call_coupling(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let settings = match parse_coupling_settings(args) {
-        Ok(settings) => settings,
-        Err(err) => return err,
     };
     let folder = resolve_folder(args, ctx.default_folder);
+    Ok(render_json_tool(churn(&folder, &options), |report| {
+        report.render(ChurnFormat::Json)
+    }))
+}
+
+fn call_coupling(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let options = CouplingOptions {
-        settings,
+        settings: parse_coupling_settings(args)?,
         findings: parse_findings(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    render_json_tool(coupling(&folder, &options), |report| {
+    let folder = resolve_folder(args, ctx.default_folder);
+    Ok(render_json_tool(coupling(&folder, &options), |report| {
         report.render(ChurnFormat::Json)
-    })
+    }))
+}
+
+fn parse_string_array(args: Option<&Value>, name: &str) -> Result<Vec<String>, Value> {
+    match args.and_then(|a| a.get(name)) {
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str().map(str::to_owned).ok_or_else(|| {
+                    tool_err(&format!(
+                        "Invalid {name} argument: every entry must be a string"
+                    ))
+                })
+            })
+            .collect(),
+        Some(_) => Err(tool_err(&format!(
+            "Invalid {name} argument: expected an array of strings"
+        ))),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn parse_usize_arg(value: &Value, error_message: &str) -> Result<usize, Value> {
+    value
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(|| tool_err(error_message))
 }
 
 fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, Value> {
@@ -452,6 +562,12 @@ fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, Value> {
         return Ok(ChurnWindow::Commits(count));
     }
     Ok(ChurnWindow::default())
+}
+
+fn parse_package(args: Option<&Value>) -> Option<String> {
+    args.and_then(|a| a.get("package"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {

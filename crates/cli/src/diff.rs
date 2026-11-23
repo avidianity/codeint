@@ -2,10 +2,12 @@ use std::path::Path;
 
 use codeint_config::{FindingsShown, PluginHostConfig};
 use codeint_git::{CommitId, GitError, Repository, ResultCache};
-use codeint_report::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
+use codeint_report::{
+    BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, HeadCommit,
+};
 
-use crate::check::{CheckError, PreparedRun};
-use crate::commit_measurement::{CommitMeasurer, measure_all_languages};
+use crate::check::{CheckError, PreparedRun, SelectedPackage, WorkspaceContext};
+use crate::commit_measurement::{CommitMeasurer, measure_all_languages_for_package};
 
 pub(crate) struct Refs<'a> {
     pub(crate) base: &'a str,
@@ -22,6 +24,7 @@ pub(crate) fn diff(
     folder: &Path,
     refs: Refs<'_>,
     findings: FindingsShown,
+    package: Option<&str>,
     owner: Option<&str>,
     result_cache: Option<&ResultCache>,
     plugin_host: &PluginHostConfig,
@@ -31,22 +34,17 @@ pub(crate) fn diff(
         merge_base,
         head,
         head_commit,
-    } = sides(&run.repository, &refs)?;
-    let measurer = CommitMeasurer::new(
-        &run.repository,
-        &run.configuration,
-        &run.loaded,
+    } = sides(&run.context.repository, &refs)?;
+    let (selected, head_measurement) =
+        measure_head(&run.context, head_commit, package, result_cache)?;
+    let base_measurer = CommitMeasurer::for_package(
+        &run.context.repository,
+        &run.context.configuration,
+        &run.context.plugins,
         result_cache,
+        selected.as_ref().map(|pkg| pkg.as_str()),
     );
-    let base_measurement = measurer.measure(merge_base)?;
-    let head_measurement = match head_commit {
-        Some(commit) => measurer.measure(commit)?,
-        None => measure_all_languages(
-            &run.repository.working_tree()?,
-            &run.loaded,
-            &run.configuration,
-        )?,
-    };
+    let base_measurement = base_measurer.measure_selected_package(merge_base, selected.as_ref())?;
     Ok(DiffReport::compare_with_options(
         BaseCommit {
             git_ref: refs.base.to_owned(),
@@ -57,11 +55,43 @@ pub(crate) fn diff(
         head_measurement,
         DiffReportOptions {
             findings,
-            budgets: &run.configuration.budgets,
-            limits: &run.configuration.regression_limits,
+            budgets: &run.context.configuration.budgets,
+            limits: &run.context.configuration.regression_limits,
             ownership: run.ownership(),
         },
     ))
+}
+
+fn measure_head(
+    context: &WorkspaceContext,
+    head_commit: Option<CommitId>,
+    package: Option<&str>,
+    result_cache: Option<&ResultCache>,
+) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
+    let Some(commit) = head_commit else {
+        return measure_all_languages_for_package(
+            &context.repository.working_tree()?,
+            &context.plugins,
+            &context.configuration,
+            package,
+        );
+    };
+    if let Some(requested) = package {
+        measure_all_languages_for_package(
+            &context.repository.commit(commit)?,
+            &context.plugins,
+            &context.configuration,
+            Some(requested),
+        )
+    } else {
+        let measurer = CommitMeasurer::new(
+            &context.repository,
+            &context.configuration,
+            &context.plugins,
+            result_cache,
+        );
+        Ok((None, measurer.measure(commit)?))
+    }
 }
 
 fn sides(repository: &Repository, refs: &Refs<'_>) -> Result<Sides, GitError> {
