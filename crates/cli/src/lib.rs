@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod check;
+mod churn;
 mod commit_measurement;
 mod diff;
 mod guard;
@@ -21,10 +22,10 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
-    TrendRange,
+    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, FindingsShown, GuardFormat,
+    PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
 };
-pub use codeint_report::{DiffReport, GuardReport, Report, TrendReport};
+pub use codeint_report::{ChurnReport, DiffReport, GuardReport, Report, TrendReport};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -79,6 +80,23 @@ impl Default for TrendOptions {
         TrendOptions {
             range: TrendRange::Latest(DEFAULT_TREND_COMMITS),
             result_cache: None,
+            plugin_host: PluginHostConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChurnOptions {
+    pub window: ChurnWindow,
+    pub findings: FindingsShown,
+    pub plugin_host: PluginHostConfig,
+}
+
+impl Default for ChurnOptions {
+    fn default() -> ChurnOptions {
+        ChurnOptions {
+            window: ChurnWindow::default(),
+            findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
             plugin_host: PluginHostConfig::default(),
         }
     }
@@ -196,6 +214,16 @@ pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
 
 pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> {
     guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
+}
+
+pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, CodeintError> {
+    churn::churn(
+        folder,
+        options.window,
+        options.findings,
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -324,7 +352,35 @@ fn run() -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Churn {
+            folder,
+            window,
+            destination,
+            findings,
+            format,
+            plugin_host,
+        } => run_churn(
+            &folder,
+            window,
+            &destination,
+            findings,
+            format,
+            &plugin_host,
+        ),
     }
+}
+
+fn run_churn(
+    folder: &Path,
+    window: ChurnWindow,
+    destination: &ReportDestination,
+    findings: FindingsShown,
+    format: ChurnFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = churn::churn(folder, window, findings, plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
 }
 
 fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {

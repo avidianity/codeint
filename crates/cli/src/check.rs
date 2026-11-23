@@ -164,6 +164,16 @@ impl LoadedPlugins {
     }
 }
 
+pub(crate) fn load_workspace(
+    folder: &Path,
+    plugin_host: &PluginHostConfig,
+) -> Result<(Repository, Configuration, LoadedPlugins), CheckError> {
+    let repository = Repository::discover(folder)?;
+    let configuration = read_configuration(repository.root())?;
+    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+    Ok((repository, configuration, loaded))
+}
+
 pub(crate) struct PreparedRun {
     pub(crate) repository: Repository,
     pub(crate) configuration: Configuration,
@@ -178,11 +188,9 @@ impl PreparedRun {
         owner_pattern: Option<&str>,
         plugin_host: &PluginHostConfig,
     ) -> Result<PreparedRun, CheckError> {
-        let repository = Repository::discover(folder)?;
-        let configuration = read_configuration(repository.root())?;
+        let (repository, configuration, loaded) = load_workspace(folder, plugin_host)?;
         let codeowners = Codeowners::load(repository.root())?;
         let owner_filter = owner_pattern.map(OwnerFilter::new).transpose()?;
-        let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
         Ok(PreparedRun {
             repository,
             configuration,

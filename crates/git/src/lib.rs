@@ -9,9 +9,11 @@ use gix::dir::entry::{Kind, Status};
 use gix::dir::walk::EmissionMode;
 use gix::dir::walk::delegate::Collect;
 
+mod churn;
 mod history;
 mod result_cache;
 
+pub use churn::{ChurnRange, FileChurnSummary};
 pub use history::{CommitRange, HistoryCommit};
 pub use result_cache::{ResultCache, ResultCacheError};
 

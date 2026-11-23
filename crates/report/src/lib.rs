@@ -18,6 +18,7 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
+mod churn;
 mod diff;
 mod guard;
 mod markdown;
@@ -28,6 +29,7 @@ mod sarif;
 mod tests;
 mod trend;
 
+pub use churn::{ChurnHistoryInput, ChurnReport};
 pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use measurement::CommitMeasurement;

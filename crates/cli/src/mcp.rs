@@ -3,12 +3,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
-    TrendRange,
+    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, FindingsShown, GuardFormat,
+    PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
 };
 use serde_json::{Value, json};
 
-use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, guard, trend};
+use crate::{
+    CheckOptions, ChurnOptions, DiffOptions, TrendOptions, check, churn, diff, guard, trend,
+};
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -170,6 +172,19 @@ fn handle_tools_list() -> Value {
                         "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
                     }
                 }
+            },
+            {
+                "name": "churn",
+                "description": "Rank eroded and duplicated files alongside their Git commit churn independently per Metric over a configurable lookback window.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
+                        "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
+                        "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                    }
+                }
             }
         ]
     })
@@ -189,6 +204,7 @@ fn handle_tools_call(
         "diff" => Ok(call_diff(args, ctx)),
         "trend" => Ok(call_trend(args, ctx)),
         "guard" => Ok(call_guard(args, ctx)),
+        "churn" => Ok(call_churn(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
 }
@@ -304,6 +320,49 @@ fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     render_json_tool(guard(&folder, Path::new(file)), |report| {
         report.render(GuardFormat::Json)
     })
+}
+
+fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let window = match parse_churn_window(args) {
+        Ok(window) => window,
+        Err(err) => return err,
+    };
+    let folder = resolve_folder(args, ctx.default_folder);
+    let options = ChurnOptions {
+        window,
+        findings: parse_findings(args),
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    render_json_tool(churn(&folder, &options), |report| {
+        report.render(ChurnFormat::Json)
+    })
+}
+
+fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, Value> {
+    let since_val = args.and_then(|a| a.get("since")).filter(|v| !v.is_null());
+    let commits_val = args.and_then(|a| a.get("commits")).filter(|v| !v.is_null());
+    if since_val.is_some() && commits_val.is_some() {
+        return Err(tool_err(
+            "Arguments since and commits are mutually exclusive",
+        ));
+    }
+    if let Some(value) = since_val {
+        let text = value
+            .as_str()
+            .ok_or_else(|| tool_err("Argument since must be a string"))?;
+        return ChurnSince::from_str(text)
+            .map(ChurnWindow::from)
+            .map_err(|err| tool_err(&format!("Invalid since window {text:?}: {err}")));
+    }
+    if let Some(value) = commits_val {
+        let count = value
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|&n| n > 0)
+            .ok_or_else(|| tool_err("Argument commits must be a positive integer"))?;
+        return Ok(ChurnWindow::Commits(count));
+    }
+    Ok(ChurnWindow::default())
 }
 
 fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {

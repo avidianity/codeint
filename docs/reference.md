@@ -28,8 +28,9 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
-| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `guard` tools; see [`codeint mcp`](#codeint-mcp) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, and `churn` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -496,7 +497,7 @@ codeint 0.5.0 is already up to date (v0.5.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes four read-only tools (`check`, `diff`, `trend`, and `guard`) so coding agents can measure Software entropy, inspect architectural boundaries, and fix Regressions before opening a pull request.
+It exposes five read-only tools (`check`, `diff`, `trend`, `guard`, and `churn`) so coding agents can measure Software entropy, inspect architectural boundaries, rank high-churn eroded or duplicated files, and fix Regressions before opening a pull request.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
@@ -521,6 +522,28 @@ codeint guard src/route.ts
 codeint guard src/route.ts --format text
 codeint guard src/route.ts --format toon
 codeint guard src/route.ts --format json
+```
+
+### `codeint churn`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--since <WINDOW>` | Lookback window in days (such as `90d`) or a UTC date (`YYYY-MM-DD`); defaults to `90d` |
+| `--commits <COUNT>` | Walk at most this many main-line commits from HEAD |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--all` | List every Finding instead of the 20 worst per Metric |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown` |
+| `-h, --help` | Print the help of `codeint churn` |
+
+`codeint churn` walks main-line Git history natively via `gix` to count per-file commit touches over the configured window, then ranks eroded and duplicated files independently per Metric without any blended score.
+In a shallow clone, `codeint churn` stops at the shallow boundary and includes a structured warning in the report.
+
+```sh exit=0
+codeint churn
+codeint churn --since 90d --format text
+codeint churn --commits 10 --all --format toon
+codeint churn --format json --output churn.json
+codeint churn --format markdown
 ```
 
 ## Exit codes
