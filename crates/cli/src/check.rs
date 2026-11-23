@@ -216,6 +216,10 @@ pub(crate) fn filter_model_to_package(model: &mut CodeModel, selected: &Selected
         retained_roots.contains(&dep.package_root)
             || matches_selected_package_root(selected, &dep.package_root)
     });
+    model.manifest_used_dependencies.retain(|dep| {
+        retained_roots.contains(&dep.package_root)
+            || matches_selected_package_root(selected, &dep.package_root)
+    });
 }
 
 fn matches_selected_package_root(selected: &SelectedPackage, package_root: &str) -> bool {
@@ -702,6 +706,11 @@ fn finalize_language_model(
         plugin_members,
         &declared_dependencies,
         &model.files,
+    );
+    model.manifest_used_dependencies = crate::package_scripts::extract_manifest_used_dependencies(
+        &manifests,
+        plugin_members,
+        &declared_dependencies,
     );
     model.declared_dependencies = declared_dependencies;
     model.runtime_imports =

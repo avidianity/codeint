@@ -140,6 +140,12 @@ pub struct DependencyManifest {
     pub path: RepoPath,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ManifestUsedDep {
+    pub package_root: String,
+    pub name: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CodeModel {
     pub files: Vec<SourceFile>,
@@ -149,6 +155,7 @@ pub struct CodeModel {
     pub runtime_imports: Vec<RuntimeImport>,
     pub declared_dependencies: Vec<DeclaredDep>,
     pub dependency_manifests: Vec<DependencyManifest>,
+    pub manifest_used_dependencies: Vec<ManifestUsedDep>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -174,6 +181,9 @@ impl CodeModel {
             merged
                 .dependency_manifests
                 .extend(model.dependency_manifests);
+            merged
+                .manifest_used_dependencies
+                .extend(model.manifest_used_dependencies);
         }
         merged
             .files
@@ -184,6 +194,8 @@ impl CodeModel {
         merged.declaration_only.sort();
         merged.dependency_manifests.sort();
         merged.dependency_manifests.dedup();
+        merged.manifest_used_dependencies.sort();
+        merged.manifest_used_dependencies.dedup();
         merged
     }
 

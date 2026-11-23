@@ -12,6 +12,7 @@ mod guard;
 mod impact;
 mod init;
 mod mcp;
+mod package_scripts;
 mod remedy;
 mod report;
 mod trace;

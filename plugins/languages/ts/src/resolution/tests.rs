@@ -159,7 +159,35 @@ fn manifest(path: &str, text: &str) -> Manifest {
 }
 
 #[test]
-fn workspace_members_inherit_hoisted_root_dependencies_without_hiding_member_or_unlisted_deps() {
+fn tsconfig_app_alias_resolves_to_repo_file_before_virtual_module_fallback() {
+    let paths: Vec<String> = ["tsconfig.json", "src/main.ts", "src/app/foo.ts"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let manifests = vec![manifest(
+        "tsconfig.json",
+        r#"{"compilerOptions":{"paths":{"$app/*":["./src/app/*"]}}}"#,
+    )];
+    let resolver = ProjectResolver::new(&paths, manifests);
+    let resolve = |specifier: &str| {
+        resolver.resolve(&ImportRequest {
+            importer: "src/main.ts".to_owned(),
+            specifier: specifier.to_owned(),
+        })
+    };
+
+    assert_eq!(
+        resolve("$app/foo"),
+        Resolution::Resolved("src/app/foo.ts".to_owned())
+    );
+    assert_eq!(resolve("$app/navigation"), Resolution::Builtin);
+    assert_eq!(resolve("$env/static/public"), Resolution::Builtin);
+    assert_eq!(resolve("$service-worker"), Resolution::Builtin);
+    assert_eq!(resolve("virtual:foo"), Resolution::Builtin);
+}
+
+#[test]
+fn workspace_members_resolve_third_party_root_dependencies_as_external() {
     let paths: Vec<String> = [
         "package.json",
         "scripts/release.ts",
@@ -196,16 +224,8 @@ fn workspace_members_inherit_hoisted_root_dependencies_without_hiding_member_or_
 
     let ext = |name: &str| Resolution::External(name.to_owned());
     let cases = [
-        (
-            "packages/app/src/index.test.ts",
-            "vitest",
-            Resolution::Builtin,
-        ),
-        (
-            "packages/app/src/index.ts",
-            "vite/client",
-            Resolution::Builtin,
-        ),
+        ("packages/app/src/index.test.ts", "vitest", ext("vitest")),
+        ("packages/app/src/index.ts", "vite/client", ext("vite")),
         ("packages/app/src/index.ts", "zod", ext("zod")),
         ("packages/app/src/index.ts", "axios", ext("axios")),
         ("scripts/release.ts", "vitest", ext("vitest")),

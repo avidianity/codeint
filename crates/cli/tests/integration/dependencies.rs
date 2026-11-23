@@ -72,6 +72,16 @@ fn assert_all_dep_metrics_empty(deps: &Value) {
     }
 }
 
+fn assert_single_unlisted_finding(root: &Path, dependency: &str, manifest: &str) {
+    let report = expect_json(root, None, &["check", "--format", "json"], 0);
+    let unlisted = report["dependencies"]["unlisted_dependencies"]["findings"]
+        .as_array()
+        .expect("unlisted findings");
+    assert_eq!(unlisted.len(), 1);
+    assert_eq!(unlisted[0]["dependency"], dependency);
+    assert_eq!(unlisted[0]["manifest"], manifest);
+}
+
 fn assert_language_hygiene(
     files: &[(&str, &str)],
     expected_unused: &[&str],
@@ -510,13 +520,7 @@ fn rust_build_dependencies_php_internal_namespace_and_polyglot_empty_manifests_b
         ),
         ("services/ml/app.py", "import requests\nCLIENT = requests\n"),
     ]);
-    let report = expect_json(repo.path(), None, &["check", "--format", "json"], 0);
-    let unlisted = report["dependencies"]["unlisted_dependencies"]["findings"]
-        .as_array()
-        .expect("unlisted findings");
-    assert_eq!(unlisted.len(), 1);
-    assert_eq!(unlisted[0]["dependency"], "requests");
-    assert_eq!(unlisted[0]["manifest"], "services/ml/pyproject.toml");
+    assert_single_unlisted_finding(repo.path(), "requests", "services/ml/pyproject.toml");
 }
 
 #[test]
@@ -702,11 +706,85 @@ fn non_virtual_workspace_roots_without_declared_deps_report_unlisted_imports() {
         ("packages/pkg-a/package.json", &member_pkg),
         ("packages/pkg-a/src/index.ts", "export const ok = true;\n"),
     ]);
-    let ts_report = expect_json(ts_repo.path(), None, &["check", "--format", "json"], 0);
-    let ts_unlisted = ts_report["dependencies"]["unlisted_dependencies"]["findings"]
-        .as_array()
-        .expect("ts unlisted findings");
-    assert_eq!(ts_unlisted.len(), 1);
-    assert_eq!(ts_unlisted[0]["dependency"], "chalk");
-    assert_eq!(ts_unlisted[0]["manifest"], "package.json");
+    assert_single_unlisted_finding(ts_repo.path(), "chalk", "package.json");
+}
+
+#[test]
+fn script_dev_dependencies_workspace_hoisting_and_ambient_types_work_end_to_end() {
+    let script_pkg = json!({
+        "name": "scripted-app",
+        "scripts": {
+            "test": "vitest # old jest",
+            "lint": "echo \"skip jest\" && rm -rf storybook"
+        },
+        "dependencies": {
+            "zod": "^3.0.0"
+        },
+        "devDependencies": {
+            "vitest": "^2.0.0",
+            "jest": "^29.0.0",
+            "@storybook/cli": "^8.0.0",
+            "@types/express": "^5.0.0",
+            "@types/node": "^22.0.0"
+        }
+    })
+    .to_string();
+    let script_repo = init_git_repo(&[
+        ("package.json", &script_pkg),
+        (
+            "src/index.ts",
+            concat!(
+                "import { z } from 'zod';\n",
+                "import { describe } from 'vitest';\n",
+                "import '@types/express';\n",
+                "export const run = () => Boolean(z && describe);\n",
+            ),
+        ),
+    ]);
+    let script_report = expect_json(script_repo.path(), None, &["check", "--format", "json"], 0);
+    let script_deps = &script_report["dependencies"];
+    assert_eq!(script_deps["unused_dependencies"]["declared"], 4);
+    assert_eq!(
+        dep_names(script_deps, "unused_dependencies"),
+        ["@storybook/cli", "jest"]
+    );
+    assert!(dep_names(script_deps, "unlisted_dependencies").is_empty());
+    assert_eq!(
+        dep_names(script_deps, "dev_in_production_dependencies"),
+        ["vitest"]
+    );
+
+    let root_pkg = json!({
+        "name": "hoist-root",
+        "private": true,
+        "workspaces": ["packages/*"],
+        "dependencies": {
+            "zod": "^3.0.0"
+        },
+        "devDependencies": {
+            "vitest": "^2.0.0"
+        }
+    })
+    .to_string();
+    let member_pkg = json!({
+        "name": "@hoist/app",
+        "dependencies": {}
+    })
+    .to_string();
+    let hoist_repo = init_git_repo(&[
+        ("package.json", &root_pkg),
+        ("packages/app/package.json", &member_pkg),
+        (
+            "packages/app/src/index.ts",
+            "import { z } from 'zod';\nimport { describe } from 'vitest';\nexport const ok = Boolean(z && describe);\n",
+        ),
+    ]);
+    let hoist_report = expect_json(hoist_repo.path(), None, &["check", "--format", "json"], 0);
+    let hoist_deps = &hoist_report["dependencies"];
+    assert!(dep_names(hoist_deps, "unused_dependencies").is_empty());
+    assert!(dep_names(hoist_deps, "unlisted_dependencies").is_empty());
+    assert_eq!(
+        dep_names(hoist_deps, "dev_in_production_dependencies"),
+        ["vitest"]
+    );
 }

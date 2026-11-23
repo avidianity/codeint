@@ -4,8 +4,8 @@ use super::language::{
 };
 use super::{
     CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, LanguagePluginError,
-    Package, ReferenceRanges, RepoPath, RuntimeImport, SourceFile, Workspace, token_text_hash,
-    validate_declared_dependencies, validate_entry_points,
+    ManifestUsedDep, Package, ReferenceRanges, RepoPath, RuntimeImport, SourceFile, Workspace,
+    token_text_hash, validate_declared_dependencies, validate_entry_points,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -323,4 +323,54 @@ fn validate_declared_dependencies_rejects_invalid_package_roots_and_empty_names(
             "expected empty dependency name error for {bad_name:?}, got {result:?}"
         );
     }
+}
+
+#[test]
+fn code_model_merge_sorts_and_deduplicates_manifest_used_dependencies() {
+    let first = CodeModel {
+        manifest_used_dependencies: vec![
+            ManifestUsedDep {
+                package_root: "packages/web".to_owned(),
+                name: "vite".to_owned(),
+            },
+            ManifestUsedDep {
+                package_root: String::new(),
+                name: "vitest".to_owned(),
+            },
+        ],
+        ..CodeModel::default()
+    };
+    let second = CodeModel {
+        manifest_used_dependencies: vec![
+            ManifestUsedDep {
+                package_root: String::new(),
+                name: "vitest".to_owned(),
+            },
+            ManifestUsedDep {
+                package_root: String::new(),
+                name: "eslint".to_owned(),
+            },
+        ],
+        ..CodeModel::default()
+    };
+
+    let merged = CodeModel::merge([first, second]);
+
+    assert_eq!(
+        merged.manifest_used_dependencies,
+        vec![
+            ManifestUsedDep {
+                package_root: String::new(),
+                name: "eslint".to_owned(),
+            },
+            ManifestUsedDep {
+                package_root: String::new(),
+                name: "vitest".to_owned(),
+            },
+            ManifestUsedDep {
+                package_root: "packages/web".to_owned(),
+                name: "vite".to_owned(),
+            },
+        ]
+    );
 }

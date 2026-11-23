@@ -2325,6 +2325,7 @@ fn single_package_json_parses_runtime_dev_optional_and_peer_dependencies() {
             ("", "@scope/ui", DepKind::Runtime),
             ("", "react", DepKind::Runtime),
             ("", "vitest", DepKind::Dev),
+            ("", "@types/node", DepKind::Optional),
             ("", "fsevents", DepKind::Optional),
             ("", "react-dom", DepKind::Optional),
             ("examples/demo", "non-workspace", DepKind::Runtime),
@@ -2553,7 +2554,7 @@ fn type_test_files_and_folders_are_classified_as_test_source_set() {
 
 #[test]
 fn framework_virtual_modules_classify_as_builtins_even_with_catch_all_tsconfig() {
-    let resolved = resolve_with_tsconfig(
+    let resolutions = resolve_with_tsconfig(
         CATCH_ALL_TSCONFIG,
         &[
             "virtual:pwa-register",
@@ -2563,11 +2564,28 @@ fn framework_virtual_modules_classify_as_builtins_even_with_catch_all_tsconfig()
             "$service-worker",
         ],
     );
-    assert_eq!(resolved, vec![Resolution::Builtin; 5]);
+    assert_eq!(resolutions, vec![Resolution::Builtin; 5]);
+
+    let aliased_files = [
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"$app/*":["./src/app/*"]}}}"#,
+        ),
+        ("src/main.ts", ""),
+        ("src/app/foo.ts", ""),
+    ];
+    assert_eq!(
+        resolve_in_project(&aliased_files, "src/main.ts", "$app/foo"),
+        resolved("src/app/foo.ts")
+    );
+    assert_eq!(
+        resolve_in_project(&aliased_files, "src/main.ts", "$app/navigation"),
+        Resolution::Builtin
+    );
 }
 
 #[test]
-fn pnpm_workspace_hoisted_root_deps_and_script_cli_tools_classify_accurately() {
+fn pnpm_workspace_root_dev_deps_keep_dev_kind_and_resolve_as_external() {
     let manifests = [
         ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
         (
@@ -2602,15 +2620,17 @@ fn pnpm_workspace_hoisted_root_deps_and_script_cli_tools_classify_accurately() {
         ),
     ];
 
-    assert_eq!(
-        declared_deps(&manifests),
-        expected_declared(&[
-            ("", "unused-dev", DepKind::Dev),
-            ("", "eslint", DepKind::Optional),
-            ("", "typescript", DepKind::Optional),
-            ("", "vitest", DepKind::Optional),
+    let expected_root_dev = ["eslint", "typescript", "unused-dev", "vitest"]
+        .into_iter()
+        .map(|name| ("", name, DepKind::Dev))
+        .chain([
+            ("", "@types/node", DepKind::Optional),
             ("packages/kit", "zod", DepKind::Runtime),
         ])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        declared_deps(&manifests),
+        expected_declared(&expected_root_dev)
     );
 
     let files = [
@@ -2634,7 +2654,7 @@ fn pnpm_workspace_hoisted_root_deps_and_script_cli_tools_classify_accurately() {
     assert_eq!(
         resolved,
         vec![
-            Resolution::Builtin,
+            Resolution::External("vitest".to_owned()),
             Resolution::External("zod".to_owned()),
             Resolution::External("axios".to_owned()),
             Resolution::External("vitest".to_owned()),
