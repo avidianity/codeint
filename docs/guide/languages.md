@@ -13,8 +13,8 @@ Every built-in Language plugin extracts:
 
 | Plugin name | Extensions | Workspace & dependency manifest | Default Test / Generated rules |
 | ----------- | ---------- | ------------------------------- | ------------------------------ |
-| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`; `.vue` and `.svelte` measure `<script>` blocks only |
-| `rust` | `.rs` | `Cargo.toml` | `tests/`, `benches/`, `examples/`, `tests.rs`, `*_test.rs`, `*_tests.rs`; inline `#[cfg(test)]` excluded from Production |
+| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.test-d.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`; `.vue` and `.svelte` measure `<script>` blocks only |
+| `rust` | `.rs` | `Cargo.toml` | `tests/`, `benches/`, `examples/`, `tests.rs`, `*_test.rs`, `*_tests.rs`; inline `#[cfg(test)]` and `#[cfg(all(test, ...))]` excluded from Production |
 | `php` | `.php` | `composer.json` (`repositories` of type `path`) | `tests/`, `test/`, `*Test.php`, `*.test.php` |
 | `dart` | `.dart` | `pubspec.yaml` (`workspace`) | `test/`, `tests/`, `integration_test/`, `*_test.dart`; `*.g.dart`, `*.freezed.dart`, `*.gr.dart`, `*.mocks.dart`, `*.pb*.dart` -> Generated |
 | `python` | `.py` | `pyproject.toml` (`[tool.uv.workspace].members`) | `test/`, `tests/`, `test_*.py`, `*_test.py`, `conftest.py`; `*_pb2.py`, `*_pb2_grpc.py` -> Generated; `if TYPE_CHECKING:` imports excluded from Import cycles |
@@ -43,7 +43,7 @@ Sample Production measurements from `codeint check` (release build, Apple Silico
 
 | Language | Repository | Files | Prod lines | Erosion | Duplication | Verbosity | Import cycles | Time |
 | -------- | ---------- | ----- | ---------- | ------- | ----------- | --------- | ------------- | ---- |
-| Rust | `avidianity/codeint` | 154 | 16,400 | 31.0% | 5.2% | 5.3% | 2.3% | 0.06s |
+| Rust | `avidianity/codeint` | 176 | 43,487 | 10.1% | 1.2% | 1.3% | 1.7% | 0.11s |
 | Rust | `BurntSushi/ripgrep` | 105 | 24,961 | 36.4% | 31.1% | 31.3% | 29.3% | 0.07s |
 | Rust | `sharkdp/fd` | 25 | 3,423 | 44.6% | 0.0% | 0.1% | 56.5% | 0.02s |
 | Rust | `dtolnay/serde` | 189 | 19,425 | 45.7% | 40.2% | 40.2% | 0.0% | 0.06s |

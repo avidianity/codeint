@@ -18,7 +18,8 @@
 ## Imports and module resolution
 
 - `src/imports.rs` and `src/resolution.rs` extract runtime imports while ignoring imports inside `if TYPE_CHECKING:` (or `if typing.TYPE_CHECKING:`) guard blocks and `from __future__ import` directives.
-- Relative imports (`.foo`, `..bar`) and repository-root or `src/`-layout package imports resolve to repository `.py` files, standard-library top-level modules are classified as `Builtin`, and third-party modules are classified as `External` with PEP 503 normalized package names.
+- Relative imports (`.foo`, `..bar`, and `from . import Symbol`) and repository-root or `src/`-layout package imports resolve to repository `.py` files, standard-library top-level modules are classified as `Builtin`, and third-party modules are classified as `External` with PEP 503 normalized package names.
+- `src/entry_points.rs` discovers top-level package `__init__.py` and `__main__.py` entry points (excluding non-package tooling/test/docs folders) plus `[project.scripts]`, `[project.gui-scripts]`, `[project.entry-points]`, and Poetry script entry points from `pyproject.toml`.
 - `src/dependencies.rs` parses `pyproject.toml` runtime, dev, and optional dependencies (`[project]`, `[dependency-groups]`, `[tool.uv]`, `[tool.pdm]`, and `[tool.poetry]`) per Workspace package using PEP 503 normalization while excluding local workspace package names.
 
 ## Reference ranges

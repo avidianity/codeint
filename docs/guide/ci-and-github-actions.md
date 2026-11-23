@@ -32,7 +32,7 @@ jobs:
 | ----- | ------- | ----------- |
 | `base-ref` | `origin/<github.base_ref>` | Base Git ref to diff against. |
 | `path` | `.` | Directory to measure inside the repository. |
-| `version` | `latest` | Release tag (for example `v0.4.0`) or `latest`. |
+| `version` | `latest` | Release tag (for example `v0.6.0`) or `latest`. |
 | `comment` | `true` | Post or update one sticky pull-request summary comment. |
 | `upload-sarif` | `false` | Upload `codeint.sarif` to GitHub code scanning (requires `security-events: write`). |
 | `fail-on-regression` | `true` | Fail the step when `codeint diff` exits `1`. |
