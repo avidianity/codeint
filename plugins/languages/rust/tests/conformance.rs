@@ -1140,3 +1140,138 @@ nix = "0.29"
         ],
     );
 }
+
+fn assert_intra_crate_targets(
+    paths: &[&str],
+    manifest: &str,
+    expected: &[(&str, &str, Option<&str>)],
+) {
+    let cases: Vec<(&str, &str, Resolution)> = expected
+        .iter()
+        .map(|(importer, specifier, target)| {
+            let outcome = target.map_or(Resolution::Builtin, |path| {
+                Resolution::Resolved(path.to_owned())
+            });
+            (*importer, *specifier, outcome)
+        })
+        .collect();
+    assert_rust_resolutions(paths, &[("Cargo.toml", manifest)], &cases);
+}
+
+#[test]
+fn follows_reexports_through_parent_modules_and_preserves_sibling_cycles() {
+    let lib_src = concat!(
+        "mod alpha;\n",
+        "mod beta;\n",
+        "mod gamma;\n",
+        "mod delta;\n",
+        "pub use alpha::Alpha;\n",
+        "pub use beta::Beta as RenamedBeta;\n",
+        "pub use gamma::Gamma;\n",
+        "pub use delta::self as dmod;\n",
+        "use std::fmt::Write as _;\n",
+        "pub struct RootError;\n",
+    );
+    let lowered_lib = lower("src/lib.rs", lib_src).expect("lower lib");
+    assert_eq!(
+        lowered_lib.runtime_imports,
+        [
+            "mod:alpha",
+            "mod:beta",
+            "mod:delta",
+            "mod:gamma",
+            "use:alpha::Alpha",
+            "use:beta::Beta as RenamedBeta",
+            "use:delta as dmod",
+            "use:gamma::Gamma",
+            "use:std::fmt::Write as _",
+        ]
+    );
+
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/main.rs",
+            "src/alpha.rs",
+            "src/beta.rs",
+            "src/gamma.rs",
+            "src/delta.rs",
+            "src/delta/leaf.rs",
+            "src/delta/tests.rs",
+        ],
+        "[package]\nname = \"demo\"\n",
+        &[
+            ("src/lib.rs", "mod:alpha", Some("src/alpha.rs")),
+            ("src/lib.rs", "mod:beta", Some("src/beta.rs")),
+            ("src/lib.rs", "mod:gamma", Some("src/gamma.rs")),
+            ("src/lib.rs", "mod:delta", Some("src/delta.rs")),
+            ("src/delta.rs", "mod:leaf", Some("src/delta/leaf.rs")),
+            ("src/lib.rs", "use:alpha::Alpha", Some("src/alpha.rs")),
+            (
+                "src/lib.rs",
+                "use:beta::Beta as RenamedBeta",
+                Some("src/beta.rs"),
+            ),
+            ("src/lib.rs", "use:gamma::Gamma", Some("src/gamma.rs")),
+            ("src/lib.rs", "use:delta as dmod", Some("src/delta.rs")),
+            (
+                "src/delta.rs",
+                "use:leaf::LeafItem",
+                Some("src/delta/leaf.rs"),
+            ),
+            (
+                "src/alpha.rs",
+                "use:crate::RenamedBeta",
+                Some("src/beta.rs"),
+            ),
+            ("src/beta.rs", "use:crate::Alpha", Some("src/alpha.rs")),
+            (
+                "src/gamma.rs",
+                "use:crate::dmod::LeafItem",
+                Some("src/delta/leaf.rs"),
+            ),
+            ("src/alpha.rs", "use:crate::RootError", None),
+            ("src/alpha.rs", "use:crate::Alpha", None),
+            ("src/delta/leaf.rs", "use:super::DeltaType", None),
+            ("src/delta/leaf.rs", "use:super", None),
+            ("src/delta/leaf.rs", "use:crate::delta::DeltaType", None),
+            ("src/delta/leaf.rs", "use:demo::RootError", None),
+            ("src/delta/leaf.rs", "path:demo", None),
+            ("src/delta/leaf.rs", "use:demo::Alpha", Some("src/alpha.rs")),
+            ("src/main.rs", "path:demo", Some("src/lib.rs")),
+            ("src/main.rs", "use:demo::Alpha", Some("src/lib.rs")),
+            (
+                "src/delta/tests.rs",
+                "use:super::DeltaType",
+                Some("src/delta.rs"),
+            ),
+        ],
+    );
+}
+
+#[test]
+fn handles_cyclic_and_ambiguous_reexports_without_looping() {
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/a.rs",
+            "src/b.rs",
+            "src/caller.rs",
+        ],
+        "[package]\nname = \"loopdemo\"\n",
+        &[
+            ("src/lib.rs", "mod:a", Some("src/a.rs")),
+            ("src/lib.rs", "mod:b", Some("src/b.rs")),
+            ("src/lib.rs", "mod:caller", Some("src/caller.rs")),
+            ("src/lib.rs", "use:a::LoopItem", Some("src/a.rs")),
+            ("src/a.rs", "use:crate::b::LoopItem", Some("src/b.rs")),
+            ("src/b.rs", "use:crate::a::LoopItem", Some("src/a.rs")),
+            ("src/lib.rs", "use:a::Dup", Some("src/a.rs")),
+            ("src/lib.rs", "use:b::Dup", Some("src/b.rs")),
+            ("src/caller.rs", "use:crate::LoopItem", Some("src/a.rs")),
+            ("src/caller.rs", "use:crate::Dup", None),
+        ],
+    );
+}

@@ -490,6 +490,7 @@ fn collect_use_tree(
         }
         UseTree::Name(name) => record_use_ident(
             &name.ident.to_string(),
+            None,
             prefix,
             allow_local_filter,
             local_idents,
@@ -497,6 +498,7 @@ fn collect_use_tree(
         ),
         UseTree::Rename(rename) => record_use_ident(
             &rename.ident.to_string(),
+            Some(&rename.rename.to_string()),
             prefix,
             allow_local_filter,
             local_idents,
@@ -517,6 +519,7 @@ fn collect_use_tree(
 
 fn record_use_ident(
     ident: &str,
+    alias: Option<&str>,
     prefix: &mut Vec<String>,
     allow_local_filter: bool,
     local_idents: &HashSet<String>,
@@ -524,7 +527,9 @@ fn record_use_ident(
 ) {
     if ident == "self" {
         if !prefix.is_empty() && !is_local_root(&prefix[0], allow_local_filter, local_idents) {
-            out.insert(format!("{USE_PREFIX}{}", prefix.join("::")));
+            let path = prefix.join("::");
+            let leaf = prefix.last().map(String::as_str);
+            out.insert(format_use_specifier(&path, leaf, alias));
         }
     } else {
         let root = prefix.first().map_or(ident, String::as_str);
@@ -532,8 +537,16 @@ fn record_use_ident(
             return;
         }
         prefix.push(ident.to_owned());
-        out.insert(format!("{USE_PREFIX}{}", prefix.join("::")));
+        let path = prefix.join("::");
+        out.insert(format_use_specifier(&path, Some(ident), alias));
         prefix.pop();
+    }
+}
+
+fn format_use_specifier(path: &str, leaf: Option<&str>, alias: Option<&str>) -> String {
+    match alias {
+        Some(rename) if Some(rename) != leaf => format!("{USE_PREFIX}{path} as {rename}"),
+        _ => format!("{USE_PREFIX}{path}"),
     }
 }
 
