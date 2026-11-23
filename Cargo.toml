@@ -58,16 +58,7 @@ allow_attributes_without_reason = "deny"
 debug = 0
 
 [profile.dev.package]
-cranelift-assembler-x64.opt-level = 2
-cranelift-bforest.opt-level = 2
-cranelift-bitset.opt-level = 2
-cranelift-codegen.opt-level = 2
-cranelift-control.opt-level = 2
-cranelift-entity.opt-level = 2
-cranelift-frontend.opt-level = 2
-cranelift-native.opt-level = 2
-regalloc2.opt-level = 2
-wasmparser.opt-level = 2
-wasmtime.opt-level = 2
-wasmtime-environ.opt-level = 2
-wasmtime-internal-cranelift.opt-level = 2
+cranelift-codegen.opt-level = 1
+cranelift-frontend.opt-level = 1
+regalloc2.opt-level = 1
+wasmtime-internal-cranelift.opt-level = 1
