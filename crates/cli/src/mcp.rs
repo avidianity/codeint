@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, ImpactFormat, PluginHostConfig, ReportFormat, TrendFormat,
+    TrendRange,
 };
 use serde_json::{Value, json};
 
-use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, trend};
+use crate::{CheckOptions, DiffOptions, ImpactOptions, TrendOptions, check, diff, impact, trend};
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -157,6 +158,23 @@ fn handle_tools_list() -> Value {
                         "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
                     }
                 }
+            },
+            {
+                "name": "impact",
+                "description": "Compute the transitive reverse-dependency blast radius of one or more repository files (or files changed since a base Git ref), separating Production and Test dependents and listing affected Workspace packages.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "paths": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Repository-relative file paths to analyze."
+                        },
+                        "changed": { "type": "string", "description": "Optional base Git ref; analyze files changed since its merge-base with HEAD." },
+                        "depth": { "type": "integer", "minimum": 0, "description": "Optional maximum reverse-dependency hop distance to traverse." }
+                    }
+                }
             }
         ]
     })
@@ -175,6 +193,7 @@ fn handle_tools_call(
         "check" => Ok(call_check(args, ctx)),
         "diff" => Ok(call_diff(args, ctx)),
         "trend" => Ok(call_trend(args, ctx)),
+        "impact" => Ok(call_impact(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
 }
@@ -253,6 +272,51 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     };
     match trend(&folder, &options) {
         Ok(report) => match report.render(TrendFormat::Json) {
+            Ok(rendered) => {
+                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
+                tool_ok(payload)
+            }
+            Err(err) => tool_err(&err.to_string()),
+        },
+        Err(err) => tool_err(&err.to_string()),
+    }
+}
+
+fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let folder = resolve_folder(args, ctx.default_folder);
+    let paths: Vec<String> = match args.and_then(|a| a.get("paths")) {
+        Some(Value::Array(items)) => {
+            let mut parsed = Vec::with_capacity(items.len());
+            for item in items {
+                let Some(path) = item.as_str() else {
+                    return tool_err("Invalid paths argument: every entry must be a string");
+                };
+                parsed.push(path.to_owned());
+            }
+            parsed
+        }
+        Some(_) => return tool_err("Invalid paths argument: expected an array of strings"),
+        None => Vec::new(),
+    };
+    let changed = args
+        .and_then(|a| a.get("changed"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let depth = match args.and_then(|a| a.get("depth")) {
+        Some(value) => match value.as_u64().and_then(|n| usize::try_from(n).ok()) {
+            Some(depth) => Some(depth),
+            None => return tool_err("Invalid depth argument: expected a non-negative integer"),
+        },
+        None => None,
+    };
+    let options = ImpactOptions {
+        paths,
+        changed,
+        depth,
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    match impact(&folder, &options) {
+        Ok(report) => match report.render(ImpactFormat::Json) {
             Ok(rendered) => {
                 let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
                 tool_ok(payload)

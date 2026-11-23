@@ -3,6 +3,7 @@
 mod check;
 mod commit_measurement;
 mod diff;
+mod impact;
 mod init;
 mod mcp;
 mod remedy;
@@ -20,9 +21,10 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, ImpactFormat, PluginHostConfig, ReportFormat, TrendFormat,
+    TrendRange,
 };
-pub use codeint_report::{DiffReport, Report, TrendReport};
+pub use codeint_report::{DiffReport, ImpactReport, Report, TrendReport};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -76,6 +78,14 @@ impl Default for TrendOptions {
             plugin_host: PluginHostConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImpactOptions {
+    pub paths: Vec<String>,
+    pub changed: Option<String>,
+    pub depth: Option<usize>,
+    pub plugin_host: PluginHostConfig,
 }
 
 pub struct CheckOutcome {
@@ -178,6 +188,17 @@ pub fn trend(folder: &Path, options: &TrendOptions) -> Result<TrendReport, Codei
         .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
 }
 
+pub fn impact(folder: &Path, options: &ImpactOptions) -> Result<ImpactReport, CodeintError> {
+    let request = impact::ImpactRequest {
+        paths: &options.paths,
+        changed: options.changed.as_deref(),
+        depth: options.depth,
+        plugin_host: &options.plugin_host,
+    };
+    impact::impact(folder, &request)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Impact(err)))
+}
+
 pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
     init::init(folder).map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
 }
@@ -188,6 +209,8 @@ enum CliError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Check(#[from] check::CheckError),
+    #[error(transparent)]
+    Impact(#[from] impact::ImpactCommandError),
     #[error(transparent)]
     Init(#[from] init::InitError),
     #[error(transparent)]
@@ -280,6 +303,23 @@ fn run() -> Result<Outcome, CliError> {
             result_cache,
             &plugin_host,
         ),
+        Command::Impact {
+            folder,
+            paths,
+            changed,
+            depth,
+            destination,
+            format,
+            plugin_host,
+        } => run_impact(
+            &folder,
+            &paths,
+            changed.as_deref(),
+            depth,
+            &destination,
+            format,
+            &plugin_host,
+        ),
         Command::Init { folder } => run_init(&folder),
         Command::Update {
             check_only,
@@ -359,6 +399,26 @@ fn run_trend(
 ) -> Result<Outcome, CliError> {
     let result_cache = result_cache.map(ResultCache::in_folder);
     let report = trend::trend(folder, range, result_cache.as_ref(), plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_impact(
+    folder: &Path,
+    paths: &[String],
+    changed: Option<&str>,
+    depth: Option<usize>,
+    destination: &ReportDestination,
+    format: ImpactFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let request = impact::ImpactRequest {
+        paths,
+        changed,
+        depth,
+        plugin_host,
+    };
+    let report = impact::impact(folder, &request)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::Passed)
 }

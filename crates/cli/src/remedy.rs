@@ -1,30 +1,20 @@
 use codeint_config::{ConfigError, ConfigurationFileError, StarterConfigurationError};
 use codeint_git::GitError;
+use codeint_metrics::ImpactError;
 use codeint_model::{MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
 
 use crate::CliError;
 use crate::check::CheckError;
+use crate::impact::ImpactCommandError;
 use crate::init::InitError;
 use crate::update::UpdateError;
 
 pub(crate) fn remedy(error: &CliError) -> &'static str {
     match error {
         CliError::Config(error) => config_remedy(error),
-        CliError::Check(CheckError::Git(error)) => git_remedy(error),
-        CliError::Check(CheckError::Configuration(error)) => configuration_file_remedy(error),
-        CliError::Check(CheckError::Workspace(error)) => workspace_remedy(error),
-        CliError::Check(CheckError::Resolve(_)) => {
-            "This is a defect in the Language plugin; report it to the author of the Language plugin."
-        }
-        CliError::Check(CheckError::ReferenceRange(_)) => {
-            "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
-        }
-        CliError::Check(CheckError::PluginHost(error)) => plugin_host_remedy(error),
-        CliError::Check(CheckError::MetricPlugin(error)) => metric_plugin_remedy(error),
-        CliError::Check(CheckError::ExtensionConflict { .. }) => {
-            "Assign separate directories to each Language plugin in the languages setting of codeint.json."
-        }
+        CliError::Check(error) => check_remedy(error),
+        CliError::Impact(error) => impact_remedy(error),
         CliError::Init(InitError::Git(GitError::NotInRepository { .. })) => {
             "Run codeint init inside a Git repository; it writes codeint.json at the root of the repository."
         }
@@ -39,6 +29,43 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
         CliError::Output(_) => "Keep standard output open until codeint exits.",
         CliError::OutputFile { .. } => {
             "Pass --output a file path that you have permission to write, not a folder."
+        }
+    }
+}
+
+fn check_remedy(error: &CheckError) -> &'static str {
+    match error {
+        CheckError::Git(error) => git_remedy(error),
+        CheckError::Configuration(error) => configuration_file_remedy(error),
+        CheckError::Workspace(error) => workspace_remedy(error),
+        CheckError::Resolve(_) => {
+            "This is a defect in the Language plugin; report it to the author of the Language plugin."
+        }
+        CheckError::ReferenceRange(_) => {
+            "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
+        }
+        CheckError::PluginHost(error) => plugin_host_remedy(error),
+        CheckError::MetricPlugin(error) => metric_plugin_remedy(error),
+        CheckError::ExtensionConflict { .. } => {
+            "Assign separate directories to each Language plugin in the languages setting of codeint.json."
+        }
+    }
+}
+
+fn impact_remedy(error: &ImpactCommandError) -> &'static str {
+    match error {
+        ImpactCommandError::Check(error) => check_remedy(error),
+        ImpactCommandError::Analysis(ImpactError::TargetNotInCodeModel { .. }) => {
+            "Pass a tracked or non-ignored source file that a Language plugin measures, or check the file path."
+        }
+        ImpactCommandError::MissingTargets => {
+            "Pass one or more repository file paths, or pass --changed <base> to analyze changed files."
+        }
+        ImpactCommandError::PathOutsideRepository { .. } => {
+            "Pass a file path inside the Git repository."
+        }
+        ImpactCommandError::InvalidTargetPath { .. } => {
+            "Pass a repository-relative file path using forward slashes."
         }
     }
 }

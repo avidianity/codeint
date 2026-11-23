@@ -26,9 +26,10 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `check` | Measure the working tree and print the report; see [`codeint check`](#codeint-check) |
 | `diff` | Compare the working tree, or a head Git ref, with the merge-base of a base Git ref; see [`codeint diff`](#codeint-diff) |
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
+| `impact` | Compute the transitive reverse-dependency blast radius of one or more repository files; see [`codeint impact`](#codeint-impact) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
-| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, and `trend` tools; see [`codeint mcp`](#codeint-mcp) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `impact` tools; see [`codeint mcp`](#codeint-mcp) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -459,6 +460,30 @@ codeint reads each commit from Git objects, so it never checks out a commit and 
 Every commit uses the `codeint.json` of the working tree, as `codeint diff` does.
 Each commit goes through the [result cache](#result-cache), so a repeated trend measures only the commits that are new since the last run.
 
+### `codeint impact`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]...` | Repository file paths to analyze |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--changed <BASE_REF>` | Analyze files changed since the merge-base of this Git ref and HEAD |
+| `--depth <N>` | Maximum reverse-dependency hop distance to traverse |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `text` |
+| `-h, --help` | Print the help of `codeint impact` |
+
+`codeint impact` computes the transitive reverse-dependency blast radius of one or more repository files, distinguishing direct dependents (distance 1) from transitive dependents (distance 2 or more), separating Production dependents from Test dependents, and listing affected Workspace packages:
+
+```sh exit=0
+codeint impact src/sign.ts
+codeint impact --changed main
+codeint impact src/sign.ts --depth 1 --format text
+codeint impact src/sign.ts --format toon
+codeint impact src/sign.ts --format json --output impact.json
+```
+
 ### `codeint update`
 
 | Option | Meaning |
@@ -486,7 +511,7 @@ codeint 0.5.0 is already up to date (v0.5.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes three read-only tools (`check`, `diff`, and `trend`) so coding agents can measure Software entropy and fix Regressions before opening a pull request.
+It exposes four read-only tools (`check`, `diff`, `trend`, and `impact`) so coding agents can measure Software entropy, inspect reverse-dependency blast radius, and fix Regressions before opening a pull request.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0

@@ -15,6 +15,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
 mod diff;
+mod impact;
 mod markdown;
 mod measurement;
 mod sarif;
@@ -23,6 +24,7 @@ mod tests;
 mod trend;
 
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
+pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::CommitMeasurement;
 pub use trend::{TrendPoint, TrendReport};
 

@@ -93,6 +93,13 @@ pub enum TrendFormat {
     Markdown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ImpactFormat {
+    Toon,
+    Json,
+    Text,
+}
+
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +133,15 @@ pub enum Command {
         destination: ReportDestination,
         format: TrendFormat,
         result_cache: Option<PathBuf>,
+        plugin_host: PluginHostConfig,
+    },
+    Impact {
+        folder: PathBuf,
+        paths: Vec<String>,
+        changed: Option<String>,
+        depth: Option<usize>,
+        destination: ReportDestination,
+        format: ImpactFormat,
         plugin_host: PluginHostConfig,
     },
     Init {
@@ -213,6 +229,42 @@ enum CommandArguments {
         format: TrendFormat,
     },
     #[command(
+        about = "Compute the transitive reverse-dependency blast radius of one or more repository files"
+    )]
+    Impact {
+        #[arg(
+            value_name = "PATH",
+            required_unless_present = "changed",
+            help = "Repository file paths to analyze"
+        )]
+        paths: Vec<String>,
+        #[arg(
+            long,
+            value_name = "BASE_REF",
+            help = "Analyze files changed since the merge-base of this Git ref and HEAD"
+        )]
+        changed: Option<String>,
+        #[arg(
+            long,
+            value_name = "N",
+            help = "Maximum reverse-dependency hop distance to traverse"
+        )]
+        depth: Option<usize>,
+        #[arg(
+            long,
+            value_name = "FILE",
+            help = "Write the report to this file instead of standard output"
+        )]
+        output: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = ImpactFormat::Toon,
+            help = "The format of the report"
+        )]
+        format: ImpactFormat,
+    },
+    #[command(
         about = "Write a starter codeint.json at the root of the Git repository that contains the current folder"
     )]
     Init,
@@ -280,6 +332,21 @@ pub fn read_invocation() -> Result<Invocation, ConfigError> {
             destination: report_destination(&current_folder, output)?,
             format,
             result_cache: result_cache_folder_of_this_process(&current_folder),
+            plugin_host: plugin_host_config_of_this_process(&current_folder),
+        },
+        CommandArguments::Impact {
+            paths,
+            changed,
+            depth,
+            output,
+            format,
+        } => Command::Impact {
+            folder: current_folder.clone(),
+            paths,
+            changed,
+            depth,
+            destination: report_destination(&current_folder, output)?,
+            format,
             plugin_host: plugin_host_config_of_this_process(&current_folder),
         },
         CommandArguments::Init => Command::Init {
