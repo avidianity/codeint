@@ -322,7 +322,13 @@ impl ImportCollector {
         }
         let ident = node.ident.to_string();
         if ident != "self" {
-            self.specifiers.insert(format!("{use_prefix}{ident}"));
+            let alias = node.rename.as_ref().map(|(_, alias)| alias.to_string());
+            self.specifiers.insert(format_use_specifier(
+                use_prefix,
+                &ident,
+                Some(&ident),
+                alias.as_deref(),
+            ));
         }
     }
 

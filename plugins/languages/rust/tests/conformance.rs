@@ -1495,4 +1495,48 @@ fn mod_parents_drive_crate_and_super_resolution_across_targets_and_path_attrs() 
             ("shared.rs", "use:super::Alpha", Some("src/alpha.rs")),
         ],
     );
+
+    assert_intra_crate_targets(
+        &[
+            "Cargo.toml",
+            "src/lib.rs",
+            "src/alpha.rs",
+            "src/tests/mod.rs",
+            "src/tests/helpers.rs",
+            "src/bin/tool.rs",
+            "src/bin/helper.rs",
+        ],
+        "[package]\nname = \"testmod\"\n",
+        &[
+            ("src/lib.rs", "mod:alpha", Some("src/alpha.rs")),
+            (
+                "src/tests/mod.rs",
+                "mod:helpers",
+                Some("src/tests/helpers.rs"),
+            ),
+            (
+                "src/tests/helpers.rs",
+                "use:crate::alpha::Alpha",
+                Some("src/alpha.rs"),
+            ),
+            ("src/bin/tool.rs", "mod:helper", Some("src/bin/helper.rs")),
+            (
+                "src/bin/tool.rs",
+                "use-local:crate::helper::run",
+                Some("src/bin/helper.rs"),
+            ),
+        ],
+    );
+
+    let extern_src = concat!(
+        "extern crate serde as _;\n",
+        "pub extern crate serde as ser;\n",
+        "extern crate log;\n",
+    );
+    assert_eq!(
+        lower("src/lib.rs", extern_src)
+            .expect("lower extern crate")
+            .runtime_imports,
+        ["use:log", "use:serde as _", "use:serde as ser"]
+    );
 }

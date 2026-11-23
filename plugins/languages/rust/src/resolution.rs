@@ -294,15 +294,11 @@ impl RustResolver {
     }
 
     fn unambiguous_mod_root<'a>(&'a self, file: &'a str) -> Option<&'a str> {
-        let (top, steps) = self.walk_mod_parents(file, usize::MAX);
+        let (top, _) = self.walk_mod_parents(file, usize::MAX);
         if self.mod_parents.contains_key(top) {
             return None;
         }
-        if steps > 0 {
-            self.is_crate_root_file(top).then_some(top)
-        } else {
-            self.is_primary_crate_root_file(top).then_some(top)
-        }
+        self.is_crate_root_file(top).then_some(top)
     }
 
     fn is_primary_crate_root_file(&self, file: &str) -> bool {
@@ -315,9 +311,20 @@ impl RustResolver {
         if self.is_primary_crate_root_file(file) {
             return true;
         }
+        let file_name = file.rsplit_once('/').map_or(file, |(_, name)| name);
+        if file_name == "mod.rs" {
+            return false;
+        }
         let dir = parent_dir(file);
-        let parent_name = dir.rsplit_once('/').map_or(dir.as_str(), |(_, name)| name);
-        matches!(parent_name, "tests" | "benches" | "examples" | "bin")
+        let pkg_root = self.owning_crate_root(file);
+        let rel_dir = if pkg_root.is_empty() {
+            dir.as_str()
+        } else {
+            dir.strip_prefix(pkg_root)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .unwrap_or("")
+        };
+        matches!(rel_dir, "tests" | "benches" | "examples" | "src/bin")
     }
 
     fn resolve_top_level_use(
