@@ -1,6 +1,6 @@
 {
   "name": "@avidian/codeint-win32-arm64",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Windows arm64 binary for codeint",
   "license": "MIT",
   "repository": {
