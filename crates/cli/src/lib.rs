@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
 mod check;
+mod churn;
 mod commit_measurement;
+mod coupling;
 mod diff;
 mod guard;
 mod impact;
@@ -25,15 +27,20 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
+    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, CouplingRatio, CouplingRatioError,
+    CouplingSettings, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
     TraceFormat, TrendFormat, TrendRange,
 };
-pub use codeint_report::{DiffReport, GuardReport, ImpactReport, Report, TraceReport, TrendReport};
+pub use codeint_report::{
+    ChurnReport, CouplingReport, DiffReport, GuardReport, ImpactReport, Report, TraceReport,
+    TrendReport,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CheckOptions {
     pub findings: FindingsShown,
     pub package: Option<String>,
+    pub owner: Option<String>,
     pub plugin_host: PluginHostConfig,
 }
 
@@ -42,6 +49,7 @@ pub struct DiffOptions {
     pub head_ref: Option<String>,
     pub findings: FindingsShown,
     pub package: Option<String>,
+    pub owner: Option<String>,
     pub result_cache: Option<PathBuf>,
     pub plugin_host: PluginHostConfig,
 }
@@ -79,6 +87,20 @@ impl Default for TraceOptions {
             plugin_host: PluginHostConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ChurnOptions {
+    pub window: ChurnWindow,
+    pub findings: FindingsShown,
+    pub plugin_host: PluginHostConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CouplingOptions {
+    pub settings: CouplingSettings,
+    pub findings: FindingsShown,
+    pub plugin_host: PluginHostConfig,
 }
 pub struct CheckOutcome {
     pub passed: bool,
@@ -128,6 +150,7 @@ pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, Code
         folder,
         options.findings,
         options.package.as_deref(),
+        options.owner.as_deref(),
         &options.plugin_host,
     )
     .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
@@ -175,6 +198,7 @@ fn measure_diff(
         refs,
         options.findings,
         options.package.as_deref(),
+        options.owner.as_deref(),
         cache.as_ref(),
         &options.plugin_host,
     )
@@ -222,6 +246,26 @@ pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
 
 pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> {
     guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
+}
+
+pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, CodeintError> {
+    churn::churn(
+        folder,
+        options.window,
+        options.findings,
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
+}
+
+pub fn coupling(folder: &Path, options: &CouplingOptions) -> Result<CouplingReport, CodeintError> {
+    coupling::coupling(
+        folder,
+        options.settings,
+        options.findings,
+        &options.plugin_host,
+    )
+    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -287,13 +331,18 @@ pub fn run_cli() -> ExitCode {
 }
 
 fn run() -> Result<Outcome, CliError> {
-    match read_invocation()?.command {
+    run_command(read_invocation()?.command)
+}
+
+fn run_command(command: Command) -> Result<Outcome, CliError> {
+    match command {
         Command::Check {
             folder,
             destination,
             findings,
             format,
             package,
+            owner,
             plugin_host,
         } => run_check(
             &folder,
@@ -301,6 +350,7 @@ fn run() -> Result<Outcome, CliError> {
             findings,
             format,
             package.as_deref(),
+            owner.as_deref(),
             &plugin_host,
         ),
         Command::Diff {
@@ -311,6 +361,7 @@ fn run() -> Result<Outcome, CliError> {
             findings,
             format,
             package,
+            owner,
             result_cache,
             plugin_host,
         } => {
@@ -318,6 +369,7 @@ fn run() -> Result<Outcome, CliError> {
                 head_ref,
                 findings,
                 package,
+                owner,
                 result_cache,
                 plugin_host,
             };
@@ -376,6 +428,12 @@ fn run() -> Result<Outcome, CliError> {
             };
             run_trace(&folder, &from, &to, &destination, format, &options)
         }
+        other => run_auxiliary_command(other),
+    }
+}
+
+fn run_auxiliary_command(command: Command) -> Result<Outcome, CliError> {
+    match command {
         Command::Init { folder } => run_init(&folder),
         Command::Update {
             check_only,
@@ -392,7 +450,64 @@ fn run() -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Churn {
+            folder,
+            window,
+            destination,
+            findings,
+            format,
+            plugin_host,
+        } => run_churn(
+            &folder,
+            window,
+            &destination,
+            findings,
+            format,
+            &plugin_host,
+        ),
+        Command::Coupling {
+            folder,
+            settings,
+            destination,
+            findings,
+            format,
+            plugin_host,
+        } => run_coupling(
+            &folder,
+            settings,
+            &destination,
+            findings,
+            format,
+            &plugin_host,
+        ),
+        _ => unreachable!("analysis commands are handled by run_command"),
     }
+}
+
+fn run_churn(
+    folder: &Path,
+    window: ChurnWindow,
+    destination: &ReportDestination,
+    findings: FindingsShown,
+    format: ChurnFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = churn::churn(folder, window, findings, plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_coupling(
+    folder: &Path,
+    settings: CouplingSettings,
+    destination: &ReportDestination,
+    findings: FindingsShown,
+    format: ChurnFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = coupling::coupling(folder, settings, findings, plugin_host)?;
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
 }
 
 fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {
@@ -432,9 +547,10 @@ fn run_check(
     findings: FindingsShown,
     format: ReportFormat,
     package: Option<&str>,
+    owner: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
-    let report = check::check(folder, findings, package, plugin_host)?;
+    let report = check::check(folder, findings, package, owner, plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::from_failures(
         report

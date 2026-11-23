@@ -9,6 +9,7 @@ use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurement};
+use crate::ownership::{OwnedFinding, OwnershipOptions};
 use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
     BoundaryFindingRow, BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding,
@@ -135,6 +136,13 @@ trait Identified {
     fn id(&self) -> &str;
 }
 
+pub struct DiffReportOptions<'a> {
+    pub findings: FindingsShown,
+    pub budgets: &'a Budgets,
+    pub limits: &'a RegressionLimits,
+    pub ownership: OwnershipOptions<'a>,
+}
+
 impl DiffReport {
     pub fn compare(
         base: BaseCommit,
@@ -145,12 +153,38 @@ impl DiffReport {
         budgets: &Budgets,
         limits: &RegressionLimits,
     ) -> DiffReport {
+        DiffReport::compare_with_options(
+            base,
+            head,
+            base_measurement,
+            head_measurement,
+            DiffReportOptions {
+                findings,
+                budgets,
+                limits,
+                ownership: OwnershipOptions::default(),
+            },
+        )
+    }
+
+    pub fn compare_with_options(
+        base: BaseCommit,
+        head: Head,
+        base_measurement: CommitMeasurement,
+        head_measurement: CommitMeasurement,
+        options: DiffReportOptions<'_>,
+    ) -> DiffReport {
         let mut source_sets = SourceSetChangesSections::default();
         let base_sets = base_measurement.into_source_sets();
         let head_sets = head_measurement.into_source_sets();
         for ((source_set, base), (_, head)) in base_sets.into_iter().zip(head_sets) {
             if base.files > 0 || head.files > 0 {
-                *source_sets.slot(source_set) = Some(source_set_changes(base, head, findings));
+                *source_sets.slot(source_set) = Some(source_set_changes(
+                    base,
+                    head,
+                    options.findings,
+                    options.ownership,
+                ));
             }
         }
         DiffReport {
@@ -159,8 +193,8 @@ impl DiffReport {
                 merge_base: base.merge_base,
             },
             head: head_entry(head),
-            over_budget: over_budget(&source_sets, budgets),
-            regressions: regressions(&source_sets, limits),
+            over_budget: over_budget(&source_sets, options.budgets),
+            regressions: regressions(&source_sets, options.limits),
             source_sets,
         }
     }
@@ -239,21 +273,24 @@ impl<T: Serialize> Serialize for MetricChanges<T> {
     }
 }
 
-fn classify<T: Identified>(
+fn classify<T: Identified + OwnedFinding>(
     base: MetricMeasurement<T>,
     head: MetricMeasurement<T>,
     shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
 ) -> MetricChanges<T> {
-    let base_ids = ids(&base.findings_worst_first);
-    let head_ids = ids(&head.findings_worst_first);
+    let base_findings = ownership.apply(base.findings_worst_first);
+    let head_findings = ownership.apply(head.findings_worst_first);
+    let base_ids = ids(&base_findings);
+    let head_ids = ids(&head_findings);
     MetricChanges {
         base_ratio: Decimal::rounded(base.ratio),
         head_ratio: Decimal::rounded(head.ratio),
         base_numerator: Decimal::rounded(base.numerator),
         head_numerator: Decimal::rounded(head.numerator),
         unchanged: head_ids.intersection(&base_ids).count(),
-        new: missing_from(head.findings_worst_first, &base_ids, shown),
-        resolved: missing_from(base.findings_worst_first, &head_ids, shown),
+        new: missing_from(head_findings, &base_ids, shown),
+        resolved: missing_from(base_findings, &head_ids, shown),
     }
 }
 
@@ -494,6 +531,7 @@ fn source_set_changes(
     mut base: SourceSetMeasurement,
     mut head: SourceSetMeasurement,
     shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
 ) -> SourceSetChanges {
     let keys: BTreeSet<String> = base
         .external_metrics
@@ -520,7 +558,7 @@ fn source_set_changes(
             ExternalMetricChanges {
                 name,
                 description,
-                changes: classify(base_measurement, head_measurement, shown),
+                changes: classify(base_measurement, head_measurement, shown, ownership),
             },
         );
     }
@@ -530,13 +568,14 @@ fn source_set_changes(
             base_boundaries.unwrap_or_default(),
             head_boundaries.unwrap_or_default(),
             shown,
+            ownership,
         )),
     };
     SourceSetChanges {
-        erosion: classify(base.erosion, head.erosion, shown),
-        duplication: classify(base.duplication, head.duplication, shown),
-        verbosity: classify(base.verbosity, head.verbosity, shown),
-        import_cycles: classify(base.import_cycles, head.import_cycles, shown),
+        erosion: classify(base.erosion, head.erosion, shown, ownership),
+        duplication: classify(base.duplication, head.duplication, shown, ownership),
+        verbosity: classify(base.verbosity, head.verbosity, shown, ownership),
+        import_cycles: classify(base.import_cycles, head.import_cycles, shown, ownership),
         boundaries,
         external_metrics,
     }
