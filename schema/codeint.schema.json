@@ -60,6 +60,10 @@
       "$ref": "#/$defs/BoundariesFile",
       "description": "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
     },
+    "duplication": {
+      "$ref": "#/$defs/DuplicationConfigFile",
+      "description": "Settings for Duplication detection, including opt-in shingle-based near-clone detection. Exact Clone groups remain the default when omitted."
+    },
     "entry_points": {
       "type": "array",
       "items": {
@@ -495,6 +499,23 @@
         "generated",
         "vendored"
       ]
+    },
+    "DuplicationConfigFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "near_clones": {
+          "type": "boolean",
+          "description": "When true, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; false by default."
+        },
+        "min_similarity": {
+          "type": "number",
+          "format": "double",
+          "description": "Minimum Jaccard shingle similarity in (0, 1] required for two blocks to match as a near-clone; 0.85 by default.",
+          "maximum": 1,
+          "exclusiveMinimum": 0
+        }
+      }
     }
   }
 }

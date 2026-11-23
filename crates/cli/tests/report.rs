@@ -537,3 +537,238 @@ fn rerenders_check_and_diff_json_with_orphan_files_losslessly() {
         "orphans-diff.json",
     );
 }
+
+fn near_clone_variant_ts(name: &str, bonus: i32) -> String {
+    format!(
+        "export function {name}(items: number[]): number {{\n  let total = 0;\n  for (const item of items) {{\n    const scaled = item * 2 + 1;\n    if (scaled > 10) {{\n      total += scaled - 3;\n    }} else {{\n      total += scaled + 5;\n    }}\n  }}\n  const extra = total + {bonus};\n  const adjusted = extra * 3 - 7;\n  return adjusted > 0 ? adjusted : 0;\n}}\n"
+    )
+}
+
+#[test]
+fn rerenders_check_and_diff_json_with_clone_families_and_near_clones_losslessly() {
+    let block_a = clone_block_ts("calcA");
+    let block_b = clone_block_ts("calcB");
+    let block_c = near_clone_variant_ts("calcC", 1);
+    let (dir, cache) = setup_workspace(&[
+        (
+            "codeint.json",
+            "{\"duplication\":{\"near_clones\":true,\"min_similarity\":0.75}}\n",
+        ),
+        ("src/dup_a.ts", &block_a),
+    ]);
+    commit_all(dir.path(), "base");
+
+    populate(
+        dir.path(),
+        &[("src/dup_b.ts", &block_b), ("src/dup_c.ts", &block_c)],
+    );
+
+    let check_json = invoke(
+        dir.path(),
+        cache.path(),
+        &["check", "--format", "json"],
+        None,
+    );
+    assert_eq!(check_json.status.code(), Some(0));
+    let check_text = utf8(&check_json.stdout);
+    assert!(check_text.contains("\"near_clones\""));
+    assert!(check_text.contains("\"clone_families\""));
+    verify_parity(
+        dir.path(),
+        cache.path(),
+        &["check"],
+        &check_json.stdout,
+        "near-check.json",
+    );
+
+    let diff_json = invoke(
+        dir.path(),
+        cache.path(),
+        &["diff", "main", "--format", "json"],
+        None,
+    );
+    assert_eq!(diff_json.status.code(), Some(1));
+    let diff_text = utf8(&diff_json.stdout);
+    assert!(diff_text.contains("\"clone_families\""));
+    verify_parity(
+        dir.path(),
+        cache.path(),
+        &["diff", "main"],
+        &diff_json.stdout,
+        "near-diff.json",
+    );
+}
+
+fn family_ts_source(family_id: usize, extra_ops: usize, compact: bool) -> String {
+    const OPS: [&str; 5] = ["+", "-", "*", "%", "&"];
+    const EXTRA_OUTER: [&str; 4] = ["^", "|", "+", "-"];
+    let op0 = OPS[family_id % OPS.len()];
+    let op1 = OPS[(family_id / OPS.len()) % OPS.len()];
+    let op2 = OPS[(family_id / (OPS.len() * OPS.len())) % OPS.len()];
+    let mut statements = vec![
+        format!("let acc = (a {op0} b) + 1;"),
+        "for (const item of items) {".to_owned(),
+        format!("const x = (item {op1} a) - (b {op2} 2);"),
+        format!("if (x > 10 && acc < 100) {{ acc = (acc {op0} x) ^ 3; }}"),
+        format!("if (x <= 0 || acc >= 50) {{ acc = (acc {op1} b) | 5; }}"),
+        "}".to_owned(),
+        format!("const mid = acc > 0 ? (acc {op2} a) : (b {op0} 7);"),
+        format!("let tail = (mid {op1} 11) + (acc {op2} 13);"),
+    ];
+    for step in 0..extra_ops {
+        let outer = EXTRA_OUTER[step % EXTRA_OUTER.len()];
+        let family_op = match step % 3 {
+            0 => op0,
+            1 => op1,
+            _ => op2,
+        };
+        let rhs = step + 17;
+        statements.push(format!(
+            "tail = (tail {family_op} acc) {outer} (a {op0} {rhs});"
+        ));
+    }
+    statements.push("return tail;".to_owned());
+    let body = if compact {
+        statements
+            .chunks(4)
+            .map(|chunk| chunk.join(" "))
+            .collect::<Vec<String>>()
+            .join("\n  ")
+    } else {
+        statements.join("\n  ")
+    };
+    format!(
+        "export function calc(a: number, b: number, items: number[]): number {{\n  {body}\n}}\n"
+    )
+}
+
+struct TruncatedFamiliesCase<'a> {
+    base_args: &'a [&'a str],
+    expected_code: i32,
+    file_name: &'a str,
+    list_key: &'a str,
+    left_out_key: &'a str,
+}
+
+fn verify_truncated_families_sarif_parity(
+    root: &Path,
+    cache: &Path,
+    case: &TruncatedFamiliesCase<'_>,
+    families_container: impl FnOnce(&serde_json::Value) -> &serde_json::Value,
+) {
+    let mut json_args = case.base_args.to_vec();
+    json_args.extend(["--format", "json"]);
+    let json_run = invoke(root, cache, &json_args, None);
+    assert_eq!(json_run.status.code(), Some(case.expected_code));
+    let doc: serde_json::Value = serde_json::from_slice(&json_run.stdout).expect("parse json");
+    let container = families_container(&doc);
+    assert_eq!(container[case.list_key].as_array().map(Vec::len), Some(20));
+    assert_eq!(container[case.left_out_key], 6);
+    let unlisted = container["unlisted_clone_family_group_ids"]
+        .as_array()
+        .expect("unlisted_clone_family_group_ids");
+    assert_eq!(unlisted.len(), 6);
+    verify_parity(
+        root,
+        cache,
+        case.base_args,
+        &json_run.stdout,
+        case.file_name,
+    );
+
+    let sarif = invoke(
+        root,
+        cache,
+        &["report", "-", "--format", "sarif"],
+        Some(&json_run.stdout),
+    );
+    assert_eq!(sarif.status.code(), Some(0));
+    let sarif_doc: serde_json::Value = serde_json::from_slice(&sarif.stdout).expect("parse sarif");
+    let results = sarif_doc["runs"][0]["results"]
+        .as_array()
+        .expect("sarif results");
+    assert_eq!(results.len(), 21);
+    for leaked in unlisted {
+        let leaked_id = leaked.as_str().expect("id string");
+        assert!(
+            results.iter().all(|result| {
+                result["partialFingerprints"]["codeintFindingId"].as_str() != Some(leaked_id)
+            }),
+            "{} SARIF leaked member CloneGroup {leaked_id}",
+            case.file_name
+        );
+    }
+}
+
+#[test]
+fn rerenders_truncated_clone_families_check_and_diff_json_with_exact_sarif_parity() {
+    let (dir, cache) = setup_workspace(&[("src/base.ts", "export const base = 1;\n")]);
+    commit_all(dir.path(), "base");
+
+    let mut owned_files = Vec::new();
+    for fam in 0..20usize {
+        let source = family_ts_source(fam, 0, false);
+        for copy in 0..3usize {
+            owned_files.push((format!("src/tall_{fam:02}_{copy}.ts"), source.clone()));
+        }
+    }
+    for fam in 20..26usize {
+        let source = family_ts_source(fam, 8, true);
+        for copy in 0..3usize {
+            owned_files.push((format!("src/wide_{fam:02}_{copy}.ts"), source.clone()));
+        }
+    }
+    let standalone_source = family_ts_source(26, 5, true);
+    for copy in 0..2usize {
+        owned_files.push((
+            format!("src/standalone_{copy}.ts"),
+            standalone_source.clone(),
+        ));
+    }
+    let borrowed_files: Vec<(&str, &str)> = owned_files
+        .iter()
+        .map(|(path, body)| (path.as_str(), body.as_str()))
+        .collect();
+    populate(dir.path(), &borrowed_files);
+
+    verify_truncated_families_sarif_parity(
+        dir.path(),
+        cache.path(),
+        &TruncatedFamiliesCase {
+            base_args: &["check"],
+            expected_code: 0,
+            file_name: "truncated-check.json",
+            list_key: "clone_families",
+            left_out_key: "clone_families_left_out",
+        },
+        |doc| &doc["source_sets"]["production"]["duplication"],
+    );
+
+    let check_all_json = invoke(
+        dir.path(),
+        cache.path(),
+        &["check", "--all", "--format", "json"],
+        None,
+    );
+    assert_eq!(check_all_json.status.code(), Some(0));
+    let check_all_doc: serde_json::Value =
+        serde_json::from_slice(&check_all_json.stdout).expect("parse check --all json");
+    assert_eq!(
+        check_all_doc["source_sets"]["production"]["duplication"]
+            .get("unlisted_clone_family_group_ids"),
+        None
+    );
+
+    verify_truncated_families_sarif_parity(
+        dir.path(),
+        cache.path(),
+        &TruncatedFamiliesCase {
+            base_args: &["diff", "main"],
+            expected_code: 1,
+            file_name: "truncated-diff.json",
+            list_key: "new",
+            left_out_key: "new_left_out",
+        },
+        |doc| &doc["source_sets"]["production"]["duplication"]["clone_families"],
+    );
+}

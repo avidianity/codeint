@@ -295,6 +295,11 @@ fn json_shape_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
         OutOfRange {
             minimum, maximum, ..
         } => out_of_range_remedy(*minimum, *maximum),
+        OutOfExclusiveMinRange {
+            exclusive_minimum,
+            maximum,
+            ..
+        } => out_of_exclusive_min_range_remedy(*exclusive_minimum, *maximum),
         NotOneOf { .. } => {
             "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one."
         }
@@ -308,6 +313,14 @@ fn json_shape_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
 fn out_of_range_remedy(minimum: f64, maximum: f64) -> &'static str {
     if minimum == 0.0 && maximum == 1.0 {
         "Set the value to a ratio from 0 to 1, as the report shows ratios."
+    } else {
+        "Set the value within the allowed range; the JSON schema that $schema links to describes every key."
+    }
+}
+
+fn out_of_exclusive_min_range_remedy(exclusive_minimum: f64, maximum: f64) -> &'static str {
+    if exclusive_minimum == 0.0 && maximum == 1.0 {
+        "Set the value to a ratio greater than 0 and at most 1, such as 0.85."
     } else {
         "Set the value within the allowed range; the JSON schema that $schema links to describes every key."
     }

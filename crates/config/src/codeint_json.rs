@@ -21,6 +21,8 @@ use serde_json::{Value, json};
 
 mod shape;
 mod starter;
+#[cfg(test)]
+mod tests;
 
 pub use starter::{
     DetectedLanguage, StarterConfigurationError, published_schema_address,
@@ -29,6 +31,43 @@ pub use starter::{
 
 const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
 const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
+const DEFAULT_MIN_SIMILARITY: f64 = 0.85;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MinSimilarity(f64);
+
+impl MinSimilarity {
+    pub const DEFAULT: MinSimilarity = MinSimilarity(DEFAULT_MIN_SIMILARITY);
+
+    pub fn new(value: f64) -> Option<MinSimilarity> {
+        (value.is_finite() && value > 0.0 && value <= 1.0).then_some(MinSimilarity(value))
+    }
+
+    pub fn ratio(self) -> f64 {
+        self.0
+    }
+}
+
+impl Default for MinSimilarity {
+    fn default() -> MinSimilarity {
+        MinSimilarity::DEFAULT
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DuplicationConfig {
+    pub near_clones: bool,
+    pub min_similarity: MinSimilarity,
+}
+
+impl Default for DuplicationConfig {
+    fn default() -> DuplicationConfig {
+        DuplicationConfig {
+            near_clones: false,
+            min_similarity: MinSimilarity::DEFAULT,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PluginLimits {
@@ -60,6 +99,7 @@ pub struct Configuration {
     pub plugins: Vec<PluginDeclaration>,
     pub plugin_limits: PluginLimits,
     pub boundaries: Option<Boundaries>,
+    pub duplication: DuplicationConfig,
     pub entry_points: EntryPoints,
     effective: ConfigurationFile,
 }
@@ -413,11 +453,50 @@ struct ConfigurationFile {
         description = "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
     )]
     boundaries: Option<BoundariesFile>,
+    #[serde(default, skip_serializing_if = "DuplicationConfigFile::is_unset")]
+    #[schemars(
+        description = "Settings for Duplication detection, including opt-in shingle-based near-clone detection. Exact Clone groups remain the default when omitted."
+    )]
+    duplication: DuplicationConfigFile,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
         description = "Globs of repository-relative paths treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points."
     )]
     entry_points: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DuplicationConfigFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "bool",
+        description = "When true, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; false by default."
+    )]
+    near_clones: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(max = 1),
+        extend("exclusiveMinimum" = 0),
+        description = "Minimum Jaccard shingle similarity in (0, 1] required for two blocks to match as a near-clone; 0.85 by default."
+    )]
+    min_similarity: Option<f64>,
+}
+
+impl DuplicationConfigFile {
+    fn is_unset(&self) -> bool {
+        self.near_clones.is_none() && self.min_similarity.is_none()
+    }
+
+    fn normalized(self) -> DuplicationConfigFile {
+        DuplicationConfigFile {
+            near_clones: self.near_clones.filter(|&enabled| enabled),
+            min_similarity: self
+                .min_similarity
+                .filter(|&ratio| ratio != DEFAULT_MIN_SIMILARITY),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -842,6 +921,8 @@ fn parse_value_with_overrides(
     let plugin_limits = merge_plugin_limits(&mut effective.plugin_limits, overrides, &mut settings);
     let parsed_boundaries = file.boundaries.map(Boundaries::from_file).transpose()?;
     append_boundaries_settings(raw.as_ref(), parsed_boundaries.as_ref(), &mut settings);
+    let parsed_duplication = duplication_config(file.duplication)?;
+    append_duplication_settings(raw.as_ref(), parsed_duplication, &mut settings);
     let parsed_entry_points = entry_points(&file.entry_points)?;
     append_entry_points_setting(raw.as_ref(), &effective.entry_points, &mut settings);
     let configuration = Configuration {
@@ -853,6 +934,7 @@ fn parse_value_with_overrides(
         plugins,
         plugin_limits,
         boundaries: parsed_boundaries,
+        duplication: parsed_duplication,
         entry_points: parsed_entry_points,
     };
     Ok(ResolvedConfiguration {
@@ -884,6 +966,57 @@ fn append_entry_points_setting(
         ConfigProvenance::Default
     };
     push_setting(settings, "entry_points", json!(entries), source);
+}
+
+fn duplication_config(
+    file: DuplicationConfigFile,
+) -> Result<DuplicationConfig, ConfigurationFileError> {
+    let min_similarity = match file.min_similarity {
+        Some(value) => MinSimilarity::new(value).ok_or_else(|| {
+            ConfigurationFileError::OutOfExclusiveMinRange {
+                key: KeyPath::default()
+                    .child(KeySegment::Key("duplication".to_owned()))
+                    .child(KeySegment::Key("min_similarity".to_owned())),
+                exclusive_minimum: 0.0,
+                maximum: 1.0,
+                found: value,
+            }
+        })?,
+        None => MinSimilarity::DEFAULT,
+    };
+    Ok(DuplicationConfig {
+        near_clones: file.near_clones.unwrap_or(false),
+        min_similarity,
+    })
+}
+
+fn append_duplication_settings(
+    raw: Option<&Value>,
+    duplication: DuplicationConfig,
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let near_clones_source = if has_json_path(raw, &["duplication", "near_clones"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "duplication.near_clones",
+        json!(duplication.near_clones),
+        near_clones_source,
+    );
+    let min_similarity_source = if has_json_path(raw, &["duplication", "min_similarity"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "duplication.min_similarity",
+        json!(duplication.min_similarity.ratio()),
+        min_similarity_source,
+    );
 }
 
 const ORDERED_SOURCE_SETS: [SourceSet; 4] = [
@@ -1344,6 +1477,7 @@ impl ConfigurationFile {
     fn without_schema_address(&self) -> ConfigurationFile {
         ConfigurationFile {
             _schema: None,
+            duplication: self.duplication.clone().normalized(),
             ..self.clone()
         }
     }

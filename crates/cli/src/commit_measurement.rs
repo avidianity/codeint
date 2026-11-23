@@ -11,12 +11,12 @@ use crate::check::{
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MEASUREMENT_SCHEMA_VERSION: u32 = 2;
+const MEASUREMENT_CACHE_VERSION: u32 = 3;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {
     codeint_version: &'static str,
-    measurement_schema: u32,
+    cache_version: u32,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,7 +73,7 @@ impl<'run> CommitMeasurer<'run> {
             plugins,
             settings: MeasurementSettings {
                 codeint_version: CODEINT_VERSION,
-                measurement_schema: MEASUREMENT_SCHEMA_VERSION,
+                cache_version: MEASUREMENT_CACHE_VERSION,
                 language_plugins,
                 configuration,
                 package,
@@ -152,6 +152,7 @@ pub(crate) fn measure_all_languages_for_package(
         model,
         &metric_plugins,
         configuration.boundaries.as_ref(),
+        configuration.duplication,
         orphan_files.as_ref(),
     )?;
     Ok((selected, measurement))
@@ -180,6 +181,7 @@ fn measure_all_languages_selected(
         model,
         &metric_plugins,
         configuration.boundaries.as_ref(),
+        configuration.duplication,
         orphan_files.as_ref(),
     )?)
 }

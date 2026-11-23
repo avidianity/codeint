@@ -865,6 +865,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `boundaries.rules[].reason` | string | Optional human-readable explanation shown in boundary Findings |
 | `boundaries.strict_zones` | boolean | When `true`, report files in evaluated Source sets that do not match any configured zone; `false` by default |
 | `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
+| `duplication` | object | Settings for Duplication detection, including opt-in shingle-based near-clone detection; see [Duplication](#duplication) |
+| `duplication.near_clones` | boolean | When `true`, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; `false` by default |
+| `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
 | `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection; empty by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
@@ -881,7 +884,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, entry_points
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, duplication, entry_points
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1147,6 +1150,25 @@ In `codeint diff`, each boundary Finding carries a stable content-based identifi
 codeint check
 ```
 
+### Duplication
+
+By default, Duplication reports exact normalized Clone groups so calibrated Reference ranges stay unchanged.
+Set `duplication.near_clones` to `true` to also detect near-duplicate blocks that differ by small insertions, deletions, or edits using shingle Jaccard similarity at or above `duplication.min_similarity` (`0.85` by default, in `(0, 1]`).
+Near-clone mode honors the same `import-or-export`, minimum token, and minimum distinct token rules as exact Clone groups, clusters overlapping exact and near-clone fragments across three or more locations into Clone families, and keeps Verbosity coupled only to exact Clone groups.
+
+```json codeint.json
+{
+  "duplication": {
+    "near_clones": true,
+    "min_similarity": 0.85
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
 ### Orphan files
 
 Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`) and configured `entry_points` globs in `codeint.json`.
@@ -1351,6 +1373,8 @@ Each Metric object has these fields:
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
+- `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in `codeint.json`; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
+- `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`, and `unlisted_clone_family_group_ids` when listed `clone_groups` belong to unlisted Clone families.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
 
 `import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
@@ -1360,7 +1384,8 @@ Each import has `importer`, the path of the importing file, `specifier`, the tex
 Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
 - An eroded function has `path`, `line`, `cyclomatic_complexity`, `source_lines`, and `function_mass`.
-- A Clone group has `tokens` and `locations`; each location has `path`, `start_line`, and `end_line`.
+- A Clone group has `tokens`, optional `similarity` (present on near-clone Findings as a ratio in `(0, 1]`), and `locations`; each location has `path`, `start_line`, and `end_line`.
+- A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.
 - An Import cycle has `modules`, the paths of the modules in the cycle.
 
@@ -1372,6 +1397,7 @@ The content behind the `id` of each kind:
 
 - An eroded function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
 - A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
+- A Clone family: the sorted normalized token sequences of its constituent Clone groups and the canonical path of each member location.
 - A Flagged line: the rule and the tokens of the line.
 - An Import cycle: the paths of its modules.
 
@@ -1542,7 +1568,7 @@ The tool lists one rule per Metric, and each result names its Metric in `ruleId`
 | `ruleId` | Finding | Location |
 | -------- | ------- | -------- |
 | `erosion` | An eroded function | The line where the function starts |
-| `duplication` | A Clone group | The first fragment, from its start line to its end line; the other fragments are related locations |
+| `duplication` | A Clone group or Clone family | The first fragment or canonical location, from its start line to its end line; the other fragments or locations are related locations |
 | `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
 | `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
 

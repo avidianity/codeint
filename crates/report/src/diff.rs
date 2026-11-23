@@ -12,9 +12,10 @@ use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurem
 use crate::ownership::{OwnedFinding, OwnershipOptions};
 use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
-    BoundaryFindingRow, BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding,
-    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, OrphanFileRow,
-    PerSourceSet, ReportError,
+    BoundaryFindingRow, BudgetFailure, CloneFamilyFinding, CloneGroupFinding, Decimal,
+    ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding,
+    OrphanFileRow, PerSourceSet, ReportError, clustered_clone_group_ids,
+    unlisted_clone_family_group_ids,
 };
 
 mod markdown;
@@ -91,7 +92,7 @@ type SourceSetChangesSections = PerSourceSet<SourceSetChanges>;
 #[derive(Debug, Serialize, Deserialize)]
 struct SourceSetChanges {
     erosion: MetricChanges<ErodedFunctionFinding>,
-    duplication: MetricChanges<CloneGroupFinding>,
+    duplication: DuplicationChanges,
     verbosity: MetricChanges<FlaggedLineRow>,
     import_cycles: MetricChanges<ImportCycleFinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -100,6 +101,20 @@ struct SourceSetChanges {
     orphan_files: Option<MetricChanges<OrphanFileRow>>,
     #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricChanges>,
+}
+
+#[derive(Debug)]
+struct DuplicationChanges {
+    groups: MetricChanges<CloneGroupFinding>,
+    clone_families: Option<CloneFamilyChanges>,
+}
+
+#[derive(Debug)]
+struct CloneFamilyChanges {
+    new: Findings<CloneFamilyFinding>,
+    resolved: Findings<CloneFamilyFinding>,
+    unchanged: usize,
+    unlisted_clone_family_group_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -233,7 +248,19 @@ impl DiffReport {
                 source_set,
                 ListedFindings {
                     eroded_functions: &changes.erosion.new.listed,
-                    clone_groups: &changes.duplication.new.listed,
+                    clone_groups: &changes.duplication.groups.new.listed,
+                    clone_families: changes
+                        .duplication
+                        .clone_families
+                        .as_ref()
+                        .map_or(&[], |families| families.new.listed.as_slice()),
+                    clustered_clone_group_ids: changes
+                        .duplication
+                        .clone_families
+                        .as_ref()
+                        .map_or(&[], |families| {
+                            families.unlisted_clone_family_group_ids.as_slice()
+                        }),
                     flagged_lines: &changes.verbosity.new.listed,
                     import_cycles: &changes.import_cycles.new.listed,
                     boundaries: changes
@@ -263,18 +290,86 @@ impl DiffReport {
 impl<T: Serialize> Serialize for MetricChanges<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("base_ratio", &self.base_ratio)?;
-        map.serialize_entry("head_ratio", &self.head_ratio)?;
-        map.serialize_entry("new", &self.new.listed)?;
-        if self.new.left_out > 0 {
-            map.serialize_entry("new_left_out", &self.new.left_out)?;
-        }
-        map.serialize_entry("resolved", &self.resolved.listed)?;
-        if self.resolved.left_out > 0 {
-            map.serialize_entry("resolved_left_out", &self.resolved.left_out)?;
-        }
-        map.serialize_entry("unchanged", &self.unchanged)?;
+        serialize_metric_changes_fields(&mut map, self)?;
         map.end()
+    }
+}
+
+impl Serialize for DuplicationChanges {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        serialize_metric_changes_fields(&mut map, &self.groups)?;
+        if let Some(clone_families) = &self.clone_families {
+            map.serialize_entry("clone_families", clone_families)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for CloneFamilyChanges {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        serialize_diff_findings(&mut map, &self.new, &self.resolved, self.unchanged)?;
+        if !self.unlisted_clone_family_group_ids.is_empty() {
+            map.serialize_entry(
+                "unlisted_clone_family_group_ids",
+                &self.unlisted_clone_family_group_ids,
+            )?;
+        }
+        map.end()
+    }
+}
+
+fn serialize_metric_changes_fields<M: SerializeMap, T: Serialize>(
+    map: &mut M,
+    changes: &MetricChanges<T>,
+) -> Result<(), M::Error> {
+    map.serialize_entry("base_ratio", &changes.base_ratio)?;
+    map.serialize_entry("head_ratio", &changes.head_ratio)?;
+    serialize_diff_findings(map, &changes.new, &changes.resolved, changes.unchanged)
+}
+
+fn serialize_diff_findings<M: SerializeMap, T: Serialize>(
+    map: &mut M,
+    new: &Findings<T>,
+    resolved: &Findings<T>,
+    unchanged: usize,
+) -> Result<(), M::Error> {
+    map.serialize_entry("new", &new.listed)?;
+    if new.left_out > 0 {
+        map.serialize_entry("new_left_out", &new.left_out)?;
+    }
+    map.serialize_entry("resolved", &resolved.listed)?;
+    if resolved.left_out > 0 {
+        map.serialize_entry("resolved_left_out", &resolved.left_out)?;
+    }
+    map.serialize_entry("unchanged", &unchanged)
+}
+
+#[derive(Deserialize)]
+struct RawDiffFindings<T> {
+    new: Vec<T>,
+    #[serde(default)]
+    new_left_out: usize,
+    resolved: Vec<T>,
+    #[serde(default)]
+    resolved_left_out: usize,
+    unchanged: usize,
+}
+
+impl<T> RawDiffFindings<T> {
+    fn into_parts(self) -> (Findings<T>, Findings<T>, usize) {
+        (
+            Findings {
+                listed: self.new,
+                left_out: self.new_left_out,
+            },
+            Findings {
+                listed: self.resolved,
+                left_out: self.resolved_left_out,
+            },
+            self.unchanged,
+        )
     }
 }
 
@@ -284,34 +379,73 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
         struct RawMetricChanges<T> {
             base_ratio: Decimal,
             head_ratio: Decimal,
-            new: Vec<T>,
-            #[serde(default)]
-            new_left_out: usize,
-            resolved: Vec<T>,
-            #[serde(default)]
-            resolved_left_out: usize,
-            unchanged: usize,
+            #[serde(flatten)]
+            findings: RawDiffFindings<T>,
         }
 
         let raw = RawMetricChanges::<T>::deserialize(deserializer)?;
+        let (new, resolved, unchanged) = raw.findings.into_parts();
         Ok(MetricChanges {
             base_ratio: raw.base_ratio,
             head_ratio: raw.head_ratio,
             base_numerator: Decimal(0.0),
             head_numerator: Decimal(0.0),
-            new: Findings {
-                listed: raw.new,
-                left_out: raw.new_left_out,
-            },
-            resolved: Findings {
-                listed: raw.resolved,
-                left_out: raw.resolved_left_out,
-            },
-            unchanged: raw.unchanged,
+            new,
+            resolved,
+            unchanged,
         })
     }
 }
 
+impl<'de> Deserialize<'de> for CloneFamilyChanges {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawCloneFamilyChanges {
+            #[serde(flatten)]
+            findings: RawDiffFindings<CloneFamilyFinding>,
+            #[serde(default)]
+            unlisted_clone_family_group_ids: Vec<String>,
+        }
+
+        let raw = RawCloneFamilyChanges::deserialize(deserializer)?;
+        let (new, resolved, unchanged) = raw.findings.into_parts();
+        Ok(CloneFamilyChanges {
+            new,
+            resolved,
+            unchanged,
+            unlisted_clone_family_group_ids: raw.unlisted_clone_family_group_ids,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for DuplicationChanges {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawDuplicationChanges {
+            base_ratio: Decimal,
+            head_ratio: Decimal,
+            #[serde(default)]
+            clone_families: Option<CloneFamilyChanges>,
+            #[serde(flatten)]
+            findings: RawDiffFindings<CloneGroupFinding>,
+        }
+
+        let raw = RawDuplicationChanges::deserialize(deserializer)?;
+        let (new, resolved, unchanged) = raw.findings.into_parts();
+        Ok(DuplicationChanges {
+            groups: MetricChanges {
+                base_ratio: raw.base_ratio,
+                head_ratio: raw.head_ratio,
+                base_numerator: Decimal(0.0),
+                head_numerator: Decimal(0.0),
+                new,
+                resolved,
+                unchanged,
+            },
+            clone_families: raw.clone_families,
+        })
+    }
+}
 fn classify<T: Identified + OwnedFinding>(
     base: MetricMeasurement<T>,
     head: MetricMeasurement<T>,
@@ -352,7 +486,7 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                 (
                     source_set,
                     Metric::Duplication.key(),
-                    changes.duplication.head_ratio.0,
+                    changes.duplication.groups.head_ratio.0,
                 ),
                 (
                     source_set,
@@ -403,6 +537,7 @@ impl SourceSetChanges {
             self.erosion
                 .regressions(source_set, Metric::Erosion.key(), limits),
             self.duplication
+                .groups
                 .regressions(source_set, Metric::Duplication.key(), limits),
             self.verbosity
                 .regressions(source_set, Metric::Verbosity.key(), limits),
@@ -628,9 +763,35 @@ fn source_set_changes(
             ownership,
         )),
     };
+    let duplication_groups = classify(base.duplication, head.duplication, shown, ownership);
+    let base_families = ownership.apply(base.clone_families);
+    let head_families = ownership.apply(head.clone_families);
+    let clone_families = if base_families.is_empty() && head_families.is_empty() {
+        None
+    } else {
+        let base_ids = ids(&base_families);
+        let head_ids = ids(&head_families);
+        let all_clustered = clustered_clone_group_ids(&head_families);
+        let new = missing_from(head_families, &base_ids, shown);
+        let resolved = missing_from(base_families, &head_ids, shown);
+        let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
+            &duplication_groups.new.listed,
+            &new.listed,
+            &all_clustered,
+        );
+        Some(CloneFamilyChanges {
+            unchanged: head_ids.intersection(&base_ids).count(),
+            new,
+            resolved,
+            unlisted_clone_family_group_ids,
+        })
+    };
     SourceSetChanges {
         erosion: classify(base.erosion, head.erosion, shown, ownership),
-        duplication: classify(base.duplication, head.duplication, shown, ownership),
+        duplication: DuplicationChanges {
+            groups: duplication_groups,
+            clone_families,
+        },
         verbosity: classify(base.verbosity, head.verbosity, shown, ownership),
         import_cycles: classify(base.import_cycles, head.import_cycles, shown, ownership),
         boundaries,
@@ -646,6 +807,12 @@ impl Identified for ErodedFunctionFinding {
 }
 
 impl Identified for CloneGroupFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for CloneFamilyFinding {
     fn id(&self) -> &str {
         &self.id
     }

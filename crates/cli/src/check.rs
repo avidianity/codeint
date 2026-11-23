@@ -446,11 +446,12 @@ fn check_loaded(
     Ok(Report::summarize_with_options(
         snapshot.languages,
         tree.submodules().to_vec(),
-        findings,
-        &configuration.budgets,
         ReportOptions {
+            findings,
+            budgets: &configuration.budgets,
             metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
+            duplication: configuration.duplication,
             orphan_files: orphan_files.as_ref(),
             orphan_files_by_language: Some(&orphan_files_by_language),
             ownership,

@@ -69,6 +69,15 @@ pub enum ConfigurationFileError {
         found: f64,
     },
     #[error(
+        "{CONFIGURATION_FILE_NAME}: {key} must be greater than {exclusive_minimum} and at most {maximum}, not {found}"
+    )]
+    OutOfExclusiveMinRange {
+        key: KeyPath,
+        exclusive_minimum: f64,
+        maximum: f64,
+        found: f64,
+    },
+    #[error(
         "{CONFIGURATION_FILE_NAME}: {key} must be one of {}, not {found}",
         allowed.join(", ")
     )]
