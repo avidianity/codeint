@@ -201,6 +201,8 @@ pub fn score_function_spans<T: ScanToken>(
                 end_line,
                 decision_points: decisions,
                 source_lines: code_lines.range(start_line..=end_line).count() as u32,
+                name: None,
+                cognitive_complexity: 0,
             }
         })
         .collect();
@@ -295,11 +297,11 @@ pub fn resolve_relative_file(
         return Resolution::Unresolved(format!("{rel_uri:?} leads outside the repository"));
     };
     if ignore_vendor && joined.split('/').any(|seg| seg == "vendor") {
-        return Resolution::External;
+        return Resolution::External(String::new());
     }
     if files.contains(&joined) {
         if joined == importer {
-            Resolution::External
+            Resolution::External(String::new())
         } else {
             Resolution::Resolved(joined)
         }

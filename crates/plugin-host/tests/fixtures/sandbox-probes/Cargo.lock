@@ -23,6 +23,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dual-version-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -86,6 +94,22 @@ name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
+
+[[package]]
+name = "legacy-v0-1-0-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "legacy-v0-1-0-metric-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
 
 [[package]]
 name = "log"

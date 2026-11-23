@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use codeint_config::{FindingsShown, ReportFormat};
 use codeint_model::language::{
-    FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    SourceSet, WorkspaceError,
+    DeclaredDep, FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest,
+    ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
 use codeint_model::{InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath};
 use serde_json::Value;
@@ -89,7 +89,18 @@ macro_rules! every_import_is_external {
             _manifests: Vec<Manifest>,
             requests: Vec<ImportRequest>,
         ) -> Vec<Resolution> {
-            requests.iter().map(|_| Resolution::External).collect()
+            requests
+                .iter()
+                .map(|_| Resolution::External(String::new()))
+                .collect()
+        }
+
+        fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+            Vec::new()
+        }
+
+        fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+            Vec::new()
         }
     };
 }
@@ -766,7 +777,25 @@ impl LanguagePlugin for ParallelProofPlugin {
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        requests.iter().map(|_| Resolution::External).collect()
+        requests
+            .iter()
+            .map(|_| Resolution::External(String::new()))
+            .collect()
+    }
+
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, codeint_model::LanguagePluginError> {
+        Ok(Vec::new())
+    }
+
+    fn entry_points(
+        &self,
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, codeint_model::LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {

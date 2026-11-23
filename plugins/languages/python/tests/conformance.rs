@@ -56,6 +56,8 @@ fn python_functions_decisions_and_source_sets() {
             end_line: 10,
             decision_points: 4,
             source_lines: 10,
+            name: None,
+            cognitive_complexity: 0,
         }
     );
     assert_eq!(model.functions[1].decision_points, 1);
@@ -143,7 +145,7 @@ fn python_imports_type_checking_resolution_and_workspaces() {
         resolutions[1],
         Resolution::Resolved("src/demo/utils.py".into())
     );
-    assert_eq!(resolutions[2], Resolution::External);
+    assert_eq!(resolutions[2], Resolution::External(String::new()));
     assert!(matches!(resolutions[3], Resolution::Unresolved(_)));
 
     let packages = Python

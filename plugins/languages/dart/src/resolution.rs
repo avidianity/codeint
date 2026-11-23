@@ -55,7 +55,7 @@ fn resolve_one(
 ) -> Resolution {
     let spec = request.specifier.as_str();
     if spec.starts_with("dart:") {
-        return Resolution::External;
+        return Resolution::Builtin;
     }
     if let Some(pkg_rest) = spec.strip_prefix("package:") {
         return resolve_package_uri(files, packages, &request.importer, pkg_rest);
@@ -70,10 +70,10 @@ fn resolve_package_uri(
     pkg_rest: &str,
 ) -> Resolution {
     let Some((pkg_name, rel_path)) = pkg_rest.split_once('/') else {
-        return Resolution::External;
+        return Resolution::External(String::new());
     };
     let Some(pkg_dir) = packages.get(pkg_name) else {
-        return Resolution::External;
+        return Resolution::External(String::new());
     };
     let candidate = if pkg_dir.is_empty() {
         format!("lib/{rel_path}")
@@ -82,7 +82,7 @@ fn resolve_package_uri(
     };
     if files.contains(&candidate) {
         if candidate == importer {
-            Resolution::External
+            Resolution::External(String::new())
         } else {
             Resolution::Resolved(candidate)
         }

@@ -47,14 +47,14 @@ impl RustResolver {
         if let Some(use_path) = request.specifier.strip_prefix(USE_PREFIX) {
             return self.resolve_use(&request.importer, use_path);
         }
-        Resolution::External
+        Resolution::External(String::new())
     }
 
     fn resolve_mod(&self, importer: &str, mod_name: &str) -> Resolution {
         let base_dir = module_child_dir(importer);
         match self.find_module_file(&base_dir, &[mod_name]) {
             Some(target) if target != importer => Resolution::Resolved(target),
-            Some(_) => Resolution::External,
+            Some(_) => Resolution::External(String::new()),
             None => Resolution::Unresolved(format!(
                 "no module file found for `mod {mod_name}` from {importer}"
             )),
@@ -64,15 +64,15 @@ impl RustResolver {
     fn resolve_use(&self, importer: &str, use_path: &str) -> Resolution {
         let segments: Vec<&str> = use_path.split("::").filter(|s| !s.is_empty()).collect();
         let Some(&first) = segments.first() else {
-            return Resolution::External;
+            return Resolution::External(String::new());
         };
         if STD_CRATES.contains(&first) {
-            return Resolution::External;
+            return Resolution::Builtin;
         }
         match first {
             "crate" => {
                 let Some(src_dir) = self.crate_src_dir(importer) else {
-                    return Resolution::External;
+                    return Resolution::External(String::new());
                 };
                 self.resolve_longest_module(importer, &src_dir, &segments[1..])
             }
@@ -91,11 +91,11 @@ impl RustResolver {
                     return self
                         .resolve_dir_to_file(&current)
                         .filter(|target| target != importer)
-                        .map_or(Resolution::External, Resolution::Resolved);
+                        .map_or_else(|| Resolution::External(String::new()), Resolution::Resolved);
                 }
                 self.resolve_longest_module(importer, &current, &segments[idx..])
             }
-            _ => Resolution::External,
+            _ => Resolution::External(String::new()),
         }
     }
 
@@ -108,7 +108,7 @@ impl RustResolver {
         for len in (1..=segments.len()).rev() {
             if let Some(target) = self.find_module_file(base_dir, &segments[..len]) {
                 return if target == importer {
-                    Resolution::External
+                    Resolution::External(String::new())
                 } else {
                     Resolution::Resolved(target)
                 };
@@ -119,7 +119,7 @@ impl RustResolver {
         {
             return Resolution::Resolved(root_file);
         }
-        Resolution::External
+        Resolution::External(String::new())
     }
 
     fn find_module_file(&self, base_dir: &str, segments: &[&str]) -> Option<String> {

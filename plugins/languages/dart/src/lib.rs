@@ -11,8 +11,8 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token,
-    TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    Token, TokenKind, WorkspaceError,
 };
 use codeint_model::token_text_hash;
 
@@ -71,6 +71,10 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
 }
 
 impl Guest for Dart {
+    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Vec::new()
+    }
+
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
         workspaces::discover(&manifests)
     }
@@ -89,6 +93,10 @@ impl Guest for Dart {
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         lower_dart(&path, &text)
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+        Vec::new()
     }
 
     fn extensions() -> Vec<String> {

@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 use std::borrow::Borrow;
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 mod metric;
@@ -23,7 +23,9 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind};
+pub use language::{
+    DeclaredDep, DepKind, FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind,
+};
 pub use metric::{
     ExternalFinding, ExternalMetricMeasurement, Metric, MetricPlugin, MetricPluginError,
 };
@@ -301,6 +303,70 @@ impl ReferenceRanges {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum LanguagePluginError {
+    #[error("the Language plugin returned an invalid entry point path {path:?}")]
+    InvalidEntryPointPath { path: String },
+    #[error(
+        "the Language plugin returned entry point {path:?}, which is not a file of the repository"
+    )]
+    UnknownEntryPoint { path: String },
+    #[error(
+        "the Language plugin declared a dependency with an invalid package root {package_root:?}"
+    )]
+    InvalidDependencyPackageRoot { package_root: String },
+    #[error(
+        "the Language plugin declared a dependency with an empty name in package root {package_root:?}"
+    )]
+    EmptyDependencyName { package_root: String },
+    #[error("Plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
+    TimeLimitExceeded { plugin: String, timeout_ms: u64 },
+    #[error("Plugin {plugin:?} exceeded its memory cap of {memory_mb} MiB")]
+    MemoryLimitExceeded { plugin: String, memory_mb: u64 },
+    #[error("Language plugin {plugin:?} failed during {call}: {reason}")]
+    Call {
+        plugin: String,
+        call: &'static str,
+        reason: String,
+    },
+}
+
+pub fn validate_declared_dependencies(
+    deps: Vec<DeclaredDep>,
+) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+    for dep in &deps {
+        if !dep.package_root.is_empty() && RepoPath::new(dep.package_root.as_str()).is_err() {
+            return Err(LanguagePluginError::InvalidDependencyPackageRoot {
+                package_root: dep.package_root.clone(),
+            });
+        }
+        if dep.name.trim().is_empty() {
+            return Err(LanguagePluginError::EmptyDependencyName {
+                package_root: dep.package_root.clone(),
+            });
+        }
+    }
+    Ok(deps)
+}
+
+pub fn validate_entry_points(
+    repository_paths: &[RepoPath],
+    entries: Vec<String>,
+) -> Result<Vec<RepoPath>, LanguagePluginError> {
+    let known: HashSet<&str> = repository_paths.iter().map(RepoPath::as_str).collect();
+    entries
+        .into_iter()
+        .map(|path| {
+            let repo_path = RepoPath::new(path.clone())
+                .map_err(|_| LanguagePluginError::InvalidEntryPointPath { path: path.clone() })?;
+            if !known.contains(repo_path.as_str()) {
+                return Err(LanguagePluginError::UnknownEntryPoint { path });
+            }
+            Ok(repo_path)
+        })
+        .collect()
+}
+
 pub trait LanguagePlugin: Sync {
     fn extensions(&self) -> Vec<String>;
 
@@ -317,6 +383,17 @@ pub trait LanguagePlugin: Sync {
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution>;
+
+    fn declared_dependencies(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError>;
+
+    fn entry_points(
+        &self,
+        repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError>;
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
 }
@@ -351,6 +428,24 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution> {
         Plugin::resolve_imports(owned_paths(repository_paths), manifests, requests)
+    }
+
+    fn declared_dependencies(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        validate_declared_dependencies(Plugin::declared_dependencies(manifests))
+    }
+
+    fn entry_points(
+        &self,
+        repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        validate_entry_points(
+            repository_paths,
+            Plugin::entry_points(owned_paths(repository_paths), manifests),
+        )
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {

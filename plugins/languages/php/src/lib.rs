@@ -11,8 +11,8 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token,
-    TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    Token, TokenKind, WorkspaceError,
 };
 use codeint_model::token_text_hash;
 
@@ -96,5 +96,13 @@ impl Guest for Php {
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
         resolution::resolve_batch(&repository_paths, &manifests, &requests)
+    }
+
+    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Vec::new()
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+        Vec::new()
     }
 }
