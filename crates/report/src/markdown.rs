@@ -1,6 +1,6 @@
 use crate::ownership::OwnedFinding;
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, CloneLocation, DuplicationSection,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation, DuplicationSection,
     ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
     ImportCycleFinding, ImportCyclesSection, MeasuredSection, PackageSection, ReferenceRangeEntry,
     Report, SourceSetSection, UnresolvedImportRow, VerbositySection,
@@ -81,6 +81,18 @@ pub(crate) const ERODED_FUNCTION: Noun = Noun {
 pub(crate) const CLONE_GROUP: Noun = Noun {
     one: "Clone group",
     many: "Clone groups",
+};
+pub(crate) const CLONE_FAMILY: Noun = Noun {
+    one: "Clone family",
+    many: "Clone families",
+};
+const DUPLICATED_LINE: Noun = Noun {
+    one: "duplicated line",
+    many: "duplicated lines",
+};
+const LOCATION: Noun = Noun {
+    one: "location",
+    many: "locations",
 };
 pub(crate) const IMPORT_CYCLE: Noun = Noun {
     one: "Import cycle",
@@ -238,9 +250,23 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
     let DuplicationSection {
         ratio: duplication_ratio,
         reference_range: duplication_range,
+        near_clones,
         clone_lines,
         ..
     } = &section.duplication;
+    let duplication_behind = match near_clones {
+        Some(mode) => format!(
+            "{} of {} (near-clones >= {})",
+            CLONE_LINE.counted(*clone_lines),
+            SOURCE_LINE.counted(section.source_lines),
+            format_similarity_percent(mode.min_similarity),
+        ),
+        None => format!(
+            "{} of {}",
+            CLONE_LINE.counted(*clone_lines),
+            SOURCE_LINE.counted(section.source_lines)
+        ),
+    };
     let VerbositySection {
         ratio: verbosity_ratio,
         reference_range: verbosity_range,
@@ -263,11 +289,7 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         row(
             "Duplication",
             duplication_ratio.0,
-            format!(
-                "{} of {}",
-                CLONE_LINE.counted(*clone_lines),
-                SOURCE_LINE.counted(section.source_lines)
-            ),
+            duplication_behind,
             duplication_range,
         ),
         row(
@@ -358,6 +380,13 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
         &section.duplication.clone_groups,
         &CLONE_GROUP,
         |listed| list(listed.iter().map(clone_group_item)),
+    );
+    push_findings(
+        &mut blocks,
+        "Clone families",
+        &section.duplication.clone_families,
+        &CLONE_FAMILY,
+        |listed| list(listed.iter().map(clone_family_item)),
     );
     push_findings(
         &mut blocks,
@@ -479,9 +508,37 @@ pub(crate) fn eroded_function_row(function: &ErodedFunctionFinding) -> Vec<Strin
 
 pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     let locations: Vec<String> = group.locations.iter().map(clone_location).collect();
+    let summary = match &group.similarity {
+        Some(similarity) => format!(
+            "{} tokens ({} similar): {}",
+            group.tokens,
+            format_similarity_percent(similarity.0),
+            locations.join(", "),
+        ),
+        None => format!("{} tokens: {}", group.tokens, locations.join(", ")),
+    };
+    with_owners_suffix(summary, &group.owners)
+}
+
+pub(crate) fn format_similarity_percent(ratio: f64) -> String {
+    if ratio > 0.0 && ratio < 0.005 {
+        "<1%".to_owned()
+    } else {
+        format!("{}%", (ratio * 100.0).round() as u64)
+    }
+}
+
+pub(crate) fn clone_family_item(family: &CloneFamilyFinding) -> String {
+    let locations: Vec<String> = family.locations.iter().map(clone_location).collect();
     with_owners_suffix(
-        format!("{} tokens: {}", group.tokens, locations.join(", ")),
-        &group.owners,
+        format!(
+            "{} across {} ({}): {}",
+            DUPLICATED_LINE.counted(family.duplicated_lines),
+            LOCATION.counted(family.locations.len() as u64),
+            CLONE_GROUP.counted(family.clone_group_ids.len() as u64),
+            locations.join(", "),
+        ),
+        &family.owners,
     )
 }
 

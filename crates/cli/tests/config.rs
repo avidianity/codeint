@@ -97,6 +97,13 @@ fn config_resolved_reports_defaults_only_across_text_json_and_toon_formats() {
     assert_setting(&payload, "plugin_limits.memory_mb", json!(64), "default");
     assert_setting(&payload, "plugin_limits.timeout_ms", json!(5000), "default");
     assert_setting(&payload, "boundaries", Value::Null, "default");
+    assert_setting(&payload, "duplication.near_clones", json!(false), "default");
+    assert_setting(
+        &payload,
+        "duplication.min_similarity",
+        json!(0.85),
+        "default",
+    );
 
     let text = invoke_ok_stdout(repo.path(), &["config", "--resolved"]);
     assert!(text.contains("source_sets.production = [] [default]"));
@@ -137,6 +144,10 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
         "boundaries": {
             "preset": "layered",
             "strict_zones": true
+        },
+        "duplication": {
+            "near_clones": true,
+            "min_similarity": 0.9
         }
     })));
 
@@ -189,6 +200,8 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
         json!(["production"]),
         "default",
     );
+    assert_setting(&file_only, "duplication.near_clones", json!(true), "file");
+    assert_setting(&file_only, "duplication.min_similarity", json!(0.9), "file");
 
     let with_cli = resolved_json(
         repo.path(),

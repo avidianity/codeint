@@ -1,16 +1,16 @@
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use codeint_config::{
     AgentFormat, Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
-    Codeowners, ConfigFormat, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, ReportFormat,
-    TraceFormat,
+    Codeowners, ConfigFormat, DoctorFormat, DuplicationConfig, FindingsShown, GuardFormat,
+    ImpactFormat, ReportFormat, TraceFormat,
 };
 use codeint_metrics::{
-    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
-    ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
-    MinimumCloneTokens, MinimumDistinctTokens, UnresolvedImport, Verbosity,
+    Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneFamily, CloneGroup,
+    Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment, ImportCycle, ImportCycles,
+    MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -62,6 +62,7 @@ const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
+const NOT_SHOWN_FOR_NEAR_CLONES: &str = "not shown, because near-clone detection is enabled (Reference ranges are calibrated for exact Clone groups)";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReportError {
@@ -319,6 +320,7 @@ struct ErosionSection {
 trait FindingKind: Serialize {
     const LIST_KEY: &'static str;
     const LEFT_OUT_KEY: &'static str = "findings_left_out";
+    const SKIP_WHEN_EMPTY: bool = false;
 }
 
 #[derive(Debug)]
@@ -339,25 +341,87 @@ struct ErodedFunctionFinding {
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 struct DuplicationSection {
     ratio: Decimal,
     reference_range: ReferenceRangeEntry,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    near_clones: Option<NearClonesSummary>,
     clone_lines: u64,
     #[serde(flatten)]
     clone_groups: Findings<CloneGroupFinding>,
+    #[serde(flatten)]
+    clone_families: Findings<CloneFamilyFinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    unlisted_clone_family_group_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct NearClonesSummary {
+    min_similarity: f64,
+}
+
+impl<'de> Deserialize<'de> for DuplicationSection {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawDuplicationSection {
+            ratio: Decimal,
+            reference_range: ReferenceRangeEntry,
+            #[serde(default)]
+            near_clones: Option<NearClonesSummary>,
+            clone_lines: u64,
+            clone_groups: Vec<CloneGroupFinding>,
+            #[serde(default)]
+            findings_left_out: usize,
+            #[serde(default)]
+            clone_families: Vec<CloneFamilyFinding>,
+            #[serde(default)]
+            clone_families_left_out: usize,
+            #[serde(default)]
+            unlisted_clone_family_group_ids: Vec<String>,
+        }
+
+        let raw = RawDuplicationSection::deserialize(deserializer)?;
+        Ok(DuplicationSection {
+            ratio: raw.ratio,
+            reference_range: raw.reference_range,
+            near_clones: raw.near_clones,
+            clone_lines: raw.clone_lines,
+            clone_groups: Findings {
+                listed: raw.clone_groups,
+                left_out: raw.findings_left_out,
+            },
+            clone_families: Findings {
+                listed: raw.clone_families,
+                left_out: raw.clone_families_left_out,
+            },
+            unlisted_clone_family_group_ids: raw.unlisted_clone_family_group_ids,
+        })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CloneGroupFinding {
     id: String,
     tokens: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    similarity: Option<Decimal>,
     locations: Vec<CloneLocation>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CloneFamilyFinding {
+    id: String,
+    duplicated_lines: u64,
+    clone_group_ids: Vec<String>,
+    locations: Vec<CloneLocation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct CloneLocation {
     path: String,
     start_line: u32,
@@ -521,7 +585,9 @@ impl<T> Findings<T> {
 impl<T: FindingKind> Serialize for Findings<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry(T::LIST_KEY, &self.listed)?;
+        if !(T::SKIP_WHEN_EMPTY && self.listed.is_empty() && self.left_out == 0) {
+            map.serialize_entry(T::LIST_KEY, &self.listed)?;
+        }
         if self.left_out > 0 {
             map.serialize_entry(T::LEFT_OUT_KEY, &self.left_out)?;
         }
@@ -555,7 +621,9 @@ impl<'de, T: FindingKind + Deserialize<'de>> Deserialize<'de> for Findings<T> {
                         let _ = map.next_value::<serde::de::IgnoredAny>()?;
                     }
                 }
-                let listed = listed.ok_or_else(|| serde::de::Error::missing_field(T::LIST_KEY))?;
+                let listed = listed
+                    .or_else(|| T::SKIP_WHEN_EMPTY.then(Vec::new))
+                    .ok_or_else(|| serde::de::Error::missing_field(T::LIST_KEY))?;
                 Ok(Findings { listed, left_out })
             }
         }
@@ -570,6 +638,12 @@ impl FindingKind for ErodedFunctionFinding {
 
 impl FindingKind for CloneGroupFinding {
     const LIST_KEY: &'static str = "clone_groups";
+}
+
+impl FindingKind for CloneFamilyFinding {
+    const LIST_KEY: &'static str = "clone_families";
+    const LEFT_OUT_KEY: &'static str = "clone_families_left_out";
+    const SKIP_WHEN_EMPTY: bool = true;
 }
 
 impl FindingKind for FlaggedLineRow {
@@ -610,6 +684,17 @@ impl_single_path_owner!(ExternalMetricFinding, path);
 impl_single_path_owner!(BoundaryFindingRow, importer);
 
 impl OwnedFinding for CloneGroupFinding {
+    fn assign_owners(&mut self, codeowners: &Codeowners) {
+        self.owners =
+            codeowners.owners_for_many(self.locations.iter().map(|loc| loc.path.as_str()));
+    }
+
+    fn owners(&self) -> &[String] {
+        &self.owners
+    }
+}
+
+impl OwnedFinding for CloneFamilyFinding {
     fn assign_owners(&mut self, codeowners: &Codeowners) {
         self.owners =
             codeowners.owners_for_many(self.locations.iter().map(|loc| loc.path.as_str()));
@@ -724,28 +809,32 @@ impl ExternalMetricFinding {
     }
 }
 
+#[derive(Clone, Copy)]
+struct SectionOptions<'a> {
+    findings: FindingsShown,
+    metric_plugins: &'a [&'a dyn MetricPlugin],
+    boundaries: Option<&'a BoundariesConfig>,
+    duplication: DuplicationConfig,
+    ownership: OwnershipOptions<'a>,
+}
+
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
         ranges: &ReferenceRangeScope,
-        findings: FindingsShown,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        ownership: OwnershipOptions<'_>,
+        options: SectionOptions<'_>,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
-                let source_set_boundaries =
-                    boundaries.filter(|config| config.applies_to_source_set(source_set));
-                *sections.slot(source_set) = Some(SourceSetSection::new(
-                    model,
-                    ranges,
-                    findings,
-                    metric_plugins,
-                    source_set_boundaries,
-                    ownership,
-                )?);
+                let source_set_options = SectionOptions {
+                    boundaries: options
+                        .boundaries
+                        .filter(|config| config.applies_to_source_set(source_set)),
+                    ..options
+                };
+                *sections.slot(source_set) =
+                    Some(SourceSetSection::new(model, ranges, source_set_options)?);
             }
         }
         Ok(sections)
@@ -795,22 +884,19 @@ impl SourceSetSection {
     fn new(
         model: &CodeModel,
         ranges: &ReferenceRangeScope,
-        findings: FindingsShown,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        ownership: OwnershipOptions<'_>,
+        options: SectionOptions<'_>,
     ) -> Result<SourceSetSection, MetricPluginError> {
         let view = FindingsView {
-            shown: findings,
-            ownership,
+            shown: options.findings,
+            ownership: options.ownership,
         };
-        let measured = Measured::new(model);
-        let boundaries = boundaries.map(|config| {
-            let evaluated = Boundaries::measure(model, &ConfigBoundaryPolicy(config));
-            BoundariesSection::new(&evaluated, view)
-        });
+        let measured = Measured::new(model, options.boundaries, options.duplication);
+        let boundaries = measured
+            .boundaries
+            .as_ref()
+            .map(|evaluated| BoundariesSection::new(evaluated, view));
         let mut external_metrics = BTreeMap::new();
-        for plugin in metric_plugins {
+        for plugin in options.metric_plugins {
             let result = plugin.measure(model)?;
             external_metrics.insert(
                 plugin.key().to_owned(),
@@ -846,18 +932,12 @@ impl SourceSetSection {
                         .map(ErodedFunctionFinding::new),
                 ),
             },
-            duplication: DuplicationSection {
-                ratio: Decimal::rounded(measured.duplication.ratio()),
-                reference_range: ranges.entry(Metric::Duplication.key()),
-                clone_lines: measured.duplication.clone_lines.count(),
-                clone_groups: view.select(
-                    measured
-                        .duplication
-                        .clone_groups
-                        .iter()
-                        .map(CloneGroupFinding::new),
-                ),
-            },
+            duplication: DuplicationSection::new(
+                &measured.duplication,
+                ranges,
+                view,
+                options.duplication,
+            ),
             verbosity: VerbositySection {
                 ratio: Decimal::rounded(measured.verbosity.ratio()),
                 reference_range: ranges.entry(Metric::Verbosity.key()),
@@ -909,12 +989,102 @@ impl ErodedFunctionFinding {
     }
 }
 
+impl DuplicationSection {
+    fn new(
+        duplication: &Duplication,
+        ranges: &ReferenceRangeScope,
+        view: FindingsView<'_>,
+        config: DuplicationConfig,
+    ) -> DuplicationSection {
+        let (reference_range, near_clones) = if config.near_clones {
+            (
+                ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_NEAR_CLONES.to_owned()),
+                Some(NearClonesSummary {
+                    min_similarity: config.min_similarity.ratio(),
+                }),
+            )
+        } else {
+            (ranges.entry(Metric::Duplication.key()), None)
+        };
+        let all_clone_families = view.ownership.apply(
+            duplication
+                .clone_families
+                .iter()
+                .map(CloneFamilyFinding::new)
+                .collect(),
+        );
+        let all_clustered = clustered_clone_group_ids(&all_clone_families);
+        let clone_groups = view.select(duplication.clone_groups.iter().map(CloneGroupFinding::new));
+        let clone_families = Findings::worst_first(all_clone_families.into_iter(), view.shown);
+        let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
+            &clone_groups.listed,
+            &clone_families.listed,
+            &all_clustered,
+        );
+        DuplicationSection {
+            ratio: Decimal::rounded(duplication.ratio()),
+            reference_range,
+            near_clones,
+            clone_lines: duplication.clone_lines.count(),
+            clone_groups,
+            clone_families,
+            unlisted_clone_family_group_ids,
+        }
+    }
+}
+
+pub(crate) fn clustered_clone_group_ids(families: &[CloneFamilyFinding]) -> HashSet<String> {
+    families
+        .iter()
+        .flat_map(|family| family.clone_group_ids.iter().cloned())
+        .collect()
+}
+
+pub(crate) fn unlisted_clone_family_group_ids(
+    listed_groups: &[CloneGroupFinding],
+    listed_families: &[CloneFamilyFinding],
+    all_clustered: &HashSet<String>,
+) -> Vec<String> {
+    if all_clustered.is_empty() {
+        return Vec::new();
+    }
+    let listed_clustered: HashSet<&str> = listed_families
+        .iter()
+        .flat_map(|family| family.clone_group_ids.iter().map(String::as_str))
+        .collect();
+    listed_groups
+        .iter()
+        .filter(|group| {
+            let id = group.id.as_str();
+            all_clustered.contains(id) && !listed_clustered.contains(id)
+        })
+        .map(|group| group.id.clone())
+        .collect()
+}
+
 impl CloneGroupFinding {
     fn new(group: &CloneGroup) -> CloneGroupFinding {
         CloneGroupFinding {
             id: group.id.to_string(),
             tokens: group.tokens,
+            similarity: group.similarity.map(Decimal::rounded),
             locations: group.fragments.iter().map(CloneLocation::new).collect(),
+            owners: Vec::new(),
+        }
+    }
+}
+
+impl CloneFamilyFinding {
+    fn new(family: &CloneFamily) -> CloneFamilyFinding {
+        CloneFamilyFinding {
+            id: family.id.to_string(),
+            duplicated_lines: family.duplicated_lines,
+            clone_group_ids: family
+                .clone_group_ids
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            locations: family.fragments.iter().map(CloneLocation::new).collect(),
             owners: Vec::new(),
         }
     }
@@ -987,20 +1157,33 @@ struct Measured {
     duplication: Duplication,
     verbosity: Verbosity,
     import_cycles: ImportCycles,
+    boundaries: Option<Boundaries>,
 }
 
 impl Measured {
-    fn new(model: &CodeModel) -> Measured {
-        let duplication = Duplication::measure(
+    fn new(
+        model: &CodeModel,
+        boundaries: Option<&BoundariesConfig>,
+        duplication_config: DuplicationConfig,
+    ) -> Measured {
+        let near_clones = duplication_config.near_clones.then(|| {
+            NearCloneConfig::new(duplication_config.min_similarity.ratio())
+                .expect("validated min_similarity is in (0, 1]")
+        });
+        let duplication = Duplication::measure_with_near_clones(
             model,
             MinimumCloneTokens::DEFAULT,
             MinimumDistinctTokens::DEFAULT,
+            near_clones,
         );
+        let boundaries =
+            boundaries.map(|config| Boundaries::measure(model, &ConfigBoundaryPolicy(config)));
         Measured {
             erosion: Erosion::measure(model),
-            verbosity: Verbosity::measure(model, &duplication.clone_lines),
+            verbosity: Verbosity::measure(model, &duplication.exact_clone_lines),
             duplication,
             import_cycles: ImportCycles::measure(model),
+            boundaries,
         }
     }
 }
@@ -1052,25 +1235,24 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
         .collect()
 }
 
+pub struct ReportOptions<'a> {
+    pub findings: FindingsShown,
+    pub budgets: &'a Budgets,
+    pub metric_plugins: &'a [&'a dyn MetricPlugin],
+    pub boundaries: Option<&'a BoundariesConfig>,
+    pub duplication: DuplicationConfig,
+    pub ownership: OwnershipOptions<'a>,
+}
+
 impl MeasuredSection {
     fn new(
         model: CodeModel,
         ranges: &ReferenceRangeScope,
-        findings: FindingsShown,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        ownership: OwnershipOptions<'_>,
+        options: SectionOptions<'_>,
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = model.files.len();
         let lines = source_lines(&model);
-        let source_sets = SourceSetSections::new(
-            &model.into_source_sets(),
-            ranges,
-            findings,
-            metric_plugins,
-            boundaries,
-            ownership,
-        )?;
+        let source_sets = SourceSetSections::new(&model.into_source_sets(), ranges, options)?;
         Ok(MeasuredSection {
             files,
             source_lines: lines,
@@ -1125,14 +1307,40 @@ impl Report {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<Report, MetricPluginError> {
-        Report::summarize_with_ownership(
+        Report::summarize_with_options(
             languages,
             submodules,
-            findings,
-            budgets,
-            metric_plugins,
-            boundaries,
-            OwnershipOptions::default(),
+            ReportOptions {
+                findings,
+                budgets,
+                metric_plugins,
+                boundaries,
+                duplication: DuplicationConfig::default(),
+                ownership: OwnershipOptions::default(),
+            },
+        )
+    }
+
+    pub fn summarize_with_config(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
+        budgets: &Budgets,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
+    ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_options(
+            languages,
+            submodules,
+            ReportOptions {
+                findings,
+                budgets,
+                metric_plugins,
+                boundaries,
+                duplication,
+                ownership: OwnershipOptions::default(),
+            },
         )
     }
 
@@ -1145,6 +1353,32 @@ impl Report {
         boundaries: Option<&BoundariesConfig>,
         ownership: OwnershipOptions<'_>,
     ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_options(
+            languages,
+            submodules,
+            ReportOptions {
+                findings,
+                budgets,
+                metric_plugins,
+                boundaries,
+                duplication: DuplicationConfig::default(),
+                ownership,
+            },
+        )
+    }
+
+    pub fn summarize_with_options(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        options: ReportOptions<'_>,
+    ) -> Result<Report, MetricPluginError> {
+        let section_options = SectionOptions {
+            findings: options.findings,
+            metric_plugins: options.metric_plugins,
+            boundaries: options.boundaries,
+            duplication: options.duplication,
+            ownership: options.ownership,
+        };
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -1165,10 +1399,7 @@ impl Report {
                         MeasuredSection::new(
                             language.model.clone(),
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
-                            findings,
-                            metric_plugins,
-                            boundaries,
-                            ownership,
+                            section_options,
                         )?,
                     );
                 }
@@ -1187,16 +1418,9 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(
-            model,
-            &total_ranges,
-            findings,
-            metric_plugins,
-            boundaries,
-            ownership,
-        )?;
+        let measured = MeasuredSection::new(model, &total_ranges, section_options)?;
         Ok(Report {
-            over_budget: measured.source_sets.over_budget(budgets),
+            over_budget: measured.source_sets.over_budget(options.budgets),
             skipped,
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),

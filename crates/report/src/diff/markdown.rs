@@ -1,10 +1,11 @@
 use super::{DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges};
 use crate::Findings;
 use crate::markdown::{
-    BOUNDARY_FINDING_COLUMNS, CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS,
+    BOUNDARY_FINDING_COLUMNS, CLONE_FAMILY, CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS,
     EXTERNAL_FINDING_COLUMNS, FINDING, FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun,
-    boundary_finding_row, clone_group_item, code, eroded_function_row, external_finding_row,
-    findings_table, flagged_line_row, import_cycle_item, list, push_findings, sentence_item, table,
+    boundary_finding_row, clone_family_item, clone_group_item, code, eroded_function_row,
+    external_finding_row, findings_table, flagged_line_row, import_cycle_item, list, push_findings,
+    sentence_item, table,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -68,7 +69,7 @@ fn comparison_sentence(report: &DiffReport) -> String {
 fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>> {
     let mut rows = vec![
         metric_row(source_set, "Erosion", &changes.erosion),
-        metric_row(source_set, "Duplication", &changes.duplication),
+        metric_row(source_set, "Duplication", &changes.duplication.groups),
         metric_row(source_set, "Verbosity", &changes.verbosity),
         metric_row(source_set, "Import cycles", &changes.import_cycles),
     ];
@@ -109,10 +110,26 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
     push_changes(
         &mut blocks,
         "Duplication",
-        &changes.duplication,
+        &changes.duplication.groups,
         &CLONE_GROUP,
         |listed| list(listed.iter().map(clone_group_item)),
     );
+    if let Some(clone_families) = &changes.duplication.clone_families {
+        push_findings(
+            &mut blocks,
+            "New Clone families",
+            &clone_families.new,
+            &CLONE_FAMILY,
+            |listed| list(listed.iter().map(clone_family_item)),
+        );
+        push_findings(
+            &mut blocks,
+            "Resolved Clone families",
+            &clone_families.resolved,
+            &CLONE_FAMILY,
+            |listed| list(listed.iter().map(clone_family_item)),
+        );
+    }
     push_changes(
         &mut blocks,
         "Verbosity",

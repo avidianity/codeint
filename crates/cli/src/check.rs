@@ -21,7 +21,7 @@ use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{LanguageSchema, MeasuredLanguage, OwnershipOptions, Report};
+use codeint_report::{LanguageSchema, MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
@@ -405,14 +405,17 @@ fn check_loaded(
         let selected = select_workspace_package(&workspace, requested)?;
         filter_languages_to_package(&mut languages, &selected);
     }
-    Ok(Report::summarize_with_ownership(
+    Ok(Report::summarize_with_options(
         languages,
         tree.submodules().to_vec(),
-        findings,
-        &configuration.budgets,
-        metric_plugins,
-        configuration.boundaries.as_ref(),
-        ownership,
+        ReportOptions {
+            findings,
+            budgets: &configuration.budgets,
+            metric_plugins,
+            boundaries: configuration.boundaries.as_ref(),
+            duplication: configuration.duplication,
+            ownership,
+        },
     )?)
 }
 
