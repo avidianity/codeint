@@ -56,3 +56,9 @@ allow_attributes_without_reason = "deny"
 
 [profile.dev]
 debug = 0
+
+[profile.dev.package]
+cranelift-codegen.opt-level = 1
+cranelift-frontend.opt-level = 1
+regalloc2.opt-level = 1
+wasmtime-internal-cranelift.opt-level = 1
