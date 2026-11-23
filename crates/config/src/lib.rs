@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 mod boundaries;
 mod calendar_day;
+mod cli_schema;
 mod codeint_json;
 mod config_error;
 mod regression_limits;
@@ -15,6 +16,9 @@ pub use boundaries::{
     Boundaries, BoundaryDirective, BoundaryPreset, BoundaryRuleDecision, BoundarySourceSet,
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
+pub use cli_schema::{
+    CliArgumentSchema, CliCommandSchema, CliFlagSchema, CliSchema, OutputFormatSchema, cli_schema,
+};
 pub use codeint_json::{
     Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
     PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
@@ -105,6 +109,12 @@ pub enum GuardFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum SchemaFormat {
+    Json,
+    Toon,
+}
+
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +167,10 @@ pub enum Command {
         folder: PathBuf,
         target: PathBuf,
         format: GuardFormat,
+    },
+    Schema {
+        destination: ReportDestination,
+        format: SchemaFormat,
     },
 }
 
@@ -268,6 +282,24 @@ enum CommandArguments {
         )]
         format: GuardFormat,
     },
+    #[command(
+        about = "Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes"
+    )]
+    Schema {
+        #[arg(
+            long,
+            value_name = "FILE",
+            help = "Write the schema manifest to this file instead of standard output"
+        )]
+        output: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = SchemaFormat::Json,
+            help = "The format of the schema manifest"
+        )]
+        format: SchemaFormat,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -326,6 +358,10 @@ fn build_command(
         CommandArguments::Guard { path, format } => Ok(Command::Guard {
             folder: current_folder.to_path_buf(),
             target: path,
+            format,
+        }),
+        CommandArguments::Schema { output, format } => Ok(Command::Schema {
+            destination: report_destination(current_folder, output)?,
             format,
         }),
     }

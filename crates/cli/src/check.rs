@@ -21,7 +21,7 @@ use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{MeasuredLanguage, Report};
+use codeint_report::{LanguageSchema, MeasuredLanguage, Report};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
@@ -95,6 +95,16 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 5] = 
         plugin: &Python,
     },
 ];
+
+pub(crate) fn built_in_languages() -> Vec<LanguageSchema> {
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .map(|named| LanguageSchema {
+            name: named.name.to_owned(),
+            extensions: named.plugin.extensions(),
+        })
+        .collect()
+}
 
 pub(crate) struct LoadedPlugins {
     external_languages: Vec<(String, WasmLanguagePlugin)>,

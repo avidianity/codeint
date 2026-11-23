@@ -16,15 +16,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use codeint_config::{Command, ConfigError, ReportDestination, read_invocation};
+use codeint_config::{Command, ConfigError, ReportDestination, cli_schema, read_invocation};
 use codeint_git::ResultCache;
-use codeint_report::ReportError;
+use codeint_report::{ExitCodeSchema, ReportError};
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
-    TrendRange,
+    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, SchemaFormat,
+    TrendFormat, TrendRange,
 };
-pub use codeint_report::{DiffReport, GuardReport, Report, TrendReport};
+pub use codeint_report::{DiffReport, GuardReport, Report, SchemaReport, TrendReport};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -188,6 +188,15 @@ pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> 
     guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
 }
 
+pub fn schema() -> SchemaReport {
+    SchemaReport::build(
+        cli_schema(),
+        check::built_in_languages(),
+        mcp::tool_definitions(),
+        exit_codes(),
+    )
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
@@ -212,8 +221,29 @@ enum CliError {
     },
 }
 
+const SUCCESS: u8 = 0;
 const BUDGET_OR_REGRESSION_FAILED: u8 = 1;
 const OPERATIONAL_ERROR: u8 = 2;
+
+fn exit_codes() -> Vec<ExitCodeSchema> {
+    vec![
+        ExitCodeSchema {
+            code: SUCCESS,
+            name: "success",
+            description: "The run succeeded, and no Budget or Regression failed.",
+        },
+        ExitCodeSchema {
+            code: BUDGET_OR_REGRESSION_FAILED,
+            name: "budget_or_regression_failed",
+            description: "The run succeeded, and at least one Budget or Regression failed.",
+        },
+        ExitCodeSchema {
+            code: OPERATIONAL_ERROR,
+            name: "operational_error",
+            description: "An operational error stopped the run, such as an invalid option, missing Git ref, or invalid codeint.json.",
+        },
+    ]
+}
 
 enum Outcome {
     Passed,
@@ -304,7 +334,17 @@ fn run() -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Schema {
+            destination,
+            format,
+        } => run_schema(&destination, format),
     }
+}
+
+fn run_schema(destination: &ReportDestination, format: SchemaFormat) -> Result<Outcome, CliError> {
+    let report = schema();
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
 }
 
 fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {

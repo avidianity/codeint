@@ -6,6 +6,7 @@ use codeint_config::{
     CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
     TrendRange,
 };
+use codeint_report::McpToolSchema;
 use serde_json::{Value, json};
 
 use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, guard, trend};
@@ -120,58 +121,62 @@ fn handle_initialize(params: Option<&Value>) -> Value {
     })
 }
 
+pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
+    vec![
+        McpToolSchema {
+            name: "check".to_owned(),
+            description: "Measure Software entropy of a Git repository working tree (Erosion, Duplication, Verbosity, Import cycles) and report any Budget failures.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "diff".to_owned(),
+            description: "Compare the working tree (or a head Git ref) against the merge-base of base_ref and classify Findings as new, resolved, or unchanged.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["base_ref"],
+                "properties": {
+                    "base_ref": { "type": "string", "description": "Base Git ref such as main or origin/main." },
+                    "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "trend".to_owned(),
+            description: "Measure each main-line commit over time (latest 20 commits or since YYYY-MM-DD).".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                    "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
+                }
+            }),
+        },
+        McpToolSchema {
+            name: "guard".to_owned(),
+            description: "Query the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for an existing or planned file path.".to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                    "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
+                    "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
+                }
+            }),
+        },
+    ]
+}
+
 fn handle_tools_list() -> Value {
     json!({
-        "tools": [
-            {
-                "name": "check",
-                "description": "Measure Software entropy of a Git repository working tree (Erosion, Duplication, Verbosity, Import cycles) and report any Budget failures.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
-                    }
-                }
-            },
-            {
-                "name": "diff",
-                "description": "Compare the working tree (or a head Git ref) against the merge-base of base_ref and classify Findings as new, resolved, or unchanged.",
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["base_ref"],
-                    "properties": {
-                        "base_ref": { "type": "string", "description": "Base Git ref such as main or origin/main." },
-                        "head_ref": { "type": "string", "description": "Optional head Git ref instead of the working tree." },
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
-                    }
-                }
-            },
-            {
-                "name": "trend",
-                "description": "Measure each main-line commit over time (latest 20 commits or since YYYY-MM-DD).",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
-                        "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
-                    }
-                }
-            },
-            {
-                "name": "guard",
-                "description": "Query the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for an existing or planned file path.",
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["file"],
-                    "properties": {
-                        "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
-                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
-                    }
-                }
-            }
-        ]
+        "tools": tool_definitions(),
     })
 }
 

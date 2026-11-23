@@ -23,6 +23,7 @@ mod guard;
 mod markdown;
 mod measurement;
 mod sarif;
+mod schema;
 #[cfg(test)]
 mod tests;
 mod trend;
@@ -30,6 +31,7 @@ mod trend;
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use measurement::CommitMeasurement;
+pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
 pub use trend::{TrendPoint, TrendReport};
 
 const DECIMAL_SCALE: f64 = 10_000.0;

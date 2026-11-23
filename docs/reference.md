@@ -30,6 +30,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, and `guard` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -512,6 +513,24 @@ codeint guard src/route.ts
 codeint guard src/route.ts --format text
 codeint guard src/route.ts --format toon
 codeint guard src/route.ts --format json
+```
+
+### `codeint schema`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--output <FILE>` | Write the schema manifest to this file instead of standard output |
+| `--format <FORMAT>` | The format of the schema manifest: `json`, the default, or `toon` |
+| `-h, --help` | Print the help of `codeint schema` |
+
+`codeint schema` prints a deterministic, machine-readable manifest describing the running binary version, every CLI command and flag, built-in Metrics, Source sets, built-in Language plugins, output formats, MCP tools, and exit codes.
+It is derived directly from live CLI and MCP definitions, works outside a Git repository, and stays 100% local and offline.
+
+```sh exit=0
+codeint schema
+codeint schema --format json
+codeint schema --format toon
+codeint schema --output schema.json
 ```
 
 ## Exit codes
