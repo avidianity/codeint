@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use codeint_config::{
     Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
-    FindingsShown, ReportFormat,
+    FindingsShown, ImpactFormat, ReportFormat, TraceFormat,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneGroup, Duplication,
@@ -20,16 +20,21 @@ use serde::{Deserialize, Serialize, Serializer};
 
 mod diff;
 mod guard;
+mod impact;
 mod markdown;
 mod measurement;
 mod sarif;
 #[cfg(test)]
 mod tests;
+mod trace;
 mod trend;
 
+pub use codeint_metrics::TraceError;
 pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
+pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::CommitMeasurement;
+pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
@@ -1011,11 +1016,57 @@ impl Report {
 
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
         match format {
-            ReportFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
-            ReportFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
+            ReportFormat::Toon => render_toon(self),
+            ReportFormat::Json => render_json(self),
             ReportFormat::Sarif => serde_json::to_string_pretty(&sarif::SarifLog::new(self))
                 .map_err(ReportError::Sarif),
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
     }
+}
+
+pub(crate) enum TextReportFormat {
+    Toon,
+    Json,
+    Text,
+}
+
+impl From<ImpactFormat> for TextReportFormat {
+    fn from(format: ImpactFormat) -> TextReportFormat {
+        match format {
+            ImpactFormat::Toon => TextReportFormat::Toon,
+            ImpactFormat::Json => TextReportFormat::Json,
+            ImpactFormat::Text => TextReportFormat::Text,
+        }
+    }
+}
+
+impl From<TraceFormat> for TextReportFormat {
+    fn from(format: TraceFormat) -> TextReportFormat {
+        match format {
+            TraceFormat::Toon => TextReportFormat::Toon,
+            TraceFormat::Json => TextReportFormat::Json,
+            TraceFormat::Text => TextReportFormat::Text,
+        }
+    }
+}
+
+pub(crate) fn render_text_report<T: Serialize>(
+    value: &T,
+    format: TextReportFormat,
+    render_text: impl FnOnce(&T) -> String,
+) -> Result<String, ReportError> {
+    match format {
+        TextReportFormat::Toon => render_toon(value),
+        TextReportFormat::Json => render_json(value),
+        TextReportFormat::Text => Ok(render_text(value)),
+    }
+}
+
+pub(crate) fn render_toon<T: Serialize>(value: &T) -> Result<String, ReportError> {
+    toon_format::encode_default(value).map_err(ReportError::Toon)
+}
+
+pub(crate) fn render_json<T: Serialize>(value: &T) -> Result<String, ReportError> {
+    serde_json::to_string_pretty(value).map_err(ReportError::Json)
 }
