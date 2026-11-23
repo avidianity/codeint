@@ -30,8 +30,10 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `trace` | Find the shortest runtime import path between two files in the repository; see [`codeint trace`](#codeint-trace) |
 | `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
-| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, and `trace` tools; see [`codeint mcp`](#codeint-mcp) |
+| `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
+| `coupling` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports; see [`codeint coupling`](#codeint-coupling) |
 | `help` | Print the help of codeint, or of the command that follows it |
 
 | Option | Meaning |
@@ -133,6 +135,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
+| `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `-h, --help` | Print the help of `codeint check` |
 
 `codeint check` measures the working tree, including uncommitted and untracked files, and prints the report:
@@ -209,6 +212,7 @@ These commands measure the same repository with other options:
 ```sh exit=0
 codeint check src
 codeint check --all
+codeint check --owner @team
 codeint check --format markdown --output report.md
 ```
 
@@ -242,6 +246,7 @@ codeint check --package packages/missing
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown` |
+| `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `-h, --help` | Print the help of `codeint diff` |
 
 `codeint diff {base-ref}` compares the working tree with the merge-base of the base ref and HEAD.
@@ -400,6 +405,12 @@ codeint diff main --head no-such-branch
 ```text stderr
 codeint: the Git ref "no-such-branch" does not name a commit in this repository: couldn't parse revision, input="no-such-branch": Reference "no-such-branch" could not be found: NotFound
 Pass a branch, tag, or commit that exists in this repository; fetch it first when it lives on a remote: git fetch origin main
+```
+
+When a repository has a `CODEOWNERS` file (`.github/CODEOWNERS`, `CODEOWNERS`, or `docs/CODEOWNERS`), codeint attaches matched owners to Findings and `--owner <OWNER>` filters Findings to those matching the pattern:
+
+```sh exit=0
+codeint diff main --owner @team
 ```
 
 #### Regressions
@@ -598,7 +609,7 @@ codeint 0.5.0 is already up to date (v0.5.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes six read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, and `trace`) so coding agents can measure Software entropy, inspect architectural boundaries, reverse-dependency blast radius, and import paths, and fix Regressions before opening a pull request.
+It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
@@ -623,6 +634,54 @@ codeint guard src/route.ts
 codeint guard src/route.ts --format text
 codeint guard src/route.ts --format toon
 codeint guard src/route.ts --format json
+```
+
+### `codeint churn`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--since <WINDOW>` | Lookback window in days (such as `90d`) or a UTC date (`YYYY-MM-DD`); defaults to `90d` |
+| `--commits <COUNT>` | Walk at most this many main-line commits from HEAD |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--all` | List every Finding instead of the 20 worst per Metric |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown` |
+| `-h, --help` | Print the help of `codeint churn` |
+
+`codeint churn` walks main-line Git history natively via `gix` to count per-file commit touches over the configured window, then ranks eroded and duplicated files independently per Metric without any blended score.
+In a shallow clone, `codeint churn` stops at the shallow boundary and includes a structured warning in the report.
+
+```sh exit=0
+codeint churn
+codeint churn --since 90d --format text
+codeint churn --commits 10 --all --format toon
+codeint churn --format json --output churn.json
+codeint churn --format markdown
+```
+
+### `codeint coupling`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--since <WINDOW>` | Lookback window in days (such as `90d`) or a UTC date (`YYYY-MM-DD`); defaults to `90d` |
+| `--commits <COUNT>` | Walk at most this many main-line commits from HEAD |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--all` | List every Finding instead of the 20 worst per Metric |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown` |
+| `--max-commit-files <COUNT>` | Exclude commits touching more than this many files from co-change pair accumulation; defaults to `50` |
+| `--min-co-changes <COUNT>` | Report only pairs that changed together in at least this many commits; defaults to `3` |
+| `--min-ratio <RATIO>` | Report only pairs whose coupling ratio is at least this value between 0 and 1; defaults to `0.3` |
+| `--include-tests` | Include Test Source set files alongside Production files |
+| `-h, --help` | Print the help of `codeint coupling` |
+
+`codeint coupling` walks main-line Git history natively via `gix` to find pairs of files that repeatedly change together in the same commits, excludes bulk commits above `--max-commit-files`, and flags whether each coupled pair has a direct runtime import edge.
+By default it measures Production files only; pass `--include-tests` to include Test files as well.
+
+```sh exit=0
+codeint coupling
+codeint coupling --since 90d --max-commit-files 50 --min-co-changes 3 --min-ratio 0.3 --format text
+codeint coupling --commits 10 --include-tests --all --format toon
+codeint coupling --format json --output coupling.json
+codeint coupling --format markdown
 ```
 
 ## Exit codes

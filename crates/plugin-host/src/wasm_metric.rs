@@ -1,19 +1,15 @@
 use std::path::Path;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use codeint_config::PluginLimits;
 use codeint_model::{
     CodeModel, ExternalFinding, ExternalMetricMeasurement, FileModel, ImportResolution, Metric,
     MetricPluginError, RepoPath, SourceSet, TokenKind,
 };
-use wasmtime::{Engine, Store};
+use wasmtime::Store;
 
 use crate::PluginHostError;
-use crate::limits::{
-    EpochTicker, LimitTrap, PluginStoreState, arm_call_deadline, classify_trap, new_limited_store,
-};
-use crate::wasm::{ContractSpec, instantiate_sandboxed_component, map_host_trap};
+use crate::limits::{LimitTrap, PluginStoreState, arm_call_deadline, classify_trap};
+use crate::wasm::{ContractSpec, InstancePool, instantiate_sandboxed_component, map_host_trap};
 
 const METRIC_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/metric@",
@@ -32,22 +28,12 @@ use bindings::exports::codeint::plugin::metric as guest_metric;
 
 const RESERVED_KEYS: [&str; 3] = ["files", "source_lines", "packages"];
 
-struct MetricPluginInstance {
-    store: Store<PluginStoreState>,
-    bindings: bindings::MetricPlugin,
-}
-
 pub struct WasmMetricPlugin {
     plugin_name: String,
-    limits: PluginLimits,
     key: String,
     display_name: String,
     description: String,
-    engine: Engine,
-    _ticker: EpochTicker,
-    pre: bindings::MetricPluginPre<PluginStoreState>,
-    pool: Mutex<Vec<MetricPluginInstance>>,
-    peak_memory_bytes: AtomicUsize,
+    instances: InstancePool<bindings::MetricPluginPre<PluginStoreState>, bindings::MetricPlugin>,
 }
 
 impl WasmMetricPlugin {
@@ -108,53 +94,17 @@ impl WasmMetricPlugin {
         } else {
             display_name
         };
-        let peak_memory_bytes = AtomicUsize::new(component.store.data().peak_memory_bytes());
         Ok(WasmMetricPlugin {
             plugin_name,
-            limits,
             key,
             display_name,
             description,
-            engine: component.engine,
-            _ticker: component.ticker,
-            pre: component.pre,
-            pool: Mutex::new(vec![MetricPluginInstance {
-                store: component.store,
-                bindings: component.bindings,
-            }]),
-            peak_memory_bytes,
+            instances: InstancePool::from_component(component, limits),
         })
     }
 
     pub fn peak_memory_bytes(&self) -> usize {
-        self.peak_memory_bytes.load(Ordering::Relaxed)
-    }
-
-    fn record_peak_memory(&self, store: &Store<PluginStoreState>) {
-        self.peak_memory_bytes
-            .fetch_max(store.data().peak_memory_bytes(), Ordering::Relaxed);
-    }
-
-    fn checkout(&self) -> Result<MetricPluginInstance, MetricPluginError> {
-        if let Ok(mut guard) = self.pool.lock()
-            && let Some(instance) = guard.pop()
-        {
-            return Ok(instance);
-        }
-        let mut store = new_limited_store(&self.engine, self.limits);
-        let bindings = self
-            .pre
-            .instantiate(&mut store)
-            .map_err(|error| map_metric_trap(&self.plugin_name, self.limits, &store, error))?;
-        self.record_peak_memory(&store);
-        Ok(MetricPluginInstance { store, bindings })
-    }
-
-    fn checkin(&self, instance: MetricPluginInstance) {
-        self.record_peak_memory(&instance.store);
-        if let Ok(mut guard) = self.pool.lock() {
-            guard.push(instance);
-        }
+        self.instances.peak_memory_bytes()
     }
 
     pub(crate) fn key_impl(&self) -> &str {
@@ -174,21 +124,25 @@ impl WasmMetricPlugin {
         model: &CodeModel,
     ) -> Result<ExternalMetricMeasurement, MetricPluginError> {
         let guest_model = to_guest_code_model(model);
-        let mut instance = self.checkout()?;
-        arm_call_deadline(&mut instance.store, self.limits);
+        let limits = self.instances.limits();
+        let mut instance = self.instances.checkout(
+            |pre, store| pre.instantiate(store),
+            |store, error| map_metric_trap(&self.plugin_name, limits, store, error),
+        )?;
+        arm_call_deadline(&mut instance.store, limits);
         let result = instance
             .bindings
             .codeint_plugin_metric()
             .call_measure(&mut instance.store, &guest_model);
-        self.record_peak_memory(&instance.store);
+        self.instances.record_peak_memory(&instance.store);
         match result {
             Ok(measurement) => {
-                self.checkin(instance);
+                self.instances.checkin(instance);
                 convert_measurement(&self.plugin_name, measurement)
             }
             Err(error) => Err(map_metric_trap(
                 &self.plugin_name,
-                self.limits,
+                limits,
                 &instance.store,
                 error,
             )),

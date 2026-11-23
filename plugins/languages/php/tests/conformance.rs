@@ -293,7 +293,7 @@ fn php_builtins_composer_normalization_and_declared_dependencies() {
         Resolution::External("unlisted/custom-pkg".into())
     );
 
-    let deps = Php.declared_dependencies(manifests);
+    let deps = Php.declared_dependencies(manifests).unwrap();
     let rows: Vec<(&str, &str, DepKind)> = deps
         .iter()
         .map(|d| (d.package_root.as_str(), d.name.as_str(), d.kind))

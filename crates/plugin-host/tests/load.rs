@@ -8,12 +8,12 @@ use codeint_config::{
 };
 use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{
-    CodeModel, FileModel, LanguagePlugin, LowerError, Manifest, MetricPlugin, MetricPluginError,
-    RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
+    CodeModel, FileModel, LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin,
+    MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
 };
 use codeint_plugin_host::{
-    PluginHostError, load_language_plugin, load_language_plugin_with_limits, load_language_plugins,
-    load_metric_plugin, load_metric_plugin_with_limits, load_metric_plugins,
+    PluginHostError, WasmLanguagePlugin, load_language_plugin, load_language_plugin_with_limits,
+    load_language_plugins, load_metric_plugin, load_metric_plugin_with_limits, load_metric_plugins,
 };
 
 use common::{build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm};
@@ -602,7 +602,9 @@ fn verifies_0_2_0_contract_fields_and_methods_across_wasm_boundary() {
     }];
 
     assert_eq!(
-        plugin.declared_dependencies(manifests.clone()),
+        plugin
+            .declared_dependencies(manifests.clone())
+            .expect("valid declared dependencies"),
         vec![
             DeclaredDep {
                 package_root: String::new(),
@@ -622,8 +624,10 @@ fn verifies_0_2_0_contract_fields_and_methods_across_wasm_boundary() {
         ]
     );
     assert_eq!(
-        plugin.entry_points(&repo_paths, manifests.clone()),
-        vec!["src/main.mini"]
+        plugin
+            .entry_points(&repo_paths, manifests.clone())
+            .expect("valid entry points"),
+        vec![RepoPath::new("src/main.mini").expect("valid repo path")]
     );
     assert_eq!(
         plugin.resolve_imports(
@@ -718,5 +722,224 @@ fn rejects_v0_1_0_metric_plugin_with_actionable_version_mismatch_error() {
         "legacy-metric",
         "codeint:plugin/metric@0.2.0",
         "codeint:plugin/metric@0.1.0",
+    );
+}
+
+fn trigger_manifest(directive: &str) -> Vec<Manifest> {
+    vec![Manifest {
+        path: "trigger.manifest".to_owned(),
+        text: directive.to_owned(),
+    }]
+}
+
+fn load_probe(name: &str, wasm_file: &str, limits: PluginLimits) -> WasmLanguagePlugin {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration_for(name, &wasm_path),
+        &PluginHostConfig::default(),
+        limits,
+    )
+    .expect("probe plugin loads")
+}
+
+fn assert_memory_err<T: std::fmt::Debug>(
+    result: Result<T, LanguagePluginError>,
+    expected_plugin: &str,
+    expected_mb: u64,
+) {
+    assert!(
+        matches!(
+            result,
+            Err(LanguagePluginError::MemoryLimitExceeded {
+                ref plugin,
+                memory_mb,
+            }) if plugin == expected_plugin && memory_mb == expected_mb
+        ),
+        "expected MemoryLimitExceeded({expected_plugin}, {expected_mb}), got: {result:?}"
+    );
+}
+
+#[test]
+fn declared_dependencies_and_entry_points_propagate_timeout_trap_and_oom_and_recover() {
+    let loop_plugin = load_probe(
+        "loop-lang",
+        "loop_language_plugin.wasm",
+        PluginLimits {
+            memory_mb: 4,
+            timeout_ms: 150,
+        },
+    );
+    let repo_paths = vec![RepoPath::new("src/main.loop").expect("valid repo path")];
+
+    assert!(matches!(
+        loop_plugin.declared_dependencies(trigger_manifest("LOOP_FOREVER")),
+        Err(LanguagePluginError::TimeLimitExceeded {
+            ref plugin,
+            timeout_ms: 150,
+        }) if plugin == "loop-lang"
+    ));
+    assert!(matches!(
+        loop_plugin.declared_dependencies(trigger_manifest("PANIC_TRAP")),
+        Err(LanguagePluginError::Call {
+            ref plugin,
+            call: "declared-dependencies",
+            ..
+        }) if plugin == "loop-lang"
+    ));
+    assert_eq!(
+        loop_plugin
+            .declared_dependencies(Vec::new())
+            .expect("healthy declared_dependencies succeeds after trap")
+            .len(),
+        1
+    );
+
+    assert!(matches!(
+        loop_plugin.entry_points(&repo_paths, trigger_manifest("LOOP_FOREVER")),
+        Err(LanguagePluginError::TimeLimitExceeded {
+            ref plugin,
+            timeout_ms: 150,
+        }) if plugin == "loop-lang"
+    ));
+    assert!(matches!(
+        loop_plugin.entry_points(&repo_paths, trigger_manifest("PANIC_TRAP")),
+        Err(LanguagePluginError::Call {
+            ref plugin,
+            call: "entry-points",
+            ..
+        }) if plugin == "loop-lang"
+    ));
+    assert_eq!(
+        loop_plugin
+            .entry_points(&repo_paths, Vec::new())
+            .expect("healthy entry_points succeeds after trap"),
+        repo_paths
+    );
+
+    let hog_plugin = load_probe(
+        "hog-lang",
+        "memory_hog_language_plugin.wasm",
+        PluginLimits {
+            memory_mb: 2,
+            timeout_ms: 1_000,
+        },
+    );
+    let hog_paths = vec![RepoPath::new("src/main.hog").expect("valid repo path")];
+
+    assert_memory_err(
+        hog_plugin.declared_dependencies(trigger_manifest("ALLOC_2MB")),
+        "hog-lang",
+        2,
+    );
+    assert_memory_err(
+        hog_plugin.entry_points(&hog_paths, trigger_manifest("ALLOC_2MB")),
+        "hog-lang",
+        2,
+    );
+    assert_eq!(
+        hog_plugin
+            .entry_points(&hog_paths, Vec::new())
+            .expect("healthy entry_points recovers after OOM trap"),
+        hog_paths
+    );
+}
+
+#[test]
+fn rejects_canonical_abi_aliased_string_amplification_bomb() {
+    let plugin = load_probe(
+        "hog-lang",
+        "memory_hog_language_plugin.wasm",
+        PluginLimits {
+            memory_mb: 2,
+            timeout_ms: 1_000,
+        },
+    );
+    let repo_paths = vec![RepoPath::new("src/main.hog").expect("valid repo path")];
+
+    assert_memory_err(
+        plugin.entry_points(&repo_paths, trigger_manifest("ALIASED_BOMB")),
+        "hog-lang",
+        2,
+    );
+    assert_memory_err(
+        plugin.declared_dependencies(trigger_manifest("ALIASED_BOMB")),
+        "hog-lang",
+        2,
+    );
+    assert_eq!(
+        plugin
+            .entry_points(&repo_paths, Vec::new())
+            .expect("plugin recovers after aliased-string bomb is rejected"),
+        repo_paths
+    );
+}
+
+#[test]
+fn rejects_invalid_entry_points_and_declared_dependencies_from_wasm_plugin() {
+    let plugin = load_probe(
+        "hog-lang",
+        "memory_hog_language_plugin.wasm",
+        PluginLimits::default(),
+    );
+    let repo_paths = vec![RepoPath::new("src/main.hog").expect("valid repo path")];
+
+    assert!(matches!(
+        plugin.entry_points(&repo_paths, trigger_manifest("INVALID_TRAVERSAL")),
+        Err(LanguagePluginError::InvalidEntryPointPath { ref path })
+            if path == "../../../etc/passwd"
+    ));
+    assert!(matches!(
+        plugin.entry_points(&repo_paths, trigger_manifest("INVALID_ABSOLUTE")),
+        Err(LanguagePluginError::InvalidEntryPointPath { ref path }) if path == "/etc/shadow"
+    ));
+    assert!(matches!(
+        plugin.entry_points(&repo_paths, trigger_manifest("INVALID_UNKNOWN")),
+        Err(LanguagePluginError::UnknownEntryPoint { ref path }) if path == "src/missing.hog"
+    ));
+
+    for directive in ["INVALID_EMPTY_NAME", "INVALID_WHITESPACE_NAME"] {
+        assert!(matches!(
+            plugin.declared_dependencies(trigger_manifest(directive)),
+            Err(LanguagePluginError::EmptyDependencyName { .. })
+        ));
+    }
+    for (directive, expected) in [
+        ("INVALID_TRAVERSAL_ROOT", "../escape"),
+        ("INVALID_ABSOLUTE_ROOT", "/etc/shadow"),
+        ("INVALID_BACKSLASH_ROOT", "packages\\app"),
+    ] {
+        assert!(matches!(
+            plugin.declared_dependencies(trigger_manifest(directive)),
+            Err(LanguagePluginError::InvalidDependencyPackageRoot { ref package_root })
+                if package_root == expected
+        ));
+    }
+}
+
+#[test]
+fn loads_dual_version_language_plugin_exporting_0_1_0_and_0_2_0() {
+    let plugin = load_probe(
+        "dual-lang",
+        "dual_version_language_plugin.wasm",
+        PluginLimits::default(),
+    );
+    assert_eq!(plugin.extensions(), vec!["dual"]);
+    let repo_paths = vec![RepoPath::new("src/app.dual").expect("valid repo path")];
+    assert_eq!(
+        plugin
+            .entry_points(&repo_paths, Vec::new())
+            .expect("dual plugin entry_points"),
+        repo_paths
+    );
+    assert_eq!(
+        plugin
+            .declared_dependencies(Vec::new())
+            .expect("dual plugin declared_dependencies"),
+        vec![DeclaredDep {
+            package_root: String::new(),
+            name: "dual-dep".to_owned(),
+            kind: DepKind::Runtime,
+        }]
     );
 }

@@ -228,8 +228,12 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         resolutions[2]
     );
 
-    let _deps = plugin.declared_dependencies(valid_manifest.clone());
-    let entry_points = plugin.entry_points(&repo_paths, valid_manifest);
+    let _deps = plugin
+        .declared_dependencies(valid_manifest.clone())
+        .unwrap_or_else(|error| panic!("{label}: declared_dependencies failed: {error}"));
+    let entry_points = plugin
+        .entry_points(&repo_paths, valid_manifest)
+        .unwrap_or_else(|error| panic!("{label}: entry_points failed: {error}"));
     for entry in &entry_points {
         assert!(
             fixture.repository_paths.contains(&entry.as_str()),

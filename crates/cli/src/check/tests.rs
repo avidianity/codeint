@@ -783,16 +783,19 @@ impl LanguagePlugin for ParallelProofPlugin {
             .collect()
     }
 
-    fn declared_dependencies(&self, _manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, codeint_model::LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn entry_points(
         &self,
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
-    ) -> Vec<String> {
-        Vec::new()
+    ) -> Result<Vec<RepoPath>, codeint_model::LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {

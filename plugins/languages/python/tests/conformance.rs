@@ -271,7 +271,7 @@ fn python_stdlib_pep503_external_normalization_and_declared_dependencies() {
         assert_eq!((spec.as_str(), actual), (want_spec, want_res));
     }
 
-    let deps = Python.declared_dependencies(manifests);
+    let deps = Python.declared_dependencies(manifests).unwrap();
     let mut declared = Vec::with_capacity(deps.len());
     for dep in &deps {
         declared.push((dep.package_root.as_str(), dep.name.as_str(), dep.kind));

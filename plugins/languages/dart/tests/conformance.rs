@@ -226,7 +226,7 @@ fn dart_builtins_package_normalization_and_declared_dependencies() {
         ]
     );
 
-    let deps = Dart.declared_dependencies(pubspecs);
+    let deps = Dart.declared_dependencies(pubspecs).unwrap();
     let rendered: Vec<String> = deps
         .iter()
         .map(|d| format!("{}|{}|{:?}", d.package_root, d.name, d.kind))
