@@ -20,39 +20,66 @@
   <a href="./llms.txt">llms.txt</a>
 </p>
 
+> [!NOTE]
+> **Early development**: codeint is still pre-`1.0` and evolving quickly.
+> CLI flags, configuration keys, report shapes, and the WebAssembly Plugin contract may change rapidly before `1.0`.
+
 ## Why codeint
 
 Coding agents write locally valid code very quickly.
-Each pull request can pass tests and linters while quietly adding copied blocks, redundant branches, deeper functions, and tangled imports.
+Each pull request can pass tests and linters while quietly adding copied blocks, redundant branches, deeper functions, unused dependencies, and tangled imports.
 Over dozens of changes, that structural drag compounds until both humans and agents slow down.
 
-codeint measures **Software entropy** directly from the shape of source code so you see it grow before it compounds.
-It ships with built-in Language plugins for TypeScript/JavaScript, Rust, PHP, Dart, and Python, plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
+codeint measures **Software entropy** directly from the shape of your source code so you see it grow before it compounds.
+It ships with five built-in Language plugins covering TypeScript/JavaScript (including Vue and Svelte `<script>` blocks), Rust, PHP, Dart, and Python, plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
 
 ## How it works
 
-### Four independent Metrics, never one blended score
+### Independent Metrics, never one blended score
 
-codeint reports four Metrics side by side and never collapses them into one grade or index ([ADR 0003](./docs/adr/0003-no-combined-score.md)).
+codeint reports every Metric side by side and never collapses them into one grade or index ([ADR 0003](./docs/adr/0003-no-combined-score.md)).
 A single score hides regressions when one Metric improves while another worsens.
 
-- **Erosion**: share of Function mass (`cyclomatic_complexity * sqrt(source_lines)`) in functions with cyclomatic complexity over 10.
-- **Duplication**: share of source lines in Clone groups (at least 75 normalized tokens and 14 distinct normalized tokens, catching renamed copy-paste while ignoring import lists and data tables).
-- **Verbosity**: share of source lines in zero-false-positive Flagged lines or Clone groups.
+Four core Metrics are calibrated against pre-2023 human-written repositories:
+
+- **Erosion**: share of Function mass (`cyclomatic_complexity * sqrt(source_lines)`) in functions with cyclomatic complexity over 10, reported with function names.
+- **Duplication**: share of source lines in exact Clone groups (at least 75 normalized tokens and 14 distinct normalized tokens, catching renamed copy-paste while ignoring import lists and data tables), grouped into Clone families across three or more locations, with opt-in shingle-based near-clone detection.
+- **Verbosity**: share of source lines in zero-false-positive Flagged lines or exact Clone groups.
 - **Import cycles**: share of modules in at least one runtime Import cycle.
 
-### Grounded, ratchet-based enforcement
+Additional independent Metrics and structural checks run in the same pass:
 
-- **Pre-2023 Reference ranges**: every built-in language is calibrated against 20 public repositories pinned before `2023-01-01` (10th to 90th percentile), so raw numbers have grounded context.
-- **Strict Source-set separation**: every file belongs to `production`, `test`, `generated`, or `vendored`, so fixtures and generated code never distort Production ratios.
-- **Budgets and Regressions**: Budgets cap absolute entropy in `codeint check`, while `codeint diff <base>` ratchets every pull request against its Git merge-base.
-- **Version-free parsing**: built-in Language plugins parse the modern superset of each language family, with no language-version pins needed in `codeint.json`.
+- **Cognitive complexity**: share of total nesting-weighted cognitive complexity held by functions scoring over 15.
+- **Orphan files**: Production files unreachable from manifest-declared and configured `entry_points`, classified as `unreferenced` or `test-only`.
+- **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml` against imported external packages while excluding standard-library built-ins.
+- **Architectural import boundaries**: named zones, built-in `layered` and `hexagonal` presets, `public_files` encapsulation, directional `allow`/`deny` rules, and pre-edit `codeint guard <path>` checks before a file even exists on disk.
+
+Every file belongs to one **Source set** (`production`, `test`, `generated`, or `vendored`), so fixtures and generated code never distort Production ratios.
+**Budgets** cap absolute ratios in `codeint check`, while `codeint diff <base>` ratchets every pull request against its Git merge-base.
+
+### Codebase navigation, Git history, and ownership
+
+Beyond static snapshots, codeint helps humans and coding agents understand how files connect and evolve:
+
+- **`codeint trace <from> <to>`**: find the shortest runtime import paths between two modules.
+- **`codeint impact <paths...>`** / **`--changed <base-ref>`**: compute the transitive reverse-dependency blast radius, separating Production and Test dependents and listing affected Workspace packages.
+- **`--package <path>`**: scope `check`, `diff`, `impact`, and `trace` to one Workspace package in a monorepo.
+- **`codeint churn`**: rank eroded and duplicated files alongside their Git commit churn independently per Metric.
+- **`codeint coupling`**: detect pairs of files that repeatedly change together in the same commits and flag whether they share a direct runtime import.
+- **`CODEOWNERS` filtering (`--owner <pattern>`)**: filter `check` and `diff` Findings to a specific team or owner.
+
+### Built for CI and coding agents
+
+- **JSONC configuration**: configure codeint in `codeint.jsonc` or `codeint.json` with comments and trailing commas (`codeint init` writes a starter `codeint.jsonc`).
+- **Single-scan multi-format reporting**: save `codeint check --format json` or `codeint diff --format json` once, then re-render losslessly into `text`, `toon`, `json`, `sarif`, or `markdown` with `codeint report`.
+- **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, and verify repository health offline with `codeint doctor`.
+- **First-class MCP integration**: run `codeint agent status` and `codeint agent install` to register the local stdio MCP server (`codeint mcp`) for Claude Code, Cursor, and Codex, exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 
 ### Built for speed and safety
 
 codeint is written in safe Rust (`#![forbid(unsafe_code)]`, [ADR 0004](./docs/adr/0004-forbid-unsafe-code.md)) around two clean seams: Language plugins lower source files into a language-neutral Code model, and Metric plugins compute Metrics and Findings over that model.
 It reads tracked files and commit history directly from Git objects without modifying your working tree, scanning `laravel/framework` (132k Production lines) in `0.47s` and `flutter/packages` (434k Production lines) in `3.68s` on Apple Silicon.
-Third-party WebAssembly Plugins run with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps.
+External WebAssembly Plugins implement the versioned `codeint:plugin@0.2.0` WIT contract with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps.
 
 Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-architecture.md) for the full architecture diagram and design rationale.
 
@@ -94,27 +121,39 @@ Run codeint inside any Git repository:
 codeint init
 codeint check
 codeint diff main
-codeint trend
+codeint guard src/domain/order.ts
+codeint doctor
+codeint agent install
 ```
 
 - `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema`.
 - `codeint check` measures the working tree and prints each Metric with its Findings.
-- `codeint diff main` compares the working tree against the merge-base of `main` and fails on a Regression.
-- `codeint trend` prints each Metric across the latest main-line commits.
+- `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget failure or Regression.
+- `codeint guard src/domain/order.ts` checks architectural boundary rules for an existing or planned file path.
+- `codeint doctor` runs offline diagnostics on Git status, config validity, detected languages, workspaces, and Plugins.
+- `codeint agent install` registers `codeint mcp` in detected local coding agents.
 
 Or call codeint programmatically from JavaScript/TypeScript (`npm install codeint`) or Rust (`codeint-cli`):
 
 ```ts
 import { check, diff } from "codeint";
 
-const report = await check();
-const prDiff = await diff({ base: "main" });
+const checked = await check();
+const prDiff = await diff("main");
+```
+
+```rust
+use std::path::Path;
+use codeint_cli::{CheckOptions, DiffOptions, check, diff};
+
+let checked = check(Path::new("."), &CheckOptions::default())?;
+let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 ```
 
 ## Documentation
 
-- [Guide](./docs/guide/README.md): modular walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration (`codeint.json`)](./docs/guide/configuration.md), [Built-in Languages](./docs/guide/languages.md), and [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md).
-- [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`), and `codeint.json` key.
+- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
+- [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
 - [Plugins](./docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
 - [Glossary](./GLOSSARY.md): canonical definitions of every domain term on this page.
@@ -127,11 +166,11 @@ You need Rust through rustup ([rust-toolchain.toml](./rust-toolchain.toml)), Nod
 ```sh
 npm ci
 npx lefthook install
-cargo test --workspace --locked
+cargo xtask affected-tests
 ```
 
-Agents and people follow the same rules: start with [.rules](./.rules).
-The repository checks are listed in [docs/checks/README.md](./docs/checks/README.md).
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) for the contributor workflow and local setup.
+Agents and people follow the same repository rules: start with [.rules](./.rules) and [docs/checks/README.md](./docs/checks/README.md).
 
 ## License
 

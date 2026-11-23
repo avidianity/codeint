@@ -1,22 +1,22 @@
 # codeint Guide
 
 Welcome to the modular user guide for codeint.
-Each page below focuses on one topic and links to [docs/reference.md](../reference.md) for exact command flags, exit codes, and `codeint.json` schema keys.
+Each page below focuses on one topic and links to [docs/reference.md](../reference.md) for exact command flags, exit codes, and `codeint.jsonc` / `codeint.json` schema keys.
 
 ## Reading map
 
-1. [Philosophy and Architecture](./philosophy-and-architecture.md): why codeint measures Software entropy, how the four Metrics work, and how the codebase is structured.
-2. [Getting Started](./getting-started.md): install codeint, initialize `codeint.json`, and run your first `check`, `diff`, and `trend`.
-3. [Configuration (`codeint.json`)](./configuration.md): set Budgets, Regression limits, Source-set globs, and multi-language folders.
-4. [Built-in Languages](./languages.md): how TypeScript/JavaScript, Rust, PHP, Dart, and Python are measured, plus their calibrated Reference ranges.
-5. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action or `codeint diff` and SARIF upload.
-6. [Coding-Agent Integration (MCP Server)](./mcp.md): connect `codeint mcp` to Claude Code, Cursor, Codex, or Antigravity.
+1. [Philosophy and Architecture](./philosophy-and-architecture.md): why codeint measures Software entropy, how its independent Metrics and structural checks work, and how the codebase is structured.
+2. [Getting Started](./getting-started.md): install codeint, initialize `codeint.jsonc`, and run `check`, `diff`, `trend`, `doctor`, `config`, `report`, `guard`, `trace`, `impact`, `churn`, and `coupling`.
+3. [Configuration (`codeint.jsonc` / `codeint.json`)](./configuration.md): configure JSONC files, Budgets, Regression limits, Source-set globs, architectural boundaries, near-clone detection, entry points, dependency hygiene, and multi-language folders.
+4. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, and Python are measured, plus their calibrated Reference ranges.
+5. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
+6. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.
 7. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
 8. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
 
 ## Reference and domain docs
 
-- [CLI and `codeint.json` Reference](../reference.md): tested reference for every command, option, exit code, report format, and schema key.
+- [CLI and Configuration Reference](../reference.md): tested reference for every command, option, exit code, report format, and schema key.
 - [Glossary](../../GLOSSARY.md): canonical definitions of every domain term.
 - [Architecture Decision Records](../adr/0001-review-mode-never.md): recorded design decisions and calibrated Reference range panels.
 - [llms.txt](../../llms.txt): compact documentation index for coding agents and LLM tools.

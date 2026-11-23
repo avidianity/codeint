@@ -1,12 +1,18 @@
 # Built-in Languages
 
 codeint ships five built-in Language plugins in pure, safe Rust (`#![forbid(unsafe_code)]`).
-Each plugin parses the modern superset of its language family with no language-version pin needed in `codeint.json`.
+Each plugin parses the modern superset of its language family with no language-version pin needed in `codeint.jsonc` or `codeint.json`.
+
+Every built-in Language plugin extracts:
+
+- **Function names and complexity**: named functions (with `none` for anonymous lambdas) for Erosion and nesting-weighted Cognitive complexity Findings.
+- **Workspaces and entry points**: Workspace package roots and standard entry-point files discovered from language manifests for `--package` scoping and Orphan files detection.
+- **Dependency manifests and built-ins**: declared runtime, dev, and optional dependencies from each ecosystem's manifest, plus standard-library and runtime built-in classification so built-in imports are never flagged as unlisted dependencies.
 
 ## Summary
 
-| Plugin name | Extensions | Workspace manifest | Default Test / Generated rules |
-| ----------- | ---------- | ------------------ | ------------------------------ |
+| Plugin name | Extensions | Workspace & dependency manifest | Default Test / Generated rules |
+| ----------- | ---------- | ------------------------------- | ------------------------------ |
 | `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`; `.vue` and `.svelte` measure `<script>` blocks only |
 | `rust` | `.rs` | `Cargo.toml` | `tests/`, `benches/`, `examples/`, `tests.rs`, `*_test.rs`, `*_tests.rs`; inline `#[cfg(test)]` excluded from Production |
 | `php` | `.php` | `composer.json` (`repositories` of type `path`) | `tests/`, `test/`, `*Test.php`, `*.test.php` |

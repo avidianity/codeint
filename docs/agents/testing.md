@@ -27,10 +27,13 @@ A good test fails when a rule that a user can see breaks, not when a function is
 
 | Tier | When | Command |
 | ---- | ---- | ------- |
-| Baseline | Once, before the first edit | `cargo test --workspace --locked` |
-| Relevant | Every implementation loop, and at handoff | `cargo xtask affected-tests` |
-| Full | Only when the Owner asks | `cargo xtask full` |
+| Baseline | Once, before the first edit | `cargo xtask affected-tests` (or targeted `cargo test --locked -p {crate}` for the crates you plan to change) |
+| Relevant | Every implementation loop, and at handoff | `cargo xtask affected-tests` (or targeted `cargo test --locked -p {crate} --test {test}`) |
+| Full | In CI on every PR, or when the Owner asks | `cargo xtask full` (or `cargo test --workspace --locked`) |
 | Handoff | Once, when the work is done | Relevant tests, then `npx lefthook run pre-commit` |
+
+Run only affected or targeted tests locally so small changes do not spend minutes running the entire workspace suite.
+CI runs the full workspace suite on every pull request.
 
 Do not run static checks during iteration.
 Run the scoped hook checks once at handoff.
