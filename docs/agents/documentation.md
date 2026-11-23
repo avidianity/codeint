@@ -13,7 +13,8 @@ When you change behavior, update the document that owns it in the same change.
 | Universal agent constraint | `.rules` |
 | Task-specific agent instruction | `docs/agents/{task}.md` |
 | How to call a module now | That module's `HOW-TO.md` |
-| How a user runs codeint: commands, options, exit codes, report formats, `codeint.json` keys | [docs/reference.md](../reference.md) |
+| How a user runs codeint: commands, options, exit codes, report formats, `codeint.jsonc` / `codeint.json` keys | [docs/reference.md](../reference.md) |
+| User-facing walkthroughs, quick starts, LLM index, and contributor workflows | `README.md`, `docs/guide/`, `llms.txt`, `CONTRIBUTING.md` |
 | A decision and its reasons | An ADR in `docs/adr/` |
 | The reason behind code | Never a code comment; see [engineering.md](./engineering.md#mandatory-no-code-comments) |
 | A domain term | The `GLOSSARY.md` that owns it; see [domain.md](./domain.md) |
@@ -24,7 +25,9 @@ When you change behavior, update the document that owns it in the same change.
 
 ## Mandatory: the user reference
 
-`docs/reference.md` is the user reference, and `README.md` only introduces codeint and links to it.
+`docs/reference.md` is the tested, authoritative CLI and configuration reference.
+When you add or change a user-visible command, Metric, configuration option, or contributor workflow, update `docs/reference.md` and keep the affected user-facing pages (`README.md`, `docs/guide/`, `llms.txt`, `CONTRIBUTING.md`, `GLOSSARY.md`) in sync in the same change.
+Keep exact flag tables and schema definitions in `docs/reference.md` and link to it from the guides rather than duplicating reference tables.
 The test `crates/cli/tests/reference` keeps it true: it compares the reference with `--help` and with the JSON schema, and runs every example.
 Give every fenced block in the reference one attribute after its language:
 

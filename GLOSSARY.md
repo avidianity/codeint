@@ -2,7 +2,7 @@
 
 codeint measures the Software entropy of a codebase, in any language that has a Language plugin: duplication, needless verbosity, and complexity concentrated in a few large functions.
 It is for developers whose code is increasingly written by coding agents, so they see Software entropy grow before it compounds.
-TypeScript and JavaScript are the first built-in Language plugin.
+Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, and Python.
 
 ## Language
 
@@ -24,6 +24,10 @@ _Avoid_: complexity score, hotspot ratio
 The weight of one function, equal to its cyclomatic complexity times the square root of its source lines.
 _Avoid_: function weight, function size
 
+**Cognitive complexity**:
+The share of total nesting-weighted cognitive complexity held by functions whose cognitive complexity is greater than 15.
+_Avoid_: readability score, nesting score
+
 **Verbosity**:
 The share of source lines that are Flagged lines, clone lines, or both.
 _Avoid_: bloat, wordiness
@@ -41,10 +45,26 @@ Two or more code fragments with the same token sequence once identifiers and lit
 The fragments leave out import and export declarations, and use enough different tokens to be logic rather than a list of the same shape.
 _Avoid_: duplicate, copy
 
+**Clone family**:
+Three or more overlapping exact or near-clone fragments clustered together across locations in a codebase.
+_Avoid_: duplicate cluster, copy group
+
 **Import cycle**:
 A group of modules in which every module can reach every other module through runtime imports.
 The Import cycles Metric is the share of modules that belong to at least one Import cycle.
 _Avoid_: circular dependency, dependency loop
+
+**Import boundary**:
+A directional rule or public-file constraint governing which architectural zones may import modules from another zone.
+_Avoid_: layer rule, module fence
+
+**Orphan file**:
+A Production source file unreachable through runtime imports from any manifest-declared or configured entry point, classified as unreferenced or test-only.
+_Avoid_: dead file, unused file
+
+**Dependency hygiene**:
+The set of three independent Metrics comparing package manifests against imported external packages: unused dependencies, unlisted dependencies, and dev dependencies imported in Production.
+_Avoid_: package audit, dependency audit
 
 **Unresolved import**:
 A runtime import that the Language plugin could not match to a repository file or classify as external.

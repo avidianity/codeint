@@ -1,12 +1,13 @@
 # Programmatic API
 
 codeint can be called directly from JavaScript, TypeScript, and Rust without parsing terminal text.
-Both APIs expose `check`, `diff`, `trend`, and `init`, while `codeint update` remains CLI-only.
+The JavaScript/TypeScript package (`codeint`) exposes `check`, `diff`, `trend`, and `init`, while the Rust library (`codeint-cli`) also exposes `impact`, `trace`, `guard`, `schema`, `resolved_config`, `doctor`, `agent_status`, `agent_install`, `churn`, and `coupling`.
+`codeint update` remains CLI-only.
 
 ## Failure semantics
 
 - `check` and `diff` return a structured result on both exit `0` (passed) and exit `1` (Budget or Regression failed).
-- Operational errors (exit `2`, such as an invalid `codeint.json`, a missing folder, or a directory outside Git) throw `CodeintError` in JavaScript/TypeScript or return `Err(CodeintError)` in Rust.
+- Operational errors (exit `2`, such as an invalid `codeint.jsonc` or `codeint.json`, a missing folder, or a directory outside Git) throw `CodeintError` in JavaScript/TypeScript or return `Err(CodeintError)` in Rust.
 
 ## JavaScript and TypeScript (`codeint`)
 
@@ -49,7 +50,9 @@ Within the workspace or from a path dependency on `crates/cli`, import the typed
 
 ```rust
 use std::path::Path;
-use codeint_cli::{CheckOptions, DiffOptions, ReportFormat, TrendOptions, check, diff, init, trend};
+use codeint_cli::{
+    CheckOptions, DiffOptions, ReportFormat, TrendOptions, check, diff, guard, init, trend,
+};
 
 let folder = Path::new(".");
 let checked = check(folder, &CheckOptions::default())?;
@@ -62,6 +65,7 @@ let json = checked.report.render(ReportFormat::Json)?;
 
 let diffed = diff(folder, "origin/main", &DiffOptions::default())?;
 let history = trend(folder, &TrendOptions::default())?;
+let boundary = guard(folder, Path::new("src/domain/order.ts"))?;
 let created = init(folder)?;
 ```
 

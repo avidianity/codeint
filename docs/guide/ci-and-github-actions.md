@@ -1,6 +1,6 @@
 # CI and GitHub Actions
 
-Run `codeint diff` on every pull request so Software entropy Regressions are caught before merge.
+Run `codeint diff` on every pull request so Software entropy Regressions, Budget failures, boundary violations, orphan files, and dependency hygiene problems are caught before merge.
 
 ## One-line GitHub Action (recommended)
 
@@ -38,9 +38,9 @@ jobs:
 | `fail-on-regression` | `true` | Fail the step when `codeint diff` exits `1`. |
 | `token` | `${{ github.token }}` | Token used to post or update the pull-request comment. |
 
-## Manual workflow with SARIF upload
+## Single-scan multi-format workflow with `codeint report`
 
-If you prefer calling the CLI directly without the composite action:
+To emit Markdown, SARIF, and terminal output in one CI run without analyzing the repository twice, save `codeint diff --format json` once and re-render it losslessly with `codeint report`:
 
 ```yaml
 name: codeint
@@ -63,19 +63,47 @@ jobs:
         run: |
           curl -fsSL https://github.com/avidianity/codeint/releases/latest/download/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Diff against pull request base
+      - name: Measure pull request once
+        id: measure
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: codeint diff "origin/$BASE_REF" --format sarif --output codeint.sarif
+        run: |
+          set +e
+          codeint diff "origin/$BASE_REF" --format json --output codeint-diff.json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+      - name: Render Markdown summary and SARIF
+        if: always() && hashFiles('codeint-diff.json') != ''
+        run: |
+          codeint report codeint-diff.json --format markdown >> "$GITHUB_STEP_SUMMARY"
+          codeint report codeint-diff.json --format sarif --output codeint.sarif
       - name: Upload SARIF
         if: always() && hashFiles('codeint.sarif') != ''
         uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         with:
           sarif_file: codeint.sarif
+      - name: Enforce exit code
+        if: steps.measure.outputs.exit_code != '0'
+        run: exit "${{ steps.measure.outputs.exit_code }}"
 ```
+
+## Scoping by `CODEOWNERS` and Workspace packages
+
+- Pass `--owner <pattern>` to `codeint check` or `codeint diff` to report only Findings owned by a specific team or person from your repository's `CODEOWNERS` file:
+
+  ```sh
+  codeint diff origin/main --owner @org/payments
+  ```
+
+- Pass `--package <path>` in a monorepo to scope `check`, `diff`, `impact`, or `trace` to one Workspace package:
+
+  ```sh
+  codeint diff origin/main --package packages/billing
+  ```
+
+- Pair `codeint diff` in CI with local `codeint guard <path>` checks (or the `guard` MCP tool) so architectural boundary rules are checked before code is even written.
 
 ## Notes
 
 - `fetch-depth: 0` fetches full branch history so `codeint diff` can compute the Git merge-base.
-- Grant `pull-requests: write` for sticky pull-request comments, and `security-events: write` when `upload-sarif: true`.
-- To tune Budgets or Regression tolerances, edit `codeint.json`; see [Configuration](./configuration.md).
+- Grant `pull-requests: write` for sticky pull-request comments, and `security-events: write` when uploading SARIF.
+- To tune Budgets, Regression limits, or boundaries, edit `codeint.jsonc` or `codeint.json`; see [Configuration](./configuration.md).

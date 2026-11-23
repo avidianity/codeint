@@ -1,7 +1,7 @@
 # Agent guidance
 
 codeint is a command-line tool that measures the Software entropy of a codebase, in any language that has a Language plugin, so that developers who work with coding agents see it grow before it compounds.
-TypeScript and JavaScript are the first built-in Language plugin.
+Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, and Python.
 
 Kit: avidianity/factory v0.4.0, bootstrapped 2026-11-21.
 Review mode: Never ([ADR 0001](docs/adr/0001-review-mode-never.md)).
@@ -85,7 +85,9 @@ See `docs/agents/domain.md`.
 - Pipe every command that prints JSON for you to read through `toon`, because the compact form costs fewer tokens.
   Read raw JSON only when a program consumes it or you need its exact bytes.
   When the compactor fails, run the command again without it.
-- Run `cargo test --workspace --locked` once before the first edit as the known-red baseline.
+- Run only tests for relevant changes and affected code (`cargo xtask affected-tests`, or targeted `cargo test --locked -p {crate} --test {test}`) for baseline, iteration, and handoff.
+  Leave full `cargo test --workspace --locked` runs to CI or explicit Owner requests.
+- When adding or changing a user-visible command, Metric, config option, or workflow, update `docs/reference.md` and the affected user-facing docs (`README.md`, `docs/guide/`, `llms.txt`, `GLOSSARY.md`) in the same change.
 - Fix only the failures this change introduced.
   Stop after two failed fix attempts on one root cause; record it, report it, and continue.
 - Work directly unless the Owner asks for delegation or invokes a skill whose workflow delegates.
