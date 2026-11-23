@@ -13,6 +13,7 @@ use crate::cfg_test::{has_cfg_test, is_cfg_attr_test, item_attrs};
 pub(crate) const MOD_PREFIX: &str = "mod:";
 pub(crate) const MOD_PATH_PREFIX: &str = "mod-path:";
 pub(crate) const USE_PREFIX: &str = "use:";
+pub(crate) const USE_LOCAL_PREFIX: &str = "use-local:";
 pub(crate) const PATH_PREFIX: &str = "path:";
 
 pub(crate) fn runtime_import_specifiers(file: &File, exclude_cfg_test: bool) -> Vec<String> {
@@ -299,9 +300,131 @@ impl ImportCollector {
         let leading_colon = idx >= 2 && is_double_colon(tokens, idx - 2);
         self.record_qualified_head(&ident.to_string(), leading_colon);
     }
+
+    fn record_use_item(&mut self, node: &ItemUse, use_prefix: &str) {
+        if self.skip_cfg_test(&node.attrs) {
+            return;
+        }
+        for attr in &node.attrs {
+            self.visit_attribute(attr);
+        }
+        let allow_local_filter = node.leading_colon.is_none();
+        let mut prefix = Vec::new();
+        self.collect_use_tree(&node.tree, &mut prefix, use_prefix, allow_local_filter);
+    }
+
+    fn record_extern_crate(&mut self, node: &ItemExternCrate, use_prefix: &str) {
+        if self.skip_cfg_test(&node.attrs) {
+            return;
+        }
+        for attr in &node.attrs {
+            self.visit_attribute(attr);
+        }
+        let ident = node.ident.to_string();
+        if ident != "self" {
+            let alias = node.rename.as_ref().map(|(_, alias)| alias.to_string());
+            self.specifiers.insert(format_use_specifier(
+                use_prefix,
+                &ident,
+                Some(&ident),
+                alias.as_deref(),
+            ));
+        }
+    }
+
+    fn collect_use_tree(
+        &mut self,
+        tree: &UseTree,
+        prefix: &mut Vec<String>,
+        use_prefix: &str,
+        allow_local_filter: bool,
+    ) {
+        match tree {
+            UseTree::Path(path) => {
+                prefix.push(path.ident.to_string());
+                self.collect_use_tree(&path.tree, prefix, use_prefix, allow_local_filter);
+                prefix.pop();
+            }
+            UseTree::Name(name) => self.record_use_ident(
+                &name.ident.to_string(),
+                None,
+                prefix,
+                use_prefix,
+                allow_local_filter,
+            ),
+            UseTree::Rename(rename) => self.record_use_ident(
+                &rename.ident.to_string(),
+                Some(&rename.rename.to_string()),
+                prefix,
+                use_prefix,
+                allow_local_filter,
+            ),
+            UseTree::Glob(_) => {
+                if !prefix.is_empty() && !self.is_local_root(&prefix[0], allow_local_filter) {
+                    self.specifiers
+                        .insert(format!("{use_prefix}{}::*", prefix.join("::")));
+                }
+            }
+            UseTree::Group(group) => {
+                for item in &group.items {
+                    self.collect_use_tree(item, prefix, use_prefix, allow_local_filter);
+                }
+            }
+        }
+    }
+
+    fn record_use_ident(
+        &mut self,
+        ident: &str,
+        alias: Option<&str>,
+        prefix: &mut Vec<String>,
+        use_prefix: &str,
+        allow_local_filter: bool,
+    ) {
+        if ident == "self" {
+            if !prefix.is_empty() && !self.is_local_root(&prefix[0], allow_local_filter) {
+                let path = prefix.join("::");
+                let leaf = prefix.last().map(String::as_str);
+                self.specifiers
+                    .insert(format_use_specifier(use_prefix, &path, leaf, alias));
+            }
+        } else {
+            let root = prefix.first().map_or(ident, String::as_str);
+            if self.is_local_root(root, allow_local_filter) {
+                return;
+            }
+            prefix.push(ident.to_owned());
+            let path = prefix.join("::");
+            self.specifiers
+                .insert(format_use_specifier(use_prefix, &path, Some(ident), alias));
+            prefix.pop();
+        }
+    }
+
+    fn is_local_root(&self, root: &str, allow_local_filter: bool) -> bool {
+        allow_local_filter
+            && !matches!(root, "crate" | "self" | "super")
+            && self.local_idents.contains(root)
+    }
 }
 
 impl<'ast> Visit<'ast> for ImportCollector {
+    fn visit_file(&mut self, file: &'ast File) {
+        for attr in &file.attrs {
+            self.visit_attribute(attr);
+        }
+        for item in &file.items {
+            if self.skip_cfg_test(item_attrs(item)) {
+                continue;
+            }
+            match item {
+                Item::Use(node) => self.record_use_item(node, USE_PREFIX),
+                Item::ExternCrate(node) => self.record_extern_crate(node, USE_PREFIX),
+                _ => self.visit_item(item),
+            }
+        }
+    }
+
     visit_unless_cfg_test! {
         visit_item(Item, item_attrs);
         visit_impl_item(ImplItem, impl_item_attrs);
@@ -337,31 +460,11 @@ impl<'ast> Visit<'ast> for ImportCollector {
     }
 
     fn visit_item_use(&mut self, node: &'ast ItemUse) {
-        if self.exclude_cfg_test && has_cfg_test(&node.attrs) {
-            return;
-        }
-        for attr in &node.attrs {
-            self.visit_attribute(attr);
-        }
-        let allow_local_filter = node.leading_colon.is_none();
-        let mut prefix = Vec::new();
-        collect_use_tree(
-            &node.tree,
-            &mut prefix,
-            allow_local_filter,
-            &self.local_idents,
-            &mut self.specifiers,
-        );
+        self.record_use_item(node, USE_LOCAL_PREFIX);
     }
 
     fn visit_item_extern_crate(&mut self, node: &'ast ItemExternCrate) {
-        if self.exclude_cfg_test && has_cfg_test(&node.attrs) {
-            return;
-        }
-        let ident = node.ident.to_string();
-        if ident != "self" {
-            self.specifiers.insert(format!("{USE_PREFIX}{ident}"));
-        }
+        self.record_extern_crate(node, USE_LOCAL_PREFIX);
     }
 
     fn visit_path(&mut self, path: &'ast Path) {
@@ -475,68 +578,14 @@ fn trait_item_attrs(item: &TraitItem) -> &[Attribute] {
     }
 }
 
-fn collect_use_tree(
-    tree: &UseTree,
-    prefix: &mut Vec<String>,
-    allow_local_filter: bool,
-    local_idents: &HashSet<String>,
-    out: &mut BTreeSet<String>,
-) {
-    match tree {
-        UseTree::Path(path) => {
-            prefix.push(path.ident.to_string());
-            collect_use_tree(&path.tree, prefix, allow_local_filter, local_idents, out);
-            prefix.pop();
-        }
-        UseTree::Name(name) => record_use_ident(
-            &name.ident.to_string(),
-            prefix,
-            allow_local_filter,
-            local_idents,
-            out,
-        ),
-        UseTree::Rename(rename) => record_use_ident(
-            &rename.ident.to_string(),
-            prefix,
-            allow_local_filter,
-            local_idents,
-            out,
-        ),
-        UseTree::Glob(_) => {
-            if !prefix.is_empty() && !is_local_root(&prefix[0], allow_local_filter, local_idents) {
-                out.insert(format!("{USE_PREFIX}{}", prefix.join("::")));
-            }
-        }
-        UseTree::Group(group) => {
-            for item in &group.items {
-                collect_use_tree(item, prefix, allow_local_filter, local_idents, out);
-            }
-        }
+fn format_use_specifier(
+    use_prefix: &str,
+    path: &str,
+    leaf: Option<&str>,
+    alias: Option<&str>,
+) -> String {
+    match alias {
+        Some(rename) if Some(rename) != leaf => format!("{use_prefix}{path} as {rename}"),
+        _ => format!("{use_prefix}{path}"),
     }
-}
-
-fn record_use_ident(
-    ident: &str,
-    prefix: &mut Vec<String>,
-    allow_local_filter: bool,
-    local_idents: &HashSet<String>,
-    out: &mut BTreeSet<String>,
-) {
-    if ident == "self" {
-        if !prefix.is_empty() && !is_local_root(&prefix[0], allow_local_filter, local_idents) {
-            out.insert(format!("{USE_PREFIX}{}", prefix.join("::")));
-        }
-    } else {
-        let root = prefix.first().map_or(ident, String::as_str);
-        if is_local_root(root, allow_local_filter, local_idents) {
-            return;
-        }
-        prefix.push(ident.to_owned());
-        out.insert(format!("{USE_PREFIX}{}", prefix.join("::")));
-        prefix.pop();
-    }
-}
-
-fn is_local_root(root: &str, allow_local_filter: bool, local_idents: &HashSet<String>) -> bool {
-    allow_local_filter && !matches!(root, "crate" | "self" | "super") && local_idents.contains(root)
 }
