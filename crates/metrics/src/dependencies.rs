@@ -5,6 +5,7 @@ use codeint_model::{
 };
 
 use crate::finding_id::{FindingId, FindingIds};
+use crate::tooling_paths::is_non_runtime_tooling_path;
 
 #[cfg(test)]
 mod tests;
@@ -340,7 +341,7 @@ fn record_package_import(
             .or_default()
             .insert(importer.clone());
     }
-    if source_set == SourceSet::Production {
+    if source_set == SourceSet::Production && !is_non_runtime_tooling_path(importer.as_str()) {
         entry
             .production
             .entry(package_name.to_owned())

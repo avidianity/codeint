@@ -427,3 +427,26 @@ fn orphan_files_attach_codeowners_and_filter_with_owner_in_check_and_diff() {
     assert_eq!(diff_new[0]["path"], "src/frontend_dead.ts");
     assert_eq!(diff_new[0]["owners"], json!(["@org/frontend"]));
 }
+
+#[test]
+fn non_runtime_tooling_config_script_and_example_files_are_not_flagged_as_orphans() {
+    let (_cache, repo) = init_single_entry_repo(
+        "tooling-orphans",
+        &[
+            ("src/dead.ts", "export const dead = () => 2;\n"),
+            ("vite.config.ts", "export default { base: '/' };\n"),
+            ("scripts/release.ts", "export const release = () => 3;\n"),
+            ("examples/demo.ts", "export const demo = () => 4;\n"),
+            (
+                ".opencode/plugins/no-hook-bypass.js",
+                "export const guard = () => 5;\n",
+            ),
+        ],
+    );
+
+    let checked = check_json(repo.path(), 0);
+    let section = &checked["source_sets"]["production"]["orphan_files"];
+    assert_eq!(section["evaluated_files"], 2);
+    assert_eq!(section["orphan_files"], 1);
+    assert_eq!(orphan_finding_paths(section), vec!["src/dead.ts"]);
+}

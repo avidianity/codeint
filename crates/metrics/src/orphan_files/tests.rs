@@ -317,3 +317,29 @@ fn assigns_stable_finding_ids_and_merges_across_languages() {
     assert_eq!(merged.findings()[1].path.as_str(), "web/dead.ts");
     assert!((merged.ratio() - 0.5).abs() < 1e-9);
 }
+
+#[test]
+fn excludes_non_runtime_tooling_files_from_orphan_evaluation_while_keeping_runtime_orphans() {
+    let model = production_model(
+        &[
+            "src/index.ts",
+            "src/dead.ts",
+            "src/tools/dead_tool.ts",
+            "scripts/release.ts",
+            "docs/conf.py",
+            "examples/demo.dart",
+            "vite.config.ts",
+            ".opencode/plugins/no-hook-bypass.js",
+        ],
+        &[],
+    );
+
+    let measured = OrphanFiles::measure(&model, &[repo_path("src/index.ts")])
+        .expect("production root activates detection");
+
+    assert_eq!(measured.evaluated_files(), 3);
+    assert_eq!(
+        orphan_paths(&measured),
+        vec!["src/dead.ts", "src/tools/dead_tool.ts"]
+    );
+}
