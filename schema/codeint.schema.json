@@ -55,6 +55,10 @@
     "plugin_limits": {
       "$ref": "#/$defs/PluginLimitsFile",
       "description": "Memory cap and time limit enforced on each WebAssembly Plugin. Defaults are 64 MiB and 5000 ms."
+    },
+    "boundaries": {
+      "$ref": "#/$defs/BoundariesFile",
+      "description": "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
     }
   },
   "title": "codeint.json",
@@ -155,6 +159,13 @@
           "description": "The highest Import cycles ratio, from 0 to 1.",
           "minimum": 0,
           "maximum": 1
+        },
+        "boundaries": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Boundaries ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": {
@@ -185,6 +196,10 @@
         "import_cycles": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Import cycles in every Source set."
+        },
+        "boundaries": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Boundaries in every Source set."
         },
         "production": {
           "$ref": "#/$defs/MetricRegressionLimits",
@@ -250,6 +265,10 @@
         "import_cycles": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Import cycles in this Source set."
+        },
+        "boundaries": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Boundaries in this Source set."
         }
       },
       "additionalProperties": {
@@ -348,6 +367,112 @@
           "maximum": 300000
         }
       }
+    },
+    "BoundariesFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "$ref": "#/$defs/BoundaryPreset",
+          "description": "Optional built-in architecture preset (\"layered\" or \"hexagonal\") providing default zones and rules that can be overridden or extended by zones and rules."
+        },
+        "zones": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/BoundaryZoneFile"
+          },
+          "description": "Named architectural zones, each defined by repository-relative path globs and optional public_files globs.",
+          "default": {}
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BoundaryRuleFile"
+          },
+          "description": "Directional allow or deny import rules between architectural zones."
+        },
+        "strict_zones": {
+          "type": "boolean",
+          "description": "When true, report files in evaluated Source sets that do not match any configured zone."
+        },
+        "source_sets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BoundarySourceSet"
+          },
+          "description": "Source sets evaluated by boundary rules; defaults to [\"production\"] when omitted or empty."
+        }
+      }
+    },
+    "BoundaryPreset": {
+      "type": "string",
+      "enum": [
+        "layered",
+        "hexagonal"
+      ]
+    },
+    "BoundaryZoneFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Repository-relative path globs that assign files to this architectural zone."
+        },
+        "public_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional repository-relative path globs naming the only files in this zone that other zones may import."
+        }
+      },
+      "required": [
+        "patterns"
+      ]
+    },
+    "BoundaryRuleFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Source zone name, or \"*\" to match any zone without a specific rule."
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target zone names (or \"*\") that the source zone is allowed to import. Mutually exclusive with deny."
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target zone names (or \"*\") that the source zone is forbidden to import. Mutually exclusive with allow."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional human-readable explanation shown in boundary Findings."
+        }
+      },
+      "required": [
+        "from"
+      ]
+    },
+    "BoundarySourceSet": {
+      "type": "string",
+      "enum": [
+        "production",
+        "test",
+        "generated",
+        "vendored"
+      ]
     }
   }
 }

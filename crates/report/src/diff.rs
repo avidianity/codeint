@@ -11,8 +11,8 @@ use serde::{Serialize, Serializer};
 use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurement};
 use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
-    BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding, ExternalMetricFinding,
-    Findings, FlaggedLineRow, ImportCycleFinding, ReportError,
+    BoundaryFindingRow, BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding,
+    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ReportError,
 };
 
 mod markdown;
@@ -104,6 +104,8 @@ struct SourceSetChanges {
     duplication: MetricChanges<CloneGroupFinding>,
     verbosity: MetricChanges<FlaggedLineRow>,
     import_cycles: MetricChanges<ImportCycleFinding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    boundaries: Option<MetricChanges<BoundaryFindingRow>>,
     #[serde(flatten)]
     external_metrics: BTreeMap<String, ExternalMetricChanges>,
 }
@@ -199,6 +201,10 @@ impl DiffReport {
                     clone_groups: &changes.duplication.new.listed,
                     flagged_lines: &changes.verbosity.new.listed,
                     import_cycles: &changes.import_cycles.new.listed,
+                    boundaries: changes
+                        .boundaries
+                        .as_ref()
+                        .map_or(&[], |boundaries| boundaries.new.listed.as_slice()),
                     external_metrics: changes
                         .external_metrics
                         .iter()
@@ -285,6 +291,12 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
             ]
             .into_iter()
             .chain(
+                changes
+                    .boundaries
+                    .iter()
+                    .map(move |boundaries| (source_set, "boundaries", boundaries.head_ratio.0)),
+            )
+            .chain(
                 changes.external_metrics.iter().map(move |(key, metric)| {
                     (source_set, key.as_str(), metric.changes.head_ratio.0)
                 }),
@@ -318,6 +330,9 @@ impl SourceSetChanges {
         .into_iter()
         .flatten()
         .collect();
+        if let Some(boundaries) = &self.boundaries {
+            found.extend(boundaries.regressions(source_set, "boundaries", limits));
+        }
         for (key, external) in &self.external_metrics {
             found.extend(external.changes.regressions(source_set, key, limits));
         }
@@ -443,6 +458,7 @@ fn numerator_key(metric_key: &str) -> &'static str {
         "duplication" => "clone_lines",
         "verbosity" => "verbose_lines",
         "import_cycles" => "modules_in_import_cycles",
+        "boundaries" => "boundary_findings",
         _ => "numerator",
     }
 }
@@ -508,11 +524,20 @@ fn source_set_changes(
             },
         );
     }
+    let boundaries = match (base.boundaries, head.boundaries) {
+        (None, None) => None,
+        (base_boundaries, head_boundaries) => Some(classify(
+            base_boundaries.unwrap_or_default(),
+            head_boundaries.unwrap_or_default(),
+            shown,
+        )),
+    };
     SourceSetChanges {
         erosion: classify(base.erosion, head.erosion, shown),
         duplication: classify(base.duplication, head.duplication, shown),
         verbosity: classify(base.verbosity, head.verbosity, shown),
         import_cycles: classify(base.import_cycles, head.import_cycles, shown),
+        boundaries,
         external_metrics,
     }
 }
@@ -570,6 +595,12 @@ impl Identified for ImportCycleFinding {
 }
 
 impl Identified for ExternalMetricFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for BoundaryFindingRow {
     fn id(&self) -> &str {
         &self.id
     }

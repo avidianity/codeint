@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, PluginHostConfig, ReportFormat, TrendFormat, TrendRange,
+    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
+    TrendRange,
 };
 use serde_json::{Value, json};
 
-use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, trend};
+use crate::{CheckOptions, DiffOptions, TrendOptions, check, diff, guard, trend};
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -157,6 +158,18 @@ fn handle_tools_list() -> Value {
                         "since": { "type": "string", "description": "UTC date YYYY-MM-DD to start the trend from." }
                     }
                 }
+            },
+            {
+                "name": "guard",
+                "description": "Query the architectural boundary zone, allowed and denied target zones, public_files constraints, and allowed importers for an existing or planned file path.",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {
+                        "file": { "type": "string", "description": "Repository-relative or absolute path to the existing or planned file." },
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." }
+                    }
+                }
             }
         ]
     })
@@ -175,6 +188,7 @@ fn handle_tools_call(
         "check" => Ok(call_check(args, ctx)),
         "diff" => Ok(call_diff(args, ctx)),
         "trend" => Ok(call_trend(args, ctx)),
+        "guard" => Ok(call_guard(args, ctx)),
         other => Err((-32602, format!("Unknown tool: {other}"))),
     }
 }
@@ -196,8 +210,9 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
 }
 
 fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let Some(base_ref) = args.and_then(|a| a.get("base_ref")).and_then(Value::as_str) else {
-        return tool_err("Missing required argument: base_ref");
+    let base_ref = match required_str_arg(args, "base_ref") {
+        Ok(value) => value,
+        Err(err) => return err,
     };
     let folder = resolve_folder(args, ctx.default_folder);
     let options = DiffOptions {
@@ -237,6 +252,28 @@ fn render_outcome(
     }
 }
 
+fn render_json_tool<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
+) -> Value {
+    match result {
+        Ok(report) => match render(report) {
+            Ok(rendered) => {
+                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
+                tool_ok(payload)
+            }
+            Err(err) => tool_err(&err.to_string()),
+        },
+        Err(err) => tool_err(&err.to_string()),
+    }
+}
+
+fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, Value> {
+    args.and_then(|a| a.get(name))
+        .and_then(Value::as_str)
+        .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
+}
+
 fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     let folder = resolve_folder(args, ctx.default_folder);
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
@@ -251,16 +288,20 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
-    match trend(&folder, &options) {
-        Ok(report) => match report.render(TrendFormat::Json) {
-            Ok(rendered) => {
-                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
-                tool_ok(payload)
-            }
-            Err(err) => tool_err(&err.to_string()),
-        },
-        Err(err) => tool_err(&err.to_string()),
-    }
+    render_json_tool(trend(&folder, &options), |report| {
+        report.render(TrendFormat::Json)
+    })
+}
+
+fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
+    let file = match required_str_arg(args, "file") {
+        Ok(value) => value,
+        Err(err) => return err,
+    };
+    let folder = resolve_folder(args, ctx.default_folder);
+    render_json_tool(guard(&folder, Path::new(file)), |report| {
+        report.render(GuardFormat::Json)
+    })
 }
 
 fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {

@@ -1,10 +1,10 @@
 use super::{DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges};
 use crate::Findings;
 use crate::markdown::{
-    CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, EXTERNAL_FINDING_COLUMNS, FINDING,
-    FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun, clone_group_item, code,
-    eroded_function_row, external_finding_row, flagged_line_row, import_cycle_item, list,
-    push_findings, sentence_item, table,
+    BOUNDARY_FINDING_COLUMNS, CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS,
+    EXTERNAL_FINDING_COLUMNS, FINDING, FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun,
+    boundary_finding_row, clone_group_item, code, eroded_function_row, external_finding_row,
+    flagged_line_row, import_cycle_item, list, push_findings, sentence_item, table,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -72,6 +72,9 @@ fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>>
         metric_row(source_set, "Verbosity", &changes.verbosity),
         metric_row(source_set, "Import cycles", &changes.import_cycles),
     ];
+    if let Some(boundaries) = &changes.boundaries {
+        rows.push(metric_row(source_set, "Boundaries", boundaries));
+    }
     for external in changes.external_metrics.values() {
         rows.push(metric_row(source_set, &external.name, &external.changes));
     }
@@ -134,6 +137,14 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
         &IMPORT_CYCLE,
         |listed| list(listed.iter().map(import_cycle_item)),
     );
+    if let Some(boundaries) = &changes.boundaries {
+        push_changes(&mut blocks, "Boundaries", boundaries, &FINDING, |listed| {
+            table(
+                &BOUNDARY_FINDING_COLUMNS,
+                listed.iter().map(boundary_finding_row).collect(),
+            )
+        });
+    }
     for external in changes.external_metrics.values() {
         push_changes(
             &mut blocks,
