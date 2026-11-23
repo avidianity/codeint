@@ -1,4 +1,4 @@
-use codeint_model::language::{ImportRequest, Resolution};
+use codeint_model::language::{ImportRequest, Manifest, Resolution};
 
 use super::{ProjectResolver, package_name};
 
@@ -119,6 +119,123 @@ fn malformed_registry_specifiers_are_unresolved() {
         assert!(
             matches!(resolve_specifier(specifier), Resolution::Unresolved(_)),
             "{specifier} must be unresolved"
+        );
+    }
+}
+
+#[test]
+fn framework_virtual_modules_resolve_as_builtins() {
+    for specifier in [
+        "virtual:pwa-register",
+        "virtual:uno.css?inline",
+        "$app",
+        "$app/stores",
+        "$app/navigation",
+        "$env/static/private",
+        "$env/dynamic/public",
+        "$service-worker",
+        "$service-worker?url",
+    ] {
+        assert_eq!(
+            resolve_specifier(specifier),
+            Resolution::Builtin,
+            "{specifier}"
+        );
+    }
+    for non_virtual in ["$apple", "$env", "$service-worker-extra"] {
+        assert_eq!(
+            resolve_specifier(non_virtual),
+            Resolution::External(non_virtual.to_owned()),
+            "{non_virtual}"
+        );
+    }
+}
+
+fn manifest(path: &str, text: &str) -> Manifest {
+    Manifest {
+        path: path.to_owned(),
+        text: text.to_owned(),
+    }
+}
+
+#[test]
+fn tsconfig_app_alias_resolves_to_repo_file_before_virtual_module_fallback() {
+    let paths: Vec<String> = ["tsconfig.json", "src/main.ts", "src/app/foo.ts"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let manifests = vec![manifest(
+        "tsconfig.json",
+        r#"{"compilerOptions":{"paths":{"$app/*":["./src/app/*"]}}}"#,
+    )];
+    let resolver = ProjectResolver::new(&paths, manifests);
+    let resolve = |specifier: &str| {
+        resolver.resolve(&ImportRequest {
+            importer: "src/main.ts".to_owned(),
+            specifier: specifier.to_owned(),
+        })
+    };
+
+    assert_eq!(
+        resolve("$app/foo"),
+        Resolution::Resolved("src/app/foo.ts".to_owned())
+    );
+    assert_eq!(resolve("$app/navigation"), Resolution::Builtin);
+    assert_eq!(resolve("$env/static/public"), Resolution::Builtin);
+    assert_eq!(resolve("$service-worker"), Resolution::Builtin);
+    assert_eq!(resolve("virtual:foo"), Resolution::Builtin);
+}
+
+#[test]
+fn workspace_members_resolve_third_party_root_dependencies_as_external() {
+    let paths: Vec<String> = [
+        "package.json",
+        "scripts/release.ts",
+        "packages/app/package.json",
+        "packages/app/src/index.ts",
+        "packages/app/src/index.test.ts",
+        "packages/retired/package.json",
+        "packages/retired/src/index.ts",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    let manifests = vec![
+        manifest(
+            "package.json",
+            r#"{"name":"mono","private":true,"workspaces":["packages/*","!packages/retired"],"devDependencies":{"vitest":"^2.0.0","vite":"^6.0.0","zod":"^3.0.0"}}"#,
+        ),
+        manifest(
+            "packages/app/package.json",
+            r#"{"name":"@mono/app","dependencies":{"zod":"^3.0.0"}}"#,
+        ),
+        manifest(
+            "packages/retired/package.json",
+            r#"{"name":"@mono/retired","dependencies":{}}"#,
+        ),
+    ];
+    let resolver = ProjectResolver::new(&paths, manifests);
+    let resolve = |importer: &str, specifier: &str| {
+        resolver.resolve(&ImportRequest {
+            importer: importer.to_owned(),
+            specifier: specifier.to_owned(),
+        })
+    };
+
+    let ext = |name: &str| Resolution::External(name.to_owned());
+    let cases = [
+        ("packages/app/src/index.test.ts", "vitest", ext("vitest")),
+        ("packages/app/src/index.ts", "vite/client", ext("vite")),
+        ("packages/app/src/index.ts", "zod", ext("zod")),
+        ("packages/app/src/index.ts", "axios", ext("axios")),
+        ("scripts/release.ts", "vitest", ext("vitest")),
+        ("packages/retired/src/index.ts", "vitest", ext("vitest")),
+    ];
+    for (importer, specifier, expected) in cases {
+        assert_eq!(
+            resolve(importer, specifier),
+            expected,
+            "{importer} -> {specifier}"
         );
     }
 }

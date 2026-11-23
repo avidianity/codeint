@@ -2324,8 +2324,8 @@ fn single_package_json_parses_runtime_dev_optional_and_peer_dependencies() {
         expected_declared(&[
             ("", "@scope/ui", DepKind::Runtime),
             ("", "react", DepKind::Runtime),
-            ("", "@types/node", DepKind::Dev),
             ("", "vitest", DepKind::Dev),
+            ("", "@types/node", DepKind::Optional),
             ("", "fsevents", DepKind::Optional),
             ("", "react-dom", DepKind::Optional),
             ("examples/demo", "non-workspace", DepKind::Runtime),
@@ -2550,4 +2550,114 @@ fn type_test_files_and_folders_are_classified_as_test_source_set() {
     for path in ["src/test-d.ts", "src/.test-d.ts"] {
         assert_eq!(source_set(path), SourceSet::Production, "{path}");
     }
+}
+
+#[test]
+fn framework_virtual_modules_classify_as_builtins_even_with_catch_all_tsconfig() {
+    let resolutions = resolve_with_tsconfig(
+        CATCH_ALL_TSCONFIG,
+        &[
+            "virtual:pwa-register",
+            "virtual:uno.css",
+            "$app/stores",
+            "$env/dynamic/private",
+            "$service-worker",
+        ],
+    );
+    assert_eq!(resolutions, vec![Resolution::Builtin; 5]);
+
+    let aliased_files = [
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"$app/*":["./src/app/*"]}}}"#,
+        ),
+        ("src/main.ts", ""),
+        ("src/app/foo.ts", ""),
+    ];
+    assert_eq!(
+        resolve_in_project(&aliased_files, "src/main.ts", "$app/foo"),
+        resolved("src/app/foo.ts")
+    );
+    assert_eq!(
+        resolve_in_project(&aliased_files, "src/main.ts", "$app/navigation"),
+        Resolution::Builtin
+    );
+}
+
+#[test]
+fn pnpm_workspace_root_dev_deps_keep_dev_kind_and_resolve_as_external() {
+    let manifests = [
+        ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
+        (
+            "package.json",
+            r#"{
+              "name": "repo-root",
+              "private": true,
+              "scripts": {
+                "lint": "eslint .",
+                "typecheck": "tsc --noEmit"
+              },
+              "devDependencies": {
+                "eslint": "^9.0.0",
+                "typescript": "^5.7.0",
+                "vitest": "^2.1.0",
+                "unused-dev": "^1.0.0",
+                "@types/node": "^22.0.0"
+              }
+            }"#,
+        ),
+        (
+            "packages/kit/package.json",
+            r#"{
+              "name": "@repo/kit",
+              "scripts": {
+                "test": "vitest run"
+              },
+              "dependencies": {
+                "zod": "^3.23.0"
+              }
+            }"#,
+        ),
+    ];
+
+    let expected_root_dev = ["eslint", "typescript", "unused-dev", "vitest"]
+        .into_iter()
+        .map(|name| ("", name, DepKind::Dev))
+        .chain([
+            ("", "@types/node", DepKind::Optional),
+            ("packages/kit", "zod", DepKind::Runtime),
+        ])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        declared_deps(&manifests),
+        expected_declared(&expected_root_dev)
+    );
+
+    let files = [
+        manifests[0],
+        manifests[1],
+        manifests[2],
+        ("packages/kit/src/index.ts", ""),
+        ("packages/kit/src/index.test.ts", ""),
+        ("scripts/ci.ts", ""),
+    ];
+    let requests = [
+        ("packages/kit/src/index.test.ts", "vitest"),
+        ("packages/kit/src/index.ts", "zod"),
+        ("packages/kit/src/index.ts", "axios"),
+        ("scripts/ci.ts", "vitest"),
+    ];
+    let resolved: Vec<Resolution> = requests
+        .iter()
+        .map(|&(importer, specifier)| resolve_in_project(&files, importer, specifier))
+        .collect();
+    assert_eq!(
+        resolved,
+        vec![
+            Resolution::External("vitest".to_owned()),
+            Resolution::External("zod".to_owned()),
+            Resolution::External("axios".to_owned()),
+            Resolution::External("vitest".to_owned()),
+        ]
+    );
 }

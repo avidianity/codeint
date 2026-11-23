@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use codeint_model::{
-    CodeModel, DeclaredDep, DepKind, DependencyManifest, FileModel, ImportResolution, RepoPath,
-    RuntimeImport, SourceFile, SourceSet,
+    CodeModel, DeclaredDep, DepKind, DependencyManifest, FileModel, ImportResolution,
+    ManifestUsedDep, RepoPath, RuntimeImport, SourceFile, SourceSet, Workspace,
 };
 
 use super::{DependencyHygiene, UnusedDependencyKind};
@@ -293,6 +293,153 @@ fn merges_independent_language_models_deterministically_with_stable_ids() {
     assert_eq!(first.imported_count(), 2);
     assert_eq!(first.unused()[0].manifest.as_str(), "crates/api/Cargo.toml");
     assert_eq!(first.unused()[1].manifest.as_str(), "web/package.json");
+}
+
+#[test]
+fn manifest_used_dependencies_credit_usage_without_hiding_dev_in_production_or_declared_count() {
+    let mut model = model_with(
+        source_files(&[("src/index.ts", SourceSet::Production)]),
+        vec![manifest("", "package.json")],
+        declared_list(&[
+            ("", "zod", DepKind::Runtime),
+            ("", "vitest", DepKind::Dev),
+            ("", "eslint", DepKind::Dev),
+            ("", "unused-dev", DepKind::Dev),
+        ]),
+        externals(&[("src/index.ts", "zod"), ("src/index.ts", "vitest")]),
+    );
+    model.manifest_used_dependencies = vec![
+        ManifestUsedDep {
+            package_root: String::new(),
+            name: "vitest".to_owned(),
+        },
+        ManifestUsedDep {
+            package_root: String::new(),
+            name: "eslint".to_owned(),
+        },
+    ];
+
+    let result = DependencyHygiene::measure(&model, &BTreeSet::new());
+
+    assert_eq!(result.declared_count(), 4);
+    assert_eq!(result.imported_count(), 2);
+    assert_eq!(result.production_imported_count(), 2);
+    assert_eq!(result.unused().len(), 1);
+    assert_eq!(result.unused()[0].dependency, "unused-dev");
+    assert!(result.unlisted().is_empty());
+    assert_eq!(result.dev_in_production().len(), 1);
+    assert_eq!(result.dev_in_production()[0].dependency, "vitest");
+}
+
+fn js_workspace_hoisting_model() -> CodeModel {
+    let mut js_model = model_with(
+        source_files(&[
+            ("packages/app/src/index.ts", SourceSet::Production),
+            ("packages/app/src/index.test.ts", SourceSet::Test),
+            ("examples/demo/src/index.ts", SourceSet::Production),
+        ]),
+        vec![
+            manifest("", "package.json"),
+            manifest("packages/app", "packages/app/package.json"),
+            manifest("examples/demo", "examples/demo/package.json"),
+        ],
+        declared_list(&[
+            ("", "zod", DepKind::Runtime),
+            ("", "vitest", DepKind::Dev),
+            ("", "faker", DepKind::Dev),
+            ("", "unused-root", DepKind::Dev),
+            ("packages/app", "react", DepKind::Runtime),
+        ]),
+        externals(&[
+            ("packages/app/src/index.ts", "react"),
+            ("packages/app/src/index.ts", "zod"),
+            ("packages/app/src/index.ts", "faker"),
+            ("packages/app/src/index.ts", "axios"),
+            ("packages/app/src/index.test.ts", "vitest"),
+            ("examples/demo/src/index.ts", "zod"),
+        ]),
+    );
+    js_model.workspace = Workspace::new([RepoPath::new("packages/app").expect("valid root")]);
+    js_model
+}
+
+#[test]
+fn js_workspace_hoisting_credits_root_and_preserves_dev_in_production_and_isolation() {
+    let js_model = js_workspace_hoisting_model();
+
+    let result = DependencyHygiene::measure(&js_model, &BTreeSet::new());
+
+    assert_eq!(result.unused().len(), 1);
+    assert_eq!(result.unused()[0].package_root, "");
+    assert_eq!(result.unused()[0].dependency, "unused-root");
+
+    let unlisted: Vec<(&str, &str)> = result
+        .unlisted()
+        .iter()
+        .map(|f| (f.package_root.as_str(), f.dependency.as_str()))
+        .collect();
+    assert_eq!(
+        unlisted,
+        vec![("examples/demo", "zod"), ("packages/app", "axios")]
+    );
+
+    assert_eq!(result.dev_in_production().len(), 1);
+    assert_eq!(result.dev_in_production()[0].package_root, "packages/app");
+    assert_eq!(result.dev_in_production()[0].dependency, "faker");
+
+    let mut rust_model = model_with(
+        source_files(&[("crates/app/src/lib.rs", SourceSet::Production)]),
+        vec![
+            manifest("", "Cargo.toml"),
+            manifest("crates/app", "crates/app/Cargo.toml"),
+        ],
+        declared_list(&[("", "serde", DepKind::Runtime)]),
+        externals(&[("crates/app/src/lib.rs", "serde")]),
+    );
+    rust_model.workspace = Workspace::new([RepoPath::new("crates/app").expect("valid root")]);
+
+    let rust_result = DependencyHygiene::measure(&rust_model, &BTreeSet::new());
+    assert_eq!(rust_result.unused().len(), 1);
+    assert_eq!(rust_result.unlisted().len(), 1);
+    assert_eq!(rust_result.unlisted()[0].dependency, "serde");
+}
+
+#[test]
+fn measure_filtered_preserves_workspace_hoisting_for_member_and_root_scopes() {
+    let model = js_workspace_hoisting_model();
+
+    let member = DependencyHygiene::measure_filtered(&model, &BTreeSet::new(), |root| {
+        root == "packages/app"
+    });
+    assert!(member.has_manifests());
+    assert_eq!(member.declared_count(), 1);
+    assert!(member.unused().is_empty());
+    assert_eq!(member.imported_count(), 5);
+    assert_eq!(member.production_imported_count(), 4);
+    assert_eq!(member.unlisted().len(), 1);
+    assert_eq!(member.unlisted()[0].package_root, "packages/app");
+    assert_eq!(member.unlisted()[0].dependency, "axios");
+    assert_eq!(member.dev_in_production().len(), 1);
+    assert_eq!(member.dev_in_production()[0].package_root, "packages/app");
+    assert_eq!(member.dev_in_production()[0].dependency, "faker");
+
+    let root_only =
+        DependencyHygiene::measure_filtered(&model, &BTreeSet::new(), |root| root.is_empty());
+    assert!(root_only.has_manifests());
+    assert_eq!(root_only.declared_count(), 4);
+    assert_eq!(root_only.unused().len(), 1);
+    assert_eq!(root_only.unused()[0].package_root, "");
+    assert_eq!(root_only.unused()[0].dependency, "unused-root");
+    assert_eq!(root_only.imported_count(), 0);
+    assert_eq!(root_only.production_imported_count(), 0);
+    assert!(root_only.unlisted().is_empty());
+    assert!(root_only.dev_in_production().is_empty());
+
+    let missing = DependencyHygiene::measure_filtered(&model, &BTreeSet::new(), |root| {
+        root == "packages/other"
+    });
+    assert!(!missing.has_manifests());
+    assert!(!missing.has_activity());
 }
 
 #[test]

@@ -1182,9 +1182,11 @@ codeint check
 codeint compares declared manifest dependencies against imported external packages for every Workspace package that has a dependency manifest (`package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, or `pubspec.yaml`), reporting three independent Metrics:
 
 - `unused_dependencies`: declared runtime and dev dependencies not imported by any Production, Test, or Generated file in the owning package.
-  Optional declarations (such as `peerDependencies`, `optionalDependencies`, Cargo `optional = true`, Python `optional-dependencies`, and Composer `suggest`) satisfy imports without being flagged as unused.
+  Optional declarations (such as `peerDependencies`, `optionalDependencies`, ambient `@types/*` packages, Cargo `optional = true`, Python `optional-dependencies`, and Composer `suggest`) satisfy imports without being flagged as unused.
+  In JavaScript and TypeScript projects, `devDependencies` invoked in command position by `package.json` `scripts` (including workspace member scripts for root `devDependencies`) are credited as used while keeping their `dev` classification for `declared` counts and `dev_in_production_dependencies`.
 - `unlisted_dependencies`: external packages imported by Production or Test files in a package that has a dependency manifest but does not declare them.
   Standard library and runtime built-ins are never flagged.
+  In JavaScript and TypeScript workspaces, a workspace member may import dependencies hoisted in the root `package.json`, crediting the root as used while still enforcing `dev_in_production_dependencies` for root dev dependencies imported by runtime Production files.
 - `dev_in_production_dependencies`: dependencies declared only as dev dependencies that are imported by runtime Production files.
   Dev dependencies imported by Test files or non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are treated as used and are not flagged.
 

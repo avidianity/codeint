@@ -130,7 +130,7 @@ impl ProjectResolver {
         specifier: &str,
         error: ResolveError,
     ) -> Resolution {
-        if matches!(error, ResolveError::Builtin { .. }) {
+        if matches!(error, ResolveError::Builtin { .. }) || is_framework_virtual_module(specifier) {
             return Resolution::Builtin;
         }
         if matches!(error, ResolveError::NotFound(_))
@@ -213,7 +213,10 @@ fn precheck_specifier(importer: &str, specifier: &str) -> Option<Resolution> {
             "{specifier:?} leads outside the repository"
         )));
     }
-    is_runtime_builtin(specifier).then_some(Resolution::Builtin)
+    if is_runtime_builtin(specifier) {
+        return Some(Resolution::Builtin);
+    }
+    None
 }
 
 fn is_project_configuration_error(error: &ResolveError) -> bool {
@@ -235,6 +238,18 @@ fn is_runtime_builtin(specifier: &str) -> bool {
                     .strip_prefix(prefix)
                     .is_some_and(|rest| !rest.is_empty())
             })
+}
+
+fn is_framework_virtual_module(specifier: &str) -> bool {
+    let clean = specifier
+        .split_once(['?', '#'])
+        .map_or(specifier, |(head, _)| head);
+    matches!(clean, "$app" | "$service-worker")
+        || ["virtual:", "$app/", "$env/"].iter().any(|prefix| {
+            clean
+                .strip_prefix(prefix)
+                .is_some_and(|rest| !rest.is_empty())
+        })
 }
 
 fn is_relative(specifier: &str) -> bool {
@@ -259,6 +274,22 @@ fn is_within_package(folder: &str, repo_path: &str) -> bool {
         || repo_path
             .strip_prefix(folder)
             .is_some_and(|rest| rest.starts_with('/'))
+}
+
+fn strip_registry_version(candidate: &str) -> &str {
+    let search_start = if candidate.starts_with('@') {
+        match candidate.find('/') {
+            Some(slash) => slash + 1,
+            None => return candidate,
+        }
+    } else {
+        0
+    };
+    match candidate[search_start..].find('@') {
+        Some(0) => "",
+        Some(offset) => &candidate[..search_start + offset],
+        None => candidate,
+    }
 }
 
 fn package_name(specifier: &str) -> &str {
@@ -287,22 +318,6 @@ fn package_name(specifier: &str) -> &str {
         }
     } else {
         candidate
-    }
-}
-
-fn strip_registry_version(candidate: &str) -> &str {
-    let search_start = if candidate.starts_with('@') {
-        match candidate.find('/') {
-            Some(slash) => slash + 1,
-            None => return candidate,
-        }
-    } else {
-        0
-    };
-    match candidate[search_start..].find('@') {
-        Some(0) => "",
-        Some(offset) => &candidate[..search_start + offset],
-        None => candidate,
     }
 }
 

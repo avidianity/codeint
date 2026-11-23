@@ -74,7 +74,10 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
   Two packages with the same name are both left unlinked.
 - The `exports` conditions are `types`, `bun`, `import`, `require`, `node`, and `default`, so an export whose `types` or `bun` entry names a source file resolves to that file.
 - `bun`, `bun:*`, `node:*`, `cloudflare:*`, and `deno:*` specifiers are always `Builtin` runtime modules, and `npm:` / `jsr:` specifiers strip their registry prefix and optional `@version` before normalizing the external package name.
+- When `oxc_resolver` fails to resolve an import, `classify_error` falls back to `Resolution::Builtin` for framework virtual modules (`virtual:*`, `$app`, `$app/*`, `$env/*`, and `$service-worker`), so real `tsconfig.json` `paths` aliases resolve first while unbuilt framework virtual modules never trigger false `Unresolved` or `unlisted_dependencies` Findings.
 - A bare specifier that fails to resolve is `External`, unless it names a linked package or matches a tsconfig `paths` key of the importer; then it is `Unresolved`.
+- `src/dependencies.rs` parses `package.json` dependency sections (`dependencies` as `Runtime`, `devDependencies` as `Dev`, and `optionalDependencies` / `peerDependencies` as `Optional`), excluding `workspace:` entries and local package names.
+  Ambient `@types/*` declarations emit as `Optional` so they are never flagged as unused and satisfy explicit imports without hiding undeclared `@types/*` imports.
 - Prove a change with `tests/conformance.rs` through `manifest_paths` and `resolve_imports`, and with a cycle test in `crates/cli/tests/check.rs`.
 
 ## Change the workspace rules
