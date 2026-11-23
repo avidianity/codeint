@@ -2324,7 +2324,6 @@ fn single_package_json_parses_runtime_dev_optional_and_peer_dependencies() {
         expected_declared(&[
             ("", "@scope/ui", DepKind::Runtime),
             ("", "react", DepKind::Runtime),
-            ("", "@types/node", DepKind::Dev),
             ("", "vitest", DepKind::Dev),
             ("", "fsevents", DepKind::Optional),
             ("", "react-dom", DepKind::Optional),
@@ -2550,4 +2549,95 @@ fn type_test_files_and_folders_are_classified_as_test_source_set() {
     for path in ["src/test-d.ts", "src/.test-d.ts"] {
         assert_eq!(source_set(path), SourceSet::Production, "{path}");
     }
+}
+
+#[test]
+fn framework_virtual_modules_classify_as_builtins_even_with_catch_all_tsconfig() {
+    let resolved = resolve_with_tsconfig(
+        CATCH_ALL_TSCONFIG,
+        &[
+            "virtual:pwa-register",
+            "virtual:uno.css",
+            "$app/stores",
+            "$env/dynamic/private",
+            "$service-worker",
+        ],
+    );
+    assert_eq!(resolved, vec![Resolution::Builtin; 5]);
+}
+
+#[test]
+fn pnpm_workspace_hoisted_root_deps_and_script_cli_tools_classify_accurately() {
+    let manifests = [
+        ("pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n"),
+        (
+            "package.json",
+            r#"{
+              "name": "repo-root",
+              "private": true,
+              "scripts": {
+                "lint": "eslint .",
+                "typecheck": "tsc --noEmit"
+              },
+              "devDependencies": {
+                "eslint": "^9.0.0",
+                "typescript": "^5.7.0",
+                "vitest": "^2.1.0",
+                "unused-dev": "^1.0.0",
+                "@types/node": "^22.0.0"
+              }
+            }"#,
+        ),
+        (
+            "packages/kit/package.json",
+            r#"{
+              "name": "@repo/kit",
+              "scripts": {
+                "test": "vitest run"
+              },
+              "dependencies": {
+                "zod": "^3.23.0"
+              }
+            }"#,
+        ),
+    ];
+
+    assert_eq!(
+        declared_deps(&manifests),
+        expected_declared(&[
+            ("", "unused-dev", DepKind::Dev),
+            ("", "eslint", DepKind::Optional),
+            ("", "typescript", DepKind::Optional),
+            ("", "vitest", DepKind::Optional),
+            ("packages/kit", "zod", DepKind::Runtime),
+        ])
+    );
+
+    let files = [
+        manifests[0],
+        manifests[1],
+        manifests[2],
+        ("packages/kit/src/index.ts", ""),
+        ("packages/kit/src/index.test.ts", ""),
+        ("scripts/ci.ts", ""),
+    ];
+    let requests = [
+        ("packages/kit/src/index.test.ts", "vitest"),
+        ("packages/kit/src/index.ts", "zod"),
+        ("packages/kit/src/index.ts", "axios"),
+        ("scripts/ci.ts", "vitest"),
+    ];
+    let resolved: Vec<Resolution> = requests
+        .iter()
+        .map(|&(importer, specifier)| resolve_in_project(&files, importer, specifier))
+        .collect();
+    assert_eq!(
+        resolved,
+        vec![
+            Resolution::Builtin,
+            Resolution::External("zod".to_owned()),
+            Resolution::External("axios".to_owned()),
+            Resolution::External("vitest".to_owned()),
+        ]
+    );
 }

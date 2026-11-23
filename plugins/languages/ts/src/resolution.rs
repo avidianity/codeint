@@ -3,15 +3,16 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
 use oxc_resolver::{ResolveError, ResolveOptions, ResolverGeneric, TsconfigDiscovery};
 
 use crate::EXTENSIONS;
+use crate::dependencies::{declared_names_by_package, strip_registry_version};
 use crate::resolution::packages::PackageLink;
 use crate::resolution::snapshot::Snapshot;
-use crate::workspaces::{PACKAGE_MANIFEST, PNPM_WORKSPACE_MANIFEST};
+use crate::workspaces::{PACKAGE_MANIFEST, PNPM_WORKSPACE_MANIFEST, workspace_packages};
 
 const TYPESCRIPT_SOURCES_OF_JAVASCRIPT_OUTPUT: [(&str, &[&str]); 4] = [
     (".js", &[".js", ".ts", ".tsx"]),
@@ -42,10 +43,17 @@ fn file_name(path: &str) -> &str {
 pub(crate) struct ProjectResolver {
     resolver: ResolverGeneric<Snapshot>,
     package_folders: HashMap<String, String>,
+    workspace_members: HashSet<String>,
+    declared_by_package: HashMap<String, HashSet<String>>,
 }
 
 impl ProjectResolver {
     pub(crate) fn new(repository_paths: &[String], manifests: Vec<Manifest>) -> ProjectResolver {
+        let workspace_members: HashSet<String> = workspace_packages(&manifests)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let declared_by_package = declared_names_by_package(&manifests);
         let links: Vec<PackageLink> = packages::package_links(&manifests);
         let package_folders = links
             .iter()
@@ -76,6 +84,8 @@ impl ProjectResolver {
         ProjectResolver {
             resolver: ResolverGeneric::new_with_file_system(file_system, options),
             package_folders,
+            workspace_members,
+            declared_by_package,
         }
     }
 
@@ -86,7 +96,7 @@ impl ProjectResolver {
         }
         let importer = snapshot::absolute(&request.importer);
         let resolved = self.resolve_with_fallback(&importer, specifier);
-        self.classify_resolution(&importer, specifier, resolved)
+        self.classify_resolution(&request.importer, &importer, specifier, resolved)
     }
 
     fn resolve_with_fallback(
@@ -106,6 +116,7 @@ impl ProjectResolver {
 
     fn classify_resolution(
         &self,
+        importer_path: &str,
         importer: &std::path::Path,
         specifier: &str,
         resolved: Result<oxc_resolver::Resolution, ResolveError>,
@@ -120,12 +131,13 @@ impl ProjectResolver {
                 },
                 Resolution::Resolved,
             ),
-            Err(error) => self.classify_error(importer, specifier, error),
+            Err(error) => self.classify_error(importer_path, importer, specifier, error),
         }
     }
 
     fn classify_error(
         &self,
+        importer_path: &str,
         importer: &std::path::Path,
         specifier: &str,
         error: ResolveError,
@@ -141,7 +153,11 @@ impl ProjectResolver {
             return resolution;
         }
         if self.names_an_outside_module(importer, specifier) {
-            return Resolution::External(package_name(specifier).to_owned());
+            let pkg = package_name(specifier);
+            if self.is_hoisted_root_dependency(importer_path, pkg) {
+                return Resolution::Builtin;
+            }
+            return Resolution::External(pkg.to_owned());
         }
         match error {
             ResolveError::NotFound(_) => {
@@ -149,6 +165,38 @@ impl ProjectResolver {
             }
             other => Resolution::Unresolved(format!("{specifier:?}: {other}")),
         }
+    }
+
+    fn is_hoisted_root_dependency(&self, importer_path: &str, pkg: &str) -> bool {
+        let Some(root_deps) = self.declared_by_package.get("") else {
+            return false;
+        };
+        if !root_deps.contains(pkg) {
+            return false;
+        }
+        let Some(member_root) = self.package_root_of(importer_path) else {
+            return false;
+        };
+        if member_root.is_empty() || !self.workspace_members.contains(member_root) {
+            return false;
+        }
+        !self
+            .declared_by_package
+            .get(member_root)
+            .is_some_and(|deps| deps.contains(pkg))
+    }
+
+    fn package_root_of(&self, path: &str) -> Option<&str> {
+        let mut folder = path;
+        while let Some((parent, _)) = folder.rsplit_once('/') {
+            if let Some((root, _)) = self.declared_by_package.get_key_value(parent) {
+                return Some(root.as_str());
+            }
+            folder = parent;
+        }
+        self.declared_by_package
+            .get_key_value("")
+            .map(|(root, _)| root.as_str())
     }
 
     fn resolve_workspace_fallback(&self, specifier: &str) -> Option<Resolution> {
@@ -213,7 +261,10 @@ fn precheck_specifier(importer: &str, specifier: &str) -> Option<Resolution> {
             "{specifier:?} leads outside the repository"
         )));
     }
-    is_runtime_builtin(specifier).then_some(Resolution::Builtin)
+    if is_runtime_builtin(specifier) || is_framework_virtual_module(specifier) {
+        return Some(Resolution::Builtin);
+    }
+    None
 }
 
 fn is_project_configuration_error(error: &ResolveError) -> bool {
@@ -235,6 +286,18 @@ fn is_runtime_builtin(specifier: &str) -> bool {
                     .strip_prefix(prefix)
                     .is_some_and(|rest| !rest.is_empty())
             })
+}
+
+fn is_framework_virtual_module(specifier: &str) -> bool {
+    let clean = specifier
+        .split_once(['?', '#'])
+        .map_or(specifier, |(head, _)| head);
+    matches!(clean, "$app" | "$service-worker")
+        || ["virtual:", "$app/", "$env/"].iter().any(|prefix| {
+            clean
+                .strip_prefix(prefix)
+                .is_some_and(|rest| !rest.is_empty())
+        })
 }
 
 fn is_relative(specifier: &str) -> bool {
@@ -287,22 +350,6 @@ fn package_name(specifier: &str) -> &str {
         }
     } else {
         candidate
-    }
-}
-
-fn strip_registry_version(candidate: &str) -> &str {
-    let search_start = if candidate.starts_with('@') {
-        match candidate.find('/') {
-            Some(slash) => slash + 1,
-            None => return candidate,
-        }
-    } else {
-        0
-    };
-    match candidate[search_start..].find('@') {
-        Some(0) => "",
-        Some(offset) => &candidate[..search_start + offset],
-        None => candidate,
     }
 }
 
