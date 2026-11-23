@@ -10,7 +10,9 @@ mod codeint_json;
 mod regression_limits;
 mod result_cache_folder;
 
-pub use boundaries::{Boundaries, BoundaryDirective, BoundaryRuleDecision, BoundarySourceSet};
+pub use boundaries::{
+    Boundaries, BoundaryDirective, BoundaryPreset, BoundaryRuleDecision, BoundarySourceSet,
+};
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
     Budget, Budgets, Configuration, ConfigurationFileError, DetectedLanguage, JsonType, KeyPath,

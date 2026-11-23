@@ -553,6 +553,9 @@ struct RegressionLimitsFile {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Import cycles in every Source set.")]
     import_cycles: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Boundaries in every Source set.")]
+    boundaries: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
     #[schemars(description = "The Regression limits of the Production Source set.")]
     production: MetricRegressionLimits,
@@ -583,6 +586,9 @@ struct MetricRegressionLimits {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Import cycles in this Source set.")]
     import_cycles: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Boundaries in this Source set.")]
+    boundaries: RegressionLimitSetting,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, RegressionLimitSetting>,
 }
@@ -594,6 +600,7 @@ impl MetricRegressionLimits {
             &self.duplication,
             &self.verbosity,
             &self.import_cycles,
+            &self.boundaries,
         ]
         .into_iter()
         .chain(self.external.values())
@@ -606,6 +613,7 @@ impl MetricRegressionLimits {
             duplication,
             verbosity,
             import_cycles,
+            boundaries,
             external,
         } = self;
         [
@@ -613,6 +621,7 @@ impl MetricRegressionLimits {
             (Metric::Duplication.key().to_owned(), duplication),
             (Metric::Verbosity.key().to_owned(), verbosity),
             (Metric::ImportCycles.key().to_owned(), import_cycles),
+            ("boundaries".to_owned(), boundaries),
         ]
         .into_iter()
         .chain(external)
@@ -834,6 +843,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         duplication,
         verbosity,
         import_cycles,
+        boundaries,
         production,
         test,
         generated,
@@ -845,6 +855,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         duplication,
         verbosity,
         import_cycles,
+        boundaries,
         external,
     }
     .by_metric()

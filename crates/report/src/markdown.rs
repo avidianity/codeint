@@ -34,7 +34,7 @@ const PACKAGE_COLUMNS: [&str; 8] = [
 ];
 pub(crate) const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
 pub(crate) const EXTERNAL_FINDING_COLUMNS: [&str; 2] = ["Location", "Message"];
-const BOUNDARY_FINDING_COLUMNS: [&str; 6] = [
+pub(crate) const BOUNDARY_FINDING_COLUMNS: [&str; 6] = [
     "Importer",
     "Target",
     "Source zone",
@@ -513,7 +513,7 @@ fn unresolved_import_row(row: &UnresolvedImportRow) -> Vec<String> {
     ]
 }
 
-fn boundary_finding_row(row: &BoundaryFindingRow) -> Vec<String> {
+pub(crate) fn boundary_finding_row(row: &BoundaryFindingRow) -> Vec<String> {
     vec![
         code(&row.importer),
         row.target.as_deref().map_or_else(|| "-".to_owned(), code),

@@ -527,10 +527,16 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
 | `regression_limits.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.boundaries` | object | The Regression limit of Boundaries in every Source set |
+| `regression_limits.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
+| `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
 | `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
 | `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
 | `regression_limits.{source_set}.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{source_set}.boundaries` | object | The Regression limit of Boundaries in this Source set |
+| `regression_limits.{source_set}.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
+| `regression_limits.{source_set}.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
@@ -545,6 +551,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `plugin_limits.memory_mb` | integer from 1 to 4096 | Maximum linear memory in MiB that a WebAssembly Plugin may allocate; `64` by default |
 | `plugin_limits.timeout_ms` | integer from 1 to 300000 | Maximum wall-clock time in milliseconds for each WebAssembly Plugin call; `5000` by default |
 | `boundaries` | object | Architectural import boundaries defining named zones, optional `public_files` entry points, directional `allow` or `deny` rules, and optional `strict_zones` mode |
+| `boundaries.preset` | string | Optional built-in architecture preset (`layered` or `hexagonal`) providing default zones and rules that can be overridden or extended |
 | `boundaries.zones` | object | Map of zone name to zone definition (`patterns` globs and optional `public_files` globs) |
 | `boundaries.rules` | list of objects | Directional import rules between architectural zones |
 | `boundaries.rules[].from` | string | Source zone name, or `*` to match any zone without a specific rule |
@@ -775,10 +782,12 @@ codeint check
 
 `boundaries` enforces directional import rules and `public_files` encapsulation over resolved runtime imports across every supported Language plugin.
 When `boundaries` is omitted, boundary evaluation is completely inactive.
+Set `boundaries.preset` to `layered` (`presentation`, `application`, `domain`, `infrastructure`) or `hexagonal` (`domain`, `ports`, `application`, `adapters`) to start from built-in zone globs and directional rules; entries in `boundaries.zones` override matching preset zones or add new ones, and rules in `boundaries.rules` replace preset rules for matching `from` zones.
 Each zone in `boundaries.zones` declares repository-relative `patterns` globs and optional `public_files` globs naming the only files external zones may import.
 When a file matches patterns in multiple zones, the most specific pattern (most literal characters, then longest pattern, then zone name alphabetically) wins.
 Each rule in `boundaries.rules` sets `from` (a zone name or `*`), either `allow` or `deny` (mutually exclusive), and an optional `reason`.
 By default, `boundaries` evaluates the `production` Source set only; set `source_sets` to evaluate additional Source sets, and set `strict_zones` to `true` to report files matching no zone.
+In `codeint diff`, each boundary Finding carries a stable content-based identifier so pre-existing Findings are classified as unchanged while any newly introduced boundary Finding fails by default (`new_findings: "any_new_finding"`).
 
 ```json codeint.json
 {
@@ -787,7 +796,20 @@ By default, `boundaries` evaluates the `production` Source set only; set `source
       "boundaries": 0
     }
   },
+  "regression_limits": {
+    "boundaries": {
+      "ratio_rise": 0.01,
+      "new_findings": "any_new_finding"
+    },
+    "production": {
+      "boundaries": {
+        "ratio_rise": 0,
+        "new_findings": "any_new_finding"
+      }
+    }
+  },
   "boundaries": {
+    "preset": "layered",
     "zones": {
       "app": {
         "patterns": ["src/**"],
