@@ -1,10 +1,9 @@
-mod common;
-
 use std::process::Command;
 
-use common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 use serde_json::{Value, json};
 use tempfile::TempDir;
+
+use crate::common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 
 fn init_sample_repo() -> TempDir {
     init_git_repo(&[(
