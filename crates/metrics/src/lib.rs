@@ -10,6 +10,7 @@ mod impact;
 mod import_cycles;
 mod line_share;
 mod orphan_files;
+mod tooling_paths;
 mod trace;
 mod verbosity;
 

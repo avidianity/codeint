@@ -194,6 +194,52 @@ fn typescript_monorepo_reports_dependency_hygiene_across_all_formats_ignore_and_
 }
 
 #[test]
+fn non_runtime_tooling_files_satisfy_dev_dependencies_without_dev_in_production_noise() {
+    let ts_pkg = json!({
+        "name": "tooling-demo",
+        "dependencies": { "zod": "^3.0.0" },
+        "devDependencies": { "vitest": "^2.0.0", "esbuild": "^0.24.0", "faker": "^8.0.0" },
+    })
+    .to_string();
+    let ts_files = [
+        ("package.json", ts_pkg.as_str()),
+        (
+            "src/app.ts",
+            "import { z } from 'zod';\nimport { faker } from 'faker';\nexport const run = () => Boolean(z && faker);\n",
+        ),
+        (
+            "vite.config.ts",
+            "import { defineConfig } from 'vitest';\nexport default defineConfig({});\n",
+        ),
+        (
+            "scripts/release.ts",
+            "import { build } from 'esbuild';\nexport const release = () => build({});\n",
+        ),
+    ];
+    let dart_files = [
+        (
+            "pubspec.yaml",
+            "name: dart_tooling\ndependencies:\n  http: ^1.2.0\ndev_dependencies:\n  jnigen: ^0.14.0\n",
+        ),
+        (
+            "lib/client.dart",
+            "import 'package:http/http.dart' as http;\nvoid run() { print(http); }\n",
+        ),
+        (
+            "tool/jnigen.dart",
+            "import 'package:jnigen/jnigen.dart';\nvoid main() { print(generateJniBindings); }\n",
+        ),
+    ];
+
+    for (files, expected_dev_in_prod) in [
+        (ts_files.as_slice(), ["faker"].as_slice()),
+        (dart_files.as_slice(), [].as_slice()),
+    ] {
+        assert_language_hygiene(files, &[], &[], expected_dev_in_prod);
+    }
+}
+
+#[test]
 fn rust_python_php_and_dart_manifests_detect_dependency_hygiene_end_to_end() {
     assert_language_hygiene(
         &[
