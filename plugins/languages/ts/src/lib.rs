@@ -13,7 +13,7 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
     WorkspaceError,
 };
 use oxc_allocator::Allocator;
@@ -72,6 +72,14 @@ impl Guest for TypeScriptAndJavaScript {
             .iter()
             .map(|request| resolver.resolve(request))
             .collect()
+    }
+
+    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Vec::new()
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+        Vec::new()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

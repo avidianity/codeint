@@ -23,7 +23,9 @@ mod bindings {
 }
 
 pub use bindings::exports::codeint::plugin::language;
-pub use language::{FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind};
+pub use language::{
+    DeclaredDep, DepKind, FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind,
+};
 pub use metric::{
     ExternalFinding, ExternalMetricMeasurement, Metric, MetricPlugin, MetricPluginError,
 };
@@ -318,6 +320,10 @@ pub trait LanguagePlugin: Sync {
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution>;
 
+    fn declared_dependencies(&self, manifests: Vec<Manifest>) -> Vec<DeclaredDep>;
+
+    fn entry_points(&self, repository_paths: &[RepoPath], manifests: Vec<Manifest>) -> Vec<String>;
+
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
 }
 
@@ -351,6 +357,14 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         requests: Vec<language::ImportRequest>,
     ) -> Vec<language::Resolution> {
         Plugin::resolve_imports(owned_paths(repository_paths), manifests, requests)
+    }
+
+    fn declared_dependencies(&self, manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Plugin::declared_dependencies(manifests)
+    }
+
+    fn entry_points(&self, repository_paths: &[RepoPath], manifests: Vec<Manifest>) -> Vec<String> {
+        Plugin::entry_points(owned_paths(repository_paths), manifests)
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {

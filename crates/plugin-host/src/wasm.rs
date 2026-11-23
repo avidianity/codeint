@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use codeint_config::PluginLimits;
 use codeint_model::{
-    FileModel, InvalidReferenceRange, LowerError, Manifest, ReferenceRange, ReferenceRanges,
-    RepoPath, SourceSet, Token, TokenKind, WorkspaceError, language,
+    DeclaredDep, DepKind, FileModel, InvalidReferenceRange, LowerError, Manifest, ReferenceRange,
+    ReferenceRanges, RepoPath, SourceSet, Token, TokenKind, WorkspaceError, language,
 };
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
@@ -23,6 +23,40 @@ mod bindings {
 }
 
 use bindings::exports::codeint::plugin::language as guest;
+
+pub(crate) struct ContractSpec {
+    pub(crate) interface_prefix: &'static str,
+    pub(crate) expected_interface: &'static str,
+}
+
+const LANGUAGE_CONTRACT: ContractSpec = ContractSpec {
+    interface_prefix: "codeint:plugin/language@",
+    expected_interface: "codeint:plugin/language@0.2.0",
+};
+
+pub(crate) fn check_contract_version(
+    name: &str,
+    path: &Path,
+    engine: &Engine,
+    instance_pre: &wasmtime::component::InstancePre<PluginStoreState>,
+    spec: ContractSpec,
+) -> Result<(), PluginHostError> {
+    let component_type = instance_pre.component().component_type();
+    for (export_name, _) in component_type.exports(engine) {
+        if export_name == spec.expected_interface {
+            return Ok(());
+        }
+        if export_name.starts_with(spec.interface_prefix) {
+            return Err(PluginHostError::IncompatibleContractVersion {
+                name: name.to_owned(),
+                path: path.to_path_buf(),
+                expected: spec.expected_interface,
+                found: export_name.to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
 
 struct PluginInstance {
     store: Store<PluginStoreState>,
@@ -71,6 +105,45 @@ pub(crate) fn compile_sandboxed_component(
     Ok((engine, instance_pre))
 }
 
+pub(crate) struct InstantiatedComponent<Pre, Bindings> {
+    pub(crate) engine: Engine,
+    pub(crate) ticker: EpochTicker,
+    pub(crate) pre: Pre,
+    pub(crate) store: Store<PluginStoreState>,
+    pub(crate) bindings: Bindings,
+}
+
+pub(crate) fn instantiate_sandboxed_component<Pre, Bindings>(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+    limits: PluginLimits,
+    spec: ContractSpec,
+    bind: impl FnOnce(
+        wasmtime::component::InstancePre<PluginStoreState>,
+    ) -> Result<Pre, wasmtime::Error>,
+    instantiate: impl FnOnce(&Pre, &mut Store<PluginStoreState>) -> Result<Bindings, wasmtime::Error>,
+) -> Result<InstantiatedComponent<Pre, Bindings>, PluginHostError> {
+    let (engine, instance_pre) = compile_sandboxed_component(name, path, bytes)?;
+    check_contract_version(name, path, &engine, &instance_pre, spec)?;
+    let ticker = EpochTicker::start(engine.clone());
+    let pre = bind(instance_pre).map_err(|error| PluginHostError::Instantiate {
+        name: name.to_owned(),
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
+    let mut store = new_limited_store(&engine, limits);
+    let bindings = instantiate(&pre, &mut store)
+        .map_err(|error| map_host_trap(name, path, None, limits, &store, error))?;
+    Ok(InstantiatedComponent {
+        engine,
+        ticker,
+        pre,
+        store,
+        bindings,
+    })
+}
+
 impl WasmLanguagePlugin {
     pub(crate) fn from_verified_bytes(
         name: String,
@@ -78,35 +151,42 @@ impl WasmLanguagePlugin {
         bytes: &[u8],
         limits: PluginLimits,
     ) -> Result<WasmLanguagePlugin, PluginHostError> {
-        let (engine, instance_pre) = compile_sandboxed_component(&name, path, bytes)?;
-        let ticker = EpochTicker::start(engine.clone());
-        let pre = bindings::LanguagePluginPre::new(instance_pre).map_err(|error| {
-            PluginHostError::Instantiate {
-                name: name.clone(),
-                path: path.to_path_buf(),
-                reason: error.to_string(),
-            }
-        })?;
-        let mut store = new_limited_store(&engine, limits);
-        let bindings = pre
-            .instantiate(&mut store)
-            .map_err(|error| map_host_trap(&name, path, None, limits, &store, error))?;
-        arm_call_deadline(&mut store, limits);
-        let extensions = bindings
+        let mut component = instantiate_sandboxed_component(
+            &name,
+            path,
+            bytes,
+            limits,
+            LANGUAGE_CONTRACT,
+            bindings::LanguagePluginPre::new,
+            |pre, store| pre.instantiate(store),
+        )?;
+        arm_call_deadline(&mut component.store, limits);
+        let extensions = component
+            .bindings
             .codeint_plugin_language()
-            .call_extensions(&mut store)
+            .call_extensions(&mut component.store)
             .map_err(|error| {
-                map_host_trap(&name, path, Some("extensions"), limits, &store, error)
+                map_host_trap(
+                    &name,
+                    path,
+                    Some("extensions"),
+                    limits,
+                    &component.store,
+                    error,
+                )
             })?;
-        let peak_memory_bytes = AtomicUsize::new(store.data().peak_memory_bytes());
+        let peak_memory_bytes = AtomicUsize::new(component.store.data().peak_memory_bytes());
         Ok(WasmLanguagePlugin {
             name,
             limits,
-            engine,
-            _ticker: ticker,
-            pre,
+            engine: component.engine,
+            _ticker: component.ticker,
+            pre: component.pre,
             extensions,
-            pool: Mutex::new(vec![PluginInstance { store, bindings }]),
+            pool: Mutex::new(vec![PluginInstance {
+                store: component.store,
+                bindings: component.bindings,
+            }]),
             peak_memory_bytes,
         })
     }
@@ -265,6 +345,40 @@ impl WasmLanguagePlugin {
         .unwrap_or_default()
     }
 
+    pub(crate) fn declared_dependencies_impl(&self, manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        let host_manifests: Vec<guest::Manifest> = manifests
+            .into_iter()
+            .map(|manifest| guest::Manifest {
+                path: manifest.path,
+                text: manifest.text,
+            })
+            .collect();
+        self.with_instance("declared-dependencies", |api, store| {
+            api.call_declared_dependencies(store, &host_manifests)
+        })
+        .map(|deps| deps.into_iter().map(convert_declared_dep).collect())
+        .unwrap_or_default()
+    }
+
+    pub(crate) fn entry_points_impl(
+        &self,
+        repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
+    ) -> Vec<String> {
+        let paths = owned_paths(repository_paths);
+        let host_manifests: Vec<guest::Manifest> = manifests
+            .into_iter()
+            .map(|manifest| guest::Manifest {
+                path: manifest.path,
+                text: manifest.text,
+            })
+            .collect();
+        self.with_instance("entry-points", |api, store| {
+            api.call_entry_points(store, &paths, &host_manifests)
+        })
+        .unwrap_or_default()
+    }
+
     pub(crate) fn reference_ranges_impl(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         let ranges = self
             .with_instance("reference-ranges", |api, store| {
@@ -302,6 +416,8 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
                 end_line: function.end_line,
                 decision_points: function.decision_points,
                 source_lines: function.source_lines,
+                name: function.name,
+                cognitive_complexity: function.cognitive_complexity,
             })
             .collect(),
         tokens: model
@@ -355,8 +471,21 @@ fn convert_lower_error(error: guest::LowerError) -> LowerError {
 fn convert_resolution(resolution: guest::Resolution) -> language::Resolution {
     match resolution {
         guest::Resolution::Resolved(path) => language::Resolution::Resolved(path),
-        guest::Resolution::External => language::Resolution::External,
+        guest::Resolution::External(package) => language::Resolution::External(package),
+        guest::Resolution::Builtin => language::Resolution::Builtin,
         guest::Resolution::Unresolved(reason) => language::Resolution::Unresolved(reason),
+    }
+}
+
+fn convert_declared_dep(dep: guest::DeclaredDep) -> DeclaredDep {
+    DeclaredDep {
+        package_root: dep.package_root,
+        name: dep.name,
+        kind: match dep.kind {
+            guest::DepKind::Runtime => DepKind::Runtime,
+            guest::DepKind::Dev => DepKind::Dev,
+            guest::DepKind::Optional => DepKind::Optional,
+        },
     }
 }
 

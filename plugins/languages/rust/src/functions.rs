@@ -227,6 +227,8 @@ impl FunctionCollector<'_> {
             end_line,
             decision_points,
             source_lines,
+            name: None,
+            cognitive_complexity: 0,
         });
     }
 }

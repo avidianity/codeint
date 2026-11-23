@@ -47,7 +47,7 @@ impl PhpResolver {
         match request.specifier.split_once(':') {
             Some(("use", ns_path)) => self.resolve_psr4(&request.importer, ns_path),
             Some(("req", req_path)) => self.resolve_require(&request.importer, req_path),
-            _ => Resolution::External,
+            _ => Resolution::External(String::new()),
         }
     }
 
@@ -63,13 +63,13 @@ impl PhpResolver {
             let rel = rest.replace('\\', "/");
             if let Some(hit) = self.first_matching_file(&rule.dirs, &rel) {
                 return if hit == importer {
-                    Resolution::External
+                    Resolution::External(String::new())
                 } else {
                     Resolution::Resolved(hit)
                 };
             }
         }
-        Resolution::External
+        Resolution::External(String::new())
     }
 
     fn first_matching_file(&self, dirs: &[String], rel: &str) -> Option<String> {

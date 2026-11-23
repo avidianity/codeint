@@ -324,6 +324,8 @@ fn function(line: u32, end_line: u32, decision_points: u32, source_lines: u32) -
         end_line,
         decision_points,
         source_lines,
+        name: None,
+        cognitive_complexity: 0,
     }
 }
 
@@ -1166,10 +1168,18 @@ fn a_relative_specifier_resolves_to_the_first_matching_file_in_typescript_order(
 
 #[test]
 fn a_bare_specifier_names_a_module_outside_the_repository() {
-    for specifier in ["react", "@scope/package/sub", "node:path", "fs"] {
+    for (specifier, expected) in [
+        ("react", Resolution::External("react".to_owned())),
+        (
+            "@scope/package/sub",
+            Resolution::External("@scope/package".to_owned()),
+        ),
+        ("node:path", Resolution::Builtin),
+        ("fs", Resolution::Builtin),
+    ] {
         assert_eq!(
             resolve(&["src/main.ts"], "src/main.ts", specifier),
-            Resolution::External,
+            expected,
             "{specifier}"
         );
     }
@@ -1216,7 +1226,7 @@ fn resolutions_come_back_one_per_request_in_request_order() {
         resolutions,
         [
             resolved("b.ts"),
-            Resolution::External,
+            Resolution::External("react".to_owned()),
             resolved("a.ts"),
             Resolution::Unresolved("no file of the repository matches \"./c\"".to_owned()),
         ]
@@ -1314,10 +1324,17 @@ fn a_path_alias_without_a_matching_file_is_unresolved_and_other_bare_specifiers_
         matches!(&missing, Resolution::Unresolved(reason) if reason.contains("@/views/missing")),
         "{missing:?}"
     );
-    for specifier in ["react", "@scope/package", "node:fs"] {
+    for (specifier, expected) in [
+        ("react", Resolution::External("react".to_owned())),
+        (
+            "@scope/package",
+            Resolution::External("@scope/package".to_owned()),
+        ),
+        ("node:fs", Resolution::Builtin),
+    ] {
         assert_eq!(
             resolve_in_project(&ALIASED_PROJECT, "src/main.ts", specifier),
-            Resolution::External,
+            expected,
             "{specifier}"
         );
     }
@@ -1336,7 +1353,7 @@ fn a_tsconfig_that_does_not_include_the_importer_does_not_alias_its_imports() {
 
     assert_eq!(
         resolve_in_project(&files, "scripts/build.ts", "@/util"),
-        Resolution::External
+        Resolution::External("@/util".to_owned())
     );
 }
 
@@ -1357,7 +1374,7 @@ fn imports_still_resolve_when_a_tsconfig_extends_a_config_outside_the_repository
     );
     assert_eq!(
         resolve_in_project(&files, "src/main.ts", "react"),
-        Resolution::External
+        Resolution::External("react".to_owned())
     );
 }
 
@@ -1428,7 +1445,7 @@ fn a_named_package_outside_the_declared_workspaces_is_not_linked() {
     for specifier in ["scripts", "retired"] {
         assert_eq!(
             resolve_in_project(&files, "packages/app/src/main.ts", specifier),
-            Resolution::External,
+            Resolution::External(specifier.to_owned()),
             "{specifier}"
         );
     }
@@ -1448,7 +1465,7 @@ fn a_named_package_in_a_repository_without_workspaces_is_not_linked() {
 
     assert_eq!(
         resolve_in_project(&files, "src/main.ts", "demo"),
-        Resolution::External
+        Resolution::External("demo".to_owned())
     );
 }
 
@@ -1911,7 +1928,7 @@ fn bun_builtins_resolve_as_external_even_with_catch_all_tsconfig_paths() {
             ("src/db.ts", "bun:test"),
         ],
     );
-    assert_eq!(resolutions, vec![Resolution::External; 3]);
+    assert_eq!(resolutions, vec![Resolution::Builtin; 3]);
 }
 
 #[test]

@@ -13,7 +13,12 @@ use crate::PluginHostError;
 use crate::limits::{
     EpochTicker, LimitTrap, PluginStoreState, arm_call_deadline, classify_trap, new_limited_store,
 };
-use crate::wasm::{compile_sandboxed_component, map_host_trap};
+use crate::wasm::{ContractSpec, instantiate_sandboxed_component, map_host_trap};
+
+const METRIC_CONTRACT: ContractSpec = ContractSpec {
+    interface_prefix: "codeint:plugin/metric@",
+    expected_interface: "codeint:plugin/metric@0.2.0",
+};
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -52,56 +57,71 @@ impl WasmMetricPlugin {
         bytes: &[u8],
         limits: PluginLimits,
     ) -> Result<WasmMetricPlugin, PluginHostError> {
-        let (engine, instance_pre) = compile_sandboxed_component(&plugin_name, path, bytes)?;
-        let ticker = EpochTicker::start(engine.clone());
-        let pre = bindings::MetricPluginPre::new(instance_pre).map_err(|error| {
-            PluginHostError::Instantiate {
-                name: plugin_name.clone(),
-                path: path.to_path_buf(),
-                reason: error.to_string(),
-            }
-        })?;
-        let mut store = new_limited_store(&engine, limits);
-        let bindings = pre
-            .instantiate(&mut store)
-            .map_err(|error| map_host_trap(&plugin_name, path, None, limits, &store, error))?;
-        let api = bindings.codeint_plugin_metric();
-        arm_call_deadline(&mut store, limits);
-        let key = api.call_key(&mut store).map_err(|error| {
-            map_host_trap(&plugin_name, path, Some("key"), limits, &store, error)
-        })?;
-        validate_metric_key(&plugin_name, &key)?;
-        arm_call_deadline(&mut store, limits);
-        let display_name = api.call_name(&mut store).map_err(|error| {
-            map_host_trap(&plugin_name, path, Some("name"), limits, &store, error)
-        })?;
-        arm_call_deadline(&mut store, limits);
-        let description = api.call_description(&mut store).map_err(|error| {
+        let mut component = instantiate_sandboxed_component(
+            &plugin_name,
+            path,
+            bytes,
+            limits,
+            METRIC_CONTRACT,
+            bindings::MetricPluginPre::new,
+            |pre, store| pre.instantiate(store),
+        )?;
+        let api = component.bindings.codeint_plugin_metric();
+        arm_call_deadline(&mut component.store, limits);
+        let key = api.call_key(&mut component.store).map_err(|error| {
             map_host_trap(
                 &plugin_name,
                 path,
-                Some("description"),
+                Some("key"),
                 limits,
-                &store,
+                &component.store,
                 error,
             )
         })?;
+        validate_metric_key(&plugin_name, &key)?;
+        arm_call_deadline(&mut component.store, limits);
+        let display_name = api.call_name(&mut component.store).map_err(|error| {
+            map_host_trap(
+                &plugin_name,
+                path,
+                Some("name"),
+                limits,
+                &component.store,
+                error,
+            )
+        })?;
+        arm_call_deadline(&mut component.store, limits);
+        let description = api
+            .call_description(&mut component.store)
+            .map_err(|error| {
+                map_host_trap(
+                    &plugin_name,
+                    path,
+                    Some("description"),
+                    limits,
+                    &component.store,
+                    error,
+                )
+            })?;
         let display_name = if display_name.trim().is_empty() {
             key.clone()
         } else {
             display_name
         };
-        let peak_memory_bytes = AtomicUsize::new(store.data().peak_memory_bytes());
+        let peak_memory_bytes = AtomicUsize::new(component.store.data().peak_memory_bytes());
         Ok(WasmMetricPlugin {
             plugin_name,
             limits,
             key,
             display_name,
             description,
-            engine,
-            _ticker: ticker,
-            pre,
-            pool: Mutex::new(vec![MetricPluginInstance { store, bindings }]),
+            engine: component.engine,
+            _ticker: component.ticker,
+            pre: component.pre,
+            pool: Mutex::new(vec![MetricPluginInstance {
+                store: component.store,
+                bindings: component.bindings,
+            }]),
             peak_memory_bytes,
         })
     }
@@ -244,7 +264,10 @@ fn to_guest_code_model(model: &CodeModel) -> guest_metric::CodeModel {
                     ImportResolution::Resolved(path) => {
                         guest_language::Resolution::Resolved(path.as_str().to_owned())
                     }
-                    ImportResolution::External => guest_language::Resolution::External,
+                    ImportResolution::External(package) => {
+                        guest_language::Resolution::External(package.clone())
+                    }
+                    ImportResolution::Builtin => guest_language::Resolution::Builtin,
                     ImportResolution::Unresolved { reason } => {
                         guest_language::Resolution::Unresolved(reason.clone())
                     }
@@ -276,6 +299,8 @@ fn to_guest_file_model(model: &FileModel) -> guest_language::FileModel {
                 end_line: function.end_line,
                 decision_points: function.decision_points,
                 source_lines: function.source_lines,
+                name: function.name.clone(),
+                cognitive_complexity: function.cognitive_complexity,
             })
             .collect(),
         tokens: model

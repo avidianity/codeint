@@ -1,6 +1,6 @@
 use super::language::{
-    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
-    WorkspaceError,
+    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    SourceSet, WorkspaceError,
 };
 use super::{
     CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, Package, ReferenceRanges,
@@ -82,6 +82,14 @@ impl Guest for MeasuredLanguage {
             .iter()
             .map(|_| Resolution::Unresolved(reason.clone()))
             .collect()
+    }
+
+    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Vec::new()
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+        Vec::new()
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

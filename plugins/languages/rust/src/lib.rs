@@ -12,8 +12,8 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet,
-    WorkspaceError,
+    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
+    SourceSet, WorkspaceError,
 };
 
 use crate::cfg_test::excluded_cfg_test_lines;
@@ -63,6 +63,14 @@ impl Guest for Rust {
             flagged_lines: rules::flag(&parsed, &code_lines, exclude_cfg_test),
             runtime_imports: runtime_import_specifiers(&parsed, exclude_cfg_test),
         })
+    }
+
+    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        Vec::new()
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+        Vec::new()
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {

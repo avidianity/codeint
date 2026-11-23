@@ -6,11 +6,11 @@ This guide explains how to build, hash, declare, and test a Language plugin and 
 
 ## Versioned WIT contract
 
-codeint defines its Plugin contract in `package codeint:plugin@0.1.0`.
+codeint defines its Plugin contract in `package codeint:plugin@0.2.0`.
 Two WIT files hold the contract:
 
-- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.1.0` and the `language-plugin` world.
-- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.1.0` and the `metric-plugin` world.
+- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.2.0` and the `language-plugin` world.
+- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.2.0` and the `metric-plugin` world.
 
 The `metric` interface reuses `file-model` and `resolution` from `language`.
 A Language plugin exports `language` and lowers source files into the Code model.
@@ -70,8 +70,8 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    FileModel, FlaggedLine, Function, Guest, ImportRequest, LowerError, Manifest, ReferenceRange,
-    Resolution, SourceSet, Token, TokenKind, WorkspaceError,
+    DeclaredDep, DepKind, FileModel, FlaggedLine, Function, Guest, ImportRequest, LowerError,
+    Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
 };
 
 struct SampleMiniPlugin;
@@ -81,23 +81,25 @@ export!(SampleMiniPlugin);
 
 ### Required functions
 
-Implement all six functions on `Guest`:
+Implement all eight functions on `Guest`:
 
 | Function | Responsibility |
 | -------- | -------------- |
 | `extensions() -> list<string>` | Return file extensions without a leading dot, such as `["mini"]`. |
-| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions`, `tokens`, `flagged-lines`, and `runtime-imports`. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
+| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name` and nesting-weighted `cognitive-complexity`), `tokens`, `flagged-lines`, and `runtime-imports`. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
 | `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. |
 | `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
-| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved`, `external`, or `unresolved` entry per request, in request order. |
+| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(string)`, `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
+| `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). |
+| `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. |
 | `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric. |
 
 Follow these invariants in `lower`:
 
-- Keep `functions` sorted by start `line` (`line >= 1` and `line <= end-line`).
+- Keep `functions` sorted by start `line` (`line >= 1` and `line <= end-line`), with `name` set to `none` for anonymous lambdas or closures.
 - Keep `tokens` sorted by 1-based `line`, with 64-bit FNV-1a `text-hash` values of each token's UTF-8 text.
 - Produce identical `source-lines` and `functions` for LF and CRLF line endings.
-- Do not count nested functions' decision points or source lines in their enclosing function.
+- Do not count nested functions' decision points, cognitive complexity, or source lines in their enclosing function.
 
 ### Compile the sample Language plugin
 
@@ -261,7 +263,8 @@ The suite verifies:
 - Ordered `functions` and `tokens`, valid 1-based line spans, and non-empty Flagged line rules.
 - `manifest-paths` returning only paths from `repository-paths`.
 - `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
-- `resolve-imports` returning one `Resolved`, `External`, or `Unresolved` result per request in request order.
+- `resolve-imports` returning one `Resolved`, `External`, `Builtin`, or `Unresolved` result per request in request order.
+- `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
 - `reference-ranges` returning valid ranges.
 - Safe concurrent `lower` calls across threads.
 
@@ -301,10 +304,10 @@ cargo test --locked -p codeint-cli --test plugins
 The WIT package declaration carries a Semantic Versioning number:
 
 ```wit
-package codeint:plugin@0.1.0;
+package codeint:plugin@0.2.0;
 ```
 
-This version identifies the exported interfaces `codeint:plugin/language@0.1.0` and `codeint:plugin/metric@0.1.0` in the compiled WebAssembly component.
+This version identifies the exported interfaces `codeint:plugin/language@0.2.0` and `codeint:plugin/metric@0.2.0` in the compiled WebAssembly component.
 
 ### Compatibility rules
 
@@ -319,6 +322,6 @@ This version identifies the exported interfaces `codeint:plugin/language@0.1.0` 
 `wasmtime::component::bindgen!` binds the codeint host to the exact WIT interface version compiled into the binary.
 At load time, wasmtime checks that the component's exported interface name and version match what the host expects.
 
-- A Plugin built against an incompatible WIT version fails to instantiate with exit code 2, and the error names the mismatched interface version.
+- A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.1.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.2.0` interface version, and how to rebuild it.
 - Rebuild the Plugin against the updated `wit/` files and update its `sha256` in `codeint.json` when upgrading to a breaking WIT version.
 - Never silently mutate an existing released WIT version in place; every breaking change gets a new version number.
