@@ -75,7 +75,7 @@ impl OrphanFiles {
             .iter()
             .map(|file| file.model.source_set)
             .collect();
-        let roots = collect_roots(&index_of, &source_sets, entry_points);
+        let roots = collect_roots(model, &index_of, &source_sets, entry_points);
         if roots.is_empty() {
             return None;
         }
@@ -193,6 +193,7 @@ impl OrphanFiles {
 }
 
 fn collect_roots(
+    model: &CodeModel,
     index_of: &HashMap<&RepoPath, usize>,
     source_sets: &[SourceSet],
     entry_points: &[RepoPath],
@@ -201,11 +202,19 @@ fn collect_roots(
     for entry in entry_points {
         if let Some(&index) = index_of.get(entry)
             && source_sets[index] == SourceSet::Production
+            && !is_non_runtime_tooling_path(entry, package_root_of(model, entry))
         {
             roots.insert(index);
         }
     }
     roots
+}
+
+fn package_root_of<'model>(model: &'model CodeModel, path: &RepoPath) -> Option<&'model str> {
+    match model.workspace.package_of(path) {
+        Package::Root => None,
+        Package::Member(root) => Some(root.as_str()),
+    }
 }
 
 fn build_import_graphs(
@@ -350,7 +359,9 @@ fn is_evaluated_production_file<'model>(
     active_packages: Option<&HashSet<Package<'model>>>,
     include_in_report: &impl Fn(&RepoPath) -> bool,
 ) -> bool {
-    if source_set != SourceSet::Production || is_non_runtime_tooling_path(path.as_str()) {
+    if source_set != SourceSet::Production
+        || is_non_runtime_tooling_path(path, package_root_of(model, path))
+    {
         return false;
     }
     if let Some(active) = active_packages

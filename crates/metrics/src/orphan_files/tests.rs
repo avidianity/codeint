@@ -47,11 +47,19 @@ fn build_model(
 }
 
 fn production_model(files: &[&str], edges: &[(&str, &str)]) -> CodeModel {
+    workspace_production_model(files, edges, &[])
+}
+
+fn workspace_production_model(
+    files: &[&str],
+    edges: &[(&str, &str)],
+    workspace_members: &[&str],
+) -> CodeModel {
     let entries: Vec<(&str, SourceSet)> = files
         .iter()
         .map(|name| (*name, SourceSet::Production))
         .collect();
-    build_model(&entries, edges, &[])
+    build_model(&entries, edges, workspace_members)
 }
 
 fn orphan_paths(measured: &OrphanFiles) -> Vec<&str> {
@@ -320,11 +328,13 @@ fn assigns_stable_finding_ids_and_merges_across_languages() {
 
 #[test]
 fn excludes_non_runtime_tooling_files_from_orphan_evaluation_while_keeping_runtime_orphans() {
-    let model = production_model(
+    let model = workspace_production_model(
         &[
-            "src/index.ts",
-            "src/dead.ts",
-            "src/tools/dead_tool.ts",
+            "packages/tools/src/index.ts",
+            "packages/tools/src/dead.ts",
+            "packages/tools/app/app.config.ts",
+            "packages/tools/scripts/release.ts",
+            "packages/tools/vite.config.ts",
             "scripts/release.ts",
             "docs/conf.py",
             "examples/demo.dart",
@@ -332,14 +342,89 @@ fn excludes_non_runtime_tooling_files_from_orphan_evaluation_while_keeping_runti
             ".opencode/plugins/no-hook-bypass.js",
         ],
         &[],
+        &["packages/tools"],
     );
 
-    let measured = OrphanFiles::measure(&model, &[repo_path("src/index.ts")])
+    let measured = OrphanFiles::measure(&model, &[repo_path("packages/tools/src/index.ts")])
         .expect("production root activates detection");
 
     assert_eq!(measured.evaluated_files(), 3);
     assert_eq!(
         orphan_paths(&measured),
-        vec!["src/dead.ts", "src/tools/dead_tool.ts"]
+        vec![
+            "packages/tools/app/app.config.ts",
+            "packages/tools/src/dead.ts"
+        ]
+    );
+}
+
+#[test]
+fn tooling_entry_points_do_not_activate_orphan_detection_or_keep_dead_runtime_files_live() {
+    let dart_model = production_model(
+        &[
+            "lib/main.dart",
+            "lib/dead.dart",
+            "examples/demo/lib/main.dart",
+            "scripts/cli.ts",
+        ],
+        &[("examples/demo/lib/main.dart", "lib/dead.dart")],
+    );
+
+    assert!(
+        OrphanFiles::measure(
+            &dart_model,
+            &[
+                repo_path("examples/demo/lib/main.dart"),
+                repo_path("scripts/cli.ts"),
+            ],
+        )
+        .is_none()
+    );
+
+    let measured = OrphanFiles::measure(
+        &dart_model,
+        &[
+            repo_path("lib/main.dart"),
+            repo_path("examples/demo/lib/main.dart"),
+            repo_path("scripts/cli.ts"),
+        ],
+    )
+    .expect("runtime entry point activates detection");
+
+    assert_eq!(measured.entry_points(), &[repo_path("lib/main.dart")]);
+    assert_eq!(measured.evaluated_files(), 2);
+    assert_eq!(orphan_paths(&measured), vec!["lib/dead.dart"]);
+
+    let workspace = workspace_production_model(
+        &[
+            "packages/core/src/index.ts",
+            "packages/core/src/dead.ts",
+            "packages/core/scripts/cli.ts",
+        ],
+        &[("packages/core/scripts/cli.ts", "packages/core/src/dead.ts")],
+        &["packages/core"],
+    );
+
+    assert!(
+        OrphanFiles::measure(&workspace, &[repo_path("packages/core/scripts/cli.ts")]).is_none()
+    );
+
+    let ws_measured = OrphanFiles::measure(
+        &workspace,
+        &[
+            repo_path("packages/core/src/index.ts"),
+            repo_path("packages/core/scripts/cli.ts"),
+        ],
+    )
+    .expect("runtime workspace entry point activates detection");
+
+    assert_eq!(
+        ws_measured.entry_points(),
+        &[repo_path("packages/core/src/index.ts")]
+    );
+    assert_eq!(ws_measured.evaluated_files(), 2);
+    assert_eq!(
+        orphan_paths(&ws_measured),
+        vec!["packages/core/src/dead.ts"]
     );
 }

@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::{
-    CodeModel, DeclaredDep, DepKind, ImportResolution, RepoPath, SourceSet, token_text_hash,
+    CodeModel, DeclaredDep, DepKind, ImportResolution, Package, RepoPath, SourceSet,
+    token_text_hash,
 };
 
 use crate::finding_id::{FindingId, FindingIds};
@@ -317,11 +318,13 @@ fn collect_imports(
         let Some(owner) = package_root_of(&import.importer, manifests) else {
             continue;
         };
+        let tooling_root = tooling_package_root(model, owner, &import.importer);
         record_package_import(
             by_package.entry(owner.to_owned()).or_default(),
             source_set,
             package_name,
             &import.importer,
+            tooling_root,
         );
     }
     by_package
@@ -332,6 +335,7 @@ fn record_package_import(
     source_set: SourceSet,
     package_name: &str,
     importer: &RepoPath,
+    package_root: Option<&str>,
 ) {
     entry.used.insert(package_name.to_owned());
     if matches!(source_set, SourceSet::Production | SourceSet::Test) {
@@ -341,12 +345,36 @@ fn record_package_import(
             .or_default()
             .insert(importer.clone());
     }
-    if source_set == SourceSet::Production && !is_non_runtime_tooling_path(importer.as_str()) {
+    if source_set == SourceSet::Production && !is_non_runtime_tooling_path(importer, package_root) {
         entry
             .production
             .entry(package_name.to_owned())
             .or_default()
             .insert(importer.clone());
+    }
+}
+
+fn tooling_package_root<'a>(
+    model: &'a CodeModel,
+    manifest_owner: &'a str,
+    path: &RepoPath,
+) -> Option<&'a str> {
+    let manifest_root = (!manifest_owner.is_empty()).then_some(manifest_owner);
+    let workspace_root = match model.workspace.package_of(path) {
+        Package::Root => None,
+        Package::Member(root) => Some(root.as_str()),
+    };
+    match (manifest_root, workspace_root) {
+        (Some(manifest), Some(workspace)) => {
+            if manifest.len() >= workspace.len() {
+                Some(manifest)
+            } else {
+                Some(workspace)
+            }
+        }
+        (Some(manifest), None) => Some(manifest),
+        (None, Some(workspace)) => Some(workspace),
+        (None, None) => None,
     }
 }
 
