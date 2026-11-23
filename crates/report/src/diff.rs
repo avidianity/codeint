@@ -6,13 +6,13 @@ use codeint_config::{
 use codeint_model::{Metric, SourceSet};
 
 use serde::ser::SerializeMap;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::measurement::{CommitMeasurement, MetricMeasurement, SourceSetMeasurement};
 use crate::sarif::{ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
     BoundaryFindingRow, BudgetFailure, CloneGroupFinding, Decimal, ErodedFunctionFinding,
-    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ReportError,
+    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, PerSourceSet, ReportError,
 };
 
 mod markdown;
@@ -36,31 +36,29 @@ pub struct HeadCommit {
     pub commit: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DiffReport {
     base: BaseEntry,
     head: HeadEntry,
     source_sets: SourceSetChangesSections,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     over_budget: Vec<BudgetFailure>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     regressions: Vec<Regression>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Regression {
-    source_set: &'static str,
+    source_set: String,
     metric: String,
     rule: RegressionRule,
     base: Decimal,
     head: Decimal,
     new_findings: usize,
     ratio_rise_limit: f64,
-    #[serde(skip)]
-    numerator_key: &'static str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RegressionRule {
     RatioRise,
@@ -68,17 +66,17 @@ enum RegressionRule {
     NumeratorRiseWithNewFindings,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct BaseEntry {
     #[serde(rename = "ref")]
     git_ref: String,
     merge_base: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum HeadEntry {
-    WorkingTree(&'static str),
+    WorkingTree(String),
     Commit {
         #[serde(rename = "ref")]
         git_ref: String,
@@ -86,31 +84,21 @@ enum HeadEntry {
     },
 }
 
-#[derive(Debug, Default, Serialize)]
-struct SourceSetChangesSections {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    production: Option<SourceSetChanges>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    test: Option<SourceSetChanges>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    generated: Option<SourceSetChanges>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vendored: Option<SourceSetChanges>,
-}
+type SourceSetChangesSections = PerSourceSet<SourceSetChanges>;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct SourceSetChanges {
     erosion: MetricChanges<ErodedFunctionFinding>,
     duplication: MetricChanges<CloneGroupFinding>,
     verbosity: MetricChanges<FlaggedLineRow>,
     import_cycles: MetricChanges<ImportCycleFinding>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<MetricChanges<BoundaryFindingRow>>,
-    #[serde(flatten)]
+    #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricChanges>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ExternalMetricChanges {
     #[serde(skip)]
     name: String,
@@ -182,11 +170,21 @@ impl DiffReport {
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
     }
+
+    pub(crate) fn populate_external_metric_names(&mut self) {
+        for slot in self.source_sets.iter_mut() {
+            for (key, external) in &mut slot.external_metrics {
+                if external.name.is_empty() {
+                    external.name = key.clone();
+                }
+            }
+        }
+    }
 }
 
 fn head_entry(head: Head) -> HeadEntry {
     match head {
-        Head::WorkingTree => HeadEntry::WorkingTree(WORKING_TREE),
+        Head::WorkingTree => HeadEntry::WorkingTree(WORKING_TREE.to_owned()),
         Head::Commit(HeadCommit { git_ref, commit }) => HeadEntry::Commit { git_ref, commit },
     }
 }
@@ -236,6 +234,40 @@ impl<T: Serialize> Serialize for MetricChanges<T> {
         }
         map.serialize_entry("unchanged", &self.unchanged)?;
         map.end()
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawMetricChanges<T> {
+            base_ratio: Decimal,
+            head_ratio: Decimal,
+            new: Vec<T>,
+            #[serde(default)]
+            new_left_out: usize,
+            resolved: Vec<T>,
+            #[serde(default)]
+            resolved_left_out: usize,
+            unchanged: usize,
+        }
+
+        let raw = RawMetricChanges::<T>::deserialize(deserializer)?;
+        Ok(MetricChanges {
+            base_ratio: raw.base_ratio,
+            head_ratio: raw.head_ratio,
+            base_numerator: Decimal(0.0),
+            head_numerator: Decimal(0.0),
+            new: Findings {
+                listed: raw.new,
+                left_out: raw.new_left_out,
+            },
+            resolved: Findings {
+                listed: raw.resolved,
+                left_out: raw.resolved_left_out,
+            },
+            unchanged: raw.unchanged,
+        })
     }
 }
 
@@ -354,14 +386,13 @@ impl<T> MetricChanges<T> {
             .map(|rule| {
                 let (base, head) = self.compared_values(rule);
                 Regression {
-                    source_set: source_set.key(),
+                    source_set: source_set.key().to_owned(),
                     metric: metric_key.to_owned(),
                     rule,
                     base,
                     head,
                     new_findings: self.new_findings(),
                     ratio_rise_limit: limit.ratio_rise.ratio(),
-                    numerator_key: numerator_key(metric_key),
                 }
             })
             .collect()
@@ -409,9 +440,9 @@ impl Regression {
             }
             RegressionRule::NumeratorRiseWithNewFindings => format!(
                 "The {} {} numerator {} rose from {} to {} with {}.",
-                crate::markdown::prose(self.source_set),
+                crate::markdown::prose(&self.source_set),
                 crate::markdown::prose(&self.metric),
-                crate::markdown::code(self.numerator_key),
+                crate::markdown::code(numerator_key(&self.metric)),
                 self.base.0,
                 self.head.0,
                 new_findings_phrase(self.new_findings)
@@ -443,7 +474,7 @@ impl std::fmt::Display for Regression {
             RegressionRule::NumeratorRiseWithNewFindings => write!(
                 formatter,
                 "the {source_set} {metric} numerator {} rose from {} to {} with {}",
-                self.numerator_key,
+                numerator_key(metric),
                 base.0,
                 head.0,
                 new_findings_phrase(self.new_findings)
@@ -542,34 +573,6 @@ fn source_set_changes(
     }
 }
 
-impl SourceSetChangesSections {
-    fn iter(&self) -> impl Iterator<Item = (SourceSet, &SourceSetChanges)> {
-        [
-            (SourceSet::Production, &self.production),
-            (SourceSet::Test, &self.test),
-            (SourceSet::Generated, &self.generated),
-            (SourceSet::Vendored, &self.vendored),
-        ]
-        .into_iter()
-        .filter_map(|(source_set, changes)| Some((source_set, changes.as_ref()?)))
-    }
-
-    fn named(&self) -> Vec<(&'static str, &SourceSetChanges)> {
-        self.iter()
-            .map(|(source_set, changes)| (source_set_name(source_set), changes))
-            .collect()
-    }
-
-    fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetChanges> {
-        match source_set {
-            SourceSet::Production => &mut self.production,
-            SourceSet::Test => &mut self.test,
-            SourceSet::Generated => &mut self.generated,
-            SourceSet::Vendored => &mut self.vendored,
-        }
-    }
-}
-
 impl Identified for ErodedFunctionFinding {
     fn id(&self) -> &str {
         &self.id
@@ -603,14 +606,5 @@ impl Identified for ExternalMetricFinding {
 impl Identified for BoundaryFindingRow {
     fn id(&self) -> &str {
         &self.id
-    }
-}
-
-fn source_set_name(source_set: SourceSet) -> &'static str {
-    match source_set {
-        SourceSet::Production => "Production",
-        SourceSet::Test => "Test",
-        SourceSet::Generated => "Generated",
-        SourceSet::Vendored => "Vendored",
     }
 }

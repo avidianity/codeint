@@ -8,6 +8,7 @@ mod guard;
 mod init;
 mod mcp;
 mod remedy;
+mod report;
 mod trend;
 mod update;
 
@@ -17,7 +18,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use codeint_config::{Command, ConfigError, ReportDestination, cli_schema, read_invocation};
+use codeint_config::{
+    Command, ConfigError, ReportDestination, ReportInput, ReportRenderFormat, cli_schema,
+    read_invocation,
+};
 use codeint_git::ResultCache;
 use codeint_report::{ExitCodeSchema, ReportError};
 
@@ -26,7 +30,7 @@ pub use codeint_config::{
     PluginHostConfig, ReportFormat, SchemaFormat, SourceSetOverride, TrendFormat, TrendRange,
 };
 pub use codeint_report::{
-    ConfigReport, DiffReport, GuardReport, Report, SchemaReport, TrendReport,
+    ConfigReport, DiffReport, GuardReport, Report, SavedReport, SchemaReport, TrendReport,
 };
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
@@ -224,6 +228,8 @@ enum CliError {
     Update(#[from] update::UpdateError),
     #[error(transparent)]
     Report(#[from] ReportError),
+    #[error(transparent)]
+    Rerender(#[from] report::RerenderError),
     #[error("cannot write the report to standard output")]
     Output(#[source] std::io::Error),
     #[error("cannot write the report to {}", path.display())]
@@ -356,6 +362,11 @@ fn run() -> Result<Outcome, CliError> {
             format,
             overrides,
         } => run_config(&folder, format, &overrides),
+        Command::Report {
+            input,
+            destination,
+            format,
+        } => run_report(&input, &destination, format),
     }
 }
 
@@ -372,6 +383,16 @@ fn run_config(
 ) -> Result<Outcome, CliError> {
     let report = config::resolved_config(folder, overrides)?;
     print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::Passed)
+}
+
+fn run_report(
+    input: &ReportInput,
+    destination: &ReportDestination,
+    format: ReportRenderFormat,
+) -> Result<Outcome, CliError> {
+    let rendered = report::rerender(input, format)?;
+    write_report(&rendered, destination)?;
     Ok(Outcome::Passed)
 }
 

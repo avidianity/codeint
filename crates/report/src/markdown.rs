@@ -2,7 +2,7 @@ use crate::{
     BoundaryFindingRow, CloneGroupFinding, CloneLocation, DuplicationSection,
     ErodedFunctionFinding, ErosionSection, ExternalMetricFinding, Findings, FlaggedLineRow,
     ImportCycleFinding, ImportCyclesSection, MeasuredSection, PackageSection, ReferenceRangeEntry,
-    Report, SourceSetSection, SourceSetSections, UnresolvedImportRow, VerbositySection,
+    Report, SourceSetSection, UnresolvedImportRow, VerbositySection,
 };
 
 #[cfg(test)]
@@ -189,20 +189,6 @@ fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
         package.verbosity.ratio.0.to_string(),
         package.import_cycles.ratio.0.to_string(),
     ]
-}
-
-impl SourceSetSections {
-    fn named(&self) -> Vec<(&'static str, &SourceSetSection)> {
-        [
-            ("Production", &self.production),
-            ("Test", &self.test),
-            ("Generated", &self.generated),
-            ("Vendored", &self.vendored),
-        ]
-        .into_iter()
-        .filter_map(|(name, section)| section.as_ref().map(|section| (name, section)))
-        .collect()
-    }
 }
 
 fn measured_summary(measured: &MeasuredSection) -> String {
