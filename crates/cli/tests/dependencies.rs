@@ -654,3 +654,60 @@ fn nested_standalone_packages_and_virtual_cargo_workspaces_match_manifests() {
         &[],
     );
 }
+
+#[test]
+fn non_virtual_workspace_roots_without_declared_deps_report_unlisted_imports() {
+    let rust_repo = init_git_repo(&[
+        (
+            "Cargo.toml",
+            concat!(
+                "[workspace]\nmembers = [\"crates/a\"]\n",
+                "[package]\nname = \"root-app\"\nversion = \"0.1.0\"\n",
+            ),
+        ),
+        (
+            "src/lib.rs",
+            "use anyhow::Result;\npub fn run() -> Result<()> { Ok(()) }\n",
+        ),
+        (
+            "crates/a/Cargo.toml",
+            "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n",
+        ),
+        ("crates/a/src/lib.rs", "pub fn ok() -> bool { true }\n"),
+    ]);
+    let rust_report = expect_json(rust_repo.path(), None, &["check", "--format", "json"], 0);
+    let rust_unlisted = rust_report["dependencies"]["unlisted_dependencies"]["findings"]
+        .as_array()
+        .expect("rust unlisted findings");
+    assert_eq!(rust_unlisted.len(), 1);
+    assert_eq!(rust_unlisted[0]["dependency"], "anyhow");
+    assert_eq!(rust_unlisted[0]["manifest"], "Cargo.toml");
+
+    let root_pkg = json!({
+        "name": "ts-workspace-root",
+        "private": true,
+        "workspaces": ["packages/*"],
+    })
+    .to_string();
+    let member_pkg = json!({
+        "name": "@ts-workspace/pkg-a",
+        "dependencies": {},
+    })
+    .to_string();
+    let ts_repo = init_git_repo(&[
+        ("package.json", &root_pkg),
+        (
+            "scripts/tool.ts",
+            "import chalk from 'chalk';\nexport const paint = (text: string) => chalk.green(text);\n",
+        ),
+        ("packages/pkg-a/package.json", &member_pkg),
+        ("packages/pkg-a/src/index.ts", "export const ok = true;\n"),
+    ]);
+    let ts_report = expect_json(ts_repo.path(), None, &["check", "--format", "json"], 0);
+    let ts_unlisted = ts_report["dependencies"]["unlisted_dependencies"]["findings"]
+        .as_array()
+        .expect("ts unlisted findings");
+    assert_eq!(ts_unlisted.len(), 1);
+    assert_eq!(ts_unlisted[0]["dependency"], "chalk");
+    assert_eq!(ts_unlisted[0]["manifest"], "package.json");
+}

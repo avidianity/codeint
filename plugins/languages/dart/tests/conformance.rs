@@ -467,3 +467,62 @@ int evaluate(Object? v, bool c) {
     assert_eq!(evaluate.decision_points + 1, 17);
     assert_eq!(evaluate.cognitive_complexity, 17);
 }
+
+#[test]
+fn dart_nullable_declarations_when_guards_and_nested_ternaries_count_accurately() {
+    let src = "\
+int assignNullable(bool c) {
+  int? a = c ? 1 : 2;
+  int? b = c ? 3 : 4;
+  int? d = c ? 5 : 6;
+  int? e = c ? 7 : 8;
+  int? f = c ? 9 : 10;
+  int? g = c ? 11 : 12;
+  int? h = c ? 13 : 14;
+  int? i = c ? 15 : 16;
+  return a ?? b ?? d ?? e ?? f ?? g ?? h ?? i ?? 0;
+}
+int guardedSwitchExpr(Object? v, bool c) {
+  return switch (v) {
+    int? n when c ? n != null : false => 1,
+    double? n when c ? n != null : false => 2,
+    String? n when c ? n != null : false => 3,
+    bool? n when c ? n != null : false => 4,
+    List? n when c ? n != null : false => 5,
+    Map? n when c ? n != null : false => 6,
+    Set? n when c ? n != null : false => 7,
+    num? n when c ? n != null : false => 8,
+    _ => 0,
+  };
+}
+int nestedParenthesized(bool a, bool b) {
+  final x = a ? (b ? 1 : 2) : 3;
+  return x;
+}
+int nestedUnparenthesized(bool a, bool b) {
+  final y = a ? b ? 1 : 2 : 3;
+  return y;
+}
+";
+    let model = lower("lib/ternary_edges.dart", src).unwrap();
+    let got: Vec<(Option<&str>, u32, u32)> = model
+        .functions
+        .iter()
+        .map(|f| {
+            (
+                f.name.as_deref(),
+                f.decision_points + 1,
+                f.cognitive_complexity,
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (Some("assignNullable"), 17, 8),
+            (Some("guardedSwitchExpr"), 17, 17),
+            (Some("nestedParenthesized"), 3, 3),
+            (Some("nestedUnparenthesized"), 3, 3),
+        ]
+    );
+}

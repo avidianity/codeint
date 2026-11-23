@@ -754,9 +754,6 @@ fn should_include_manifest(
     if declared_roots.contains(root) || member_roots.contains(root) {
         return true;
     }
-    if root.is_empty() {
-        return member_roots.is_empty();
-    }
     owns_any_file(root, files)
 }
 
