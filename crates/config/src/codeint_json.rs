@@ -589,11 +589,82 @@ struct SourceSetGlobs {
     vendored: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchemaVersionStatus {
+    Missing,
+    Compatible {
+        url: String,
+        version: Option<String>,
+    },
+    NewerThanBinary {
+        url: String,
+        config_version: String,
+        binary_version: String,
+    },
+}
+
+#[derive(Debug)]
+pub enum ConfigurationInspection {
+    Missing {
+        path: PathBuf,
+    },
+    Valid {
+        path: PathBuf,
+        schema: SchemaVersionStatus,
+        configuration: Box<Configuration>,
+    },
+    Invalid {
+        path: PathBuf,
+        schema: Option<SchemaVersionStatus>,
+        error: ConfigurationFileError,
+    },
+}
+
 pub fn read_configuration(repository_root: &Path) -> Result<Configuration, ConfigurationFileError> {
     match std::fs::read_to_string(repository_root.join(CONFIGURATION_FILE_NAME)) {
         Ok(text) => parse(&text),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Configuration::default()),
         Err(error) => Err(ConfigurationFileError::Unreadable(error)),
+    }
+}
+
+pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection {
+    let path = repository_root.join(CONFIGURATION_FILE_NAME);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ConfigurationInspection::Missing { path };
+        }
+        Err(error) => {
+            return ConfigurationInspection::Invalid {
+                path,
+                schema: None,
+                error: ConfigurationFileError::Unreadable(error),
+            };
+        }
+    };
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(error) => {
+            return ConfigurationInspection::Invalid {
+                path,
+                schema: None,
+                error: ConfigurationFileError::NotJson(error),
+            };
+        }
+    };
+    let schema = inspect_schema_version(&value, env!("CARGO_PKG_VERSION"));
+    match parse_value_without_schema_version(value) {
+        Ok(configuration) => ConfigurationInspection::Valid {
+            path,
+            schema,
+            configuration: Box::new(configuration),
+        },
+        Err(error) => ConfigurationInspection::Invalid {
+            path,
+            schema: Some(schema),
+            error,
+        },
     }
 }
 
@@ -605,6 +676,12 @@ pub fn configuration_schema() -> String {
 fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
     let value: Value = serde_json::from_str(text).map_err(ConfigurationFileError::NotJson)?;
     check_schema_version(&value, env!("CARGO_PKG_VERSION"))?;
+    parse_value_without_schema_version(value)
+}
+
+fn parse_value_without_schema_version(
+    value: Value,
+) -> Result<Configuration, ConfigurationFileError> {
     let schema = schemars::schema_for!(ConfigurationFile);
     shape::check_shape(&value, schema.as_value())?;
     let file: ConfigurationFile =
@@ -855,21 +932,46 @@ fn source_set_overrides(
 const OFFICIAL_SCHEMA_PREFIX: &str = "https://raw.githubusercontent.com/avidianity/codeint/v";
 const OFFICIAL_SCHEMA_SUFFIX: &str = "/schema/codeint.schema.json";
 
-fn check_schema_version(value: &Value, binary_version: &str) -> Result<(), ConfigurationFileError> {
+fn inspect_schema_version(value: &Value, binary_version: &str) -> SchemaVersionStatus {
     let Some(schema_url) = value.get("$schema").and_then(Value::as_str) else {
-        return Ok(());
+        return SchemaVersionStatus::Missing;
     };
     let Some(config_version) = extract_official_schema_version(schema_url) else {
-        return Ok(());
+        return SchemaVersionStatus::Compatible {
+            url: schema_url.to_owned(),
+            version: None,
+        };
     };
     let (Some(cfg), Some(bin)) = (parse_semver(config_version), parse_semver(binary_version))
     else {
-        return Ok(());
+        return SchemaVersionStatus::Compatible {
+            url: schema_url.to_owned(),
+            version: Some(config_version.to_owned()),
+        };
     };
     if cfg > bin {
-        return Err(ConfigurationFileError::NewerSchemaVersion {
+        return SchemaVersionStatus::NewerThanBinary {
+            url: schema_url.to_owned(),
             config_version: config_version.to_owned(),
             binary_version: binary_version.to_owned(),
+        };
+    }
+    SchemaVersionStatus::Compatible {
+        url: schema_url.to_owned(),
+        version: Some(config_version.to_owned()),
+    }
+}
+
+fn check_schema_version(value: &Value, binary_version: &str) -> Result<(), ConfigurationFileError> {
+    if let SchemaVersionStatus::NewerThanBinary {
+        config_version,
+        binary_version,
+        ..
+    } = inspect_schema_version(value, binary_version)
+    {
+        return Err(ConfigurationFileError::NewerSchemaVersion {
+            config_version,
+            binary_version,
         });
     }
     Ok(())

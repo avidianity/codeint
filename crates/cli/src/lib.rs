@@ -3,6 +3,7 @@
 mod check;
 mod commit_measurement;
 mod diff;
+mod doctor;
 mod guard;
 mod init;
 mod mcp;
@@ -21,10 +22,13 @@ use codeint_git::ResultCache;
 use codeint_report::ReportError;
 
 pub use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat, TrendFormat,
-    TrendRange,
+    CalendarDay, DoctorFormat, FindingsShown, GuardFormat, PluginHostConfig, ReportFormat,
+    TrendFormat, TrendRange,
 };
-pub use codeint_report::{DiffReport, GuardReport, Report, TrendReport};
+pub use codeint_report::{
+    DiffReport, DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary, GuardReport, Report,
+    TrendReport,
+};
 
 const DEFAULT_WORST_FINDINGS: usize = 20;
 const DEFAULT_TREND_COMMITS: usize = 20;
@@ -188,6 +192,10 @@ pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> 
     guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
 }
 
+pub fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
+    doctor::doctor(folder, plugin_host)
+}
+
 #[derive(Debug, thiserror::Error)]
 enum CliError {
     #[error(transparent)]
@@ -304,7 +312,22 @@ fn run() -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Doctor {
+            folder,
+            format,
+            plugin_host,
+        } => run_doctor(&folder, format, &plugin_host),
     }
+}
+
+fn run_doctor(
+    folder: &Path,
+    format: DoctorFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = doctor::doctor(folder, plugin_host);
+    print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::from_failures(report.blocking_error_messages()))
 }
 
 fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcome, CliError> {

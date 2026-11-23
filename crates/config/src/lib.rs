@@ -16,9 +16,10 @@ pub use boundaries::{
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use codeint_json::{
-    Budget, Budgets, Configuration, DetectedLanguage, LanguageCoverage, Languages,
-    PluginDeclaration, PluginKind, PluginLimits, PluginSource, Sha256Digest, SourceSetOverrides,
-    StarterConfigurationError, configuration_schema, published_schema_address, read_configuration,
+    Budget, Budgets, Configuration, ConfigurationInspection, DetectedLanguage, LanguageCoverage,
+    Languages, PluginDeclaration, PluginKind, PluginLimits, PluginSource, SchemaVersionStatus,
+    Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
+    inspect_configuration, published_schema_address, read_configuration,
     write_starter_configuration,
 };
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
@@ -105,6 +106,13 @@ pub enum GuardFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum DoctorFormat {
+    Text,
+    Json,
+    Toon,
+}
+
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +165,11 @@ pub enum Command {
         folder: PathBuf,
         target: PathBuf,
         format: GuardFormat,
+    },
+    Doctor {
+        folder: PathBuf,
+        format: DoctorFormat,
+        plugin_host: PluginHostConfig,
     },
 }
 
@@ -268,6 +281,20 @@ enum CommandArguments {
         )]
         format: GuardFormat,
     },
+    #[command(
+        about = "Run read-only diagnostics on codeint.json, Git repository status, detected languages, Workspace packages, and external Wasm Plugins"
+    )]
+    Doctor {
+        #[arg(help = "A folder to inspect; the current folder by default")]
+        path: Option<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = DoctorFormat::Text,
+            help = "The format of the output"
+        )]
+        format: DoctorFormat,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -327,6 +354,11 @@ fn build_command(
             folder: current_folder.to_path_buf(),
             target: path,
             format,
+        }),
+        CommandArguments::Doctor { path, format } => Ok(Command::Doctor {
+            folder: existing_folder(current_folder, path)?,
+            format,
+            plugin_host: plugin_host_config_of_this_process(current_folder),
         }),
     }
 }
