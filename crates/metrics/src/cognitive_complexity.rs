@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 
 use codeint_model::{CodeModel, Package, RepoPath, SourceFile};
 
-use crate::FindingId;
-use crate::erosion::{function_finding_id, group_by_package};
-use crate::finding_id::FindingIds;
+use crate::finding_id::{FindingId, FindingIds, function_finding_id, group_by_package};
 
 #[cfg(test)]
 mod tests;

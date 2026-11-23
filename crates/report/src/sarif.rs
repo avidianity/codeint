@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
@@ -8,10 +8,16 @@ use codeint_metrics::{
 };
 use codeint_model::{Metric, SourceSet};
 
+use crate::schema::{
+    BUILT_IN_METRICS, BuiltInMetricDescriptor, COGNITIVE_COMPLEXITY_DESCRIPTOR,
+    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR, ORPHAN_FILES_DESCRIPTOR,
+    UNLISTED_DEPENDENCIES_DESCRIPTOR, UNUSED_DEPENDENCIES_DESCRIPTOR, built_in_metric_descriptor,
+};
 use crate::{
-    BoundaryFindingRow, COGNITIVE_COMPLEXITY_KEY, CloneGroupFinding, CloneLocation,
-    CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
-    ImportCycleFinding, ImportedDependencyRow, Report, SourceSetSection, UnusedDependencyRow,
+    BoundaryFindingRow, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding, CloneGroupFinding,
+    CloneLocation, CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding,
+    FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, Report,
+    SourceSetSection, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -148,9 +154,12 @@ pub(crate) struct ListedFindings<'findings> {
     pub(crate) eroded_functions: &'findings [ErodedFunctionFinding],
     pub(crate) cognitive_complexity: &'findings [CognitiveComplexityFinding],
     pub(crate) clone_groups: &'findings [CloneGroupFinding],
+    pub(crate) clone_families: &'findings [CloneFamilyFinding],
+    pub(crate) clustered_clone_group_ids: &'findings [String],
     pub(crate) flagged_lines: &'findings [FlaggedLineRow],
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
     pub(crate) boundaries: &'findings [BoundaryFindingRow],
+    pub(crate) orphan_files: &'findings [OrphanFileRow],
     pub(crate) external_metrics: Vec<ListedExternalMetric<'findings>>,
 }
 
@@ -194,11 +203,18 @@ impl SarifLog {
     ) -> SarifLog {
         let collected: Vec<(SourceSet, ListedFindings<'findings>)> = findings.collect();
         let mut rules: Vec<Rule> = RULES.map(descriptor).into();
-        rules.push(cognitive_complexity_descriptor());
+        rules.push(rule_from_descriptor(
+            COGNITIVE_COMPLEXITY_KEY,
+            COGNITIVE_COMPLEXITY_DESCRIPTOR,
+        ));
         let boundaries_rule_index = collected
             .iter()
             .any(|(_, listed)| !listed.boundaries.is_empty())
             .then(|| push_rule(&mut rules, boundaries_descriptor()));
+        let orphan_files_rule_index = collected
+            .iter()
+            .any(|(_, listed)| !listed.orphan_files.is_empty())
+            .then(|| push_rule(&mut rules, orphan_files_descriptor()));
         let dependency_rules = register_dependency_rules(&mut rules, &dependencies);
         let external_rule_indices = register_external_rules(&mut rules, &collected);
         let mut all_results: Vec<SarifResult> = collected
@@ -208,6 +224,7 @@ impl SarifLog {
                     *source_set,
                     listed,
                     boundaries_rule_index,
+                    orphan_files_rule_index,
                     &external_rule_indices,
                 )
             })
@@ -242,6 +259,16 @@ fn push_rule(rules: &mut Vec<Rule>, rule: Rule) -> usize {
     let index = rules.len();
     rules.push(rule);
     index
+}
+
+fn rule_from_descriptor(id: &str, info: BuiltInMetricDescriptor) -> Rule {
+    Rule {
+        id: id.to_owned(),
+        name: info.name.to_owned(),
+        short_description: Text::from(info.short_description),
+        full_description: Text::from(info.full_description),
+        help: Text::from(info.help),
+    }
 }
 
 fn register_external_rules(
@@ -284,56 +311,33 @@ fn register_dependency_rules(
     dependencies: &ListedDependencies<'_>,
 ) -> DependencyRuleIndices {
     DependencyRuleIndices {
-        unused: (!dependencies.unused.is_empty())
-            .then(|| push_rule(rules, unused_dependencies_descriptor())),
-        unlisted: (!dependencies.unlisted.is_empty())
-            .then(|| push_rule(rules, unlisted_dependencies_descriptor())),
-        dev_in_production: (!dependencies.dev_in_production.is_empty())
-            .then(|| push_rule(rules, dev_in_production_descriptor())),
-    }
-}
-
-fn unused_dependencies_descriptor() -> Rule {
-    Rule {
-        id: UNUSED_DEPENDENCIES_METRIC_KEY.to_owned(),
-        name: "Unused dependencies".to_owned(),
-        short_description: Text::from("A declared dependency that no file in the package imports"),
-        full_description: Text::from(
-            "Unused dependencies is the share of declared runtime and dev dependencies in package manifests that are not imported by any source file in the owning package.",
-        ),
-        help: Text::from(
-            "Remove the unused dependency from the package manifest, or add it to dependencies.ignore in codeint.json if it is used outside source imports.",
-        ),
-    }
-}
-
-fn unlisted_dependencies_descriptor() -> Rule {
-    Rule {
-        id: UNLISTED_DEPENDENCIES_METRIC_KEY.to_owned(),
-        name: "Unlisted dependencies".to_owned(),
-        short_description: Text::from(
-            "An external package imported without being declared in the package manifest",
-        ),
-        full_description: Text::from(
-            "Unlisted dependencies is the share of imported external packages that are missing from the owning package manifest.",
-        ),
-        help: Text::from(
-            "Declare the package in the owning package manifest, or remove the import.",
-        ),
-    }
-}
-
-fn dev_in_production_descriptor() -> Rule {
-    Rule {
-        id: DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY.to_owned(),
-        name: "Dev dependencies in production".to_owned(),
-        short_description: Text::from("A dev-only dependency imported by a Production source file"),
-        full_description: Text::from(
-            "Dev dependencies in production is the share of production-imported external packages that are declared only as dev dependencies in the package manifest.",
-        ),
-        help: Text::from(
-            "Move the dependency to runtime dependencies in the package manifest, or stop importing it from Production files.",
-        ),
+        unused: (!dependencies.unused.is_empty()).then(|| {
+            push_rule(
+                rules,
+                rule_from_descriptor(
+                    UNUSED_DEPENDENCIES_METRIC_KEY,
+                    UNUSED_DEPENDENCIES_DESCRIPTOR,
+                ),
+            )
+        }),
+        unlisted: (!dependencies.unlisted.is_empty()).then(|| {
+            push_rule(
+                rules,
+                rule_from_descriptor(
+                    UNLISTED_DEPENDENCIES_METRIC_KEY,
+                    UNLISTED_DEPENDENCIES_DESCRIPTOR,
+                ),
+            )
+        }),
+        dev_in_production: (!dependencies.dev_in_production.is_empty()).then(|| {
+            push_rule(
+                rules,
+                rule_from_descriptor(
+                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+                    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR,
+                ),
+            )
+        }),
     }
 }
 
@@ -423,61 +427,17 @@ fn imported_dependency_sarif_result(
     }
 }
 
-const RULES: [Metric; 4] = [
-    Metric::Erosion,
-    Metric::Duplication,
-    Metric::Verbosity,
-    Metric::ImportCycles,
-];
+const RULES: [Metric; 4] = BUILT_IN_METRICS;
 const COGNITIVE_COMPLEXITY_RULE_INDEX: usize = RULES.len();
 
-fn cognitive_complexity_descriptor() -> Rule {
-    Rule {
-        id: COGNITIVE_COMPLEXITY_KEY.to_owned(),
-        name: "Cognitive complexity".to_owned(),
-        short_description: Text::from("A function with cognitive complexity over 15"),
-        full_description: Text::from(
-            "Cognitive complexity is the share of total cognitive complexity held by functions whose cognitive complexity is greater than 15. Cognitive complexity weights control-flow structures by nesting depth.",
-        ),
-        help: Text::from(
-            "Flatten nested control flow or split the function into smaller functions, each with a cognitive complexity of 15 or less.",
-        ),
-    }
-}
-
 fn descriptor(metric: Metric) -> Rule {
-    let (name, short_description, full_description, help) = match metric {
-        Metric::Erosion => (
-            "Erosion",
-            "A function with cyclomatic complexity over 10",
-            "Erosion is the share of total Function mass held by functions whose cyclomatic complexity is greater than 10. Function mass is cyclomatic complexity times the square root of source lines.",
-            "Split the function into smaller functions, each with a cyclomatic complexity of 10 or less.",
-        ),
-        Metric::Duplication => (
-            "Duplication",
-            "A Clone group: code fragments with the same token sequence",
-            "Duplication is the share of source lines that belong to at least one Clone group. A Clone group is two or more code fragments with the same token sequence once identifiers and literals are normalized.",
-            "Extract the fragments of the Clone group into one shared function or module.",
-        ),
-        Metric::Verbosity => (
-            "Verbosity",
-            "A Flagged line: code that can be deleted or collapsed",
-            "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches.",
-            "Delete or collapse the line as its rule describes; the behavior stays the same.",
-        ),
-        Metric::ImportCycles => (
-            "Import cycles",
-            "An Import cycle among runtime imports",
-            "Import cycles is the share of modules that belong to at least one Import cycle. An Import cycle is a group of modules in which every module can reach every other module through runtime imports.",
-            "Break the Import cycle, for example by moving the code that the modules share into a module that imports none of them.",
-        ),
-    };
+    let info = built_in_metric_descriptor(metric);
     Rule {
         id: metric.key().to_owned(),
-        name: name.to_owned(),
-        short_description: Text::from(short_description),
-        full_description: Text::from(full_description),
-        help: Text::from(help),
+        name: info.name.to_owned(),
+        short_description: Text::from(info.short_description),
+        full_description: Text::from(info.full_description),
+        help: Text::from(info.help),
     }
 }
 
@@ -558,18 +518,34 @@ fn boundaries_descriptor() -> Rule {
     }
 }
 
+fn orphan_files_descriptor() -> Rule {
+    Rule {
+        id: "orphan_files".to_owned(),
+        name: ORPHAN_FILES_DESCRIPTOR.name.to_owned(),
+        short_description: Text::from(ORPHAN_FILES_DESCRIPTOR.short_description),
+        full_description: Text::from(ORPHAN_FILES_DESCRIPTOR.full_description),
+        help: Text::from(ORPHAN_FILES_DESCRIPTOR.help),
+    }
+}
+
 impl<'findings> ListedFindings<'findings> {
     fn of_section(section: &'findings SourceSetSection) -> ListedFindings<'findings> {
         ListedFindings {
             eroded_functions: &section.erosion.findings.listed,
             cognitive_complexity: &section.cognitive_complexity.findings.listed,
-            clone_groups: &section.duplication.findings.listed,
+            clone_groups: &section.duplication.clone_groups.listed,
+            clone_families: &section.duplication.clone_families.listed,
+            clustered_clone_group_ids: &section.duplication.unlisted_clone_family_group_ids,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
             boundaries: section
                 .boundaries
                 .as_ref()
                 .map_or(&[], |boundaries| boundaries.findings.listed.as_slice()),
+            orphan_files: section
+                .orphan_files
+                .as_ref()
+                .map_or(&[], |orphans| orphans.findings.listed.as_slice()),
             external_metrics: section
                 .external_metrics
                 .iter()
@@ -588,6 +564,7 @@ fn results(
     source_set: SourceSet,
     listed: &ListedFindings<'_>,
     boundaries_rule_index: Option<usize>,
+    orphan_files_rule_index: Option<usize>,
     external_rule_indices: &BTreeMap<String, usize>,
 ) -> Vec<SarifResult> {
     let eroded_functions = listed.eroded_functions.iter().map(|function| {
@@ -620,9 +597,20 @@ fn results(
                 package: None,
             },
         });
+    let clustered_group_ids: HashSet<&str> = listed
+        .clone_families
+        .iter()
+        .flat_map(|family| family.clone_group_ids.iter().map(String::as_str))
+        .chain(listed.clustered_clone_group_ids.iter().map(String::as_str))
+        .collect();
+    let clone_families = listed
+        .clone_families
+        .iter()
+        .filter_map(|family| clone_family_result(source_set, family));
     let clone_groups = listed
         .clone_groups
         .iter()
+        .filter(move |group| !clustered_group_ids.contains(group.id.as_str()))
         .filter_map(|group| clone_group_result(source_set, group));
     let flagged_lines = listed.flagged_lines.iter().map(|flagged| {
         metric_result(
@@ -662,6 +650,28 @@ fn results(
             },
         }
     });
+    let orphan_files = listed.orphan_files.iter().map(|finding| SarifResult {
+        rule_id: "orphan_files".to_owned(),
+        rule_index: orphan_files_rule_index.unwrap_or_default(),
+        level: "note",
+        message: Text {
+            text: finding.message.clone(),
+        },
+        locations: [Location::in_repository(&finding.path, 1, None)],
+        related_locations: related(
+            finding
+                .test_importers
+                .iter()
+                .map(|importer| Location::in_repository(importer, 1, None)),
+        ),
+        partial_fingerprints: PartialFingerprints {
+            codeint_finding_id: finding.id.clone(),
+        },
+        properties: ResultProperties {
+            source_set: Some(source_set.key()),
+            package: None,
+        },
+    });
     let external_findings = listed.external_metrics.iter().flat_map(|external| {
         let rule_index = external_rule_indices
             .get(external.key)
@@ -691,10 +701,12 @@ fn results(
     });
     eroded_functions
         .chain(cognitive_complexity)
+        .chain(clone_families)
         .chain(clone_groups)
         .chain(flagged_lines)
         .chain(import_cycles)
         .chain(boundaries)
+        .chain(orphan_files)
         .chain(external_findings)
         .collect()
 }
@@ -725,33 +737,66 @@ fn complex_function_message(function: &CognitiveComplexityFinding) -> String {
     }
 }
 
-fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {
-    let (first, others) = group.locations.split_first()?;
-    let fragment_location = |fragment: &CloneLocation| {
-        Location::in_repository(&fragment.path, fragment.start_line, Some(fragment.end_line))
+fn clone_family_result(source_set: SourceSet, family: &CloneFamilyFinding) -> Option<SarifResult> {
+    let group_noun = if family.clone_group_ids.len() == 1 {
+        "Clone group"
+    } else {
+        "Clone groups"
     };
-    let other_fragments: Vec<String> = others
+    let header = format!(
+        "Clone family of {} duplicated lines across {} locations ({} {group_noun}); the other locations",
+        family.duplicated_lines,
+        family.locations.len(),
+        family.clone_group_ids.len(),
+    );
+    duplication_result(source_set, &family.id, &family.locations, &header)
+}
+
+fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {
+    let header = match &group.similarity {
+        Some(similarity) => format!(
+            "Near-clone group of {} tokens ({} similar) in {} fragments; the other fragments",
+            group.tokens,
+            crate::markdown::format_similarity_percent(similarity.0),
+            group.locations.len(),
+        ),
+        None => format!(
+            "Clone group of {} tokens in {} fragments; the other fragments",
+            group.tokens,
+            group.locations.len(),
+        ),
+    };
+    duplication_result(source_set, &group.id, &group.locations, &header)
+}
+
+fn duplication_result(
+    source_set: SourceSet,
+    finding_id: &str,
+    locations: &[CloneLocation],
+    header: &str,
+) -> Option<SarifResult> {
+    let (first, others) = locations.split_first()?;
+    let other_ranges: Vec<String> = others
         .iter()
-        .map(|fragment| {
+        .map(|location| {
             format!(
                 "{} lines {}-{}",
-                fragment.path, fragment.start_line, fragment.end_line
+                location.path, location.start_line, location.end_line
             )
         })
         .collect();
     Some(metric_result(
         Metric::Duplication,
         source_set,
-        &group.id,
-        format!(
-            "Clone group of {} tokens in {} fragments; the other fragments: {}.",
-            group.tokens,
-            group.locations.len(),
-            other_fragments.join(", ")
-        ),
+        finding_id,
+        format!("{header}: {}.", other_ranges.join(", ")),
         fragment_location(first),
         related(others.iter().map(fragment_location)),
     ))
+}
+
+fn fragment_location(fragment: &CloneLocation) -> Location {
+    Location::in_repository(&fragment.path, fragment.start_line, Some(fragment.end_line))
 }
 
 fn import_cycle_result(source_set: SourceSet, cycle: &ImportCycleFinding) -> Option<SarifResult> {

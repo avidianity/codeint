@@ -529,41 +529,43 @@ fn each_nested_function_takes_its_lines_and_decision_points_away_from_its_parent
     );
 }
 
+fn assert_lowered_functions(path: &str, text: &str, expected: &[Function]) {
+    assert_eq!(functions(path, text), expected);
+}
+
 #[test]
 fn a_function_nested_on_every_line_of_its_parent_takes_every_line() {
-    let text = concat!(
-        "export const handler = (rows: number[]) => rows.map((row) => {\n",
-        "  return row + 1;\n",
-        "});\n",
-    );
-
-    assert_eq!(
-        functions("src/handler.ts", text),
-        [
+    assert_lowered_functions(
+        "src/handler.ts",
+        "export const handler = (rows: number[]) => rows.map((row) => {\n  return row + 1;\n});\n",
+        &[
             named_function(1, 3, 0, 0, Some("handler"), 0),
             named_function(1, 3, 0, 3, None, 0),
-        ]
+        ],
     );
 }
 
 #[test]
 fn blank_and_comment_only_lines_of_a_function_are_not_its_source_lines() {
-    let text = concat!(
-        "export function documented(flag: boolean) {\n",
-        "  // a comment that explains nothing\n",
-        "\n",
-        "  /* a block\n",
-        "     comment */\n",
-        "  if (flag) {\n",
-        "    return 1;\n",
-        "  }\n",
-        "  return 0;\n",
-        "}\n",
-    );
+    let source = [
+        "export function documented(flag: boolean) {",
+        "  // a comment that explains nothing",
+        "",
+        "  /* a block",
+        "     comment */",
+        "  if (flag) {",
+        "    return 1;",
+        "  }",
+        "  return 0;",
+        "}",
+        "",
+    ]
+    .join("\n");
 
-    assert_eq!(
-        functions("src/documented.ts", text),
-        [named_function(1, 10, 1, 6, Some("documented"), 1)]
+    assert_lowered_functions(
+        "src/documented.ts",
+        &source,
+        &[named_function(1, 10, 1, 6, Some("documented"), 1)],
     );
 }
 

@@ -4,18 +4,19 @@ use codeint_report::CommitMeasurement;
 use serde::Serialize;
 
 use crate::check::{
-    BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, SelectedPackage,
-    filter_languages_to_package, measure_with, select_workspace_package, workspace_of_languages,
+    BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, MeasuredSnapshot, SelectedPackage,
+    compute_orphan_files, filter_languages_to_package, measure_snapshot, select_workspace_package,
+    workspace_of_languages,
 };
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MEASUREMENT_SCHEMA_VERSION: u32 = 2;
+const MEASUREMENT_CACHE_VERSION: u32 = 4;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {
-    schema_version: u32,
     codeint_version: &'static str,
+    cache_version: u32,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,8 +72,8 @@ impl<'run> CommitMeasurer<'run> {
             configuration,
             plugins,
             settings: MeasurementSettings {
-                schema_version: MEASUREMENT_SCHEMA_VERSION,
                 codeint_version: CODEINT_VERSION,
+                cache_version: MEASUREMENT_CACHE_VERSION,
                 language_plugins,
                 configuration,
                 package,
@@ -129,26 +130,15 @@ pub(crate) fn measure_all_languages_for_package(
     package: Option<&str>,
 ) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
     let named = plugins.as_named();
-    let metric_plugins = plugins.metric_plugins();
-    let mut languages = measure_with(tree, &named, configuration)?;
+    let snapshot = measure_snapshot(tree, &named, configuration)?;
     let selected = if let Some(requested) = package {
-        let workspace = workspace_of_languages(&languages);
-        let selected = select_workspace_package(&workspace, requested)?;
-        filter_languages_to_package(&mut languages, &selected);
-        Some(selected)
+        let workspace = workspace_of_languages(&snapshot.languages);
+        Some(select_workspace_package(&workspace, requested)?)
     } else {
         None
     };
-    let models = languages
-        .into_iter()
-        .map(|language| language.model)
-        .collect();
-    let measurement = CommitMeasurement::of_languages_with_options(
-        models,
-        &metric_plugins,
-        configuration.boundaries.as_ref(),
-        &configuration.dependencies,
-    )?;
+    let measurement =
+        measure_snapshot_to_commit(snapshot, plugins, configuration, selected.as_ref())?;
     Ok((selected, measurement))
 }
 
@@ -159,12 +149,23 @@ fn measure_all_languages_selected(
     selected: Option<&SelectedPackage>,
 ) -> Result<CommitMeasurement, CheckError> {
     let named = plugins.as_named();
+    let snapshot = measure_snapshot(tree, &named, configuration)?;
+    measure_snapshot_to_commit(snapshot, plugins, configuration, selected)
+}
+
+fn measure_snapshot_to_commit(
+    mut snapshot: MeasuredSnapshot,
+    plugins: &LoadedPlugins,
+    configuration: &Configuration,
+    selected: Option<&SelectedPackage>,
+) -> Result<CommitMeasurement, CheckError> {
     let metric_plugins = plugins.metric_plugins();
-    let mut languages = measure_with(tree, &named, configuration)?;
+    let (orphan_files, _) = compute_orphan_files(&snapshot, selected);
     if let Some(selected) = selected {
-        filter_languages_to_package(&mut languages, selected);
+        filter_languages_to_package(&mut snapshot.languages, selected);
     }
-    let models = languages
+    let models = snapshot
+        .languages
         .into_iter()
         .map(|language| language.model)
         .collect();
@@ -173,5 +174,7 @@ fn measure_all_languages_selected(
         &metric_plugins,
         configuration.boundaries.as_ref(),
         &configuration.dependencies,
+        configuration.duplication,
+        orphan_files.as_ref(),
     )?)
 }

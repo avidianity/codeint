@@ -9,9 +9,11 @@ mod finding_id;
 mod impact;
 mod import_cycles;
 mod line_share;
+mod orphan_files;
 mod trace;
 mod verbosity;
 
+pub use crate::orphan_files::{OrphanFileFinding, OrphanFileKind, OrphanFiles};
 pub use boundaries::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryFindingKind, BoundaryPolicy,
 };
@@ -22,7 +24,8 @@ pub use dependencies::{
     UnusedDependencyFinding, UnusedDependencyKind,
 };
 pub use duplication::{
-    CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens, MinimumDistinctTokens,
+    CloneFamily, CloneGroup, CloneLines, Duplication, Fragment, MinimumCloneTokens,
+    MinimumDistinctTokens, NearCloneConfig,
 };
 pub use erosion::{ErodedFunction, Erosion, FunctionMasses};
 pub use finding_id::FindingId;

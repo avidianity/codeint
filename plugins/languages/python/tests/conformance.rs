@@ -220,12 +220,55 @@ fn python_verbosity_rules() {
 
 #[test]
 fn python_stdlib_pep503_external_normalization_and_declared_dependencies() {
+    const ROOT_PYPROJECT: &str = r#"[project]
+name = "acme-root"
+dependencies = [
+    "Requests>=2.31.0",
+    "Pydantic_Settings[dotenv]>=2.4 ; python_version >= '3.10'",
+]
+
+[project.optional-dependencies]
+postgres = ["Psycopg_Pool>=3.2"]
+
+[dependency-groups]
+dev = [
+    { include-group = "lint" },
+    "pytest>=8.3",
+]
+lint = ["ruff>=0.7"]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+"#;
+    const CORE_PYPROJECT: &str = r#"[project]
+name = "acme_core"
+dependencies = [
+    "acme-root",
+    "zope.interface>=7.0",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+httpx = "^0.27"
+orjson = { version = "^3.10", optional = true }
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.11"
+"#;
+    const CLIENT_PY: &str = r#"import os.path
+from collections.abc import Mapping
+import tomllib
+from pydantic_settings.sources import EnvSettingsSource
+import httpx
+from zope.interface import Interface
+
+
+def fetch(cfg: Mapping[str, str]) -> str:
+    return os.path.join(cfg.get("root", "."), str(EnvSettingsSource), str(httpx), str(Interface), str(tomllib))
+"#;
     let client_path = "packages/core/src/acme_core/client.py";
     let model = Python
-        .lower(
-            &RepoPath::new(client_path).unwrap(),
-            include_str!("fixtures/workspace/packages/core/src/acme_core/client.py"),
-        )
+        .lower(&RepoPath::new(client_path).unwrap(), CLIENT_PY)
         .unwrap();
     let repo: Vec<RepoPath> = [
         "pyproject.toml",
@@ -238,11 +281,11 @@ fn python_stdlib_pep503_external_normalization_and_declared_dependencies() {
     let manifests = vec![
         Manifest {
             path: "pyproject.toml".into(),
-            text: include_str!("fixtures/workspace/pyproject.toml").into(),
+            text: ROOT_PYPROJECT.into(),
         },
         Manifest {
             path: "packages/core/pyproject.toml".into(),
-            text: include_str!("fixtures/workspace/packages/core/pyproject.toml").into(),
+            text: CORE_PYPROJECT.into(),
         },
     ];
     let requests = model

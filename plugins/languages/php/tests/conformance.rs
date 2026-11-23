@@ -207,19 +207,84 @@ fn php_resolver_handles_psr4_and_static_require() {
 
 #[test]
 fn php_builtins_composer_normalization_and_declared_dependencies() {
+    const ROOT_COMPOSER: &str = r#"{
+  "name": "acme/root",
+  "repositories": [
+    { "type": "path", "url": "packages/*" }
+  ],
+  "require": {
+    "php": "^8.3",
+    "ext-json": "*",
+    "lib-openssl": "*",
+    "composer-runtime-api": "^2.2",
+    "monolog/monolog": "^3.6",
+    "Illuminate/Support": "^11.0",
+    "acme/http-client": "^1.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0",
+    "ext-xdebug": "*"
+  },
+  "suggest": {
+    "symfony/cache": "Optional PSR-6 cache",
+    "ext-redis": "Optional Redis extension"
+  }
+}
+"#;
+    const AUTH_COMPOSER: &str = r#"{
+  "name": "acme/auth",
+  "autoload": {
+    "psr-4": {
+      "Acme\\Auth\\": "src/"
+    }
+  },
+  "require": {
+    "psr/log": "^3.0"
+  }
+}
+"#;
+    const BILLING_COMPOSER: &str = r#"{
+  "name": "acme/billing",
+  "autoload": {
+    "psr-4": {
+      "Acme\\Billing\\": "src/"
+    }
+  },
+  "require": {
+    "acme/auth": "*",
+    "symfony/http-foundation": "^7.0"
+  },
+  "require-dev": {
+    "phpstan/phpstan": "^1.12"
+  }
+}
+"#;
+    const INVOICE_SERVICE: &str = r#"<?php
+namespace Acme\Billing;
+
+use DateTimeImmutable;
+use RuntimeException;
+use Random\Randomizer;
+use Acme\Auth\Token;
+use Monolog\Logger;
+use Illuminate\Support\Collection;
+use Acme\HttpClient\Client;
+use Symfony\Component\HttpFoundation\Request;
+use Unlisted\CustomPkg\Helper;
+
+final class InvoiceService {
+    public function issue(Token $token, Request $request): string {
+        if ($token->value() === '') {
+            throw new RuntimeException('empty');
+        }
+        return (new DateTimeImmutable())->format('c') . get_class($request);
+    }
+}
+"#;
     let manifests: Vec<Manifest> = [
-        (
-            "composer.json",
-            include_str!("fixtures/workspace/composer.json"),
-        ),
-        (
-            "packages/auth/composer.json",
-            include_str!("fixtures/workspace/packages/auth/composer.json"),
-        ),
-        (
-            "packages/billing/composer.json",
-            include_str!("fixtures/workspace/packages/billing/composer.json"),
-        ),
+        ("composer.json", ROOT_COMPOSER),
+        ("packages/auth/composer.json", AUTH_COMPOSER),
+        ("packages/billing/composer.json", BILLING_COMPOSER),
         (
             "vendor/ignored/pkg/composer.json",
             r#"{"name":"ignored/pkg","require":{"foo/bar":"^1.0"}}"#,
@@ -232,11 +297,7 @@ fn php_builtins_composer_normalization_and_declared_dependencies() {
     })
     .collect();
     let importer = "packages/billing/src/InvoiceService.php";
-    let lowered = lower_php(
-        importer,
-        include_str!("fixtures/workspace/packages/billing/src/InvoiceService.php"),
-    )
-    .unwrap();
+    let lowered = lower_php(importer, INVOICE_SERVICE).unwrap();
     let repo: Vec<RepoPath> = [
         "composer.json",
         "packages/auth/composer.json",

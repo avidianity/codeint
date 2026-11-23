@@ -6,23 +6,30 @@ use codeint_model::{Metric, RepoPath, SourceSet};
 use crate::RegressionLimits;
 use crate::boundaries::{Boundaries, BoundariesFile};
 use crate::config_error::{
-    CONFIGURATION_FILE_NAME, ConfigurationFileError, JsonType, KeyPath, KeySegment, glob_set,
+    CONFIGURATION_FILE_NAME, ConfigurationFileError, JsonType, KeyPath, KeySegment, compile_glob,
+    glob_set,
 };
 use crate::dependencies::{DependenciesConfig, DependenciesFile};
-use crate::regression_limits::RegressionLimitSetting;
+use crate::regression_limits::{RegressionLimitSetting, ResolvedRegressionLimit};
+use crate::resolved::{
+    BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
+    SourceSetOverride, resolve_with_provenance,
+};
+use globset::GlobSet;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 pub const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
     "unused_dependencies",
     "unlisted_dependencies",
     "dev_in_production_dependencies",
 ];
-use globset::GlobSet;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 mod shape;
 mod starter;
+#[cfg(test)]
+mod tests;
 
 pub use starter::{
     DetectedLanguage, StarterConfigurationError, published_schema_address,
@@ -31,6 +38,43 @@ pub use starter::{
 
 const DEFAULT_PLUGIN_MEMORY_MB: u64 = 64;
 const DEFAULT_PLUGIN_TIMEOUT_MS: u64 = 5_000;
+const DEFAULT_MIN_SIMILARITY: f64 = 0.85;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MinSimilarity(f64);
+
+impl MinSimilarity {
+    pub const DEFAULT: MinSimilarity = MinSimilarity(DEFAULT_MIN_SIMILARITY);
+
+    pub fn new(value: f64) -> Option<MinSimilarity> {
+        (value.is_finite() && value > 0.0 && value <= 1.0).then_some(MinSimilarity(value))
+    }
+
+    pub fn ratio(self) -> f64 {
+        self.0
+    }
+}
+
+impl Default for MinSimilarity {
+    fn default() -> MinSimilarity {
+        MinSimilarity::DEFAULT
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DuplicationConfig {
+    pub near_clones: bool,
+    pub min_similarity: MinSimilarity,
+}
+
+impl Default for DuplicationConfig {
+    fn default() -> DuplicationConfig {
+        DuplicationConfig {
+            near_clones: false,
+            min_similarity: MinSimilarity::DEFAULT,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PluginLimits {
@@ -63,7 +107,26 @@ pub struct Configuration {
     pub plugin_limits: PluginLimits,
     pub boundaries: Option<Boundaries>,
     pub dependencies: DependenciesConfig,
+    pub duplication: DuplicationConfig,
+    pub entry_points: EntryPoints,
     effective: ConfigurationFile,
+}
+
+#[derive(Debug, Default)]
+pub struct EntryPoints {
+    globs: Option<GlobSet>,
+}
+
+impl EntryPoints {
+    pub fn is_empty(&self) -> bool {
+        self.globs.is_none()
+    }
+
+    pub fn matches(&self, path: &RepoPath) -> bool {
+        self.globs
+            .as_ref()
+            .is_some_and(|globs| globs.is_match(path.as_str()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,51 +195,53 @@ pub struct PluginDeclaration {
 }
 
 impl Configuration {
+    pub fn validate_cli_budget_metrics(
+        &self,
+        overrides: &[BudgetOverride],
+        external_metric_keys: &[&str],
+    ) -> Result<(), ConfigurationFileError> {
+        for entry in overrides {
+            if !is_known_metric(&entry.metric, external_metric_keys) {
+                return Err(ConfigurationFileError::UnknownCliBudgetMetric {
+                    source_set: entry.source_set,
+                    metric: entry.metric.clone(),
+                    allowed: allowed_metric_keys(external_metric_keys),
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate_metrics(
         &self,
         external_metric_keys: &[&str],
     ) -> Result<(), ConfigurationFileError> {
-        let allowed_metrics = || -> Vec<String> {
-            Metric::BUILT_IN_KEYS
-                .iter()
-                .chain(["cognitive_complexity", "boundaries"].iter())
-                .chain(external_metric_keys.iter())
-                .map(|key| (*key).to_owned())
-                .collect()
-        };
-        let is_known = |key: &str| {
-            Metric::BUILT_IN_KEYS.contains(&key)
-                || key == "cognitive_complexity"
-                || key == "boundaries"
-                || external_metric_keys.contains(&key)
-        };
         for (source_set, metric_key, _) in &self.budgets.set {
-            if !is_known(metric_key) {
+            if !is_known_metric(metric_key, external_metric_keys) {
                 return Err(ConfigurationFileError::UnknownKey {
                     key: KeyPath::default()
                         .child(KeySegment::Key("budgets".to_owned()))
                         .child(KeySegment::Key(source_set.key().to_owned()))
                         .child(KeySegment::Key(metric_key.clone())),
-                    allowed: allowed_metrics(),
+                    allowed: allowed_metric_keys(external_metric_keys),
                 });
             }
         }
-        validate_regression_limit_keys(&self.regression_limits, is_known, allowed_metrics)
+        validate_regression_limit_keys(&self.regression_limits, external_metric_keys)
     }
 }
 
 fn validate_regression_limit_keys(
     limits: &RegressionLimits,
-    is_known: impl Fn(&str) -> bool,
-    allowed_metrics: impl Fn() -> Vec<String>,
+    external_metric_keys: &[&str],
 ) -> Result<(), ConfigurationFileError> {
     for (source_set, metric_key) in limits.metric_keys() {
-        let allowed_here = is_known(metric_key)
+        let allowed_here = is_known_metric(metric_key, external_metric_keys)
             || (source_set.is_none() && DEPENDENCY_METRIC_KEYS.contains(&metric_key));
         if !allowed_here {
             let mut path =
                 KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
-            let mut allowed = allowed_metrics();
+            let mut allowed = allowed_metric_keys(external_metric_keys);
             if let Some(source_set) = source_set {
                 path = path.child(KeySegment::Key(source_set.key().to_owned()));
             } else {
@@ -196,6 +261,23 @@ fn validate_regression_limit_keys(
     Ok(())
 }
 
+fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
+    Metric::BUILT_IN_KEYS
+        .iter()
+        .chain(["cognitive_complexity", "boundaries", "orphan_files"].iter())
+        .chain(external_metric_keys.iter())
+        .map(|key| (*key).to_owned())
+        .collect()
+}
+
+fn is_known_metric(key: &str, external_metric_keys: &[&str]) -> bool {
+    Metric::BUILT_IN_KEYS.contains(&key)
+        || key == "cognitive_complexity"
+        || key == "boundaries"
+        || key == "orphan_files"
+        || external_metric_keys.contains(&key)
+}
+
 impl Serialize for Configuration {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.effective.serialize(serializer)
@@ -208,9 +290,20 @@ pub struct Budgets {
     dependency_set: Vec<(String, Budget)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, JsonSchema)]
 #[serde(transparent)]
 pub struct Budget(#[schemars(range(min = 0, max = 1))] f64);
+
+impl<'de> Deserialize<'de> for Budget {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Budget, D::Error> {
+        let value = f64::deserialize(deserializer)?;
+        Ok(Budget(normalize_zero(value)))
+    }
+}
+
+fn normalize_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
+}
 
 impl Budgets {
     pub fn budget(&self, source_set: SourceSet, metric: Metric) -> Option<Budget> {
@@ -233,12 +326,16 @@ impl Budgets {
 }
 
 impl Budget {
+    pub fn new(ratio: f64) -> Option<Budget> {
+        (ratio.is_finite() && (0.0..=1.0).contains(&ratio)).then_some(Budget(normalize_zero(ratio)))
+    }
+
     pub fn ratio(self) -> f64 {
-        self.0
+        normalize_zero(self.0)
     }
 
     pub fn admits(self, ratio: f64) -> bool {
-        ratio <= self.0
+        ratio <= self.ratio()
     }
 }
 
@@ -388,6 +485,50 @@ struct ConfigurationFile {
         description = "Dependency hygiene settings, including the allowlist of external package names excluded from unused, unlisted, and dev-in-production Findings."
     )]
     dependencies: DependenciesFile,
+    #[serde(default, skip_serializing_if = "DuplicationConfigFile::is_unset")]
+    #[schemars(
+        description = "Settings for Duplication detection, including opt-in shingle-based near-clone detection. Exact Clone groups remain the default when omitted."
+    )]
+    duplication: DuplicationConfigFile,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Globs of repository-relative paths treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points."
+    )]
+    entry_points: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DuplicationConfigFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "bool",
+        description = "When true, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; false by default."
+    )]
+    near_clones: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(max = 1),
+        extend("exclusiveMinimum" = 0),
+        description = "Minimum Jaccard shingle similarity in (0, 1] required for two blocks to match as a near-clone; 0.85 by default."
+    )]
+    min_similarity: Option<f64>,
+}
+
+impl DuplicationConfigFile {
+    fn is_unset(&self) -> bool {
+        self.near_clones.is_none() && self.min_similarity.is_none()
+    }
+
+    fn normalized(self) -> DuplicationConfigFile {
+        DuplicationConfigFile {
+            near_clones: self.near_clones.filter(|&enabled| enabled),
+            min_similarity: self
+                .min_similarity
+                .filter(|&ratio| ratio != DEFAULT_MIN_SIMILARITY),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -462,6 +603,9 @@ struct RegressionLimitsFile {
     #[schemars(description = "The Regression limit of Boundaries in every Source set.")]
     boundaries: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Orphan files in every Source set.")]
+    orphan_files: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of unused declared dependencies.")]
     unused_dependencies: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
@@ -506,6 +650,9 @@ struct MetricRegressionLimits {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Boundaries in this Source set.")]
     boundaries: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Orphan files in this Source set.")]
+    orphan_files: RegressionLimitSetting,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, RegressionLimitSetting>,
 }
@@ -519,6 +666,7 @@ impl MetricRegressionLimits {
             &self.verbosity,
             &self.import_cycles,
             &self.boundaries,
+            &self.orphan_files,
         ]
         .into_iter()
         .chain(self.external.values())
@@ -533,20 +681,36 @@ impl MetricRegressionLimits {
             verbosity,
             import_cycles,
             boundaries,
+            orphan_files,
             external,
         } = self;
-        [
-            (Metric::Erosion.key().to_owned(), erosion),
-            ("cognitive_complexity".to_owned(), cognitive_complexity),
-            (Metric::Duplication.key().to_owned(), duplication),
-            (Metric::Verbosity.key().to_owned(), verbosity),
-            (Metric::ImportCycles.key().to_owned(), import_cycles),
-            ("boundaries".to_owned(), boundaries),
-        ]
-        .into_iter()
+        built_in_metric_pairs([
+            erosion,
+            cognitive_complexity,
+            duplication,
+            verbosity,
+            import_cycles,
+            boundaries,
+            orphan_files,
+        ])
         .chain(external)
         .filter(|(_, setting)| !setting.is_unset())
     }
+}
+
+fn built_in_metric_pairs<T>(values: [T; 7]) -> impl Iterator<Item = (String, T)> {
+    [
+        Metric::Erosion.key(),
+        "cognitive_complexity",
+        Metric::Duplication.key(),
+        Metric::Verbosity.key(),
+        Metric::ImportCycles.key(),
+        "boundaries",
+        "orphan_files",
+    ]
+    .into_iter()
+    .zip(values)
+    .map(|(key, value)| (key.to_owned(), value))
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -631,6 +795,13 @@ struct MetricBudgets {
         description = "The highest Boundaries ratio, from 0 to 1."
     )]
     boundaries: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Orphan files ratio, from 0 to 1."
+    )]
+    orphan_files: Option<Budget>,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, Budget>,
 }
@@ -668,11 +839,110 @@ struct SourceSetGlobs {
     vendored: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchemaVersionStatus {
+    Missing,
+    Compatible {
+        url: String,
+        version: Option<String>,
+    },
+    NewerThanBinary {
+        url: String,
+        config_version: String,
+        binary_version: String,
+    },
+}
+
+#[derive(Debug)]
+pub enum ConfigurationInspection {
+    Missing {
+        path: PathBuf,
+    },
+    Valid {
+        path: PathBuf,
+        schema: SchemaVersionStatus,
+        configuration: Box<Configuration>,
+    },
+    Invalid {
+        path: PathBuf,
+        schema: Option<SchemaVersionStatus>,
+        error: ConfigurationFileError,
+    },
+}
+
 pub fn read_configuration(repository_root: &Path) -> Result<Configuration, ConfigurationFileError> {
-    match std::fs::read_to_string(repository_root.join(CONFIGURATION_FILE_NAME)) {
-        Ok(text) => parse(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Configuration::default()),
+    read_resolved_configuration(repository_root, &ConfigOverrides::default())
+        .map(|resolved| resolved.configuration)
+}
+
+fn read_config_file_if_present(path: &Path) -> Result<Option<String>, ConfigurationFileError> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if is_broken_symlink(path) {
+                Err(ConfigurationFileError::BrokenSymlink)
+            } else {
+                Ok(None)
+            }
+        }
         Err(error) => Err(ConfigurationFileError::Unreadable(error)),
+    }
+}
+
+pub fn is_broken_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+        && matches!(
+            std::fs::metadata(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        )
+}
+
+pub fn read_resolved_configuration(
+    repository_root: &Path,
+    overrides: &ConfigOverrides,
+) -> Result<ResolvedConfiguration, ConfigurationFileError> {
+    let config_file = repository_root.join(CONFIGURATION_FILE_NAME);
+    match read_config_file_if_present(&config_file)? {
+        Some(text) => parse_with_overrides(config_file, true, Some(&text), overrides),
+        None => parse_with_overrides(config_file, false, None, overrides),
+    }
+}
+
+pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection {
+    let path = repository_root.join(CONFIGURATION_FILE_NAME);
+    let text = match read_config_file_if_present(&path) {
+        Ok(Some(text)) => text,
+        Ok(None) => return ConfigurationInspection::Missing { path },
+        Err(error) => {
+            return ConfigurationInspection::Invalid {
+                path,
+                schema: None,
+                error,
+            };
+        }
+    };
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(error) => {
+            return ConfigurationInspection::Invalid {
+                path,
+                schema: None,
+                error: ConfigurationFileError::NotJson(error),
+            };
+        }
+    };
+    let schema = inspect_schema_version(&value, env!("CARGO_PKG_VERSION"));
+    match parse_value_without_schema_version(value) {
+        Ok(configuration) => ConfigurationInspection::Valid {
+            path,
+            schema,
+            configuration: Box::new(configuration),
+        },
+        Err(error) => ConfigurationInspection::Invalid {
+            path,
+            schema: Some(schema),
+            error,
+        },
     }
 }
 
@@ -681,33 +951,595 @@ pub fn configuration_schema() -> String {
     format!("{:#}\n", schema.as_value())
 }
 
+#[cfg(test)]
 pub(crate) fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
-    let value: Value = serde_json::from_str(text).map_err(ConfigurationFileError::NotJson)?;
-    check_schema_version(&value, env!("CARGO_PKG_VERSION"))?;
+    parse_with_overrides(
+        PathBuf::from(CONFIGURATION_FILE_NAME),
+        true,
+        Some(text),
+        &ConfigOverrides::default(),
+    )
+    .map(|resolved| resolved.configuration)
+}
+
+fn parse_with_overrides(
+    config_file: PathBuf,
+    config_file_present: bool,
+    text: Option<&str>,
+    overrides: &ConfigOverrides,
+) -> Result<ResolvedConfiguration, ConfigurationFileError> {
+    let raw = match text {
+        Some(text) => {
+            let value: Value =
+                serde_json::from_str(text).map_err(ConfigurationFileError::NotJson)?;
+            check_schema_version(&value, env!("CARGO_PKG_VERSION"))?;
+            Some(value)
+        }
+        None => None,
+    };
+    parse_value_with_overrides(config_file, config_file_present, raw, overrides)
+}
+
+fn parse_value_without_schema_version(
+    value: Value,
+) -> Result<Configuration, ConfigurationFileError> {
+    parse_value_with_overrides(
+        PathBuf::from(CONFIGURATION_FILE_NAME),
+        true,
+        Some(value),
+        &ConfigOverrides::default(),
+    )
+    .map(|resolved| resolved.configuration)
+}
+
+fn parse_configuration_file(
+    raw: Option<&Value>,
+) -> Result<ConfigurationFile, ConfigurationFileError> {
+    let Some(value) = raw else {
+        return Ok(ConfigurationFile::default());
+    };
     let schema = schemars::schema_for!(ConfigurationFile);
-    shape::check_shape(&value, schema.as_value())?;
-    let file: ConfigurationFile =
-        serde_json::from_value(value).map_err(ConfigurationFileError::NotJson)?;
-    let effective = file.without_schema_address();
-    let parsed_boundaries = file.boundaries.map(Boundaries::from_file).transpose()?;
-    let parsed_dependencies = DependenciesConfig::from_file(file.dependencies)?;
-    Ok(Configuration {
-        effective,
-        source_set_overrides: source_set_overrides(file.source_sets)?,
-        budgets: budgets(file.budgets),
-        languages: languages(file.languages)?,
-        regression_limits: regression_limits(file.regression_limits),
-        plugins: plugins(file.plugins)?,
-        plugin_limits: plugin_limits(file.plugin_limits),
-        boundaries: parsed_boundaries,
-        dependencies: parsed_dependencies,
+    shape::check_shape(value, schema.as_value())?;
+    serde_json::from_value(value.clone()).map_err(ConfigurationFileError::NotJson)
+}
+
+struct ParsedFeatureSections {
+    boundaries: Option<Boundaries>,
+    dependencies: DependenciesConfig,
+    duplication: DuplicationConfig,
+    entry_points: EntryPoints,
+}
+
+fn parse_feature_sections(
+    raw: Option<&Value>,
+    boundaries_file: Option<BoundariesFile>,
+    dependencies_file: DependenciesFile,
+    duplication_file: DuplicationConfigFile,
+    entry_points_globs: &[String],
+    settings: &mut Vec<ResolvedSetting>,
+) -> Result<ParsedFeatureSections, ConfigurationFileError> {
+    let boundaries = boundaries_file.map(Boundaries::from_file).transpose()?;
+    append_boundaries_settings(raw, boundaries.as_ref(), settings);
+    let dependencies = DependenciesConfig::from_file(dependencies_file)?;
+    append_dependencies_settings(raw, &dependencies, settings);
+    let duplication = duplication_config(duplication_file)?;
+    append_duplication_settings(raw, duplication, settings);
+    let entry_points = entry_points(entry_points_globs)?;
+    append_entry_points_setting(raw, entry_points_globs, settings);
+    Ok(ParsedFeatureSections {
+        boundaries,
+        dependencies,
+        duplication,
+        entry_points,
     })
 }
 
-fn plugin_limits(file: PluginLimitsFile) -> PluginLimits {
+fn parse_value_with_overrides(
+    config_file: PathBuf,
+    config_file_present: bool,
+    raw: Option<Value>,
+    overrides: &ConfigOverrides,
+) -> Result<ResolvedConfiguration, ConfigurationFileError> {
+    let file = parse_configuration_file(raw.as_ref())?;
+    let mut effective = file.without_schema_address();
+    let mut settings = Vec::new();
+    let source_set_overrides = merge_source_sets(
+        raw.as_ref(),
+        &mut effective.source_sets,
+        &overrides.source_sets,
+        &mut settings,
+    )?;
+    let budgets = merge_budgets(&mut effective.budgets, &overrides.budgets, &mut settings);
+    let regression_limits = regression_limits(file.regression_limits);
+    append_regression_limit_settings(&regression_limits, &mut settings);
+    append_languages_setting(&effective.languages, &mut settings);
+    let languages = languages(file.languages)?;
+    append_plugins_setting(raw.as_ref(), &effective.plugins, &mut settings);
+    let plugins = plugins(file.plugins)?;
+    let plugin_limits = merge_plugin_limits(&mut effective.plugin_limits, overrides, &mut settings);
+    let features = parse_feature_sections(
+        raw.as_ref(),
+        file.boundaries,
+        file.dependencies,
+        file.duplication,
+        &effective.entry_points,
+        &mut settings,
+    )?;
+    let configuration = Configuration {
+        effective,
+        source_set_overrides,
+        budgets,
+        languages,
+        regression_limits,
+        plugins,
+        plugin_limits,
+        boundaries: features.boundaries,
+        dependencies: features.dependencies,
+        duplication: features.duplication,
+        entry_points: features.entry_points,
+    };
+    Ok(ResolvedConfiguration {
+        config_file,
+        config_file_present,
+        configuration,
+        settings,
+    })
+}
+
+fn append_dependencies_settings(
+    raw: Option<&Value>,
+    dependencies: &DependenciesConfig,
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let source = if has_json_path(raw, &["dependencies", "ignore"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    let ignored: Vec<&str> = dependencies.ignored().iter().map(String::as_str).collect();
+    push_setting(settings, "dependencies.ignore", json!(ignored), source);
+}
+
+fn entry_points(globs: &[String]) -> Result<EntryPoints, ConfigurationFileError> {
+    if globs.is_empty() {
+        return Ok(EntryPoints::default());
+    }
+    let key = KeyPath::default().child(KeySegment::Key("entry_points".to_owned()));
+    Ok(EntryPoints {
+        globs: Some(glob_set(&key, globs)?),
+    })
+}
+
+fn append_entry_points_setting(
+    raw: Option<&Value>,
+    entries: &[String],
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let source = if has_json_path(raw, &["entry_points"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(settings, "entry_points", json!(entries), source);
+}
+
+fn duplication_config(
+    file: DuplicationConfigFile,
+) -> Result<DuplicationConfig, ConfigurationFileError> {
+    let min_similarity = match file.min_similarity {
+        Some(value) => MinSimilarity::new(value).ok_or_else(|| {
+            ConfigurationFileError::OutOfExclusiveMinRange {
+                key: KeyPath::default()
+                    .child(KeySegment::Key("duplication".to_owned()))
+                    .child(KeySegment::Key("min_similarity".to_owned())),
+                exclusive_minimum: 0.0,
+                maximum: 1.0,
+                found: value,
+            }
+        })?,
+        None => MinSimilarity::DEFAULT,
+    };
+    Ok(DuplicationConfig {
+        near_clones: file.near_clones.unwrap_or(false),
+        min_similarity,
+    })
+}
+
+fn append_duplication_settings(
+    raw: Option<&Value>,
+    duplication: DuplicationConfig,
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let near_clones_source = if has_json_path(raw, &["duplication", "near_clones"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "duplication.near_clones",
+        json!(duplication.near_clones),
+        near_clones_source,
+    );
+    let min_similarity_source = if has_json_path(raw, &["duplication", "min_similarity"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "duplication.min_similarity",
+        json!(duplication.min_similarity.ratio()),
+        min_similarity_source,
+    );
+}
+
+const ORDERED_SOURCE_SETS: [SourceSet; 4] = [
+    SourceSet::Production,
+    SourceSet::Test,
+    SourceSet::Generated,
+    SourceSet::Vendored,
+];
+
+fn has_json_path(raw: Option<&Value>, path: &[&str]) -> bool {
+    let mut current = match raw {
+        Some(value) => value,
+        None => return false,
+    };
+    for segment in path {
+        match current.get(*segment) {
+            Some(next) => current = next,
+            None => return false,
+        }
+    }
+    true
+}
+
+fn push_setting(
+    settings: &mut Vec<ResolvedSetting>,
+    key: impl Into<String>,
+    value: Value,
+    source: ConfigProvenance,
+) {
+    settings.push(ResolvedSetting {
+        key: key.into(),
+        value,
+        source,
+    });
+}
+
+fn merge_source_sets(
+    raw: Option<&Value>,
+    globs: &mut SourceSetGlobs,
+    overrides: &[SourceSetOverride],
+    settings: &mut Vec<ResolvedSetting>,
+) -> Result<SourceSetOverrides, ConfigurationFileError> {
+    for entry in overrides {
+        compile_glob(&entry.glob).map_err(|source| ConfigurationFileError::InvalidCliGlob {
+            source_set: entry.source_set,
+            glob: entry.glob.clone(),
+            source,
+        })?;
+    }
+    let cli_by_set = group_source_set_overrides(overrides);
+    let slots = [
+        (SourceSet::Production, &mut globs.production),
+        (SourceSet::Test, &mut globs.test),
+        (SourceSet::Generated, &mut globs.generated),
+        (SourceSet::Vendored, &mut globs.vendored),
+    ];
+    for (source_set, slot) in slots {
+        let source = if let Some(cli_globs) = cli_by_set.get(&source_set) {
+            *slot = cli_globs.clone();
+            ConfigProvenance::Cli
+        } else if has_json_path(raw, &["source_sets", source_set.key()]) {
+            ConfigProvenance::File
+        } else {
+            ConfigProvenance::Default
+        };
+        push_setting(
+            settings,
+            format!("source_sets.{}", source_set.key()),
+            json!(slot),
+            source,
+        );
+    }
+    source_set_overrides(globs.clone())
+}
+
+fn group_source_set_overrides(overrides: &[SourceSetOverride]) -> BTreeMap<SourceSet, Vec<String>> {
+    let mut grouped: BTreeMap<SourceSet, Vec<String>> = BTreeMap::new();
+    for entry in overrides {
+        grouped
+            .entry(entry.source_set)
+            .or_default()
+            .push(entry.glob.clone());
+    }
+    grouped
+}
+
+fn merge_budgets(
+    file_budgets: &mut SourceSetBudgets,
+    overrides: &[BudgetOverride],
+    settings: &mut Vec<ResolvedSetting>,
+) -> Budgets {
+    let parsed_file = budgets(file_budgets.clone());
+    let mut resolved: BTreeMap<(SourceSet, String), (Budget, ConfigProvenance)> = BTreeMap::new();
+    for (source_set, metric, budget) in parsed_file.set {
+        resolved.insert((source_set, metric), (budget, ConfigProvenance::File));
+    }
+    for entry in overrides {
+        file_budgets.set(entry.source_set, &entry.metric, entry.budget);
+        resolved.insert(
+            (entry.source_set, entry.metric.clone()),
+            (entry.budget, ConfigProvenance::Cli),
+        );
+    }
+    append_budget_settings(&resolved, &parsed_file.dependency_set, settings);
+    Budgets {
+        set: resolved
+            .into_iter()
+            .map(|((source_set, metric), (budget, _))| (source_set, metric, budget))
+            .collect(),
+        dependency_set: parsed_file.dependency_set,
+    }
+}
+
+fn append_budget_settings(
+    resolved: &BTreeMap<(SourceSet, String), (Budget, ConfigProvenance)>,
+    dependency_set: &[(String, Budget)],
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    if resolved.is_empty() && dependency_set.is_empty() {
+        push_setting(settings, "budgets", json!({}), ConfigProvenance::Default);
+        return;
+    }
+    for source_set in ORDERED_SOURCE_SETS {
+        for ((_, metric), (budget, source)) in
+            resolved.iter().filter(|((set, _), _)| *set == source_set)
+        {
+            push_setting(
+                settings,
+                format!("budgets.{}.{metric}", source_set.key()),
+                json!(budget.ratio()),
+                *source,
+            );
+        }
+    }
+    for (metric, budget) in dependency_set {
+        push_setting(
+            settings,
+            format!("budgets.{metric}"),
+            json!(budget.ratio()),
+            ConfigProvenance::File,
+        );
+    }
+}
+
+fn push_resolved_regression_limit(
+    settings: &mut Vec<ResolvedSetting>,
+    prefix: &str,
+    resolved: ResolvedRegressionLimit,
+) {
+    push_setting(
+        settings,
+        format!("{prefix}.ratio_rise"),
+        json!(resolved.limit.ratio_rise.ratio()),
+        resolved.ratio_rise_source,
+    );
+    push_setting(
+        settings,
+        format!("{prefix}.new_findings"),
+        json!(resolved.limit.new_findings),
+        resolved.new_findings_source,
+    );
+}
+
+fn append_regression_limit_settings(
+    limits: &RegressionLimits,
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let mut metric_keys: Vec<String> = Metric::BUILT_IN_KEYS
+        .iter()
+        .chain(["cognitive_complexity", "boundaries", "orphan_files"].iter())
+        .map(|key| (*key).to_owned())
+        .collect();
+    metric_keys.extend(limits.extra_metric_keys());
+    for source_set in ORDERED_SOURCE_SETS {
+        for metric_key in &metric_keys {
+            let resolved = limits.resolved_limit_for_key(source_set, metric_key);
+            let prefix = format!("regression_limits.{}.{metric_key}", source_set.key());
+            push_resolved_regression_limit(settings, &prefix, resolved);
+        }
+    }
+    for metric_key in DEPENDENCY_METRIC_KEYS {
+        let resolved = limits.resolved_limit_for_dependency(metric_key);
+        let prefix = format!("regression_limits.{metric_key}");
+        push_resolved_regression_limit(settings, &prefix, resolved);
+    }
+}
+
+fn append_languages_setting(
+    entries: &Option<Vec<LanguageGlobs>>,
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    match entries {
+        Some(entries) => push_setting(
+            settings,
+            "languages",
+            serde_json::to_value(entries).unwrap_or(Value::Null),
+            ConfigProvenance::File,
+        ),
+        None => push_setting(
+            settings,
+            "languages",
+            Value::Null,
+            ConfigProvenance::Default,
+        ),
+    }
+}
+
+fn append_plugins_setting(
+    raw: Option<&Value>,
+    entries: &[PluginEntry],
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let source = if has_json_path(raw, &["plugins"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "plugins",
+        serde_json::to_value(entries).unwrap_or_else(|_| json!([])),
+        source,
+    );
+}
+
+fn merge_plugin_limits(
+    file: &mut PluginLimitsFile,
+    overrides: &ConfigOverrides,
+    settings: &mut Vec<ResolvedSetting>,
+) -> PluginLimits {
+    let (memory_mb, memory_source) = resolve_with_provenance(
+        DEFAULT_PLUGIN_MEMORY_MB,
+        file.memory_mb,
+        overrides.plugin_memory_mb,
+    );
+    let (timeout_ms, timeout_source) = resolve_with_provenance(
+        DEFAULT_PLUGIN_TIMEOUT_MS,
+        file.timeout_ms,
+        overrides.plugin_timeout_ms,
+    );
+    if let Some(value) = overrides.plugin_memory_mb {
+        file.memory_mb = Some(value);
+    }
+    if let Some(value) = overrides.plugin_timeout_ms {
+        file.timeout_ms = Some(value);
+    }
+    push_setting(
+        settings,
+        "plugin_limits.memory_mb",
+        json!(memory_mb),
+        memory_source,
+    );
+    push_setting(
+        settings,
+        "plugin_limits.timeout_ms",
+        json!(timeout_ms),
+        timeout_source,
+    );
     PluginLimits {
-        memory_mb: file.memory_mb.unwrap_or(DEFAULT_PLUGIN_MEMORY_MB),
-        timeout_ms: file.timeout_ms.unwrap_or(DEFAULT_PLUGIN_TIMEOUT_MS),
+        memory_mb,
+        timeout_ms,
+    }
+}
+
+fn append_boundaries_settings(
+    raw: Option<&Value>,
+    boundaries: Option<&Boundaries>,
+    settings: &mut Vec<ResolvedSetting>,
+) {
+    let Some(boundaries) = boundaries else {
+        push_setting(
+            settings,
+            "boundaries",
+            Value::Null,
+            ConfigProvenance::Default,
+        );
+        return;
+    };
+    let preset_source = if boundaries.preset().is_some() {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "boundaries.preset",
+        serde_json::to_value(boundaries.preset()).unwrap_or(Value::Null),
+        preset_source,
+    );
+    let strict_source = if has_json_path(raw, &["boundaries", "strict_zones"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "boundaries.strict_zones",
+        json!(boundaries.strict_zones()),
+        strict_source,
+    );
+    let has_non_empty_source_sets = raw
+        .and_then(|value| value.get("boundaries"))
+        .and_then(|value| value.get("source_sets"))
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty());
+    let source_sets_source = if has_non_empty_source_sets {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "boundaries.source_sets",
+        json!(boundaries.source_set_keys()),
+        source_sets_source,
+    );
+    let zones_source = if has_json_path(raw, &["boundaries", "zones"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "boundaries.zones",
+        boundaries.resolved_zones_json(),
+        zones_source,
+    );
+    let rules_source = if has_json_path(raw, &["boundaries", "rules"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "boundaries.rules",
+        boundaries.resolved_rules_json(),
+        rules_source,
+    );
+}
+
+impl SourceSetBudgets {
+    fn set(&mut self, source_set: SourceSet, metric: &str, budget: Budget) {
+        let slots = [
+            (SourceSet::Production, &mut self.production),
+            (SourceSet::Test, &mut self.test),
+            (SourceSet::Generated, &mut self.generated),
+            (SourceSet::Vendored, &mut self.vendored),
+        ];
+        if let Some((_, target)) = slots.into_iter().find(|(set, _)| *set == source_set) {
+            target.set(metric, budget);
+        }
+    }
+}
+
+impl MetricBudgets {
+    fn set(&mut self, metric: &str, budget: Budget) {
+        match metric {
+            "erosion" => self.erosion = Some(budget),
+            "cognitive_complexity" => self.cognitive_complexity = Some(budget),
+            "duplication" => self.duplication = Some(budget),
+            "verbosity" => self.verbosity = Some(budget),
+            "import_cycles" => self.import_cycles = Some(budget),
+            "boundaries" => self.boundaries = Some(budget),
+            "orphan_files" => self.orphan_files = Some(budget),
+            other => {
+                self.external.insert(other.to_owned(), budget);
+            }
+        }
     }
 }
 
@@ -795,6 +1627,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         verbosity,
         import_cycles,
         boundaries,
+        orphan_files,
         unused_dependencies,
         unlisted_dependencies,
         dev_in_production_dependencies,
@@ -821,6 +1654,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         verbosity,
         import_cycles,
         boundaries,
+        orphan_files,
         external,
     }
     .by_metric()
@@ -846,6 +1680,7 @@ impl ConfigurationFile {
     fn without_schema_address(&self) -> ConfigurationFile {
         ConfigurationFile {
             _schema: None,
+            duplication: self.duplication.clone().normalized(),
             ..self.clone()
         }
     }
@@ -887,17 +1722,18 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
             verbosity,
             import_cycles,
             boundaries,
+            orphan_files,
             external,
         } = metric_budgets;
-        [
-            (Metric::Erosion.key().to_owned(), erosion),
-            ("cognitive_complexity".to_owned(), cognitive_complexity),
-            (Metric::Duplication.key().to_owned(), duplication),
-            (Metric::Verbosity.key().to_owned(), verbosity),
-            (Metric::ImportCycles.key().to_owned(), import_cycles),
-            ("boundaries".to_owned(), boundaries),
-        ]
-        .into_iter()
+        built_in_metric_pairs([
+            erosion,
+            cognitive_complexity,
+            duplication,
+            verbosity,
+            import_cycles,
+            boundaries,
+            orphan_files,
+        ])
         .filter_map(move |(metric, ratio)| Some((source_set, metric, ratio?)))
         .chain(
             external
@@ -971,21 +1807,46 @@ fn source_set_overrides(
 const OFFICIAL_SCHEMA_PREFIX: &str = "https://raw.githubusercontent.com/avidianity/codeint/v";
 const OFFICIAL_SCHEMA_SUFFIX: &str = "/schema/codeint.schema.json";
 
-fn check_schema_version(value: &Value, binary_version: &str) -> Result<(), ConfigurationFileError> {
+fn inspect_schema_version(value: &Value, binary_version: &str) -> SchemaVersionStatus {
     let Some(schema_url) = value.get("$schema").and_then(Value::as_str) else {
-        return Ok(());
+        return SchemaVersionStatus::Missing;
     };
     let Some(config_version) = extract_official_schema_version(schema_url) else {
-        return Ok(());
+        return SchemaVersionStatus::Compatible {
+            url: schema_url.to_owned(),
+            version: None,
+        };
     };
     let (Some(cfg), Some(bin)) = (parse_semver(config_version), parse_semver(binary_version))
     else {
-        return Ok(());
+        return SchemaVersionStatus::Compatible {
+            url: schema_url.to_owned(),
+            version: Some(config_version.to_owned()),
+        };
     };
     if cfg > bin {
-        return Err(ConfigurationFileError::NewerSchemaVersion {
+        return SchemaVersionStatus::NewerThanBinary {
+            url: schema_url.to_owned(),
             config_version: config_version.to_owned(),
             binary_version: binary_version.to_owned(),
+        };
+    }
+    SchemaVersionStatus::Compatible {
+        url: schema_url.to_owned(),
+        version: Some(config_version.to_owned()),
+    }
+}
+
+fn check_schema_version(value: &Value, binary_version: &str) -> Result<(), ConfigurationFileError> {
+    if let SchemaVersionStatus::NewerThanBinary {
+        config_version,
+        binary_version,
+        ..
+    } = inspect_schema_version(value, binary_version)
+    {
+        return Err(ConfigurationFileError::NewerSchemaVersion {
+            config_version,
+            binary_version,
         });
     }
     Ok(())

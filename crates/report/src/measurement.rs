@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
-use codeint_config::{Boundaries as BoundariesConfig, DependenciesConfig};
-use codeint_metrics::{Boundaries, DependencyHygiene};
+use codeint_config::{Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig};
+use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, CognitiveComplexityFinding, ConfigBoundaryPolicy,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding,
     ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding,
-    ImportedDependencyRow, Measured, UnusedDependencyRow,
+    ImportedDependencyRow, Measured, OrphanFileRow, UnusedDependencyRow,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,10 +35,13 @@ pub(crate) struct SourceSetMeasurement {
     #[serde(default)]
     pub(crate) cognitive_complexity: MetricMeasurement<CognitiveComplexityFinding>,
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
+    pub(crate) clone_families: Vec<CloneFamilyFinding>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
     pub(crate) import_cycles: MetricMeasurement<ImportCycleFinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) boundaries: Option<MetricMeasurement<BoundaryFindingRow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) orphan_files: Option<MetricMeasurement<OrphanFileRow>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) external_metrics: BTreeMap<String, ExternalMetricCommitMeasurement>,
 }
@@ -84,12 +87,38 @@ impl CommitMeasurement {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
+        CommitMeasurement::of_with_config(
+            model,
+            metric_plugins,
+            boundaries,
+            DuplicationConfig::default(),
+        )
+    }
+
+    pub fn of_with_config(
+        model: CodeModel,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
+    ) -> Result<CommitMeasurement, MetricPluginError> {
+        CommitMeasurement::of_with_options(model, metric_plugins, boundaries, duplication, None)
+    }
+
+    pub fn of_with_options(
+        model: CodeModel,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        duplication: DuplicationConfig,
+        orphan_files: Option<&OrphanFiles>,
+    ) -> Result<CommitMeasurement, MetricPluginError> {
         let dependencies = DependenciesConfig::default();
         CommitMeasurement::of_languages_with_options(
             vec![model],
             metric_plugins,
             boundaries,
             &dependencies,
+            duplication,
+            orphan_files,
         )
     }
 
@@ -98,6 +127,8 @@ impl CommitMeasurement {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
         dependencies_config: &DependenciesConfig,
+        duplication: DuplicationConfig,
+        orphan_files: Option<&OrphanFiles>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
         let ignored = dependencies_config.ignored();
         let hygiene = DependencyHygiene::merge(
@@ -113,21 +144,29 @@ impl CommitMeasurement {
                 source_sets.get(SourceSet::Production),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Production)),
+                duplication,
+                orphan_files,
             )?,
             test: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Test),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Test)),
+                duplication,
+                None,
             )?,
             generated: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Generated),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Generated)),
+                duplication,
+                None,
             )?,
             vendored: SourceSetMeasurement::of(
                 source_sets.get(SourceSet::Vendored),
                 metric_plugins,
                 boundaries.filter(|config| config.applies_to_source_set(SourceSet::Vendored)),
+                duplication,
+                None,
             )?,
             dependencies,
         })
@@ -193,20 +232,16 @@ impl SourceSetMeasurement {
         model: &CodeModel,
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
+        duplication_config: DuplicationConfig,
+        orphan_files: Option<&OrphanFiles>,
     ) -> Result<SourceSetMeasurement, MetricPluginError> {
-        let measured = Measured::new(model);
-        let boundaries = boundaries.map(|config| {
-            let evaluated = Boundaries::measure(model, &ConfigBoundaryPolicy(config));
-            MetricMeasurement {
-                ratio: evaluated.ratio(),
-                numerator: evaluated.findings().len() as f64,
-                findings_worst_first: evaluated
-                    .findings()
-                    .iter()
-                    .map(BoundaryFindingRow::from)
-                    .collect(),
-            }
-        });
+        let measured = Measured::new(model, boundaries, duplication_config);
+        let boundaries = measured
+            .boundaries
+            .as_ref()
+            .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
+        let orphan_files = orphan_files
+            .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
         let mut external_metrics = BTreeMap::new();
         for plugin in metric_plugins {
             let result = plugin.measure(model)?;
@@ -247,6 +282,12 @@ impl SourceSetMeasurement {
                 &measured.duplication.clone_groups,
                 CloneGroupFinding::new,
             ),
+            clone_families: measured
+                .duplication
+                .clone_families
+                .iter()
+                .map(CloneFamilyFinding::new)
+                .collect(),
             verbosity: MetricMeasurement::from_items(
                 measured.verbosity.ratio(),
                 measured.verbosity.verbose_lines() as f64,
@@ -260,6 +301,7 @@ impl SourceSetMeasurement {
                 ImportCycleFinding::new,
             ),
             boundaries,
+            orphan_files,
             external_metrics,
         })
     }
@@ -278,4 +320,11 @@ impl<F> MetricMeasurement<F> {
             findings_worst_first: items.iter().map(convert).collect(),
         }
     }
+}
+
+fn finding_measurement<'a, T: 'a, R: From<&'a T>>(
+    ratio: f64,
+    findings: &'a [T],
+) -> MetricMeasurement<R> {
+    MetricMeasurement::from_items(ratio, findings.len() as f64, findings, R::from)
 }

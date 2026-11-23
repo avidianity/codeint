@@ -1,10 +1,10 @@
 use crate::ownership::OwnedFinding;
 use crate::{
-    BoundaryFindingRow, CloneGroupFinding, CloneLocation, CognitiveComplexityFinding,
-    DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow,
-    ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow, MeasuredSection, MetricHeader,
-    PackageSection, ReferenceRangeEntry, Report, SourceSetSection, SourceSetSections,
-    UnresolvedImportRow, UnusedDependencyRow,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
+    CognitiveComplexityFinding, DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding,
+    Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow,
+    MeasuredSection, MetricHeader, OrphanFileRow, PackageSection, ReferenceRangeEntry, Report,
+    SourceSetSection, UnresolvedImportRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -52,6 +52,7 @@ pub(crate) const UNUSED_DEPENDENCY_COLUMNS: [&str; 4] =
     ["Package", "Manifest", "Dependency", "Kind"];
 pub(crate) const IMPORTED_DEPENDENCY_COLUMNS: [&str; 4] =
     ["Package", "Manifest", "Dependency", "Importers"];
+pub(crate) const ORPHAN_FILE_COLUMNS: [&str; 3] = ["File", "Kind", "Details"];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
 
 pub(crate) struct Noun {
@@ -95,6 +96,18 @@ pub(crate) const CLONE_GROUP: Noun = Noun {
     one: "Clone group",
     many: "Clone groups",
 };
+pub(crate) const CLONE_FAMILY: Noun = Noun {
+    one: "Clone family",
+    many: "Clone families",
+};
+const DUPLICATED_LINE: Noun = Noun {
+    one: "duplicated line",
+    many: "duplicated lines",
+};
+const LOCATION: Noun = Noun {
+    one: "location",
+    many: "locations",
+};
 pub(crate) const IMPORT_CYCLE: Noun = Noun {
     one: "Import cycle",
     many: "Import cycles",
@@ -102,6 +115,10 @@ pub(crate) const IMPORT_CYCLE: Noun = Noun {
 pub(crate) const FINDING: Noun = Noun {
     one: "Finding",
     many: "Findings",
+};
+pub(crate) const ORPHAN_FILE: Noun = Noun {
+    one: "orphan file",
+    many: "orphan files",
 };
 const UNRESOLVED_IMPORT: Noun = Noun {
     one: "unresolved import",
@@ -239,20 +256,6 @@ fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
     ]
 }
 
-impl SourceSetSections {
-    fn named(&self) -> Vec<(&'static str, &SourceSetSection)> {
-        [
-            ("Production", &self.production),
-            ("Test", &self.test),
-            ("Generated", &self.generated),
-            ("Vendored", &self.vendored),
-        ]
-        .into_iter()
-        .filter_map(|(name, section)| section.as_ref().map(|section| (name, section)))
-        .collect()
-    }
-}
-
 fn measured_summary(measured: &MeasuredSection) -> String {
     let sections = measured.source_sets.named();
     let total = files_and_lines(measured.files, measured.source_lines);
@@ -292,6 +295,19 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
     let erosion = &section.erosion;
     let cognitive = &section.cognitive_complexity;
     let duplication = &section.duplication;
+    let duplication_behind = match &duplication.near_clones {
+        Some(mode) => format!(
+            "{} of {} (near-clones >= {})",
+            CLONE_LINE.counted(duplication.clone_lines),
+            SOURCE_LINE.counted(section.source_lines),
+            format_similarity_percent(mode.min_similarity),
+        ),
+        None => format!(
+            "{} of {}",
+            CLONE_LINE.counted(duplication.clone_lines),
+            SOURCE_LINE.counted(section.source_lines)
+        ),
+    };
     let verbosity = &section.verbosity;
     let import_cycles = &section.import_cycles;
     let mut rows = vec![
@@ -312,15 +328,7 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
                 cognitive.totals.total_cognitive_complexity
             ),
         ),
-        row(
-            "Duplication",
-            &duplication.header,
-            format!(
-                "{} of {}",
-                CLONE_LINE.counted(duplication.totals.clone_lines),
-                SOURCE_LINE.counted(section.source_lines)
-            ),
-        ),
+        row("Duplication", &duplication.header, duplication_behind),
         row(
             "Verbosity",
             &verbosity.header,
@@ -339,7 +347,11 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         ),
     ];
     if let Some(boundaries) = &section.boundaries {
-        let total_findings = boundaries.findings.listed.len() + boundaries.findings.left_out;
+        let total_findings = boundaries
+            .findings
+            .listed
+            .len()
+            .saturating_add(boundaries.findings.left_out);
         rows.push(vec![
             source_set.to_string(),
             "Boundaries".to_string(),
@@ -348,6 +360,21 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
                 "{} across {} resolved imports",
                 FINDING.counted(total_findings as u64),
                 boundaries.resolved_imports
+            ),
+            "not applicable".to_string(),
+        ]);
+    }
+    if let Some(orphan_files) = &section.orphan_files {
+        rows.push(vec![
+            source_set.to_string(),
+            "Orphan files".to_string(),
+            orphan_files.ratio.0.to_string(),
+            format!(
+                "{} of {} evaluated files unreachable ({} unreferenced, {} test-only)",
+                orphan_files.orphan_files,
+                orphan_files.evaluated_files,
+                orphan_files.unreferenced,
+                orphan_files.test_only
             ),
             "not applicable".to_string(),
         ]);
@@ -406,9 +433,16 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
     push_findings(
         &mut blocks,
         "Duplication",
-        &section.duplication.findings,
+        &section.duplication.clone_groups,
         &CLONE_GROUP,
         |listed| list(listed.iter().map(clone_group_item)),
+    );
+    push_findings(
+        &mut blocks,
+        "Clone families",
+        &section.duplication.clone_families,
+        &CLONE_FAMILY,
+        |listed| list(listed.iter().map(clone_family_item)),
     );
     push_findings(
         &mut blocks,
@@ -438,6 +472,15 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             &boundaries.findings,
             &FINDING,
             |listed| findings_table(&BOUNDARY_FINDING_COLUMNS, listed, boundary_finding_row),
+        );
+    }
+    if let Some(orphan_files) = &section.orphan_files {
+        push_findings(
+            &mut blocks,
+            "Orphan files",
+            &orphan_files.findings,
+            &ORPHAN_FILE,
+            |listed| findings_table(&ORPHAN_FILE_COLUMNS, listed, orphan_file_row),
         );
     }
     for external in section.external_metrics.values() {
@@ -546,9 +589,37 @@ pub(crate) fn complex_function_row(function: &CognitiveComplexityFinding) -> Vec
 
 pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     let locations: Vec<String> = group.locations.iter().map(clone_location).collect();
+    let summary = match &group.similarity {
+        Some(similarity) => format!(
+            "{} tokens ({} similar): {}",
+            group.tokens,
+            format_similarity_percent(similarity.0),
+            locations.join(", "),
+        ),
+        None => format!("{} tokens: {}", group.tokens, locations.join(", ")),
+    };
+    with_owners_suffix(summary, &group.owners)
+}
+
+pub(crate) fn format_similarity_percent(ratio: f64) -> String {
+    if ratio > 0.0 && ratio < 0.005 {
+        "<1%".to_owned()
+    } else {
+        format!("{}%", (ratio * 100.0).round() as u64)
+    }
+}
+
+pub(crate) fn clone_family_item(family: &CloneFamilyFinding) -> String {
+    let locations: Vec<String> = family.locations.iter().map(clone_location).collect();
     with_owners_suffix(
-        format!("{} tokens: {}", group.tokens, locations.join(", ")),
-        &group.owners,
+        format!(
+            "{} across {} ({}): {}",
+            DUPLICATED_LINE.counted(family.duplicated_lines),
+            LOCATION.counted(family.locations.len() as u64),
+            CLONE_GROUP.counted(family.clone_group_ids.len() as u64),
+            locations.join(", "),
+        ),
+        &family.owners,
     )
 }
 
@@ -690,6 +761,21 @@ pub(crate) fn imported_dependency_row(row: &ImportedDependencyRow) -> Vec<String
         code(&row.dependency),
         importers.join(", "),
     ]
+}
+
+pub(crate) fn orphan_file_row(row: &OrphanFileRow) -> Vec<String> {
+    let details = if row.test_importers.is_empty() {
+        prose(&row.message)
+    } else {
+        let importers: Vec<String> = row
+            .test_importers
+            .iter()
+            .map(String::as_str)
+            .map(code)
+            .collect();
+        format!("only imported by tests: {}", importers.join(", "))
+    };
+    vec![code(&row.path), prose(&row.kind), details]
 }
 
 fn files_not_measured(report: &Report) -> Vec<String> {

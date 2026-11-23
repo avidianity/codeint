@@ -32,6 +32,11 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
+| `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
+| `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
+| `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
+| `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
 | `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
 | `coupling` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports; see [`codeint coupling`](#codeint-coupling) |
 | `help` | Print the help of codeint, or of the command that follows it |
@@ -636,6 +641,126 @@ codeint guard src/route.ts --format toon
 codeint guard src/route.ts --format json
 ```
 
+### `codeint schema`
+
+| Option | Meaning |
+| ------ | ------- |
+| `--output <FILE>` | Write the schema manifest to this file instead of standard output |
+| `--format <FORMAT>` | The format of the schema manifest: `json`, the default, or `toon` |
+| `-h, --help` | Print the help of `codeint schema` |
+
+`codeint schema` prints a deterministic, machine-readable manifest describing the running binary version, every CLI command and flag, built-in Metrics, Source sets, built-in Language plugins, output formats, MCP tools, and exit codes.
+It is derived directly from live CLI and MCP definitions, works outside a Git repository, and stays 100% local and offline.
+
+```sh exit=0
+codeint schema
+codeint schema --format json
+codeint schema --format toon
+codeint schema --output schema.json
+```
+
+### `codeint config`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]` | A folder inside the Git repository to inspect; the current folder by default |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--resolved` | Print the effective active configuration and per-field provenance |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
+| `--budget <SPEC>` | Override a Budget ratio as `SOURCE_SET.METRIC=RATIO` |
+| `--source-set <SPEC>` | Override a Source set glob as `SOURCE_SET=GLOB` |
+| `--plugin-memory-mb <MB>` | Override `plugin_limits.memory_mb` (1 to 4096) |
+| `--plugin-timeout-ms <MS>` | Override `plugin_limits.timeout_ms` (1 to 300000) |
+| `-h, --help` | Print the help of `codeint config` |
+
+`codeint config --resolved` prints every effective active setting merged from built-in defaults, `codeint.json`, and CLI overrides alongside its provenance (`default`, `file`, or `cli`).
+
+```sh exit=0
+codeint config --resolved
+codeint config --resolved src --format text
+codeint config --resolved --format toon
+codeint config --resolved --format json --budget production.erosion=0.25 --source-set test=spec/** --plugin-memory-mb 128 --plugin-timeout-ms 10000
+```
+
+### `codeint report`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `<INPUT>` | Path to a saved `check` or `diff` JSON report, or `-` to read from standard input |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--output <FILE>` | Write the report to this file instead of standard output |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, `markdown`, or `text` |
+| `-h, --help` | Print the help of `codeint report` |
+
+`codeint report` re-renders a saved `codeint check --format json` or `codeint diff --format json` payload into another format without re-running analysis.
+Pass `-` as `<INPUT>` to read the JSON payload from standard input.
+`--format text` prints the same compact text report as `--format toon`.
+
+```sh exit=0
+codeint report report.json --format toon
+codeint report report.json --format json
+codeint report report.json --format sarif --output report.sarif
+codeint report report.json --format markdown
+codeint report report.json --format text
+```
+
+An input file that does not exist, malformed JSON, or an unsupported report schema version stops the run with exit code 2:
+
+```sh exit=2
+codeint report missing.json --format sarif
+```
+
+### `codeint doctor`
+
+| Argument | Meaning |
+| -------- | ------- |
+| `[PATH]` | A folder to inspect; the current folder by default |
+
+| Option | Meaning |
+| ------ | ------- |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
+| `-h, --help` | Print the help of `codeint doctor` |
+
+`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths and SHA-256 digests.
+It separates passing checks, warnings, and blocking errors, exiting with code 0 when no blocking error is found and code 1 when at least one blocking error is found.
+
+```sh exit=0
+codeint doctor
+codeint doctor src
+codeint doctor --format text
+codeint doctor --format json
+codeint doctor --format toon
+```
+
+### `codeint agent`
+
+| Command | Meaning |
+| ------- | ------- |
+| `status` | Report detected local coding agents and whether `codeint mcp` is registered for each |
+| `install` | Register `codeint mcp` in supported local coding agent configuration files |
+| `help` | Print the help of `codeint agent`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint agent` |
+
+`codeint agent` manages local `codeint mcp` registration for Claude Code (`claude-code`, `.claude.json`), Cursor (`cursor`, `.cursor/mcp.json`), and Codex (`codex`, `.codex/config.toml`).
+Both `status` and `install` accept `--client <claude-code|cursor|codex>`, `--format <text|toon|json>`, and `--config-root <DIR>` (or the `CODEINT_AGENT_HOME` environment variable) to override the home folder.
+`codeint agent install` also accepts `--dry-run` to preview the exact resulting configuration without modifying any file on disk.
+When writing a configuration file, `codeint agent install` preserves unrelated keys and existing MCP servers, writes atomically via a temporary file rename, and leaves already-registered configurations untouched on repeated runs.
+
+```sh exit=0
+CODEINT_AGENT_HOME=.agent-home codeint agent status
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format json
+CODEINT_AGENT_HOME=.agent-home codeint agent status --format toon
+CODEINT_AGENT_HOME=.agent-home codeint agent install --dry-run --client claude-code
+codeint agent help
+```
+
 ### `codeint churn`
 
 | Option | Meaning |
@@ -688,8 +813,8 @@ codeint coupling --format markdown
 
 | Exit code | Meaning |
 | --------- | ------- |
-| `0` | The run succeeded, and no Budget or Regression failed |
-| `1` | The run succeeded, and at least one Budget or Regression failed; codeint still writes the whole report and names each failure on standard error |
+| `0` | The run succeeded, and no Budget, Regression, or blocking doctor error failed |
+| `1` | The run succeeded, and at least one Budget, Regression, or blocking doctor error failed; codeint still writes the whole report and names each failure on standard error |
 | `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, or an invalid `codeint.json`; codeint names the error on standard error |
 
 ## `codeint.json`
@@ -715,6 +840,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
 | `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
+| `budgets.{source_set}.orphan_files` | number from 0 to 1 | The highest Orphan files ratio in this Source set |
 | `budgets.{dependency_metric}` | number from 0 to 1 | The highest ratio of this Dependency hygiene Metric across workspace packages |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
@@ -723,6 +849,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.boundaries` | object | The Regression limit of Boundaries in every Source set |
 | `regression_limits.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
 | `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.orphan_files` | object | The Regression limit of Orphan files in every Source set |
+| `regression_limits.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
+| `regression_limits.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{dependency_metric}` | object | The Regression limit of this Dependency hygiene Metric |
 | `regression_limits.{dependency_metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
 | `regression_limits.{dependency_metric}.new_findings` | string | When new Dependency hygiene Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
@@ -733,6 +862,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.{source_set}.boundaries` | object | The Regression limit of Boundaries in this Source set |
 | `regression_limits.{source_set}.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
 | `regression_limits.{source_set}.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{source_set}.orphan_files` | object | The Regression limit of Orphan files in this Source set |
+| `regression_limits.{source_set}.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
+| `regression_limits.{source_set}.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
@@ -758,6 +890,10 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
 | `dependencies` | object | Dependency hygiene settings; see [Dependencies](#dependencies) |
 | `dependencies.ignore` | list of strings | Canonical external package names excluded from unused, unlisted, and dev-in-production dependency Findings; empty by default |
+| `duplication` | object | Settings for Duplication detection, including opt-in shingle-based near-clone detection; see [Duplication](#duplication) |
+| `duplication.near_clones` | boolean | When `true`, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; `false` by default |
+| `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
+| `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection; empty by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -773,7 +909,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1075,6 +1211,59 @@ Set independent Budgets under `budgets.unused_dependencies`, `budgets.unlisted_d
 codeint check
 ```
 
+### Duplication
+
+By default, Duplication reports exact normalized Clone groups so calibrated Reference ranges stay unchanged.
+Set `duplication.near_clones` to `true` to also detect near-duplicate blocks that differ by small insertions, deletions, or edits using shingle Jaccard similarity at or above `duplication.min_similarity` (`0.85` by default, in `(0, 1]`).
+Near-clone mode honors the same `import-or-export`, minimum token, and minimum distinct token rules as exact Clone groups, clusters overlapping exact and near-clone fragments across three or more locations into Clone families, and keeps Verbosity coupled only to exact Clone groups.
+
+```json codeint.json
+{
+  "duplication": {
+    "near_clones": true,
+    "min_similarity": 0.85
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+### Orphan files
+
+Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`) and configured `entry_points` globs in `codeint.json`.
+Production files unreachable from any Production entry point are reported as `unreferenced`, or as `test-only` when still imported by Test files.
+Generated and Vendored Source sets are excluded, and when no entry points exist for a language or isolated Workspace package, Orphan files reporting stays silently inactive.
+In `codeint diff`, each Orphan files Finding carries a stable `id` so pre-existing orphans remain unchanged while newly introduced orphans fail by default (`new_findings: "any_new_finding"`).
+
+```json codeint.json
+{
+  "entry_points": ["src/*.ts"],
+  "budgets": {
+    "production": {
+      "orphan_files": 0
+    }
+  },
+  "regression_limits": {
+    "orphan_files": {
+      "ratio_rise": 0.01,
+      "new_findings": "any_new_finding"
+    },
+    "production": {
+      "orphan_files": {
+        "ratio_rise": 0,
+        "new_findings": "any_new_finding"
+      }
+    }
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
 ## Result cache
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
@@ -1255,6 +1444,8 @@ Each Metric object has these fields:
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
+- `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in `codeint.json`; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
+- `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`, and `unlisted_clone_family_group_ids` when listed `clone_groups` belong to unlisted Clone families.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
 
 `import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
@@ -1265,7 +1456,8 @@ Each Finding is an object with an `id`, followed by fields that depend on its ki
 
 - An eroded function has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cyclomatic_complexity`, `cognitive_complexity`, `source_lines`, and `function_mass`.
 - A complex function (Cognitive complexity) has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cognitive_complexity`, `cyclomatic_complexity`, and `source_lines`.
-- A Clone group has `tokens` and `locations`; each location has `path`, `start_line`, and `end_line`.
+- A Clone group has `tokens`, optional `similarity` (present on near-clone Findings as a ratio in `(0, 1]`), and `locations`; each location has `path`, `start_line`, and `end_line`.
+- A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.
 - An Import cycle has `modules`, the paths of the modules in the cycle.
 
@@ -1277,6 +1469,7 @@ The content behind the `id` of each kind:
 
 - An eroded or complex function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
 - A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
+- A Clone family: the sorted normalized token sequences of its constituent Clone groups and the canonical path of each member location.
 - A Flagged line: the rule and the tokens of the line.
 - An Import cycle: the paths of its modules.
 
@@ -1461,7 +1654,7 @@ The tool lists one rule per Metric, and each result names its Metric in `ruleId`
 | -------- | ------- | -------- |
 | `erosion` | An eroded function | The line where the function starts |
 | `cognitive_complexity` | A function with cognitive complexity over 15 | The line where the function starts |
-| `duplication` | A Clone group | The first fragment, from its start line to its end line; the other fragments are related locations |
+| `duplication` | A Clone group or Clone family | The first fragment or canonical location, from its start line to its end line; the other fragments or locations are related locations |
 | `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
 | `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
 

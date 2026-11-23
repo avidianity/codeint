@@ -2728,7 +2728,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -3959,7 +3959,7 @@ fn a_budget_for_an_unknown_metric_names_the_metrics_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budgets": { "production": { "complexity": 0.1 } } }"#,
         "codeint.json has an unknown key budgets.production.complexity; \
-         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries",
+         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries, orphan_files",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -5036,5 +5036,314 @@ fn scanner_languages_report_erosion_names_and_cognitive_complexity_end_to_end() 
             ("src/PhpLogic.php", Some("phpDeepCheck"), 21),
             ("src/py_logic.py", Some("py_deep_check"), 21),
         ]
+    );
+}
+
+fn family_location_ranges(family: &serde_json::Value) -> Vec<(&str, u64, u64)> {
+    family["locations"]
+        .as_array()
+        .expect("locations")
+        .iter()
+        .map(|entry| {
+            (
+                entry["path"].as_str().expect("path"),
+                entry["start_line"].as_u64().expect("start_line"),
+                entry["end_line"].as_u64().expect("end_line"),
+            )
+        })
+        .collect()
+}
+
+fn sarif_duplication_ids(sarif_output: &Output) -> Vec<String> {
+    let sarif: serde_json::Value =
+        serde_json::from_str(&stdout(sarif_output)).expect("SARIF parses");
+    sarif["runs"][0]["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter(|result| result["ruleId"] == "duplication")
+        .map(|result| {
+            result["partialFingerprints"]["codeintFindingId"]
+                .as_str()
+                .expect("codeintFindingId")
+                .to_owned()
+        })
+        .collect()
+}
+
+fn repo_with_files(files: &[(&str, String)]) -> Repository {
+    let repository = Repository::new();
+    for (path, content) in files {
+        repository.write(path, content);
+    }
+    repository.commit_all();
+    repository
+}
+
+fn check_json_and_sarif_duplication_ids(
+    repository: &Repository,
+) -> (serde_json::Value, Vec<String>) {
+    let json_output = repository.codeint(&["check", "--format", "json"]);
+    let sarif_output = repository.codeint(&["check", "--format", "sarif"]);
+    assert_success(&json_output);
+    assert_success(&sarif_output);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout(&json_output)).expect("JSON parses");
+    (report, sarif_duplication_ids(&sarif_output))
+}
+
+fn with_currency(code: &str, body: &str) -> String {
+    format!("const currency = '{code}';\n{body}")
+}
+
+fn production_duplication_and_families(
+    report: &serde_json::Value,
+) -> (&serde_json::Value, &[serde_json::Value]) {
+    let duplication = &report["source_sets"]["production"]["duplication"];
+    let families = duplication["clone_families"]
+        .as_array()
+        .expect("clone_families array");
+    (duplication, families.as_slice())
+}
+
+fn clone_family_ids(report: &serde_json::Value) -> Vec<String> {
+    let (_, families) = production_duplication_and_families(report);
+    families
+        .iter()
+        .map(|family| family["id"].as_str().expect("id").to_owned())
+        .collect()
+}
+
+fn check_clone_families_fixture(
+    files: &[(&str, String)],
+) -> (Repository, serde_json::Value, Vec<String>) {
+    let repository = repo_with_files(files);
+    let (report, sarif_ids) = check_json_and_sarif_duplication_ids(&repository);
+    (repository, report, sarif_ids)
+}
+
+fn three_cart_files(zeta_currency: Option<&str>) -> Vec<(&'static str, String)> {
+    let zeta = match zeta_currency {
+        Some(code) => with_currency(code, CART_TOTAL),
+        None => CART_TOTAL.to_owned(),
+    };
+    vec![
+        ("src/zeta.ts", zeta),
+        ("src/mid.ts", with_currency("EUR", ORDER_TOTAL_RENAMED)),
+        ("src/alpha.ts", CART_TOTAL.to_owned()),
+    ]
+}
+
+#[test]
+fn three_plus_copies_cluster_into_worst_first_clone_families_across_formats_with_stable_ids() {
+    let mut files = three_cart_files(None);
+    files.extend([
+        ("src/area_c.ts", AREA_OF_75_TOKENS.to_owned()),
+        ("src/area_a.ts", AREA_OF_75_TOKENS.to_owned()),
+        ("src/area_b.ts", AREA_OF_75_TOKENS.to_owned()),
+    ]);
+    let (repository, report, sarif_ids) = check_clone_families_fixture(&files);
+    let toon_output = repository.codeint(&["check"]);
+    let markdown_output = repository.codeint(&["check", "--format", "markdown"]);
+    assert_success(&toon_output);
+    assert_success(&markdown_output);
+
+    let (duplication, families) = production_duplication_and_families(&report);
+    let verbosity = &report["source_sets"]["production"]["verbosity"];
+    assert_eq!(duplication["clone_lines"], 57);
+    assert_eq!(duplication["ratio"], 0.9828);
+    assert_eq!(verbosity["clone_lines"], 57);
+    assert_eq!(verbosity["ratio"], 0.9828);
+    assert_eq!(duplication["reference_range"]["low"], 0.017);
+    assert_eq!(duplication["reference_range"]["high"], 0.346);
+
+    assert_eq!(families.len(), 2);
+    assert_eq!(families[0]["duplicated_lines"], 30);
+    assert_eq!(families[1]["duplicated_lines"], 27);
+    assert_eq!(
+        family_location_ranges(&families[0]),
+        [
+            ("src/area_a.ts", 1, 10),
+            ("src/area_b.ts", 1, 10),
+            ("src/area_c.ts", 1, 10),
+        ]
+    );
+    assert_eq!(
+        family_location_ranges(&families[1]),
+        [
+            ("src/alpha.ts", 1, 9),
+            ("src/mid.ts", 2, 10),
+            ("src/zeta.ts", 1, 9),
+        ]
+    );
+    let initial_ids = clone_family_ids(&report);
+    assert_eq!(sarif_ids, initial_ids);
+
+    let toon_duplication = production_section(&toon_output, "duplication");
+    assert!(
+        toon_duplication.contains("clone_families[2]:")
+            && toon_duplication.contains("duplicated_lines: 30")
+            && toon_duplication.contains("duplicated_lines: 27"),
+        "unexpected TOON duplication section:\n{toon_duplication}"
+    );
+
+    let markdown = stdout(&markdown_output);
+    assert!(
+        markdown.contains("### Clone families\n\n")
+            && markdown.contains(
+                "- 30 duplicated lines across 3 locations (1 Clone group): `src/area_a.ts:1-10`, `src/area_b.ts:1-10`, `src/area_c.ts:1-10`"
+            )
+            && markdown.contains(
+                "- 27 duplicated lines across 3 locations (1 Clone group): `src/alpha.ts:1-9`, `src/mid.ts:2-10`, `src/zeta.ts:1-9`"
+            ),
+        "unexpected Markdown:\n{markdown}"
+    );
+
+    repository.write(
+        "src/zeta.ts",
+        &format!("export function marker() {{ return 1 }}\n\n{CART_TOTAL}"),
+    );
+    let (shifted_report, _) = check_json_and_sarif_duplication_ids(&repository);
+    assert_eq!(clone_family_ids(&shifted_report), initial_ids);
+}
+
+#[test]
+fn overlapping_exact_clone_groups_across_three_files_collapse_into_one_clone_family_without_double_counting()
+ {
+    let (_, report, sarif_ids) = check_clone_families_fixture(&three_cart_files(Some("USD")));
+    let (duplication, families) = production_duplication_and_families(&report);
+    assert_eq!(duplication["clone_lines"], 29);
+    assert_eq!(
+        duplication["clone_groups"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(families.len(), 1);
+    assert_eq!(families[0]["duplicated_lines"], 29);
+    assert_eq!(
+        families[0]["clone_group_ids"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        family_location_ranges(&families[0]),
+        [
+            ("src/alpha.ts", 1, 9),
+            ("src/mid.ts", 1, 10),
+            ("src/zeta.ts", 1, 10),
+        ]
+    );
+    assert_eq!(sarif_ids, clone_family_ids(&report));
+}
+
+fn write_near_clone_config(repository: &Repository, min_similarity: f64) {
+    repository.write(
+        "codeint.json",
+        &format!(
+            r#"{{ "duplication": {{ "near_clones": true, "min_similarity": {min_similarity} }} }}"#
+        ),
+    );
+}
+
+fn with_inserted_statement(source: &str, after: &str, statement: &str) -> String {
+    source.replacen(after, &format!("{after}{statement}"), 1)
+}
+
+#[test]
+fn near_clone_detection_catches_one_line_edit_when_enabled_preserves_verbosity_and_clusters_families()
+ {
+    let edited = with_inserted_statement(
+        CART_TOTAL,
+        "  let sum = 0;\n",
+        "  console.log(items.length);\n",
+    );
+    let second_edited = with_inserted_statement(
+        ORDER_TOTAL_RENAMED,
+        "  let result = 100;\n",
+        "  console.log(lines.length);\n",
+    );
+    let repository = repo_with_files(&[
+        ("src/cart.ts", CART_TOTAL.to_owned()),
+        ("src/edited.ts", edited),
+        ("src/other.ts", AREA_OF_75_TOKENS.to_owned()),
+    ]);
+
+    let default_output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&default_output);
+    let default_report: serde_json::Value =
+        serde_json::from_str(&stdout(&default_output)).expect("JSON parses");
+    assert_eq!(
+        default_report["source_sets"]["production"]["duplication"]["clone_lines"],
+        0
+    );
+    assert!(
+        default_report["source_sets"]["production"]["duplication"]
+            .get("near_clones")
+            .is_none()
+    );
+
+    write_near_clone_config(&repository, 0.85);
+    let json_out = repository.codeint(&["check", "--format", "json"]);
+    let md_out = repository.codeint(&["check", "--format", "markdown"]);
+    let sarif_out = repository.codeint(&["check", "--format", "sarif"]);
+    assert_success(&json_out);
+    assert_success(&md_out);
+    assert_success(&sarif_out);
+
+    let report: serde_json::Value = serde_json::from_str(&stdout(&json_out)).expect("JSON parses");
+    let dup = &report["source_sets"]["production"]["duplication"];
+    let verb = &report["source_sets"]["production"]["verbosity"];
+    assert_eq!(dup["near_clones"]["min_similarity"], 0.85);
+    assert!(
+        dup["reference_range"]
+            .as_str()
+            .is_some_and(|text| text.contains("near-clone"))
+    );
+    assert_eq!(dup["clone_lines"], 19);
+    assert_eq!(verb["clone_lines"], 0);
+    assert_eq!(verb["reference_range"]["low"], 0.018);
+
+    let groups = dup["clone_groups"].as_array().expect("clone_groups");
+    assert_eq!(groups.len(), 1);
+    let similarity = groups[0]["similarity"]
+        .as_f64()
+        .expect("near-clone similarity");
+    assert!((0.85..1.0).contains(&similarity));
+    let pct = (similarity * 100.0).round() as u64;
+    let markdown = stdout(&md_out);
+    assert!(
+        markdown.contains(&format!("({pct}% similar)")),
+        "expected similarity percentage in Markdown:\n{markdown}"
+    );
+    let sarif = stdout(&sarif_out);
+    assert!(
+        sarif.contains(&format!("({pct}% similar)")),
+        "expected similarity percentage in SARIF:\n{sarif}"
+    );
+
+    repository.write("src/third.ts", &second_edited);
+    let (family_report, sarif_ids) = check_json_and_sarif_duplication_ids(&repository);
+    let (_, families) = production_duplication_and_families(&family_report);
+    assert_eq!(families.len(), 1);
+    assert_eq!(
+        family_location_ranges(&families[0]),
+        [
+            ("src/cart.ts", 1, 9),
+            ("src/edited.ts", 1, 10),
+            ("src/third.ts", 1, 10),
+        ]
+    );
+    assert_eq!(sarif_ids, clone_family_ids(&family_report));
+}
+
+#[test]
+fn invalid_near_clone_min_similarity_stops_check_with_exit_code_2() {
+    let repository = repo_with_files(&[("src/main.ts", "export const value = 1;\n".to_owned())]);
+    write_near_clone_config(&repository, 0.0);
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        "codeint: codeint.json: duplication.min_similarity must be greater than 0 and at most 1, not 0\n\
+         Set the value to a ratio greater than 0 and at most 1, such as 0.85.\n",
     );
 }

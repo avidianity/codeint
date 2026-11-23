@@ -9,23 +9,10 @@ use crate::finding_id::{FindingId, FindingIds};
 #[cfg(test)]
 mod tests;
 
-pub const UNUSED_DEPENDENCIES_METRIC_KEY: &str = "unused_dependencies";
-pub const UNLISTED_DEPENDENCIES_METRIC_KEY: &str = "unlisted_dependencies";
-pub const DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY: &str = "dev_in_production_dependencies";
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum UnusedDependencyKind {
     Runtime,
     Dev,
-}
-
-impl UnusedDependencyKind {
-    pub fn key(self) -> &'static str {
-        match self {
-            UnusedDependencyKind::Runtime => "runtime",
-            UnusedDependencyKind::Dev => "dev",
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +40,19 @@ pub struct DevInProductionDependencyFinding {
     pub manifest: RepoPath,
     pub dependency: String,
     pub importers: Vec<RepoPath>,
+}
+
+pub const UNUSED_DEPENDENCIES_METRIC_KEY: &str = "unused_dependencies";
+pub const UNLISTED_DEPENDENCIES_METRIC_KEY: &str = "unlisted_dependencies";
+pub const DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY: &str = "dev_in_production_dependencies";
+
+impl UnusedDependencyKind {
+    pub fn key(self) -> &'static str {
+        match self {
+            UnusedDependencyKind::Runtime => "runtime",
+            UnusedDependencyKind::Dev => "dev",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

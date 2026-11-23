@@ -403,20 +403,20 @@ fn rust_builtins_external_crate_normalization_and_workspace_imports() {
     .into_iter()
     .map(|p| RepoPath::new(p).expect("valid"))
     .collect();
-    let manifests = vec![
-        Manifest {
-            path: "Cargo.toml".to_owned(),
-            text: "[workspace]\nmembers = [\"crates/*\"]\n".to_owned(),
-        },
-        Manifest {
-            path: "crates/core/Cargo.toml".to_owned(),
-            text: "[package]\nname = \"demo-core\"\n".to_owned(),
-        },
-        Manifest {
-            path: "crates/app/Cargo.toml".to_owned(),
-            text: "[package]\nname = \"demo-app\"\n".to_owned(),
-        },
-    ];
+    let manifests: Vec<Manifest> = [
+        ("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n"),
+        (
+            "crates/core/Cargo.toml",
+            "[package]\nname = \"demo-core\"\n",
+        ),
+        ("crates/app/Cargo.toml", "[package]\nname = \"demo-app\"\n"),
+    ]
+    .into_iter()
+    .map(|(path, text)| Manifest {
+        path: path.to_owned(),
+        text: text.to_owned(),
+    })
+    .collect();
     let requests: Vec<ImportRequest> = [
         ("crates/app/src/main.rs", "use:std::collections::HashMap"),
         ("crates/app/src/main.rs", "use:core::fmt"),

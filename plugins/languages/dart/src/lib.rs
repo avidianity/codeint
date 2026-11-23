@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod dependencies;
+mod entry_points;
 mod functions;
 mod imports;
 mod lexer;
@@ -17,6 +18,8 @@ use codeint_model::language::{
 };
 use codeint_model::token_text_hash;
 
+use crate::dependencies::extract_declared;
+use crate::entry_points::discover as discover_entry_points;
 use crate::lexer::{DartKind, DartToken};
 
 pub use rules::flagged_line_rules;
@@ -73,7 +76,7 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
 
 impl Guest for Dart {
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        dependencies::extract_declared(&manifests)
+        extract_declared(&manifests)
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
@@ -96,8 +99,8 @@ impl Guest for Dart {
         lower_dart(&path, &text)
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        discover_entry_points(&repository_paths, &manifests)
     }
 
     fn extensions() -> Vec<String> {

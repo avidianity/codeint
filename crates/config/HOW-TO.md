@@ -10,6 +10,7 @@ let configuration = read_configuration(repository.root())?;
 ```
 
 - `read_configuration` reads `codeint.json` at the root of the repository, so pass the root of the working tree, never the folder the user named.
+- `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
 - It returns `Configuration::default()` when the file is absent; codeint runs with defaults.
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.
@@ -104,6 +105,12 @@ for declaration in &configuration.plugins {
 - A `sha256` that is not 64 hexadecimal characters fails with `ConfigurationFileError::InvalidSha256` (exit code 2).
 - A `url` that does not use `https://` fails with `ConfigurationFileError::NonHttpsPluginUrl` (exit code 2).
 - `plugins` is empty by default and omitted when serialized as empty, so `codeint init` leaves it out.
+
+## Configure Duplication near-clone detection
+
+- `configuration.duplication.near_clones` is `false` by default, keeping exact Clone groups as the default behavior.
+- `configuration.duplication.min_similarity` is a validated `MinSimilarity` in `(0.0, 1.0]`, defaulting to `0.85`.
+- Any `min_similarity` outside `(0.0, 1.0]` fails `read_configuration` with `ConfigurationFileError::OutOfExclusiveMinRange` (exit code 2).
 
 ## Add a setting
 

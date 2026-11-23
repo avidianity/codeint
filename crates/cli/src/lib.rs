@@ -1,15 +1,19 @@
 #![forbid(unsafe_code)]
 
+mod agent;
 mod check;
 mod churn;
 mod commit_measurement;
+mod config;
 mod coupling;
 mod diff;
+mod doctor;
 mod guard;
 mod impact;
 mod init;
 mod mcp;
 mod remedy;
+mod report;
 mod trace;
 mod trend;
 mod update;
@@ -21,18 +25,22 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, ReportDestination, read_invocation,
+    AgentCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, ReportDestination, ReportInput,
+    ReportRenderFormat, cli_schema, read_invocation,
 };
 use codeint_git::ResultCache;
-use codeint_report::ReportError;
+use codeint_report::{ExitCodeSchema, ReportError};
 
 pub use codeint_config::{
-    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, CouplingRatio, CouplingRatioError,
-    CouplingSettings, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
-    TraceFormat, TrendFormat, TrendRange,
+    AgentClient, AgentFormat, BudgetOverride, CalendarDay, ChurnFormat, ChurnSince, ChurnWindow,
+    ConfigFormat, ConfigOverrides, CouplingRatio, CouplingRatioError, CouplingSettings,
+    DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
+    SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat, TrendRange,
 };
 pub use codeint_report::{
-    ChurnReport, CouplingReport, DiffReport, GuardReport, ImpactReport, Report, TraceReport,
+    AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
+    ChurnReport, ConfigReport, CouplingReport, DiffReport, DoctorCheck, DoctorReport, DoctorStatus,
+    DoctorSummary, GuardReport, ImpactReport, Report, SavedReport, SchemaReport, TraceReport,
     TrendReport,
 };
 
@@ -248,6 +256,44 @@ pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> 
     guard::guard(folder, target).map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)))
 }
 
+pub fn schema() -> SchemaReport {
+    SchemaReport::build(
+        cli_schema(),
+        check::built_in_languages(),
+        mcp::tool_definitions(),
+        exit_codes(),
+    )
+}
+
+pub fn resolved_config(
+    folder: &Path,
+    overrides: &ConfigOverrides,
+) -> Result<ConfigReport, CodeintError> {
+    config::resolved_config(folder, overrides)
+        .map_err(|err| CodeintError::from_cli_error(CliError::ConfigCommand(err)))
+}
+
+pub fn doctor(folder: &Path, plugin_host: &PluginHostConfig) -> DoctorReport {
+    doctor::doctor(folder, plugin_host)
+}
+
+pub fn agent_status(
+    config_root: &Path,
+    client: Option<AgentClient>,
+) -> Result<AgentStatusReport, CodeintError> {
+    agent::status(config_root, client)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Agent(err)))
+}
+
+pub fn agent_install(
+    config_root: &Path,
+    client: Option<AgentClient>,
+    dry_run: bool,
+) -> Result<AgentInstallReport, CodeintError> {
+    agent::install(config_root, client, dry_run)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Agent(err)))
+}
+
 pub fn churn(folder: &Path, options: &ChurnOptions) -> Result<ChurnReport, CodeintError> {
     churn::churn(
         folder,
@@ -273,9 +319,13 @@ enum CliError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
+    ConfigCommand(#[from] config::ConfigCommandError),
+    #[error(transparent)]
     Check(#[from] check::CheckError),
     #[error(transparent)]
     Guard(#[from] guard::GuardError),
+    #[error(transparent)]
+    Agent(#[from] agent::AgentError),
     #[error(transparent)]
     Impact(#[from] impact::ImpactCommandError),
     #[error(transparent)]
@@ -286,6 +336,8 @@ enum CliError {
     Update(#[from] update::UpdateError),
     #[error(transparent)]
     Report(#[from] ReportError),
+    #[error(transparent)]
+    Rerender(#[from] report::RerenderError),
     #[error("cannot write the report to standard output")]
     Output(#[source] std::io::Error),
     #[error("cannot write the report to {}", path.display())]
@@ -296,8 +348,29 @@ enum CliError {
     },
 }
 
+const SUCCESS: u8 = 0;
 const BUDGET_OR_REGRESSION_FAILED: u8 = 1;
 const OPERATIONAL_ERROR: u8 = 2;
+
+fn exit_codes() -> Vec<ExitCodeSchema> {
+    vec![
+        ExitCodeSchema {
+            code: SUCCESS,
+            name: "success",
+            description: "The run succeeded, and no Budget, Regression, or codeint doctor blocking error failed.",
+        },
+        ExitCodeSchema {
+            code: BUDGET_OR_REGRESSION_FAILED,
+            name: "budget_or_regression_failed",
+            description: "The run succeeded, and at least one Budget, Regression, or codeint doctor blocking error failed.",
+        },
+        ExitCodeSchema {
+            code: OPERATIONAL_ERROR,
+            name: "operational_error",
+            description: "An operational error stopped the run, such as an invalid option, missing Git ref, or invalid codeint.json.",
+        },
+    ]
+}
 
 enum Outcome {
     Passed,
@@ -440,6 +513,12 @@ fn run_auxiliary_command(command: Command) -> Result<Outcome, CliError> {
             version,
             release_base_url,
         } => run_update(check_only, version.as_deref(), release_base_url.as_deref()),
+        other => run_tooling_command(other),
+    }
+}
+
+fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
+    match command {
         Command::Mcp {
             folder,
             result_cache,
@@ -450,6 +529,26 @@ fn run_auxiliary_command(command: Command) -> Result<Outcome, CliError> {
             target,
             format,
         } => run_guard(&folder, &target, format),
+        Command::Schema {
+            destination,
+            format,
+        } => run_schema(&destination, format),
+        Command::Config {
+            folder,
+            format,
+            overrides,
+        } => run_config(&folder, format, &overrides),
+        Command::Report {
+            input,
+            destination,
+            format,
+        } => run_report(&input, &destination, format),
+        Command::Doctor {
+            folder,
+            format,
+            plugin_host,
+        } => run_doctor(&folder, format, &plugin_host),
+        Command::Agent(command) => run_agent(command),
         Command::Churn {
             folder,
             window,
@@ -480,8 +579,74 @@ fn run_auxiliary_command(command: Command) -> Result<Outcome, CliError> {
             format,
             &plugin_host,
         ),
-        _ => unreachable!("analysis commands are handled by run_command"),
+        Command::Check { .. }
+        | Command::Diff { .. }
+        | Command::Trend { .. }
+        | Command::Impact { .. }
+        | Command::Trace { .. }
+        | Command::Init { .. }
+        | Command::Update { .. } => unreachable!("handled by run"),
     }
+}
+
+fn run_agent(command: AgentCommand) -> Result<Outcome, CliError> {
+    match command {
+        AgentCommand::Status {
+            config_root,
+            client,
+            format,
+        } => {
+            let report = agent::status(&config_root, client)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
+        AgentCommand::Install {
+            config_root,
+            client,
+            dry_run,
+            format,
+        } => {
+            let report = agent::install(&config_root, client, dry_run)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
+    }
+}
+
+fn run_schema(destination: &ReportDestination, format: SchemaFormat) -> Result<Outcome, CliError> {
+    let report = schema();
+    write_report(&report.render(format)?, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_config(
+    folder: &Path,
+    format: ConfigFormat,
+    overrides: &ConfigOverrides,
+) -> Result<Outcome, CliError> {
+    let report = config::resolved_config(folder, overrides)?;
+    print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::Passed)
+}
+
+fn run_report(
+    input: &ReportInput,
+    destination: &ReportDestination,
+    format: ReportRenderFormat,
+) -> Result<Outcome, CliError> {
+    let rendered = report::rerender(input, format)?;
+    write_report(&rendered, destination)?;
+    Ok(Outcome::Passed)
+}
+
+fn run_doctor(
+    folder: &Path,
+    format: DoctorFormat,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    let report = doctor::doctor(folder, plugin_host);
+    print_report(&format!("{}\n", report.render(format)?))?;
+    Ok(Outcome::from_failures(report.blocking_error_messages()))
 }
 
 fn run_churn(

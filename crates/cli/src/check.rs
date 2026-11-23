@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 use std::string::FromUtf8Error;
 
 use codeint_config::{
-    Codeowners, CodeownersError, Configuration, ConfigurationFileError, FindingsShown,
+    Codeowners, CodeownersError, Configuration, ConfigurationFileError, EntryPoints, FindingsShown,
     LanguageCoverage, OwnerFilter, PluginHostConfig, SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
@@ -12,6 +12,7 @@ use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
+use codeint_metrics::OrphanFiles;
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
     LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, Package,
@@ -22,7 +23,7 @@ use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
+use codeint_report::{LanguageSchema, MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
@@ -41,11 +42,11 @@ pub(crate) enum CheckError {
     #[error("a Language plugin supplies an invalid Reference range")]
     ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
-    LanguagePlugin(#[from] LanguagePluginError),
-    #[error(transparent)]
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     PluginHost(#[from] PluginHostError),
+    #[error(transparent)]
+    LanguagePlugin(#[from] LanguagePluginError),
     #[error(transparent)]
     MetricPlugin(#[from] MetricPluginError),
     #[error("{}", format_extension_conflict(first, second, extension, path.as_ref()))]
@@ -233,6 +234,16 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 5] = 
     },
 ];
 
+pub(crate) fn built_in_languages() -> Vec<LanguageSchema> {
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .map(|named| LanguageSchema {
+            name: named.name.to_owned(),
+            extensions: named.plugin.extensions(),
+        })
+        .collect()
+}
+
 pub(crate) struct LoadedPlugins {
     external_languages: Vec<(String, WasmLanguagePlugin)>,
     external_metrics: Vec<(String, WasmMetricPlugin)>,
@@ -401,6 +412,34 @@ fn check_with(
     )
 }
 
+pub(crate) struct MeasuredSnapshot {
+    pub(crate) languages: Vec<MeasuredLanguage>,
+    pub(crate) entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
+}
+
+pub(crate) fn compute_orphan_files(
+    snapshot: &MeasuredSnapshot,
+    selected: Option<&SelectedPackage>,
+) -> (Option<OrphanFiles>, BTreeMap<String, OrphanFiles>) {
+    let mut by_language = BTreeMap::new();
+    for language in &snapshot.languages {
+        let entry_points = snapshot
+            .entry_points_by_language
+            .get(&language.plugin)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if let Some(measured) =
+            OrphanFiles::measure_filtered(&language.model, entry_points, |path| {
+                selected.is_none_or(|pkg| pkg.matches(language.model.workspace.package_of(path)))
+            })
+        {
+            by_language.insert(language.plugin.clone(), measured);
+        }
+    }
+    let total = OrphanFiles::merge(by_language.values().cloned());
+    (total, by_language)
+}
+
 fn check_loaded(
     repository: &Repository,
     configuration: &Configuration,
@@ -411,14 +450,20 @@ fn check_loaded(
     ownership: OwnershipOptions<'_>,
 ) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
-    let mut languages = measure_with(&tree, plugins, configuration)?;
-    if let Some(requested) = package {
-        let workspace = workspace_of_languages(&languages);
-        let selected = select_workspace_package(&workspace, requested)?;
-        filter_languages_to_package(&mut languages, &selected);
+    let mut snapshot = measure_snapshot(&tree, plugins, configuration)?;
+    let selected = if let Some(requested) = package {
+        let workspace = workspace_of_languages(&snapshot.languages);
+        Some(select_workspace_package(&workspace, requested)?)
+    } else {
+        None
+    };
+    let (orphan_files, orphan_files_by_language) =
+        compute_orphan_files(&snapshot, selected.as_ref());
+    if let Some(selected) = &selected {
+        filter_languages_to_package(&mut snapshot.languages, selected);
     }
     Ok(Report::summarize_with_options(
-        languages,
+        snapshot.languages,
         tree.submodules().to_vec(),
         ReportOptions {
             findings,
@@ -426,6 +471,9 @@ fn check_loaded(
             metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
             dependencies: &configuration.dependencies,
+            duplication: configuration.duplication,
+            orphan_files: orphan_files.as_ref(),
+            orphan_files_by_language: Some(&orphan_files_by_language),
             ownership,
         },
     )?)
@@ -436,6 +484,14 @@ pub(crate) fn measure_with(
     plugins: &[NamedLanguagePlugin<'_>],
     configuration: &Configuration,
 ) -> Result<Vec<MeasuredLanguage>, CheckError> {
+    Ok(measure_snapshot(tree, plugins, configuration)?.languages)
+}
+
+pub(crate) fn measure_snapshot(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    configuration: &Configuration,
+) -> Result<MeasuredSnapshot, CheckError> {
     let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
     let coverage = configuration.languages.coverage_of(&names)?;
     measure(
@@ -443,6 +499,7 @@ pub(crate) fn measure_with(
         plugins,
         &coverage,
         &configuration.source_set_overrides,
+        &configuration.entry_points,
     )
 }
 
@@ -451,40 +508,26 @@ fn measure(
     plugins: &[NamedLanguagePlugin<'_>],
     coverage: &[LanguageCoverage<'_>],
     overrides: &SourceSetOverrides,
-) -> Result<Vec<MeasuredLanguage>, CheckError> {
+    configured_entry_points: &EntryPoints,
+) -> Result<MeasuredSnapshot, CheckError> {
     let covered_files = assign_files_to_plugins(tree, plugins, coverage)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let workspace = find_workspace(plugins, &manifests_by_plugin)?;
-    let mut models: Vec<CodeModel> = plugins
-        .iter()
-        .map(|_| CodeModel {
-            workspace: workspace.clone(),
-            ..CodeModel::default()
-        })
-        .collect();
-    let outcomes = lower_covered_files(tree, &covered_files, plugins, overrides)?;
-    for (index, outcome) in outcomes {
-        let model = &mut models[index];
-        match outcome {
-            LoweredFile::Measured(file) => model.files.push(file),
-            LoweredFile::DeclarationOnly(path) => model.declaration_only.push(path),
-            LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
-        }
-    }
-    plugins
-        .iter()
-        .zip(models)
-        .zip(manifests_by_plugin)
-        .map(|((named, model), manifests)| {
-            finalize_language_model(named, model, manifests, tree.files())
-        })
-        .collect()
+    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides)?;
+    let models = collect_plugin_models(plugins.len(), workspace, outcomes);
+    resolve_measured_snapshot(
+        tree,
+        plugins,
+        models,
+        manifests_by_plugin,
+        configured_entry_points,
+    )
 }
 
 fn lower_covered_files(
     tree: &Snapshot,
-    covered_files: &[(&RepoPath, usize)],
     plugins: &[NamedLanguagePlugin<'_>],
+    covered_files: &[(&RepoPath, usize)],
     overrides: &SourceSetOverrides,
 ) -> Result<Vec<(usize, LoweredFile)>, CheckError> {
     if let Some(reader) = tree.working_tree_reader() {
@@ -512,6 +555,67 @@ fn lower_covered_files(
             )
         })
         .collect())
+}
+
+fn collect_plugin_models(
+    plugin_count: usize,
+    workspace: Workspace,
+    outcomes: Vec<(usize, LoweredFile)>,
+) -> Vec<CodeModel> {
+    let mut models: Vec<CodeModel> = (0..plugin_count)
+        .map(|_| CodeModel {
+            workspace: workspace.clone(),
+            ..CodeModel::default()
+        })
+        .collect();
+    for (index, outcome) in outcomes {
+        let model = &mut models[index];
+        match outcome {
+            LoweredFile::Measured(file) => model.files.push(file),
+            LoweredFile::DeclarationOnly(path) => model.declaration_only.push(path),
+            LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
+        }
+    }
+    models
+}
+
+fn resolve_measured_snapshot(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    models: Vec<CodeModel>,
+    manifests_by_plugin: Vec<Vec<Manifest>>,
+    configured_entry_points: &EntryPoints,
+) -> Result<MeasuredSnapshot, CheckError> {
+    let mut languages = Vec::with_capacity(plugins.len());
+    let mut entry_points_by_language = BTreeMap::new();
+    for ((named, model), manifests) in plugins.iter().zip(models).zip(manifests_by_plugin) {
+        let manifest_entries = named.plugin.entry_points(tree.files(), manifests.clone())?;
+        let combined_entries =
+            combine_entry_points(manifest_entries, &model.files, configured_entry_points);
+        let measured = finalize_language_model(named, model, manifests, tree.files())?;
+        entry_points_by_language.insert(named.name.to_owned(), combined_entries);
+        languages.push(measured);
+    }
+    Ok(MeasuredSnapshot {
+        languages,
+        entry_points_by_language,
+    })
+}
+
+fn combine_entry_points(
+    manifest_entries: Vec<RepoPath>,
+    files: &[SourceFile],
+    configured: &EntryPoints,
+) -> Vec<RepoPath> {
+    let mut entries: BTreeSet<RepoPath> = manifest_entries.into_iter().collect();
+    if !configured.is_empty() {
+        for file in files {
+            if configured.matches(&file.path) {
+                entries.insert(file.path.clone());
+            }
+        }
+    }
+    entries.into_iter().collect()
 }
 
 fn finalize_language_model(
@@ -682,7 +786,7 @@ fn first_two_plugin_names(
     (names[0].to_owned(), names[1].to_owned())
 }
 
-fn read_manifests(
+pub(crate) fn read_manifests(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
 ) -> Result<Vec<Vec<Manifest>>, CheckError> {
@@ -703,7 +807,7 @@ fn read_manifests(
         .collect()
 }
 
-fn find_workspace(
+pub(crate) fn find_workspace(
     plugins: &[NamedLanguagePlugin<'_>],
     manifests_by_plugin: &[Vec<Manifest>],
 ) -> Result<Workspace, CheckError> {

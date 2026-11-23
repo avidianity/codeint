@@ -1,1 +1,0 @@
-int coreValue() => 42;

@@ -211,3 +211,49 @@ fn diff_attaches_owners_and_filters_with_owner_flag() {
     );
     assert_eq!(erosion_paths(&diff_filtered, "new"), vec!["src/backend.ts"]);
 }
+
+#[test]
+fn check_attaches_owners_to_clone_families_and_filters_with_owner_flag() {
+    let duplicated = [
+        "export function tallyOrder(rows: { unit: number; tax: number; qty: number }[]): number {",
+        "  let total = 0;",
+        "  for (const row of rows.filter(Boolean)) {",
+        "    if (row.qty > 0 && row.unit >= 0) {",
+        "      total += (row.unit + row.tax) * row.qty;",
+        "    }",
+        "  }",
+        "  return Math.floor(total * 100) / 100;",
+        "}",
+    ]
+    .join("\n");
+    let dir = init_fixture(&[
+        ("src/backend/a.ts", &duplicated),
+        ("src/backend/b.ts", &duplicated),
+        ("src/shared/c.ts", &duplicated),
+        (
+            ".github/CODEOWNERS",
+            "src/backend/** @org/backend\nsrc/shared/** @org/shared\n",
+        ),
+    ]);
+
+    let all = run_json(dir.path(), &["check", "--format", "json"], 0);
+    let families = all["source_sets"]["production"]["duplication"]["clone_families"]
+        .as_array()
+        .expect("clone_families array");
+    assert_eq!(families.len(), 1);
+    assert_eq!(
+        families[0]["owners"],
+        serde_json::json!(["@org/backend", "@org/shared"])
+    );
+
+    let filtered_out = run_json(
+        dir.path(),
+        &["check", "--format", "json", "--owner", "@org/frontend"],
+        0,
+    );
+    assert!(
+        filtered_out["source_sets"]["production"]["duplication"]
+            .get("clone_families")
+            .is_none()
+    );
+}

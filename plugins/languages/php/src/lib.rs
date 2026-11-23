@@ -2,6 +2,7 @@
 
 mod builtins;
 mod dependencies;
+mod entry_points;
 mod functions;
 mod imports;
 mod lexer;
@@ -18,7 +19,10 @@ use codeint_model::language::{
 };
 use codeint_model::token_text_hash;
 
+use crate::dependencies::extract_declared;
+use crate::entry_points::extract as extract_entry_points;
 use crate::lexer::{RawKind, RawToken};
+use crate::resolution::{manifest_paths as find_manifest_paths, resolve_batch};
 
 pub use rules::flagged_line_rules;
 
@@ -65,7 +69,7 @@ impl Guest for Php {
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        resolution::manifest_paths(&repository_paths)
+        find_manifest_paths(&repository_paths)
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
@@ -97,14 +101,14 @@ impl Guest for Php {
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
     ) -> Vec<Resolution> {
-        resolution::resolve_batch(&repository_paths, &manifests, &requests)
+        resolve_batch(&repository_paths, &manifests, &requests)
     }
 
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        dependencies::extract_declared(&manifests)
+        extract_declared(&manifests)
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        extract_entry_points(&repository_paths, &manifests)
     }
 }

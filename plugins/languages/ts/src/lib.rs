@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod dependencies;
+mod entry_points;
 mod functions;
 mod nesting;
 mod resolution;
@@ -22,6 +23,8 @@ use oxc_parser::Parser;
 use oxc_parser::config::TokensParserConfig;
 use oxc_span::SourceType;
 
+use crate::dependencies::extract_declared;
+use crate::entry_points::entry_points as discover_entry_points;
 use crate::functions::{CodeLines, functions};
 use crate::resolution::{ProjectResolver, manifest_paths};
 use crate::runtime_imports::runtime_import_specifiers;
@@ -76,11 +79,11 @@ impl Guest for TypeScriptAndJavaScript {
     }
 
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        dependencies::extract_declared(&manifests)
+        extract_declared(&manifests)
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        discover_entry_points(&repository_paths, &manifests, &EXTENSIONS)
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

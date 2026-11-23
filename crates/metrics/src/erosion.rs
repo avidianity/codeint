@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 
-use codeint_model::language::Function;
-use codeint_model::{CodeModel, Metric, Package, RepoPath, Token};
+use codeint_model::{CodeModel, Metric, Package, RepoPath};
 
 use crate::FindingId;
-use crate::finding_id::FindingIds;
+use crate::finding_id::{FindingIds, function_finding_id, group_by_package};
 
 #[cfg(test)]
 mod tests;
@@ -119,46 +118,4 @@ impl Erosion {
     ) -> BTreeMap<Package<'model>, FunctionMasses> {
         group_by_package(model, &self.masses_by_file, FunctionMasses::add)
     }
-}
-
-pub(crate) fn group_by_package<'model, T: Default + Copy>(
-    model: &'model CodeModel,
-    by_file: &BTreeMap<RepoPath, T>,
-    merge: fn(&mut T, T),
-) -> BTreeMap<Package<'model>, T> {
-    let workspace = &model.workspace;
-    let mut totals: BTreeMap<Package<'model>, T> = workspace
-        .packages()
-        .map(|package| (package, T::default()))
-        .collect();
-    for (path, file_value) in by_file {
-        merge(
-            totals.entry(workspace.package_of(path)).or_default(),
-            *file_value,
-        );
-    }
-    totals
-}
-
-pub(crate) fn function_finding_id(
-    ids: &mut FindingIds,
-    path: &RepoPath,
-    function: &Function,
-    tokens: &[Token],
-) -> FindingId {
-    ids.next_in_source_order(
-        [path],
-        tokens_of(function, tokens)
-            .iter()
-            .map(|token| token.text_hash),
-    )
-}
-
-pub(crate) fn tokens_of<'tokens>(
-    function: &Function,
-    tokens: &'tokens [Token],
-) -> &'tokens [Token] {
-    let first = tokens.partition_point(|token| token.line < function.line);
-    let after_last = tokens.partition_point(|token| token.line <= function.end_line);
-    &tokens[first..after_last.max(first)]
 }

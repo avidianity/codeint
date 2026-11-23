@@ -1373,3 +1373,107 @@ fn diff_detects_cognitive_complexity_regression_on_new_deeply_nested_function() 
         String::from_utf8_lossy(&suppressed.stderr)
     );
 }
+
+#[test]
+fn diff_gates_new_near_clones_and_classifies_unchanged_near_clones_by_stable_id() {
+    let base_fn = [
+        "export function batchTotal(rows: { price: number; rebate: number; units: number }[]): number {",
+        "  let acc = 0;",
+        "  for (const row of rows.filter(Boolean)) {",
+        "    if (row.units > 0) {",
+        "      acc += (row.price - row.rebate) * row.units;",
+        "    }",
+        "  }",
+        "  return Math.round(acc * 100) / 100;",
+        "}",
+    ]
+    .join("\n");
+    let near_copy = base_fn.replacen(
+        "  let acc = 0;",
+        "  let acc = 0;\n  console.debug(rows);",
+        1,
+    );
+    let fixture = Fixture::on_main();
+    fixture.put(
+        "codeint.json",
+        r#"{"duplication":{"near_clones":true,"min_similarity":0.85}}"#,
+    );
+    fixture.put("src/base.ts", &base_fn);
+    fixture.commit("base");
+
+    fixture.put("src/copy.ts", &near_copy);
+    let (code, report, stderr) = fixture.diff_outcome();
+    assert_eq!(
+        code,
+        Some(1),
+        "expected regression failure, stderr: {stderr}"
+    );
+    let dup = &report["source_sets"]["production"]["duplication"];
+    let new_groups = dup["new"].as_array().expect("new duplication findings");
+    assert_eq!(new_groups.len(), 1);
+    assert!(new_groups[0]["similarity"].as_f64().unwrap() >= 0.85);
+    assert!(
+        regressions(&report)
+            .iter()
+            .any(|reg| reg["metric"] == "duplication"),
+        "expected duplication regression: {report}"
+    );
+
+    fixture.commit("add near clone");
+    fixture.put("src/copy.ts", &format!("const pad = 1;\n{near_copy}"));
+    let shifted_report = fixture.diff_passing();
+    let shifted_dup = &shifted_report["source_sets"]["production"]["duplication"];
+    assert_eq!(shifted_dup["unchanged"], 1);
+    assert_eq!(shifted_dup["new"].as_array().map(Vec::len), Some(0));
+}
+
+#[test]
+fn legacy_cached_measurement_without_clone_families_misses_and_recomputes() {
+    let duplicated = [
+        "export function invoiceSubtotal(items: { cost: number; fee: number; qty: number }[]): number {",
+        "  let sum = 0;",
+        "  for (const item of items.filter(Boolean)) {",
+        "    if (item.qty > 0 && item.cost >= 0) {",
+        "      sum += (item.cost + item.fee) * item.qty;",
+        "    }",
+        "  }",
+        "  return Math.floor(sum * 100) / 100;",
+        "}",
+    ]
+    .join("\n");
+    let fixture = Fixture::on_main();
+    fixture.put("src/a.ts", &duplicated);
+    fixture.put("src/b.ts", &duplicated);
+    fixture.put("src/c.ts", &duplicated);
+    fixture.commit("base with three copies");
+
+    let initial = fixture.diff_passing();
+    let initial_families = &initial["source_sets"]["production"]["duplication"]["clone_families"];
+    assert_eq!(initial_families["unchanged"], 1);
+    assert_eq!(initial_families["new"].as_array().map(Vec::len), Some(0));
+
+    let entries: Vec<_> = fs::read_dir(fixture.result_cache.path())
+        .expect("list result cache")
+        .map(|entry| entry.expect("cache entry").path())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let mut cached: Value =
+        serde_json::from_slice(&fs::read(&entries[0]).expect("read cache")).expect("parse cache");
+    for source_set in ["production", "test", "generated", "vendored"] {
+        cached["result"][source_set]
+            .as_object_mut()
+            .expect("source set object")
+            .remove("clone_families");
+    }
+    fs::write(
+        &entries[0],
+        serde_json::to_vec(&cached).expect("encode legacy cache"),
+    )
+    .expect("overwrite legacy cache");
+
+    let recomputed = fixture.diff_passing();
+    let recomputed_families =
+        &recomputed["source_sets"]["production"]["duplication"]["clone_families"];
+    assert_eq!(recomputed_families["unchanged"], 1);
+    assert_eq!(recomputed_families["new"].as_array().map(Vec::len), Some(0));
+}

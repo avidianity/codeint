@@ -178,26 +178,61 @@ fn dart_verbosity_rules() {
 
 #[test]
 fn dart_builtins_package_normalization_and_declared_dependencies() {
+    const ROOT_PUBSPEC: &str = "\
+name: acme_root
+workspace:
+  - packages/core
+  - packages/app
+dependencies:
+  http: ^1.2.0
+  intl:
+dev_dependencies:
+  lints: ^5.0.0
+";
+    const CORE_PUBSPEC: &str = "\
+name: acme_core
+dependencies:
+  collection: ^1.19.0
+";
+    const APP_PUBSPEC: &str = "\
+name: acme_app
+dependencies:
+  acme_core:
+    path: ../core
+  flutter:
+    sdk: flutter
+  path: ^1.9.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  test: ^1.25.0
+";
+    const APP_MAIN: &str = "\
+import 'dart:async';
+import 'dart:convert';
+import 'package:acme_core/core.dart';
+import 'package:flutter/material.dart';
+import 'package:path/path.dart';
+import 'package:unlisted_pkg/widget.dart';
+
+int run() => coreValue();
+";
     let pubspecs = vec![
         Manifest {
             path: "pubspec.yaml".into(),
-            text: include_str!("fixtures/workspace/pubspec.yaml").into(),
+            text: ROOT_PUBSPEC.into(),
         },
         Manifest {
             path: "packages/core/pubspec.yaml".into(),
-            text: include_str!("fixtures/workspace/packages/core/pubspec.yaml").into(),
+            text: CORE_PUBSPEC.into(),
         },
         Manifest {
             path: "packages/app/pubspec.yaml".into(),
-            text: include_str!("fixtures/workspace/packages/app/pubspec.yaml").into(),
+            text: APP_PUBSPEC.into(),
         },
     ];
     let entry = "packages/app/lib/main.dart";
-    let model = lower(
-        entry,
-        include_str!("fixtures/workspace/packages/app/lib/main.dart"),
-    )
-    .unwrap();
+    let model = lower(entry, APP_MAIN).unwrap();
     let files = [
         "pubspec.yaml",
         "packages/core/pubspec.yaml",

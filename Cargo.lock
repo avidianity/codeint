@@ -299,6 +299,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "toml",
  "toon-format",
 ]
 

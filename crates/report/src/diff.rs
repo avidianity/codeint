@@ -10,7 +10,7 @@ use codeint_metrics::{
 use codeint_model::{Metric, SourceSet};
 
 use serde::ser::SerializeMap;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::measurement::{
     CommitMeasurement, DependenciesMeasurement, MetricMeasurement, SourceSetMeasurement,
@@ -18,10 +18,11 @@ use crate::measurement::{
 use crate::ownership::{OwnedFinding, OwnershipOptions};
 use crate::sarif::{ListedDependencies, ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
-    BoundaryFindingRow, BudgetFailure, COGNITIVE_COMPLEXITY_KEY, CloneGroupFinding,
-    CognitiveComplexityFinding, Decimal, ErodedFunctionFinding, ExternalMetricFinding, Findings,
-    FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow, ReportError, UnusedDependencyRow,
-    dependency_over_budget,
+    BoundaryFindingRow, BudgetFailure, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding,
+    CloneGroupFinding, CognitiveComplexityFinding, Decimal, ErodedFunctionFinding,
+    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow,
+    OrphanFileRow, PerSourceSet, ReportError, UnusedDependencyRow, clustered_clone_group_ids,
+    dependency_over_budget, unlisted_clone_family_group_ids,
 };
 
 mod markdown;
@@ -45,34 +46,32 @@ pub struct HeadCommit {
     pub commit: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DiffReport {
     base: BaseEntry,
     head: HeadEntry,
     source_sets: SourceSetChangesSections,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependenciesChanges>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     over_budget: Vec<BudgetFailure>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     regressions: Vec<Regression>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Regression {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_set: Option<&'static str>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_set: Option<String>,
     metric: String,
     rule: RegressionRule,
     base: Decimal,
     head: Decimal,
     new_findings: usize,
     ratio_rise_limit: f64,
-    #[serde(skip)]
-    numerator_key: &'static str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RegressionRule {
     RatioRise,
@@ -80,17 +79,17 @@ enum RegressionRule {
     NumeratorRiseWithNewFindings,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct BaseEntry {
     #[serde(rename = "ref")]
     git_ref: String,
     merge_base: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum HeadEntry {
-    WorkingTree(&'static str),
+    WorkingTree(String),
     Commit {
         #[serde(rename = "ref")]
         git_ref: String,
@@ -98,32 +97,38 @@ enum HeadEntry {
     },
 }
 
-#[derive(Debug, Default, Serialize)]
-struct SourceSetChangesSections {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    production: Option<SourceSetChanges>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    test: Option<SourceSetChanges>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    generated: Option<SourceSetChanges>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vendored: Option<SourceSetChanges>,
-}
+type SourceSetChangesSections = PerSourceSet<SourceSetChanges>;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct SourceSetChanges {
     erosion: MetricChanges<ErodedFunctionFinding>,
     cognitive_complexity: MetricChanges<CognitiveComplexityFinding>,
-    duplication: MetricChanges<CloneGroupFinding>,
+    duplication: DuplicationChanges,
     verbosity: MetricChanges<FlaggedLineRow>,
     import_cycles: MetricChanges<ImportCycleFinding>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<MetricChanges<BoundaryFindingRow>>,
-    #[serde(flatten)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    orphan_files: Option<MetricChanges<OrphanFileRow>>,
+    #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricChanges>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
+struct DuplicationChanges {
+    groups: MetricChanges<CloneGroupFinding>,
+    clone_families: Option<CloneFamilyChanges>,
+}
+
+#[derive(Debug)]
+struct CloneFamilyChanges {
+    new: Findings<CloneFamilyFinding>,
+    resolved: Findings<CloneFamilyFinding>,
+    unchanged: usize,
+    unlisted_clone_family_group_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ExternalMetricChanges {
     #[serde(skip)]
     name: String,
@@ -243,11 +248,21 @@ impl DiffReport {
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
     }
+
+    pub(crate) fn populate_external_metric_names(&mut self) {
+        for slot in self.source_sets.iter_mut() {
+            for (key, external) in &mut slot.external_metrics {
+                if external.name.is_empty() {
+                    external.name = key.clone();
+                }
+            }
+        }
+    }
 }
 
 fn head_entry(head: Head) -> HeadEntry {
     match head {
-        Head::WorkingTree => HeadEntry::WorkingTree(WORKING_TREE),
+        Head::WorkingTree => HeadEntry::WorkingTree(WORKING_TREE.to_owned()),
         Head::Commit(HeadCommit { git_ref, commit }) => HeadEntry::Commit { git_ref, commit },
     }
 }
@@ -269,13 +284,29 @@ impl DiffReport {
                     ListedFindings {
                         eroded_functions: &changes.erosion.new.listed,
                         cognitive_complexity: &changes.cognitive_complexity.new.listed,
-                        clone_groups: &changes.duplication.new.listed,
+                        clone_groups: &changes.duplication.groups.new.listed,
+                        clone_families: changes
+                            .duplication
+                            .clone_families
+                            .as_ref()
+                            .map_or(&[], |families| families.new.listed.as_slice()),
+                        clustered_clone_group_ids: changes
+                            .duplication
+                            .clone_families
+                            .as_ref()
+                            .map_or(&[], |families| {
+                                families.unlisted_clone_family_group_ids.as_slice()
+                            }),
                         flagged_lines: &changes.verbosity.new.listed,
                         import_cycles: &changes.import_cycles.new.listed,
                         boundaries: changes
                             .boundaries
                             .as_ref()
                             .map_or(&[], |boundaries| boundaries.new.listed.as_slice()),
+                        orphan_files: changes
+                            .orphan_files
+                            .as_ref()
+                            .map_or(&[], |orphans| orphans.new.listed.as_slice()),
                         external_metrics: changes
                             .external_metrics
                             .iter()
@@ -297,21 +328,162 @@ impl DiffReport {
 impl<T: Serialize> Serialize for MetricChanges<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("base_ratio", &self.base_ratio)?;
-        map.serialize_entry("head_ratio", &self.head_ratio)?;
-        map.serialize_entry("new", &self.new.listed)?;
-        if self.new.left_out > 0 {
-            map.serialize_entry("new_left_out", &self.new.left_out)?;
-        }
-        map.serialize_entry("resolved", &self.resolved.listed)?;
-        if self.resolved.left_out > 0 {
-            map.serialize_entry("resolved_left_out", &self.resolved.left_out)?;
-        }
-        map.serialize_entry("unchanged", &self.unchanged)?;
+        serialize_metric_changes_fields(&mut map, self)?;
         map.end()
     }
 }
 
+impl Serialize for DuplicationChanges {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        serialize_metric_changes_fields(&mut map, &self.groups)?;
+        if let Some(clone_families) = &self.clone_families {
+            map.serialize_entry("clone_families", clone_families)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for CloneFamilyChanges {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        serialize_diff_findings(&mut map, &self.new, &self.resolved, self.unchanged)?;
+        if !self.unlisted_clone_family_group_ids.is_empty() {
+            map.serialize_entry(
+                "unlisted_clone_family_group_ids",
+                &self.unlisted_clone_family_group_ids,
+            )?;
+        }
+        map.end()
+    }
+}
+
+fn serialize_metric_changes_fields<M: SerializeMap, T: Serialize>(
+    map: &mut M,
+    changes: &MetricChanges<T>,
+) -> Result<(), M::Error> {
+    map.serialize_entry("base_ratio", &changes.base_ratio)?;
+    map.serialize_entry("head_ratio", &changes.head_ratio)?;
+    serialize_diff_findings(map, &changes.new, &changes.resolved, changes.unchanged)
+}
+
+fn serialize_diff_findings<M: SerializeMap, T: Serialize>(
+    map: &mut M,
+    new: &Findings<T>,
+    resolved: &Findings<T>,
+    unchanged: usize,
+) -> Result<(), M::Error> {
+    map.serialize_entry("new", &new.listed)?;
+    if new.left_out > 0 {
+        map.serialize_entry("new_left_out", &new.left_out)?;
+    }
+    map.serialize_entry("resolved", &resolved.listed)?;
+    if resolved.left_out > 0 {
+        map.serialize_entry("resolved_left_out", &resolved.left_out)?;
+    }
+    map.serialize_entry("unchanged", &unchanged)
+}
+
+#[derive(Deserialize)]
+struct RawDiffFindings<T> {
+    new: Vec<T>,
+    #[serde(default)]
+    new_left_out: usize,
+    resolved: Vec<T>,
+    #[serde(default)]
+    resolved_left_out: usize,
+    unchanged: usize,
+}
+
+impl<T> RawDiffFindings<T> {
+    fn into_parts(self) -> (Findings<T>, Findings<T>, usize) {
+        (
+            Findings {
+                listed: self.new,
+                left_out: self.new_left_out,
+            },
+            Findings {
+                listed: self.resolved,
+                left_out: self.resolved_left_out,
+            },
+            self.unchanged,
+        )
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawMetricChanges<T> {
+            base_ratio: Decimal,
+            head_ratio: Decimal,
+            #[serde(flatten)]
+            findings: RawDiffFindings<T>,
+        }
+
+        let raw = RawMetricChanges::<T>::deserialize(deserializer)?;
+        let (new, resolved, unchanged) = raw.findings.into_parts();
+        Ok(MetricChanges {
+            base_ratio: raw.base_ratio,
+            head_ratio: raw.head_ratio,
+            base_numerator: Decimal(0.0),
+            head_numerator: Decimal(0.0),
+            new,
+            resolved,
+            unchanged,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for CloneFamilyChanges {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawCloneFamilyChanges {
+            #[serde(flatten)]
+            findings: RawDiffFindings<CloneFamilyFinding>,
+            #[serde(default)]
+            unlisted_clone_family_group_ids: Vec<String>,
+        }
+
+        let raw = RawCloneFamilyChanges::deserialize(deserializer)?;
+        let (new, resolved, unchanged) = raw.findings.into_parts();
+        Ok(CloneFamilyChanges {
+            new,
+            resolved,
+            unchanged,
+            unlisted_clone_family_group_ids: raw.unlisted_clone_family_group_ids,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for DuplicationChanges {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawDuplicationChanges {
+            base_ratio: Decimal,
+            head_ratio: Decimal,
+            #[serde(default)]
+            clone_families: Option<CloneFamilyChanges>,
+            #[serde(flatten)]
+            findings: RawDiffFindings<CloneGroupFinding>,
+        }
+
+        let raw = RawDuplicationChanges::deserialize(deserializer)?;
+        let (new, resolved, unchanged) = raw.findings.into_parts();
+        Ok(DuplicationChanges {
+            groups: MetricChanges {
+                base_ratio: raw.base_ratio,
+                head_ratio: raw.head_ratio,
+                base_numerator: Decimal(0.0),
+                head_numerator: Decimal(0.0),
+                new,
+                resolved,
+                unchanged,
+            },
+            clone_families: raw.clone_families,
+        })
+    }
+}
 fn classify<T: Identified + OwnedFinding>(
     base: MetricMeasurement<T>,
     head: MetricMeasurement<T>,
@@ -357,7 +529,7 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                 (
                     source_set,
                     Metric::Duplication.key(),
-                    changes.duplication.head_ratio.0,
+                    changes.duplication.groups.head_ratio.0,
                 ),
                 (
                     source_set,
@@ -376,6 +548,12 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                     .boundaries
                     .iter()
                     .map(move |boundaries| (source_set, "boundaries", boundaries.head_ratio.0)),
+            )
+            .chain(
+                changes
+                    .orphan_files
+                    .iter()
+                    .map(move |orphans| (source_set, "orphan_files", orphans.head_ratio.0)),
             )
             .chain(
                 changes.external_metrics.iter().map(move |(key, metric)| {
@@ -404,6 +582,7 @@ impl SourceSetChanges {
             self.cognitive_complexity
                 .regressions(source_set, COGNITIVE_COMPLEXITY_KEY, limits),
             self.duplication
+                .groups
                 .regressions(source_set, Metric::Duplication.key(), limits),
             self.verbosity
                 .regressions(source_set, Metric::Verbosity.key(), limits),
@@ -416,6 +595,9 @@ impl SourceSetChanges {
         if let Some(boundaries) = &self.boundaries {
             found.extend(boundaries.regressions(source_set, "boundaries", limits));
         }
+        if let Some(orphan_files) = &self.orphan_files {
+            found.extend(orphan_files.regressions(source_set, "orphan_files", limits));
+        }
         for (key, external) in &self.external_metrics {
             found.extend(external.changes.regressions(source_set, key, limits));
         }
@@ -423,7 +605,7 @@ impl SourceSetChanges {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct DependenciesChanges {
     unused_dependencies: MetricChanges<UnusedDependencyRow>,
     unlisted_dependencies: MetricChanges<ImportedDependencyRow>,
@@ -531,14 +713,13 @@ impl<T> MetricChanges<T> {
             .map(|rule| {
                 let (base, head) = self.compared_values(rule);
                 Regression {
-                    source_set,
+                    source_set: source_set.map(str::to_owned),
                     metric: metric_key.to_owned(),
                     rule,
                     base,
                     head,
                     new_findings: self.new_findings(),
                     ratio_rise_limit: limit.ratio_rise.ratio(),
-                    numerator_key: numerator_key(metric_key),
                 }
             })
             .collect()
@@ -562,7 +743,7 @@ impl<T> MetricChanges<T> {
     }
 
     fn new_findings(&self) -> usize {
-        self.new.listed.len() + self.new.left_out
+        self.new.listed.len().saturating_add(self.new.left_out)
     }
 
     fn compared_values(&self, rule: RegressionRule) -> (Decimal, Decimal) {
@@ -587,7 +768,7 @@ impl Regression {
             RegressionRule::NumeratorRiseWithNewFindings => format!(
                 "The {} numerator {} rose from {} to {} with {}.",
                 self.scope_prose(),
-                crate::markdown::code(self.numerator_key),
+                crate::markdown::code(numerator_key(&self.metric)),
                 self.base.0,
                 self.head.0,
                 new_findings_phrase(self.new_findings)
@@ -596,7 +777,7 @@ impl Regression {
     }
 
     fn scope_prose(&self) -> String {
-        match self.source_set {
+        match self.source_set.as_deref() {
             Some(source_set) => format!(
                 "{} {}",
                 crate::markdown::prose(source_set),
@@ -607,7 +788,7 @@ impl Regression {
     }
 
     fn scope_plain(&self) -> String {
-        match self.source_set {
+        match self.source_set.as_deref() {
             Some(source_set) => format!("{source_set} {}", self.metric),
             None => self.metric.clone(),
         }
@@ -631,7 +812,7 @@ impl std::fmt::Display for Regression {
             RegressionRule::NumeratorRiseWithNewFindings => write!(
                 formatter,
                 "the {scope} numerator {} rose from {} to {} with {}",
-                self.numerator_key,
+                numerator_key(&self.metric),
                 self.base.0,
                 self.head.0,
                 new_findings_phrase(self.new_findings)
@@ -640,19 +821,24 @@ impl std::fmt::Display for Regression {
     }
 }
 
+const NUMERATOR_KEYS: [(&str, &str); 10] = [
+    ("erosion", "eroded_function_mass"),
+    ("cognitive_complexity", "complex_cognitive_complexity"),
+    ("duplication", "clone_lines"),
+    ("verbosity", "verbose_lines"),
+    ("import_cycles", "modules_in_import_cycles"),
+    ("boundaries", "boundary_findings"),
+    ("orphan_files", "orphan_files"),
+    ("unused_dependencies", "unused"),
+    ("unlisted_dependencies", "unlisted"),
+    ("dev_in_production_dependencies", "dev_in_production"),
+];
+
 fn numerator_key(metric_key: &str) -> &'static str {
-    match metric_key {
-        "erosion" => "eroded_function_mass",
-        "cognitive_complexity" => "complex_cognitive_complexity",
-        "duplication" => "clone_lines",
-        "verbosity" => "verbose_lines",
-        "import_cycles" => "modules_in_import_cycles",
-        "boundaries" => "boundary_findings",
-        "unused_dependencies" => "unused",
-        "unlisted_dependencies" => "unlisted",
-        "dev_in_production_dependencies" => "dev_in_production",
-        _ => "numerator",
-    }
+    NUMERATOR_KEYS
+        .iter()
+        .find(|(key, _)| *key == metric_key)
+        .map_or("numerator", |(_, numerator)| *numerator)
 }
 
 fn new_findings_phrase(count: usize) -> String {
@@ -726,6 +912,38 @@ fn source_set_changes(
             ownership,
         )),
     };
+    let orphan_files = match (base.orphan_files, head.orphan_files) {
+        (None, None) => None,
+        (base_orphans, head_orphans) => Some(classify(
+            base_orphans.unwrap_or_default(),
+            head_orphans.unwrap_or_default(),
+            shown,
+            ownership,
+        )),
+    };
+    let duplication_groups = classify(base.duplication, head.duplication, shown, ownership);
+    let base_families = ownership.apply(base.clone_families);
+    let head_families = ownership.apply(head.clone_families);
+    let clone_families = if base_families.is_empty() && head_families.is_empty() {
+        None
+    } else {
+        let base_ids = ids(&base_families);
+        let head_ids = ids(&head_families);
+        let all_clustered = clustered_clone_group_ids(&head_families);
+        let new = missing_from(head_families, &base_ids, shown);
+        let resolved = missing_from(base_families, &head_ids, shown);
+        let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
+            &duplication_groups.new.listed,
+            &new.listed,
+            &all_clustered,
+        );
+        Some(CloneFamilyChanges {
+            unchanged: head_ids.intersection(&base_ids).count(),
+            new,
+            resolved,
+            unlisted_clone_family_group_ids,
+        })
+    };
     SourceSetChanges {
         erosion: classify(base.erosion, head.erosion, shown, ownership),
         cognitive_complexity: classify(
@@ -734,39 +952,15 @@ fn source_set_changes(
             shown,
             ownership,
         ),
-        duplication: classify(base.duplication, head.duplication, shown, ownership),
+        duplication: DuplicationChanges {
+            groups: duplication_groups,
+            clone_families,
+        },
         verbosity: classify(base.verbosity, head.verbosity, shown, ownership),
         import_cycles: classify(base.import_cycles, head.import_cycles, shown, ownership),
         boundaries,
+        orphan_files,
         external_metrics,
-    }
-}
-
-impl SourceSetChangesSections {
-    fn iter(&self) -> impl Iterator<Item = (SourceSet, &SourceSetChanges)> {
-        [
-            (SourceSet::Production, &self.production),
-            (SourceSet::Test, &self.test),
-            (SourceSet::Generated, &self.generated),
-            (SourceSet::Vendored, &self.vendored),
-        ]
-        .into_iter()
-        .filter_map(|(source_set, changes)| Some((source_set, changes.as_ref()?)))
-    }
-
-    fn named(&self) -> Vec<(&'static str, &SourceSetChanges)> {
-        self.iter()
-            .map(|(source_set, changes)| (source_set_name(source_set), changes))
-            .collect()
-    }
-
-    fn slot(&mut self, source_set: SourceSet) -> &mut Option<SourceSetChanges> {
-        match source_set {
-            SourceSet::Production => &mut self.production,
-            SourceSet::Test => &mut self.test,
-            SourceSet::Generated => &mut self.generated,
-            SourceSet::Vendored => &mut self.vendored,
-        }
     }
 }
 
@@ -783,6 +977,12 @@ impl Identified for CognitiveComplexityFinding {
 }
 
 impl Identified for CloneGroupFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for CloneFamilyFinding {
     fn id(&self) -> &str {
         &self.id
     }
@@ -824,11 +1024,8 @@ impl Identified for ImportedDependencyRow {
     }
 }
 
-fn source_set_name(source_set: SourceSet) -> &'static str {
-    match source_set {
-        SourceSet::Production => "Production",
-        SourceSet::Test => "Test",
-        SourceSet::Generated => "Generated",
-        SourceSet::Vendored => "Vendored",
+impl Identified for OrphanFileRow {
+    fn id(&self) -> &str {
+        &self.id
     }
 }
