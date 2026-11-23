@@ -169,12 +169,13 @@ fn measure_snapshot_to_commit(
         .into_iter()
         .map(|language| language.model)
         .collect();
-    Ok(CommitMeasurement::of_languages_with_options(
+    CommitMeasurement::of_languages_with_options(
         models,
         &metric_plugins,
         configuration.boundaries.as_ref(),
         &configuration.dependencies,
         configuration.duplication,
         orphan_files.as_ref(),
-    )?)
+    )
+    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }

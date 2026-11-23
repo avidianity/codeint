@@ -28,7 +28,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
 | `impact` | Compute the transitive reverse-dependency blast radius of one or more repository files; see [`codeint impact`](#codeint-impact) |
 | `trace` | Find the shortest runtime import path between two files in the repository; see [`codeint trace`](#codeint-trace) |
-| `init` | Write a starter `codeint.json`; see [`codeint init`](#codeint-init) |
+| `init` | Write a starter `codeint.jsonc`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
@@ -68,20 +68,20 @@ codeint help check
 | ------ | ------- |
 | `-h, --help` | Print the help of `codeint init` |
 
-`codeint init` writes a starter `codeint.json` at the root of the Git repository that contains the current folder:
+`codeint init` writes a starter `codeint.jsonc` at the root of the Git repository that contains the current folder:
 
 ```sh exit=0
 codeint init
 ```
 
 ```text stdout
-Wrote /home/me/shop/codeint.json
+Wrote /home/me/shop/codeint.jsonc
 ```
 
 The file links to the JSON schema of the running codeint version, so your editor completes and checks it.
 It sets every key to its default, and lists under `languages` each top-level folder or file that a Language plugin measures:
 
-```json file=codeint.json
+```json file=codeint.jsonc
 {
   "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.5.0/schema/codeint.schema.json",
   "source_sets": {
@@ -110,7 +110,7 @@ It sets every key to its default, and lists under `languages` each top-level fol
 ```
 
 When no file belongs to a Language plugin, the file leaves `languages` out, so every Language plugin measures the whole repository.
-`codeint init` never replaces an existing `codeint.json`.
+`codeint init` never replaces an existing `codeint.jsonc` or `codeint.json`.
 With this `codeint.json` in place:
 
 ```json codeint.json
@@ -819,9 +819,11 @@ codeint coupling --format markdown
 
 ## `codeint.json`
 
-codeint reads `codeint.json` at the root of the Git repository.
-Without the file, codeint uses the default of every key.
-[`codeint init`](#codeint-init) writes a starter file, and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
+codeint reads `codeint.json` or `codeint.jsonc` at the root of the Git repository.
+Both files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
+Keep only one of `codeint.json` or `codeint.jsonc` at the repository root; having both stops the run with exit code 2.
+Without either file, codeint uses the default of every key.
+[`codeint init`](#codeint-init) writes a starter `codeint.jsonc` (and never replaces an existing `codeint.json` or `codeint.jsonc`), and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
 
 In the key paths below, `[]` stands for each item of a list, and a name in braces stands for each of its values:
 

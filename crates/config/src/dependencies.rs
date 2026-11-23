@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::config_error::{ConfigurationFileError, KeyPath, KeySegment};
+use crate::config_error::{ConfigFileKind, ConfigurationFileError, KeyPath, KeySegment};
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +41,7 @@ impl DependenciesConfig {
             let trimmed = entry.trim();
             if trimmed.is_empty() {
                 return Err(ConfigurationFileError::EmptyDependencyIgnore {
+                    file: ConfigFileKind::Json,
                     key: ignore_key.child(KeySegment::Index(index)),
                 });
             }

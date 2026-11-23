@@ -1035,10 +1035,47 @@ fn an_invalid_entry_point_from_a_language_plugin_stops_the_check() {
     assert!(
         matches!(
             result,
-            Err(CheckError::LanguagePlugin(
-                codeint_model::LanguagePluginError::InvalidEntryPointPath { .. }
-            ))
+            Err(CheckError::LanguagePlugin(ref scoped))
+                if matches!(
+                    scoped.error,
+                    codeint_model::LanguagePluginError::InvalidEntryPointPath { .. }
+                )
         ),
         "unexpected result: {result:?}"
+    );
+}
+
+#[test]
+fn extension_conflict_error_and_remedy_name_codeint_jsonc_when_active() {
+    let folder = repository(&[
+        (
+            "codeint.jsonc",
+            r#"{
+                // overlapping language globs
+                "languages": [
+                    { "plugin": "alpha-two", "include": ["src"] },
+                    { "plugin": "alpha", "include": ["src/sub"] },
+                ],
+            }"#,
+        ),
+        ("src/sub/main.alpha", "one\n"),
+    ]);
+
+    let error = check_with(folder.path(), &[ALPHA_TWO, ALPHA], FindingsShown::All)
+        .expect_err("overlapping languages entries claiming .alpha must fail");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("codeint.jsonc")
+            && !message
+                .replace("codeint.jsonc", "")
+                .contains("codeint.json"),
+        "expected codeint.jsonc in error message, got: {message}"
+    );
+    let remedy = crate::remedy::remedy(&crate::CliError::Check(error));
+    assert!(
+        remedy.contains("codeint.jsonc")
+            && !remedy.replace("codeint.jsonc", "").contains("codeint.json"),
+        "expected codeint.jsonc in remedy, got: {remedy}"
     );
 }

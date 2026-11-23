@@ -6,8 +6,8 @@ use codeint_model::{Metric, RepoPath, SourceSet};
 use crate::RegressionLimits;
 use crate::boundaries::{Boundaries, BoundariesFile};
 use crate::config_error::{
-    CONFIGURATION_FILE_NAME, ConfigurationFileError, JsonType, KeyPath, KeySegment, compile_glob,
-    glob_set,
+    CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME, ConfigFileKind, ConfigurationFileError,
+    JsonType, JsoncError, KeyPath, KeySegment, compile_glob, glob_set,
 };
 use crate::dependencies::{DependenciesConfig, DependenciesFile};
 use crate::regression_limits::{RegressionLimitSetting, ResolvedRegressionLimit};
@@ -16,6 +16,10 @@ use crate::resolved::{
     SourceSetOverride, resolve_with_provenance,
 };
 use globset::GlobSet;
+use jsonc_parser::errors::ParseError;
+use jsonc_parser::{
+    CollectOptions, ParseOptions, parse_to_ast, parse_to_serde_value, parse_to_value,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -109,6 +113,7 @@ pub struct Configuration {
     pub dependencies: DependenciesConfig,
     pub duplication: DuplicationConfig,
     pub entry_points: EntryPoints,
+    config_file: ConfigFileKind,
     effective: ConfigurationFile,
 }
 
@@ -195,6 +200,10 @@ pub struct PluginDeclaration {
 }
 
 impl Configuration {
+    pub fn config_file(&self) -> ConfigFileKind {
+        self.config_file
+    }
+
     pub fn validate_cli_budget_metrics(
         &self,
         overrides: &[BudgetOverride],
@@ -219,6 +228,7 @@ impl Configuration {
         for (source_set, metric_key, _) in &self.budgets.set {
             if !is_known_metric(metric_key, external_metric_keys) {
                 return Err(ConfigurationFileError::UnknownKey {
+                    file: self.config_file,
                     key: KeyPath::default()
                         .child(KeySegment::Key("budgets".to_owned()))
                         .child(KeySegment::Key(source_set.key().to_owned()))
@@ -227,11 +237,16 @@ impl Configuration {
                 });
             }
         }
-        validate_regression_limit_keys(&self.regression_limits, external_metric_keys)
+        validate_regression_limit_keys(
+            self.config_file,
+            &self.regression_limits,
+            external_metric_keys,
+        )
     }
 }
 
 fn validate_regression_limit_keys(
+    config_file: ConfigFileKind,
     limits: &RegressionLimits,
     external_metric_keys: &[&str],
 ) -> Result<(), ConfigurationFileError> {
@@ -253,6 +268,7 @@ fn validate_regression_limit_keys(
                 );
             }
             return Err(ConfigurationFileError::UnknownKey {
+                file: config_file,
                 key: path.child(KeySegment::Key(metric_key.to_owned())),
                 allowed,
             });
@@ -341,6 +357,7 @@ impl Budget {
 
 #[derive(Debug, Default)]
 pub struct Languages {
+    config_file: ConfigFileKind,
     entries: Option<Vec<LanguageEntry>>,
 }
 
@@ -373,6 +390,7 @@ impl Languages {
             .find(|entry| !plugin_names.contains(&entry.plugin.as_str()))
         {
             return Err(ConfigurationFileError::UnknownLanguagePlugin {
+                file: self.config_file,
                 key: unknown.plugin_key.clone(),
                 name: unknown.plugin.clone(),
                 known: plugin_names.iter().map(|name| (*name).to_owned()).collect(),
@@ -875,18 +893,130 @@ pub fn read_configuration(repository_root: &Path) -> Result<Configuration, Confi
         .map(|resolved| resolved.configuration)
 }
 
-fn read_config_file_if_present(path: &Path) -> Result<Option<String>, ConfigurationFileError> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if is_broken_symlink(path) {
-                Err(ConfigurationFileError::BrokenSymlink)
-            } else {
-                Ok(None)
-            }
-        }
-        Err(error) => Err(ConfigurationFileError::Unreadable(error)),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredConfigFile {
+    pub kind: ConfigFileKind,
+    pub path: PathBuf,
+}
+
+fn path_exists_including_symlinks(
+    path: &Path,
+    file: ConfigFileKind,
+) -> Result<bool, ConfigurationFileError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(source) => Err(ConfigurationFileError::Unreadable { file, source }),
     }
+}
+
+pub fn discover_config_file(
+    repository_root: &Path,
+) -> Result<Option<DiscoveredConfigFile>, ConfigurationFileError> {
+    let json_path = repository_root.join(CONFIGURATION_FILE_NAME);
+    let jsonc_path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
+    let has_json = path_exists_including_symlinks(&json_path, ConfigFileKind::Json)?;
+    let has_jsonc = path_exists_including_symlinks(&jsonc_path, ConfigFileKind::Jsonc)?;
+    match (has_json, has_jsonc) {
+        (true, true) => Err(ConfigurationFileError::AmbiguousConfigFiles),
+        (true, false) => Ok(Some(DiscoveredConfigFile {
+            kind: ConfigFileKind::Json,
+            path: json_path,
+        })),
+        (false, true) => Ok(Some(DiscoveredConfigFile {
+            kind: ConfigFileKind::Jsonc,
+            path: jsonc_path,
+        })),
+        (false, false) => Ok(None),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaValueSpan {
+    pub span: std::ops::Range<usize>,
+    pub value: String,
+}
+
+pub fn schema_value_span(text: &str) -> Option<SchemaValueSpan> {
+    let without_bom = text.strip_prefix('\u{FEFF}').unwrap_or(text);
+    let bom_len = text.len() - without_bom.len();
+    let parsed = parse_to_ast(
+        without_bom,
+        &CollectOptions::default(),
+        &JSONC_PARSE_OPTIONS,
+    )
+    .ok()?;
+    let value = parsed.value?;
+    let object = value.as_object()?;
+    let property = object
+        .properties
+        .iter()
+        .rev()
+        .find(|property| property.name.as_str() == "$schema")?;
+    let jsonc_parser::ast::Value::StringLit(schema) = &property.value else {
+        return None;
+    };
+    Some(SchemaValueSpan {
+        span: (schema.range.start + bom_len)..(schema.range.end + bom_len),
+        value: schema.value.to_string(),
+    })
+}
+
+fn read_config_file(discovered: &DiscoveredConfigFile) -> Result<String, ConfigurationFileError> {
+    let file = discovered.kind;
+    match std::fs::read_to_string(&discovered.path) {
+        Ok(text) => Ok(text),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && is_broken_symlink(&discovered.path) =>
+        {
+            Err(ConfigurationFileError::BrokenSymlink { file })
+        }
+        Err(source) => Err(ConfigurationFileError::Unreadable { file, source }),
+    }
+}
+
+const JSONC_PARSE_OPTIONS: ParseOptions = ParseOptions {
+    allow_comments: true,
+    allow_trailing_commas: true,
+    allow_loose_object_property_names: false,
+    allow_missing_commas: false,
+    allow_single_quoted_strings: false,
+    allow_hexadecimal_numbers: false,
+    allow_unary_plus_numbers: false,
+    allow_bare_decimal_point_numbers: false,
+    allow_non_finite_numbers: false,
+    allow_extended_string_escapes: false,
+};
+
+fn jsonc_error_from_parse_error(error: &ParseError) -> JsoncError {
+    JsoncError {
+        message: error.kind().to_string(),
+        line: error.line_display(),
+        column: error.column_display(),
+    }
+}
+
+pub(crate) fn parse_jsonc(input: &str) -> Result<Value, JsoncError> {
+    let without_bom = input.strip_prefix('\u{FEFF}').unwrap_or(input);
+    let value: Value = parse_to_serde_value(without_bom, &JSONC_PARSE_OPTIONS)
+        .map_err(|error| jsonc_error_from_parse_error(&error))?;
+    if value.is_null()
+        && parse_to_value(without_bom, &JSONC_PARSE_OPTIONS)
+            .map_err(|error| jsonc_error_from_parse_error(&error))?
+            .is_none()
+    {
+        return Err(JsoncError {
+            message: "EOF while parsing a value".to_owned(),
+            line: 1,
+            column: 1,
+        });
+    }
+    Ok(value)
+}
+
+fn parse_jsonc_value(text: &str, file: ConfigFileKind) -> Result<Value, ConfigurationFileError> {
+    parse_jsonc(text).map_err(|source| ConfigurationFileError::InvalidJsonc { file, source })
 }
 
 pub fn is_broken_symlink(path: &Path) -> bool {
@@ -901,45 +1031,72 @@ pub fn read_resolved_configuration(
     repository_root: &Path,
     overrides: &ConfigOverrides,
 ) -> Result<ResolvedConfiguration, ConfigurationFileError> {
-    let config_file = repository_root.join(CONFIGURATION_FILE_NAME);
-    match read_config_file_if_present(&config_file)? {
-        Some(text) => parse_with_overrides(config_file, true, Some(&text), overrides),
-        None => parse_with_overrides(config_file, false, None, overrides),
+    match discover_config_file(repository_root)? {
+        Some(discovered) => {
+            let text = read_config_file(&discovered)?;
+            parse_with_overrides(
+                discovered.kind,
+                discovered.path,
+                true,
+                Some(&text),
+                overrides,
+            )
+        }
+        None => parse_with_overrides(
+            ConfigFileKind::Json,
+            repository_root.join(CONFIGURATION_FILE_NAME),
+            false,
+            None,
+            overrides,
+        ),
     }
 }
 
 pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection {
-    let path = repository_root.join(CONFIGURATION_FILE_NAME);
-    let text = match read_config_file_if_present(&path) {
-        Ok(Some(text)) => text,
-        Ok(None) => return ConfigurationInspection::Missing { path },
+    let discovered = match discover_config_file(repository_root) {
+        Ok(Some(discovered)) => discovered,
+        Ok(None) => {
+            return ConfigurationInspection::Missing {
+                path: repository_root.join(CONFIGURATION_FILE_NAME),
+            };
+        }
         Err(error) => {
             return ConfigurationInspection::Invalid {
-                path,
+                path: repository_root.join(CONFIGURATION_FILE_NAME),
                 schema: None,
                 error,
             };
         }
     };
-    let value: Value = match serde_json::from_str(&text) {
+    let text = match read_config_file(&discovered) {
+        Ok(text) => text,
+        Err(error) => {
+            return ConfigurationInspection::Invalid {
+                path: discovered.path,
+                schema: None,
+                error,
+            };
+        }
+    };
+    let value = match parse_jsonc_value(&text, discovered.kind) {
         Ok(value) => value,
         Err(error) => {
             return ConfigurationInspection::Invalid {
-                path,
+                path: discovered.path,
                 schema: None,
-                error: ConfigurationFileError::NotJson(error),
+                error,
             };
         }
     };
     let schema = inspect_schema_version(&value, env!("CARGO_PKG_VERSION"));
-    match parse_value_without_schema_version(value) {
+    match parse_value_without_schema_version(discovered.kind, value) {
         Ok(configuration) => ConfigurationInspection::Valid {
-            path,
+            path: discovered.path,
             schema,
             configuration: Box::new(configuration),
         },
         Err(error) => ConfigurationInspection::Invalid {
-            path,
+            path: discovered.path,
             schema: Some(schema),
             error,
         },
@@ -954,6 +1111,7 @@ pub fn configuration_schema() -> String {
 #[cfg(test)]
 pub(crate) fn parse(text: &str) -> Result<Configuration, ConfigurationFileError> {
     parse_with_overrides(
+        ConfigFileKind::Json,
         PathBuf::from(CONFIGURATION_FILE_NAME),
         true,
         Some(text),
@@ -963,6 +1121,7 @@ pub(crate) fn parse(text: &str) -> Result<Configuration, ConfigurationFileError>
 }
 
 fn parse_with_overrides(
+    config_file_kind: ConfigFileKind,
     config_file: PathBuf,
     config_file_present: bool,
     text: Option<&str>,
@@ -970,29 +1129,40 @@ fn parse_with_overrides(
 ) -> Result<ResolvedConfiguration, ConfigurationFileError> {
     let raw = match text {
         Some(text) => {
-            let value: Value =
-                serde_json::from_str(text).map_err(ConfigurationFileError::NotJson)?;
-            check_schema_version(&value, env!("CARGO_PKG_VERSION"))?;
+            let value = parse_jsonc_value(text, config_file_kind)?;
+            check_schema_version(&value, env!("CARGO_PKG_VERSION"))
+                .map_err(|error| error.with_file_kind(config_file_kind))?;
             Some(value)
         }
         None => None,
     };
-    parse_value_with_overrides(config_file, config_file_present, raw, overrides)
+    parse_value_with_overrides(
+        config_file_kind,
+        config_file,
+        config_file_present,
+        raw,
+        overrides,
+    )
+    .map_err(|error| error.with_file_kind(config_file_kind))
 }
 
 fn parse_value_without_schema_version(
+    config_file_kind: ConfigFileKind,
     value: Value,
 ) -> Result<Configuration, ConfigurationFileError> {
     parse_value_with_overrides(
-        PathBuf::from(CONFIGURATION_FILE_NAME),
+        config_file_kind,
+        PathBuf::from(config_file_kind.file_name()),
         true,
         Some(value),
         &ConfigOverrides::default(),
     )
     .map(|resolved| resolved.configuration)
+    .map_err(|error| error.with_file_kind(config_file_kind))
 }
 
 fn parse_configuration_file(
+    config_file_kind: ConfigFileKind,
     raw: Option<&Value>,
 ) -> Result<ConfigurationFile, ConfigurationFileError> {
     let Some(value) = raw else {
@@ -1000,7 +1170,10 @@ fn parse_configuration_file(
     };
     let schema = schemars::schema_for!(ConfigurationFile);
     shape::check_shape(value, schema.as_value())?;
-    serde_json::from_value(value.clone()).map_err(ConfigurationFileError::NotJson)
+    serde_json::from_value(value.clone()).map_err(|source| ConfigurationFileError::NotJson {
+        file: config_file_kind,
+        source,
+    })
 }
 
 struct ParsedFeatureSections {
@@ -1035,12 +1208,13 @@ fn parse_feature_sections(
 }
 
 fn parse_value_with_overrides(
+    config_file_kind: ConfigFileKind,
     config_file: PathBuf,
     config_file_present: bool,
     raw: Option<Value>,
     overrides: &ConfigOverrides,
 ) -> Result<ResolvedConfiguration, ConfigurationFileError> {
-    let file = parse_configuration_file(raw.as_ref())?;
+    let file = parse_configuration_file(config_file_kind, raw.as_ref())?;
     let mut effective = file.without_schema_address();
     let mut settings = Vec::new();
     let source_set_overrides = merge_source_sets(
@@ -1053,7 +1227,7 @@ fn parse_value_with_overrides(
     let regression_limits = regression_limits(file.regression_limits);
     append_regression_limit_settings(&regression_limits, &mut settings);
     append_languages_setting(&effective.languages, &mut settings);
-    let languages = languages(file.languages)?;
+    let languages = languages(config_file_kind, file.languages)?;
     append_plugins_setting(raw.as_ref(), &effective.plugins, &mut settings);
     let plugins = plugins(file.plugins)?;
     let plugin_limits = merge_plugin_limits(&mut effective.plugin_limits, overrides, &mut settings);
@@ -1066,6 +1240,7 @@ fn parse_value_with_overrides(
         &mut settings,
     )?;
     let configuration = Configuration {
+        config_file: config_file_kind,
         effective,
         source_set_overrides,
         budgets,
@@ -1129,6 +1304,7 @@ fn duplication_config(
     let min_similarity = match file.min_similarity {
         Some(value) => MinSimilarity::new(value).ok_or_else(|| {
             ConfigurationFileError::OutOfExclusiveMinRange {
+                file: ConfigFileKind::Json,
                 key: KeyPath::default()
                     .child(KeySegment::Key("duplication".to_owned()))
                     .child(KeySegment::Key("min_similarity".to_owned())),
@@ -1552,6 +1728,7 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
             let entry_key = plugins_key.child(KeySegment::Index(index));
             if entry.name.trim().is_empty() {
                 return Err(ConfigurationFileError::EmptyPluginField {
+                    file: ConfigFileKind::Json,
                     key: entry_key.child(KeySegment::Key("name".to_owned())),
                 });
             }
@@ -1559,6 +1736,7 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
                 (Some(path), None) => {
                     if path.trim().is_empty() {
                         return Err(ConfigurationFileError::EmptyPluginField {
+                            file: ConfigFileKind::Json,
                             key: entry_key.child(KeySegment::Key("path".to_owned())),
                         });
                     }
@@ -1567,10 +1745,14 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
                 (None, Some(url)) => {
                     let url_key = entry_key.child(KeySegment::Key("url".to_owned()));
                     if url.trim().is_empty() {
-                        return Err(ConfigurationFileError::EmptyPluginField { key: url_key });
+                        return Err(ConfigurationFileError::EmptyPluginField {
+                            file: ConfigFileKind::Json,
+                            key: url_key,
+                        });
                     }
                     let normalized = normalize_https_url(&url).ok_or_else(|| {
                         ConfigurationFileError::NonHttpsPluginUrl {
+                            file: ConfigFileKind::Json,
                             key: url_key,
                             name: entry.name.clone(),
                             url,
@@ -1580,12 +1762,14 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
                 }
                 (None, None) => {
                     return Err(ConfigurationFileError::MissingPluginSource {
+                        file: ConfigFileKind::Json,
                         key: entry_key,
                         name: entry.name,
                     });
                 }
                 (Some(_), Some(_)) => {
                     return Err(ConfigurationFileError::AmbiguousPluginSource {
+                        file: ConfigFileKind::Json,
                         key: entry_key,
                         name: entry.name,
                     });
@@ -1593,6 +1777,7 @@ fn plugins(entries: Vec<PluginEntry>) -> Result<Vec<PluginDeclaration>, Configur
             };
             let sha256 = Sha256Digest::parse_hex(&entry.sha256).ok_or_else(|| {
                 ConfigurationFileError::InvalidSha256 {
+                    file: ConfigFileKind::Json,
                     key: entry_key.child(KeySegment::Key("sha256".to_owned())),
                     found: entry.sha256,
                 }
@@ -1748,9 +1933,15 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
     }
 }
 
-fn languages(entries: Option<Vec<LanguageGlobs>>) -> Result<Languages, ConfigurationFileError> {
+fn languages(
+    config_file: ConfigFileKind,
+    entries: Option<Vec<LanguageGlobs>>,
+) -> Result<Languages, ConfigurationFileError> {
     let Some(entries) = entries else {
-        return Ok(Languages::default());
+        return Ok(Languages {
+            config_file,
+            entries: None,
+        });
     };
     let languages_key = KeyPath::default().child(KeySegment::Key("languages".to_owned()));
     let entries = entries
@@ -1773,6 +1964,7 @@ fn languages(entries: Option<Vec<LanguageGlobs>>) -> Result<Languages, Configura
         })
         .collect::<Result<_, ConfigurationFileError>>()?;
     Ok(Languages {
+        config_file,
         entries: Some(entries),
     })
 }
@@ -1845,6 +2037,7 @@ fn check_schema_version(value: &Value, binary_version: &str) -> Result<(), Confi
     } = inspect_schema_version(value, binary_version)
     {
         return Err(ConfigurationFileError::NewerSchemaVersion {
+            file: ConfigFileKind::Json,
             config_version,
             binary_version,
         });
@@ -1886,7 +2079,8 @@ mod schema_version_tests {
                 err,
                 ConfigurationFileError::NewerSchemaVersion {
                     ref config_version,
-                    ref binary_version
+                    ref binary_version,
+                    ..
                 } if config_version == newer && binary_version == "0.4.0"
             ));
         }

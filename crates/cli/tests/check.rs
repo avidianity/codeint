@@ -2764,10 +2764,170 @@ fn an_invalid_glob_in_codeint_json_names_the_key_and_exits_2() {
 #[test]
 fn codeint_json_that_is_not_json_names_the_line_and_column_and_exits_2() {
     assert_codeint_json_is_rejected(
-        "{\n  \"source_sets\": {},\n}\n",
-        "codeint.json is not valid JSON: trailing comma at line 3 column 1",
+        "{\n  \"source_sets\" {}\n}\n",
+        "codeint.json is not valid JSON: Expected colon after the string or word in object property at line 2 column 17",
         "Fix the JSON syntax of codeint.json at that line and column.",
     );
+}
+
+#[test]
+fn codeint_json_and_codeint_jsonc_accept_comments_and_trailing_commas() {
+    let jsonc_body = concat!(
+        "// top-level comment\n",
+        "{\n",
+        "  /* block comment\n",
+        "     spanning two lines */\n",
+        "  \"source_sets\": {\n",
+        "    \"test\": [\n",
+        "      \"spec/**\", // trailing comma with inline comment\n",
+        "    ],\n",
+        "  },\n",
+        "}\n",
+    );
+    for file_name in ["codeint.json", "codeint.jsonc"] {
+        let repository = Repository::new();
+        repository.write(file_name, jsonc_body);
+        repository.write("src/main.ts", "export const main = 1;\n");
+        repository.write("spec/helper.ts", "export const helper = 1;\n");
+        repository.commit_all();
+
+        let output = repository.codeint(&["check"]);
+
+        assert_success(&output);
+        assert_eq!(
+            source_set_sizes(&output),
+            [
+                "production: files: 1 source_lines: 1",
+                "test: files: 1 source_lines: 1",
+            ]
+        );
+    }
+}
+
+#[test]
+fn codeint_jsonc_preserves_syntax_error_line_and_column_and_reports_unterminated_block_comment() {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.jsonc",
+        concat!(
+            "{\n",
+            "  /* line 2\n",
+            "     line 3\n",
+            "     line 4 */\n",
+            "  \"source_sets\" {}\n",
+            "}\n",
+        ),
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let syntax_output = repository.codeint(&["check"]);
+    assert_operational_error(
+        &syntax_output,
+        "codeint: codeint.jsonc is not valid JSON: Expected colon after the string or word in object property at line 5 column 17\n\
+         Fix the JSON syntax of codeint.jsonc at that line and column.\n",
+    );
+
+    repository.write(
+        "codeint.jsonc",
+        "{\n  \"source_sets\": {},\n  /* unterminated\n}\n",
+    );
+    let unterminated_output = repository.codeint(&["check"]);
+    assert_operational_error(
+        &unterminated_output,
+        "codeint: codeint.jsonc is not valid JSON: Unterminated comment block at line 3 column 3\n\
+         Fix the JSON syntax of codeint.jsonc at that line and column.\n",
+    );
+}
+
+#[test]
+fn having_both_codeint_json_and_codeint_jsonc_exits_2_with_clear_message() {
+    let repository = Repository::new();
+    repository.write("codeint.json", "{}\n");
+    repository.write("codeint.jsonc", "{}\n");
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        "codeint: both codeint.json and codeint.jsonc exist at the repository root; keep only one\n\
+         Remove either codeint.json or codeint.jsonc so only one configuration file exists at the repository root.\n",
+    );
+}
+
+#[test]
+fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
+    let repository = Repository::new();
+    repository.write(
+        "codeint.jsonc",
+        "{\n  // invalid key\n  \"languages\": [{ \"plugin\": \"cobol\", \"include\": [\"src\"], }],\n}\n",
+    );
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+
+    assert_operational_error(
+        &output,
+        "codeint: codeint.jsonc names an unknown Language plugin cobol at languages[0].plugin; \
+         the Language plugins are typescript-javascript, rust, php, dart, python\n\
+         Name one of the Language plugins listed, or remove the entry from languages.\n",
+    );
+}
+
+#[test]
+fn boundary_and_plugin_config_errors_in_codeint_jsonc_name_codeint_jsonc_in_remedies() {
+    let digest = "0000000000000000000000000000000000000000000000000000000000000000";
+    let cases = [
+        (
+            r#"{ "boundaries": { "zones": { "*": { "patterns": ["src/**"] } } } }"#.to_owned(),
+            "Give each boundary zone in codeint.jsonc a non-empty name other than \"*\".",
+        ),
+        (
+            format!(
+                r#"{{ "plugins": [{{ "name": " ", "path": "p.wasm", "sha256": "{digest}" }}] }}"#
+            ),
+            "Set a non-empty value for the plugin field in codeint.jsonc.",
+        ),
+        (
+            format!(r#"{{ "plugins": [{{ "name": "sample", "sha256": "{digest}" }}] }}"#),
+            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.jsonc.",
+        ),
+        (
+            format!(
+                r#"{{ "plugins": [{{ "name": "sample", "path": "p.wasm", "url": "https://example.invalid/p.wasm", "sha256": "{digest}" }}] }}"#
+            ),
+            "Keep either path or url on the plugin entry in codeint.jsonc and remove the other.",
+        ),
+        (
+            format!(
+                r#"{{ "plugins": [{{ "name": "sample", "url": "http://example.invalid/p.wasm", "sha256": "{digest}" }}] }}"#
+            ),
+            "Use an https:// URL for the plugin in codeint.jsonc; plain HTTP and other schemes are refused.",
+        ),
+    ];
+
+    let repository = Repository::new();
+    repository.write("src/main.ts", "export const main = 1;\n");
+    repository.commit_all();
+
+    for (config, expected_remedy) in cases {
+        repository.write("codeint.jsonc", &config);
+        let output = repository.codeint(&["check"]);
+        assert_eq!(output.status.code(), Some(2), "{config}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected_remedy),
+            "expected {expected_remedy:?} in stderr:\n{stderr}"
+        );
+        let without_jsonc = stderr.replace("codeint.jsonc", "");
+        assert!(
+            !without_jsonc.contains("codeint.json"),
+            "unexpected codeint.json reference in stderr:\n{stderr}"
+        );
+    }
 }
 
 fn write_files_of_distinct_line_counts(repository: &Repository, paths: &[&str]) {
@@ -5345,5 +5505,41 @@ fn invalid_near_clone_min_similarity_stops_check_with_exit_code_2() {
         &output,
         "codeint: codeint.json: duplication.min_similarity must be greater than 0 and at most 1, not 0\n\
          Set the value to a ratio greater than 0 and at most 1, such as 0.85.\n",
+    );
+}
+
+#[test]
+fn plugin_host_error_remedies_name_codeint_jsonc_when_active() {
+    let repository = Repository::new();
+    repository.write("src/app.ts", "export const ok = 1;\n");
+    repository.write(
+        "codeint.jsonc",
+        concat!(
+            "{\n",
+            "  // missing local plugin\n",
+            "  \"plugins\": [\n",
+            "    {\n",
+            "      \"name\": \"missing-plugin\",\n",
+            "      \"path\": \"plugins/missing.wasm\",\n",
+            "      \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n",
+            "    },\n",
+            "  ],\n",
+            "}\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check"]);
+    let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
+    let remedy_line = stderr.lines().nth(1).unwrap_or_default();
+
+    assert_eq!(output.status.code(), Some(2), "stderr: {stderr}");
+    assert_eq!(
+        remedy_line,
+        "Check that the plugin path in codeint.jsonc points to an existing readable WebAssembly component file."
+    );
+    assert!(
+        !stderr.replace("codeint.jsonc", "").contains("codeint.json"),
+        "unexpected codeint.json in stderr: {stderr}"
     );
 }

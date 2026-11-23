@@ -124,7 +124,7 @@ async function init(options) {
     throw new CodeintError(message, result.exitCode, result.stderr);
   }
   const raw = result.stdout.trim().replace(/^Wrote\s+/, "");
-  const configPath = raw || path.join(opts.cwd || process.cwd(), "codeint.json");
+  const configPath = raw || path.join(opts.cwd || process.cwd(), "codeint.jsonc");
   return { configPath };
 }
 

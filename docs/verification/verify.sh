@@ -330,15 +330,15 @@ drive_init() {
   cp -R "$INIT_REPO" "$work_init"
 
   run_case "$work_init" "$dir/fresh" "$BIN_PATH" init
-  if [ -f "$work_init/codeint.json" ]; then
-    cp "$work_init/codeint.json" "$dir/codeint.before.json"
-    sha256_file "$work_init/codeint.json" > "$dir/codeint.before.sha256"
+  if [ -f "$work_init/codeint.jsonc" ]; then
+    cp "$work_init/codeint.jsonc" "$dir/codeint.before.json"
+    sha256_file "$work_init/codeint.jsonc" > "$dir/codeint.before.sha256"
   fi
 
   run_case "$work_init" "$dir/existing" "$BIN_PATH" init
-  if [ -f "$work_init/codeint.json" ]; then
-    cp "$work_init/codeint.json" "$dir/codeint.after.json"
-    sha256_file "$work_init/codeint.json" > "$dir/codeint.after.sha256"
+  if [ -f "$work_init/codeint.jsonc" ]; then
+    cp "$work_init/codeint.jsonc" "$dir/codeint.after.json"
+    sha256_file "$work_init/codeint.jsonc" > "$dir/codeint.after.sha256"
   fi
 
   run_case "$NON_REPO" "$dir/non_repo" "$BIN_PATH" init

@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt;
 use std::path::Path;
 use std::string::FromUtf8Error;
 
 use codeint_config::{
-    Codeowners, CodeownersError, Configuration, ConfigurationFileError, EntryPoints, FindingsShown,
-    LanguageCoverage, OwnerFilter, PluginHostConfig, SourceSetOverrides, read_configuration,
+    Codeowners, CodeownersError, ConfigFileKind, Configuration, ConfigurationFileError,
+    EntryPoints, FindingsShown, LanguageCoverage, OwnerFilter, PluginHostConfig,
+    SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_dart::Dart;
@@ -29,6 +31,24 @@ use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIter
 #[cfg(test)]
 mod tests;
 
+#[derive(Debug)]
+pub(crate) struct ConfigScopedError<E> {
+    pub(crate) config_file: ConfigFileKind,
+    pub(crate) error: E,
+}
+
+impl<E: fmt::Display> fmt::Display for ConfigScopedError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl<E: std::error::Error + 'static> std::error::Error for ConfigScopedError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.error.source()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CheckError {
     #[error(transparent)]
@@ -44,13 +64,17 @@ pub(crate) enum CheckError {
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
-    PluginHost(#[from] PluginHostError),
+    PluginHost(ConfigScopedError<PluginHostError>),
     #[error(transparent)]
-    LanguagePlugin(#[from] LanguagePluginError),
+    LanguagePlugin(ConfigScopedError<LanguagePluginError>),
     #[error(transparent)]
-    MetricPlugin(#[from] MetricPluginError),
-    #[error("{}", format_extension_conflict(first, second, extension, path.as_ref()))]
+    MetricPlugin(ConfigScopedError<MetricPluginError>),
+    #[error(
+        "{}",
+        format_extension_conflict(first, second, extension, path.as_ref(), *config_file)
+    )]
     ExtensionConflict {
+        config_file: ConfigFileKind,
         first: String,
         second: String,
         extension: String,
@@ -61,6 +85,26 @@ pub(crate) enum CheckError {
         requested: String,
         available: Vec<String>,
     },
+}
+
+impl CheckError {
+    pub(crate) fn plugin_host(config_file: ConfigFileKind, error: PluginHostError) -> CheckError {
+        CheckError::PluginHost(ConfigScopedError { config_file, error })
+    }
+
+    pub(crate) fn language_plugin(
+        config_file: ConfigFileKind,
+        error: LanguagePluginError,
+    ) -> CheckError {
+        CheckError::LanguagePlugin(ConfigScopedError { config_file, error })
+    }
+
+    pub(crate) fn metric_plugin(
+        config_file: ConfigFileKind,
+        error: MetricPluginError,
+    ) -> CheckError {
+        CheckError::MetricPlugin(ConfigScopedError { config_file, error })
+    }
 }
 
 fn format_unknown_workspace_package(requested: &str, available: &[String]) -> String {
@@ -195,13 +239,14 @@ fn format_extension_conflict(
     second: &str,
     extension: &str,
     path: Option<&RepoPath>,
+    config_file: ConfigFileKind,
 ) -> String {
     match path {
         Some(path) => format!(
-            "Language plugins {first} and {second} both claim extension .{extension} for {path}; assign separate directories in the languages setting of codeint.json"
+            "Language plugins {first} and {second} both claim extension .{extension} for {path}; assign separate directories in the languages setting of {config_file}"
         ),
         None => format!(
-            "Language plugins {first} and {second} both claim extension .{extension}; assign separate directories in the languages setting of codeint.json"
+            "Language plugins {first} and {second} both claim extension .{extension}; assign separate directories in the languages setting of {config_file}"
         ),
     }
 }
@@ -259,20 +304,23 @@ impl LoadedPlugins {
             .iter()
             .map(|plugin| plugin.name)
             .collect();
+        let config_file = configuration.config_file();
         let external_languages = load_language_plugins_with_limits(
             repository_root,
             &configuration.plugins,
             &reserved,
             plugin_host,
             configuration.plugin_limits,
-        )?;
+        )
+        .map_err(|error| CheckError::plugin_host(config_file, error))?;
         let external_metrics = load_metric_plugins_with_limits(
             repository_root,
             &configuration.plugins,
             &reserved,
             plugin_host,
             configuration.plugin_limits,
-        )?;
+        )
+        .map_err(|error| CheckError::plugin_host(config_file, error))?;
         let metric_keys: Vec<&str> = external_metrics
             .iter()
             .map(|(_, plugin)| plugin.key())
@@ -462,7 +510,7 @@ fn check_loaded(
     if let Some(selected) = &selected {
         filter_languages_to_package(&mut snapshot.languages, selected);
     }
-    Ok(Report::summarize_with_options(
+    Report::summarize_with_options(
         snapshot.languages,
         tree.submodules().to_vec(),
         ReportOptions {
@@ -476,7 +524,8 @@ fn check_loaded(
             orphan_files_by_language: Some(&orphan_files_by_language),
             ownership,
         },
-    )?)
+    )
+    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }
 
 pub(crate) fn measure_with(
@@ -500,6 +549,7 @@ pub(crate) fn measure_snapshot(
         &coverage,
         &configuration.source_set_overrides,
         &configuration.entry_points,
+        configuration.config_file(),
     )
 }
 
@@ -509,8 +559,9 @@ fn measure(
     coverage: &[LanguageCoverage<'_>],
     overrides: &SourceSetOverrides,
     configured_entry_points: &EntryPoints,
+    config_file: ConfigFileKind,
 ) -> Result<MeasuredSnapshot, CheckError> {
-    let covered_files = assign_files_to_plugins(tree, plugins, coverage)?;
+    let covered_files = assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
@@ -523,6 +574,7 @@ fn measure(
         manifests_by_plugin,
         &plugin_members,
         configured_entry_points,
+        config_file,
     )
 }
 
@@ -588,6 +640,7 @@ fn resolve_measured_snapshot(
     manifests_by_plugin: Vec<Vec<Manifest>>,
     plugin_members: &[Vec<RepoPath>],
     configured_entry_points: &EntryPoints,
+    config_file: ConfigFileKind,
 ) -> Result<MeasuredSnapshot, CheckError> {
     let mut languages = Vec::with_capacity(plugins.len());
     let mut entry_points_by_language = BTreeMap::new();
@@ -597,10 +650,14 @@ fn resolve_measured_snapshot(
         .zip(manifests_by_plugin)
         .zip(plugin_members)
     {
-        let manifest_entries = named.plugin.entry_points(tree.files(), manifests.clone())?;
+        let manifest_entries = named
+            .plugin
+            .entry_points(tree.files(), manifests.clone())
+            .map_err(|error| CheckError::language_plugin(config_file, error))?;
         let combined_entries =
             combine_entry_points(manifest_entries, &model.files, configured_entry_points);
-        let measured = finalize_language_model(named, model, manifests, members, tree.files())?;
+        let measured =
+            finalize_language_model(named, model, manifests, members, tree.files(), config_file)?;
         entry_points_by_language.insert(named.name.to_owned(), combined_entries);
         languages.push(measured);
     }
@@ -632,10 +689,14 @@ fn finalize_language_model(
     manifests: Vec<Manifest>,
     plugin_members: &[RepoPath],
     repository_paths: &[RepoPath],
+    config_file: ConfigFileKind,
 ) -> Result<MeasuredLanguage, CheckError> {
     let importers: Vec<&SourceFile> = model.files.iter().collect();
     let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
-    let declared_dependencies = named.plugin.declared_dependencies(manifests.clone())?;
+    let declared_dependencies = named
+        .plugin
+        .declared_dependencies(manifests.clone())
+        .map_err(|error| CheckError::language_plugin(config_file, error))?;
     model.dependency_manifests = collect_dependency_manifests(
         &manifests,
         plugin_members,
@@ -741,6 +802,7 @@ fn assign_files_to_plugins<'tree>(
     tree: &'tree Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     coverage: &[LanguageCoverage<'_>],
+    config_file: ConfigFileKind,
 ) -> Result<Vec<(&'tree RepoPath, usize)>, CheckError> {
     let mut plugins_by_extension: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (index, named) in plugins.iter().enumerate() {
@@ -763,6 +825,7 @@ fn assign_files_to_plugins<'tree>(
         if unrestricted.len() >= 2 {
             let (first, second) = first_two_plugin_names(plugins, &unrestricted);
             return Err(CheckError::ExtensionConflict {
+                config_file,
                 first,
                 second,
                 extension: extension.clone(),
@@ -789,6 +852,7 @@ fn assign_files_to_plugins<'tree>(
             many => {
                 let (first, second) = first_two_plugin_names(plugins, many);
                 return Err(CheckError::ExtensionConflict {
+                    config_file,
                     first,
                     second,
                     extension: extension.to_owned(),
