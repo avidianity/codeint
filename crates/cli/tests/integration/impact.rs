@@ -1,11 +1,10 @@
-mod common;
-
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 use serde_json::{Value, json};
+
+use crate::common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 
 fn run_impact(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_codeint"))

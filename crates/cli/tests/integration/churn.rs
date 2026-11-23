@@ -1,6 +1,4 @@
-mod history_support;
-
-use history_support::{
+use crate::history_support::{
     HistoryFixture, assert_format_contains, assert_no_blended_score_keys,
     assert_shallow_and_non_git, assert_unborn_repo_remedy,
 };
