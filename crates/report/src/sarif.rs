@@ -366,7 +366,7 @@ impl<'findings> ListedFindings<'findings> {
         ListedFindings {
             eroded_functions: &section.erosion.findings.listed,
             cognitive_complexity: &section.cognitive_complexity.findings.listed,
-            clone_groups: &section.duplication.clone_groups.listed,
+            clone_groups: &section.duplication.findings.listed,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
             boundaries: section

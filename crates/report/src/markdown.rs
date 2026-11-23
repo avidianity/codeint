@@ -1,10 +1,9 @@
 use crate::ownership::OwnedFinding;
 use crate::{
     BoundaryFindingRow, CloneGroupFinding, CloneLocation, CognitiveComplexityFinding,
-    CognitiveComplexitySection, DuplicationSection, ErodedFunctionFinding, ErosionSection,
-    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection,
-    MeasuredSection, PackageSection, ReferenceRangeEntry, Report, SourceSetSection,
-    SourceSetSections, UnresolvedImportRow, VerbositySection,
+    ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding,
+    ImportCyclesSection, MeasuredSection, MetricHeader, PackageSection, ReferenceRangeEntry,
+    Report, SourceSetSection, SourceSetSections, UnresolvedImportRow,
 };
 
 #[cfg(test)]
@@ -242,89 +241,62 @@ fn files_and_lines(files: usize, source_lines: u64) -> String {
 }
 
 fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>> {
-    let row = |metric: &str, value: f64, behind: String, range: &ReferenceRangeEntry| {
+    let row = |metric: &str, header: &MetricHeader, behind: String| {
         vec![
             source_set.to_string(),
             metric.to_string(),
-            value.to_string(),
+            header.ratio.0.to_string(),
             behind,
-            reference_range(range),
+            reference_range(&header.reference_range),
         ]
     };
-    let ErosionSection {
-        ratio,
-        reference_range: erosion_range,
-        eroded_function_mass,
-        total_function_mass,
-        ..
-    } = &section.erosion;
-    let CognitiveComplexitySection {
-        ratio: cognitive_ratio,
-        reference_range: cognitive_range,
-        complex_cognitive_complexity,
-        total_cognitive_complexity,
-        ..
-    } = &section.cognitive_complexity;
-    let DuplicationSection {
-        ratio: duplication_ratio,
-        reference_range: duplication_range,
-        clone_lines,
-        ..
-    } = &section.duplication;
-    let VerbositySection {
-        ratio: verbosity_ratio,
-        reference_range: verbosity_range,
-        verbose_lines,
-        flagged_lines,
-        clone_lines: verbosity_clone_lines,
-        ..
-    } = &section.verbosity;
+    let erosion = &section.erosion;
+    let cognitive = &section.cognitive_complexity;
+    let duplication = &section.duplication;
+    let verbosity = &section.verbosity;
     let import_cycles = &section.import_cycles;
     let mut rows = vec![
         row(
             "Erosion",
-            ratio.0,
+            &erosion.header,
             format!(
                 "{} of {} Function mass in eroded functions",
-                eroded_function_mass.0, total_function_mass.0
+                erosion.totals.eroded_function_mass.0, erosion.totals.total_function_mass.0
             ),
-            erosion_range,
         ),
         row(
             "Cognitive complexity",
-            cognitive_ratio.0,
+            &cognitive.header,
             format!(
-                "{complex_cognitive_complexity} of {total_cognitive_complexity} cognitive complexity in functions over 15"
+                "{} of {} cognitive complexity in functions over 15",
+                cognitive.totals.complex_cognitive_complexity,
+                cognitive.totals.total_cognitive_complexity
             ),
-            cognitive_range,
         ),
         row(
             "Duplication",
-            duplication_ratio.0,
+            &duplication.header,
             format!(
                 "{} of {}",
-                CLONE_LINE.counted(*clone_lines),
+                CLONE_LINE.counted(duplication.totals.clone_lines),
                 SOURCE_LINE.counted(section.source_lines)
             ),
-            duplication_range,
         ),
         row(
             "Verbosity",
-            verbosity_ratio.0,
+            &verbosity.header,
             format!(
                 "{} of {}: {}, {}",
-                VERBOSE_LINE.counted(*verbose_lines),
+                VERBOSE_LINE.counted(verbosity.totals.verbose_lines),
                 SOURCE_LINE.counted(section.source_lines),
-                FLAGGED_LINE.counted(*flagged_lines),
-                CLONE_LINE.counted(*verbosity_clone_lines)
+                FLAGGED_LINE.counted(verbosity.totals.flagged_lines),
+                CLONE_LINE.counted(verbosity.totals.clone_lines)
             ),
-            verbosity_range,
         ),
         row(
             "Import cycles",
-            import_cycles.ratio.0,
+            &import_cycles.header,
             import_cycles_behind_the_value(import_cycles),
-            &import_cycles.reference_range,
         ),
     ];
     if let Some(boundaries) = &section.boundaries {
@@ -344,9 +316,8 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
     for external in section.external_metrics.values() {
         rows.push(row(
             &external.name,
-            external.ratio.0,
+            &external.header,
             format!("{} of {}", external.numerator.0, external.denominator.0),
-            &external.reference_range,
         ));
     }
     rows
@@ -396,7 +367,7 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
     push_findings(
         &mut blocks,
         "Duplication",
-        &section.duplication.clone_groups,
+        &section.duplication.findings,
         &CLONE_GROUP,
         |listed| list(listed.iter().map(clone_group_item)),
     );

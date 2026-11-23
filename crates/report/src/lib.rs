@@ -131,10 +131,10 @@ struct SourceSetSections {
 struct SourceSetSection {
     files: usize,
     source_lines: u64,
-    erosion: ErosionSection,
-    cognitive_complexity: CognitiveComplexitySection,
-    duplication: DuplicationSection,
-    verbosity: VerbositySection,
+    erosion: MetricSection<ErosionTotals, ErodedFunctionFinding>,
+    cognitive_complexity: MetricSection<CognitiveComplexityTotals, CognitiveComplexityFinding>,
+    duplication: MetricSection<DuplicationTotals, CloneGroupFinding>,
+    verbosity: MetricSection<VerbosityTotals, FlaggedLineRow>,
     import_cycles: ImportCyclesSection,
     #[serde(skip_serializing_if = "Option::is_none")]
     boundaries: Option<BoundariesSection>,
@@ -173,13 +173,28 @@ struct BoundaryFindingRow {
 }
 
 #[derive(Debug, Serialize)]
+struct MetricHeader {
+    ratio: Decimal,
+    reference_range: ReferenceRangeEntry,
+}
+
+impl MetricHeader {
+    fn new(ratio: f64, ranges: &ReferenceRangeScope, key: &str) -> MetricHeader {
+        MetricHeader {
+            ratio: Decimal::rounded(ratio),
+            reference_range: ranges.entry(key),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct ExternalMetricSection {
     #[serde(skip)]
     name: String,
     #[serde(skip)]
     description: String,
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
+    #[serde(flatten)]
+    header: MetricHeader,
     numerator: Decimal,
     denominator: Decimal,
     #[serde(flatten)]
@@ -243,13 +258,37 @@ struct PackageImportCycles {
 }
 
 #[derive(Debug, Serialize)]
-struct ErosionSection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
+struct MetricSection<Totals, Finding: FindingKind> {
+    #[serde(flatten)]
+    header: MetricHeader,
+    #[serde(flatten)]
+    totals: Totals,
+    #[serde(flatten)]
+    findings: Findings<Finding>,
+}
+
+#[derive(Debug, Serialize)]
+struct ErosionTotals {
     eroded_function_mass: Decimal,
     total_function_mass: Decimal,
-    #[serde(flatten)]
-    findings: Findings<ErodedFunctionFinding>,
+}
+
+#[derive(Debug, Serialize)]
+struct CognitiveComplexityTotals {
+    complex_cognitive_complexity: u64,
+    total_cognitive_complexity: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct DuplicationTotals {
+    clone_lines: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct VerbosityTotals {
+    verbose_lines: u64,
+    flagged_lines: u64,
+    clone_lines: u64,
 }
 
 trait FindingKind: Serialize {
@@ -279,16 +318,6 @@ struct ErodedFunctionFinding {
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct CognitiveComplexitySection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
-    complex_cognitive_complexity: u64,
-    total_cognitive_complexity: u64,
-    #[serde(flatten)]
-    findings: Findings<CognitiveComplexityFinding>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct CognitiveComplexityFinding {
     id: String,
@@ -302,15 +331,6 @@ struct CognitiveComplexityFinding {
     source_lines: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     owners: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct DuplicationSection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
-    clone_lines: u64,
-    #[serde(flatten)]
-    clone_groups: Findings<CloneGroupFinding>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -329,17 +349,6 @@ struct CloneLocation {
     end_line: u32,
 }
 
-#[derive(Debug, Serialize)]
-struct VerbositySection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
-    verbose_lines: u64,
-    flagged_lines: u64,
-    clone_lines: u64,
-    #[serde(flatten)]
-    findings: Findings<FlaggedLineRow>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct FlaggedLineRow {
     id: String,
@@ -352,8 +361,8 @@ struct FlaggedLineRow {
 
 #[derive(Debug, Serialize)]
 struct ImportCyclesSection {
-    ratio: Decimal,
-    reference_range: ReferenceRangeEntry,
+    #[serde(flatten)]
+    header: MetricHeader,
     modules_in_import_cycles: usize,
     modules: usize,
     #[serde(flatten)]
@@ -702,26 +711,30 @@ impl SourceSetSections {
             budgets,
             self.iter().flat_map(|(source_set, section)| {
                 [
-                    (source_set, Metric::Erosion.key(), section.erosion.ratio.0),
+                    (
+                        source_set,
+                        Metric::Erosion.key(),
+                        section.erosion.header.ratio.0,
+                    ),
                     (
                         source_set,
                         COGNITIVE_COMPLEXITY_KEY,
-                        section.cognitive_complexity.ratio.0,
+                        section.cognitive_complexity.header.ratio.0,
                     ),
                     (
                         source_set,
                         Metric::Duplication.key(),
-                        section.duplication.ratio.0,
+                        section.duplication.header.ratio.0,
                     ),
                     (
                         source_set,
                         Metric::Verbosity.key(),
-                        section.verbosity.ratio.0,
+                        section.verbosity.header.ratio.0,
                     ),
                     (
                         source_set,
                         Metric::ImportCycles.key(),
-                        section.import_cycles.ratio.0,
+                        section.import_cycles.header.ratio.0,
                     ),
                 ]
                 .into_iter()
@@ -732,10 +745,9 @@ impl SourceSetSections {
                         .map(move |boundaries| (source_set, "boundaries", boundaries.ratio.0)),
                 )
                 .chain(
-                    section
-                        .external_metrics
-                        .iter()
-                        .map(move |(key, metric)| (source_set, key.as_str(), metric.ratio.0)),
+                    section.external_metrics.iter().map(move |(key, metric)| {
+                        (source_set, key.as_str(), metric.header.ratio.0)
+                    }),
                 )
             }),
         )
@@ -777,8 +789,7 @@ impl SourceSetSection {
                 ExternalMetricSection {
                     name: plugin.name().to_owned(),
                     description: plugin.description().to_owned(),
-                    ratio: Decimal::rounded(result.ratio),
-                    reference_range: ranges.entry(plugin.key()),
+                    header: MetricHeader::new(result.ratio, ranges, plugin.key()),
                     numerator: Decimal::rounded(result.numerator),
                     denominator: Decimal::rounded(result.denominator),
                     findings: view.select(
@@ -793,11 +804,12 @@ impl SourceSetSection {
         Ok(SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
-            erosion: ErosionSection {
-                ratio: Decimal::rounded(measured.erosion.ratio()),
-                reference_range: ranges.entry(Metric::Erosion.key()),
-                eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
-                total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
+            erosion: MetricSection {
+                header: MetricHeader::new(measured.erosion.ratio(), ranges, Metric::Erosion.key()),
+                totals: ErosionTotals {
+                    eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
+                    total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
+                },
                 findings: view.select(
                     measured
                         .erosion
@@ -806,15 +818,20 @@ impl SourceSetSection {
                         .map(ErodedFunctionFinding::new),
                 ),
             },
-            cognitive_complexity: CognitiveComplexitySection {
-                ratio: Decimal::rounded(measured.cognitive_complexity.ratio()),
-                reference_range: ranges.entry(COGNITIVE_COMPLEXITY_KEY),
-                complex_cognitive_complexity: measured
-                    .cognitive_complexity
-                    .complex_cognitive_complexity(),
-                total_cognitive_complexity: measured
-                    .cognitive_complexity
-                    .total_cognitive_complexity(),
+            cognitive_complexity: MetricSection {
+                header: MetricHeader::new(
+                    measured.cognitive_complexity.ratio(),
+                    ranges,
+                    COGNITIVE_COMPLEXITY_KEY,
+                ),
+                totals: CognitiveComplexityTotals {
+                    complex_cognitive_complexity: measured
+                        .cognitive_complexity
+                        .complex_cognitive_complexity(),
+                    total_cognitive_complexity: measured
+                        .cognitive_complexity
+                        .total_cognitive_complexity(),
+                },
                 findings: view.select(
                     measured
                         .cognitive_complexity
@@ -823,11 +840,16 @@ impl SourceSetSection {
                         .map(CognitiveComplexityFinding::new),
                 ),
             },
-            duplication: DuplicationSection {
-                ratio: Decimal::rounded(measured.duplication.ratio()),
-                reference_range: ranges.entry(Metric::Duplication.key()),
-                clone_lines: measured.duplication.clone_lines.count(),
-                clone_groups: view.select(
+            duplication: MetricSection {
+                header: MetricHeader::new(
+                    measured.duplication.ratio(),
+                    ranges,
+                    Metric::Duplication.key(),
+                ),
+                totals: DuplicationTotals {
+                    clone_lines: measured.duplication.clone_lines.count(),
+                },
+                findings: view.select(
                     measured
                         .duplication
                         .clone_groups
@@ -835,17 +857,25 @@ impl SourceSetSection {
                         .map(CloneGroupFinding::new),
                 ),
             },
-            verbosity: VerbositySection {
-                ratio: Decimal::rounded(measured.verbosity.ratio()),
-                reference_range: ranges.entry(Metric::Verbosity.key()),
-                verbose_lines: measured.verbosity.verbose_lines(),
-                flagged_lines: measured.verbosity.flagged_line_count(),
-                clone_lines: measured.verbosity.clone_line_count(),
+            verbosity: MetricSection {
+                header: MetricHeader::new(
+                    measured.verbosity.ratio(),
+                    ranges,
+                    Metric::Verbosity.key(),
+                ),
+                totals: VerbosityTotals {
+                    verbose_lines: measured.verbosity.verbose_lines(),
+                    flagged_lines: measured.verbosity.flagged_line_count(),
+                    clone_lines: measured.verbosity.clone_line_count(),
+                },
                 findings: view.map(measured.verbosity.flagged_lines()),
             },
             import_cycles: ImportCyclesSection {
-                ratio: Decimal::rounded(measured.import_cycles.ratio()),
-                reference_range: ranges.entry(Metric::ImportCycles.key()),
+                header: MetricHeader::new(
+                    measured.import_cycles.ratio(),
+                    ranges,
+                    Metric::ImportCycles.key(),
+                ),
                 modules_in_import_cycles: measured.import_cycles.modules_in_import_cycles(),
                 modules: measured.import_cycles.modules(),
                 findings: view.select(

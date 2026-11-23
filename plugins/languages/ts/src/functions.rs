@@ -212,6 +212,22 @@ impl FunctionCollector<'_> {
         self.with_nesting(|collector| collector.visit_statement(body));
     }
 
+    fn visit_while_loop<'a>(
+        &mut self,
+        test: &Expression<'a>,
+        body: &Statement<'a>,
+        test_first: bool,
+    ) {
+        self.record_loop_structure();
+        if test_first {
+            self.visit_expression(test);
+            self.with_nesting(|collector| collector.visit_statement(body));
+        } else {
+            self.with_nesting(|collector| collector.visit_statement(body));
+            self.visit_expression(test);
+        }
+    }
+
     fn visit_if_chain<'a>(&mut self, statement: &IfStatement<'a>, is_else_if: bool) {
         self.add_decision_point();
         if is_else_if {
@@ -323,15 +339,11 @@ impl<'a> Visit<'a> for FunctionCollector<'_> {
     }
 
     fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
-        self.record_loop_structure();
-        self.visit_expression(&it.test);
-        self.with_nesting(|collector| collector.visit_statement(&it.body));
+        self.visit_while_loop(&it.test, &it.body, true);
     }
 
     fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
-        self.record_loop_structure();
-        self.with_nesting(|collector| collector.visit_statement(&it.body));
-        self.visit_expression(&it.test);
+        self.visit_while_loop(&it.test, &it.body, false);
     }
 
     fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {

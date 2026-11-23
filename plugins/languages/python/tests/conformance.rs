@@ -1,5 +1,5 @@
 use codeint_lang_python::{Python, flagged_line_rules};
-use codeint_model::language::{DepKind, Function, ImportRequest, Resolution};
+use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, TokenKind};
 
 #[test]
@@ -272,24 +272,23 @@ fn python_stdlib_pep503_external_normalization_and_declared_dependencies() {
     }
 
     let deps = Python.declared_dependencies(manifests).unwrap();
-    let mut declared = Vec::with_capacity(deps.len());
-    for dep in &deps {
-        declared.push((dep.package_root.as_str(), dep.name.as_str(), dep.kind));
-    }
-    assert_eq!(
-        declared,
-        [
-            ("", "pydantic-settings", DepKind::Runtime),
-            ("", "requests", DepKind::Runtime),
-            ("", "pytest", DepKind::Dev),
-            ("", "ruff", DepKind::Dev),
-            ("", "psycopg-pool", DepKind::Optional),
-            ("packages/core", "httpx", DepKind::Runtime),
-            ("packages/core", "zope-interface", DepKind::Runtime),
-            ("packages/core", "mypy", DepKind::Dev),
-            ("packages/core", "orjson", DepKind::Optional),
-        ]
-    );
+    let expected_deps = [
+        ("", "pydantic-settings", DepKind::Runtime),
+        ("", "requests", DepKind::Runtime),
+        ("", "pytest", DepKind::Dev),
+        ("", "ruff", DepKind::Dev),
+        ("", "psycopg-pool", DepKind::Optional),
+        ("packages/core", "httpx", DepKind::Runtime),
+        ("packages/core", "zope-interface", DepKind::Runtime),
+        ("packages/core", "mypy", DepKind::Dev),
+        ("packages/core", "orjson", DepKind::Optional),
+    ]
+    .map(|(root, name, kind)| DeclaredDep {
+        package_root: root.to_owned(),
+        name: name.to_owned(),
+        kind,
+    });
+    assert_eq!(deps, expected_deps);
 }
 
 #[test]
