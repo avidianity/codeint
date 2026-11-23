@@ -44,8 +44,14 @@ fn extracts_explicit_and_default_lib_and_bin_targets_from_cargo_manifests() {
     })
     .collect();
 
+    let found: Vec<String> = Rust
+        .entry_points(&files, manifests)
+        .expect("valid entry points")
+        .into_iter()
+        .map(|path| path.as_str().to_owned())
+        .collect();
     assert_eq!(
-        Rust.entry_points(&files, manifests),
+        found,
         [
             "crates/core/src/bin/tool.rs",
             "crates/core/src/bin/worker/main.rs",
@@ -70,10 +76,13 @@ fn handles_root_crate_empty_targets_and_invalid_manifests() {
         path: "Cargo.toml".into(),
         text: "[package]\nname = \"root_app\"\nautobins = false\n[[bin]]\nname = \"root_app\"\n[[bin]]\nname = \"escape\"\npath = \"../outside.rs\"\n[[bin]]\nname = \"abs\"\npath = \"/etc/passwd\"\n".into(),
     };
-    assert_eq!(
-        Rust.entry_points(&root_files, vec![root_manifest]),
-        ["src/lib.rs", "src/main.rs"]
-    );
+    let root_found: Vec<String> = Rust
+        .entry_points(&root_files, vec![root_manifest])
+        .expect("valid entry points")
+        .into_iter()
+        .map(|path| path.as_str().to_owned())
+        .collect();
+    assert_eq!(root_found, ["src/lib.rs", "src/main.rs"]);
 
     let no_targets = [
         RepoPath::new("Cargo.toml").unwrap(),
@@ -88,6 +97,10 @@ fn handles_root_crate_empty_targets_and_invalid_manifests() {
             path: "Cargo.toml".into(),
             text: text.into(),
         };
-        assert!(Rust.entry_points(&no_targets, vec![entry]).is_empty());
+        assert!(
+            Rust.entry_points(&no_targets, vec![entry])
+                .expect("valid empty result")
+                .is_empty()
+        );
     }
 }

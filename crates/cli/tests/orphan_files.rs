@@ -233,17 +233,22 @@ fn monorepo_cross_package_reachability_and_isolated_package_safety() {
     );
 }
 
+fn init_single_entry_repo(name: &str, extra: &[(&str, &str)]) -> (TempDir, TempDir) {
+    let manifest = format!(r#"{{"name": "{name}", "main": "./src/index.ts"}}"#);
+    let mut files: Vec<(&str, &str)> = vec![
+        ("package.json", manifest.as_str()),
+        ("src/index.ts", "export const main = () => 1;\n"),
+    ];
+    files.extend_from_slice(extra);
+    (TempDir::new().expect("cache dir"), init_git_repo(&files))
+}
+
 #[test]
 fn budget_and_diff_regression_gating_with_stable_finding_ids() {
-    let cache = TempDir::new().expect("cache dir");
-    let repo = init_git_repo(&[
-        (
-            "package.json",
-            r#"{"name": "gate", "main": "./src/index.ts"}"#,
-        ),
-        ("src/index.ts", "export const main = () => 1;\n"),
-        ("src/legacy_dead.ts", "export const legacy = () => 2;\n"),
-    ]);
+    let (cache, repo) = init_single_entry_repo(
+        "gate",
+        &[("src/legacy_dead.ts", "export const legacy = () => 2;\n")],
+    );
 
     write_file(
         repo.path(),
@@ -361,4 +366,65 @@ fn multi_language_rust_and_python_check_and_mcp_expose_orphan_files() {
         diff_payload["report"]["source_sets"]["production"]["orphan_files"]["new"][0]["path"],
         "app/extra_orphan.py"
     );
+}
+
+#[test]
+fn orphan_files_attach_codeowners_and_filter_with_owner_in_check_and_diff() {
+    let (cache, repo) = init_single_entry_repo(
+        "owned",
+        &[
+            ("src/backend_dead.ts", "export const backend = () => 2;\n"),
+            (
+                ".github/CODEOWNERS",
+                "src/backend_dead.ts @org/backend\nsrc/frontend_dead.ts @org/frontend\n",
+            ),
+        ],
+    );
+
+    let check_all = check_json(repo.path(), 0);
+    let check_findings = production_orphans(&check_all)["findings"]
+        .as_array()
+        .expect("check orphan findings");
+    assert_eq!(check_findings.len(), 1);
+    assert_eq!(check_findings[0]["owners"], json!(["@org/backend"]));
+
+    let check_md = run_codeint(repo.path(), None, &["check", "--format", "markdown"], 0);
+    assert!(check_md.contains("| File | Kind | Details | Owners |"));
+    assert!(check_md.contains("`@org/backend`"));
+
+    write_file(
+        repo.path(),
+        "src/frontend_dead.ts",
+        "export const frontend = () => 3;\n",
+    );
+    let check_filtered = run_json(
+        repo.path(),
+        None,
+        &["check", "--format", "json", "--owner", "@org/frontend"],
+        0,
+    );
+    assert_eq!(
+        orphan_finding_paths(production_orphans(&check_filtered)),
+        vec!["src/frontend_dead.ts"]
+    );
+
+    let diff_filtered = run_json(
+        repo.path(),
+        Some(cache.path()),
+        &[
+            "diff",
+            "main",
+            "--format",
+            "json",
+            "--owner",
+            "@org/frontend",
+        ],
+        1,
+    );
+    let diff_new = diff_filtered["source_sets"]["production"]["orphan_files"]["new"]
+        .as_array()
+        .expect("diff new orphan findings");
+    assert_eq!(diff_new.len(), 1);
+    assert_eq!(diff_new[0]["path"], "src/frontend_dead.ts");
+    assert_eq!(diff_new[0]["owners"], json!(["@org/frontend"]));
 }

@@ -18,6 +18,7 @@ use codeint_model::language::{
 };
 
 use crate::cfg_test::excluded_cfg_test_lines;
+use crate::entry_points::entry_points as discover_entry_points;
 use crate::functions::{CodeLines, functions};
 use crate::imports::runtime_import_specifiers;
 use crate::resolution::{RustResolver, manifest_paths};
@@ -103,6 +104,6 @@ impl Guest for Rust {
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
-        entry_points::entry_points(&repository_paths, &manifests)
+        discover_entry_points(&repository_paths, &manifests)
     }
 }

@@ -22,6 +22,7 @@ use oxc_parser::Parser;
 use oxc_parser::config::TokensParserConfig;
 use oxc_span::SourceType;
 
+use crate::entry_points::entry_points as discover_entry_points;
 use crate::functions::{CodeLines, functions};
 use crate::resolution::{ProjectResolver, manifest_paths};
 use crate::runtime_imports::runtime_import_specifiers;
@@ -80,7 +81,7 @@ impl Guest for TypeScriptAndJavaScript {
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
-        entry_points::entry_points(&repository_paths, &manifests)
+        discover_entry_points(&repository_paths, &manifests, &EXTENSIONS)
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {

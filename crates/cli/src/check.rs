@@ -3,8 +3,8 @@ use std::path::Path;
 use std::string::FromUtf8Error;
 
 use codeint_config::{
-    Configuration, ConfigurationFileError, EntryPoints, FindingsShown, LanguageCoverage,
-    PluginHostConfig, SourceSetOverrides, read_configuration,
+    Codeowners, CodeownersError, Configuration, ConfigurationFileError, EntryPoints, FindingsShown,
+    LanguageCoverage, OwnerFilter, PluginHostConfig, SourceSetOverrides, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_dart::Dart;
@@ -14,15 +14,16 @@ use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
 use codeint_metrics::OrphanFiles;
 use codeint_model::{
-    CodeModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, MetricPlugin,
-    MetricPluginError, Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile,
-    Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
+    CodeModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
+    MetricPlugin, MetricPluginError, Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile,
+    SourceFile, Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports,
+    settle_source_set,
 };
 use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{MeasuredLanguage, Report, ReportOptions};
+use codeint_report::{MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[cfg(test)]
@@ -34,6 +35,8 @@ pub(crate) enum CheckError {
     Git(#[from] GitError),
     #[error(transparent)]
     Configuration(#[from] ConfigurationFileError),
+    #[error(transparent)]
+    Codeowners(#[from] CodeownersError),
     #[error("cannot resolve runtime imports")]
     Resolve(#[source] ResolveError),
     #[error("a Language plugin supplies an invalid Reference range")]
@@ -42,6 +45,8 @@ pub(crate) enum CheckError {
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     PluginHost(#[from] PluginHostError),
+    #[error(transparent)]
+    LanguagePlugin(#[from] LanguagePluginError),
     #[error(transparent)]
     MetricPlugin(#[from] MetricPluginError),
     #[error("{}", format_extension_conflict(first, second, extension, path.as_ref()))]
@@ -307,22 +312,54 @@ impl WorkspaceContext {
     }
 }
 
+pub(crate) struct PreparedRun {
+    pub(crate) context: WorkspaceContext,
+    pub(crate) codeowners: Option<Codeowners>,
+    pub(crate) owner_filter: Option<OwnerFilter>,
+}
+
+impl PreparedRun {
+    pub(crate) fn load(
+        folder: &Path,
+        owner_pattern: Option<&str>,
+        plugin_host: &PluginHostConfig,
+    ) -> Result<PreparedRun, CheckError> {
+        let context = WorkspaceContext::load(folder, plugin_host)?;
+        let codeowners = Codeowners::load(context.repository.root())?;
+        let owner_filter = owner_pattern.map(OwnerFilter::new).transpose()?;
+        Ok(PreparedRun {
+            context,
+            codeowners,
+            owner_filter,
+        })
+    }
+
+    pub(crate) fn ownership(&self) -> OwnershipOptions<'_> {
+        OwnershipOptions {
+            codeowners: self.codeowners.as_ref(),
+            owner_filter: self.owner_filter.as_ref(),
+        }
+    }
+}
+
 pub(crate) fn check(
     folder: &Path,
     findings: FindingsShown,
     package: Option<&str>,
+    owner: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
-    let context = WorkspaceContext::load(folder, plugin_host)?;
-    let plugins = context.plugins.as_named();
-    let metric_plugins = context.plugins.metric_plugins();
+    let run = PreparedRun::load(folder, owner, plugin_host)?;
+    let plugins = run.context.plugins.as_named();
+    let metric_plugins = run.context.plugins.metric_plugins();
     check_loaded(
-        &context.repository,
-        &context.configuration,
+        &run.context.repository,
+        &run.context.configuration,
         &plugins,
         &metric_plugins,
         findings,
         package,
+        run.ownership(),
     )
 }
 
@@ -335,7 +372,15 @@ fn check_with(
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
     configuration.validate_metrics(&[])?;
-    check_loaded(&repository, &configuration, plugins, &[], findings, None)
+    check_loaded(
+        &repository,
+        &configuration,
+        plugins,
+        &[],
+        findings,
+        None,
+        OwnershipOptions::default(),
+    )
 }
 
 pub(crate) struct MeasuredSnapshot {
@@ -373,6 +418,7 @@ fn check_loaded(
     metric_plugins: &[&dyn MetricPlugin],
     findings: FindingsShown,
     package: Option<&str>,
+    ownership: OwnershipOptions<'_>,
 ) -> Result<Report, CheckError> {
     let tree = repository.working_tree()?;
     let mut snapshot = measure_snapshot(&tree, plugins, configuration)?;
@@ -397,6 +443,7 @@ fn check_loaded(
             boundaries: configuration.boundaries.as_ref(),
             orphan_files: orphan_files.as_ref(),
             orphan_files_by_language: Some(&orphan_files_by_language),
+            ownership,
         },
     )?)
 }
@@ -513,7 +560,7 @@ fn resolve_measured_snapshot(
     for ((named, mut model), manifests) in plugins.iter().zip(models).zip(manifests_by_plugin) {
         let importers: Vec<&SourceFile> = model.files.iter().collect();
         let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
-        let manifest_entries = named.plugin.entry_points(tree.files(), manifests.clone());
+        let manifest_entries = named.plugin.entry_points(tree.files(), manifests.clone())?;
         let combined_entries =
             combine_entry_points(manifest_entries, &model.files, configured_entry_points);
         model.runtime_imports =
@@ -533,16 +580,11 @@ fn resolve_measured_snapshot(
 }
 
 fn combine_entry_points(
-    manifest_entries: Vec<String>,
+    manifest_entries: Vec<RepoPath>,
     files: &[SourceFile],
     configured: &EntryPoints,
 ) -> Vec<RepoPath> {
-    let mut entries = BTreeSet::new();
-    for raw in manifest_entries {
-        if let Ok(path) = RepoPath::new(raw) {
-            entries.insert(path);
-        }
-    }
+    let mut entries: BTreeSet<RepoPath> = manifest_entries.into_iter().collect();
     if !configured.is_empty() {
         for file in files {
             if configured.matches(&file.path) {

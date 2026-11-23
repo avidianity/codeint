@@ -17,6 +17,7 @@ use codeint_model::language::{
 };
 use codeint_model::token_text_hash;
 
+use crate::entry_points::discover as discover_entry_points;
 use crate::lexer::{DartKind, DartToken};
 
 pub use rules::flagged_line_rules;
@@ -97,7 +98,7 @@ impl Guest for Dart {
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
-        entry_points::discover(&repository_paths, &manifests)
+        discover_entry_points(&repository_paths, &manifests)
     }
 
     fn extensions() -> Vec<String> {

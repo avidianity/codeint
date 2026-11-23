@@ -30,8 +30,14 @@ fn extracts_executables_default_lib_and_bin_entries_from_pubspec() {
         text: "name: core_lib\n".into(),
     };
 
+    let found: Vec<String> = Dart
+        .entry_points(&paths, vec![root, core])
+        .expect("valid entry points")
+        .into_iter()
+        .map(|path| path.as_str().to_owned())
+        .collect();
     assert_eq!(
-        Dart.entry_points(&paths, vec![root, core]),
+        found,
         [
             "bin/direct.dart",
             "bin/extra.dart",
@@ -49,19 +55,23 @@ fn returns_empty_when_pubspec_has_no_matching_entry_points_or_is_invalid() {
         RepoPath::new("pubspec.yaml").unwrap(),
         RepoPath::new("lib/helper.dart").unwrap(),
     ];
-    let no_match = Dart.entry_points(
-        &paths,
-        vec![Manifest {
-            path: "pubspec.yaml".into(),
-            text: "name: app\n".into(),
-        }],
-    );
-    let malformed = Dart.entry_points(
-        &paths,
-        vec![Manifest {
-            path: "pubspec.yaml".into(),
-            text: "executables: [\n".into(),
-        }],
-    );
+    let no_match = Dart
+        .entry_points(
+            &paths,
+            vec![Manifest {
+                path: "pubspec.yaml".into(),
+                text: "name: app\n".into(),
+            }],
+        )
+        .expect("valid empty result");
+    let malformed = Dart
+        .entry_points(
+            &paths,
+            vec![Manifest {
+                path: "pubspec.yaml".into(),
+                text: "executables: [\n".into(),
+            }],
+        )
+        .expect("valid empty result");
     assert!(no_match.is_empty() && malformed.is_empty());
 }

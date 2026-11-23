@@ -34,8 +34,14 @@ fn extracts_bin_entry_points_from_composer_manifests() {
         ),
     ];
 
+    let found: Vec<String> = Php
+        .entry_points(&repo_paths, manifests)
+        .expect("valid entry points")
+        .into_iter()
+        .map(|path| path.as_str().to_owned())
+        .collect();
     assert_eq!(
-        Php.entry_points(&repo_paths, manifests),
+        found,
         [
             "bin/console",
             "bin/worker.php",
@@ -62,6 +68,7 @@ fn returns_empty_when_composer_manifest_has_no_bin_or_is_invalid() {
                     text: body.into(),
                 }],
             )
+            .expect("valid empty result")
             .len()
         })
         .sum::<usize>();

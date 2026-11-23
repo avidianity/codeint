@@ -37,8 +37,14 @@ fn extracts_project_scripts_gui_scripts_entry_points_and_declared_packages() {
         },
     ];
 
+    let found: Vec<String> = Python
+        .entry_points(&snapshot, manifests)
+        .expect("valid entry points")
+        .into_iter()
+        .map(|path| path.as_str().to_owned())
+        .collect();
     assert_eq!(
-        Python.entry_points(&snapshot, manifests),
+        found,
         [
             "demo/gui.py",
             "demo/plugin.py",
@@ -70,11 +76,15 @@ fn returns_empty_when_pyproject_declares_no_entry_points_or_is_invalid() {
         text: "[project\nname =".to_owned(),
     };
     assert_eq!(
-        Python.entry_points(&snapshot, vec![plain]),
-        Vec::<String>::new()
+        Python
+            .entry_points(&snapshot, vec![plain])
+            .expect("valid empty result"),
+        Vec::<RepoPath>::new()
     );
     assert_eq!(
-        Python.entry_points(&snapshot, vec![broken]),
-        Vec::<String>::new()
+        Python
+            .entry_points(&snapshot, vec![broken])
+            .expect("valid empty result"),
+        Vec::<RepoPath>::new()
     );
 }

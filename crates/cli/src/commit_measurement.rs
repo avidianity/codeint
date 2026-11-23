@@ -11,10 +11,12 @@ use crate::check::{
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MEASUREMENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {
     codeint_version: &'static str,
+    measurement_schema: u32,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,6 +73,7 @@ impl<'run> CommitMeasurer<'run> {
             plugins,
             settings: MeasurementSettings {
                 codeint_version: CODEINT_VERSION,
+                measurement_schema: MEASUREMENT_SCHEMA_VERSION,
                 language_plugins,
                 configuration,
                 package,

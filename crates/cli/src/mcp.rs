@@ -3,14 +3,15 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use codeint_config::{
-    CalendarDay, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
-    TraceFormat, TrendFormat, TrendRange,
+    CalendarDay, ChurnFormat, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings,
+    FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat, TraceFormat,
+    TrendFormat, TrendRange,
 };
 use serde_json::{Value, json};
 
 use crate::{
-    CheckOptions, DiffOptions, ImpactOptions, TraceOptions, TrendOptions, check, diff, guard,
-    impact, trace, trend,
+    CheckOptions, ChurnOptions, CouplingOptions, DiffOptions, ImpactOptions, TraceOptions,
+    TrendOptions, check, churn, coupling, diff, guard, impact, trace, trend,
 };
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
@@ -209,6 +210,36 @@ fn handle_tools_list() -> Value {
                         "max_paths": { "type": "integer", "minimum": 1, "description": "Maximum number of shortest paths to return when all is true (default 10)." }
                     }
                 }
+            },
+            {
+                "name": "churn",
+                "description": "Rank eroded and duplicated files alongside their Git commit churn independently per Metric over a configurable lookback window.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
+                        "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
+                        "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                    }
+                }
+            },
+            {
+                "name": "coupling",
+                "description": "Detect pairs of files that repeatedly change together in the same commits, excluding bulk commits and flagging direct runtime imports.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
+                        "since": { "type": "string", "description": "Lookback window in days (such as 90d) or UTC date (YYYY-MM-DD); mutually exclusive with commits." },
+                        "commits": { "type": "integer", "minimum": 1, "description": "Walk at most this many main-line commits from HEAD; mutually exclusive with since." },
+                        "max_commit_files": { "type": "integer", "minimum": 1, "description": "Exclude commits touching more than this many files (defaults to 50)." },
+                        "min_co_changes": { "type": "integer", "minimum": 1, "description": "Minimum co-changing commits required to report a pair (defaults to 3)." },
+                        "min_ratio": { "type": "number", "minimum": 0, "maximum": 1, "description": "Minimum coupling ratio between 0 and 1 required to report a pair (defaults to 0.3)." },
+                        "include_tests": { "type": "boolean", "description": "Include Test Source set files alongside Production files (defaults to false)." },
+                        "all": { "type": "boolean", "description": "Return all coupled pairs instead of the top 20." }
+                    }
+                }
             }
         ]
     })
@@ -222,59 +253,80 @@ fn handle_tools_call(
         .and_then(|p| p.get("name"))
         .and_then(Value::as_str)
         .ok_or_else(|| (-32602, "Missing tool name".to_owned()))?;
-    let args = params.and_then(|p| p.get("arguments"));
-    match name {
-        "check" => Ok(call_check(args, ctx)),
-        "diff" => Ok(call_diff(args, ctx)),
-        "trend" => Ok(call_trend(args, ctx)),
-        "guard" => Ok(call_guard(args, ctx)),
-        "impact" => Ok(call_impact(args, ctx)),
-        "trace" => Ok(call_trace(args, ctx)),
-        other => Err((-32602, format!("Unknown tool: {other}"))),
+    let args = match parse_tool_arguments(params) {
+        Ok(args) => args,
+        Err(err) => return Ok(err),
+    };
+    dispatch_tool(name, args, ctx)
+}
+
+fn parse_tool_arguments(params: Option<&Value>) -> Result<Option<&Value>, Value> {
+    match params.and_then(|p| p.get("arguments")) {
+        None => Ok(None),
+        Some(value) if value.is_object() => Ok(Some(value)),
+        Some(_) => Err(tool_err("Tool arguments must be a JSON object")),
     }
 }
 
-fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let folder = resolve_folder(args, ctx.default_folder);
+fn dispatch_tool(
+    name: &str,
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+) -> Result<Value, (i64, String)> {
+    let result = match name {
+        "check" => call_check(args, ctx),
+        "diff" => call_diff(args, ctx),
+        "trend" => call_trend(args, ctx),
+        "guard" => call_guard(args, ctx),
+        "impact" => call_impact(args, ctx),
+        "trace" => call_trace(args, ctx),
+        "churn" => call_churn(args, ctx),
+        "coupling" => call_coupling(args, ctx),
+        other => return Err((-32602, format!("Unknown tool: {other}"))),
+    };
+    Ok(result.unwrap_or_else(|err| err))
+}
+
+fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let options = CheckOptions {
-        findings: parse_findings(args),
+        findings: parse_findings(args)?,
         package: parse_package(args),
+        owner: None,
         plugin_host: ctx.plugin_host.clone(),
     };
-    match check(&folder, &options) {
+    Ok(match check(&folder, &options) {
         Ok(outcome) => render_outcome(
             outcome.passed,
             outcome.failures,
             outcome.report.render(ReportFormat::Json),
         ),
         Err(err) => tool_err(&err.to_string()),
-    }
+    })
 }
 
-fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let base_ref = match required_str_arg(args, "base_ref") {
-        Ok(value) => value,
-        Err(err) => return err,
-    };
-    let folder = resolve_folder(args, ctx.default_folder);
+fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let base_ref = required_str_arg(args, "base_ref")?;
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let options = DiffOptions {
         head_ref: args
             .and_then(|a| a.get("head_ref"))
             .and_then(Value::as_str)
             .map(str::to_owned),
-        findings: parse_findings(args),
+        findings: parse_findings(args)?,
         package: parse_package(args),
+        owner: None,
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
-    match diff(&folder, base_ref, &options) {
+    Ok(match diff(&folder, base_ref, &options) {
         Ok(outcome) => render_outcome(
             outcome.passed,
             outcome.failures,
             outcome.report.render(ReportFormat::Json),
         ),
         Err(err) => tool_err(&err.to_string()),
-    }
+    })
 }
 
 fn render_outcome(
@@ -298,8 +350,8 @@ fn render_outcome(
 fn render_json_tool<T, E: std::fmt::Display>(
     result: Result<T, E>,
     render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
-) -> Value {
-    match result {
+) -> Result<Value, Value> {
+    Ok(match result {
         Ok(report) => match render(report) {
             Ok(rendered) => {
                 let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
@@ -308,7 +360,7 @@ fn render_json_tool<T, E: std::fmt::Display>(
             Err(err) => tool_err(&err.to_string()),
         },
         Err(err) => tool_err(&err.to_string()),
-    }
+    })
 }
 
 fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, Value> {
@@ -317,12 +369,20 @@ fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, 
         .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
 }
 
-fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let folder = resolve_folder(args, ctx.default_folder);
+fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let file = required_str_arg(args, "file")?;
+    let folder = resolve_folder(args, ctx.default_folder)?;
+    render_json_tool(guard(&folder, Path::new(file)), |report| {
+        report.render(GuardFormat::Json)
+    })
+}
+
+fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
         Some(day_str) => match CalendarDay::from_str(day_str) {
             Ok(day) => TrendRange::Since(day),
-            Err(err) => return tool_err(&format!("Invalid since date {day_str:?}: {err}")),
+            Err(err) => return Err(tool_err(&format!("Invalid since date {day_str:?}: {err}"))),
         },
         None => TrendOptions::default().range,
     };
@@ -336,42 +396,18 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     })
 }
 
-fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let file = match required_str_arg(args, "file") {
-        Ok(value) => value,
-        Err(err) => return err,
-    };
-    let folder = resolve_folder(args, ctx.default_folder);
-    render_json_tool(guard(&folder, Path::new(file)), |report| {
-        report.render(GuardFormat::Json)
-    })
-}
-
-fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let folder = resolve_folder(args, ctx.default_folder);
-    let paths: Vec<String> = match args.and_then(|a| a.get("paths")) {
-        Some(Value::Array(items)) => {
-            let mut parsed = Vec::with_capacity(items.len());
-            for item in items {
-                let Some(path) = item.as_str() else {
-                    return tool_err("Invalid paths argument: every entry must be a string");
-                };
-                parsed.push(path.to_owned());
-            }
-            parsed
-        }
-        Some(_) => return tool_err("Invalid paths argument: expected an array of strings"),
-        None => Vec::new(),
-    };
+fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let folder = resolve_folder(args, ctx.default_folder)?;
+    let paths = parse_string_array(args, "paths")?;
     let changed = args
         .and_then(|a| a.get("changed"))
         .and_then(Value::as_str)
         .map(str::to_owned);
     let depth = match args.and_then(|a| a.get("depth")) {
-        Some(value) => match value.as_u64().and_then(|n| usize::try_from(n).ok()) {
-            Some(depth) => Some(depth),
-            None => return tool_err("Invalid depth argument: expected a non-negative integer"),
-        },
+        Some(value) => Some(parse_usize_arg(
+            value,
+            "Invalid depth argument: expected a non-negative integer",
+        )?),
         None => None,
     };
     let options = ImpactOptions {
@@ -386,29 +422,22 @@ fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     })
 }
 
-fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let from = match required_str_arg(args, "from") {
-        Ok(value) => value,
-        Err(err) => return err,
-    };
-    let to = match required_str_arg(args, "to") {
-        Ok(value) => value,
-        Err(err) => return err,
-    };
-    let folder = resolve_folder(args, ctx.default_folder);
-    let all = args
-        .and_then(|a| a.get("all"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let from = required_str_arg(args, "from")?;
+    let to = required_str_arg(args, "to")?;
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let max_paths = match args.and_then(|a| a.get("max_paths")) {
-        Some(value) => match value.as_u64().and_then(|n| usize::try_from(n).ok()) {
-            Some(n) => n,
-            None => return tool_err("Invalid argument: max_paths must be a positive integer"),
-        },
+        Some(value) => parse_usize_arg(
+            value,
+            "Invalid argument: max_paths must be a positive integer",
+        )?,
         None => TraceOptions::default().max_paths,
     };
     let options = TraceOptions {
-        all,
+        all: args
+            .and_then(|a| a.get("all"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         max_paths,
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
@@ -418,36 +447,173 @@ fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     })
 }
 
+fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let options = ChurnOptions {
+        window: parse_churn_window(args)?,
+        findings: parse_findings(args)?,
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    let folder = resolve_folder(args, ctx.default_folder)?;
+    render_json_tool(churn(&folder, &options), |report| {
+        report.render(ChurnFormat::Json)
+    })
+}
+
+fn call_coupling(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let options = CouplingOptions {
+        settings: parse_coupling_settings(args)?,
+        findings: parse_findings(args)?,
+        plugin_host: ctx.plugin_host.clone(),
+    };
+    let folder = resolve_folder(args, ctx.default_folder)?;
+    render_json_tool(coupling(&folder, &options), |report| {
+        report.render(ChurnFormat::Json)
+    })
+}
+
+fn parse_string_array(args: Option<&Value>, name: &str) -> Result<Vec<String>, Value> {
+    match args.and_then(|a| a.get(name)) {
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str().map(str::to_owned).ok_or_else(|| {
+                    tool_err(&format!(
+                        "Invalid {name} argument: every entry must be a string"
+                    ))
+                })
+            })
+            .collect(),
+        Some(_) => Err(tool_err(&format!(
+            "Invalid {name} argument: expected an array of strings"
+        ))),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn parse_usize_arg(value: &Value, error_message: &str) -> Result<usize, Value> {
+    value
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(|| tool_err(error_message))
+}
+
+fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, Value> {
+    let defaults = CouplingSettings::default();
+    let window = parse_churn_window(args)?;
+    let max_commit_files = parse_optional_arg(
+        args,
+        "max_commit_files",
+        defaults.max_commit_files,
+        |value| parse_positive_usize(value, "max_commit_files"),
+    )?;
+    let min_co_changes =
+        parse_optional_arg(args, "min_co_changes", defaults.min_co_changes, |value| {
+            parse_positive_usize(value, "min_co_changes")
+        })?;
+    let min_ratio = parse_optional_arg(args, "min_ratio", defaults.min_ratio, parse_ratio)?;
+    let include_tests =
+        parse_optional_arg(args, "include_tests", defaults.include_tests, |value| {
+            parse_bool_arg(value, "include_tests")
+        })?;
+    Ok(CouplingSettings {
+        window,
+        max_commit_files,
+        min_co_changes,
+        min_ratio,
+        include_tests,
+    })
+}
+
+fn parse_bool_arg(value: &Value, name: &str) -> Result<bool, Value> {
+    value
+        .as_bool()
+        .ok_or_else(|| tool_err(&format!("Argument {name} must be a boolean")))
+}
+
+fn parse_optional_arg<T>(
+    args: Option<&Value>,
+    name: &str,
+    default: T,
+    parse: impl FnOnce(&Value) -> Result<T, Value>,
+) -> Result<T, Value> {
+    match args.and_then(|a| a.get(name)).filter(|v| !v.is_null()) {
+        Some(value) => parse(value),
+        None => Ok(default),
+    }
+}
+
+fn parse_positive_usize(value: &Value, name: &str) -> Result<usize, Value> {
+    value
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|&n| n > 0)
+        .ok_or_else(|| tool_err(&format!("Argument {name} must be a positive integer")))
+}
+
+fn parse_ratio(value: &Value) -> Result<CouplingRatio, Value> {
+    let ratio = value
+        .as_f64()
+        .ok_or_else(|| tool_err("Argument min_ratio must be a number between 0 and 1"))?;
+    CouplingRatio::new(ratio).map_err(|err| tool_err(&format!("Invalid min_ratio: {err}")))
+}
+
+fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, Value> {
+    let since_val = args.and_then(|a| a.get("since")).filter(|v| !v.is_null());
+    let commits_val = args.and_then(|a| a.get("commits")).filter(|v| !v.is_null());
+    if since_val.is_some() && commits_val.is_some() {
+        return Err(tool_err(
+            "Arguments since and commits are mutually exclusive",
+        ));
+    }
+    if let Some(value) = since_val {
+        let text = value
+            .as_str()
+            .ok_or_else(|| tool_err("Argument since must be a string"))?;
+        return ChurnSince::from_str(text)
+            .map(ChurnWindow::from)
+            .map_err(|err| tool_err(&format!("Invalid since window {text:?}: {err}")));
+    }
+    if let Some(value) = commits_val {
+        let count = value
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|&n| n > 0)
+            .ok_or_else(|| tool_err("Argument commits must be a positive integer"))?;
+        return Ok(ChurnWindow::Commits(count));
+    }
+    Ok(ChurnWindow::default())
+}
+
 fn parse_package(args: Option<&Value>) -> Option<String> {
     args.and_then(|a| a.get("package"))
         .and_then(Value::as_str)
         .map(str::to_owned)
 }
 
-fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {
-    match args.and_then(|a| a.get("path")).and_then(Value::as_str) {
-        Some(p) if !p.is_empty() => {
-            let candidate = PathBuf::from(p);
-            if candidate.is_absolute() {
-                candidate
-            } else {
-                default_folder.join(candidate)
-            }
+fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> Result<PathBuf, Value> {
+    parse_optional_arg(args, "path", default_folder.to_path_buf(), |value| {
+        let path = value
+            .as_str()
+            .ok_or_else(|| tool_err("Argument path must be a string"))?;
+        if path.is_empty() {
+            return Ok(default_folder.to_path_buf());
         }
-        _ => default_folder.to_path_buf(),
-    }
+        let candidate = PathBuf::from(path);
+        Ok(if candidate.is_absolute() {
+            candidate
+        } else {
+            default_folder.join(candidate)
+        })
+    })
 }
 
-fn parse_findings(args: Option<&Value>) -> FindingsShown {
-    if args
-        .and_then(|a| a.get("all"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+fn parse_findings(args: Option<&Value>) -> Result<FindingsShown, Value> {
+    let all = parse_optional_arg(args, "all", false, |value| parse_bool_arg(value, "all"))?;
+    Ok(if all {
         FindingsShown::All
     } else {
         CheckOptions::default().findings
-    }
+    })
 }
 
 fn tool_ok(payload: Value) -> Value {

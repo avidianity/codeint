@@ -79,24 +79,29 @@ fn extracts_main_module_bin_and_exports_from_package_json() {
         },
     ];
 
-    let found = TypeScriptAndJavaScript.entry_points(&repo, manifests);
+    let expected: Vec<RepoPath> = [
+        "bin/tool",
+        "packages/cli/bin/run.mjs",
+        "packages/cli/src/dir/index.ts",
+        "packages/cli/src/entry.ts",
+        "packages/cli/src/esm.ts",
+        "src/alt-cli.js",
+        "src/button.tsx",
+        "src/cli.ts",
+        "src/esm.mts",
+        "src/fallback.ts",
+        "src/features/auth.ts",
+        "src/features/billing.ts",
+        "src/index.ts",
+    ]
+    .into_iter()
+    .map(|entry| RepoPath::new(entry).unwrap())
+    .collect();
     assert_eq!(
-        found,
-        [
-            "bin/tool",
-            "packages/cli/bin/run.mjs",
-            "packages/cli/src/dir/index.ts",
-            "packages/cli/src/entry.ts",
-            "packages/cli/src/esm.ts",
-            "src/alt-cli.js",
-            "src/button.tsx",
-            "src/cli.ts",
-            "src/esm.mts",
-            "src/fallback.ts",
-            "src/features/auth.ts",
-            "src/features/billing.ts",
-            "src/index.ts",
-        ]
+        TypeScriptAndJavaScript
+            .entry_points(&repo, manifests)
+            .expect("valid entry points"),
+        expected
     );
 }
 
@@ -119,6 +124,7 @@ fn returns_empty_when_package_json_declares_no_entry_points_or_is_invalid() {
         assert!(
             TypeScriptAndJavaScript
                 .entry_points(&repo, manifests)
+                .expect("valid empty result")
                 .is_empty()
         );
     }

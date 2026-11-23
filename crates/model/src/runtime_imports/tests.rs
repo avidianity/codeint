@@ -1,7 +1,7 @@
 use crate::language::{DeclaredDep, ImportRequest, Resolution, SourceSet};
 use crate::{
-    FileModel, InvalidReferenceRange, LanguagePlugin, LowerError, Manifest, ReferenceRanges,
-    RepoPath, SourceFile, WorkspaceError,
+    FileModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
+    ReferenceRanges, RepoPath, SourceFile, WorkspaceError,
 };
 
 use super::{
@@ -11,16 +11,19 @@ use super::{
 struct Answering(Vec<Resolution>);
 
 impl LanguagePlugin for Answering {
-    fn declared_dependencies(&self, _manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn entry_points(
         &self,
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
-    ) -> Vec<String> {
-        Vec::new()
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn extensions(&self) -> Vec<String> {

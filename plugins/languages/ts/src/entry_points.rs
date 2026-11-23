@@ -4,7 +4,6 @@ use codeint_model::language::Manifest;
 use codeint_model::scan::normalize_relative_path;
 use serde_json::Value;
 
-use crate::EXTENSIONS;
 use crate::workspaces::PACKAGE_MANIFEST;
 
 const OUTPUT_TO_SOURCE_ALIASES: [(&str, &[&str]); 4] = [
@@ -14,8 +13,12 @@ const OUTPUT_TO_SOURCE_ALIASES: [(&str, &[&str]); 4] = [
     (".cjs", &[".cts"]),
 ];
 
-pub(crate) fn entry_points(repository_paths: &[String], manifests: &[Manifest]) -> Vec<String> {
-    let mut finder = TsEntryFinder::new(repository_paths);
+pub(crate) fn entry_points(
+    repository_paths: &[String],
+    manifests: &[Manifest],
+    extensions: &[&str],
+) -> Vec<String> {
+    let mut finder = TsEntryFinder::new(repository_paths, extensions);
     for manifest in manifests {
         finder.scan_manifest(manifest);
     }
@@ -24,14 +27,16 @@ pub(crate) fn entry_points(repository_paths: &[String], manifests: &[Manifest]) 
 
 struct TsEntryFinder<'a> {
     paths: &'a [String],
+    extensions: &'a [&'a str],
     file_set: HashSet<&'a str>,
     entries: BTreeSet<String>,
 }
 
 impl<'a> TsEntryFinder<'a> {
-    fn new(paths: &'a [String]) -> TsEntryFinder<'a> {
+    fn new(paths: &'a [String], extensions: &'a [&'a str]) -> TsEntryFinder<'a> {
         TsEntryFinder {
             paths,
+            extensions,
             file_set: paths.iter().map(String::as_str).collect(),
             entries: BTreeSet::new(),
         }
@@ -98,7 +103,7 @@ impl<'a> TsEntryFinder<'a> {
             return;
         };
         if self.file_set.contains(candidate.as_str())
-            && (is_ts_source_file(&candidate) || has_no_extension(&candidate))
+            && (is_ts_source_file(&candidate, self.extensions) || has_no_extension(&candidate))
         {
             self.entries.insert(candidate);
             return;
@@ -116,7 +121,7 @@ impl<'a> TsEntryFinder<'a> {
         if is_declaration_file(candidate) {
             return;
         }
-        if self.file_set.contains(candidate) && is_ts_source_file(candidate) {
+        if self.file_set.contains(candidate) && is_ts_source_file(candidate, self.extensions) {
             self.entries.insert(candidate.to_owned());
             return;
         }
@@ -145,13 +150,13 @@ impl<'a> TsEntryFinder<'a> {
     }
 
     fn resolve_extension_or_index(&self, candidate: &str) -> Option<String> {
-        for ext in EXTENSIONS {
+        for ext in self.extensions {
             let with_ext = format!("{candidate}.{ext}");
             if self.file_set.contains(with_ext.as_str()) && !is_declaration_file(&with_ext) {
                 return Some(with_ext);
             }
         }
-        for ext in EXTENSIONS {
+        for ext in self.extensions {
             let index_file = format!("{candidate}/index.{ext}");
             if self.file_set.contains(index_file.as_str()) {
                 return Some(index_file);
@@ -181,7 +186,7 @@ impl<'a> TsEntryFinder<'a> {
         for path in self.paths {
             if let Some(matched_suffix) = wildcard_suffix_match(path, &prefix, suffix)
                 && path.len() > prefix.len() + matched_suffix.len()
-                && is_ts_source_file(path)
+                && is_ts_source_file(path, self.extensions)
             {
                 self.entries.insert(path.clone());
             }
@@ -221,7 +226,7 @@ fn is_declaration_file(path: &str) -> bool {
     path.ends_with(".d.ts") || path.ends_with(".d.mts") || path.ends_with(".d.cts")
 }
 
-fn is_ts_source_file(path: &str) -> bool {
+fn is_ts_source_file(path: &str, extensions: &[&str]) -> bool {
     if is_declaration_file(path) {
         return false;
     }
@@ -229,7 +234,7 @@ fn is_ts_source_file(path: &str) -> bool {
     let Some((_, ext)) = file_name.rsplit_once('.') else {
         return false;
     };
-    EXTENSIONS.contains(&ext)
+    extensions.contains(&ext)
 }
 
 fn has_no_extension(path: &str) -> bool {

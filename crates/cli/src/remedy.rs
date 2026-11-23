@@ -1,7 +1,9 @@
-use codeint_config::{ConfigError, ConfigurationFileError, StarterConfigurationError};
+use codeint_config::{
+    CodeownersError, ConfigError, ConfigurationFileError, StarterConfigurationError,
+};
 use codeint_git::GitError;
 use codeint_metrics::ImpactError;
-use codeint_model::{MetricPluginError, WorkspaceError};
+use codeint_model::{LanguagePluginError, MetricPluginError, WorkspaceError};
 use codeint_plugin_host::PluginHostError;
 use codeint_report::TraceError;
 
@@ -47,9 +49,22 @@ fn trace_remedy(error: &TraceCommandError) -> &'static str {
 
 fn check_remedy(error: &CheckError) -> &'static str {
     match error {
+        CheckError::ExtensionConflict { .. } => {
+            "Assign separate directories to each Language plugin in the languages setting of codeint.json."
+        }
+        CheckError::UnknownWorkspacePackage { .. } => {
+            "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository."
+        }
         CheckError::Git(error) => git_remedy(error),
         CheckError::Configuration(error) => configuration_file_remedy(error),
+        CheckError::Codeowners(error) => codeowners_remedy(error),
         CheckError::Workspace(error) => workspace_remedy(error),
+        other => check_plugin_remedy(other),
+    }
+}
+
+fn check_plugin_remedy(error: &CheckError) -> &'static str {
+    match error {
         CheckError::Resolve(_) => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
@@ -57,13 +72,9 @@ fn check_remedy(error: &CheckError) -> &'static str {
             "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
         }
         CheckError::PluginHost(error) => plugin_host_remedy(error),
+        CheckError::LanguagePlugin(error) => language_plugin_remedy(error),
         CheckError::MetricPlugin(error) => metric_plugin_remedy(error),
-        CheckError::ExtensionConflict { .. } => {
-            "Assign separate directories to each Language plugin in the languages setting of codeint.json."
-        }
-        CheckError::UnknownWorkspacePackage { .. } => {
-            "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository."
-        }
+        _ => "Check the plugin configuration in codeint.json.",
     }
 }
 
@@ -175,7 +186,7 @@ fn git_remedy(error: &GitError) -> &'static str {
             "Pass a base ref that shares history with the head, which is HEAD unless you pass --head; in a shallow clone, fetch more history: git fetch --unshallow"
         }
         GitError::NoHistory(_) => {
-            "Commit once, then run codeint trend again; it measures the commits of the current branch."
+            "Commit once, then run codeint again; history commands measure the commits of the current branch."
         }
         GitError::MergeBase { .. }
         | GitError::History { .. }
@@ -356,6 +367,16 @@ fn plugin_runtime_remedy(error: &PluginHostError) -> &'static str {
     }
 }
 
+fn language_plugin_remedy(error: &LanguagePluginError) -> &'static str {
+    match error {
+        LanguagePluginError::MemoryLimitExceeded { .. }
+        | LanguagePluginError::TimeLimitExceeded { .. } => {
+            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Language plugin needs more resources, or fix the defect in the plugin."
+        }
+        _ => "Fix the defect in the Language plugin, or report it to the plugin's author.",
+    }
+}
+
 fn metric_plugin_remedy(error: &MetricPluginError) -> &'static str {
     match error {
         MetricPluginError::MemoryLimitExceeded { .. }
@@ -373,6 +394,17 @@ fn starter_configuration_remedy(error: &StarterConfigurationError) -> &'static s
         }
         StarterConfigurationError::Unwritable { .. } => {
             "Check that you have permission to write to the root of the repository, then run codeint init again."
+        }
+    }
+}
+
+fn codeowners_remedy(error: &CodeownersError) -> &'static str {
+    match error {
+        CodeownersError::Read { .. } => {
+            "Check that the CODEOWNERS file is readable UTF-8, then run codeint again."
+        }
+        CodeownersError::InvalidOwnerPattern { .. } => {
+            "Pass a valid glob pattern to --owner, such as @org/team or @org/*."
         }
     }
 }

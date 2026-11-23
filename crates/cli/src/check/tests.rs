@@ -723,6 +723,7 @@ struct ParallelProofPlugin {
     arrivals: AtomicUsize,
     barrier: Barrier,
     expected: usize,
+    fail_entry_points: bool,
 }
 
 impl ParallelProofPlugin {
@@ -731,6 +732,16 @@ impl ParallelProofPlugin {
             arrivals: AtomicUsize::new(0),
             barrier: Barrier::new(expected),
             expected,
+            fail_entry_points: false,
+        }
+    }
+
+    fn failing_entry_points() -> ParallelProofPlugin {
+        ParallelProofPlugin {
+            arrivals: AtomicUsize::new(0),
+            barrier: Barrier::new(1),
+            expected: 0,
+            fail_entry_points: true,
         }
     }
 }
@@ -783,16 +794,24 @@ impl LanguagePlugin for ParallelProofPlugin {
             .collect()
     }
 
-    fn declared_dependencies(&self, _manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, codeint_model::LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn entry_points(
         &self,
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
-    ) -> Vec<String> {
-        Vec::new()
+    ) -> Result<Vec<RepoPath>, codeint_model::LanguagePluginError> {
+        if self.fail_entry_points {
+            return Err(codeint_model::LanguagePluginError::InvalidEntryPointPath {
+                path: "../outside.parallel".to_owned(),
+            });
+        }
+        Ok(Vec::new())
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
@@ -999,5 +1018,27 @@ fn a_single_plugin_listing_one_extension_twice_does_not_conflict_with_itself() {
     assert!(
         report.starts_with("files: 1\nsource_lines: 1\n"),
         "unexpected report: {report}"
+    );
+}
+
+#[test]
+fn an_invalid_entry_point_from_a_language_plugin_stops_the_check() {
+    let folder = repository(&[("main.parallel", "one\n")]);
+    let plugin = ParallelProofPlugin::failing_entry_points();
+    let named = NamedLanguagePlugin {
+        name: "bad-entry",
+        plugin: &plugin,
+    };
+
+    let result = check_with(folder.path(), &[named], FindingsShown::All);
+
+    assert!(
+        matches!(
+            result,
+            Err(CheckError::LanguagePlugin(
+                codeint_model::LanguagePluginError::InvalidEntryPointPath { .. }
+            ))
+        ),
+        "unexpected result: {result:?}"
     );
 }
