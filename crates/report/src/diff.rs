@@ -123,6 +123,7 @@ struct CloneFamilyChanges {
     new: Findings<CloneFamilyFinding>,
     resolved: Findings<CloneFamilyFinding>,
     unchanged: usize,
+    clustered_group_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -252,6 +253,11 @@ impl DiffReport {
                         .clone_families
                         .as_ref()
                         .map_or(&[], |families| families.new.listed.as_slice()),
+                    clustered_clone_group_ids: changes
+                        .duplication
+                        .clone_families
+                        .as_ref()
+                        .map_or(&[], |families| families.clustered_group_ids.as_slice()),
                     flagged_lines: &changes.verbosity.new.listed,
                     import_cycles: &changes.import_cycles.new.listed,
                     boundaries: changes
@@ -633,10 +639,15 @@ fn source_set_changes(
     } else {
         let base_ids = ids(&base_families);
         let head_ids = ids(&head_families);
+        let clustered_group_ids = head_families
+            .iter()
+            .flat_map(|family| family.clone_group_ids.iter().cloned())
+            .collect();
         Some(CloneFamilyChanges {
             unchanged: head_ids.intersection(&base_ids).count(),
             new: missing_from(head_families, &base_ids, shown),
             resolved: missing_from(base_families, &head_ids, shown),
+            clustered_group_ids,
         })
     };
     SourceSetChanges {

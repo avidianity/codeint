@@ -270,10 +270,10 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
     } = &section.duplication;
     let duplication_behind = match near_clones {
         Some(mode) => format!(
-            "{} of {} (near-clones >= {}%)",
+            "{} of {} (near-clones >= {})",
             CLONE_LINE.counted(*clone_lines),
             SOURCE_LINE.counted(section.source_lines),
-            similarity_percent(mode.min_similarity.0),
+            format_similarity_percent(mode.min_similarity),
         ),
         None => format!(
             "{} of {}",
@@ -520,9 +520,9 @@ pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     let locations: Vec<String> = group.locations.iter().map(clone_location).collect();
     let summary = match &group.similarity {
         Some(similarity) => format!(
-            "{} tokens ({}% similar): {}",
+            "{} tokens ({} similar): {}",
             group.tokens,
-            similarity_percent(similarity.0),
+            format_similarity_percent(similarity.0),
             locations.join(", "),
         ),
         None => format!("{} tokens: {}", group.tokens, locations.join(", ")),
@@ -530,8 +530,12 @@ pub(crate) fn clone_group_item(group: &CloneGroupFinding) -> String {
     with_owners_suffix(summary, &group.owners)
 }
 
-fn similarity_percent(ratio: f64) -> u64 {
-    (ratio * 100.0).round() as u64
+pub(crate) fn format_similarity_percent(ratio: f64) -> String {
+    if ratio > 0.0 && ratio < 0.005 {
+        "<1%".to_owned()
+    } else {
+        format!("{}%", (ratio * 100.0).round() as u64)
+    }
 }
 
 pub(crate) fn clone_family_item(family: &CloneFamilyFinding) -> String {

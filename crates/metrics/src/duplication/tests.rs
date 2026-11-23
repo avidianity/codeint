@@ -725,3 +725,156 @@ fn bounded_near_clone_detection_scales_across_hundreds_of_distinct_functions() {
         ]
     );
 }
+
+#[test]
+fn near_clone_subsumption_scales_across_many_distinct_file_pairs() {
+    let mut files = Vec::new();
+    for idx in 0..120usize {
+        let mut base = Vec::new();
+        for row in 0..12usize {
+            base.push(format!(
+                "kw_{idx}_{} $v op_{idx}_{} \"1\" ;",
+                row % 5,
+                (row + 1) % 5,
+            ));
+        }
+        let mut edited = base.clone();
+        edited.insert(6, format!("extra_{idx} ( $v ) ;"));
+        let base_refs: Vec<&str> = base.iter().map(String::as_str).collect();
+        let edited_refs: Vec<&str> = edited.iter().map(String::as_str).collect();
+        files.push(file_with_functions(
+            &format!("src/pair_{idx:03}_a.ts"),
+            &base_refs,
+            whole_function(base_refs.len()),
+        ));
+        files.push(file_with_functions(
+            &format!("src/pair_{idx:03}_b.ts"),
+            &edited_refs,
+            whole_function(edited_refs.len()),
+        ));
+    }
+    let config = NearCloneConfig::new(0.80).expect("valid threshold");
+
+    let duplication = Duplication::measure_with_near_clones(
+        &model(files),
+        minimum(55),
+        MinimumDistinctTokens::new(8),
+        Some(config),
+    );
+
+    assert_eq!(duplication.clone_groups.len(), 120);
+    assert!(
+        duplication
+            .clone_groups
+            .iter()
+            .all(|group| group.similarity.is_some())
+    );
+}
+
+#[test]
+fn three_consecutive_identical_functions_in_one_file_remain_a_clone_family_with_bridging_spans() {
+    let unit = [
+        "fn $a ( $x ) {",
+        "let $r = $x + \"1\" ;",
+        "return $r ;",
+        "}",
+    ];
+    let mut three_in_one = Vec::new();
+    three_in_one.extend_from_slice(&unit);
+    three_in_one.extend_from_slice(&unit);
+    three_in_one.extend_from_slice(&unit);
+    let mut two_in_other = Vec::new();
+    two_in_other.extend_from_slice(&unit);
+    two_in_other.extend_from_slice(&unit);
+
+    let duplication = measure_files(&[("one.ts", &three_in_one), ("two.ts", &two_in_other)], 12);
+
+    assert_eq!(duplication.clone_families.len(), 1);
+    let family = &duplication.clone_families[0];
+    assert_eq!(family.fragments.len(), 5);
+    assert_eq!(family.duplicated_lines, 20);
+    assert_eq!(duplication.clone_lines.count(), 20);
+}
+
+#[test]
+fn exact_three_copy_family_with_enclosing_near_clone_remains_a_valid_family() {
+    let unit = near_clone_lines();
+    let mut alpha_lines = Vec::new();
+    alpha_lines.extend_from_slice(&unit);
+    alpha_lines.push("const $sep1 = \"10\" ;");
+    alpha_lines.extend_from_slice(&unit);
+    alpha_lines.push("const $sep2 = \"20\" ;");
+    alpha_lines.extend_from_slice(&unit);
+    let mut beta_lines = alpha_lines.clone();
+    beta_lines.insert(5, "$audit ( $x ) ;");
+
+    let duplication = measure_near_pair(&alpha_lines, &beta_lines, Some(0.85));
+
+    assert_eq!(duplication.clone_families.len(), 1);
+    let family = &duplication.clone_families[0];
+    assert!(
+        family.fragments.len() >= 3,
+        "expected >= 3 fragments, got {:?}",
+        family.fragments
+    );
+    assert_eq!(
+        family.duplicated_lines,
+        duplication.clone_lines.count(),
+        "duplicated_lines must match unique line union without double counting"
+    );
+    assert!(family.duplicated_lines <= (alpha_lines.len() + beta_lines.len()) as u64);
+}
+
+#[test]
+fn prepending_top_level_statement_preserves_downstream_near_clone_id_in_large_gap() {
+    let prefix: Vec<String> = (0..45)
+        .map(|i| format!("let $p = p_{i} + q_{i} * \"3\" ;"))
+        .collect();
+    let shared_block: Vec<String> = (0..35)
+        .map(|i| format!("let $s = s_{i} - t_{i} + \"7\" ;"))
+        .collect();
+    let suffix: Vec<String> = (0..25)
+        .map(|i| format!("let $z = z_{i} / w_{i} + \"9\" ;"))
+        .collect();
+
+    let mut left_lines = prefix.clone();
+    left_lines.extend(shared_block.clone());
+    left_lines.extend(suffix.clone());
+
+    let mut right_lines: Vec<String> = (0..45)
+        .map(|i| format!("const $r = r_{i} ^ u_{i} ;"))
+        .collect();
+    let mut edited_block = shared_block;
+    edited_block.insert(17, "$trace_gap ( $s ) ;".to_owned());
+    right_lines.extend(edited_block);
+    right_lines.extend((0..25).map(|i| format!("const $e = e_{i} | f_{i} ;")));
+
+    let mut shifted_left = vec!["const $added_header = header_tag + \"42\" ;".to_owned()];
+    shifted_left.extend(left_lines.clone());
+
+    let left_refs: Vec<&str> = left_lines.iter().map(String::as_str).collect();
+    let right_refs: Vec<&str> = right_lines.iter().map(String::as_str).collect();
+    let shifted_refs: Vec<&str> = shifted_left.iter().map(String::as_str).collect();
+    let config = NearCloneConfig::new(0.80).expect("valid threshold");
+
+    let before = Duplication::measure_with_near_clones(
+        &model(vec![file("a.ts", &left_refs), file("b.ts", &right_refs)]),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        Some(config),
+    );
+    let after = Duplication::measure_with_near_clones(
+        &model(vec![file("a.ts", &shifted_refs), file("b.ts", &right_refs)]),
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        Some(config),
+    );
+
+    assert!(
+        !before.clone_groups.is_empty(),
+        "expected near-clone in large top-level gap"
+    );
+    let before_ids: Vec<_> = before.clone_groups.iter().map(|g| g.id).collect();
+    let after_ids: Vec<_> = after.clone_groups.iter().map(|g| g.id).collect();
+    assert_eq!(before_ids, after_ids);
+}

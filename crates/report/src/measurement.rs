@@ -22,7 +22,6 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) files: usize,
     pub(crate) erosion: MetricMeasurement<ErodedFunctionFinding>,
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) clone_families: Vec<CloneFamilyFinding>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
     pub(crate) import_cycles: MetricMeasurement<ImportCycleFinding>,

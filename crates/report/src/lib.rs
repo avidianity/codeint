@@ -277,11 +277,13 @@ struct DuplicationSection {
     clone_groups: Findings<CloneGroupFinding>,
     #[serde(flatten)]
     clone_families: Findings<CloneFamilyFinding>,
+    #[serde(skip)]
+    clustered_clone_group_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct NearClonesSummary {
-    min_similarity: Decimal,
+    min_similarity: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -867,24 +869,31 @@ impl DuplicationSection {
             (
                 ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_NEAR_CLONES),
                 Some(NearClonesSummary {
-                    min_similarity: Decimal::rounded(config.min_similarity.ratio()),
+                    min_similarity: config.min_similarity.ratio(),
                 }),
             )
         } else {
             (ranges.entry(Metric::Duplication.key()), None)
         };
+        let all_clone_families = view.ownership.apply(
+            duplication
+                .clone_families
+                .iter()
+                .map(CloneFamilyFinding::new)
+                .collect(),
+        );
+        let clustered_clone_group_ids: Vec<String> = all_clone_families
+            .iter()
+            .flat_map(|family| family.clone_group_ids.iter().cloned())
+            .collect();
         DuplicationSection {
             ratio: Decimal::rounded(duplication.ratio()),
             reference_range,
             near_clones,
             clone_lines: duplication.clone_lines.count(),
             clone_groups: view.select(duplication.clone_groups.iter().map(CloneGroupFinding::new)),
-            clone_families: view.select(
-                duplication
-                    .clone_families
-                    .iter()
-                    .map(CloneFamilyFinding::new),
-            ),
+            clone_families: Findings::worst_first(all_clone_families.into_iter(), view.shown),
+            clustered_clone_group_ids,
         }
     }
 }

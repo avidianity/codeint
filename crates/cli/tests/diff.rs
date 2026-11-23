@@ -1374,3 +1374,54 @@ fn diff_gates_new_near_clones_and_classifies_unchanged_near_clones_by_stable_id(
     assert_eq!(shifted_dup["unchanged"], 1);
     assert_eq!(shifted_dup["new"].as_array().map(Vec::len), Some(0));
 }
+
+#[test]
+fn legacy_cached_measurement_without_clone_families_misses_and_recomputes() {
+    let duplicated = [
+        "export function invoiceSubtotal(items: { cost: number; fee: number; qty: number }[]): number {",
+        "  let sum = 0;",
+        "  for (const item of items.filter(Boolean)) {",
+        "    if (item.qty > 0 && item.cost >= 0) {",
+        "      sum += (item.cost + item.fee) * item.qty;",
+        "    }",
+        "  }",
+        "  return Math.floor(sum * 100) / 100;",
+        "}",
+    ]
+    .join("\n");
+    let fixture = Fixture::on_main();
+    fixture.put("src/a.ts", &duplicated);
+    fixture.put("src/b.ts", &duplicated);
+    fixture.put("src/c.ts", &duplicated);
+    fixture.commit("base with three copies");
+
+    let initial = fixture.diff_passing();
+    let initial_families = &initial["source_sets"]["production"]["duplication"]["clone_families"];
+    assert_eq!(initial_families["unchanged"], 1);
+    assert_eq!(initial_families["new"].as_array().map(Vec::len), Some(0));
+
+    let entries: Vec<_> = fs::read_dir(fixture.result_cache.path())
+        .expect("list result cache")
+        .map(|entry| entry.expect("cache entry").path())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let mut cached: Value =
+        serde_json::from_slice(&fs::read(&entries[0]).expect("read cache")).expect("parse cache");
+    for source_set in ["production", "test", "generated", "vendored"] {
+        cached["result"][source_set]
+            .as_object_mut()
+            .expect("source set object")
+            .remove("clone_families");
+    }
+    fs::write(
+        &entries[0],
+        serde_json::to_vec(&cached).expect("encode legacy cache"),
+    )
+    .expect("overwrite legacy cache");
+
+    let recomputed = fixture.diff_passing();
+    let recomputed_families =
+        &recomputed["source_sets"]["production"]["duplication"]["clone_families"];
+    assert_eq!(recomputed_families["unchanged"], 1);
+    assert_eq!(recomputed_families["new"].as_array().map(Vec::len), Some(0));
+}

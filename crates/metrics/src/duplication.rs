@@ -399,7 +399,7 @@ fn family_from_component(
         .iter()
         .flat_map(|&index| groups[index].spans.iter().copied())
         .collect();
-    let merged_spans = merge_overlapping_spans(raw_spans);
+    let merged_spans = merge_non_bridging_spans(&raw_spans);
     let mut fragments: Vec<Fragment> = merged_spans
         .iter()
         .map(|span| {
@@ -414,7 +414,7 @@ fn family_from_component(
     if fragments.len() < MINIMUM_CLONE_FAMILY_LOCATIONS {
         return None;
     }
-    let duplicated_lines = unique_line_count(model, &merged_spans);
+    let duplicated_lines = unique_line_count(model, &raw_spans);
     let clone_group_ids: Vec<FindingId> = group_indices
         .iter()
         .map(|&index| groups[index].id)
@@ -430,6 +430,46 @@ fn family_from_component(
         fragments,
         content_digests,
     })
+}
+
+fn merge_non_bridging_spans(raw_spans: &[TokenSpan]) -> Vec<TokenSpan> {
+    let mut spans = raw_spans.to_vec();
+    spans.sort_unstable();
+    spans.dedup();
+    let mut by_file: BTreeMap<usize, Vec<TokenSpan>> = BTreeMap::new();
+    for span in spans {
+        by_file.entry(span.file).or_default().push(span);
+    }
+    let mut result = Vec::new();
+    for file_spans in by_file.into_values() {
+        result.extend(merge_non_bridging_file_spans(file_spans));
+    }
+    result
+}
+
+fn merge_non_bridging_file_spans(mut spans: Vec<TokenSpan>) -> Vec<TokenSpan> {
+    let mut by_end = spans.clone();
+    by_end.sort_unstable_by_key(|span| (span.end_token, span.start_token));
+    let mut kept: Vec<TokenSpan> = Vec::new();
+    for span in by_end {
+        if kept
+            .last()
+            .is_none_or(|last| span.start_token >= last.end_token)
+        {
+            kept.push(span);
+        }
+    }
+    spans.sort_unstable_by_key(|span| (span.start_token, span.end_token));
+    for span in spans {
+        let first = kept.partition_point(|existing| existing.end_token <= span.start_token);
+        let after = kept.partition_point(|existing| existing.start_token < span.end_token);
+        if after == first + 1 {
+            let target = &mut kept[first];
+            target.start_token = target.start_token.min(span.start_token);
+            target.end_token = target.end_token.max(span.end_token);
+        }
+    }
+    kept
 }
 
 fn merge_overlapping_spans(mut spans: Vec<TokenSpan>) -> Vec<TokenSpan> {

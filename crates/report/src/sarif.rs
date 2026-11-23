@@ -141,6 +141,7 @@ pub(crate) struct ListedFindings<'findings> {
     pub(crate) eroded_functions: &'findings [ErodedFunctionFinding],
     pub(crate) clone_groups: &'findings [CloneGroupFinding],
     pub(crate) clone_families: &'findings [CloneFamilyFinding],
+    pub(crate) clustered_clone_group_ids: &'findings [String],
     pub(crate) flagged_lines: &'findings [FlaggedLineRow],
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
     pub(crate) boundaries: &'findings [BoundaryFindingRow],
@@ -351,6 +352,7 @@ impl<'findings> ListedFindings<'findings> {
             eroded_functions: &section.erosion.findings.listed,
             clone_groups: &section.duplication.clone_groups.listed,
             clone_families: &section.duplication.clone_families.listed,
+            clustered_clone_group_ids: &section.duplication.clustered_clone_group_ids,
             flagged_lines: &section.verbosity.findings.listed,
             import_cycles: &section.import_cycles.findings.listed,
             boundaries: section
@@ -394,6 +396,7 @@ fn results(
         .clone_families
         .iter()
         .flat_map(|family| family.clone_group_ids.iter().map(String::as_str))
+        .chain(listed.clustered_clone_group_ids.iter().map(String::as_str))
         .collect();
     let clone_families = listed
         .clone_families
@@ -495,9 +498,9 @@ fn clone_family_result(source_set: SourceSet, family: &CloneFamilyFinding) -> Op
 fn clone_group_result(source_set: SourceSet, group: &CloneGroupFinding) -> Option<SarifResult> {
     let header = match &group.similarity {
         Some(similarity) => format!(
-            "Near-clone group of {} tokens ({}% similar) in {} fragments; the other fragments",
+            "Near-clone group of {} tokens ({} similar) in {} fragments; the other fragments",
             group.tokens,
-            (similarity.0 * 100.0).round() as u64,
+            crate::markdown::format_similarity_percent(similarity.0),
             group.locations.len(),
         ),
         None => format!(

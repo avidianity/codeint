@@ -74,6 +74,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         eroded_functions: &eroded,
         clone_groups: &clones,
         clone_families: &[],
+        clustered_clone_group_ids: &[],
         flagged_lines: &flagged,
         import_cycles: &cycles,
         boundaries: &[],
@@ -182,6 +183,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
         eroded_functions: &[],
         clone_groups: &clones,
         clone_families: &families,
+        clustered_clone_group_ids: &[],
         flagged_lines: &[],
         import_cycles: &[],
         boundaries: &[],
@@ -215,5 +217,158 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
     assert_eq!(
         results[1]["message"]["text"],
         "Near-clone group of 75 tokens (92% similar) in 2 fragments; the other fragments: src/y.ts lines 1-8."
+    );
+}
+
+#[test]
+fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
+    use codeint_config::{Budgets, FindingsShown, RegressionLimits, ReportFormat};
+    use codeint_model::{
+        CodeModel, FileModel, ReferenceRanges, RepoPath, SourceFile, Token, TokenKind,
+        token_text_hash,
+    };
+    use std::collections::HashSet;
+
+    use crate::{BaseCommit, CommitMeasurement, DiffReport, Head, MeasuredLanguage, Report};
+
+    let make_file = |path: &str, family_id: usize, lines: u32, tokens_per_line: usize| {
+        let mut tokens = Vec::new();
+        for line in 1..=lines {
+            for col in 0..tokens_per_line {
+                let text = format!("f{family_id}_l{line}_c{col}");
+                tokens.push(Token {
+                    kind: TokenKind::Other,
+                    text_hash: token_text_hash(&text),
+                    line,
+                });
+            }
+        }
+        SourceFile {
+            path: RepoPath::new(path).expect("valid path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: lines,
+                functions: Vec::new(),
+                tokens,
+                flagged_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+            },
+        }
+    };
+
+    let mut files = Vec::new();
+    for fam in 0..20usize {
+        for copy in 0..3usize {
+            files.push(make_file(
+                &format!("src/tall_{fam:02}_{copy}.ts"),
+                fam,
+                10,
+                8,
+            ));
+        }
+    }
+    for fam in 20..26usize {
+        for copy in 0..3usize {
+            files.push(make_file(
+                &format!("src/wide_{fam:02}_{copy}.ts"),
+                fam,
+                1,
+                160,
+            ));
+        }
+    }
+    for copy in 0..2usize {
+        files.push(make_file(&format!("src/standalone_{copy}.ts"), 99, 1, 140));
+    }
+
+    let model = CodeModel {
+        files,
+        ..CodeModel::default()
+    };
+    let report = Report::summarize(
+        vec![MeasuredLanguage {
+            plugin: "typescript-javascript".to_owned(),
+            model: model.clone(),
+            reference_ranges: ReferenceRanges::default(),
+        }],
+        Vec::new(),
+        FindingsShown::default(),
+        &Budgets::default(),
+    );
+    let report_json: serde_json::Value =
+        serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("parse");
+    let dup_json = &report_json["source_sets"]["production"]["duplication"];
+    assert_eq!(
+        dup_json["clone_families"].as_array().map(Vec::len),
+        Some(20)
+    );
+    assert_eq!(dup_json["clone_families_left_out"], 6);
+
+    let full_report = Report::summarize(
+        vec![MeasuredLanguage {
+            plugin: "typescript-javascript".to_owned(),
+            model: model.clone(),
+            reference_ranges: ReferenceRanges::default(),
+        }],
+        Vec::new(),
+        FindingsShown::All,
+        &Budgets::default(),
+    );
+    let full_json: serde_json::Value =
+        serde_json::from_str(&full_report.render(ReportFormat::Json).expect("json"))
+            .expect("parse");
+    let all_clustered_ids: HashSet<String> = full_json["source_sets"]["production"]["duplication"]
+        ["clone_families"]
+        .as_array()
+        .expect("all clone families")
+        .iter()
+        .flat_map(|f| {
+            f["clone_group_ids"]
+                .as_array()
+                .expect("group ids")
+                .iter()
+                .map(|id| id.as_str().expect("id string").to_owned())
+        })
+        .collect();
+    assert_eq!(all_clustered_ids.len(), 26);
+
+    let assert_sarif_omits_clustered = |rendered: &str, label: &str| {
+        let sarif: serde_json::Value = serde_json::from_str(rendered).expect("parse sarif");
+        let ids: Vec<&str> = sarif["runs"][0]["results"]
+            .as_array()
+            .expect("sarif results")
+            .iter()
+            .map(|r| {
+                r["partialFingerprints"]["codeintFindingId"]
+                    .as_str()
+                    .expect("finding id")
+            })
+            .collect();
+        assert_eq!(ids.len(), 21, "{label}");
+        for id in &ids {
+            assert!(
+                !all_clustered_ids.contains(*id),
+                "{label} leaked member CloneGroup {id} from a truncated CloneFamily"
+            );
+        }
+    };
+
+    assert_sarif_omits_clustered(&report.render(ReportFormat::Sarif).expect("sarif"), "SARIF");
+
+    let diff = DiffReport::compare(
+        BaseCommit {
+            git_ref: "main".to_owned(),
+            merge_base: "0000000000000000000000000000000000000000".to_owned(),
+        },
+        Head::WorkingTree,
+        CommitMeasurement::of(CodeModel::default()),
+        CommitMeasurement::of(model),
+        FindingsShown::default(),
+        &Budgets::default(),
+        &RegressionLimits::default(),
+    );
+    assert_sarif_omits_clustered(
+        &diff.render(ReportFormat::Sarif).expect("diff sarif"),
+        "Diff SARIF",
     );
 }

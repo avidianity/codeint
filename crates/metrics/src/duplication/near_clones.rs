@@ -9,6 +9,7 @@ use super::{
 use crate::finding_id::FindingIds;
 
 const SHINGLE_LEN: usize = 3;
+const CDC_WINDOW: usize = 4;
 const MINHASH_SIZE: usize = 64;
 const BUCKET_ALL_PAIRS_LIMIT: usize = 32;
 const BUCKET_WINDOW_NEIGHBORS: usize = 8;
@@ -186,19 +187,73 @@ fn collect_gap_spans(
     }
     let chunk = MIN_CHUNK_TOKENS.max(window.saturating_mul(2));
     let stride = (chunk / 2).max(1);
-    let mut start = gap_lo;
-    while start + chunk < gap_hi {
-        push_if_qualifying(run, start, start + chunk, window, minimum_distinct, spans);
-        start += stride;
+    let min_step = (stride / 2).max(CDC_WINDOW).max(16);
+    let max_step = chunk;
+    let mask = ((stride / 3).max(16).next_power_of_two() - 1) as u64;
+    let boundaries =
+        content_defined_boundaries(run.tokens, gap_lo, gap_hi, min_step, max_step, mask);
+    for idx in 0..boundaries.len().saturating_sub(1) {
+        let lo = boundaries[idx];
+        let hi = boundaries[idx + 1];
+        push_if_qualifying(run, lo, hi, window, minimum_distinct, spans);
+        if let Some(&next_hi) = boundaries.get(idx + 2) {
+            push_if_qualifying(run, lo, next_hi, window, minimum_distinct, spans);
+        }
     }
-    push_if_qualifying(
-        run,
-        gap_hi.saturating_sub(chunk).max(gap_lo),
-        gap_hi,
-        window,
-        minimum_distinct,
-        spans,
-    );
+}
+
+fn content_defined_boundaries(
+    tokens: &[Token],
+    gap_lo: usize,
+    gap_hi: usize,
+    min_step: usize,
+    max_step: usize,
+    mask: u64,
+) -> Vec<usize> {
+    let mut boundaries = vec![gap_lo];
+    let mut start = gap_lo;
+    while start + max_step < gap_hi {
+        let next = next_cdc_boundary(tokens, start, gap_hi, min_step, max_step, mask);
+        boundaries.push(next);
+        start = next;
+    }
+    if *boundaries.last().unwrap_or(&gap_lo) < gap_hi {
+        boundaries.push(gap_hi);
+    }
+    boundaries
+}
+
+fn next_cdc_boundary(
+    tokens: &[Token],
+    start: usize,
+    gap_hi: usize,
+    min_step: usize,
+    max_step: usize,
+    mask: u64,
+) -> usize {
+    let limit = (start + max_step).min(gap_hi);
+    let mut best_pos = limit;
+    let mut best_hash = u64::MAX;
+    for pos in (start + min_step)..=limit {
+        let hash = cdc_boundary_hash(tokens, pos);
+        if (hash & mask) == 0 {
+            return pos;
+        }
+        if hash < best_hash {
+            best_hash = hash;
+            best_pos = pos;
+        }
+    }
+    best_pos
+}
+
+fn cdc_boundary_hash(tokens: &[Token], pos: usize) -> u64 {
+    tokens[pos - CDC_WINDOW..pos]
+        .iter()
+        .fold(StableHasher::new(), |hasher, token| {
+            hasher.write_u64(normalized(token).hash_input())
+        })
+        .finish()
 }
 
 fn push_if_qualifying(
@@ -505,16 +560,27 @@ fn suppress_subsumed_pairs(
             .then_with(|| left.right.cmp(&right.right))
     });
     let mut kept: Vec<MatchedPair> = Vec::with_capacity(matched.len());
+    let mut kept_by_file_pair: HashMap<(usize, usize), Vec<MatchedPair>> = HashMap::new();
     for pair in matched {
         let left_span = candidates[pair.left].span;
         let right_span = candidates[pair.right].span;
-        let subsumed = kept.iter().any(|existing| {
-            let ex_left = candidates[existing.left].span;
-            let ex_right = candidates[existing.right].span;
-            (span_contains(ex_left, left_span) && span_contains(ex_right, right_span))
-                || (span_contains(ex_left, right_span) && span_contains(ex_right, left_span))
-        });
+        let file_pair = (
+            left_span.file.min(right_span.file),
+            left_span.file.max(right_span.file),
+        );
+        let subsumed = kept_by_file_pair
+            .get(&file_pair)
+            .is_some_and(|existing_pairs| {
+                existing_pairs.iter().any(|existing| {
+                    let ex_left = candidates[existing.left].span;
+                    let ex_right = candidates[existing.right].span;
+                    (span_contains(ex_left, left_span) && span_contains(ex_right, right_span))
+                        || (span_contains(ex_left, right_span)
+                            && span_contains(ex_right, left_span))
+                })
+            });
         if !subsumed {
+            kept_by_file_pair.entry(file_pair).or_default().push(pair);
             kept.push(pair);
         }
     }
