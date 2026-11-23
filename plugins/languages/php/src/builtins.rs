@@ -1,7 +1,10 @@
 const BUILTIN_NAMESPACES: &[&str] = &[
-    "bcmath", "dba", "dom", "enchant", "ffi", "filter", "ftp", "imap", "ldap", "odbc", "pcntl",
-    "pdo", "pgsql", "pspell", "random", "soap", "sysvmsg", "sysvsem", "sysvshm", "uri",
+    "bcmath", "dba", "dom", "enchant", "ffi", "filter", "ftp", "imap", "intl", "ldap", "odbc",
+    "openssl", "pcntl", "pdo", "pgsql", "pspell", "random", "shmop", "soap", "sqlite", "sysvmsg",
+    "sysvsem", "sysvshm", "uri", "xml",
 ];
+
+const COMPOSER_RUNTIME_SEGMENTS: &[&str] = &["autoload", "installedversions"];
 
 const BUILTIN_GLOBAL_TYPES: &[&str] = &[
     "__php_incomplete_class",
@@ -260,9 +263,18 @@ const BUILTIN_GLOBAL_TYPES: &[&str] = &[
 ];
 
 pub(crate) fn is_builtin_symbol(normalized_ns: &str) -> bool {
-    if let Some((first, _)) = normalized_ns.split_once('\\') {
+    if let Some((first, rest)) = normalized_ns.split_once('\\') {
         let lower = first.to_ascii_lowercase();
-        return BUILTIN_NAMESPACES.binary_search(&lower.as_str()).is_ok();
+        if BUILTIN_NAMESPACES.binary_search(&lower.as_str()).is_ok() {
+            return true;
+        }
+        if lower == "composer" {
+            let second = rest.split('\\').next().unwrap_or("").to_ascii_lowercase();
+            return COMPOSER_RUNTIME_SEGMENTS
+                .binary_search(&second.as_str())
+                .is_ok();
+        }
+        return false;
     }
     let lower = normalized_ns.to_ascii_lowercase();
     BUILTIN_GLOBAL_TYPES.binary_search(&lower.as_str()).is_ok()

@@ -552,3 +552,59 @@ fn php_psr4_subpackage_collision_and_global_single_segment_uses_resolve_accurate
     assert_eq!(out[3], Resolution::Builtin);
     assert_eq!(out[4], Resolution::Builtin);
 }
+
+#[test]
+fn php_multi_segment_composer_namespaces_and_runtime_builtins_resolve_cleanly() {
+    let out = resolve_single_manifest_php(
+        &["composer.json", "src/Client.php"],
+        r#"{
+            "name": "acme/client",
+            "autoload": { "psr-4": { "Acme\\Client\\": "src/" } },
+            "require": {
+                "psr/http-message": "^2.0",
+                "psr/http-client": "^1.0",
+                "psr/http-factory": "^1.0",
+                "symfony/translation": "^7.0",
+                "symfony/translation-contracts": "^3.0",
+                "composer/semver": "^3.4"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.0"
+            }
+        }"#,
+        "src/Client.php",
+        &[
+            "use:Psr\\Http\\Message\\RequestInterface",
+            "use:Psr\\Http\\Client\\ClientInterface",
+            "use:Psr\\Http\\Factory\\RequestFactoryInterface",
+            "use:Psr\\Http\\Message\\StreamFactoryInterface",
+            "use:Symfony\\Component\\Translation\\Translator",
+            "use:Symfony\\Contracts\\Translation\\TranslatorInterface",
+            "use:PhpCsFixer\\Config",
+            "use:Composer\\InstalledVersions",
+            "use:Composer\\Autoload\\ClassLoader",
+            "use:Composer\\Semver\\Semver",
+            "use:Openssl\\Session",
+            "use:Random\\Randomizer",
+            "use:Vendor\\Unlisted\\Thing",
+        ],
+    );
+    assert_eq!(
+        out,
+        vec![
+            Resolution::External("psr/http-message".into()),
+            Resolution::External("psr/http-client".into()),
+            Resolution::External("psr/http-factory".into()),
+            Resolution::External("psr/http-factory".into()),
+            Resolution::External("symfony/translation".into()),
+            Resolution::External("symfony/translation-contracts".into()),
+            Resolution::External("friendsofphp/php-cs-fixer".into()),
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::External("composer/semver".into()),
+            Resolution::Builtin,
+            Resolution::Builtin,
+            Resolution::External("vendor/unlisted".into()),
+        ]
+    );
+}

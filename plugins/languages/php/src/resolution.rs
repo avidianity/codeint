@@ -97,7 +97,11 @@ impl PhpResolver {
     }
 
     fn resolve_psr4_prefix_fallback(&self, normalized: &str) -> Resolution {
-        match match_declared_external_namespace(normalized, &self.declared_packages, false) {
+        match match_declared_external_namespace(
+            normalized,
+            &self.declared_packages,
+            DeclaredMatchScope::Psr4Subpackage,
+        ) {
             Some(external) => Resolution::External(external),
             None => unresolved_internal_namespace(normalized),
         }
@@ -203,6 +207,25 @@ fn classify_vendor_require(importer: &str, req_path: &str) -> Option<Resolution>
     }
 }
 
+const STRUCTURAL_SEGMENTS: &[&str] = &[
+    "bridge",
+    "bridges",
+    "bundle",
+    "bundles",
+    "common",
+    "component",
+    "components",
+    "contract",
+    "contracts",
+    "ux",
+];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeclaredMatchScope {
+    Psr4Subpackage,
+    External,
+}
+
 pub(crate) fn normalize_external_namespace(ns: &str, declared: &HashSet<String>) -> String {
     let segments: Vec<&str> = ns.split('\\').filter(|s| !s.is_empty()).collect();
     let Some(&first) = segments.first() else {
@@ -211,7 +234,9 @@ pub(crate) fn normalize_external_namespace(ns: &str, declared: &HashSet<String>)
     if segments.len() == 1 {
         return to_kebab_segment(first);
     }
-    if let Some(matched) = match_declared_external_namespace(ns, declared, true) {
+    if let Some(matched) =
+        match_declared_external_namespace(ns, declared, DeclaredMatchScope::External)
+    {
         return matched;
     }
     format!(
@@ -224,33 +249,171 @@ pub(crate) fn normalize_external_namespace(ns: &str, declared: &HashSet<String>)
 fn match_declared_external_namespace(
     ns: &str,
     declared: &HashSet<String>,
-    allow_vendor_self: bool,
+    scope: DeclaredMatchScope,
 ) -> Option<String> {
     let segments: Vec<&str> = ns.split('\\').filter(|s| !s.is_empty()).collect();
     if segments.len() < 2 {
         return None;
     }
-    let vendor = segments[0].to_ascii_lowercase();
-    let mut candidates = Vec::with_capacity(11);
-    push_segment_candidates(&vendor, segments[1], &mut candidates);
-    if let Some(&third) = segments.get(2) {
-        push_segment_candidates(&vendor, third, &mut candidates);
+    let mut candidates = Vec::new();
+    for vendor in vendor_variants(segments[0]) {
+        collect_vendor_candidates(&vendor, &segments, scope, &mut candidates);
     }
-    if allow_vendor_self {
-        candidates.push(format!("{vendor}/{vendor}"));
+    if let Some(matched) = candidates.into_iter().find(|c| declared.contains(c)) {
+        return Some(matched);
     }
-    candidates
-        .into_iter()
-        .find(|candidate| declared.contains(candidate))
+    if scope == DeclaredMatchScope::External {
+        return match_unique_package_name(&segments, declared);
+    }
+    None
+}
+
+fn collect_vendor_candidates(
+    vendor: &str,
+    segments: &[&str],
+    scope: DeclaredMatchScope,
+    out: &mut Vec<String>,
+) {
+    if segments.len() >= 3 {
+        push_multi_segment_candidates(vendor, segments, out);
+    } else {
+        push_segment_candidates(vendor, segments[1], out);
+    }
+    if scope == DeclaredMatchScope::External {
+        out.push(format!("{vendor}/{vendor}"));
+    }
+}
+
+fn push_multi_segment_candidates(vendor: &str, segments: &[&str], out: &mut Vec<String>) {
+    let s1_lower = segments[1].to_ascii_lowercase();
+    if STRUCTURAL_SEGMENTS.contains(&s1_lower.as_str()) {
+        push_structural_candidates(vendor, segments, &s1_lower, out);
+        push_segment_candidates(vendor, segments[1], out);
+        return;
+    }
+    if segments.len() >= 4 {
+        push_class_word_candidates(vendor, segments, out);
+    }
+    push_joined_candidates(vendor, segments[1], segments[2], out);
+    push_segment_candidates(vendor, segments[1], out);
+    push_segment_candidates(vendor, segments[2], out);
+}
+
+fn push_structural_candidates(
+    vendor: &str,
+    segments: &[&str],
+    s1_lower: &str,
+    out: &mut Vec<String>,
+) {
+    let third = segments[2];
+    for s2 in segment_variants(third) {
+        out.push(format!("{vendor}/{s2}-{s1_lower}"));
+        if let Some(singular) = s1_lower.strip_suffix('s') {
+            out.push(format!("{vendor}/{s2}-{singular}"));
+        }
+    }
+    push_joined_candidates(vendor, segments[1], third, out);
+    if let Some(&fourth) = segments.get(3) {
+        push_joined_candidates(vendor, third, fourth, out);
+    }
+    push_segment_candidates(vendor, third, out);
+}
+
+fn push_class_word_candidates(vendor: &str, segments: &[&str], out: &mut Vec<String>) {
+    let s1_vars = segment_variants(segments[1]);
+    let s2_vars = segment_variants(segments[2]);
+    let last_kebab = to_kebab_segment(segments[segments.len() - 1]);
+    let words: Vec<&str> = last_kebab.split('-').filter(|w| !w.is_empty()).collect();
+    for s1 in &s1_vars {
+        for s2 in &s2_vars {
+            push_word_suffixes(&format!("{vendor}/{s1}-{s2}"), &words, &[], out);
+        }
+    }
+    for s1 in &s1_vars {
+        push_word_suffixes(&format!("{vendor}/{s1}"), &words, &s2_vars, out);
+    }
+}
+
+fn push_word_suffixes(prefix: &str, words: &[&str], skip: &[String], out: &mut Vec<String>) {
+    for &word in words {
+        if !skip.iter().any(|s| s == word) {
+            out.push(format!("{prefix}-{word}"));
+        }
+    }
+}
+
+fn push_joined_candidates(vendor: &str, left: &str, right: &str, out: &mut Vec<String>) {
+    let right_vars = segment_variants(right);
+    for l in segment_variants(left) {
+        for r in &right_vars {
+            push_plurals(vendor, &format!("{l}-{r}"), out);
+        }
+    }
 }
 
 fn push_segment_candidates(vendor: &str, segment: &str, out: &mut Vec<String>) {
+    for base in segment_variants(segment) {
+        push_plurals(vendor, &base, out);
+    }
+}
+
+fn push_plurals(vendor: &str, base: &str, out: &mut Vec<String>) {
+    out.push(format!("{vendor}/{base}"));
+    out.push(format!("{vendor}/{base}s"));
+    out.push(format!("{vendor}/{base}es"));
+}
+
+fn match_unique_package_name(segments: &[&str], declared: &HashSet<String>) -> Option<String> {
+    let s0_vars = segment_variants(segments[0]);
+    let s1_vars = segment_variants(segments[1]);
+    let mut joined = Vec::with_capacity(s0_vars.len() * s1_vars.len());
+    for s0 in &s0_vars {
+        for s1 in &s1_vars {
+            joined.push(format!("{s0}-{s1}"));
+        }
+    }
+    if let Some(matched) = unique_declared_by_package_name(declared, &joined) {
+        return Some(matched);
+    }
+    unique_declared_by_package_name(declared, &s0_vars)
+}
+
+fn unique_declared_by_package_name(
+    declared: &HashSet<String>,
+    package_names: &[String],
+) -> Option<String> {
+    let mut found: Option<&String> = None;
+    for dep in declared {
+        let Some((_, pkg)) = dep.split_once('/') else {
+            continue;
+        };
+        if package_names.iter().any(|candidate| candidate == pkg) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(dep);
+        }
+    }
+    found.cloned()
+}
+
+fn segment_variants(segment: &str) -> Vec<String> {
     let kebab = to_kebab_segment(segment);
     let lower = segment.to_ascii_lowercase();
-    for base in [kebab, lower] {
-        out.push(format!("{vendor}/{base}"));
-        out.push(format!("{vendor}/{base}s"));
-        out.push(format!("{vendor}/{base}es"));
+    if kebab == lower {
+        vec![kebab]
+    } else {
+        vec![kebab, lower]
+    }
+}
+
+fn vendor_variants(segment: &str) -> Vec<String> {
+    let lower = segment.to_ascii_lowercase();
+    let kebab = to_kebab_segment(segment);
+    if lower == kebab {
+        vec![lower]
+    } else {
+        vec![lower, kebab]
     }
 }
 
