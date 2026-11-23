@@ -1,6 +1,6 @@
 use codeint_model::{
-    CodeModel, FileModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet,
-    Workspace,
+    CodeModel, DependencyManifest, FileModel, ImportResolution, RepoPath, RuntimeImport,
+    SourceFile, SourceSet, Workspace,
 };
 
 use super::{OrphanFileKind, OrphanFiles};
@@ -47,11 +47,19 @@ fn build_model(
 }
 
 fn production_model(files: &[&str], edges: &[(&str, &str)]) -> CodeModel {
+    workspace_production_model(files, edges, &[])
+}
+
+fn workspace_production_model(
+    files: &[&str],
+    edges: &[(&str, &str)],
+    workspace_members: &[&str],
+) -> CodeModel {
     let entries: Vec<(&str, SourceSet)> = files
         .iter()
         .map(|name| (*name, SourceSet::Production))
         .collect();
-    build_model(&entries, edges, &[])
+    build_model(&entries, edges, workspace_members)
 }
 
 fn orphan_paths(measured: &OrphanFiles) -> Vec<&str> {
@@ -316,4 +324,154 @@ fn assigns_stable_finding_ids_and_merges_across_languages() {
     assert_eq!(merged.findings()[0].path.as_str(), "api/dead.py");
     assert_eq!(merged.findings()[1].path.as_str(), "web/dead.ts");
     assert!((merged.ratio() - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn excludes_non_runtime_tooling_files_from_orphan_evaluation_while_keeping_runtime_orphans() {
+    let model = workspace_production_model(
+        &[
+            "packages/tools/src/index.ts",
+            "packages/tools/src/dead.ts",
+            "packages/tools/app/app.config.ts",
+            "packages/tools/scripts/release.ts",
+            "packages/tools/vite.config.ts",
+            "scripts/release.ts",
+            "docs/conf.py",
+            "examples/demo.dart",
+            "vite.config.ts",
+            ".opencode/plugins/no-hook-bypass.js",
+        ],
+        &[],
+        &["packages/tools"],
+    );
+
+    let measured = OrphanFiles::measure(&model, &[repo_path("packages/tools/src/index.ts")])
+        .expect("production root activates detection");
+
+    assert_eq!(measured.evaluated_files(), 3);
+    assert_eq!(
+        orphan_paths(&measured),
+        vec![
+            "packages/tools/app/app.config.ts",
+            "packages/tools/src/dead.ts"
+        ]
+    );
+}
+
+fn dep_manifest(package_root: &str, path: &str) -> DependencyManifest {
+    DependencyManifest {
+        package_root: package_root.to_owned(),
+        path: repo_path(path),
+    }
+}
+
+fn assert_tooling_entry_ignored(
+    model: &CodeModel,
+    runtime_entry: &str,
+    tooling_entries: &[&str],
+    expected_dead: &str,
+) {
+    let tooling_paths: Vec<RepoPath> = tooling_entries.iter().copied().map(repo_path).collect();
+    assert!(OrphanFiles::measure(model, &tooling_paths).is_none());
+
+    let mut all_entries = vec![repo_path(runtime_entry)];
+    all_entries.extend(tooling_paths);
+    let measured =
+        OrphanFiles::measure(model, &all_entries).expect("runtime entry point activates detection");
+    assert_eq!(measured.entry_points(), &[repo_path(runtime_entry)]);
+    assert_eq!(measured.evaluated_files(), 2);
+    assert_eq!(orphan_paths(&measured), vec![expected_dead]);
+}
+
+#[test]
+fn tooling_entry_points_do_not_activate_orphan_detection_or_keep_dead_runtime_files_live() {
+    let dart_model = production_model(
+        &[
+            "lib/main.dart",
+            "lib/dead.dart",
+            "examples/demo/lib/main.dart",
+            "scripts/cli.ts",
+        ],
+        &[("examples/demo/lib/main.dart", "lib/dead.dart")],
+    );
+    assert_tooling_entry_ignored(
+        &dart_model,
+        "lib/main.dart",
+        &["examples/demo/lib/main.dart", "scripts/cli.ts"],
+        "lib/dead.dart",
+    );
+
+    let workspace = workspace_production_model(
+        &[
+            "packages/core/src/index.ts",
+            "packages/core/src/dead.ts",
+            "packages/core/scripts/cli.ts",
+        ],
+        &[("packages/core/scripts/cli.ts", "packages/core/src/dead.ts")],
+        &["packages/core"],
+    );
+    assert_tooling_entry_ignored(
+        &workspace,
+        "packages/core/src/index.ts",
+        &["packages/core/scripts/cli.ts"],
+        "packages/core/src/dead.ts",
+    );
+}
+
+#[test]
+fn excludes_non_workspace_subdirectory_manifest_tooling_files_from_orphans() {
+    let mut model = production_model(
+        &[
+            "frontend/src/index.ts",
+            "frontend/src/dead.ts",
+            "frontend/vite.config.ts",
+            "frontend/scripts/release.ts",
+            "pkgs/foo/lib/main.dart",
+            "pkgs/foo/lib/dead.dart",
+            "pkgs/foo/tool/jnigen.dart",
+        ],
+        &[],
+    );
+    model.dependency_manifests = vec![
+        dep_manifest("frontend", "frontend/package.json"),
+        dep_manifest("pkgs/foo", "pkgs/foo/pubspec.yaml"),
+    ];
+
+    let measured = OrphanFiles::measure(
+        &model,
+        &[
+            repo_path("frontend/src/index.ts"),
+            repo_path("pkgs/foo/lib/main.dart"),
+        ],
+    )
+    .expect("runtime entry points activate detection");
+
+    assert_eq!(measured.evaluated_files(), 4);
+    assert_eq!(
+        orphan_paths(&measured),
+        vec!["frontend/src/dead.ts", "pkgs/foo/lib/dead.dart"]
+    );
+}
+
+#[test]
+fn excludes_nested_example_subpackage_from_orphan_roots_and_evaluated_files() {
+    let mut model = production_model(
+        &[
+            "pkgs/foo/lib/main.dart",
+            "pkgs/foo/lib/dead.dart",
+            "pkgs/foo/example/lib/main.dart",
+        ],
+        &[("pkgs/foo/example/lib/main.dart", "pkgs/foo/lib/dead.dart")],
+    );
+    model.dependency_manifests = vec![
+        dep_manifest("pkgs/foo", "pkgs/foo/pubspec.yaml"),
+        dep_manifest("pkgs/foo/example", "pkgs/foo/example/pubspec.yaml"),
+    ];
+
+    assert_tooling_entry_ignored(
+        &model,
+        "pkgs/foo/lib/main.dart",
+        &["pkgs/foo/example/lib/main.dart"],
+        "pkgs/foo/lib/dead.dart",
+    );
 }

@@ -5,6 +5,7 @@ use codeint_model::{
 };
 
 use crate::finding_id::{FindingId, FindingIds};
+use crate::tooling_paths::ToolingPaths;
 
 #[cfg(test)]
 mod tests;
@@ -294,6 +295,7 @@ fn collect_imports(
     manifests: &BTreeMap<String, RepoPath>,
     ignored: &BTreeSet<String>,
 ) -> BTreeMap<String, PackageImports> {
+    let tooling = ToolingPaths::from_model(model);
     let source_sets: BTreeMap<&RepoPath, SourceSet> = model
         .files
         .iter()
@@ -321,6 +323,7 @@ fn collect_imports(
             source_set,
             package_name,
             &import.importer,
+            &tooling,
         );
     }
     by_package
@@ -331,6 +334,7 @@ fn record_package_import(
     source_set: SourceSet,
     package_name: &str,
     importer: &RepoPath,
+    tooling: &ToolingPaths,
 ) {
     entry.used.insert(package_name.to_owned());
     if matches!(source_set, SourceSet::Production | SourceSet::Test) {
@@ -340,7 +344,7 @@ fn record_package_import(
             .or_default()
             .insert(importer.clone());
     }
-    if source_set == SourceSet::Production {
+    if source_set == SourceSet::Production && !tooling.is_non_runtime_tooling_path(importer) {
         entry
             .production
             .entry(package_name.to_owned())

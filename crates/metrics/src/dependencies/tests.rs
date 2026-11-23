@@ -294,3 +294,94 @@ fn merges_independent_language_models_deterministically_with_stable_ids() {
     assert_eq!(first.unused()[0].manifest.as_str(), "crates/api/Cargo.toml");
     assert_eq!(first.unused()[1].manifest.as_str(), "web/package.json");
 }
+
+#[test]
+fn non_runtime_tooling_files_mark_dev_deps_used_without_dev_in_production_findings() {
+    let model = model_with(
+        source_files(&[
+            ("src/app.ts", SourceSet::Production),
+            ("vite.config.ts", SourceSet::Production),
+            ("scripts/release.ts", SourceSet::Production),
+            ("tool/jnigen.dart", SourceSet::Production),
+            ("docs/conf.py", SourceSet::Production),
+            ("examples/demo/main.dart", SourceSet::Production),
+        ]),
+        vec![manifest("", "package.json")],
+        declared_list(&[
+            ("", "zod", DepKind::Runtime),
+            ("", "vitest", DepKind::Dev),
+            ("", "esbuild", DepKind::Dev),
+            ("", "jnigen", DepKind::Dev),
+            ("", "sphinx-theme", DepKind::Dev),
+            ("", "shelf", DepKind::Dev),
+            ("", "faker", DepKind::Dev),
+        ]),
+        externals(&[
+            ("src/app.ts", "zod"),
+            ("src/app.ts", "faker"),
+            ("vite.config.ts", "vitest"),
+            ("scripts/release.ts", "esbuild"),
+            ("tool/jnigen.dart", "jnigen"),
+            ("docs/conf.py", "sphinx-theme"),
+            ("examples/demo/main.dart", "shelf"),
+        ]),
+    );
+
+    let result = DependencyHygiene::measure(&model, &BTreeSet::new());
+
+    assert!(result.unused().is_empty());
+    assert!(result.unlisted().is_empty());
+    assert_eq!(result.dev_in_production().len(), 1);
+    assert_eq!(result.dev_in_production()[0].dependency, "faker");
+    assert_eq!(
+        result.dev_in_production()[0].importers,
+        vec![RepoPath::new("src/app.ts").expect("valid path")]
+    );
+}
+
+#[test]
+fn monorepo_tooling_named_packages_and_nested_app_configs_still_flag_dev_in_production() {
+    let model = model_with(
+        source_files(&[
+            ("packages/tools/src/index.ts", SourceSet::Production),
+            ("packages/tools/app/app.config.ts", SourceSet::Production),
+            ("packages/tools/vite.config.ts", SourceSet::Production),
+            ("packages/tools/scripts/gen.ts", SourceSet::Production),
+        ]),
+        vec![manifest("packages/tools", "packages/tools/package.json")],
+        declared_list(&[
+            ("packages/tools", "faker", DepKind::Dev),
+            ("packages/tools", "msw", DepKind::Dev),
+            ("packages/tools", "vitest", DepKind::Dev),
+            ("packages/tools", "esbuild", DepKind::Dev),
+        ]),
+        externals(&[
+            ("packages/tools/src/index.ts", "faker"),
+            ("packages/tools/app/app.config.ts", "msw"),
+            ("packages/tools/vite.config.ts", "vitest"),
+            ("packages/tools/scripts/gen.ts", "esbuild"),
+        ]),
+    );
+
+    let result = DependencyHygiene::measure(&model, &BTreeSet::new());
+
+    assert!(result.unused().is_empty());
+    assert!(result.unlisted().is_empty());
+    let flagged: Vec<(&str, Vec<&str>)> = result
+        .dev_in_production()
+        .iter()
+        .map(|finding| {
+            (
+                finding.dependency.as_str(),
+                finding.importers.iter().map(RepoPath::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        flagged,
+        vec![
+            ("faker", vec!["packages/tools/src/index.ts"]),
+            ("msw", vec!["packages/tools/app/app.config.ts"]),
+        ]
+    );
+}
