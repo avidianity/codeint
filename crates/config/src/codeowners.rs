@@ -49,6 +49,7 @@ impl Codeowners {
     }
 
     pub fn parse(text: &str) -> Codeowners {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let rules = text.lines().filter_map(parse_rule).collect();
         Codeowners { rules }
     }
@@ -129,6 +130,9 @@ fn take_pattern(line: &str) -> (String, &str) {
     while let Some((index, ch)) = chars.next() {
         if ch == '\\' {
             if let Some(&(_, next)) = chars.peek() {
+                if matches!(next, '\\' | '*' | '?' | '[' | ']' | '{' | '}') {
+                    pattern.push('\\');
+                }
                 pattern.push(next);
                 chars.next();
             }
@@ -176,6 +180,7 @@ fn compile_pattern(pattern: &str) -> Option<Vec<GlobMatcher>> {
     for glob in patterns {
         let matcher = GlobBuilder::new(&glob)
             .literal_separator(true)
+            .backslash_escape(true)
             .build()
             .ok()?
             .compile_matcher();
@@ -186,5 +191,15 @@ fn compile_pattern(pattern: &str) -> Option<Vec<GlobMatcher>> {
 
 fn last_segment_has_wildcard(pattern: &str) -> bool {
     let last = pattern.rsplit('/').next().unwrap_or(pattern);
-    last.contains('*') || last.contains('?') || last.contains('[')
+    let mut chars = last.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            chars.next();
+            continue;
+        }
+        if matches!(ch, '*' | '?' | '[') {
+            return true;
+        }
+    }
+    false
 }

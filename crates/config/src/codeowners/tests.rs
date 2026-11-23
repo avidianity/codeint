@@ -151,3 +151,46 @@ fn owner_filter_matches_case_insensitively_and_supports_wildcards() {
     assert!(glob.matches("@ORG/UI-CORE"));
     assert!(!glob.matches("@other/api-core"));
 }
+
+#[test]
+fn escaped_glob_metacharacters_match_literals_and_compile() {
+    assert_owners_table(
+        "\
+app/users/\\[id\\]/page.ts @users-team
+app/routes/\\[slug\\] @routes-team
+src/a\\[b.ts @unclosed-team
+src/star\\*.ts @star-team
+src/q\\?.ts @question-team
+src/\\{a,b\\}.ts @brace-team
+",
+        &[
+            ("app/users/[id]/page.ts", &["@users-team"]),
+            ("app/users/i/page.ts", &[]),
+            ("app/routes/[slug]/index.ts", &["@routes-team"]),
+            ("app/routes/s/index.ts", &[]),
+            ("src/a[b.ts", &["@unclosed-team"]),
+            ("src/star*.ts", &["@star-team"]),
+            ("src/starX.ts", &[]),
+            ("src/q?.ts", &["@question-team"]),
+            ("src/q1.ts", &[]),
+            ("src/{a,b}.ts", &["@brace-team"]),
+            ("src/a.ts", &[]),
+        ],
+    );
+}
+
+#[test]
+fn leading_utf8_bom_is_stripped_before_parsing_rules() {
+    assert_owners_table(
+        "\u{feff}/src/ @src-team\n",
+        &[("src/app.ts", &["@src-team"]), ("other/app.ts", &[])],
+    );
+    assert_owners_table(
+        "\u{feff}* @global-team\n",
+        &[("README.md", &["@global-team"])],
+    );
+    assert_owners_table(
+        "\u{feff}# leading comment\nsrc/a.ts @a-team\n",
+        &[("src/a.ts", &["@a-team"]), ("src/b.ts", &[])],
+    );
+}

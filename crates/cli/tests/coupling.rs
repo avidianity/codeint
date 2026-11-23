@@ -2,7 +2,7 @@ mod history_support;
 
 use history_support::{
     HistoryFixture, assert_format_contains, assert_no_blended_score_keys,
-    assert_shallow_and_non_git,
+    assert_shallow_and_non_git, assert_unborn_repo_remedy,
 };
 
 fn commit_const_pair(
@@ -269,4 +269,79 @@ fn coupling_renders_all_formats_and_handles_shallow_non_git_and_invalid_args() {
     );
 
     assert_shallow_and_non_git(&repo, "coupling", &["--min-co-changes", "2"]);
+}
+
+#[test]
+fn coupling_shallow_boundary_does_not_fabricate_co_changes_for_untouched_files() {
+    let origin = HistoryFixture::init();
+    origin.save_and_commit(
+        &[
+            ("src/cold_a.ts", "export const coldA = 1;\n".to_owned()),
+            ("src/cold_b.ts", "export const coldB = 1;\n".to_owned()),
+            ("src/hot_a.ts", "export const hotA = 1;\n".to_owned()),
+            ("src/hot_b.ts", "export const hotB = 1;\n".to_owned()),
+        ],
+        "c1",
+        "2026-05-01T10:00:00Z",
+    );
+    for step in 2..=4 {
+        origin.save_and_commit(
+            &[
+                ("src/hot_a.ts", format!("export const hotA = {step};\n")),
+                ("src/hot_b.ts", format!("export const hotB = {step};\n")),
+            ],
+            &format!("c{step}"),
+            &format!("2026-05-0{step}T10:00:00Z"),
+        );
+    }
+
+    let args = ["--min-co-changes", "1", "--min-ratio", "0"];
+    let depth_one = origin.shallow_clone_of("1").run_json("coupling", &args);
+    assert_eq!(depth_one["shallow"], true);
+    assert_eq!(depth_one["commits_analyzed"], 0);
+    assert_eq!(depth_one["pairs"].as_array().expect("pairs").len(), 0);
+
+    let depth_two = origin.shallow_clone_of("2").run_json("coupling", &args);
+    assert_eq!(depth_two["shallow"], true);
+    assert_eq!(depth_two["commits_analyzed"], 1);
+    let observed: Vec<(&str, &str, u64)> = depth_two["pairs"]
+        .as_array()
+        .expect("pairs")
+        .iter()
+        .map(|row| {
+            (
+                row["file_a"].as_str().expect("file_a"),
+                row["file_b"].as_str().expect("file_b"),
+                row["co_change_count"].as_u64().expect("co_change_count"),
+            )
+        })
+        .collect();
+    assert_eq!(observed, vec![("src/hot_a.ts", "src/hot_b.ts", 1)]);
+}
+
+#[test]
+fn coupling_compares_exact_ratio_against_unrounded_min_ratio_and_handles_unborn_repo() {
+    let repo = HistoryFixture::init();
+    commit_const_pair(&repo, ("src/a.ts", "a"), ("src/b.ts", "b"), 4, "0");
+    repo.save_and_commit(
+        &[("src/a.ts", "export const a = 99;\n".to_owned())],
+        "touch a alone",
+        "2026-05-10T10:00:00Z",
+    );
+    repo.save_and_commit(
+        &[("src/b.ts", "export const b = 99;\n".to_owned())],
+        "touch b alone",
+        "2026-05-11T10:00:00Z",
+    );
+
+    let excluded = repo.run_json("coupling", &["--min-ratio", "0.6667"]);
+    assert_eq!(excluded["pairs"].as_array().expect("pairs").len(), 0);
+
+    let included = repo.run_json("coupling", &["--min-ratio", "0.66666"]);
+    assert_eq!(included["min_ratio"], 0.66666);
+    let pairs = included["pairs"].as_array().expect("pairs");
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(pairs[0]["coupling_ratio"], 0.6667);
+
+    assert_unborn_repo_remedy("coupling");
 }

@@ -178,14 +178,13 @@ impl Repository {
             if !effective.admits(commits_analyzed, committed_at) {
                 break;
             }
-            commits_analyzed += 1;
             let at_boundary = shallow_boundary.is_some_and(|boundary| boundary.contains(&id));
-            let parent_id = if at_boundary {
+            if at_boundary {
                 truncated_by_shallow_boundary = true;
-                None
-            } else {
-                found.parent_ids().next().map(|parent| parent.detach())
-            };
+                break;
+            }
+            commits_analyzed += 1;
+            let parent_id = found.parent_ids().next().map(|parent| parent.detach());
             let touched = self.touched_files_in_commit(commit, &found, parent_id)?;
             on_commit(touched);
             next = parent_id;

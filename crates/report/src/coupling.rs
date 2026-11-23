@@ -33,7 +33,7 @@ pub struct CouplingReport {
     commits_excluded_by_bulk_limit: usize,
     max_commit_files: usize,
     min_co_changes: usize,
-    min_ratio: Decimal,
+    min_ratio: f64,
     source_sets: Vec<&'static str>,
     shallow: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,7 +65,11 @@ impl CouplingReport {
         findings: FindingsShown,
     ) -> CouplingReport {
         let direct_imports = direct_import_pairs(model);
-        let min_ratio = Decimal::rounded(history.min_ratio);
+        let min_ratio = if history.min_ratio == 0.0 {
+            0.0
+        } else {
+            history.min_ratio
+        };
         let mut rows: Vec<CoupledPairRow> = history
             .co_changes
             .iter()
@@ -75,7 +79,7 @@ impl CouplingReport {
                     file_b,
                     co_change_count,
                     history,
-                    min_ratio.0,
+                    min_ratio,
                     &direct_imports,
                 )
             })
@@ -141,10 +145,11 @@ fn build_pair_row(
     if union == 0 {
         return None;
     }
-    let coupling_ratio = Decimal::rounded(co_change_count as f64 / union as f64);
-    if coupling_ratio.0 < min_ratio {
+    let raw_ratio = co_change_count as f64 / union as f64;
+    if raw_ratio < min_ratio {
         return None;
     }
+    let coupling_ratio = Decimal::rounded(raw_ratio);
     let has_direct_import = direct_imports.contains(&ordered_pair(file_a, file_b));
     Some(CoupledPairRow {
         file_a: file_a.to_string(),

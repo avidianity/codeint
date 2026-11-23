@@ -253,51 +253,67 @@ fn handle_tools_call(
         .and_then(|p| p.get("name"))
         .and_then(Value::as_str)
         .ok_or_else(|| (-32602, "Missing tool name".to_owned()))?;
-    let args = params.and_then(|p| p.get("arguments"));
-    match name {
-        "check" => Ok(call_check(args, ctx)),
-        "diff" => Ok(unwrap_tool_result(call_diff(args, ctx))),
-        "trend" => Ok(call_trend(args, ctx)),
-        "guard" => Ok(unwrap_tool_result(call_guard(args, ctx))),
-        "impact" => Ok(unwrap_tool_result(call_impact(args, ctx))),
-        "trace" => Ok(unwrap_tool_result(call_trace(args, ctx))),
-        "churn" => Ok(unwrap_tool_result(call_churn(args, ctx))),
-        "coupling" => Ok(unwrap_tool_result(call_coupling(args, ctx))),
-        other => Err((-32602, format!("Unknown tool: {other}"))),
+    let args = match parse_tool_arguments(params) {
+        Ok(args) => args,
+        Err(err) => return Ok(err),
+    };
+    dispatch_tool(name, args, ctx)
+}
+
+fn parse_tool_arguments(params: Option<&Value>) -> Result<Option<&Value>, Value> {
+    match params.and_then(|p| p.get("arguments")) {
+        None => Ok(None),
+        Some(value) if value.is_object() => Ok(Some(value)),
+        Some(_) => Err(tool_err("Tool arguments must be a JSON object")),
     }
 }
 
-fn unwrap_tool_result(result: Result<Value, Value>) -> Value {
-    result.unwrap_or_else(|err| err)
+fn dispatch_tool(
+    name: &str,
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+) -> Result<Value, (i64, String)> {
+    let result = match name {
+        "check" => call_check(args, ctx),
+        "diff" => call_diff(args, ctx),
+        "trend" => call_trend(args, ctx),
+        "guard" => call_guard(args, ctx),
+        "impact" => call_impact(args, ctx),
+        "trace" => call_trace(args, ctx),
+        "churn" => call_churn(args, ctx),
+        "coupling" => call_coupling(args, ctx),
+        other => return Err((-32602, format!("Unknown tool: {other}"))),
+    };
+    Ok(result.unwrap_or_else(|err| err))
 }
 
-fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let folder = resolve_folder(args, ctx.default_folder);
+fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let options = CheckOptions {
-        findings: parse_findings(args),
+        findings: parse_findings(args)?,
         package: parse_package(args),
         owner: None,
         plugin_host: ctx.plugin_host.clone(),
     };
-    match check(&folder, &options) {
+    Ok(match check(&folder, &options) {
         Ok(outcome) => render_outcome(
             outcome.passed,
             outcome.failures,
             outcome.report.render(ReportFormat::Json),
         ),
         Err(err) => tool_err(&err.to_string()),
-    }
+    })
 }
 
 fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let base_ref = required_str_arg(args, "base_ref")?;
-    let folder = resolve_folder(args, ctx.default_folder);
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let options = DiffOptions {
         head_ref: args
             .and_then(|a| a.get("head_ref"))
             .and_then(Value::as_str)
             .map(str::to_owned),
-        findings: parse_findings(args),
+        findings: parse_findings(args)?,
         package: parse_package(args),
         owner: None,
         result_cache: ctx.result_cache.clone(),
@@ -334,8 +350,8 @@ fn render_outcome(
 fn render_json_tool<T, E: std::fmt::Display>(
     result: Result<T, E>,
     render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
-) -> Value {
-    match result {
+) -> Result<Value, Value> {
+    Ok(match result {
         Ok(report) => match render(report) {
             Ok(rendered) => {
                 let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
@@ -344,7 +360,7 @@ fn render_json_tool<T, E: std::fmt::Display>(
             Err(err) => tool_err(&err.to_string()),
         },
         Err(err) => tool_err(&err.to_string()),
-    }
+    })
 }
 
 fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, Value> {
@@ -353,12 +369,20 @@ fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, 
         .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
 }
 
-fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let folder = resolve_folder(args, ctx.default_folder);
+fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let file = required_str_arg(args, "file")?;
+    let folder = resolve_folder(args, ctx.default_folder)?;
+    render_json_tool(guard(&folder, Path::new(file)), |report| {
+        report.render(GuardFormat::Json)
+    })
+}
+
+fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
         Some(day_str) => match CalendarDay::from_str(day_str) {
             Ok(day) => TrendRange::Since(day),
-            Err(err) => return tool_err(&format!("Invalid since date {day_str:?}: {err}")),
+            Err(err) => return Err(tool_err(&format!("Invalid since date {day_str:?}: {err}"))),
         },
         None => TrendOptions::default().range,
     };
@@ -372,17 +396,8 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
     })
 }
 
-fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let file = required_str_arg(args, "file")?;
-    let folder = resolve_folder(args, ctx.default_folder);
-    Ok(render_json_tool(
-        guard(&folder, Path::new(file)),
-        |report| report.render(GuardFormat::Json),
-    ))
-}
-
 fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let folder = resolve_folder(args, ctx.default_folder);
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let paths = parse_string_array(args, "paths")?;
     let changed = args
         .and_then(|a| a.get("changed"))
@@ -402,15 +417,15 @@ fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, V
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    Ok(render_json_tool(impact(&folder, &options), |report| {
+    render_json_tool(impact(&folder, &options), |report| {
         report.render(ImpactFormat::Json)
-    }))
+    })
 }
 
 fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let from = required_str_arg(args, "from")?;
     let to = required_str_arg(args, "to")?;
-    let folder = resolve_folder(args, ctx.default_folder);
+    let folder = resolve_folder(args, ctx.default_folder)?;
     let max_paths = match args.and_then(|a| a.get("max_paths")) {
         Some(value) => parse_usize_arg(
             value,
@@ -427,34 +442,33 @@ fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    Ok(render_json_tool(
-        trace(&folder, from, to, &options),
-        |report| report.render(TraceFormat::Json),
-    ))
+    render_json_tool(trace(&folder, from, to, &options), |report| {
+        report.render(TraceFormat::Json)
+    })
 }
 
 fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let options = ChurnOptions {
         window: parse_churn_window(args)?,
-        findings: parse_findings(args),
+        findings: parse_findings(args)?,
         plugin_host: ctx.plugin_host.clone(),
     };
-    let folder = resolve_folder(args, ctx.default_folder);
-    Ok(render_json_tool(churn(&folder, &options), |report| {
+    let folder = resolve_folder(args, ctx.default_folder)?;
+    render_json_tool(churn(&folder, &options), |report| {
         report.render(ChurnFormat::Json)
-    }))
+    })
 }
 
 fn call_coupling(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let options = CouplingOptions {
         settings: parse_coupling_settings(args)?,
-        findings: parse_findings(args),
+        findings: parse_findings(args)?,
         plugin_host: ctx.plugin_host.clone(),
     };
-    let folder = resolve_folder(args, ctx.default_folder);
-    Ok(render_json_tool(coupling(&folder, &options), |report| {
+    let folder = resolve_folder(args, ctx.default_folder)?;
+    render_json_tool(coupling(&folder, &options), |report| {
         report.render(ChurnFormat::Json)
-    }))
+    })
 }
 
 fn parse_string_array(args: Option<&Value>, name: &str) -> Result<Vec<String>, Value> {
@@ -497,10 +511,10 @@ fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, Val
             parse_positive_usize(value, "min_co_changes")
         })?;
     let min_ratio = parse_optional_arg(args, "min_ratio", defaults.min_ratio, parse_ratio)?;
-    let include_tests = args
-        .and_then(|a| a.get("include_tests"))
-        .and_then(Value::as_bool)
-        .unwrap_or(defaults.include_tests);
+    let include_tests =
+        parse_optional_arg(args, "include_tests", defaults.include_tests, |value| {
+            parse_bool_arg(value, "include_tests")
+        })?;
     Ok(CouplingSettings {
         window,
         max_commit_files,
@@ -508,6 +522,12 @@ fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, Val
         min_ratio,
         include_tests,
     })
+}
+
+fn parse_bool_arg(value: &Value, name: &str) -> Result<bool, Value> {
+    value
+        .as_bool()
+        .ok_or_else(|| tool_err(&format!("Argument {name} must be a boolean")))
 }
 
 fn parse_optional_arg<T>(
@@ -570,30 +590,30 @@ fn parse_package(args: Option<&Value>) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> PathBuf {
-    match args.and_then(|a| a.get("path")).and_then(Value::as_str) {
-        Some(p) if !p.is_empty() => {
-            let candidate = PathBuf::from(p);
-            if candidate.is_absolute() {
-                candidate
-            } else {
-                default_folder.join(candidate)
-            }
+fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> Result<PathBuf, Value> {
+    parse_optional_arg(args, "path", default_folder.to_path_buf(), |value| {
+        let path = value
+            .as_str()
+            .ok_or_else(|| tool_err("Argument path must be a string"))?;
+        if path.is_empty() {
+            return Ok(default_folder.to_path_buf());
         }
-        _ => default_folder.to_path_buf(),
-    }
+        let candidate = PathBuf::from(path);
+        Ok(if candidate.is_absolute() {
+            candidate
+        } else {
+            default_folder.join(candidate)
+        })
+    })
 }
 
-fn parse_findings(args: Option<&Value>) -> FindingsShown {
-    if args
-        .and_then(|a| a.get("all"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+fn parse_findings(args: Option<&Value>) -> Result<FindingsShown, Value> {
+    let all = parse_optional_arg(args, "all", false, |value| parse_bool_arg(value, "all"))?;
+    Ok(if all {
         FindingsShown::All
     } else {
         CheckOptions::default().findings
-    }
+    })
 }
 
 fn tool_ok(payload: Value) -> Value {

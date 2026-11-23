@@ -2,14 +2,14 @@ mod history_support;
 
 use history_support::{
     HistoryFixture, assert_format_contains, assert_no_blended_score_keys,
-    assert_shallow_and_non_git,
+    assert_shallow_and_non_git, assert_unborn_repo_remedy,
 };
 
-fn eroded_ts(name: &str, salt: usize) -> String {
+fn eroded_ts(name: &str, variant: usize) -> String {
     let checks: String = (1..=12)
-        .map(|i| format!("  if (v === {i}) return {};\n", i + salt))
+        .map(|i| format!("  if (v === {i}) return {};\n", i + variant))
         .collect();
-    format!("export function {name}(v: number): number {{\n{checks}  return {salt};\n}}\n")
+    format!("export function {name}(v: number): number {{\n{checks}  return {variant};\n}}\n")
 }
 
 fn duplicated_ts(prefix: &str, extra: &str) -> String {
@@ -115,13 +115,13 @@ fn churn_ranks_eroded_and_duplicated_files_independently_by_commit_count_with_no
 #[test]
 fn churn_respects_since_days_since_date_and_commits_window() {
     let repo = HistoryFixture::init();
-    for (label, salt, when) in [
+    for (label, variant, when) in [
         ("old", 1, "2026-01-01T10:00:00Z"),
         ("mid", 2, "2026-05-01T10:00:00Z"),
         ("recent", 3, "2026-05-10T10:00:00Z"),
         ("head", 4, "2026-05-15T10:00:00Z"),
     ] {
-        repo.save_and_commit(&[("src/eroded.ts", eroded_ts(label, salt))], label, when);
+        repo.save_and_commit(&[("src/eroded.ts", eroded_ts(label, variant))], label, when);
     }
 
     let by_days = repo.run_json("churn", &["--since", "30d"]);
@@ -194,4 +194,56 @@ fn churn_handles_shallow_clones_and_non_git_directories_gracefully() {
         );
     }
     assert_shallow_and_non_git(&origin, "churn", &[]);
+}
+
+#[test]
+fn churn_shallow_boundary_does_not_fabricate_touches_for_untouched_files() {
+    let origin = HistoryFixture::init();
+    origin.save_and_commit(
+        &[
+            ("src/cold_eroded.ts", eroded_ts("coldEroded", 1)),
+            ("src/hot_eroded.ts", eroded_ts("hotEroded", 1)),
+        ],
+        "c1",
+        "2026-05-01T10:00:00Z",
+    );
+    for step in 2..=4 {
+        origin.save_and_commit(
+            &[("src/hot_eroded.ts", eroded_ts("hotEroded", step))],
+            &format!("c{step}"),
+            &format!("2026-05-0{step}T10:00:00Z"),
+        );
+    }
+
+    let depth_one = origin.shallow_clone_of("1").run_json("churn", &[]);
+    assert_eq!(depth_one["shallow"], true);
+    assert_eq!(depth_one["commits_analyzed"], 0);
+    let depth_one_findings = depth_one["source_sets"]["production"]["erosion"]["findings"]
+        .as_array()
+        .expect("depth 1 findings");
+    for row in depth_one_findings {
+        assert_eq!(row["commits"], 0, "unexpected fabricated touch: {row}");
+    }
+
+    let depth_two = origin.shallow_clone_of("2").run_json("churn", &[]);
+    assert_eq!(depth_two["shallow"], true);
+    assert_eq!(depth_two["commits_analyzed"], 1);
+    let depth_two_findings = depth_two["source_sets"]["production"]["erosion"]["findings"]
+        .as_array()
+        .expect("depth 2 findings");
+    let commits_of = |path: &str| {
+        depth_two_findings
+            .iter()
+            .find(|row| row["path"] == path)
+            .expect("path present")["commits"]
+            .as_u64()
+            .expect("commits count")
+    };
+    assert_eq!(commits_of("src/hot_eroded.ts"), 1);
+    assert_eq!(commits_of("src/cold_eroded.ts"), 0);
+}
+
+#[test]
+fn churn_on_unborn_repository_gives_command_agnostic_remedy() {
+    assert_unborn_repo_remedy("churn");
 }

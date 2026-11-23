@@ -218,3 +218,32 @@ fn mcp_coupling_tool_reports_co_change_pairs_bulk_exclusion_and_errors() {
     assert!(payload.get("score").is_none());
     assert_tool_err_contains(&responses[1], "not inside a Git repository");
 }
+
+#[test]
+fn mcp_churn_and_coupling_reject_non_object_arguments_and_wrong_types() {
+    let repo = init_sample_repo();
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            mcp_tool_call(1, "churn", json!("not-an-object")),
+            mcp_tool_call(2, "churn", json!([])),
+            mcp_tool_call(3, "churn", json!(null)),
+            mcp_tool_call(4, "churn", json!({"all": "true"})),
+            mcp_tool_call(5, "churn", json!({"path": 42})),
+            mcp_tool_call(6, "coupling", json!([1, 2])),
+            mcp_tool_call(7, "coupling", json!({"include_tests": "true"})),
+            mcp_tool_call(8, "coupling", json!({"all": 1})),
+            mcp_tool_call(9, "coupling", json!({"path": true})),
+        ],
+    );
+    assert_eq!(responses.len(), 9);
+    assert_tool_err_contains(&responses[0], "JSON object");
+    assert_tool_err_contains(&responses[1], "JSON object");
+    assert_tool_err_contains(&responses[2], "JSON object");
+    assert_tool_err_contains(&responses[3], "all");
+    assert_tool_err_contains(&responses[4], "path");
+    assert_tool_err_contains(&responses[5], "JSON object");
+    assert_tool_err_contains(&responses[6], "include_tests");
+    assert_tool_err_contains(&responses[7], "all");
+    assert_tool_err_contains(&responses[8], "path");
+}

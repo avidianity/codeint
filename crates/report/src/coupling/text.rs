@@ -20,7 +20,7 @@ pub(super) fn render(report: &CouplingReport) -> String {
         let _ = writeln!(
             out,
             "  none (min_co_changes={}, min_ratio={})",
-            report.min_co_changes, report.min_ratio.0
+            report.min_co_changes, report.min_ratio
         );
         return out.trim_end_matches('\n').to_owned();
     }

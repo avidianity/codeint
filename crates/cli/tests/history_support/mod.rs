@@ -48,7 +48,7 @@ impl HistoryFixture {
         serde_json::from_slice(&out.stdout).expect("valid JSON report")
     }
 
-    fn shallow_clone_of(&self, depth: &str) -> HistoryFixture {
+    pub(crate) fn shallow_clone_of(&self, depth: &str) -> HistoryFixture {
         let shallow = HistoryFixture::init();
         let url = format!("file://{}", self.root().display());
         run_git(
@@ -148,7 +148,7 @@ pub(crate) fn assert_shallow_and_non_git(
     let shallow = origin.shallow_clone_of("2");
     let report = shallow.run_json(subcommand, shallow_args);
     assert_eq!(report["shallow"], true);
-    assert_eq!(report["commits_analyzed"], 2);
+    assert_eq!(report["commits_analyzed"], 1);
     let warning = report["warning"].as_str().expect("shallow clone warning");
     assert!(warning.contains("shallow"), "warning: {warning}");
     assert!(warning.contains("--unshallow"), "warning: {warning}");
@@ -161,4 +161,16 @@ pub(crate) fn assert_shallow_and_non_git(
         stderr.contains("not inside a Git repository"),
         "stderr: {stderr}"
     );
+}
+
+pub(crate) fn assert_unborn_repo_remedy(subcommand: &str) {
+    let empty = HistoryFixture::init();
+    let out = empty.run(subcommand, &[]);
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Commit once, then run codeint again"),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains("codeint trend"), "stderr: {stderr}");
 }

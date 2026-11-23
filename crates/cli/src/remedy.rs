@@ -70,17 +70,6 @@ fn check_remedy(error: &CheckError) -> &'static str {
     }
 }
 
-fn codeowners_remedy(error: &CodeownersError) -> &'static str {
-    match error {
-        CodeownersError::Read { .. } => {
-            "Check that the CODEOWNERS file is readable UTF-8, then run codeint again."
-        }
-        CodeownersError::InvalidOwnerPattern { .. } => {
-            "Pass a valid glob pattern to --owner, such as @org/team or @org/*."
-        }
-    }
-}
-
 fn guard_remedy(error: &GuardError) -> &'static str {
     match error {
         GuardError::Git(error) => git_remedy(error),
@@ -189,7 +178,7 @@ fn git_remedy(error: &GitError) -> &'static str {
             "Pass a base ref that shares history with the head, which is HEAD unless you pass --head; in a shallow clone, fetch more history: git fetch --unshallow"
         }
         GitError::NoHistory(_) => {
-            "Commit once, then run codeint trend again; it measures the commits of the current branch."
+            "Commit once, then run codeint again; history commands measure the commits of the current branch."
         }
         GitError::MergeBase { .. }
         | GitError::History { .. }
@@ -373,6 +362,17 @@ fn starter_configuration_remedy(error: &StarterConfigurationError) -> &'static s
         }
         StarterConfigurationError::Unwritable { .. } => {
             "Check that you have permission to write to the root of the repository, then run codeint init again."
+        }
+    }
+}
+
+fn codeowners_remedy(error: &CodeownersError) -> &'static str {
+    match error {
+        CodeownersError::Read { .. } => {
+            "Check that the CODEOWNERS file is readable UTF-8, then run codeint again."
+        }
+        CodeownersError::InvalidOwnerPattern { .. } => {
+            "Pass a valid glob pattern to --owner, such as @org/team or @org/*."
         }
     }
 }
