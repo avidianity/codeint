@@ -2,9 +2,11 @@ use std::path::Path;
 
 use codeint_config::{FindingsShown, PluginHostConfig};
 use codeint_git::{CommitId, GitError, Repository, ResultCache};
-use codeint_report::{BaseCommit, CommitMeasurement, DiffReport, Head, HeadCommit};
+use codeint_report::{
+    BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, HeadCommit,
+};
 
-use crate::check::{CheckError, SelectedPackage, WorkspaceContext};
+use crate::check::{CheckError, PreparedRun, SelectedPackage, WorkspaceContext};
 use crate::commit_measurement::{CommitMeasurer, measure_all_languages_for_package};
 
 pub(crate) struct Refs<'a> {
@@ -23,25 +25,27 @@ pub(crate) fn diff(
     refs: Refs<'_>,
     findings: FindingsShown,
     package: Option<&str>,
+    owner: Option<&str>,
     result_cache: Option<&ResultCache>,
     plugin_host: &PluginHostConfig,
 ) -> Result<DiffReport, CheckError> {
-    let context = WorkspaceContext::load(folder, plugin_host)?;
+    let run = PreparedRun::load(folder, owner, plugin_host)?;
     let Sides {
         merge_base,
         head,
         head_commit,
-    } = sides(&context.repository, &refs)?;
-    let (selected, head_measurement) = measure_head(&context, head_commit, package, result_cache)?;
+    } = sides(&run.context.repository, &refs)?;
+    let (selected, head_measurement) =
+        measure_head(&run.context, head_commit, package, result_cache)?;
     let base_measurer = CommitMeasurer::for_package(
-        &context.repository,
-        &context.configuration,
-        &context.plugins,
+        &run.context.repository,
+        &run.context.configuration,
+        &run.context.plugins,
         result_cache,
         selected.as_ref().map(|pkg| pkg.as_str()),
     );
     let base_measurement = base_measurer.measure_selected_package(merge_base, selected.as_ref())?;
-    Ok(DiffReport::compare(
+    Ok(DiffReport::compare_with_options(
         BaseCommit {
             git_ref: refs.base.to_owned(),
             merge_base: merge_base.to_string(),
@@ -49,9 +53,12 @@ pub(crate) fn diff(
         head,
         base_measurement,
         head_measurement,
-        findings,
-        &context.configuration.budgets,
-        &context.configuration.regression_limits,
+        DiffReportOptions {
+            findings,
+            budgets: &run.context.configuration.budgets,
+            limits: &run.context.configuration.regression_limits,
+            ownership: run.ownership(),
+        },
     ))
 }
 

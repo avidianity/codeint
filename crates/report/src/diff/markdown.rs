@@ -4,8 +4,8 @@ use crate::markdown::{
     BOUNDARY_FINDING_COLUMNS, CLONE_FAMILY, CLONE_GROUP, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS,
     EXTERNAL_FINDING_COLUMNS, FINDING, FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, Noun,
     boundary_finding_row, clone_family_item, clone_group_item, code, eroded_function_row,
-    external_finding_row, flagged_line_row, import_cycle_item, list, push_findings, sentence_item,
-    table,
+    external_finding_row, findings_table, flagged_line_row, import_cycle_item, list, push_findings,
+    sentence_item, table,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -105,12 +105,7 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
         "Erosion",
         &changes.erosion,
         &ERODED_FUNCTION,
-        |listed| {
-            table(
-                &ERODED_FUNCTION_COLUMNS,
-                listed.iter().map(eroded_function_row).collect(),
-            )
-        },
+        |listed| findings_table(&ERODED_FUNCTION_COLUMNS, listed, eroded_function_row),
     );
     push_changes(
         &mut blocks,
@@ -140,12 +135,7 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
         "Verbosity",
         &changes.verbosity,
         &FLAGGED_LINE,
-        |listed| {
-            table(
-                &FLAGGED_LINE_COLUMNS,
-                listed.iter().map(flagged_line_row).collect(),
-            )
-        },
+        |listed| findings_table(&FLAGGED_LINE_COLUMNS, listed, flagged_line_row),
     );
     push_changes(
         &mut blocks,
@@ -156,10 +146,7 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
     );
     if let Some(boundaries) = &changes.boundaries {
         push_changes(&mut blocks, "Boundaries", boundaries, &FINDING, |listed| {
-            table(
-                &BOUNDARY_FINDING_COLUMNS,
-                listed.iter().map(boundary_finding_row).collect(),
-            )
+            findings_table(&BOUNDARY_FINDING_COLUMNS, listed, boundary_finding_row)
         });
     }
     for external in changes.external_metrics.values() {
@@ -168,12 +155,7 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
             &external.name,
             &external.changes,
             &FINDING,
-            |listed| {
-                table(
-                    &EXTERNAL_FINDING_COLUMNS,
-                    listed.iter().map(external_finding_row).collect(),
-                )
-            },
+            |listed| findings_table(&EXTERNAL_FINDING_COLUMNS, listed, external_finding_row),
         );
     }
     blocks

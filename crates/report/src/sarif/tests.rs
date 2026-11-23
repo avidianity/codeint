@@ -38,6 +38,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         cyclomatic_complexity: 12,
         source_lines: 20,
         function_mass: Decimal(53.6656),
+        owners: Vec::new(),
     }];
     let clones = [CloneGroupFinding {
         id: "2222222222222222".to_owned(),
@@ -55,16 +56,19 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
                 end_line: 10,
             },
         ],
+        owners: Vec::new(),
     }];
     let flagged = [FlaggedLineRow {
         id: "3333333333333333".to_owned(),
         path: "src/sign.ts".to_owned(),
         line: 4,
         rule: "else-after-return".to_owned(),
+        owners: Vec::new(),
     }];
     let cycles = [ImportCycleFinding {
         id: "4444444444444444".to_owned(),
         modules: vec!["src/x.ts".to_owned(), "src/y.ts".to_owned()],
+        owners: Vec::new(),
     }];
     let listed = ListedFindings {
         eroded_functions: &eroded,
@@ -130,6 +134,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
                     end_line: 10,
                 },
             ],
+            owners: Vec::new(),
         },
         CloneGroupFinding {
             id: "bbbb000000000002".to_owned(),
@@ -147,6 +152,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
                     end_line: 8,
                 },
             ],
+            owners: Vec::new(),
         },
     ];
     let families = [CloneFamilyFinding {
@@ -170,6 +176,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
                 end_line: 10,
             },
         ],
+        owners: Vec::new(),
     }];
     let listed = ListedFindings {
         eroded_functions: &[],

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use codeint_config::{
-    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
+    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets, Codeowners,
     DuplicationConfig, FindingsShown, ImpactFormat, ReportFormat, TraceFormat,
 };
 use codeint_metrics::{
@@ -18,24 +18,32 @@ use codeint_model::{
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
+mod churn;
+mod coupling;
 mod diff;
 mod guard;
 mod impact;
 mod markdown;
 mod measurement;
+mod ownership;
 mod sarif;
 #[cfg(test)]
 mod tests;
 mod trace;
 mod trend;
 
+pub use churn::{ChurnHistoryInput, ChurnReport};
 pub use codeint_metrics::TraceError;
-pub use diff::{BaseCommit, DiffReport, Head, HeadCommit};
+pub use coupling::{CouplingHistoryInput, CouplingReport};
+pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::CommitMeasurement;
+pub use ownership::OwnershipOptions;
 pub use trace::TraceReport;
 pub use trend::{TrendPoint, TrendReport};
+
+use ownership::OwnedFinding;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
@@ -158,6 +166,8 @@ struct BoundaryFindingRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
     message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,6 +192,8 @@ struct ExternalMetricFinding {
     #[serde(skip_serializing_if = "Option::is_none")]
     end_line: Option<u32>,
     message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -250,6 +262,8 @@ struct ErodedFunctionFinding {
     cyclomatic_complexity: u32,
     source_lines: u32,
     function_mass: Decimal,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -277,6 +291,8 @@ struct CloneGroupFinding {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     similarity: Option<Decimal>,
     locations: Vec<CloneLocation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,6 +301,8 @@ struct CloneFamilyFinding {
     duplicated_lines: u64,
     clone_group_ids: Vec<String>,
     locations: Vec<CloneLocation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,6 +329,8 @@ struct FlaggedLineRow {
     path: String,
     line: u32,
     rule: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -336,12 +356,16 @@ struct UnresolvedImportRow {
     importer: String,
     specifier: String,
     reason: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ImportCycleFinding {
     id: String,
     modules: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -428,6 +452,18 @@ impl<T> Findings<T> {
             listed,
         }
     }
+
+    fn worst_first_owned(
+        items: impl Iterator<Item = T>,
+        ownership: OwnershipOptions<'_>,
+        shown: FindingsShown,
+    ) -> Findings<T>
+    where
+        T: OwnedFinding,
+    {
+        let filtered = ownership.apply(items.collect());
+        Findings::worst_first(filtered.into_iter(), shown)
+    }
 }
 
 impl<T: FindingKind> Serialize for Findings<T> {
@@ -474,6 +510,58 @@ impl FindingKind for ExternalMetricFinding {
     const LIST_KEY: &'static str = "findings";
 }
 
+macro_rules! impl_single_path_owner {
+    ($ty:ty, $field:ident) => {
+        impl OwnedFinding for $ty {
+            fn assign_owners(&mut self, codeowners: &Codeowners) {
+                self.owners = codeowners.owners_for(&self.$field);
+            }
+
+            fn owners(&self) -> &[String] {
+                &self.owners
+            }
+        }
+    };
+}
+
+impl_single_path_owner!(ErodedFunctionFinding, path);
+impl_single_path_owner!(FlaggedLineRow, path);
+impl_single_path_owner!(UnresolvedImportRow, importer);
+impl_single_path_owner!(ExternalMetricFinding, path);
+impl_single_path_owner!(BoundaryFindingRow, importer);
+
+impl OwnedFinding for CloneGroupFinding {
+    fn assign_owners(&mut self, codeowners: &Codeowners) {
+        self.owners =
+            codeowners.owners_for_many(self.locations.iter().map(|loc| loc.path.as_str()));
+    }
+
+    fn owners(&self) -> &[String] {
+        &self.owners
+    }
+}
+
+impl OwnedFinding for CloneFamilyFinding {
+    fn assign_owners(&mut self, codeowners: &Codeowners) {
+        self.owners =
+            codeowners.owners_for_many(self.locations.iter().map(|loc| loc.path.as_str()));
+    }
+
+    fn owners(&self) -> &[String] {
+        &self.owners
+    }
+}
+
+impl OwnedFinding for ImportCycleFinding {
+    fn assign_owners(&mut self, codeowners: &Codeowners) {
+        self.owners = codeowners.owners_for_many(self.modules.iter().map(String::as_str));
+    }
+
+    fn owners(&self) -> &[String] {
+        &self.owners
+    }
+}
+
 impl FindingKind for BoundaryFindingRow {
     const LIST_KEY: &'static str = "findings";
 }
@@ -512,16 +600,28 @@ impl BoundaryPolicy for ConfigBoundaryPolicy<'_> {
     }
 }
 
-fn mapped_findings<'a, T: 'a, R: From<&'a T>>(items: &'a [T], shown: FindingsShown) -> Findings<R> {
-    Findings::worst_first(items.iter().map(R::from), shown)
+#[derive(Clone, Copy)]
+struct FindingsView<'a> {
+    shown: FindingsShown,
+    ownership: OwnershipOptions<'a>,
+}
+
+impl FindingsView<'_> {
+    fn select<T: OwnedFinding>(self, items: impl Iterator<Item = T>) -> Findings<T> {
+        Findings::worst_first_owned(items, self.ownership, self.shown)
+    }
+
+    fn map<'a, T: 'a, R: From<&'a T> + OwnedFinding>(self, items: &'a [T]) -> Findings<R> {
+        self.select(items.iter().map(R::from))
+    }
 }
 
 impl BoundariesSection {
-    fn new(boundaries: &Boundaries, shown: FindingsShown) -> BoundariesSection {
+    fn new(boundaries: &Boundaries, view: FindingsView<'_>) -> BoundariesSection {
         BoundariesSection {
             ratio: Decimal::rounded(boundaries.ratio()),
             resolved_imports: boundaries.resolved_imports(),
-            findings: mapped_findings(boundaries.findings(), shown),
+            findings: view.map(boundaries.findings()),
         }
     }
 }
@@ -538,6 +638,7 @@ impl From<&BoundaryFinding> for BoundaryFindingRow {
             target_zone: finding.target_zone.clone(),
             reason: finding.reason.clone(),
             message: finding.message.clone(),
+            owners: Vec::new(),
         }
     }
 }
@@ -550,32 +651,37 @@ impl ExternalMetricFinding {
             line: finding.line,
             end_line: finding.end_line,
             message: finding.message.clone(),
+            owners: Vec::new(),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct SectionOptions<'a> {
+    findings: FindingsShown,
+    metric_plugins: &'a [&'a dyn MetricPlugin],
+    boundaries: Option<&'a BoundariesConfig>,
+    duplication: DuplicationConfig,
+    ownership: OwnershipOptions<'a>,
 }
 
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
         ranges: &ReferenceRangeScope,
-        findings: FindingsShown,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        duplication: DuplicationConfig,
+        options: SectionOptions<'_>,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
-                let source_set_boundaries =
-                    boundaries.filter(|config| config.applies_to_source_set(source_set));
-                *sections.slot(source_set) = Some(SourceSetSection::new(
-                    model,
-                    ranges,
-                    findings,
-                    metric_plugins,
-                    source_set_boundaries,
-                    duplication,
-                )?);
+                let source_set_options = SectionOptions {
+                    boundaries: options
+                        .boundaries
+                        .filter(|config| config.applies_to_source_set(source_set)),
+                    ..options
+                };
+                *sections.slot(source_set) =
+                    Some(SourceSetSection::new(model, ranges, source_set_options)?);
             }
         }
         Ok(sections)
@@ -645,18 +751,19 @@ impl SourceSetSection {
     fn new(
         model: &CodeModel,
         ranges: &ReferenceRangeScope,
-        findings: FindingsShown,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        duplication: DuplicationConfig,
+        options: SectionOptions<'_>,
     ) -> Result<SourceSetSection, MetricPluginError> {
-        let measured = Measured::new(model, boundaries, duplication);
+        let view = FindingsView {
+            shown: options.findings,
+            ownership: options.ownership,
+        };
+        let measured = Measured::new(model, options.boundaries, options.duplication);
         let boundaries = measured
             .boundaries
             .as_ref()
-            .map(|evaluated| BoundariesSection::new(evaluated, findings));
+            .map(|evaluated| BoundariesSection::new(evaluated, view));
         let mut external_metrics = BTreeMap::new();
-        for plugin in metric_plugins {
+        for plugin in options.metric_plugins {
             let result = plugin.measure(model)?;
             external_metrics.insert(
                 plugin.key().to_owned(),
@@ -667,12 +774,11 @@ impl SourceSetSection {
                     reference_range: ranges.entry(plugin.key()),
                     numerator: Decimal::rounded(result.numerator),
                     denominator: Decimal::rounded(result.denominator),
-                    findings: Findings::worst_first(
+                    findings: view.select(
                         result
                             .findings
                             .iter()
                             .map(ExternalMetricFinding::from_model),
-                        findings,
                     ),
                 },
             );
@@ -680,15 +786,47 @@ impl SourceSetSection {
         Ok(SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
-            erosion: ErosionSection::new(&measured.erosion, ranges, findings),
+            erosion: ErosionSection {
+                ratio: Decimal::rounded(measured.erosion.ratio()),
+                reference_range: ranges.entry(Metric::Erosion.key()),
+                eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
+                total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
+                findings: view.select(
+                    measured
+                        .erosion
+                        .eroded_functions()
+                        .iter()
+                        .map(ErodedFunctionFinding::new),
+                ),
+            },
             duplication: DuplicationSection::new(
                 &measured.duplication,
                 ranges,
-                findings,
-                duplication,
+                view,
+                options.duplication,
             ),
-            verbosity: VerbositySection::new(&measured.verbosity, ranges, findings),
-            import_cycles: ImportCyclesSection::new(&measured.import_cycles, ranges, findings),
+            verbosity: VerbositySection {
+                ratio: Decimal::rounded(measured.verbosity.ratio()),
+                reference_range: ranges.entry(Metric::Verbosity.key()),
+                verbose_lines: measured.verbosity.verbose_lines(),
+                flagged_lines: measured.verbosity.flagged_line_count(),
+                clone_lines: measured.verbosity.clone_line_count(),
+                findings: view.map(measured.verbosity.flagged_lines()),
+            },
+            import_cycles: ImportCyclesSection {
+                ratio: Decimal::rounded(measured.import_cycles.ratio()),
+                reference_range: ranges.entry(Metric::ImportCycles.key()),
+                modules_in_import_cycles: measured.import_cycles.modules_in_import_cycles(),
+                modules: measured.import_cycles.modules(),
+                findings: view.select(
+                    measured
+                        .import_cycles
+                        .cycles()
+                        .iter()
+                        .map(ImportCycleFinding::new),
+                ),
+                unresolved_imports: UnresolvedImportsSection::new(&measured.import_cycles, view),
+            },
             boundaries,
             external_metrics,
             packages: package_sections(model, &measured),
@@ -704,28 +842,6 @@ fn source_lines(model: &CodeModel) -> u64 {
         .sum()
 }
 
-impl ErosionSection {
-    fn new(
-        erosion: &Erosion,
-        ranges: &ReferenceRangeScope,
-        shown: FindingsShown,
-    ) -> ErosionSection {
-        ErosionSection {
-            ratio: Decimal::rounded(erosion.ratio()),
-            reference_range: ranges.entry(Metric::Erosion.key()),
-            eroded_function_mass: Decimal::rounded(erosion.eroded_function_mass()),
-            total_function_mass: Decimal::rounded(erosion.total_function_mass()),
-            findings: Findings::worst_first(
-                erosion
-                    .eroded_functions()
-                    .iter()
-                    .map(ErodedFunctionFinding::new),
-                shown,
-            ),
-        }
-    }
-}
-
 impl ErodedFunctionFinding {
     fn new(function: &ErodedFunction) -> ErodedFunctionFinding {
         ErodedFunctionFinding {
@@ -735,6 +851,7 @@ impl ErodedFunctionFinding {
             cyclomatic_complexity: function.cyclomatic_complexity,
             source_lines: function.source_lines,
             function_mass: Decimal::rounded(function.function_mass),
+            owners: Vec::new(),
         }
     }
 }
@@ -743,7 +860,7 @@ impl DuplicationSection {
     fn new(
         duplication: &Duplication,
         ranges: &ReferenceRangeScope,
-        shown: FindingsShown,
+        view: FindingsView<'_>,
         config: DuplicationConfig,
     ) -> DuplicationSection {
         let (reference_range, near_clones) = if config.near_clones {
@@ -761,16 +878,12 @@ impl DuplicationSection {
             reference_range,
             near_clones,
             clone_lines: duplication.clone_lines.count(),
-            clone_groups: Findings::worst_first(
-                duplication.clone_groups.iter().map(CloneGroupFinding::new),
-                shown,
-            ),
-            clone_families: Findings::worst_first(
+            clone_groups: view.select(duplication.clone_groups.iter().map(CloneGroupFinding::new)),
+            clone_families: view.select(
                 duplication
                     .clone_families
                     .iter()
                     .map(CloneFamilyFinding::new),
-                shown,
             ),
         }
     }
@@ -783,6 +896,7 @@ impl CloneGroupFinding {
             tokens: group.tokens,
             similarity: group.similarity.map(Decimal::rounded),
             locations: group.fragments.iter().map(CloneLocation::new).collect(),
+            owners: Vec::new(),
         }
     }
 }
@@ -798,6 +912,7 @@ impl CloneFamilyFinding {
                 .map(ToString::to_string)
                 .collect(),
             locations: family.fragments.iter().map(CloneLocation::new).collect(),
+            owners: Vec::new(),
         }
     }
 }
@@ -812,23 +927,6 @@ impl CloneLocation {
     }
 }
 
-impl VerbositySection {
-    fn new(
-        verbosity: &Verbosity,
-        ranges: &ReferenceRangeScope,
-        shown: FindingsShown,
-    ) -> VerbositySection {
-        VerbositySection {
-            ratio: Decimal::rounded(verbosity.ratio()),
-            reference_range: ranges.entry(Metric::Verbosity.key()),
-            verbose_lines: verbosity.verbose_lines(),
-            flagged_lines: verbosity.flagged_line_count(),
-            clone_lines: verbosity.clone_line_count(),
-            findings: mapped_findings(verbosity.flagged_lines(), shown),
-        }
-    }
-}
-
 impl From<&FlaggedLineFinding> for FlaggedLineRow {
     fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
         FlaggedLineRow {
@@ -836,26 +934,7 @@ impl From<&FlaggedLineFinding> for FlaggedLineRow {
             path: finding.path.to_string(),
             line: finding.line,
             rule: finding.rule.clone(),
-        }
-    }
-}
-
-impl ImportCyclesSection {
-    fn new(
-        import_cycles: &ImportCycles,
-        ranges: &ReferenceRangeScope,
-        shown: FindingsShown,
-    ) -> ImportCyclesSection {
-        ImportCyclesSection {
-            ratio: Decimal::rounded(import_cycles.ratio()),
-            reference_range: ranges.entry(Metric::ImportCycles.key()),
-            modules_in_import_cycles: import_cycles.modules_in_import_cycles(),
-            modules: import_cycles.modules(),
-            findings: Findings::worst_first(
-                import_cycles.cycles().iter().map(ImportCycleFinding::new),
-                shown,
-            ),
-            unresolved_imports: UnresolvedImportsSection::new(import_cycles, shown),
+            owners: Vec::new(),
         }
     }
 }
@@ -865,16 +944,17 @@ impl ImportCycleFinding {
         ImportCycleFinding {
             id: cycle.id().to_string(),
             modules: cycle.modules().iter().map(RepoPath::to_string).collect(),
+            owners: Vec::new(),
         }
     }
 }
 
 impl UnresolvedImportsSection {
-    fn new(import_cycles: &ImportCycles, shown: FindingsShown) -> UnresolvedImportsSection {
-        let unresolved = import_cycles.unresolved_imports();
+    fn new(import_cycles: &ImportCycles, view: FindingsView<'_>) -> UnresolvedImportsSection {
+        let imports = view.map(import_cycles.unresolved_imports());
         UnresolvedImportsSection {
-            count: unresolved.len(),
-            imports: Findings::worst_first(unresolved.iter().map(UnresolvedImportRow::from), shown),
+            count: imports.listed.len() + imports.left_out,
+            imports,
         }
     }
 }
@@ -885,6 +965,7 @@ impl From<&UnresolvedImport> for UnresolvedImportRow {
             importer: import.importer.to_string(),
             specifier: import.specifier.clone(),
             reason: import.reason.clone(),
+            owners: Vec::new(),
         }
     }
 }
@@ -981,25 +1062,24 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
         .collect()
 }
 
+pub struct ReportOptions<'a> {
+    pub findings: FindingsShown,
+    pub budgets: &'a Budgets,
+    pub metric_plugins: &'a [&'a dyn MetricPlugin],
+    pub boundaries: Option<&'a BoundariesConfig>,
+    pub duplication: DuplicationConfig,
+    pub ownership: OwnershipOptions<'a>,
+}
+
 impl MeasuredSection {
     fn new(
         model: CodeModel,
         ranges: &ReferenceRangeScope,
-        findings: FindingsShown,
-        metric_plugins: &[&dyn MetricPlugin],
-        boundaries: Option<&BoundariesConfig>,
-        duplication: DuplicationConfig,
+        options: SectionOptions<'_>,
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = model.files.len();
         let lines = source_lines(&model);
-        let source_sets = SourceSetSections::new(
-            &model.into_source_sets(),
-            ranges,
-            findings,
-            metric_plugins,
-            boundaries,
-            duplication,
-        )?;
+        let source_sets = SourceSetSections::new(&model.into_source_sets(), ranges, options)?;
         Ok(MeasuredSection {
             files,
             source_lines: lines,
@@ -1044,14 +1124,17 @@ impl Report {
         metric_plugins: &[&dyn MetricPlugin],
         boundaries: Option<&BoundariesConfig>,
     ) -> Result<Report, MetricPluginError> {
-        Report::summarize_with_config(
+        Report::summarize_with_options(
             languages,
             submodules,
-            findings,
-            budgets,
-            metric_plugins,
-            boundaries,
-            DuplicationConfig::default(),
+            ReportOptions {
+                findings,
+                budgets,
+                metric_plugins,
+                boundaries,
+                duplication: DuplicationConfig::default(),
+                ownership: OwnershipOptions::default(),
+            },
         )
     }
 
@@ -1064,6 +1147,55 @@ impl Report {
         boundaries: Option<&BoundariesConfig>,
         duplication: DuplicationConfig,
     ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_options(
+            languages,
+            submodules,
+            ReportOptions {
+                findings,
+                budgets,
+                metric_plugins,
+                boundaries,
+                duplication,
+                ownership: OwnershipOptions::default(),
+            },
+        )
+    }
+
+    pub fn summarize_with_ownership(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        findings: FindingsShown,
+        budgets: &Budgets,
+        metric_plugins: &[&dyn MetricPlugin],
+        boundaries: Option<&BoundariesConfig>,
+        ownership: OwnershipOptions<'_>,
+    ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_options(
+            languages,
+            submodules,
+            ReportOptions {
+                findings,
+                budgets,
+                metric_plugins,
+                boundaries,
+                duplication: DuplicationConfig::default(),
+                ownership,
+            },
+        )
+    }
+
+    pub fn summarize_with_options(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        options: ReportOptions<'_>,
+    ) -> Result<Report, MetricPluginError> {
+        let section_options = SectionOptions {
+            findings: options.findings,
+            metric_plugins: options.metric_plugins,
+            boundaries: options.boundaries,
+            duplication: options.duplication,
+            ownership: options.ownership,
+        };
         let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
             .into_iter()
             .partition(|language| !language.model.files.is_empty());
@@ -1084,10 +1216,7 @@ impl Report {
                         MeasuredSection::new(
                             language.model.clone(),
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
-                            findings,
-                            metric_plugins,
-                            boundaries,
-                            duplication,
+                            section_options,
                         )?,
                     );
                 }
@@ -1106,16 +1235,9 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(
-            model,
-            &total_ranges,
-            findings,
-            metric_plugins,
-            boundaries,
-            duplication,
-        )?;
+        let measured = MeasuredSection::new(model, &total_ranges, section_options)?;
         Ok(Report {
-            over_budget: measured.source_sets.over_budget(budgets),
+            over_budget: measured.source_sets.over_budget(options.budgets),
             skipped,
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),

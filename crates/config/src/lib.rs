@@ -6,8 +6,11 @@ use clap::{Parser, Subcommand};
 
 mod boundaries;
 mod calendar_day;
+mod churn;
 mod codeint_json;
+mod codeowners;
 mod config_error;
+mod coupling;
 mod regression_limits;
 mod result_cache_folder;
 
@@ -15,13 +18,19 @@ pub use boundaries::{
     Boundaries, BoundaryDirective, BoundaryPreset, BoundaryRuleDecision, BoundarySourceSet,
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
+pub use churn::{ChurnFormat, ChurnSince, ChurnSinceError, ChurnWindow, DEFAULT_CHURN_DAYS};
 pub use codeint_json::{
     Budget, Budgets, Configuration, DetectedLanguage, DuplicationConfig, LanguageCoverage,
     Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource,
     Sha256Digest, SourceSetOverrides, StarterConfigurationError, configuration_schema,
     published_schema_address, read_configuration, write_starter_configuration,
 };
+pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use config_error::{ConfigurationFileError, JsonType, KeyPath, KeySegment};
+pub use coupling::{
+    CouplingRatio, CouplingRatioError, CouplingSettings, DEFAULT_MAX_COMMIT_FILES,
+    DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
+};
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
@@ -148,6 +157,7 @@ pub enum Command {
         findings: FindingsShown,
         format: ReportFormat,
         package: Option<String>,
+        owner: Option<String>,
         plugin_host: PluginHostConfig,
     },
     Diff {
@@ -158,6 +168,7 @@ pub enum Command {
         findings: FindingsShown,
         format: ReportFormat,
         package: Option<String>,
+        owner: Option<String>,
         result_cache: Option<PathBuf>,
         plugin_host: PluginHostConfig,
     },
@@ -207,6 +218,22 @@ pub enum Command {
         folder: PathBuf,
         target: PathBuf,
         format: GuardFormat,
+    },
+    Churn {
+        folder: PathBuf,
+        window: ChurnWindow,
+        destination: ReportDestination,
+        findings: FindingsShown,
+        format: ChurnFormat,
+        plugin_host: PluginHostConfig,
+    },
+    Coupling {
+        folder: PathBuf,
+        settings: CouplingSettings,
+        destination: ReportDestination,
+        findings: FindingsShown,
+        format: ChurnFormat,
+        plugin_host: PluginHostConfig,
     },
 }
 
@@ -300,7 +327,7 @@ enum CommandArguments {
         version: Option<String>,
     },
     #[command(
-        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, guard, impact, and trace tools"
+        about = "Run a local stdio Model Context Protocol (MCP) server exposing check, diff, trend, guard, impact, trace, churn, and coupling tools"
     )]
     Mcp,
     #[command(
@@ -320,6 +347,79 @@ enum CommandArguments {
         )]
         format: GuardFormat,
     },
+    #[command(
+        about = "Rank eroded and duplicated files alongside their Git commit churn independently per Metric"
+    )]
+    Churn {
+        #[command(flatten)]
+        history: HistoryReportArguments,
+    },
+    #[command(
+        about = "Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports"
+    )]
+    Coupling {
+        #[command(flatten)]
+        history: HistoryReportArguments,
+        #[arg(
+            long = "max-commit-files",
+            value_name = "COUNT",
+            default_value_t = std::num::NonZeroUsize::new(DEFAULT_MAX_COMMIT_FILES).expect("non-zero default"),
+            help = "Exclude commits touching more than this many files from co-change pair accumulation"
+        )]
+        max_commit_files: std::num::NonZeroUsize,
+        #[arg(
+            long = "min-co-changes",
+            value_name = "COUNT",
+            default_value_t = std::num::NonZeroUsize::new(DEFAULT_MIN_CO_CHANGES).expect("non-zero default"),
+            help = "Report only pairs that changed together in at least this many commits"
+        )]
+        min_co_changes: std::num::NonZeroUsize,
+        #[arg(
+            long = "min-ratio",
+            value_name = "RATIO",
+            default_value_t = CouplingRatio::default(),
+            help = "Report only pairs whose coupling ratio is at least this value between 0 and 1"
+        )]
+        min_ratio: CouplingRatio,
+        #[arg(
+            long = "include-tests",
+            help = "Include Test Source set files alongside Production files"
+        )]
+        include_tests: bool,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+struct HistoryReportArguments {
+    #[arg(
+        long,
+        value_name = "WINDOW",
+        conflicts_with = "commits",
+        help = "Lookback window in days (such as 90d) or a UTC date (YYYY-MM-DD); defaults to 90d"
+    )]
+    since: Option<ChurnSince>,
+    #[arg(
+        long,
+        value_name = "COUNT",
+        conflicts_with = "since",
+        help = "Walk at most this many main-line commits from HEAD"
+    )]
+    commits: Option<std::num::NonZeroUsize>,
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Write the report to this file instead of standard output"
+    )]
+    output: Option<PathBuf>,
+    #[arg(long, help = "List every Finding instead of the 20 worst per Metric")]
+    all: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = ChurnFormat::Toon,
+        help = "The format of the report"
+    )]
+    format: ChurnFormat,
 }
 
 #[derive(Debug, clap::Args)]
@@ -351,6 +451,12 @@ struct ReportArguments {
         help = "The format of the report"
     )]
     format: ReportFormat,
+    #[arg(
+        long,
+        value_name = "OWNER",
+        help = "Include only Findings whose CODEOWNERS owner matches this pattern"
+    )]
+    owner: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -458,6 +564,15 @@ fn build_command(
         } => build_trend_command(current_folder, since, output.output, format),
         CommandArguments::Impact(args) => build_impact_command(current_folder, args),
         CommandArguments::Trace(args) => build_trace_command(current_folder, args),
+        other => build_auxiliary_command(current_folder, other),
+    }
+}
+
+fn build_auxiliary_command(
+    current_folder: &Path,
+    arguments: CommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
         CommandArguments::Init => Ok(Command::Init {
             folder: current_folder.to_path_buf(),
         }),
@@ -472,7 +587,72 @@ fn build_command(
             target: path,
             format,
         }),
+        CommandArguments::Churn { history } => build_churn_command(current_folder, history),
+        CommandArguments::Coupling {
+            history,
+            max_commit_files,
+            min_co_changes,
+            min_ratio,
+            include_tests,
+        } => build_coupling_command(
+            current_folder,
+            history,
+            max_commit_files.get(),
+            min_co_changes.get(),
+            min_ratio,
+            include_tests,
+        ),
+        _ => unreachable!("analysis commands are handled by build_command"),
     }
+}
+
+fn resolve_churn_window(
+    since: Option<ChurnSince>,
+    commits: Option<std::num::NonZeroUsize>,
+) -> ChurnWindow {
+    match (since, commits) {
+        (Some(since), None) => ChurnWindow::from(since),
+        (None, Some(count)) => ChurnWindow::Commits(count.get()),
+        _ => ChurnWindow::default(),
+    }
+}
+
+fn build_churn_command(
+    current_folder: &Path,
+    history: HistoryReportArguments,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Churn {
+        folder: current_folder.to_path_buf(),
+        window: resolve_churn_window(history.since, history.commits),
+        destination: report_destination(current_folder, history.output)?,
+        findings: findings_shown(history.all),
+        format: history.format,
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
+}
+
+fn build_coupling_command(
+    current_folder: &Path,
+    history: HistoryReportArguments,
+    max_commit_files: usize,
+    min_co_changes: usize,
+    min_ratio: CouplingRatio,
+    include_tests: bool,
+) -> Result<Command, ConfigError> {
+    Ok(Command::Coupling {
+        folder: current_folder.to_path_buf(),
+        settings: CouplingSettings {
+            window: resolve_churn_window(history.since, history.commits),
+            max_commit_files,
+            min_co_changes,
+            min_ratio,
+            include_tests,
+        },
+        destination: report_destination(current_folder, history.output)?,
+        findings: findings_shown(history.all),
+        format: history.format,
+        plugin_host: plugin_host_config_of_this_process(current_folder),
+    })
 }
 
 fn build_check_command(
@@ -486,6 +666,7 @@ fn build_check_command(
         findings: findings_shown(report.all),
         format: report.format,
         package: report.package,
+        owner: report.owner,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }
@@ -504,6 +685,7 @@ fn build_diff_command(
         findings: findings_shown(report.all),
         format: report.format,
         package: report.package,
+        owner: report.owner,
         result_cache: result_cache_folder_of_this_process(current_folder),
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
