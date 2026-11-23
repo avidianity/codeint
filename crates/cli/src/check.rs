@@ -275,20 +275,49 @@ impl LoadedPlugins {
     }
 }
 
+pub(crate) struct WorkspaceContext {
+    pub(crate) repository: Repository,
+    pub(crate) configuration: Configuration,
+    pub(crate) plugins: LoadedPlugins,
+}
+
+impl WorkspaceContext {
+    pub(crate) fn load(
+        folder: &Path,
+        plugin_host: &PluginHostConfig,
+    ) -> Result<WorkspaceContext, CheckError> {
+        let repository = Repository::discover(folder)?;
+        let configuration = read_configuration(repository.root())?;
+        let plugins = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+        Ok(WorkspaceContext {
+            repository,
+            configuration,
+            plugins,
+        })
+    }
+
+    pub(crate) fn measure_working_tree_model(&self) -> Result<CodeModel, CheckError> {
+        let plugins = self.plugins.as_named();
+        let tree = self.repository.working_tree()?;
+        let languages = measure_with(&tree, &plugins, &self.configuration)?;
+        Ok(CodeModel::merge(
+            languages.into_iter().map(|language| language.model),
+        ))
+    }
+}
+
 pub(crate) fn check(
     folder: &Path,
     findings: FindingsShown,
     package: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
-    let repository = Repository::discover(folder)?;
-    let configuration = read_configuration(repository.root())?;
-    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
-    let plugins = loaded.as_named();
-    let metric_plugins = loaded.metric_plugins();
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    let plugins = context.plugins.as_named();
+    let metric_plugins = context.plugins.metric_plugins();
     check_loaded(
-        &repository,
-        &configuration,
+        &context.repository,
+        &context.configuration,
         &plugins,
         &metric_plugins,
         findings,

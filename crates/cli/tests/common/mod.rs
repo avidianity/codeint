@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 pub(crate) fn init_git_repo(files: &[(&str, &str)]) -> TempDir {
@@ -61,4 +61,18 @@ pub(crate) fn send_mcp_requests(dir: &Path, requests: &[Value]) -> Vec<Value> {
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).unwrap())
         .collect()
+}
+
+pub(crate) fn mcp_payload(response: &Value) -> Value {
+    assert_eq!(response["result"]["isError"], false);
+    serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
+pub(crate) fn mcp_tool_call(id: u64, name: &str, arguments: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments }
+    })
 }

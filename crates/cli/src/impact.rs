@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
-use codeint_config::{PluginHostConfig, read_configuration};
+use codeint_config::PluginHostConfig;
 use codeint_git::Repository;
 use codeint_metrics::{ImpactAnalysis, ImpactError};
 use codeint_model::{CodeModel, RepoPath};
 use codeint_report::{ChangedBase, ImpactReport};
 
-use crate::check::{CheckError, LoadedPlugins, measure_with, select_workspace_package};
+use crate::check::{CheckError, WorkspaceContext, select_workspace_package};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ImpactCommandError {
@@ -38,47 +38,68 @@ pub(crate) fn impact(
     if request.paths.is_empty() && request.changed.is_none() {
         return Err(ImpactCommandError::MissingTargets);
     }
-    let repository = Repository::discover(folder).map_err(CheckError::Git)?;
-    let configuration = read_configuration(repository.root()).map_err(CheckError::Configuration)?;
-    let loaded = LoadedPlugins::load(repository.root(), &configuration, request.plugin_host)?;
-    let plugins = loaded.as_named();
-    let tree = repository.working_tree().map_err(CheckError::Git)?;
-    let languages = measure_with(&tree, &plugins, &configuration)?;
-    let model = CodeModel::merge(languages.into_iter().map(|language| language.model));
-    let selected_package = match request.package {
-        Some(requested) => Some(select_workspace_package(&model.workspace, requested)?),
-        None => None,
-    };
-
-    let mut target_paths = Vec::new();
-    for raw in request.paths {
-        target_paths.push(resolve_target_path(folder, repository.root(), raw)?);
-    }
-
-    let changed_base = if let Some(base_ref) = request.changed {
-        let changed = repository
-            .changed_files_since(base_ref)
-            .map_err(CheckError::Git)?;
-        let measured_paths: HashSet<&RepoPath> =
-            model.files.iter().map(|file| &file.path).collect();
-        for path in changed.files {
-            if measured_paths.contains(&path) {
-                target_paths.push(path);
-            }
-        }
-        Some(ChangedBase {
-            git_ref: base_ref.to_owned(),
-            merge_base: changed.merge_base.to_string(),
-        })
-    } else {
-        None
-    };
-
+    let context = WorkspaceContext::load(folder, request.plugin_host)?;
+    let model = context.measure_working_tree_model()?;
+    let selected_package = request
+        .package
+        .map(|requested| select_workspace_package(&model.workspace, requested))
+        .transpose()?;
+    let (target_paths, changed_base) = collect_targets(
+        folder,
+        &context.repository,
+        &model,
+        request.paths,
+        request.changed,
+    )?;
     let mut analysis = ImpactAnalysis::compute(&model, &target_paths, request.depth)?;
     if let Some(selected) = selected_package {
         analysis = analysis.scoped_to_package(selected.as_str());
     }
     Ok(ImpactReport::from_analysis(analysis, changed_base))
+}
+
+fn collect_targets(
+    folder: &Path,
+    repository: &Repository,
+    model: &CodeModel,
+    raw_paths: &[String],
+    changed_ref: Option<&str>,
+) -> Result<(Vec<RepoPath>, Option<ChangedBase>), ImpactCommandError> {
+    let mut target_paths = Vec::with_capacity(raw_paths.len());
+    for raw in raw_paths {
+        target_paths.push(resolve_target_path(folder, repository.root(), raw)?);
+    }
+    let changed_base = match changed_ref {
+        Some(base_ref) => Some(collect_changed_targets(
+            repository,
+            model,
+            base_ref,
+            &mut target_paths,
+        )?),
+        None => None,
+    };
+    Ok((target_paths, changed_base))
+}
+
+fn collect_changed_targets(
+    repository: &Repository,
+    model: &CodeModel,
+    base_ref: &str,
+    target_paths: &mut Vec<RepoPath>,
+) -> Result<ChangedBase, ImpactCommandError> {
+    let changed = repository
+        .changed_files_since(base_ref)
+        .map_err(CheckError::Git)?;
+    let measured_paths: HashSet<&RepoPath> = model.files.iter().map(|file| &file.path).collect();
+    for path in changed.files {
+        if measured_paths.contains(&path) {
+            target_paths.push(path);
+        }
+    }
+    Ok(ChangedBase {
+        git_ref: base_ref.to_owned(),
+        merge_base: changed.merge_base.to_string(),
+    })
 }
 
 fn resolve_target_path(

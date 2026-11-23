@@ -1,12 +1,11 @@
 use std::path::Path;
 
-use codeint_config::{PluginHostConfig, read_configuration};
-use codeint_git::Repository;
+use codeint_config::PluginHostConfig;
 use codeint_model::{CodeModel, RepoPath};
 use codeint_report::{TraceError, TraceReport};
 
 use crate::check::{
-    CheckError, LoadedPlugins, filter_model_to_package, measure_with, select_workspace_package,
+    CheckError, WorkspaceContext, filter_model_to_package, select_workspace_package,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -28,19 +27,14 @@ pub(crate) fn trace(
     package: Option<&str>,
     plugin_host: &PluginHostConfig,
 ) -> Result<TraceReport, TraceCommandError> {
-    let repository = Repository::discover(folder).map_err(CheckError::from)?;
-    let configuration = read_configuration(repository.root()).map_err(CheckError::from)?;
-    let loaded = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
-    let plugins = loaded.as_named();
-    let tree = repository.working_tree().map_err(CheckError::from)?;
-    let languages = measure_with(&tree, &plugins, &configuration)?;
-    let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    let mut model = context.measure_working_tree_model()?;
     if let Some(requested) = package {
         let selected = select_workspace_package(&model.workspace, requested)?;
         filter_model_to_package(&mut model, &selected);
     }
-    let from_path = resolve_model_path(from, folder, repository.root(), &model)?;
-    let to_path = resolve_model_path(to, folder, repository.root(), &model)?;
+    let from_path = resolve_model_path(from, folder, context.repository.root(), &model)?;
+    let to_path = resolve_model_path(to, folder, context.repository.root(), &model)?;
     Ok(TraceReport::trace(
         &model, &from_path, &to_path, all, max_paths,
     )?)

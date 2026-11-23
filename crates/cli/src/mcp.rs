@@ -239,8 +239,9 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
 }
 
 fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let Some(base_ref) = args.and_then(|a| a.get("base_ref")).and_then(Value::as_str) else {
-        return tool_err("Missing required argument: base_ref");
+    let base_ref = match required_str(args, "base_ref") {
+        Ok(value) => value,
+        Err(err) => return err,
     };
     let folder = resolve_folder(args, ctx.default_folder);
     let options = DiffOptions {
@@ -295,16 +296,9 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         result_cache: ctx.result_cache.clone(),
         plugin_host: ctx.plugin_host.clone(),
     };
-    match trend(&folder, &options) {
-        Ok(report) => match report.render(TrendFormat::Json) {
-            Ok(rendered) => {
-                let payload: Value = serde_json::from_str(&rendered).unwrap_or(Value::Null);
-                tool_ok(payload)
-            }
-            Err(err) => tool_err(&err.to_string()),
-        },
-        Err(err) => tool_err(&err.to_string()),
-    }
+    render_tool_result(trend(&folder, &options), |report| {
+        report.render(TrendFormat::Json)
+    })
 }
 
 fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
@@ -341,18 +335,19 @@ fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    match impact(&folder, &options) {
-        Ok(report) => render_json_report(report.render(ImpactFormat::Json)),
-        Err(err) => tool_err(&err.to_string()),
-    }
+    render_tool_result(impact(&folder, &options), |report| {
+        report.render(ImpactFormat::Json)
+    })
 }
 
 fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
-    let Some(from) = args.and_then(|a| a.get("from")).and_then(Value::as_str) else {
-        return tool_err("Missing required argument: from");
+    let from = match required_str(args, "from") {
+        Ok(value) => value,
+        Err(err) => return err,
     };
-    let Some(to) = args.and_then(|a| a.get("to")).and_then(Value::as_str) else {
-        return tool_err("Missing required argument: to");
+    let to = match required_str(args, "to") {
+        Ok(value) => value,
+        Err(err) => return err,
     };
     let folder = resolve_folder(args, ctx.default_folder);
     let all = args
@@ -372,10 +367,25 @@ fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Value {
         package: parse_package(args),
         plugin_host: ctx.plugin_host.clone(),
     };
-    match trace(&folder, from, to, &options) {
-        Ok(report) => render_json_report(report.render(TraceFormat::Json)),
+    render_tool_result(trace(&folder, from, to, &options), |report| {
+        report.render(TraceFormat::Json)
+    })
+}
+
+fn render_tool_result<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    render: impl FnOnce(T) -> Result<String, codeint_report::ReportError>,
+) -> Value {
+    match result {
+        Ok(report) => render_json_report(render(report)),
         Err(err) => tool_err(&err.to_string()),
     }
+}
+
+fn required_str<'a>(args: Option<&'a Value>, key: &str) -> Result<&'a str, Value> {
+    args.and_then(|a| a.get(key))
+        .and_then(Value::as_str)
+        .ok_or_else(|| tool_err(&format!("Missing required argument: {key}")))
 }
 
 fn parse_package(args: Option<&Value>) -> Option<String> {

@@ -29,27 +29,14 @@ pub use codeint_config::{
 };
 pub use codeint_report::{DiffReport, ImpactReport, Report, TraceReport, TrendReport};
 
-const DEFAULT_WORST_FINDINGS: usize = 20;
-const DEFAULT_TREND_COMMITS: usize = 20;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CheckOptions {
     pub findings: FindingsShown,
     pub package: Option<String>,
     pub plugin_host: PluginHostConfig,
 }
 
-impl Default for CheckOptions {
-    fn default() -> CheckOptions {
-        CheckOptions {
-            findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
-            package: None,
-            plugin_host: PluginHostConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DiffOptions {
     pub head_ref: Option<String>,
     pub findings: FindingsShown,
@@ -58,33 +45,11 @@ pub struct DiffOptions {
     pub plugin_host: PluginHostConfig,
 }
 
-impl Default for DiffOptions {
-    fn default() -> DiffOptions {
-        DiffOptions {
-            head_ref: None,
-            findings: FindingsShown::WorstPerMetric(DEFAULT_WORST_FINDINGS),
-            package: None,
-            result_cache: None,
-            plugin_host: PluginHostConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TrendOptions {
     pub range: TrendRange,
     pub result_cache: Option<PathBuf>,
     pub plugin_host: PluginHostConfig,
-}
-
-impl Default for TrendOptions {
-    fn default() -> TrendOptions {
-        TrendOptions {
-            range: TrendRange::Latest(DEFAULT_TREND_COMMITS),
-            result_cache: None,
-            plugin_host: PluginHostConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

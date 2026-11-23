@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use codeint_config::{FindingsShown, PluginHostConfig, read_configuration};
+use codeint_config::{FindingsShown, PluginHostConfig};
 use codeint_git::{CommitId, GitError, Repository, ResultCache};
-use codeint_report::{BaseCommit, DiffReport, Head, HeadCommit};
+use codeint_report::{BaseCommit, CommitMeasurement, DiffReport, Head, HeadCommit};
 
-use crate::check::{CheckError, LoadedPlugins};
+use crate::check::{CheckError, SelectedPackage, WorkspaceContext};
 use crate::commit_measurement::{CommitMeasurer, measure_all_languages_for_package};
 
 pub(crate) struct Refs<'a> {
@@ -26,40 +26,17 @@ pub(crate) fn diff(
     result_cache: Option<&ResultCache>,
     plugin_host: &PluginHostConfig,
 ) -> Result<DiffReport, CheckError> {
-    let repository = Repository::discover(folder)?;
-    let configuration = read_configuration(repository.root())?;
-    let plugins = LoadedPlugins::load(repository.root(), &configuration, plugin_host)?;
+    let context = WorkspaceContext::load(folder, plugin_host)?;
     let Sides {
         merge_base,
         head,
         head_commit,
-    } = sides(&repository, &refs)?;
-    let (selected, head_measurement) = match head_commit {
-        Some(commit) => {
-            if let Some(requested) = package {
-                measure_all_languages_for_package(
-                    &repository.commit(commit)?,
-                    &plugins,
-                    &configuration,
-                    Some(requested),
-                )?
-            } else {
-                let measurer =
-                    CommitMeasurer::new(&repository, &configuration, &plugins, result_cache);
-                (None, measurer.measure(commit)?)
-            }
-        }
-        None => measure_all_languages_for_package(
-            &repository.working_tree()?,
-            &plugins,
-            &configuration,
-            package,
-        )?,
-    };
+    } = sides(&context.repository, &refs)?;
+    let (selected, head_measurement) = measure_head(&context, head_commit, package, result_cache)?;
     let base_measurer = CommitMeasurer::for_package(
-        &repository,
-        &configuration,
-        &plugins,
+        &context.repository,
+        &context.configuration,
+        &context.plugins,
         result_cache,
         selected.as_ref().map(|pkg| pkg.as_str()),
     );
@@ -73,9 +50,41 @@ pub(crate) fn diff(
         base_measurement,
         head_measurement,
         findings,
-        &configuration.budgets,
-        &configuration.regression_limits,
+        &context.configuration.budgets,
+        &context.configuration.regression_limits,
     ))
+}
+
+fn measure_head(
+    context: &WorkspaceContext,
+    head_commit: Option<CommitId>,
+    package: Option<&str>,
+    result_cache: Option<&ResultCache>,
+) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
+    let Some(commit) = head_commit else {
+        return measure_all_languages_for_package(
+            &context.repository.working_tree()?,
+            &context.plugins,
+            &context.configuration,
+            package,
+        );
+    };
+    if let Some(requested) = package {
+        measure_all_languages_for_package(
+            &context.repository.commit(commit)?,
+            &context.plugins,
+            &context.configuration,
+            Some(requested),
+        )
+    } else {
+        let measurer = CommitMeasurer::new(
+            &context.repository,
+            &context.configuration,
+            &context.plugins,
+            result_cache,
+        );
+        Ok((None, measurer.measure(commit)?))
+    }
 }
 
 fn sides(repository: &Repository, refs: &Refs<'_>) -> Result<Sides, GitError> {

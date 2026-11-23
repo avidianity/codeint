@@ -116,11 +116,7 @@ impl ImpactReport {
     }
 
     pub fn render(&self, format: ImpactFormat) -> Result<String, ReportError> {
-        match format {
-            ImpactFormat::Toon => toon_format::encode_default(self).map_err(ReportError::Toon),
-            ImpactFormat::Json => serde_json::to_string_pretty(self).map_err(ReportError::Json),
-            ImpactFormat::Text => Ok(render_text(self)),
-        }
+        crate::render_text_report(self, format.into(), render_text)
     }
 }
 

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use common::{init_git_repo, send_mcp_requests};
+use common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -32,9 +32,21 @@ fn run_json(dir: &Path, args: &[&str], expected_code: i32) -> Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-fn mcp_payload(response: &Value) -> Value {
-    assert_eq!(response["result"]["isError"], false);
-    serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+fn assert_unknown_package_error(dir: &Path, args: &[&str], expected_packages: &[&str]) {
+    let output = run_codeint(dir, args);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit 2 for {args:?}, got {:?}",
+        output.status.code()
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in expected_packages {
+        assert!(
+            stderr.contains(expected),
+            "stderr missing {expected} for {args:?}: {stderr}"
+        );
+    }
 }
 
 fn eroded_function(name: &str) -> String {
@@ -230,24 +242,16 @@ fn unknown_package_exits_2_and_lists_discovered_workspace_packages() {
     ];
 
     for args in invocations {
-        let output = run_codeint(repo.path(), args);
-        assert_eq!(
-            output.status.code(),
-            Some(2),
-            "expected exit 2 for {args:?}, got {:?}",
-            output.status.code()
+        assert_unknown_package_error(
+            repo.path(),
+            args,
+            &[
+                "packages/missing",
+                "packages/api",
+                "packages/core",
+                "packages/web",
+            ],
         );
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("packages/missing"),
-            "stderr missing requested package for {args:?}: {stderr}"
-        );
-        for expected in ["packages/api", "packages/core", "packages/web"] {
-            assert!(
-                stderr.contains(expected),
-                "stderr missing discovered package {expected} for {args:?}: {stderr}"
-            );
-        }
     }
 }
 
@@ -296,11 +300,11 @@ fn rust_cargo_workspace_supports_package_filter() {
         "crates/beta/src/lib.rs"
     );
 
-    let unknown_rust = run_codeint(repo.path(), &["check", "--package", "crates/gamma"]);
-    assert_eq!(unknown_rust.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&unknown_rust.stderr);
-    assert!(stderr.contains("crates/alpha"));
-    assert!(stderr.contains("crates/beta"));
+    assert_unknown_package_error(
+        repo.path(),
+        &["check", "--package", "crates/gamma"],
+        &["crates/alpha", "crates/beta"],
+    );
 }
 
 #[test]
@@ -311,11 +315,23 @@ fn mcp_tools_support_package_filter() {
         repo.path(),
         &[
             json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}),
-            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "check", "arguments": {"package": "packages/api"}}}),
-            json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "diff", "arguments": {"base_ref": "main", "package": "packages/api"}}}),
-            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "trace", "arguments": {"from": "packages/api/src/index.ts", "to": "packages/api/src/helper.ts", "package": "packages/api"}}}),
-            json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "impact", "arguments": {"paths": ["packages/core/src/index.ts"], "package": "packages/web"}}}),
-            json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "check", "arguments": {"package": "packages/missing"}}}),
+            mcp_tool_call(2, "check", json!({"package": "packages/api"})),
+            mcp_tool_call(
+                3,
+                "diff",
+                json!({"base_ref": "main", "package": "packages/api"}),
+            ),
+            mcp_tool_call(
+                4,
+                "trace",
+                json!({"from": "packages/api/src/index.ts", "to": "packages/api/src/helper.ts", "package": "packages/api"}),
+            ),
+            mcp_tool_call(
+                5,
+                "impact",
+                json!({"paths": ["packages/core/src/index.ts"], "package": "packages/web"}),
+            ),
+            mcp_tool_call(6, "check", json!({"package": "packages/missing"})),
         ],
     );
 

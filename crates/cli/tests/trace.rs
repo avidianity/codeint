@@ -3,15 +3,36 @@ mod common;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use common::{init_git_repo, send_mcp_requests};
+use common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
 use serde_json::{Value, json};
 
-fn run_codeint(dir: &Path, args: &[&str]) -> Output {
+fn run_trace(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .arg("trace")
         .args(args)
         .current_dir(dir)
         .output()
         .unwrap()
+}
+
+fn trace_json(dir: &Path, args: &[&str]) -> Value {
+    let mut full = args.to_vec();
+    full.extend(["--format", "json"]);
+    let output = run_trace(dir, &full);
+    assert!(
+        output.status.success(),
+        "trace {full:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn trace_text(dir: &Path, args: &[&str]) -> String {
+    let mut full = args.to_vec();
+    full.extend(["--format", "text"]);
+    let output = run_trace(dir, &full);
+    assert_eq!(output.status.code(), Some(0));
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
 #[test]
@@ -36,16 +57,7 @@ fn trace_finds_shortest_runtime_import_path_in_cli_json_text_and_toon() {
         ("src/target.ts", "export const target = 42;\n"),
     ]);
 
-    let json_output = run_codeint(
-        repo.path(),
-        &["trace", "src/a.ts", "src/target.ts", "--format", "json"],
-    );
-    assert!(
-        json_output.status.success(),
-        "trace json failed: {}",
-        String::from_utf8_lossy(&json_output.stderr)
-    );
-    let parsed: Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    let parsed = trace_json(repo.path(), &["src/a.ts", "src/target.ts"]);
     assert_eq!(parsed["from"], "src/a.ts");
     assert_eq!(parsed["to"], "src/target.ts");
     assert_eq!(parsed["connected"], true);
@@ -56,15 +68,12 @@ fn trace_finds_shortest_runtime_import_path_in_cli_json_text_and_toon() {
         json!([["src/a.ts", "src/d.ts", "src/target.ts"]])
     );
 
-    let text_output = run_codeint(
-        repo.path(),
-        &["trace", "src/a.ts", "src/target.ts", "--format", "text"],
+    assert_eq!(
+        trace_text(repo.path(), &["src/a.ts", "src/target.ts"]),
+        "src/a.ts -> src/d.ts -> src/target.ts"
     );
-    assert!(text_output.status.success());
-    let text = String::from_utf8(text_output.stdout).unwrap();
-    assert_eq!(text.trim(), "src/a.ts -> src/d.ts -> src/target.ts");
 
-    let toon_output = run_codeint(repo.path(), &["trace", "src/a.ts", "src/target.ts"]);
+    let toon_output = run_trace(repo.path(), &["src/a.ts", "src/target.ts"]);
     assert!(toon_output.status.success());
     let toon = String::from_utf8(toon_output.stdout).unwrap();
     assert!(toon.contains("from: src/a.ts"), "toon output: {toon}");
@@ -94,19 +103,7 @@ fn trace_all_returns_multiple_shortest_paths_deterministically_with_cap() {
         ("src/leaf.ts", "export const leaf = 1;\n"),
     ]);
 
-    let all_output = run_codeint(
-        repo.path(),
-        &[
-            "trace",
-            "src/entry.ts",
-            "src/leaf.ts",
-            "--all",
-            "--format",
-            "json",
-        ],
-    );
-    assert!(all_output.status.success());
-    let parsed: Value = serde_json::from_slice(&all_output.stdout).unwrap();
+    let parsed = trace_json(repo.path(), &["src/entry.ts", "src/leaf.ts", "--all"]);
     assert_eq!(parsed["shortest_distance"], 2);
     assert_eq!(parsed["truncated"], false);
     assert_eq!(
@@ -118,21 +115,10 @@ fn trace_all_returns_multiple_shortest_paths_deterministically_with_cap() {
         ])
     );
 
-    let capped_output = run_codeint(
+    let capped = trace_json(
         repo.path(),
-        &[
-            "trace",
-            "src/entry.ts",
-            "src/leaf.ts",
-            "--all",
-            "--max-paths",
-            "2",
-            "--format",
-            "json",
-        ],
+        &["src/entry.ts", "src/leaf.ts", "--all", "--max-paths", "2"],
     );
-    assert!(capped_output.status.success());
-    let capped: Value = serde_json::from_slice(&capped_output.stdout).unwrap();
     assert_eq!(capped["truncated"], true);
     assert_eq!(
         capped["paths"],
@@ -161,12 +147,7 @@ fn trace_handles_cycles_disconnected_modules_and_missing_paths() {
         ("src/isolated.ts", "export const isolated = 0;\n"),
     ]);
 
-    let cyclic_output = run_codeint(
-        repo.path(),
-        &["trace", "src/a.ts", "src/c.ts", "--all", "--format", "json"],
-    );
-    assert!(cyclic_output.status.success());
-    let cyclic: Value = serde_json::from_slice(&cyclic_output.stdout).unwrap();
+    let cyclic = trace_json(repo.path(), &["src/a.ts", "src/c.ts", "--all"]);
     assert_eq!(cyclic["connected"], true);
     assert_eq!(cyclic["shortest_distance"], 2);
     assert_eq!(
@@ -174,28 +155,18 @@ fn trace_handles_cycles_disconnected_modules_and_missing_paths() {
         json!([["src/a.ts", "src/b.ts", "src/c.ts"]])
     );
 
-    let disconnected_output = run_codeint(
-        repo.path(),
-        &["trace", "src/a.ts", "src/isolated.ts", "--format", "json"],
-    );
-    assert_eq!(disconnected_output.status.code(), Some(0));
-    let disconnected: Value = serde_json::from_slice(&disconnected_output.stdout).unwrap();
+    let disconnected = trace_json(repo.path(), &["src/a.ts", "src/isolated.ts"]);
     assert_eq!(disconnected["connected"], false);
     assert_eq!(disconnected["shortest_distance"], Value::Null);
     assert_eq!(disconnected["paths"], json!([]));
     assert_eq!(disconnected["truncated"], false);
 
-    let disconnected_text = run_codeint(
-        repo.path(),
-        &["trace", "src/a.ts", "src/isolated.ts", "--format", "text"],
-    );
-    assert_eq!(disconnected_text.status.code(), Some(0));
     assert_eq!(
-        String::from_utf8(disconnected_text.stdout).unwrap().trim(),
+        trace_text(repo.path(), &["src/a.ts", "src/isolated.ts"]),
         "No runtime import path from src/a.ts to src/isolated.ts"
     );
 
-    let missing_output = run_codeint(repo.path(), &["trace", "src/a.ts", "src/does-not-exist.ts"]);
+    let missing_output = run_trace(repo.path(), &["src/a.ts", "src/does-not-exist.ts"]);
     assert_eq!(missing_output.status.code(), Some(2));
     let stderr = String::from_utf8(missing_output.stderr).unwrap();
     assert!(
@@ -224,9 +195,17 @@ fn mcp_trace_tool_returns_paths_and_errors_cleanly() {
         &[
             json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}),
             json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
-            json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "trace", "arguments": {"from": "src/a.ts", "to": "src/c.ts"}}}),
-            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "trace", "arguments": {"from": "src/a.ts", "to": "src/other.ts"}}}),
-            json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "trace", "arguments": {"from": "src/a.ts", "to": "src/missing.ts"}}}),
+            mcp_tool_call(3, "trace", json!({"from": "src/a.ts", "to": "src/c.ts"})),
+            mcp_tool_call(
+                4,
+                "trace",
+                json!({"from": "src/a.ts", "to": "src/other.ts"}),
+            ),
+            mcp_tool_call(
+                5,
+                "trace",
+                json!({"from": "src/a.ts", "to": "src/missing.ts"}),
+            ),
         ],
     );
 
@@ -237,13 +216,7 @@ fn mcp_trace_tool_returns_paths_and_errors_cleanly() {
         "expected trace tool in tools/list: {tools:?}"
     );
 
-    assert_eq!(responses[2]["result"]["isError"], false);
-    let found: Value = serde_json::from_str(
-        responses[2]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let found = mcp_payload(&responses[2]);
     assert_eq!(found["connected"], true);
     assert_eq!(found["shortest_distance"], 2);
     assert_eq!(
@@ -251,13 +224,7 @@ fn mcp_trace_tool_returns_paths_and_errors_cleanly() {
         json!([["src/a.ts", "src/b.ts", "src/c.ts"]])
     );
 
-    assert_eq!(responses[3]["result"]["isError"], false);
-    let disconnected: Value = serde_json::from_str(
-        responses[3]["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let disconnected = mcp_payload(&responses[3]);
     assert_eq!(disconnected["connected"], false);
     assert_eq!(disconnected["paths"], json!([]));
 
@@ -291,38 +258,21 @@ fn trace_works_across_source_sets_and_python_and_rejects_zero_max_paths() {
         ("py/__init__.py", ""),
     ]);
 
-    let cross_set = run_codeint(
-        repo.path(),
-        &[
-            "trace",
-            "src/app.test.ts",
-            "src/core.ts",
-            "--format",
-            "json",
-        ],
-    );
-    assert!(cross_set.status.success());
-    let parsed: Value = serde_json::from_slice(&cross_set.stdout).unwrap();
+    let parsed = trace_json(repo.path(), &["src/app.test.ts", "src/core.ts"]);
     assert_eq!(parsed["connected"], true);
     assert_eq!(
         parsed["paths"],
         json!([["src/app.test.ts", "src/helper.ts", "src/core.ts"]])
     );
 
-    let py_trace = run_codeint(
-        repo.path(),
-        &["trace", "py/main.py", "py/util.py", "--format", "text"],
-    );
-    assert!(py_trace.status.success());
     assert_eq!(
-        String::from_utf8(py_trace.stdout).unwrap().trim(),
+        trace_text(repo.path(), &["py/main.py", "py/util.py"]),
         "py/main.py -> py/util.py"
     );
 
-    let zero_cap = run_codeint(
+    let zero_cap = run_trace(
         repo.path(),
         &[
-            "trace",
             "src/app.test.ts",
             "src/core.ts",
             "--all",
