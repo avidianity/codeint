@@ -155,7 +155,7 @@ fn parse_receiver(inner: &[GoToken]) -> (Option<String>, Option<String>) {
     if inner.first().is_some_and(|t| t.kind == GoKind::Ident)
         && inner
             .get(1)
-            .is_some_and(|t| t.text == "*" || t.kind == GoKind::Ident)
+            .is_some_and(|t| matches!(t.text.as_str(), "*" | "(") || t.kind == GoKind::Ident)
     {
         if inner[0].text != "_" {
             var_name = Some(inner[0].text.clone());
@@ -175,19 +175,24 @@ fn parse_receiver(inner: &[GoToken]) -> (Option<String>, Option<String>) {
     (var_name, recv_type)
 }
 
+fn is_func_literal_start(tokens: &[GoToken], func_idx: usize, limit: usize) -> bool {
+    let is_func = tokens.get(func_idx).is_some_and(|t| t.is_kw("func"));
+    let follows_bracket = func_idx > 0 && tokens[func_idx - 1].text == "]";
+    let has_open_paren = tokens
+        .get(func_idx + 1)
+        .is_some_and(|t| func_idx + 1 < limit && t.text == "(");
+    is_func && !follows_bracket && has_open_paren
+}
+
 pub(crate) fn parse_func_literal_header(
     tokens: &[GoToken],
     func_idx: usize,
     limit: usize,
 ) -> Option<FuncLiteralHeader> {
-    if !tokens.get(func_idx).is_some_and(|t| t.is_kw("func")) {
+    if !is_func_literal_start(tokens, func_idx, limit) {
         return None;
     }
-    let open_paren = func_idx + 1;
-    if open_paren >= limit || tokens[open_paren].text != "(" {
-        return None;
-    }
-    let close_paren = matching_within(tokens, open_paren, limit)?;
+    let close_paren = matching_within(tokens, func_idx + 1, limit)?;
     let (body_open, has_results, has_named_results) =
         parse_result_clause(tokens, close_paren + 1, limit)?;
     if body_open >= limit || tokens[body_open].text != "{" {

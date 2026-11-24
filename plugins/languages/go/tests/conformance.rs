@@ -688,3 +688,89 @@ replace (
         ]
     );
 }
+
+#[test]
+fn go_handles_escaped_utf8_go_mod_parenthesized_receivers_func_type_slices_and_mixed_replaces() {
+    let utf8_mod = vec![Manifest {
+        path: "go.mod".into(),
+        text: "module \"foo\\é\"\n".into(),
+    }];
+    assert!(Go.workspace_packages(utf8_mod).is_ok());
+
+    let src = "\
+package p
+
+type Widget struct{}
+
+func (w (*Widget)) ParenPtr(x int) int { return x }
+func (w (Widget)) ParenVal(x int) int { return x }
+
+func Direct(a, b, c, d bool) func() int {
+	return func() int {
+		if a {
+			if b {
+				if c {
+					if d {
+						return 1
+					}
+				}
+			}
+		}
+		return 0
+	}
+}
+
+func SliceOfFuncs(a, b, c, d bool) []func() int {
+	return []func() int{
+		func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return 1
+						}
+					}
+				}
+			}
+			return 0
+		},
+	}
+}
+";
+    let model = Go.lower(&RepoPath::new("p.go").unwrap(), src).unwrap();
+    let names: Vec<Option<&str>> = model.functions.iter().map(|f| f.name.as_deref()).collect();
+    assert_eq!(
+        names,
+        [
+            Some("Widget.ParenPtr"),
+            Some("Widget.ParenVal"),
+            Some("Direct"),
+            Some("SliceOfFuncs"),
+        ]
+    );
+    assert_eq!(
+        model.functions[2].cognitive_complexity,
+        model.functions[3].cognitive_complexity
+    );
+
+    let manifests = vec![Manifest {
+        path: "go.mod".into(),
+        text: "module example.org/app\n\nrequire example.org/lib v1.0.0\n\nreplace (\n\texample.org/lib => ./local/lib\n\texample.org/lib v1.0.0 => example.org/fork v1.0.1\n)\n".into(),
+    }];
+    let repo: Vec<RepoPath> = ["go.mod", "main.go", "local/lib/lib.go"]
+        .into_iter()
+        .map(|p| RepoPath::new(p).unwrap())
+        .collect();
+    let resolved = Go
+        .resolve_imports(
+            &repo,
+            manifests.clone(),
+            make_requests(&[("main.go", "example.org/lib")]),
+        )
+        .unwrap();
+    assert_eq!(
+        resolved,
+        vec![Resolution::Resolved(vec!["local/lib/lib.go".into()])]
+    );
+    assert!(Go.declared_dependencies(manifests).unwrap().is_empty());
+}

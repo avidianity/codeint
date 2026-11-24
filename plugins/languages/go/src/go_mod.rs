@@ -366,11 +366,11 @@ fn read_go_mod_string(
     while idx < bytes.len() {
         let b = bytes[idx];
         if quote == b'"' && b == b'\\' {
-            if idx + 1 >= bytes.len() {
+            let Some(escaped) = raw[idx + 1..].chars().next() else {
                 break;
-            }
-            out.push(bytes[idx + 1] as char);
-            idx += 2;
+            };
+            out.push(escaped);
+            idx += 1 + escaped.len_utf8();
             continue;
         }
         if b == quote {

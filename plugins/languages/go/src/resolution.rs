@@ -146,17 +146,20 @@ fn resolve_via_replace(
     importer: &str,
     spec: &str,
 ) -> Option<Resolution> {
-    let (rep, subpkg) = owner
+    let (_rep, subpkg, target, local_dir) = owner
         .go_mod
         .replaces
         .iter()
-        .filter_map(|rep| strip_module_prefix(spec, &rep.old_path).map(|sub| (rep, sub)))
-        .max_by_key(|(rep, _)| rep.old_path.len())?;
-    let target = rep.new_local_path.as_deref()?;
-    if target.starts_with('/') {
-        return None;
-    }
-    let local_dir = normalize_relative_path(&owner.dir, target)?;
+        .filter_map(|rep| {
+            let subpkg = strip_module_prefix(spec, &rep.old_path)?;
+            let target = rep.new_local_path.as_deref()?;
+            if target.starts_with('/') {
+                return None;
+            }
+            let local_dir = normalize_relative_path(&owner.dir, target)?;
+            Some((rep, subpkg, target, local_dir))
+        })
+        .max_by_key(|(rep, _, _, _)| rep.old_path.len())?;
     let target_folder = join_dir(&local_dir, subpkg);
     if let Some(targets) = package_targets(pkg_files, &target_folder, importer) {
         return Some(Resolution::Resolved(targets));
