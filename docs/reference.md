@@ -141,6 +141,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
 | `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
+| `--coverage-report <FILE>` | Path to an LCOV or Cobertura XML Coverage report; may repeat; when present, replaces `coverage_reports` from `codeint.json`; see [Test gap](#test-gap) |
 | `-h, --help` | Print the help of `codeint check` |
 
 `codeint check` measures the working tree, including uncommitted and untracked files, and prints the report:
@@ -211,6 +212,8 @@ declaration_only[1]: src/types.d.ts
 codeint measures the files that Git does not ignore.
 It does not follow symbolic links, does not measure Git submodules, and skips files that are not valid UTF-8.
 It lists each file it cannot parse under `skipped`, and each file that holds only type declarations under `declaration_only`.
+When `--coverage-report` or `coverage_reports` names one or more Coverage reports, `codeint check` reports Test gap (`test_gap`) for the Production Source set, per language, and per Workspace package, with Findings ordered heaviest untested Function mass first, and prints one note naming any unmatched report paths.
+When no Coverage report is named, or when no report covers a language, Test gap is absent (never `0` or `1`) and the report states why in one line; see [Test gap](#test-gap).
 
 These commands measure the same repository with other options:
 
@@ -314,6 +317,7 @@ Commits added to the base branch after your branch started are not part of the c
 
 Both sides use the `codeint.json` of the working tree, so the comparison shows changes in the code, not in the configuration.
 Both sides follow the same file rules as `codeint check`.
+`codeint diff` computes Test gap for neither side; when a Coverage report is named, it prints one line stating that Test gap is left out because a Coverage report exists only for the code under measurement.
 
 The report classifies each Finding by its `id`: new when only the head side has it, resolved when only the merge-base has it, and unchanged when both have it.
 For each Metric of each Source set, it shows the ratio on both sides, the new and the resolved Findings, worst first, and the number of unchanged Findings.
@@ -494,6 +498,7 @@ codeint trend --format json --output trend.json
 
 A trend lists no Findings, so it has no SARIF format; run `codeint diff` for the Findings of a change.
 A trend applies no Budget and no Regression limit, and exits with code 0 when it measures every commit.
+`codeint trend` computes Test gap for no commit; when a Coverage report is named, it prints one line stating that Test gap is left out because a Coverage report exists only for the code under measurement.
 A day that is not a real day stops the run with exit code 2:
 
 ```sh exit=2
@@ -617,6 +622,7 @@ codeint 0.6.0 is already up to date (v0.6.0)
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
 It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
+The `check` MCP tool uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
@@ -845,6 +851,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
 | `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
 | `budgets.{source_set}.orphan_files` | number from 0 to 1 | The highest Orphan files ratio in this Source set |
+| `budgets.production.test_gap` | number from 0 to 1 | The highest Test gap ratio in the Production Source set; setting `test_gap` under any other Source set stops the run with exit code 2 |
 | `budgets.{dependency_metric}` | number from 0 to 1 | The highest ratio of this Dependency hygiene Metric across workspace packages |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
@@ -898,6 +905,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `duplication.near_clones` | boolean | When `true`, detect near-duplicate code blocks using shingle similarity in addition to exact Clone groups; `false` by default |
 | `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
 | `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection; empty by default |
+| `coverage_reports` | list of strings | Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap; empty by default; see [Test gap](#test-gap) |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -957,6 +965,8 @@ A Budget applies only to its own Source set, and a Metric without a Budget never
 A Budget applies to the total of every language, never to the section of one Language plugin under `languages`.
 For Import cycles, Orphan files, Import boundaries, and Dependency hygiene, repository totals and Budgets count only languages with imports.
 When no measured language has imports, those repository totals are absent and Budgets on them do not fail.
+`budgets.production.test_gap` applies to the Production Source set only; setting `test_gap` under `budgets.test`, `budgets.generated`, or `budgets.vendored` stops the run with exit code 2 and names the key.
+When `budgets.production.test_gap` is set and Test gap is absent (no Coverage report applies), codeint stops the run with exit code 2 and reports that the Budget needs a Coverage report; with no Test gap Budget, an absent Test gap changes no exit code.
 codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
 
 ```json codeint.json
@@ -1008,6 +1018,7 @@ Each limit has two settings, and you may set either one or both:
 
 codeint settles each setting on its own: the Source set limit wins, then the Metric limit, then the default.
 So the example above gives production Erosion a ratio rise limit of 0.02 and fails it on any new Finding.
+Setting `test_gap` under `regression_limits` (at the top level or under any Source set) stops the run with exit code 2 and names the key, because `codeint diff` leaves Test gap out.
 
 An invalid limit stops the run with exit code 2 and names the key:
 
@@ -1276,12 +1287,69 @@ In `codeint diff`, each Orphan files Finding carries a stable `id` so pre-existi
 codeint check
 ```
 
+### Test gap
+
+**Test gap** (`test_gap`, a reserved built-in Metric key) is the share of total Production Function mass that tests do not execute.
+codeint never runs tests and never guesses where a Coverage report is.
+Name one or more Coverage reports in `coverage_reports` (paths relative to the repository root) or with the repeatable `--coverage-report <FILE>` option on `codeint check`.
+When `--coverage-report` is present on the command line, `coverage_reports` from `codeint.json` is not used for that run.
+See [docs/guide/test-gap.md](./guide/test-gap.md) for copy-paste setup commands for each supported test tool.
+
+Test gap computes from the Code model alone after codeint fills per-function coverage facts from the named reports:
+
+- For each Production function, `untested_share` is its listed lines with hit count `0` divided by all its listed lines.
+  Lines that no report lists count on neither side.
+- Test gap is the sum over Production functions of `Function mass * untested_share`, divided by the total Function mass of those functions.
+- A function whose file appears in no named report, in a language that at least one named report covers, counts as fully untested (`untested_share = 1`).
+- A function whose file appears in a report, but of which the report lists no line, is left out of Test gap on both sides.
+- When several Coverage reports (or several Cobertura `<class>` entries for one file) list the same line, the line counts as executed when any of them has a hit count above `0`.
+- Test gap covers the Production Source set only (repository total, each covered language, and each Workspace package) and never appears for Test, Generated, or Vendored files.
+- Test gap has no Reference range, and no Language plugin publishes one.
+- With no Coverage report named, or for a language covered by no named report, Test gap is absent (never `0` or `1`) and the report states why in one line.
+
+codeint detects the format of each named file from its content, so the file name does not matter, and one run may mix LCOV and Cobertura XML reports:
+
+- **LCOV**: reads `SF`, `DA`, and `end_of_record`; ignores `TN`, `FN`, `FNDA`, `FNF`, `FNH`, `BRDA`, `BRF`, `BRH`, `LF`, and `LH`; stops with exit code 2 on any other record, naming the file and line.
+- **Cobertura XML**: reads XML documents whose root element is `<coverage>`, reading `<source>` roots, `<class filename="...">`, and `<line number="..." hits="...">`, while ignoring branch facts, rates, and `<methods>`.
+- Any file that does not exist, cannot be read, contains invalid UTF-8, has broken XML, or is neither LCOV nor Cobertura XML stops the run with exit code 2 and names the file (listing both LCOV and Cobertura XML when the format is not recognized).
+
+Coverage reports are untrusted input and enforce these bounds:
+
+- Maximum report size: `64` MiB (`67,108,864` bytes).
+- Maximum Cobertura XML element nesting depth: `64`.
+- Cobertura XML rejects `DOCTYPE` declarations, `ENTITY` declarations, custom or external entities (only predefined XML entities and character references are allowed), and processing instructions other than the XML declaration, so a report can never read other files or make network requests.
+- Report paths and Cobertura `<source>` roots never resolve to files outside the repository.
+
+Path matching and stale-report checks apply identically to LCOV and Cobertura XML:
+
+- For Cobertura XML, each `<source>` root is tried as a prefix of each `filename` before matching.
+- codeint matches each report path to a repository file by the longest matching ending, handling absolute paths, repository-relative paths, and package-relative paths.
+- Every report path that matches no repository file, or matches several files equally well, is named in one unmatched-path note in the report; with no unmatched path, the note is omitted.
+- A report line beyond the end of its matched file stops the run with exit code 2, naming the report, the file, and the line; a line equal to the file's line count is accepted.
+
+```json codeint.json
+{
+  "coverage_reports": ["coverage/lcov.info", "api/coverage.xml"],
+  "budgets": {
+    "production": {
+      "test_gap": 0.25
+    }
+  }
+}
+```
+
+Pass reports on the command line to override `coverage_reports` for a single run:
+
+```text illustration
+codeint check --coverage-report coverage/lcov.info --coverage-report api/coverage.xml
+```
+
 ## Result cache
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
 That covers the merge-base, the head ref of `--head`, and each commit of `codeint trend`.
-An entry belongs to one commit and to the settings that shape a measurement: the codeint version, each Language plugin and its version, and the effective `codeint.json`.
-Any change to `codeint.json` other than its `$schema` address measures the commit again.
+An entry belongs to one commit and to the settings that shape a measurement: the codeint version, each Language plugin and its version, the effective `codeint.json`, and (when Coverage reports are named) the list and content of those Coverage reports.
+Any change to `codeint.json` other than its `$schema` address, or any change to the named Coverage reports, measures again instead of serving a stale cached result.
 The working tree is never cached, because it has no commit.
 
 The cache lives in the `codeint` folder of your user cache folder:
@@ -1439,6 +1507,8 @@ The top-level object has these fields:
 | `files` | integer | Number of measured source files, in every Source set |
 | `source_lines` | integer | Source lines of the measured files; blank and comment-only lines do not count |
 | `import_metrics_note` | string, optional | One line explaining why import Metrics are absent when the measured language has no imports |
+| `test_gap_note` | string, optional | One line explaining why Test gap is absent when no Coverage report covers the measured code |
+| `unmatched_coverage_paths_note` | string, optional | One note naming every Coverage report path that matched no repository file or matched several files equally well |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
 | `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
 | `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note` and `dependencies` for that plugin's files |
@@ -1446,14 +1516,15 @@ The top-level object has these fields:
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
-A Source set section has `files` and `source_lines` for that Source set, and one object per measured Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and (for languages with imports) `import_cycles`, `boundaries`, and `orphan_files`.
+A Source set section has `files` and `source_lines` for that Source set, and one object per measured Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, (in `production` when covered by a Coverage report) `test_gap`, and (for languages with imports) `import_cycles`, `boundaries`, and `orphan_files`.
 Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
 - `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
   The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
+  `test_gap` has no published Reference range.
 - The counts behind the ratio:
-  `eroded_function_mass` and `total_function_mass` for Erosion, `complex_cognitive_complexity` and `total_cognitive_complexity` for Cognitive complexity, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
+  `eroded_function_mass` and `total_function_mass` for Erosion, `complex_cognitive_complexity` and `total_cognitive_complexity` for Cognitive complexity, `untested_function_mass` and `total_function_mass` for Test gap, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
   Duplication and Verbosity divide by the `source_lines` of the Source set.
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
@@ -1476,6 +1547,7 @@ Each Finding is an object with an `id`, followed by fields that depend on its ki
 
 - An eroded function has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cyclomatic_complexity`, `cognitive_complexity`, `source_lines`, and `function_mass`.
 - A complex function (Cognitive complexity) has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cognitive_complexity`, `cyclomatic_complexity`, and `source_lines`.
+- A Test gap Finding has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `function_mass`, `untested_share`, and `untested_mass` (with optional `listed_lines` and `executed_lines`); Findings are ordered by `untested_mass` (`Function mass * untested_share`), largest first, and fully tested functions produce no Finding.
 - A Clone group has `tokens`, optional `similarity` (present on near-clone Findings as a ratio in `(0, 1]`), and `locations`; each location has `path`, `start_line`, and `end_line`.
 - A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.
@@ -1487,7 +1559,7 @@ It is the same in every run and on every operating system, and CRLF line endings
 Two Findings with the same content in one file get different ids, numbered in the order they appear.
 The content behind the `id` of each kind:
 
-- An eroded or complex function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
+- An eroded, complex, or untested (Test gap) function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
 - A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
 - A Clone family: the sorted normalized token sequences of its constituent Clone groups and the canonical path of each member location.
 - A Flagged line: the rule and the tokens of the line.
@@ -1675,6 +1747,7 @@ The tool lists one rule per Metric, and each result names its Metric in `ruleId`
 | -------- | ------- | -------- |
 | `erosion` | An eroded function | The line where the function starts |
 | `cognitive_complexity` | A function with cognitive complexity over 15 | The line where the function starts |
+| `test_gap` | An untested or partly tested Production function | The line where the function starts; the message names the Function mass and the untested share (omitted when Test gap is absent) |
 | `duplication` | A Clone group or Clone family | The first fragment or canonical location, from its start line to its end line; the other fragments or locations are related locations |
 | `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
 | `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
@@ -1692,6 +1765,7 @@ It starts with one table: each Metric's value per Source set, the counts behind 
 Next come each Metric over its Budget and a table of the ratios of each workspace package, when there are any.
 When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
 For a language with no imports, the report omits the six import Metrics and prints the one-line reason.
+For Test gap, the report shows Production totals (repository, per language, and per Workspace package), lists Test gap Findings heaviest untested Function mass first under `Production Findings`, or prints the one-line absent reason when no Coverage report applies.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 
