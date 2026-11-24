@@ -1074,6 +1074,7 @@ struct SectionOptions<'a> {
     orphan_files: Option<&'a OrphanFiles>,
     ownership: OwnershipOptions<'a>,
     has_imports: bool,
+    no_imports_paths: Option<&'a HashSet<RepoPath>>,
 }
 
 impl SourceSetSections {
@@ -1168,7 +1169,12 @@ impl SourceSetSection {
             ownership: options.ownership,
         };
         let boundaries_config = options.has_imports.then_some(options.boundaries).flatten();
-        let measured = Measured::new(model, boundaries_config, options.duplication);
+        let measured = Measured::new(
+            model,
+            boundaries_config,
+            options.duplication,
+            options.no_imports_paths,
+        );
         let boundaries = measured
             .boundaries
             .as_ref()
@@ -1500,6 +1506,7 @@ impl Measured {
         model: &CodeModel,
         boundaries: Option<&BoundariesConfig>,
         duplication_config: DuplicationConfig,
+        no_imports_paths: Option<&HashSet<RepoPath>>,
     ) -> Measured {
         let near_clones = duplication_config.near_clones.then(|| {
             NearCloneConfig::new(duplication_config.min_similarity.ratio())
@@ -1511,8 +1518,13 @@ impl Measured {
             MinimumDistinctTokens::DEFAULT,
             near_clones,
         );
-        let boundaries =
-            boundaries.map(|config| Boundaries::measure(model, &ConfigBoundaryPolicy(config)));
+        let boundaries = boundaries.map(|config| match no_imports_paths {
+            Some(excluded) if !excluded.is_empty() => {
+                let filtered = model_without_paths(model, excluded);
+                Boundaries::measure(&filtered, &ConfigBoundaryPolicy(config))
+            }
+            _ => Boundaries::measure(model, &ConfigBoundaryPolicy(config)),
+        });
         Measured {
             erosion: Erosion::measure(model),
             cognitive_complexity: CognitiveComplexity::measure(model),
@@ -1521,6 +1533,24 @@ impl Measured {
             import_cycles: ImportCycles::measure(model),
             boundaries,
         }
+    }
+}
+
+fn model_without_paths(model: &CodeModel, excluded: &HashSet<RepoPath>) -> CodeModel {
+    CodeModel {
+        files: model
+            .files
+            .iter()
+            .filter(|file| !excluded.contains(&file.path))
+            .cloned()
+            .collect(),
+        runtime_imports: model
+            .runtime_imports
+            .iter()
+            .filter(|import| !excluded.contains(&import.importer))
+            .cloned()
+            .collect(),
+        ..CodeModel::default()
     }
 }
 
@@ -1783,6 +1813,11 @@ impl Report {
             .partition(|language| !language.model.files.is_empty());
         let top_has_imports =
             measured.is_empty() || measured.iter().any(|language| language.has_imports);
+        let no_imports_paths: HashSet<RepoPath> = measured
+            .iter()
+            .filter(|language| !language.has_imports)
+            .flat_map(|language| language.model.files.iter().map(|file| file.path.clone()))
+            .collect();
         let section_options = SectionOptions {
             findings: options.findings,
             metric_plugins: options.metric_plugins,
@@ -1791,6 +1826,7 @@ impl Report {
             orphan_files: options.orphan_files,
             ownership: options.ownership,
             has_imports: top_has_imports,
+            no_imports_paths: Some(&no_imports_paths),
         };
         let (total_ranges, sections_per_language) = match measured.as_slice() {
             [] => (
@@ -1838,6 +1874,7 @@ impl Report {
                             SectionOptions {
                                 orphan_files: language_orphans,
                                 has_imports: language.has_imports,
+                                no_imports_paths: None,
                                 ..section_options
                             },
                         )?,

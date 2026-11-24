@@ -1510,6 +1510,7 @@ Readers ignore fields they do not know, and treat a missing optional field as em
 `--format sarif` prints a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html) log, so code scanning tools such as GitHub code scanning show each Finding as an annotation.
 The log has one run, and the run has one result per Finding of the report.
 It takes the Findings from the total, never from the sections under `languages`, so a Finding appears once.
+For a language with no imports, the log holds no Import cycle, Import boundary, Orphan file, or Dependency hygiene Finding for files of that language.
 `--all` and `--output` work as they do for every other format: without `--all`, the log holds the 20 worst Findings per Metric and Source set.
 
 ```sh exit=0
@@ -1686,6 +1687,7 @@ A character that a URI cannot hold, such as a space, is percent-encoded: `src/my
 It starts with one table: each Metric's value per Source set, the counts behind the value, and the Reference range.
 Next come each Metric over its Budget and a table of the ratios of each workspace package, when there are any.
 When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
+For a language with no imports, the report omits the six import Metrics and prints the one-line reason.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 
