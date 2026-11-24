@@ -50,6 +50,7 @@ Four core Metrics are calibrated against pre-2023 human-written repositories:
 Additional independent Metrics and structural checks run in the same pass:
 
 - **Cognitive complexity**: share of total nesting-weighted cognitive complexity held by functions scoring over 15.
+- **Test gap**: share of total Production Function mass not executed by tests, read from user-named LCOV or Cobertura XML Coverage reports without running your test suite, listing the heaviest untested functions first ([Test gap guide](./docs/guide/test-gap.md), [ADR 0017](./docs/adr/0017-test-gap-from-coverage-reports.md)).
 - **Orphan files**: Production files unreachable from manifest-declared, program-start, and configured `entry_points`, classified as `unreferenced` or `test-only`.
 - **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml` against imported external packages while excluding standard-library built-ins.
 - **Architectural import boundaries**: named zones, built-in `layered` and `hexagonal` presets, `public_files` encapsulation, directional `allow`/`deny` rules, and pre-edit `codeint guard <path>` checks before a file even exists on disk.
@@ -153,7 +154,7 @@ let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 
 ## Documentation
 
-- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
+- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Test gap](./docs/guide/test-gap.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
 - [Plugins](./docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
