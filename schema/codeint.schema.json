@@ -74,6 +74,13 @@
         "type": "string"
       },
       "description": "Globs of repository-relative paths treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points."
+    },
+    "coverage_reports": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap."
     }
   },
   "title": "codeint.json",
@@ -123,7 +130,7 @@
       "additionalProperties": false,
       "properties": {
         "production": {
-          "$ref": "#/$defs/MetricBudgets",
+          "$ref": "#/$defs/ProductionMetricBudgets",
           "description": "The Budgets of the Production Source set.",
           "default": {}
         },
@@ -164,6 +171,76 @@
           "maximum": 1
         }
       }
+    },
+    "ProductionMetricBudgets": {
+      "type": "object",
+      "properties": {
+        "erosion": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Erosion ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cognitive_complexity": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Cognitive complexity ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "duplication": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Duplication ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "verbosity": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Verbosity ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "import_cycles": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Import cycles ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "boundaries": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Boundaries ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "orphan_files": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Orphan files ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "test_gap": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Test gap ratio, from 0 to 1. Applies to the Production Source set only.",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Budget"
+      }
+    },
+    "Budget": {
+      "type": "number",
+      "format": "double",
+      "minimum": 0,
+      "maximum": 1
     },
     "MetricBudgets": {
       "type": "object",
@@ -221,12 +298,6 @@
       "additionalProperties": {
         "$ref": "#/$defs/Budget"
       }
-    },
-    "Budget": {
-      "type": "number",
-      "format": "double",
-      "minimum": 0,
-      "maximum": 1
     },
     "RegressionLimitsFile": {
       "type": "object",

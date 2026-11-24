@@ -5,9 +5,10 @@ use codeint_report::CommitMeasurement;
 use serde::Serialize;
 
 use crate::check::{
-    BUILT_IN_LANGUAGE_PLUGINS, CheckError, LoadedPlugins, MeasuredSnapshot, SelectedPackage,
-    compute_dependency_hygiene, compute_orphan_files, filter_languages_to_package,
-    measure_snapshot, select_workspace_package, workspace_of_languages,
+    BUILT_IN_LANGUAGE_PLUGINS, CheckError, CoverageReportDigest, LoadedPlugins, MeasuredSnapshot,
+    SelectedPackage, compute_dependency_hygiene, compute_orphan_files, filter_languages_to_package,
+    hash_configured_coverage_reports, measure_snapshot, select_workspace_package,
+    workspace_of_languages,
 };
 use crate::describe;
 
@@ -21,6 +22,8 @@ struct MeasurementSettings<'configuration> {
     plugin_interface_version: String,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    coverage_report_digests: Vec<CoverageReportDigest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     package: Option<&'configuration str>,
 }
@@ -69,6 +72,8 @@ impl<'run> CommitMeasurer<'run> {
                 version: declared.sha256.to_hex(),
             });
         }
+        let coverage_report_digests =
+            hash_configured_coverage_reports(repository.root(), &configuration.coverage_reports);
         CommitMeasurer {
             repository,
             configuration,
@@ -79,6 +84,7 @@ impl<'run> CommitMeasurer<'run> {
                 plugin_interface_version: PLUGIN_INTERFACE_VERSION.to_owned(),
                 language_plugins,
                 configuration,
+                coverage_report_digests,
                 package,
             },
             result_cache,

@@ -50,6 +50,7 @@ pub struct CheckOptions {
     pub findings: FindingsShown,
     pub package: Option<String>,
     pub owner: Option<String>,
+    pub coverage_reports: Vec<PathBuf>,
     pub plugin_host: PluginHostConfig,
 }
 
@@ -160,6 +161,7 @@ pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, Code
         options.findings,
         options.package.as_deref(),
         options.owner.as_deref(),
+        &options.coverage_reports,
         &options.plugin_host,
     )
     .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
@@ -417,16 +419,18 @@ fn run_command(command: Command) -> Result<Outcome, CliError> {
             format,
             package,
             owner,
+            coverage_reports,
             plugin_host,
-        } => run_check(
-            &folder,
-            &destination,
-            findings,
-            format,
-            package.as_deref(),
-            owner.as_deref(),
-            &plugin_host,
-        ),
+        } => {
+            let options = CheckOptions {
+                findings,
+                package,
+                owner,
+                coverage_reports,
+                plugin_host,
+            };
+            run_check(&folder, &destination, format, &options)
+        }
         Command::Diff {
             folder,
             base_ref,
@@ -710,13 +714,17 @@ fn run_mcp(
 fn run_check(
     folder: &Path,
     destination: &ReportDestination,
-    findings: FindingsShown,
     format: ReportFormat,
-    package: Option<&str>,
-    owner: Option<&str>,
-    plugin_host: &PluginHostConfig,
+    options: &CheckOptions,
 ) -> Result<Outcome, CliError> {
-    let report = check::check(folder, findings, package, owner, plugin_host)?;
+    let report = check::check(
+        folder,
+        options.findings,
+        options.package.as_deref(),
+        options.owner.as_deref(),
+        &options.coverage_reports,
+        &options.plugin_host,
+    )?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::from_failures(
         report

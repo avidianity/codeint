@@ -32,7 +32,10 @@ pub(crate) fn trend(
             })
         })
         .collect::<Result<Vec<_>, CheckError>>()?;
-    Ok(TrendReport::of(points))
+    Ok(TrendReport::of_with_test_gap_note(
+        points,
+        !context.configuration.coverage_reports.is_empty(),
+    ))
 }
 
 fn commit_range(range: TrendRange) -> CommitRange {

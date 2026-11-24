@@ -23,6 +23,7 @@ mod package_filter;
 mod report;
 mod schema;
 mod sdk;
+mod test_gap;
 mod trace;
 mod trend;
 mod update;

@@ -6,6 +6,22 @@ use crate::{
     ErodedFunctionFinding, FlaggedLineRow, ImportCycleFinding,
 };
 
+fn empty_listed_findings<'a>() -> ListedFindings<'a> {
+    ListedFindings {
+        eroded_functions: &[],
+        cognitive_complexity: &[],
+        clone_groups: &[],
+        clone_families: &[],
+        clustered_clone_group_ids: &[],
+        flagged_lines: &[],
+        import_cycles: &[],
+        boundaries: &[],
+        orphan_files: &[],
+        test_gap: &[],
+        external_metrics: Vec::new(),
+    }
+}
+
 #[test]
 fn a_path_of_letters_digits_dots_dashes_and_slashes_is_its_own_uri() {
     assert_eq!(
@@ -88,13 +104,9 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         eroded_functions: &eroded,
         cognitive_complexity: &complex,
         clone_groups: &clones,
-        clone_families: &[],
-        clustered_clone_group_ids: &[],
         flagged_lines: &flagged,
         import_cycles: &cycles,
-        boundaries: &[],
-        orphan_files: &[],
-        external_metrics: Vec::new(),
+        ..empty_listed_findings()
     };
 
     let log = serde_json::to_value(SarifLog::listing(
@@ -197,16 +209,9 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
         owners: Vec::new(),
     }];
     let listed = ListedFindings {
-        eroded_functions: &[],
-        cognitive_complexity: &[],
         clone_groups: &clones,
         clone_families: &families,
-        clustered_clone_group_ids: &[],
-        flagged_lines: &[],
-        import_cycles: &[],
-        boundaries: &[],
-        orphan_files: &[],
-        external_metrics: Vec::new(),
+        ..empty_listed_findings()
     };
 
     let log = serde_json::to_value(SarifLog::listing(

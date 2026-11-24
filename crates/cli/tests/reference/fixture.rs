@@ -93,6 +93,11 @@ impl Template {
             "src/route.ts",
             &branching_function("route", "path: string", "path === \"/", 15),
         );
+        write(
+            root,
+            "coverage/lcov.info",
+            "SF:src/sign.ts\nDA:2,1\nDA:3,1\nDA:5,0\nend_of_record\n",
+        );
         let saved = Command::new(env!("CARGO_BIN_EXE_codeint"))
             .args(["check", "--format", "json", "--output", "report.json"])
             .current_dir(root)

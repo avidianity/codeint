@@ -44,7 +44,21 @@ mod bindings {
 use bindings::codeint::plugin::language as guest_language;
 use bindings::exports::codeint::plugin::metric as guest_metric;
 
-const RESERVED_KEYS: [&str; 3] = ["files", "source_lines", "packages"];
+const RESERVED_KEYS: [&str; 10] = [
+    "files",
+    "source_lines",
+    "packages",
+    "cognitive_complexity",
+    "boundaries",
+    "orphan_files",
+    "unused_dependencies",
+    "unlisted_dependencies",
+    "dev_in_production_dependencies",
+    "test_gap",
+];
+
+#[cfg(test)]
+mod tests;
 
 pub struct WasmMetricPlugin {
     plugin_name: String,

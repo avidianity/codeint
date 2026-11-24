@@ -286,7 +286,12 @@ fn the_examples_use_every_command_option_format_and_configuration_key() {
         .configuration_files
         .iter()
         .flat_map(|text| {
-            let configuration: Value = serde_json::from_str(text).unwrap_or_else(|error| {
+            let stripped: String = text
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let configuration: Value = serde_json::from_str(&stripped).unwrap_or_else(|error| {
                 panic!("a codeint.json example is not JSON: {error}\n{text}")
             });
             keys::configuration_key_paths(&configuration)

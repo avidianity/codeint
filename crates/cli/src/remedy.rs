@@ -65,6 +65,9 @@ fn trace_remedy(error: &TraceCommandError) -> &'static str {
 }
 
 fn check_remedy(error: &CheckError) -> &'static str {
+    if let Some(remedy) = coverage_check_remedy(error) {
+        return remedy;
+    }
     match error {
         CheckError::ExtensionConflict { config_file, .. } => choose_file_remedy(
             *config_file,
@@ -82,6 +85,30 @@ fn check_remedy(error: &CheckError) -> &'static str {
     }
 }
 
+fn coverage_check_remedy(error: &CheckError) -> Option<&'static str> {
+    Some(match error {
+        CheckError::MissingCoverageReport { .. } => {
+            "Check that the Coverage report path exists and generate it with your test runner before running codeint check."
+        }
+        CheckError::CoverageReportOutsideRepository { .. } => {
+            "Pass a Coverage report file inside the Git repository; codeint refuses paths and symbolic links outside the repository."
+        }
+        CheckError::UnreadableCoverageReport { .. } => {
+            "Check that you have permission to read the Coverage report file, then run codeint check again."
+        }
+        CheckError::InvalidCoverageReport { .. } => {
+            "Pass a valid LCOV or Cobertura XML Coverage report within the size and XML nesting limits."
+        }
+        CheckError::CoverageApply(_) => {
+            "Regenerate the Coverage report from the current working tree so its line numbers match the repository files."
+        }
+        CheckError::TestGapBudgetWithoutCoverage { .. } => {
+            "Name at least one LCOV or Cobertura XML Coverage report in coverage_reports or pass --coverage-report <PATH>, or remove budgets.production.test_gap."
+        }
+        _ => return None,
+    })
+}
+
 fn check_plugin_remedy(error: &CheckError) -> &'static str {
     match error {
         CheckError::Resolve { .. } => {
@@ -97,6 +124,12 @@ fn check_plugin_remedy(error: &CheckError) -> &'static str {
         CheckError::MetricPlugin(scoped) => metric_plugin_remedy(&scoped.error, scoped.config_file),
         CheckError::ExtensionConflict { .. }
         | CheckError::UnknownWorkspacePackage { .. }
+        | CheckError::MissingCoverageReport { .. }
+        | CheckError::CoverageReportOutsideRepository { .. }
+        | CheckError::UnreadableCoverageReport { .. }
+        | CheckError::InvalidCoverageReport { .. }
+        | CheckError::CoverageApply(_)
+        | CheckError::TestGapBudgetWithoutCoverage { .. }
         | CheckError::Git(_)
         | CheckError::Configuration(_)
         | CheckError::Codeowners(_)
@@ -268,6 +301,7 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
 
 pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
     plugin_config_remedy(error)
+        .or_else(|| test_gap_config_remedy(error))
         .or_else(|| boundary_config_remedy(error))
         .or_else(|| file_access_remedy(error))
         .or_else(|| json_shape_remedy(error))
@@ -422,6 +456,37 @@ fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> 
             *file,
             "Set non-empty package names in dependencies.ignore in codeint.json, or remove the empty entry.",
             "Set non-empty package names in dependencies.ignore in codeint.jsonc, or remove the empty entry.",
+        ),
+        _ => return None,
+    })
+}
+
+fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+    use ConfigurationFileError::*;
+    Some(match error {
+        EmptyCoverageReportPath { file, .. } => choose_file_remedy(
+            *file,
+            "Set non-empty paths in coverage_reports in codeint.json, or remove the empty entry.",
+            "Set non-empty paths in coverage_reports in codeint.jsonc, or remove the empty entry.",
+        ),
+        AbsoluteCoverageReportPath { file, .. }
+        | ParentTraversalCoverageReportPath { file, .. } => choose_file_remedy(
+            *file,
+            "Use repository-relative paths without \"..\" in coverage_reports in codeint.json.",
+            "Use repository-relative paths without \"..\" in coverage_reports in codeint.jsonc.",
+        ),
+        TestGapBudgetOutsideProduction { file, .. } => choose_file_remedy(
+            *file,
+            "Move the test_gap Budget to budgets.production.test_gap in codeint.json, or remove it.",
+            "Move the test_gap Budget to budgets.production.test_gap in codeint.jsonc, or remove it.",
+        ),
+        CliTestGapBudgetOutsideProduction { .. } => {
+            "Pass --budget production.test_gap=RATIO; Test gap covers only the Production Source set."
+        }
+        TestGapRegressionLimit { file, .. } => choose_file_remedy(
+            *file,
+            "Remove test_gap from regression_limits in codeint.json; Test gap is checked with budgets.production.test_gap only.",
+            "Remove test_gap from regression_limits in codeint.jsonc; Test gap is checked with budgets.production.test_gap only.",
         ),
         _ => return None,
     })
