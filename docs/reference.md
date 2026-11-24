@@ -91,7 +91,9 @@ It sets every key to its default, and lists under `languages` each top-level fol
     "vendored": []
   },
   "budgets": {
-    "production": {},
+    "production": {
+      // "test_gap": 0.2
+    },
     "test": {},
     "generated": {},
     "vendored": {}
@@ -105,7 +107,8 @@ It sets every key to its default, and lists under `languages` each top-level fol
       ],
       "exclude": []
     }
-  ]
+  ],
+  "coverage_reports": []
 }
 ```
 
@@ -141,7 +144,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 | `--all` | List every Finding instead of the 20 worst per Metric |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
 | `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
-| `--coverage-report <FILE>` | Path to an LCOV or Cobertura XML Coverage report; may repeat; when present, replaces `coverage_reports` from `codeint.json`; see [Test gap](#test-gap) |
+| `--coverage-report <PATH>` | Path to an LCOV or Cobertura XML Coverage report; may repeat; when present, replaces `coverage_reports` from `codeint.json`; see [Test gap](#test-gap) |
 | `-h, --help` | Print the help of `codeint check` |
 
 `codeint check` measures the working tree, including uncommitted and untracked files, and prints the report:
@@ -204,6 +207,7 @@ source_sets:
       unresolved_imports:
         count: 0
         imports: []
+test_gap_note: Test gap is not measured because no Coverage report was named.
 skipped[1]{path,reason}:
   src/broken.ts,"cannot parse: Unexpected token at line 1, column 23"
 declaration_only[1]: src/types.d.ts
@@ -221,6 +225,7 @@ These commands measure the same repository with other options:
 codeint check src
 codeint check --all
 codeint check --owner @team
+codeint check --coverage-report coverage/lcov.info
 codeint check --format markdown --output report.md
 ```
 
@@ -921,7 +926,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1291,7 +1296,7 @@ codeint check
 
 **Test gap** (`test_gap`, a reserved built-in Metric key) is the share of total Production Function mass that tests do not execute.
 codeint never runs tests and never guesses where a Coverage report is.
-Name one or more Coverage reports in `coverage_reports` (paths relative to the repository root) or with the repeatable `--coverage-report <FILE>` option on `codeint check`.
+Name one or more Coverage reports in `coverage_reports` (paths relative to the repository root) or with the repeatable `--coverage-report <PATH>` option on `codeint check`.
 When `--coverage-report` is present on the command line, `coverage_reports` from `codeint.json` is not used for that run.
 See [docs/guide/test-gap.md](./guide/test-gap.md) for copy-paste setup commands for each supported test tool.
 
@@ -1488,6 +1493,7 @@ codeint check --format json
       }
     }
   },
+  "test_gap_note": "Test gap is not measured because no Coverage report was named.",
   "skipped": [
     {
       "path": "src/broken.ts",
@@ -1508,7 +1514,7 @@ The top-level object has these fields:
 | `source_lines` | integer | Source lines of the measured files; blank and comment-only lines do not count |
 | `import_metrics_note` | string, optional | One line explaining why import Metrics are absent when the measured language has no imports |
 | `test_gap_note` | string, optional | One line explaining why Test gap is absent when no Coverage report covers the measured code |
-| `unmatched_coverage_paths_note` | string, optional | One note naming every Coverage report path that matched no repository file or matched several files equally well |
+| `coverage_unmatched_note` | string, optional | One note naming every Coverage report path that matched no repository file or matched several files equally well |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
 | `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
 | `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note` and `dependencies` for that plugin's files |
@@ -1777,6 +1783,8 @@ codeint check --format markdown
 # codeint report
 
 codeint measured 4 files with 39 source lines.
+
+Test gap is not measured because no Coverage report was named.
 
 | Source set | Metric | Value | Behind the value | Reference range |
 | ---------- | ------ | ----- | ---------------- | --------------- |
