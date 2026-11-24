@@ -24,7 +24,8 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{
-    DeclaredDep, DepKind, FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind,
+    DeclaredDep, DepKind, FileModel, FunctionCoverage, Manifest, ReferenceRange, SourceSet, Token,
+    TokenKind,
 };
 pub use metric::{
     ExternalFinding, ExternalMetricMeasurement, Metric, MetricPlugin, MetricPluginError,

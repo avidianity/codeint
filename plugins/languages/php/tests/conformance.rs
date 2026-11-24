@@ -77,6 +77,7 @@ fn php_decision_points_cover_control_flow_match_and_arrow_functions() {
                 source_lines: 15,
                 name: Some("evaluate".to_owned()),
                 cognitive_complexity: 7,
+                coverage: None,
             },
             Function {
                 line: 10,
@@ -85,6 +86,7 @@ fn php_decision_points_cover_control_flow_match_and_arrow_functions() {
                 source_lines: 1,
                 name: None,
                 cognitive_complexity: 1,
+                coverage: None,
             },
         ]
     );

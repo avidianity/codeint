@@ -3,9 +3,9 @@ use super::language::{
     Resolution, SourceSet, WorkspaceError,
 };
 use super::{
-    CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, LanguagePluginError,
-    ManifestUsedDep, Package, ReferenceRanges, RepoPath, RuntimeImport, SourceFile, Workspace,
-    token_text_hash, validate_declared_dependencies, validate_entry_points,
+    CodeModel, FunctionCoverage, ImportResolution, InvalidReferenceRange, LanguagePlugin,
+    LanguagePluginError, ManifestUsedDep, Package, ReferenceRanges, RepoPath, RuntimeImport,
+    SourceFile, Workspace, token_text_hash, validate_declared_dependencies, validate_entry_points,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -372,5 +372,40 @@ fn code_model_merge_sorts_and_deduplicates_manifest_used_dependencies() {
                 name: "vite".to_owned(),
             },
         ]
+    );
+}
+
+#[test]
+fn function_coverage_distinguishes_absent_from_zero_executed_lines() {
+    let absent = super::language::Function {
+        line: 1,
+        end_line: 5,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("uncovered".to_owned()),
+        cognitive_complexity: 1,
+        coverage: None,
+    };
+    let zero_executed = super::language::Function {
+        line: 1,
+        end_line: 5,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("uncovered".to_owned()),
+        cognitive_complexity: 1,
+        coverage: Some(FunctionCoverage {
+            listed_lines: 5,
+            executed_lines: 0,
+        }),
+    };
+
+    assert_ne!(absent, zero_executed);
+    assert_eq!(absent.coverage, None);
+    assert_eq!(
+        zero_executed.coverage,
+        Some(FunctionCoverage {
+            listed_lines: 5,
+            executed_lines: 0,
+        })
     );
 }

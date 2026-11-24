@@ -50,6 +50,7 @@ pub(crate) fn extract(
             source_lines: code_lines.range(span.start_line..=span.end_line).count() as u32,
             name: span.name.clone(),
             cognitive_complexity: compute_cognitive(tokens, logical_lines, &spans, owner),
+            coverage: None,
         })
         .collect();
     functions.sort_by_key(|f| (f.line, f.end_line));

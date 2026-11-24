@@ -75,6 +75,7 @@ fn counts_decision_points_and_nested_functions_separately() {
                 source_lines: 16,
                 name: Some("outer".to_owned()),
                 cognitive_complexity: 5,
+                coverage: None,
             },
             Function {
                 line: 7,
@@ -83,6 +84,7 @@ fn counts_decision_points_and_nested_functions_separately() {
                 source_lines: 3,
                 name: Some("inner".to_owned()),
                 cognitive_complexity: 3,
+                coverage: None,
             },
         ]
     );

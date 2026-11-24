@@ -566,6 +566,12 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
                 source_lines: function.source_lines,
                 name: function.name,
                 cognitive_complexity: function.cognitive_complexity,
+                coverage: function
+                    .coverage
+                    .map(|coverage| language::FunctionCoverage {
+                        listed_lines: coverage.listed_lines,
+                        executed_lines: coverage.executed_lines,
+                    }),
             })
             .collect(),
         tokens: model

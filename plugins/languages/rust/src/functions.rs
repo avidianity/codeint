@@ -240,6 +240,7 @@ impl FunctionCollector<'_> {
             source_lines,
             name,
             cognitive_complexity,
+            coverage: None,
         });
     }
 }

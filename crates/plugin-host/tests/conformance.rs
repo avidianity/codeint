@@ -118,6 +118,10 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             function.line >= 1 && function.line <= function.end_line,
             "{label}: invalid function span {function:?}"
         );
+        assert_eq!(
+            function.coverage, None,
+            "{label}: Language plugin must leave function coverage absent"
+        );
     }
     for pair in prod.tokens.windows(2) {
         assert!(pair[0].line <= pair[1].line, "{label}: tokens out of order");
@@ -149,6 +153,12 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         SourceSet::Test,
         "{label}: test source_set"
     );
+    for function in &test_model.functions {
+        assert_eq!(
+            function.coverage, None,
+            "{label}: Language plugin must leave test function coverage absent"
+        );
+    }
 
     let repo_paths: Vec<RepoPath> = fixture
         .repository_paths

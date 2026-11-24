@@ -134,6 +134,7 @@ impl FunctionCollector<'_> {
             ),
             name,
             cognitive_complexity: 0,
+            coverage: None,
         });
     }
 

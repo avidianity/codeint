@@ -123,6 +123,11 @@ wit_bindgen::generate!({
 
         package codeint:plugin@0.3.0 {
             interface language {
+                record function-coverage {
+                    listed-lines: u32,
+                    executed-lines: u32,
+                }
+
                 record function {
                     line: u32,
                     end-line: u32,
@@ -130,6 +135,7 @@ wit_bindgen::generate!({
                     source-lines: u32,
                     name: option<string>,
                     cognitive-complexity: u32,
+                    coverage: option<function-coverage>,
                 }
 
                 enum token-kind {
