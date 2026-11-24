@@ -233,9 +233,9 @@ fn to_guest_code_model(model: &CodeModel) -> guest_metric::CodeModel {
                 importer: import.importer.as_str().to_owned(),
                 specifier: import.specifier.clone(),
                 resolution: match &import.resolution {
-                    ImportResolution::Resolved(path) => {
-                        guest_language::Resolution::Resolved(path.as_str().to_owned())
-                    }
+                    ImportResolution::Resolved(paths) => guest_language::Resolution::Resolved(
+                        paths.iter().map(|path| path.as_str().to_owned()).collect(),
+                    ),
                     ImportResolution::External(package) => {
                         guest_language::Resolution::External(package.clone())
                     }

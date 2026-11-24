@@ -106,7 +106,7 @@ fn detects_unused_unlisted_and_dev_in_production_while_ignoring_builtins_and_res
         import_with(
             "src/app.ts",
             "./helper",
-            ImportResolution::Resolved(RepoPath::new("src/helper.ts").unwrap()),
+            ImportResolution::Resolved(vec![RepoPath::new("src/helper.ts").unwrap()]),
         ),
         import_with(
             "src/app.ts",

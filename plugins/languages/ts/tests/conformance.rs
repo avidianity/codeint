@@ -1170,7 +1170,7 @@ fn resolve(repository_paths: &[&str], importer: &str, specifier: &str) -> Resolu
 }
 
 fn resolved(path: &str) -> Resolution {
-    Resolution::Resolved(path.to_owned())
+    Resolution::Resolved(vec![path.to_owned()])
 }
 
 #[test]
@@ -2000,9 +2000,9 @@ fn bun_export_condition_resolves_workspace_source_file() {
     );
     assert_eq!(
         resolutions,
-        vec![Resolution::Resolved(
+        vec![Resolution::Resolved(vec![
             "packages/shared/src/bun.ts".to_owned()
-        )]
+        ])]
     );
 }
 
@@ -2067,9 +2067,9 @@ fn workspaces_and_cross_package_imports_work_for_bun_npm_yarn_and_pnpm() {
         );
         assert_eq!(
             resolutions,
-            vec![Resolution::Resolved(
+            vec![Resolution::Resolved(vec![
                 "packages/core/src/index.ts".to_owned()
-            )],
+            ])],
             "{name}"
         );
     }

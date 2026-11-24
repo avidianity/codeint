@@ -146,16 +146,16 @@ fn python_imports_type_checking_resolution_and_workspaces() {
     );
     assert_eq!(
         resolutions[0],
-        Resolution::Resolved("src/demo/helpers.py".into())
+        Resolution::Resolved(vec!["src/demo/helpers.py".into()])
     );
     assert_eq!(
         resolutions[1],
-        Resolution::Resolved("src/demo/utils.py".into())
+        Resolution::Resolved(vec!["src/demo/utils.py".into()])
     );
     assert_eq!(resolutions[2], Resolution::Builtin);
     assert_eq!(
         resolutions[3],
-        Resolution::Resolved("src/demo/__init__.py".into())
+        Resolution::Resolved(vec!["src/demo/__init__.py".into()])
     );
     assert!(matches!(resolutions[4], Resolution::Unresolved(_)));
 
@@ -502,19 +502,19 @@ fn relative_symbol_imports_fall_back_to_package_init_without_hiding_missing_subm
     let resolutions = Python.resolve_imports(&repo, manifests, requests);
     assert_eq!(
         resolutions[0],
-        Resolution::Resolved("src/flask/__init__.py".into())
+        Resolution::Resolved(vec!["src/flask/__init__.py".into()])
     );
     assert_eq!(
         resolutions[1],
-        Resolution::Resolved("src/flask/__init__.py".into())
+        Resolution::Resolved(vec!["src/flask/__init__.py".into()])
     );
     assert_eq!(
         resolutions[2],
-        Resolution::Resolved("src/flask/helpers.py".into())
+        Resolution::Resolved(vec!["src/flask/helpers.py".into()])
     );
     assert_eq!(
         resolutions[3],
-        Resolution::Resolved("src/flask/__init__.py".into())
+        Resolution::Resolved(vec!["src/flask/__init__.py".into()])
     );
     assert!(matches!(resolutions[4], Resolution::Unresolved(_)));
     assert!(matches!(resolutions[5], Resolution::Unresolved(_)));

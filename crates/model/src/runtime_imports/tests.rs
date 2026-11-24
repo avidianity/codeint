@@ -89,17 +89,17 @@ fn importer(name: &str, specifiers: &[&str]) -> SourceFile {
 #[test]
 fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
     let plugin = Answering(vec![
-        Resolution::Resolved("b.ts".to_owned()),
+        Resolution::Resolved(vec!["b.ts".to_owned(), "c.ts".to_owned()]),
         Resolution::External("react".to_owned()),
         Resolution::Builtin,
         Resolution::Unresolved("gone".to_owned()),
     ]);
-    let a = importer("a.ts", &["./b", "react", "node:fs"]);
+    let a = importer("a.ts", &["./pkg", "react", "node:fs"]);
     let b = importer("b.ts", &["./gone"]);
 
     let imports = resolve_runtime_imports(
         &plugin,
-        &[path("a.ts"), path("b.ts")],
+        &[path("a.ts"), path("b.ts"), path("c.ts")],
         Vec::new(),
         &[&a, &b],
     )
@@ -110,8 +110,8 @@ fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
         [
             RuntimeImport {
                 importer: path("a.ts"),
-                specifier: "./b".to_owned(),
-                resolution: ImportResolution::Resolved(path("b.ts")),
+                specifier: "./pkg".to_owned(),
+                resolution: ImportResolution::Resolved(vec![path("b.ts"), path("c.ts")]),
             },
             RuntimeImport {
                 importer: path("a.ts"),
@@ -154,8 +154,28 @@ fn a_plugin_that_answers_the_wrong_number_of_requests_is_an_error() {
 }
 
 #[test]
+fn a_plugin_that_resolves_to_an_empty_list_is_an_error() {
+    let plugin = Answering(vec![Resolution::Resolved(Vec::new())]);
+    let a = importer("a.ts", &["./empty"]);
+
+    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);
+
+    assert!(
+        matches!(
+            &result,
+            Err(ResolveError::EmptyResolution { importer, specifier })
+                if importer.as_str() == "a.ts" && specifier == "./empty"
+        ),
+        "unexpected result: {result:?}"
+    );
+}
+
+#[test]
 fn a_plugin_that_resolves_to_a_file_outside_the_snapshot_is_an_error() {
-    let plugin = Answering(vec![Resolution::Resolved("../etc/passwd".to_owned())]);
+    let plugin = Answering(vec![Resolution::Resolved(vec![
+        "a.ts".to_owned(),
+        "../etc/passwd".to_owned(),
+    ])]);
     let a = importer("a.ts", &["./b"]);
 
     let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);

@@ -523,12 +523,21 @@ impl LiftedSize for Vec<guest::DeclaredDep> {
 
 impl LiftedSize for Vec<guest::Resolution> {
     fn lifted_budget(&self) -> (usize, usize) {
-        slice_budget(self, |resolution| match resolution {
-            guest::Resolution::Resolved(text)
-            | guest::Resolution::External(text)
-            | guest::Resolution::Unresolved(text) => text.len(),
-            guest::Resolution::Builtin => 0,
-        })
+        let base_bytes = self.len().saturating_mul(size_of::<guest::Resolution>());
+        self.iter()
+            .fold((self.len(), base_bytes), |(count, bytes), resolution| {
+                let (extra_count, extra_bytes) = match resolution {
+                    guest::Resolution::Resolved(targets) => targets.lifted_budget(),
+                    guest::Resolution::External(text) | guest::Resolution::Unresolved(text) => {
+                        (0, text.len())
+                    }
+                    guest::Resolution::Builtin => (0, 0),
+                };
+                (
+                    count.saturating_add(extra_count),
+                    bytes.saturating_add(extra_bytes),
+                )
+            })
     }
 }
 
@@ -697,7 +706,7 @@ fn convert_lower_error(error: guest::LowerError) -> LowerError {
 
 fn convert_resolution(resolution: guest::Resolution) -> language::Resolution {
     match resolution {
-        guest::Resolution::Resolved(path) => language::Resolution::Resolved(path),
+        guest::Resolution::Resolved(paths) => language::Resolution::Resolved(paths),
         guest::Resolution::External(package) => language::Resolution::External(package),
         guest::Resolution::Builtin => language::Resolution::Builtin,
         guest::Resolution::Unresolved(reason) => language::Resolution::Unresolved(reason),

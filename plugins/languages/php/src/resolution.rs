@@ -134,7 +134,7 @@ impl PhpResolver {
             let resolution = if hit == importer {
                 Resolution::Builtin
             } else {
-                Resolution::Resolved(hit)
+                Resolution::Resolved(vec![hit])
             };
             return Psr4Match::Resolved(resolution);
         }

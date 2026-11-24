@@ -84,7 +84,7 @@ fn check_remedy(error: &CheckError) -> &'static str {
 
 fn check_plugin_remedy(error: &CheckError) -> &'static str {
     match error {
-        CheckError::Resolve(_) => {
+        CheckError::Resolve { .. } => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
         CheckError::ReferenceRange(_) => {

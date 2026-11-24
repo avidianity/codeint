@@ -82,7 +82,7 @@ fn resolve_one(
         if target == importer {
             return Resolution::Builtin;
         }
-        return Resolution::Resolved(target.clone());
+        return Resolution::Resolved(vec![target.clone()]);
     }
     let top = specifier.split('.').next().unwrap_or("");
     if top.is_empty() {
@@ -142,14 +142,14 @@ fn find_relative_target(
             return if candidate == importer {
                 Resolution::Builtin
             } else {
-                Resolution::Resolved(candidate)
+                Resolution::Resolved(vec![candidate])
             };
         }
     }
     if allow_init_fallback {
         let init_candidate = init_path_for(base_dir);
         if init_candidate != importer && py_files.contains(&init_candidate) {
-            return Resolution::Resolved(init_candidate);
+            return Resolution::Resolved(vec![init_candidate]);
         }
     }
     Resolution::Unresolved(format!(

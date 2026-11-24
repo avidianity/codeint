@@ -213,9 +213,12 @@ fn php_resolver_handles_psr4_and_static_require() {
     );
     assert_eq!(
         out[0],
-        Resolution::Resolved("app/Models/Order.php".to_owned())
+        Resolution::Resolved(vec!["app/Models/Order.php".to_owned()])
     );
-    assert_eq!(out[1], Resolution::Resolved("app/helpers.php".to_owned()));
+    assert_eq!(
+        out[1],
+        Resolution::Resolved(vec!["app/helpers.php".to_owned()])
+    );
     assert_eq!(out[2], Resolution::External("illuminate/support".into()));
     assert!(matches!(out[3], Resolution::Unresolved(_)));
 }
@@ -235,7 +238,10 @@ fn php_internal_psr4_namespace_import_does_not_fall_through_to_external() {
     );
     assert!(matches!(out[0], Resolution::Unresolved(_)));
     assert!(matches!(out[1], Resolution::Unresolved(_)));
-    assert_eq!(out[2], Resolution::Resolved("src/Models/User.php".into()));
+    assert_eq!(
+        out[2],
+        Resolution::Resolved(vec!["src/Models/User.php".into()])
+    );
     assert_eq!(out[3], Resolution::External("acme/http-client".into()));
 }
 
@@ -362,7 +368,7 @@ final class InvoiceService {
         .collect();
     assert_eq!(
         by_spec["use:Acme\\Auth\\Token"],
-        Resolution::Resolved("packages/auth/src/Token.php".into())
+        Resolution::Resolved(vec!["packages/auth/src/Token.php".into()])
     );
     assert_eq!(by_spec["use:DateTimeImmutable"], Resolution::Builtin);
     assert_eq!(by_spec["use:Random\\Randomizer"], Resolution::Builtin);

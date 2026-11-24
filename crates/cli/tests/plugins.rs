@@ -1659,3 +1659,42 @@ fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
         "expected typescript-javascript has_hazard_rules=false finding, got: {findings:?}"
     );
 }
+
+#[test]
+fn empty_resolved_import_list_stops_check_with_exit_2_naming_plugin() {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("folder_import_language_plugin.wasm"),
+        repo.path(),
+        "plugins/folder_import_language_plugin.wasm",
+    );
+    write_plugin_config(
+        repo.path(),
+        "folder-import-lang",
+        None,
+        "plugins/folder_import_language_plugin.wasm",
+        &hash,
+        "",
+    );
+    write_file(repo.path(), "src/app.fld", "use empty\nfn main()\n");
+
+    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit 2, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "expected no report on stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("folder-import-lang") && stderr.contains("empty list"),
+        "expected error naming folder-import-lang and empty list, got: {stderr}"
+    );
+}

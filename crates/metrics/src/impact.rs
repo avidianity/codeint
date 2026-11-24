@@ -71,13 +71,17 @@ impl ImpactAnalysis {
         let mut forward: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); model.files.len()];
         let mut reverse: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); model.files.len()];
         for runtime_import in &model.runtime_imports {
-            if let ImportResolution::Resolved(target) = &runtime_import.resolution
-                && let (Some(&from), Some(&to)) =
-                    (index_of.get(&runtime_import.importer), index_of.get(target))
-                && from != to
+            if let ImportResolution::Resolved(targets) = &runtime_import.resolution
+                && let Some(&from) = index_of.get(&runtime_import.importer)
             {
-                forward[from].insert(to);
-                reverse[to].insert(from);
+                for target in targets {
+                    if let Some(&to) = index_of.get(target)
+                        && from != to
+                    {
+                        forward[from].insert(to);
+                        reverse[to].insert(from);
+                    }
+                }
             }
         }
 

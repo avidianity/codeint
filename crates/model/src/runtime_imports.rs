@@ -7,7 +7,7 @@ mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportResolution {
-    Resolved(RepoPath),
+    Resolved(Vec<RepoPath>),
     External(String),
     Builtin,
     Unresolved { reason: String },
@@ -24,6 +24,11 @@ pub struct RuntimeImport {
 pub enum ResolveError {
     #[error("the Language plugin answered {answered} of {asked} import requests")]
     WrongCount { asked: usize, answered: usize },
+    #[error("the Language plugin resolved {specifier:?} in {importer} to an empty list of files")]
+    EmptyResolution {
+        importer: RepoPath,
+        specifier: String,
+    },
     #[error(
         "the Language plugin resolved {specifier:?} in {importer} to {target:?}, which is not a file of the repository"
     )]
@@ -92,15 +97,25 @@ pub fn resolve_runtime_imports(
         .zip(resolutions)
         .map(|((importer, specifier), resolution)| {
             let resolution = match resolution {
-                language::Resolution::Resolved(target) if known_paths.contains(target.as_str()) => {
-                    ImportResolution::Resolved(RepoPath(target))
-                }
-                language::Resolution::Resolved(target) => {
-                    return Err(ResolveError::UnknownTarget {
-                        importer: importer.clone(),
-                        specifier: specifier.clone(),
-                        target,
-                    });
+                language::Resolution::Resolved(targets) => {
+                    if targets.is_empty() {
+                        return Err(ResolveError::EmptyResolution {
+                            importer: importer.clone(),
+                            specifier: specifier.clone(),
+                        });
+                    }
+                    let mut validated = Vec::with_capacity(targets.len());
+                    for target in targets {
+                        if !known_paths.contains(target.as_str()) {
+                            return Err(ResolveError::UnknownTarget {
+                                importer: importer.clone(),
+                                specifier: specifier.clone(),
+                                target,
+                            });
+                        }
+                        validated.push(RepoPath(target));
+                    }
+                    ImportResolution::Resolved(validated)
                 }
                 language::Resolution::External(package) => ImportResolution::External(package),
                 language::Resolution::Builtin => ImportResolution::Builtin,

@@ -18,6 +18,8 @@ members = [
     "program-start-metric",
     "hazard-rules-language",
     "hazard-facts-metric",
+    "folder-import-language",
+    "imports-reader-metric",
 ]
 
 [workspace.package]

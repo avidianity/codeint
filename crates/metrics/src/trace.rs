@@ -113,11 +113,14 @@ fn build_adjacency(
 ) -> Vec<Vec<usize>> {
     let mut adjacency = vec![Vec::new(); node_count];
     for runtime_import in &model.runtime_imports {
-        if let ImportResolution::Resolved(target) = &runtime_import.resolution
-            && let (Some(&from), Some(&to)) =
-                (index_of.get(&runtime_import.importer), index_of.get(target))
+        if let ImportResolution::Resolved(targets) = &runtime_import.resolution
+            && let Some(&from) = index_of.get(&runtime_import.importer)
         {
-            adjacency[from].push(to);
+            for target in targets {
+                if let Some(&to) = index_of.get(target) {
+                    adjacency[from].push(to);
+                }
+            }
         }
     }
     for neighbors in &mut adjacency {

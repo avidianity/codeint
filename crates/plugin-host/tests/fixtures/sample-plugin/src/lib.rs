@@ -531,9 +531,9 @@ impl Guest for SampleMiniPlugin {
                     format!("{candidate}.mini")
                 };
                 if repository_paths.iter().any(|path| path == &candidate) {
-                    Resolution::Resolved(candidate)
+                    Resolution::Resolved(vec![candidate])
                 } else if repository_paths.iter().any(|path| path == &with_ext) {
-                    Resolution::Resolved(with_ext)
+                    Resolution::Resolved(vec![with_ext])
                 } else {
                     Resolution::Unresolved(format!("cannot find {with_ext}"))
                 }

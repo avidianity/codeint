@@ -28,7 +28,7 @@ fn model_with_edges(files: &[&str], edges: &[(&str, &str)]) -> CodeModel {
         model.runtime_imports.push(RuntimeImport {
             importer: repo_path(from),
             specifier: (*to).to_owned(),
-            resolution: ImportResolution::Resolved(repo_path(to)),
+            resolution: ImportResolution::Resolved(vec![repo_path(to)]),
         });
     }
     model

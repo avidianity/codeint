@@ -101,7 +101,7 @@ impl RustResolver {
             self.resolve_mod(&request.importer, mod_name)
         };
         match resolution {
-            Resolution::Resolved(child) => Some(child),
+            Resolution::Resolved(mut children) => children.drain(..).next(),
             _ => None,
         }
     }
@@ -138,7 +138,7 @@ impl RustResolver {
         let base_dir = self.module_child_dir(importer);
         let segments: Vec<&str> = mod_name.split("::").filter(|s| !s.is_empty()).collect();
         match self.find_module_file(&base_dir, &segments) {
-            Some(target) if target != importer => Resolution::Resolved(target),
+            Some(target) if target != importer => Resolution::Resolved(vec![target]),
             Some(_) => Resolution::Builtin,
             None => Resolution::Unresolved(format!(
                 "no module file found for `mod {mod_name}` from {importer}"
@@ -163,7 +163,7 @@ impl RustResolver {
                 return if candidate == importer {
                     Resolution::Builtin
                 } else {
-                    Resolution::Resolved(candidate)
+                    Resolution::Resolved(vec![candidate])
                 };
             }
         }
@@ -180,7 +180,7 @@ impl RustResolver {
         if let Some(lib_target) = self.find_local_crate(importer, &crate_ident) {
             return match lib_target {
                 Some(path) if !self.is_self_or_mod_ancestor(importer, path) => {
-                    Resolution::Resolved(path.to_owned())
+                    Resolution::Resolved(vec![path.to_owned()])
                 }
                 _ => Resolution::Builtin,
             };
@@ -345,7 +345,7 @@ impl RustResolver {
                 Some(path) if self.is_mod_ancestor(original_importer, path) => {
                     self.resolve_in_module_file(original_importer, path, &segments[1..], visited)
                 }
-                Some(path) => Some(Resolution::Resolved(path.to_owned())),
+                Some(path) => Some(Resolution::Resolved(vec![path.to_owned()])),
                 None => Some(Resolution::Builtin),
             };
         }
@@ -509,7 +509,7 @@ impl RustResolver {
         if self.is_self_or_mod_ancestor(importer, &target) {
             Resolution::Builtin
         } else {
-            Resolution::Resolved(target)
+            Resolution::Resolved(vec![target])
         }
     }
 

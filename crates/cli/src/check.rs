@@ -57,8 +57,12 @@ pub(crate) enum CheckError {
     Configuration(#[from] ConfigurationFileError),
     #[error(transparent)]
     Codeowners(#[from] CodeownersError),
-    #[error("cannot resolve runtime imports")]
-    Resolve(#[source] ResolveError),
+    #[error("Language plugin {plugin:?} cannot resolve runtime imports")]
+    Resolve {
+        plugin: String,
+        #[source]
+        source: ResolveError,
+    },
     #[error("a Language plugin supplies an invalid Reference range")]
     ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
@@ -753,8 +757,12 @@ fn finalize_language_model(
     );
     model.declared_dependencies = declared_dependencies;
     model.runtime_imports =
-        resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
-            .map_err(CheckError::Resolve)?;
+        resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers).map_err(
+            |source| CheckError::Resolve {
+                plugin: named.name.to_owned(),
+                source,
+            },
+        )?;
     model.languages = vec![LanguageFacts {
         language: named.name.to_owned(),
         has_coverage: false,
@@ -952,7 +960,10 @@ pub(crate) fn read_manifests(
         .iter()
         .map(|named| {
             choose_manifests(named.plugin, tree.files())
-                .map_err(CheckError::Resolve)?
+                .map_err(|source| CheckError::Resolve {
+                    plugin: named.name.to_owned(),
+                    source,
+                })?
                 .into_iter()
                 .map(|path| {
                     Ok(Manifest {
