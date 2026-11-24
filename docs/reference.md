@@ -559,6 +559,7 @@ codeint impact src/sign.ts --package packages/missing
 
 `codeint trace` finds the shortest runtime import path connecting two measured files in the working tree.
 When `<FROM>` or `<TO>` is a Production file that its Language plugin marks as a program start, the report names `"program-start mark"` as the entry-point reason in `from_entry_point` or `to_entry_point` (and `Entry point: <path> (program-start mark)` in `text` format).
+When a step on a traced path comes from one import that leads to several files, the report lists that import and every file it leads to in `multi_file_imports` (and `Import <specifier> in <importer> leads to: <targets>` in `text` format).
 When no runtime import path connects them, it reports `connected: false` and exits with code 0:
 
 ```sh exit=0

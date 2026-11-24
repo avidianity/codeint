@@ -57,7 +57,7 @@ pub use measurement::CommitMeasurement;
 pub use ownership::OwnershipOptions;
 pub use saved::{SavedReport, SavedReportError};
 pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
-pub use trace::TraceReport;
+pub use trace::{TraceMultiFileImport, TraceReport};
 pub use trend::{TrendPoint, TrendReport};
 
 use dependencies::{ImportedDependencyRow, UnusedDependencyRow};
