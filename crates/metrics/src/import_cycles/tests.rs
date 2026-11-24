@@ -191,3 +191,105 @@ fn unresolved_imports_are_listed_by_importer_in_source_order_and_others_are_not(
         ]
     );
 }
+
+fn resolved_many(importer: &str, specifier: &str, targets: &[&str]) -> RuntimeImport {
+    RuntimeImport {
+        importer: path(importer),
+        specifier: specifier.to_owned(),
+        resolution: ImportResolution::Resolved(targets.iter().map(|t| path(t)).collect()),
+    }
+}
+
+#[test]
+fn multi_file_resolved_import_cycle_includes_only_participating_modules() {
+    let model = CodeModel {
+        files: ["a/a1.fld", "a/a2.fld", "b/b1.fld", "b/b2.fld", "c/c1.fld"]
+            .into_iter()
+            .map(module)
+            .collect(),
+        runtime_imports: vec![
+            resolved_many("a/a1.fld", "b", &["b/b1.fld", "b/b2.fld"]),
+            resolved_many("b/b1.fld", "c", &["c/c1.fld"]),
+            resolved_many("b/b2.fld", "a", &["a/a1.fld", "a/a2.fld"]),
+        ],
+        ..CodeModel::default()
+    };
+
+    let cycles = ImportCycles::measure(&model);
+
+    assert_eq!(cycle_members(&cycles), [["a/a1.fld", "b/b2.fld"]]);
+    assert_eq!(cycles.modules_in_import_cycles(), 2);
+    assert_eq!(cycles.modules(), 5);
+}
+
+#[test]
+fn duplicate_and_reordered_multi_file_targets_produce_identical_cycles_and_ids() {
+    let canonical = CodeModel {
+        files: ["a/a1.fld", "a/a2.fld", "b/b1.fld", "b/b2.fld"]
+            .into_iter()
+            .map(module)
+            .collect(),
+        runtime_imports: vec![
+            resolved_many("a/a1.fld", "b", &["b/b1.fld", "b/b2.fld"]),
+            resolved_many("b/b2.fld", "a", &["a/a1.fld", "a/a2.fld"]),
+        ],
+        ..CodeModel::default()
+    };
+    let duplicated = CodeModel {
+        files: ["b/b2.fld", "a/a2.fld", "b/b1.fld", "a/a1.fld"]
+            .into_iter()
+            .map(module)
+            .collect(),
+        runtime_imports: vec![
+            resolved_many("b/b2.fld", "a", &["a/a2.fld", "a/a1.fld", "a/a1.fld"]),
+            resolved_many("a/a1.fld", "b", &["b/b2.fld", "b/b1.fld", "b/b2.fld"]),
+            resolved_many("a/a1.fld", "b", &["b/b2.fld", "b/b1.fld"]),
+        ],
+        ..CodeModel::default()
+    };
+
+    let canonical_cycles = ImportCycles::measure(&canonical);
+    let duplicated_cycles = ImportCycles::measure(&duplicated);
+
+    assert_eq!(duplicated_cycles.cycles(), canonical_cycles.cycles());
+    assert_eq!(
+        cycle_members(&duplicated_cycles),
+        [["a/a1.fld", "b/b2.fld"]]
+    );
+    assert_eq!(duplicated_cycles.modules_in_import_cycles(), 2);
+}
+
+#[test]
+fn acyclic_multi_file_resolved_imports_form_no_import_cycle() {
+    let model = CodeModel {
+        files: [
+            "app/main.fld",
+            "left/l1.fld",
+            "left/l2.fld",
+            "right/r1.fld",
+            "right/r2.fld",
+            "shared/s1.fld",
+            "shared/s2.fld",
+        ]
+        .into_iter()
+        .map(module)
+        .collect(),
+        runtime_imports: vec![
+            resolved_many("app/main.fld", "left", &["left/l1.fld", "left/l2.fld"]),
+            resolved_many("app/main.fld", "right", &["right/r1.fld", "right/r2.fld"]),
+            resolved_many("left/l1.fld", "shared", &["shared/s1.fld", "shared/s2.fld"]),
+            resolved_many(
+                "right/r2.fld",
+                "shared",
+                &["shared/s1.fld", "shared/s2.fld"],
+            ),
+        ],
+        ..CodeModel::default()
+    };
+
+    let cycles = ImportCycles::measure(&model);
+
+    assert!(cycles.cycles().is_empty());
+    assert_eq!(cycles.modules_in_import_cycles(), 0);
+    assert_eq!(cycles.modules(), 7);
+}
