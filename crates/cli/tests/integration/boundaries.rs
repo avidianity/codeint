@@ -1,7 +1,9 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 
+use codeint_plugin_host::{sha256, sha256_hex};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -761,4 +763,176 @@ fn diff_classifies_boundary_findings_and_gates_new_regressions_without_failing_o
         resolved_diff["resolved"][0]["importer"],
         "src/domain/legacy.ts"
     );
+}
+
+static FOLDER_IMPORT_WASM: OnceLock<PathBuf> = OnceLock::new();
+
+fn folder_import_plugin_wasm() -> &'static Path {
+    FOLDER_IMPORT_WASM.get_or_init(|| {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path =
+            workspace_root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
+        let target_dir = workspace_root.join("target/wasm-fixtures");
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "folder-import-language-plugin",
+                "--locked",
+                "--offline",
+                "--target",
+                "wasm32-wasip2",
+            ])
+            .arg("--manifest-path")
+            .arg(manifest_path)
+            .arg("--target-dir")
+            .arg(&target_dir)
+            .status()
+            .expect("build folder-import-language-plugin");
+        assert!(
+            status.success(),
+            "folder-import-language-plugin build exited with {status}"
+        );
+        target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm")
+    })
+}
+
+fn fixture_with_folder_import_plugin(
+    boundaries_json: &str,
+    files: &[(&str, &str)],
+) -> BoundaryFixture {
+    let fixture = BoundaryFixture::init(files);
+    let wasm_bytes = fs::read(folder_import_plugin_wasm()).expect("read folder import wasm");
+    let hash = sha256_hex(&sha256(&wasm_bytes));
+    let plugin_dest = fixture
+        .0
+        .path()
+        .join("plugins/folder_import_language_plugin.wasm");
+    fs::create_dir_all(plugin_dest.parent().expect("plugin parent")).expect("mkdir plugins");
+    fs::write(plugin_dest, wasm_bytes).expect("write folder import wasm");
+    let config = format!(
+        r#"{{
+  "plugins": [
+    {{
+      "name": "folder-import-lang",
+      "path": "plugins/folder_import_language_plugin.wasm",
+      "sha256": "{hash}"
+    }}
+  ],
+  "boundaries": {boundaries_json}
+}}"#
+    );
+    fixture.write("codeint.json", &config);
+    fixture
+}
+
+#[test]
+fn check_multi_file_import_flags_only_forbidden_targets_and_matches_configured_rule() {
+    let fixture = fixture_with_folder_import_plugin(
+        r#"{
+    "zones": {
+      "ui": { "patterns": ["ui/**"] },
+      "public": { "patterns": ["shared/public.fld"] },
+      "secret": { "patterns": ["shared/secret.fld"] }
+    },
+    "rules": [
+      {
+        "from": "ui",
+        "deny": ["secret"],
+        "reason": "UI must not depend on secret files"
+      }
+    ]
+  }"#,
+        &[
+            ("shared/public.fld", "fn api()\n"),
+            ("shared/secret.fld", "fn internal()\n"),
+            ("ui/page.fld", "use shared\nfn render()\n"),
+        ],
+    );
+
+    let json = fixture.check_json(0);
+    let boundaries = &json["source_sets"]["production"]["boundaries"];
+    assert_eq!(boundaries["resolved_imports"], 2);
+    let findings = boundary_findings(&json, "production");
+    assert_eq!(findings.len(), 1, "got: {findings:?}");
+    let finding = &findings[0];
+    assert_eq!(finding["kind"], "zone_rule");
+    assert_eq!(finding["importer"], "ui/page.fld");
+    assert_eq!(finding["target"], "shared/secret.fld");
+    assert_eq!(finding["specifier"], "shared");
+    assert_eq!(finding["source_zone"], "ui");
+    assert_eq!(finding["target_zone"], "secret");
+    assert_eq!(finding["reason"], "UI must not depend on secret files");
+    assert!(
+        !findings
+            .iter()
+            .any(|item| item["target"] == "shared/public.fld")
+    );
+}
+
+#[test]
+fn check_multi_file_import_flags_each_forbidden_target_with_distinct_ids() {
+    let fixture = fixture_with_folder_import_plugin(
+        r#"{
+    "zones": {
+      "ui": { "patterns": ["ui/**"] },
+      "public": { "patterns": ["public/**"] },
+      "secret": { "patterns": ["secret/**"] }
+    },
+    "rules": [
+      {
+        "from": "ui",
+        "allow": ["public"],
+        "reason": "UI may import public modules only"
+      }
+    ]
+  }"#,
+        &[
+            ("secret/alpha.fld", "fn alpha()\n"),
+            ("secret/beta.fld", "fn beta()\n"),
+            ("public/ok.fld", "fn ok()\n"),
+            ("ui/page.fld", "use secret\nuse public\nfn render()\n"),
+        ],
+    );
+
+    let json = fixture.check_json(0);
+    let boundaries = &json["source_sets"]["production"]["boundaries"];
+    assert_eq!(boundaries["resolved_imports"], 3);
+    let findings = boundary_findings(&json, "production");
+    assert_eq!(findings.len(), 2, "got: {findings:?}");
+    let targets: Vec<&str> = findings
+        .iter()
+        .map(|item| item["target"].as_str().expect("target path"))
+        .collect();
+    assert_eq!(targets, vec!["secret/alpha.fld", "secret/beta.fld"]);
+    for finding in &findings {
+        assert_eq!(finding["kind"], "zone_rule");
+        assert_eq!(finding["importer"], "ui/page.fld");
+        assert_eq!(finding["specifier"], "secret");
+        assert_eq!(finding["source_zone"], "ui");
+        assert_eq!(finding["target_zone"], "secret");
+        assert_eq!(finding["reason"], "UI may import public modules only");
+    }
+    let first_id = findings[0]["id"].as_str().expect("first id");
+    let second_id = findings[1]["id"].as_str().expect("second id");
+    assert!(!first_id.is_empty());
+    assert_ne!(first_id, second_id);
+
+    let sarif = fixture.sarif_boundary_results(None, &["check", "--format", "sarif"], 0);
+    assert_eq!(sarif.len(), 2);
+    let sarif_targets: Vec<&str> = sarif
+        .iter()
+        .map(|result| {
+            result["relatedLocations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+                .as_str()
+                .expect("sarif related target")
+        })
+        .collect();
+    assert_eq!(sarif_targets, vec!["secret/alpha.fld", "secret/beta.fld"]);
+
+    let markdown = fixture.run_stdout(None, &["check", "--format", "markdown"], 0);
+    assert!(markdown.contains("`ui/page.fld`"));
+    assert!(markdown.contains("`secret/alpha.fld`"));
+    assert!(markdown.contains("`secret/beta.fld`"));
+    assert!(!markdown.contains("`public/ok.fld`"));
 }
