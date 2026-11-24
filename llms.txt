@@ -1,6 +1,6 @@
 # codeint
 
-> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) across TypeScript/JavaScript (including Vue and Svelte), Rust, PHP, Dart, Python, and external WebAssembly Language and Metric plugins.
+> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, and external WebAssembly Language and Metric plugins.
 > CLI commands include `check`, `diff`, `trend`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `agent`, `mcp`, `init`, and `update`, configured via `codeint.jsonc` or `codeint.json`.
 
 ## Guide

@@ -13,7 +13,7 @@ Every built-in Language plugin extracts:
 
 | Plugin name | Extensions | Workspace & dependency manifest | Default Test / Generated rules |
 | ----------- | ---------- | ------------------------------- | ------------------------------ |
-| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.test-d.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`; `.vue` and `.svelte` measure `<script>` blocks only |
+| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.test-d.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`; supports React (`.tsx`, `.jsx`, and JSX in `.js`/`.mjs`/`.cjs`); `.vue` and `.svelte` measure `<script>` blocks only |
 | `rust` | `.rs` | `Cargo.toml` | `tests/`, `benches/`, `examples/`, `tests.rs`, `*_test.rs`, `*_tests.rs`; inline `#[cfg(test)]` and `#[cfg(all(test, ...))]` excluded from Production |
 | `php` | `.php` | `composer.json` (`repositories` of type `path`) | `tests/`, `test/`, `*Test.php`, `*.test.php` |
 | `dart` | `.dart` | `pubspec.yaml` (`workspace`) | `test/`, `tests/`, `integration_test/`, `*_test.dart`; `*.g.dart`, `*.freezed.dart`, `*.gr.dart`, `*.mocks.dart`, `*.pb*.dart` -> Generated |
@@ -43,6 +43,9 @@ Sample Production measurements from `codeint check` (release build, Apple Silico
 
 | Language | Repository | Files | Prod lines | Erosion | Duplication | Verbosity | Import cycles | Time |
 | -------- | ---------- | ----- | ---------- | ------- | ----------- | --------- | ------------- | ---- |
+| React (TSX) | `ant-design/ant-design` | 2,424 | 175,216 | 32.9% | 7.6% | 7.6% | 0.0% | 0.34s |
+| React (TSX) | `mantinedev/mantine` | 5,230 | 331,943 | 38.2% | 22.0% | 22.0% | 0.8% | 0.74s |
+| React (JSX) | `gethomepage/homepage` | 582 | 29,325 | 63.2% | 19.9% | 19.9% | 0.0% | 0.14s |
 | Rust | `avidianity/codeint` | 176 | 43,487 | 10.1% | 1.2% | 1.3% | 1.7% | 0.11s |
 | Rust | `BurntSushi/ripgrep` | 105 | 24,961 | 36.4% | 31.1% | 31.3% | 29.3% | 0.07s |
 | Rust | `sharkdp/fd` | 25 | 3,423 | 44.6% | 0.0% | 0.1% | 56.5% | 0.02s |
@@ -53,3 +56,5 @@ Sample Production measurements from `codeint check` (release build, Apple Silico
 | Dart | `flutter/packages` | 4,137 | 434,407 | 45.9% | 23.1% | 23.3% | 18.5% | 3.68s |
 | Python | `django/django` | 865 | 116,838 | 42.3% | 1.8% | 2.9% | 18.6% | 0.33s |
 | Python | `home-assistant/core` | 5,592 | 671,942 | 23.4% | 8.2% | 8.3% | 2.6% | 0.73s |
+
+See the [20-repository React (JSX and TSX) evaluation](../research/react-jsx-tsx-panel.md) for full JSX and TSX verification results across 15,058 JSX/TSX files and 2.1M Production lines.
