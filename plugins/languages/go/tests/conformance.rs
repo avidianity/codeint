@@ -9,6 +9,10 @@ fn lower_ok(path: &str, src: &str) -> codeint_model::FileModel {
         .unwrap_or_else(|err| panic!("expected {path} to lower cleanly: {err}"))
 }
 
+fn fn_names(model: &codeint_model::FileModel) -> Vec<Option<&str>> {
+    model.functions.iter().map(|f| f.name.as_deref()).collect()
+}
+
 fn to_repo_paths(items: &[&str]) -> Vec<RepoPath> {
     items.iter().map(|p| RepoPath::new(*p).unwrap()).collect()
 }
@@ -186,9 +190,8 @@ func Map[T any, U ~int | ~string](items []T, fn func(T) U) []U {
 "#;
 
     let model = lower_ok("pkg/core.go", src);
-    let names: Vec<Option<&str>> = model.functions.iter().map(|f| f.name.as_deref()).collect();
     assert_eq!(
-        names,
+        fn_names(&model),
         [
             Some("makeStruct"),
             Some("makeInterface"),
@@ -736,22 +739,147 @@ func SliceOfFuncs(a, b, c, d bool) []func() int {
 		},
 	}
 }
+
+func SliceOfReturningFunc(a, b, c, d bool) []func() func() int {
+	return []func() func() int{
+		func() func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return nil
+						}
+					}
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func SliceOfPtrFunc(a, b, c, d bool) []*func() int {
+	return []*func() int{
+		ptr(func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return 1
+						}
+					}
+				}
+			}
+			return 0
+		}),
+	}
+}
+
+func MapOfReturningFunc(a, b, c, d bool) map[string]func() func() int {
+	return map[string]func() func() int{
+		\"k\": func() func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return nil
+						}
+					}
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func MapOfPtrFunc(a, b, c, d bool) map[string]*func() int {
+	return map[string]*func() int{
+		\"k\": ptr(func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return 1
+						}
+					}
+				}
+			}
+			return 0
+		}),
+	}
+}
+
+func ArrayOfPtrFunc(a, b, c, d bool) [1]*func() int {
+	return [1]*func() int{
+		ptr(func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return 1
+						}
+					}
+				}
+			}
+			return 0
+		}),
+	}
+}
+
+func IndexMulFuncLit(arr []int, a, b, c, d bool) int {
+	return arr[0] * func() int {
+		if a {
+			if b {
+				if c {
+					if d {
+						return 1
+					}
+				}
+			}
+		}
+		return 0
+	}()
+}
+
+func NumMulFuncLit(a, b, c, d bool) int {
+	return 2 * func() int {
+		if a {
+			if b {
+				if c {
+					if d {
+						return 1
+					}
+				}
+			}
+		}
+		return 0
+	}()
+}
 ";
-    let model = Go.lower(&RepoPath::new("p.go").unwrap(), src).unwrap();
-    let names: Vec<Option<&str>> = model.functions.iter().map(|f| f.name.as_deref()).collect();
+    let model = lower_ok("p.go", src);
     assert_eq!(
-        names,
+        fn_names(&model),
         [
             Some("Widget.ParenPtr"),
             Some("Widget.ParenVal"),
             Some("Direct"),
             Some("SliceOfFuncs"),
+            Some("SliceOfReturningFunc"),
+            Some("SliceOfPtrFunc"),
+            Some("MapOfReturningFunc"),
+            Some("MapOfPtrFunc"),
+            Some("ArrayOfPtrFunc"),
+            Some("IndexMulFuncLit"),
+            Some("NumMulFuncLit"),
         ]
     );
-    assert_eq!(
-        model.functions[2].cognitive_complexity,
-        model.functions[3].cognitive_complexity
-    );
+    let baseline = model.functions[2].cognitive_complexity;
+    for func in &model.functions[3..] {
+        assert_eq!(
+            func.cognitive_complexity, baseline,
+            "unexpected cognitive complexity for {:?}",
+            func.name
+        );
+    }
 
     let manifests = vec![Manifest {
         path: "go.mod".into(),

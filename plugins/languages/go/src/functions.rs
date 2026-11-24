@@ -175,13 +175,67 @@ fn parse_receiver(inner: &[GoToken]) -> (Option<String>, Option<String>) {
     (var_name, recv_type)
 }
 
+pub(crate) fn is_composite_func_type(tokens: &[GoToken], func_idx: usize) -> bool {
+    if !tokens.get(func_idx).is_some_and(|t| t.is_kw("func")) {
+        return false;
+    }
+    let mut prev = func_idx;
+    while prev > 0 && tokens[prev - 1].text == "*" {
+        prev -= 1;
+    }
+    if prev == 0 || tokens[prev - 1].text != "]" {
+        return false;
+    }
+    if prev == func_idx {
+        return true;
+    }
+    is_bracket_type_prefix(tokens, prev - 1)
+}
+
+fn is_bracket_type_prefix(tokens: &[GoToken], close_bracket: usize) -> bool {
+    let Some(open_bracket) = find_opening_bracket(tokens, close_bracket) else {
+        return false;
+    };
+    if open_bracket + 1 == close_bracket {
+        return true;
+    }
+    let Some(before) = open_bracket.checked_sub(1).map(|i| &tokens[i]) else {
+        return true;
+    };
+    if before.is_kw("map") {
+        return true;
+    }
+    let is_expr_end = matches!(
+        before.kind,
+        GoKind::Ident | GoKind::NumberLit | GoKind::StringLit | GoKind::RuneLit
+    ) || matches!(before.text.as_str(), ")" | "]" | "}");
+    !is_expr_end
+}
+
+fn find_opening_bracket(tokens: &[GoToken], close_bracket: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut idx = close_bracket;
+    loop {
+        match tokens[idx].text.as_str() {
+            "]" => depth += 1,
+            "[" => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(idx);
+                }
+            }
+            _ => {}
+        }
+        idx = idx.checked_sub(1)?;
+    }
+}
+
 fn is_func_literal_start(tokens: &[GoToken], func_idx: usize, limit: usize) -> bool {
     let is_func = tokens.get(func_idx).is_some_and(|t| t.is_kw("func"));
-    let follows_bracket = func_idx > 0 && tokens[func_idx - 1].text == "]";
     let has_open_paren = tokens
         .get(func_idx + 1)
         .is_some_and(|t| func_idx + 1 < limit && t.text == "(");
-    is_func && !follows_bracket && has_open_paren
+    is_func && !is_composite_func_type(tokens, func_idx) && has_open_paren
 }
 
 pub(crate) fn parse_func_literal_header(
@@ -719,6 +773,9 @@ impl CognitiveScorer<'_> {
         depth: u32,
         runs: &mut LogicalRunStack,
     ) -> Option<usize> {
+        if is_composite_func_type(self.tokens, cursor) {
+            return skip_go_type(self.tokens, cursor, end);
+        }
         let lit = parse_func_literal_header(self.tokens, cursor, end)?;
         runs.reset();
         if lit.body_open + 1 < lit.body_close {

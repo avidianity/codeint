@@ -3,7 +3,10 @@ use std::collections::{BTreeSet, HashSet};
 use codeint_model::language::FlaggedLine;
 use codeint_model::scan::{finalize_flagged, find_matching_delim, flag_range};
 
-use crate::functions::{GoFunctionSpan, find_control_body, parse_func_literal_header};
+use crate::functions::{
+    GoFunctionSpan, find_control_body, is_composite_func_type, parse_func_literal_header,
+    skip_go_type,
+};
 use crate::lexer::{GoKind, GoToken};
 
 const RULES: &[&str] = &[
@@ -91,6 +94,9 @@ impl RuleEvaluator<'_> {
     fn try_inspect_func_literal(&mut self, cursor: usize, limit: usize) -> Option<usize> {
         if !self.tokens[cursor].is_kw("func") {
             return None;
+        }
+        if is_composite_func_type(self.tokens, cursor) {
+            return skip_go_type(self.tokens, cursor, limit);
         }
         let lit = parse_func_literal_header(self.tokens, cursor, limit)?;
         let ctx = FuncContext {
