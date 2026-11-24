@@ -1,4 +1,4 @@
-use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
+use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, RepoPath, SourceSet};
 
@@ -105,27 +105,68 @@ fn sfc_without_script_is_empty_and_unclosed_script_is_unparsable() {
     assert_eq!(unicode.source_lines, 1);
 }
 
+fn manifest(path: &str, text: &str) -> Manifest {
+    Manifest {
+        path: path.into(),
+        text: text.into(),
+    }
+}
+
 #[test]
 fn vue_reference_ranges_detects_vue_2_and_vue_3_from_package_json() {
-    let v2 = vue_reference_ranges(&[Manifest {
-        path: "package.json".into(),
-        text: r#"{"dependencies":{"vue":"^2.7.16"}}"#.into(),
-    }])
+    let v2 = vue_reference_ranges(&[manifest(
+        "package.json",
+        r#"{"dependencies":{"vue":"^2.7.16"}}"#,
+    )])
     .unwrap();
     assert!(v2[0].source.contains("ADR 0014"));
 
-    let v3 = vue_reference_ranges(&[Manifest {
-        path: "package.json".into(),
-        text: r#"{"dependencies":{"vue":"^3.4.0"}}"#.into(),
-    }])
+    let v3 = vue_reference_ranges(&[manifest(
+        "package.json",
+        r#"{"dependencies":{"vue":"^3.4.0"}}"#,
+    )])
     .unwrap();
     assert!(v3[0].source.contains("ADR 0015"));
 
     assert!(
-        vue_reference_ranges(&[Manifest {
-            path: "package.json".into(),
-            text: r#"{"dependencies":{"react":"^18.0.0"}}"#.into(),
-        }])
+        vue_reference_ranges(&[manifest(
+            "package.json",
+            r#"{"dependencies":{"react":"^18.0.0"}}"#
+        )])
+        .is_none()
+    );
+}
+
+#[test]
+fn react_reference_ranges_detects_react_manifests_and_skips_node_modules() {
+    let root = react_reference_ranges(&[manifest(
+        "package.json",
+        r#"{"dependencies":{"react":"^18.3.1"}}"#,
+    )])
+    .unwrap();
+    assert!(root[0].source.contains("ADR 0020"));
+    assert_eq!(root[0].low, 0.106);
+    assert_eq!(root[0].high, 0.544);
+
+    let nested = react_reference_ranges(&[manifest(
+        "packages/web/package.json",
+        r#"{"peerDependencies":{"react":">=17"}}"#,
+    )])
+    .unwrap();
+    assert!(nested[0].source.contains("ADR 0020"));
+
+    assert!(
+        react_reference_ranges(&[manifest(
+            "node_modules/foo/package.json",
+            r#"{"dependencies":{"react":"^18.0.0"}}"#,
+        )])
+        .is_none()
+    );
+    assert!(
+        react_reference_ranges(&[manifest(
+            "package.json",
+            r#"{"dependencies":{"vue":"^3.4.0"}}"#
+        )])
         .is_none()
     );
 }

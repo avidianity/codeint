@@ -13,7 +13,7 @@ use codeint_lang_dart::Dart;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
-use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
+use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
@@ -848,14 +848,25 @@ fn select_reference_ranges(
     model: &CodeModel,
     manifests: &[Manifest],
 ) -> Result<ReferenceRanges, CheckError> {
-    if named.name == "typescript-javascript"
-        && model
+    if named.name == "typescript-javascript" {
+        let has_vue = model
             .files
             .iter()
-            .any(|f| f.path.as_str().ends_with(".vue"))
-        && let Some(ranges) = vue_reference_ranges(manifests)
-    {
-        return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
+            .any(|f| f.path.as_str().ends_with(".vue"));
+        let has_jsx_or_tsx = model
+            .files
+            .iter()
+            .any(|f| f.path.as_str().ends_with(".tsx") || f.path.as_str().ends_with(".jsx"));
+        let vue_ranges = has_vue.then(|| vue_reference_ranges(manifests)).flatten();
+        let react_ranges = has_jsx_or_tsx
+            .then(|| react_reference_ranges(manifests))
+            .flatten();
+        match (vue_ranges, react_ranges) {
+            (Some(ranges), None) | (None, Some(ranges)) => {
+                return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
+            }
+            _ => {}
+        }
     }
     named
         .plugin

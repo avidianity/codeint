@@ -1079,3 +1079,70 @@ fn extension_conflict_error_and_remedy_name_codeint_jsonc_when_active() {
         "expected codeint.jsonc in remedy, got: {remedy}"
     );
 }
+
+#[test]
+fn react_reference_ranges_select_adr_0020_and_preserve_vue_and_hybrid_precedence() {
+    let ts_plugin = [NamedLanguagePlugin {
+        name: "typescript-javascript",
+        plugin: &codeint_lang_ts::TypeScriptAndJavaScript,
+    }];
+
+    let react_report = json_report(
+        &[
+            ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
+            (
+                "src/App.tsx",
+                "export function App() { return <div>hello</div>; }\n",
+            ),
+        ],
+        &ts_plugin,
+    );
+    assert_eq!(
+        react_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
+        "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0"
+    );
+
+    let vue_with_tsx_report = json_report(
+        &[
+            ("package.json", r#"{"dependencies":{"vue":"^3.4.0"}}"#),
+            ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
+            ("src/Icon.tsx", "export const Icon = () => <span />;\n"),
+        ],
+        &ts_plugin,
+    );
+    assert_eq!(
+        vue_with_tsx_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
+        "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0"
+    );
+
+    let hybrid_report = json_report(
+        &[
+            (
+                "package.json",
+                r#"{"dependencies":{"react":"^18.3.1","vue":"^3.4.0"}}"#,
+            ),
+            ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
+            (
+                "src/Widget.tsx",
+                "export function Widget() { return <div />; }\n",
+            ),
+        ],
+        &ts_plugin,
+    );
+    assert_eq!(
+        hybrid_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
+        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+    );
+
+    let plain_ts_report = json_report(
+        &[
+            ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
+            ("src/util.ts", "export const answer = 42;\n"),
+        ],
+        &ts_plugin,
+    );
+    assert_eq!(
+        plain_ts_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
+        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+    );
+}
