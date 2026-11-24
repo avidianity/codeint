@@ -48,7 +48,7 @@ fn sample_plugin_bytes() -> Vec<u8> {
     fs::read(path).expect("read compiled sample plugin")
 }
 
-fn sandbox_probe_bytes(file_name: &str) -> Vec<u8> {
+pub(crate) fn sandbox_probe_bytes(file_name: &str) -> Vec<u8> {
     let dir = DOCTOR_SANDBOX_PROBES.get_or_init(|| {
         compile_fixture_dir(
             "crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml",

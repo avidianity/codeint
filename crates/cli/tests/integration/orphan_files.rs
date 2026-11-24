@@ -1,10 +1,12 @@
 use std::path::Path;
 use std::process::Command;
 
+use codeint_plugin_host::{sha256, sha256_hex};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use crate::common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
+use crate::doctor::sandbox_probe_bytes;
 
 fn run_codeint(dir: &Path, cache_dir: Option<&Path>, args: &[&str], expected_code: i32) -> String {
     let mut command = Command::new(env!("CARGO_BIN_EXE_codeint"));
@@ -465,4 +467,88 @@ fn non_workspace_subdirectory_package_excludes_package_tooling_from_orphans() {
     ]);
 
     assert_production_orphans(repo.path(), 2, &["frontend/src/dead.ts"]);
+}
+
+#[test]
+fn folder_import_language_plugin_marks_all_imported_folder_files_reachable_and_flags_orphans() {
+    let wasm_bytes = sandbox_probe_bytes("folder_import_language_plugin.wasm");
+    let digest = sha256_hex(&sha256(&wasm_bytes));
+    let config = json!({
+        "plugins": [{
+            "name": "folder-import-lang",
+            "kind": "language",
+            "path": "plugins/folder_import_language_plugin.wasm",
+            "sha256": digest
+        }]
+    })
+    .to_string();
+    let repo = init_git_repo(&[
+        ("codeint.json", config.as_str()),
+        ("fld.workspace", "entry: app/main.fld\n"),
+        ("app/main.fld", "use core\nuse solo\nfn main()\n"),
+        ("core/alpha.fld", "fn alpha()\n"),
+        ("core/beta.fld", "use nested\nfn beta()\n"),
+        ("core/alpha_test.fld", "use helpers\nfn test_alpha()\n"),
+        ("nested/first.fld", "fn first()\n"),
+        ("nested/second.fld", "fn second()\n"),
+        ("solo/only.fld", "fn only()\n"),
+        ("unused/orphan_a.fld", "fn orphan_a()\n"),
+        ("unused/orphan_b.fld", "fn orphan_b()\n"),
+        ("helpers/mock_a.fld", "fn mock_a()\n"),
+        ("helpers/mock_b.fld", "use helpers_deep\nfn mock_b()\n"),
+        ("helpers_deep/deep_a.fld", "fn deep_a()\n"),
+        ("helpers_deep/deep_b.fld", "fn deep_b()\n"),
+        ("tests/suite_test.fld", "use helpers\nfn test_helpers()\n"),
+    ]);
+    let plugin_path = repo
+        .path()
+        .join("plugins/folder_import_language_plugin.wasm");
+    std::fs::create_dir_all(plugin_path.parent().expect("plugin parent"))
+        .expect("create plugins dir");
+    std::fs::write(&plugin_path, &wasm_bytes).expect("write folder import wasm plugin");
+
+    let report = check_json(repo.path(), 0);
+    let orphan = production_orphans(&report);
+    assert_eq!(orphan["evaluated_files"], 12);
+    assert_eq!(orphan["entry_points"], 1);
+    assert_eq!(orphan["orphan_files"], 6);
+    assert_eq!(orphan["unreferenced"], 2);
+    assert_eq!(orphan["test_only"], 4);
+
+    let findings = orphan["findings"].as_array().expect("orphan findings");
+    let expected_importers: &[&str] = &["core/alpha_test.fld", "tests/suite_test.fld"];
+    let observed: Vec<(&str, &str, Vec<&str>)> = findings
+        .iter()
+        .map(|entry| {
+            let importers = entry
+                .get("test_importers")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .map(|item| item.as_str().expect("test importer path"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            (
+                entry["path"].as_str().expect("finding path"),
+                entry["kind"].as_str().expect("finding kind"),
+                importers,
+            )
+        })
+        .collect();
+    let expected: Vec<(&str, &str, &[&str])> = vec![
+        ("helpers/mock_a.fld", "test-only", expected_importers),
+        ("helpers/mock_b.fld", "test-only", expected_importers),
+        ("helpers_deep/deep_a.fld", "test-only", expected_importers),
+        ("helpers_deep/deep_b.fld", "test-only", expected_importers),
+        ("unused/orphan_a.fld", "unreferenced", &[]),
+        ("unused/orphan_b.fld", "unreferenced", &[]),
+    ];
+    assert_eq!(
+        observed
+            .iter()
+            .map(|(path, kind, importers)| (*path, *kind, importers.as_slice()))
+            .collect::<Vec<_>>(),
+        expected
+    );
 }
