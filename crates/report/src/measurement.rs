@@ -249,7 +249,7 @@ impl SourceSetMeasurement {
         duplication_config: DuplicationConfig,
         orphan_files: Option<&OrphanFiles>,
     ) -> Result<SourceSetMeasurement, MetricPluginError> {
-        let measured = Measured::new(model, import_model, boundaries, duplication_config);
+        let measured = Measured::new(model, import_model, None, boundaries, duplication_config);
         let boundaries = measured
             .boundaries
             .as_ref()

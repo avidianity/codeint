@@ -5,7 +5,7 @@ use codeint_model::SourceSet;
 use serde::Serialize;
 
 use crate::measurement::{CommitMeasurement, SourceSetMeasurement};
-use crate::{Decimal, ReportError};
+use crate::{Decimal, ReportError, TEST_GAP_TREND_NOTE};
 
 mod markdown;
 
@@ -19,6 +19,8 @@ pub struct TrendPoint {
 pub struct TrendReport {
     commits: usize,
     source_sets: SourceSetTrends,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test_gap_note: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -50,6 +52,13 @@ struct TrendRow {
 
 impl TrendReport {
     pub fn of(points_oldest_first: Vec<TrendPoint>) -> TrendReport {
+        TrendReport::of_with_test_gap_note(points_oldest_first, false)
+    }
+
+    pub fn of_with_test_gap_note(
+        points_oldest_first: Vec<TrendPoint>,
+        include_test_gap_note: bool,
+    ) -> TrendReport {
         let commits = points_oldest_first.len();
         let mut source_sets = SourceSetTrends::default();
         for point in points_oldest_first {
@@ -66,6 +75,7 @@ impl TrendReport {
         TrendReport {
             commits,
             source_sets,
+            test_gap_note: include_test_gap_note.then(|| TEST_GAP_TREND_NOTE.to_owned()),
         }
     }
 

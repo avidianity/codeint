@@ -1231,6 +1231,73 @@ fn coverage_reader_metric_plugin_receives_per_language_coverage_statement_from_c
     );
 }
 
+#[test]
+fn coverage_reader_metric_plugin_receives_filled_function_and_language_coverage_facts() {
+    let (repo, _hash) = init_single_probe_repo(
+        "coverage-reader",
+        Some("metric"),
+        "coverage_reader_metric_plugin.wasm",
+        r#""coverage_reports": ["coverage/lcov.info"]"#,
+    );
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        concat!(
+            "export function covered(x: number): number {\n",
+            "  const doubled = x * 2;\n",
+            "  return doubled;\n",
+            "}\n",
+            "export function partial(x: number): number {\n",
+            "  if (x > 0) {\n",
+            "    return x;\n",
+            "  }\n",
+            "  return 0;\n",
+            "}\n",
+        ),
+    );
+    write_file(
+        repo.path(),
+        "coverage/lcov.info",
+        concat!(
+            "SF:src/app.ts\n",
+            "DA:2,1\n",
+            "DA:3,1\n",
+            "DA:6,1\n",
+            "DA:7,0\n",
+            "DA:9,1\n",
+            "end_of_record\n",
+        ),
+    );
+
+    let report = run_check_json_report(repo.path());
+    let findings = report["source_sets"]["production"]["coverage_reader"]["findings"]
+        .as_array()
+        .expect("coverage_reader findings list");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["path"] == "src/app.ts"
+                && finding["id"] == "covered:covered"
+                && finding["message"] == "listed=2 executed=2"
+        }),
+        "expected filled coverage for covered(), got: {findings:?}"
+    );
+    assert!(
+        findings.iter().any(|finding| {
+            finding["path"] == "src/app.ts"
+                && finding["id"] == "covered:partial"
+                && finding["message"] == "listed=3 executed=2"
+        }),
+        "expected filled coverage for partial(), got: {findings:?}"
+    );
+    assert_exact_language_findings(
+        findings,
+        &[(
+            "languages/typescript-javascript",
+            "language=typescript-javascript has_coverage=true",
+        )],
+    );
+}
+
 fn init_program_start_repo() -> (TempDir, String) {
     let (repo, hash) = init_single_probe_repo(
         "program-start",

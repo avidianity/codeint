@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::string::FromUtf8Error;
 
 use codeint_config::{
@@ -14,7 +14,7 @@ use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
-use codeint_metrics::{DependencyHygiene, OrphanFiles};
+use codeint_metrics::{CoverageApplyError, CoverageParseError, DependencyHygiene, OrphanFiles};
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, HazardLine, InvalidReferenceRange, LanguageFacts,
     LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
@@ -28,8 +28,11 @@ use codeint_plugin_host::{
 use codeint_report::{LanguageSchema, MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
+mod coverage;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use coverage::{CoverageReportDigest, hash_configured_coverage_reports};
 
 #[derive(Debug)]
 pub(crate) struct ConfigScopedError<E> {
@@ -89,6 +92,26 @@ pub(crate) enum CheckError {
         requested: String,
         available: Vec<String>,
     },
+    #[error("Coverage report {path:?} does not exist")]
+    MissingCoverageReport { path: String },
+    #[error("cannot read Coverage report {path:?}")]
+    UnreadableCoverageReport {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("cannot parse Coverage report {path:?}")]
+    InvalidCoverageReport {
+        path: String,
+        #[source]
+        source: CoverageParseError,
+    },
+    #[error(transparent)]
+    CoverageApply(#[from] CoverageApplyError),
+    #[error(
+        "budgets.production.test_gap ({budget}) is set, but Test gap is absent; the Test gap Budget needs a Coverage report"
+    )]
+    TestGapBudgetWithoutCoverage { budget: f64 },
 }
 
 impl CheckError {
@@ -467,6 +490,7 @@ pub(crate) fn check(
     findings: FindingsShown,
     package: Option<&str>,
     owner: Option<&str>,
+    coverage_reports: &[PathBuf],
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
     let run = PreparedRun::load(folder, owner, plugin_host)?;
@@ -477,9 +501,13 @@ pub(crate) fn check(
         &run.context.configuration,
         &plugins,
         &metric_plugins,
-        findings,
-        package,
-        run.ownership(),
+        CheckRequest {
+            folder,
+            findings,
+            package,
+            cli_coverage_reports: coverage_reports,
+            ownership: run.ownership(),
+        },
     )
 }
 
@@ -497,16 +525,29 @@ fn check_with(
         &configuration,
         plugins,
         &[],
-        findings,
-        None,
-        OwnershipOptions::default(),
+        CheckRequest {
+            folder,
+            findings,
+            package: None,
+            cli_coverage_reports: &[],
+            ownership: OwnershipOptions::default(),
+        },
     )
+}
+
+struct CheckRequest<'a> {
+    folder: &'a Path,
+    findings: FindingsShown,
+    package: Option<&'a str>,
+    cli_coverage_reports: &'a [PathBuf],
+    ownership: OwnershipOptions<'a>,
 }
 
 pub(crate) struct MeasuredSnapshot {
     pub(crate) languages: Vec<MeasuredLanguage>,
     pub(crate) entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
     pub(crate) manifests_by_language: BTreeMap<String, Vec<Manifest>>,
+    pub(crate) file_line_counts: BTreeMap<RepoPath, usize>,
 }
 
 pub(crate) fn compute_orphan_files(
@@ -562,37 +603,34 @@ fn check_loaded(
     configuration: &Configuration,
     plugins: &[NamedLanguagePlugin<'_>],
     metric_plugins: &[&dyn MetricPlugin],
-    findings: FindingsShown,
-    package: Option<&str>,
-    ownership: OwnershipOptions<'_>,
+    request: CheckRequest<'_>,
 ) -> Result<Report, CheckError> {
+    let selected_coverage_paths = coverage::select_coverage_report_paths(
+        request.folder,
+        repository.root(),
+        &configuration.coverage_reports,
+        request.cli_coverage_reports,
+    );
+    let coverage_reports_named = !selected_coverage_paths.is_empty();
+    let loaded_coverage = coverage::load_coverage_reports(&selected_coverage_paths)?;
     let tree = repository.working_tree()?;
     let mut snapshot = measure_snapshot(&tree, plugins, configuration)?;
-    let selected = if let Some(requested) = package {
-        let workspace = workspace_of_languages(&snapshot.languages);
-        Some((select_workspace_package(&workspace, requested)?, workspace))
-    } else {
-        None
-    };
+    let coverage_outcome = coverage::apply_loaded_coverage_reports(
+        &loaded_coverage,
+        &mut snapshot.languages,
+        &snapshot.file_line_counts,
+    )?;
+    let selected = resolve_package_selection(&snapshot.languages, request.package)?;
     let selected_ref = selected.as_ref().map(|(pkg, _)| pkg);
     let (orphan_files, orphan_files_by_language) = compute_orphan_files(&snapshot, selected_ref);
     let (dependency_hygiene, dependency_hygiene_by_language) =
         compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected_ref);
-    if let Some((selected_pkg, workspace)) = &selected {
-        filter_languages_to_package(&mut snapshot.languages, selected_pkg);
-        refresh_reference_ranges_for_package(
-            &mut snapshot.languages,
-            plugins,
-            &snapshot.manifests_by_language,
-            workspace,
-            selected_pkg,
-        )?;
-    }
-    Report::summarize_with_options(
+    apply_selected_package(&mut snapshot, plugins, selected.as_ref())?;
+    let report = Report::summarize_with_options(
         snapshot.languages,
         tree.submodules().to_vec(),
         ReportOptions {
-            findings,
+            findings: request.findings,
             budgets: &configuration.budgets,
             metric_plugins,
             boundaries: configuration.boundaries.as_ref(),
@@ -602,10 +640,58 @@ fn check_loaded(
             duplication: configuration.duplication,
             orphan_files: orphan_files.as_ref(),
             orphan_files_by_language: Some(&orphan_files_by_language),
-            ownership,
+            ownership: request.ownership,
+            coverage_reports_named,
+            unmatched_coverage_paths: &coverage_outcome.unmatched_paths,
         },
     )
-    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
+    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))?;
+    ensure_test_gap_budget_present(configuration, &report)?;
+    Ok(report)
+}
+
+fn resolve_package_selection(
+    languages: &[MeasuredLanguage],
+    package: Option<&str>,
+) -> Result<Option<(SelectedPackage, Workspace)>, CheckError> {
+    let Some(requested) = package else {
+        return Ok(None);
+    };
+    let workspace = workspace_of_languages(languages);
+    Ok(Some((
+        select_workspace_package(&workspace, requested)?,
+        workspace,
+    )))
+}
+
+fn apply_selected_package(
+    snapshot: &mut MeasuredSnapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    selected: Option<&(SelectedPackage, Workspace)>,
+) -> Result<(), CheckError> {
+    let Some((selected_pkg, workspace)) = selected else {
+        return Ok(());
+    };
+    filter_languages_to_package(&mut snapshot.languages, selected_pkg);
+    refresh_reference_ranges_for_package(
+        &mut snapshot.languages,
+        plugins,
+        &snapshot.manifests_by_language,
+        workspace,
+        selected_pkg,
+    )
+}
+
+fn ensure_test_gap_budget_present(
+    configuration: &Configuration,
+    report: &Report,
+) -> Result<(), CheckError> {
+    if let Some(budget) = configuration.budgets.production_test_gap()
+        && !report.has_production_test_gap()
+    {
+        return Err(CheckError::TestGapBudgetWithoutCoverage { budget });
+    }
+    Ok(())
 }
 
 pub(crate) fn measure_with(
@@ -646,8 +732,8 @@ fn measure(
     let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
     let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides, config_file)?;
-    let models = collect_plugin_models(plugins.len(), workspace, outcomes);
-    resolve_measured_snapshot(
+    let (models, file_line_counts) = collect_plugin_models(plugins.len(), workspace, outcomes);
+    let mut snapshot = resolve_measured_snapshot(
         tree,
         plugins,
         models,
@@ -655,7 +741,9 @@ fn measure(
         &plugin_members,
         configured_entry_points,
         config_file,
-    )
+    )?;
+    snapshot.file_line_counts = file_line_counts;
+    Ok(snapshot)
 }
 
 fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
@@ -677,7 +765,7 @@ fn lower_covered_files(
     covered_files: &[(&RepoPath, usize)],
     overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
-) -> Result<Vec<(usize, LoweredFile)>, CheckError> {
+) -> Result<Vec<(usize, LoweredOutcome)>, CheckError> {
     let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
     let lower_file = |bytes: Vec<u8>, path: &RepoPath, index: usize| {
         let lowered = lower_bytes(
@@ -709,23 +797,27 @@ fn lower_covered_files(
 fn collect_plugin_models(
     plugin_count: usize,
     workspace: Workspace,
-    outcomes: Vec<(usize, LoweredFile)>,
-) -> Vec<CodeModel> {
+    outcomes: Vec<(usize, LoweredOutcome)>,
+) -> (Vec<CodeModel>, BTreeMap<RepoPath, usize>) {
     let mut models: Vec<CodeModel> = (0..plugin_count)
         .map(|_| CodeModel {
             workspace: workspace.clone(),
             ..CodeModel::default()
         })
         .collect();
+    let mut file_line_counts = BTreeMap::new();
     for (index, outcome) in outcomes {
+        if let Some((path, lines)) = outcome.line_count {
+            file_line_counts.insert(path, lines);
+        }
         let model = &mut models[index];
-        match outcome {
+        match outcome.file {
             LoweredFile::Measured(file) => model.files.push(file),
             LoweredFile::DeclarationOnly(path) => model.declaration_only.push(path),
             LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
         }
     }
-    models
+    (models, file_line_counts)
 }
 
 fn resolve_measured_snapshot(
@@ -774,6 +866,7 @@ fn resolve_measured_snapshot(
         languages,
         entry_points_by_language,
         manifests_by_language,
+        file_line_counts: BTreeMap::new(),
     })
 }
 
@@ -1140,6 +1233,11 @@ fn find_plugin_workspaces(
         .collect()
 }
 
+struct LoweredOutcome {
+    file: LoweredFile,
+    line_count: Option<(RepoPath, usize)>,
+}
+
 enum LoweredFile {
     Measured(SourceFile),
     DeclarationOnly(RepoPath),
@@ -1171,14 +1269,21 @@ fn lower_bytes(
     listed_hazard_rules: &HashSet<String>,
     overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
-) -> Result<LoweredFile, CheckError> {
+) -> Result<LoweredOutcome, CheckError> {
     let text = match String::from_utf8(bytes) {
         Ok(text) => text,
-        Err(error) => return Ok(LoweredFile::Skipped(not_utf8(path.clone(), &error))),
+        Err(error) => {
+            return Ok(LoweredOutcome {
+                file: LoweredFile::Skipped(not_utf8(path.clone(), &error)),
+                line_count: None,
+            });
+        }
     };
+    let line_count = text.lines().count();
+    let recorded_lines = Some((path.clone(), line_count));
     match named.plugin.lower(path, &text) {
         Ok(mut file) => {
-            validate_hazard_line_bounds(named.name, path, &text, &file.hazard_lines)
+            validate_hazard_line_bounds(named.name, path, line_count, &file.hazard_lines)
                 .map_err(|error| CheckError::language_plugin(config_file, error))?;
             validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
                 .map_err(|error| CheckError::language_plugin(config_file, error))?;
@@ -1190,26 +1295,34 @@ fn lower_bytes(
             }
             file.source_set =
                 overrides.source_set(path, settle_source_set(path, &text, file.source_set));
-            Ok(LoweredFile::Measured(SourceFile {
-                path: path.clone(),
-                model: file,
-            }))
+            Ok(LoweredOutcome {
+                file: LoweredFile::Measured(SourceFile {
+                    path: path.clone(),
+                    model: file,
+                }),
+                line_count: recorded_lines,
+            })
         }
-        Err(LowerError::DeclarationOnly) => Ok(LoweredFile::DeclarationOnly(path.clone())),
-        Err(reason) => Ok(LoweredFile::Skipped(SkippedFile {
-            path: path.clone(),
-            reason: reason.to_string(),
-        })),
+        Err(LowerError::DeclarationOnly) => Ok(LoweredOutcome {
+            file: LoweredFile::DeclarationOnly(path.clone()),
+            line_count: recorded_lines,
+        }),
+        Err(reason) => Ok(LoweredOutcome {
+            file: LoweredFile::Skipped(SkippedFile {
+                path: path.clone(),
+                reason: reason.to_string(),
+            }),
+            line_count: recorded_lines,
+        }),
     }
 }
 
 fn validate_hazard_line_bounds(
     plugin_name: &str,
     path: &RepoPath,
-    text: &str,
+    line_count: usize,
     hazard_lines: &[HazardLine],
 ) -> Result<(), LanguagePluginError> {
-    let line_count = text.lines().count();
     for hazard in hazard_lines {
         let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
         if line_number < 1 || line_number > line_count {

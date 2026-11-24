@@ -224,7 +224,8 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          findings: []\n      \
          unresolved_imports:\n        \
          count: 0\n        \
-         imports: []\n"
+         imports: []\n\
+         test_gap_note: Test gap is not measured because no Coverage report was named.\n"
     )
 }
 
@@ -2728,7 +2729,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -3373,6 +3374,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       }
     }
   },
+  "test_gap_note": "Test gap is not measured because no Coverage report was named.",
   "skipped": [
     {
       "path": "src/broken.ts",
@@ -4119,7 +4121,7 @@ fn a_budget_for_an_unknown_metric_names_the_metrics_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budgets": { "production": { "complexity": 0.1 } } }"#,
         "codeint.json has an unknown key budgets.production.complexity; \
-         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries, orphan_files",
+         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries, orphan_files, test_gap",
         UNKNOWN_KEY_REMEDY,
     );
 }

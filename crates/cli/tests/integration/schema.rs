@@ -140,6 +140,7 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
         flag_names(check_cmd),
         BTreeSet::from([
             "--all".to_owned(),
+            "--coverage-report".to_owned(),
             "--format".to_owned(),
             "--output".to_owned(),
             "--owner".to_owned(),
@@ -185,8 +186,17 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
             "unused_dependencies",
             "unlisted_dependencies",
             "dev_in_production_dependencies",
+            "test_gap",
         ]
     );
+    let config_keys: BTreeSet<&str> = manifest["configuration_keys"]
+        .as_array()
+        .expect("configuration_keys array")
+        .iter()
+        .map(|k| k.as_str().expect("config key string"))
+        .collect();
+    assert!(config_keys.contains("coverage_reports"));
+    assert!(config_keys.contains("budgets"));
     for metric in manifest["metrics"].as_array().expect("metrics array") {
         assert!(!metric["name"].as_str().unwrap_or_default().is_empty());
         assert!(

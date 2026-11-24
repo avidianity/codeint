@@ -129,12 +129,17 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
     vec![
         McpToolSchema {
             name: "check".to_owned(),
-            description: "Measure Software entropy of a Git repository working tree (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene) and report any Budget failures.".to_owned(),
+            description: "Measure Software entropy of a Git repository working tree (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, Test gap) and report any Budget failures.".to_owned(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Folder inside the Git repository (defaults to server working directory)." },
                     "package": { "type": "string", "description": "Optional Workspace package path to scope measurement and output." },
+                    "coverage_reports": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional LCOV or Cobertura XML Coverage report paths; when provided, replaces coverage_reports in codeint.json."
+                    },
                     "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
                 }
             }),
@@ -294,10 +299,15 @@ fn dispatch_tool(
 
 fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder)?;
+    let coverage_reports: Vec<PathBuf> = parse_string_array(args, "coverage_reports")?
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
     let options = CheckOptions {
         findings: parse_findings(args)?,
         package: parse_package(args),
         owner: None,
+        coverage_reports,
         plugin_host: ctx.plugin_host.clone(),
     };
     Ok(match check(&folder, &options) {

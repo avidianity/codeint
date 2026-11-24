@@ -2,7 +2,7 @@ use codeint_model::RepoPath;
 use serde_json::Value;
 
 use super::{DetectedLanguage, starter_configuration_text};
-use crate::codeint_json::{configuration_schema, shape};
+use crate::codeint_json::{configuration_schema, parse, parse_jsonc, shape};
 
 fn path(text: &str) -> RepoPath {
     RepoPath::new(text).expect("a repository-relative path")
@@ -32,9 +32,14 @@ fn the_starter_configuration_passes_the_shape_check_of_the_published_schema_with
     }];
 
     for languages in [&detected[..], &[]] {
-        let starter: Value = serde_json::from_str(&starter_configuration_text(languages))
-            .expect("the starter configuration is JSON");
+        let text = starter_configuration_text(languages);
+        assert!(text.contains("\"coverage_reports\": []"), "{text}");
+        assert!(text.contains("// \"test_gap\": 0.2"), "{text}");
+        let starter: Value = parse_jsonc(&text).expect("the starter configuration is valid JSONC");
 
         shape::check_shape(&starter, &schema).expect("the starter configuration fits the schema");
+        let parsed = parse(&text).expect("the starter configuration parses cleanly");
+        assert!(parsed.budgets.production_test_gap().is_none());
+        assert!(parsed.coverage_reports.is_empty());
     }
 }

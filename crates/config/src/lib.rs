@@ -276,6 +276,7 @@ pub enum Command {
         format: ReportFormat,
         package: Option<String>,
         owner: Option<String>,
+        coverage_reports: Vec<PathBuf>,
         plugin_host: PluginHostConfig,
     },
     Diff {
@@ -399,6 +400,12 @@ enum CommandArguments {
             help = "A folder inside the Git repository to measure; the current folder by default"
         )]
         path: Option<PathBuf>,
+        #[arg(
+            long = "coverage-report",
+            value_name = "PATH",
+            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in codeint.json"
+        )]
+        coverage_reports: Vec<PathBuf>,
         #[command(flatten)]
         report: ReportArguments,
     },
@@ -834,9 +841,11 @@ fn build_command(
     arguments: CommandArguments,
 ) -> Result<Command, ConfigError> {
     match arguments {
-        CommandArguments::Check { path, report } => {
-            build_check_command(current_folder, path, report)
-        }
+        CommandArguments::Check {
+            path,
+            coverage_reports,
+            report,
+        } => build_check_command(current_folder, path, coverage_reports, report),
         CommandArguments::Diff {
             base_ref,
             head_ref,
@@ -1072,6 +1081,7 @@ fn build_coupling_command(
 fn build_check_command(
     current_folder: &Path,
     path: Option<PathBuf>,
+    coverage_reports: Vec<PathBuf>,
     report: ReportArguments,
 ) -> Result<Command, ConfigError> {
     Ok(Command::Check {
@@ -1081,6 +1091,7 @@ fn build_check_command(
         format: report.format,
         package: report.package,
         owner: report.owner,
+        coverage_reports,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }

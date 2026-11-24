@@ -1,10 +1,10 @@
 use codeint_config::{
     CliCommandSchema, CliSchema, NewFindingsRule, OutputFormatSchema, RegressionLimits,
-    SchemaFormat,
+    SchemaFormat, configuration_schema,
 };
 use codeint_metrics::{
-    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, UNLISTED_DEPENDENCIES_METRIC_KEY,
-    UNUSED_DEPENDENCIES_METRIC_KEY,
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, TEST_GAP_METRIC_KEY,
+    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
 };
 use codeint_model::{Metric, SourceSet};
 use serde::Serialize;
@@ -102,6 +102,13 @@ pub(crate) const DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR: BuiltInMetricDescrip
         help: "Move the dependency to runtime dependencies in the package manifest, or stop importing it from Production files.",
     };
 
+pub(crate) const TEST_GAP_DESCRIPTOR: BuiltInMetricDescriptor = BuiltInMetricDescriptor {
+    name: "Test gap",
+    short_description: "A Production function whose executable lines tests do not fully execute",
+    full_description: "Test gap is the share of total Production Function mass that tests do not execute, computed from LCOV or Cobertura XML Coverage reports.",
+    help: "Add tests that execute the uncovered lines of this function, starting with the heaviest untested functions first.",
+};
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SchemaReport {
     name: String,
@@ -109,6 +116,7 @@ pub struct SchemaReport {
     description: String,
     commands: Vec<CliCommandSchema>,
     metrics: Vec<MetricSchema>,
+    configuration_keys: Vec<String>,
     source_sets: Vec<&'static str>,
     languages: Vec<LanguageSchema>,
     output_formats: Vec<OutputFormatSchema>,
@@ -123,8 +131,10 @@ pub struct MetricSchema {
     short_description: &'static str,
     description: &'static str,
     unit: &'static str,
-    default_ratio_rise_limit: f64,
-    default_new_findings_rule: NewFindingsRule,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_ratio_rise_limit: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_new_findings_rule: Option<NewFindingsRule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -188,6 +198,10 @@ impl SchemaReport {
             let limit = default_limits.limit_for_dependency(key);
             metrics.push(metric_schema(key, descriptor, limit));
         }
+        metrics.push(metric_schema_without_regression(
+            TEST_GAP_METRIC_KEY,
+            TEST_GAP_DESCRIPTOR,
+        ));
         let source_sets = SOURCE_SETS.into_iter().map(SourceSet::key).collect();
         SchemaReport {
             name: cli.name,
@@ -195,6 +209,7 @@ impl SchemaReport {
             description: cli.description,
             commands: cli.commands,
             metrics,
+            configuration_keys: configuration_top_level_keys(),
             source_sets,
             languages,
             output_formats: cli.output_formats,
@@ -211,6 +226,18 @@ impl SchemaReport {
     }
 }
 
+fn configuration_top_level_keys() -> Vec<String> {
+    let schema: Value =
+        serde_json::from_str(&configuration_schema()).expect("configuration schema is valid JSON");
+    let mut keys: Vec<String> = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|properties| properties.keys().cloned().collect())
+        .unwrap_or_default();
+    keys.sort();
+    keys
+}
+
 fn metric_schema(
     key: &'static str,
     descriptor: BuiltInMetricDescriptor,
@@ -222,7 +249,22 @@ fn metric_schema(
         short_description: descriptor.short_description,
         description: descriptor.full_description,
         unit: "ratio",
-        default_ratio_rise_limit: limit.ratio_rise.ratio(),
-        default_new_findings_rule: limit.new_findings,
+        default_ratio_rise_limit: Some(limit.ratio_rise.ratio()),
+        default_new_findings_rule: Some(limit.new_findings),
+    }
+}
+
+fn metric_schema_without_regression(
+    key: &'static str,
+    descriptor: BuiltInMetricDescriptor,
+) -> MetricSchema {
+    MetricSchema {
+        key,
+        name: descriptor.name,
+        short_description: descriptor.short_description,
+        description: descriptor.full_description,
+        unit: "ratio",
+        default_ratio_rise_limit: None,
+        default_new_findings_rule: None,
     }
 }

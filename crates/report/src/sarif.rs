@@ -3,21 +3,21 @@ use std::collections::{BTreeMap, HashSet};
 use serde::Serialize;
 
 use codeint_metrics::{
-    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, UNLISTED_DEPENDENCIES_METRIC_KEY,
-    UNUSED_DEPENDENCIES_METRIC_KEY,
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, TEST_GAP_METRIC_KEY,
+    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
 };
 use codeint_model::{Metric, SourceSet};
 
 use crate::schema::{
     BUILT_IN_METRICS, BuiltInMetricDescriptor, COGNITIVE_COMPLEXITY_DESCRIPTOR,
-    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR, ORPHAN_FILES_DESCRIPTOR,
+    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR, ORPHAN_FILES_DESCRIPTOR, TEST_GAP_DESCRIPTOR,
     UNLISTED_DEPENDENCIES_DESCRIPTOR, UNUSED_DEPENDENCIES_DESCRIPTOR, built_in_metric_descriptor,
 };
 use crate::{
     BoundaryFindingRow, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding, CloneGroupFinding,
     CloneLocation, CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding,
     FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, Report,
-    SourceSetSection, UnusedDependencyRow,
+    SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -160,6 +160,7 @@ pub(crate) struct ListedFindings<'findings> {
     pub(crate) import_cycles: &'findings [ImportCycleFinding],
     pub(crate) boundaries: &'findings [BoundaryFindingRow],
     pub(crate) orphan_files: &'findings [OrphanFileRow],
+    pub(crate) test_gap: &'findings [TestGapFindingRow],
     pub(crate) external_metrics: Vec<ListedExternalMetric<'findings>>,
 }
 
@@ -215,6 +216,15 @@ impl SarifLog {
             .iter()
             .any(|(_, listed)| !listed.orphan_files.is_empty())
             .then(|| push_rule(&mut rules, orphan_files_descriptor()));
+        let test_gap_rule_index = collected
+            .iter()
+            .any(|(_, listed)| !listed.test_gap.is_empty())
+            .then(|| {
+                push_rule(
+                    &mut rules,
+                    rule_from_descriptor(TEST_GAP_METRIC_KEY, TEST_GAP_DESCRIPTOR),
+                )
+            });
         let dependency_rules = register_dependency_rules(&mut rules, &dependencies);
         let external_rule_indices = register_external_rules(&mut rules, &collected);
         let mut all_results: Vec<SarifResult> = collected
@@ -225,6 +235,7 @@ impl SarifLog {
                     listed,
                     boundaries_rule_index,
                     orphan_files_rule_index,
+                    test_gap_rule_index,
                     &external_rule_indices,
                 )
             })
@@ -548,6 +559,10 @@ impl<'findings> ListedFindings<'findings> {
                 .orphan_files
                 .as_ref()
                 .map_or(&[], |orphans| orphans.findings.listed.as_slice()),
+            test_gap: section
+                .test_gap
+                .as_ref()
+                .map_or(&[], |test_gap| test_gap.findings.listed.as_slice()),
             external_metrics: section
                 .external_metrics
                 .iter()
@@ -567,6 +582,7 @@ fn results(
     listed: &ListedFindings<'_>,
     boundaries_rule_index: Option<usize>,
     orphan_files_rule_index: Option<usize>,
+    test_gap_rule_index: Option<usize>,
     external_rule_indices: &BTreeMap<String, usize>,
 ) -> Vec<SarifResult> {
     let eroded_functions = listed.eroded_functions.iter().map(|function| {
@@ -579,26 +595,17 @@ fn results(
             Vec::new(),
         )
     });
-    let cognitive_complexity = listed
-        .cognitive_complexity
-        .iter()
-        .map(|function| SarifResult {
-            rule_id: COGNITIVE_COMPLEXITY_KEY.to_owned(),
-            rule_index: COGNITIVE_COMPLEXITY_RULE_INDEX,
-            level: "note",
-            message: Text {
-                text: complex_function_message(function),
-            },
-            locations: [Location::in_repository(&function.path, function.line, None)],
-            related_locations: Vec::new(),
-            partial_fingerprints: PartialFingerprints {
-                codeint_finding_id: function.id.clone(),
-            },
-            properties: ResultProperties {
-                source_set: Some(source_set.key()),
-                package: None,
-            },
-        });
+    let cognitive_complexity = listed.cognitive_complexity.iter().map(|function| {
+        function_metric_result(
+            COGNITIVE_COMPLEXITY_KEY,
+            COGNITIVE_COMPLEXITY_RULE_INDEX,
+            source_set,
+            &function.id,
+            complex_function_message(function),
+            &function.path,
+            function.line,
+        )
+    });
     let clustered_group_ids: HashSet<&str> = listed
         .clone_families
         .iter()
@@ -674,6 +681,17 @@ fn results(
             package: None,
         },
     });
+    let test_gap = listed.test_gap.iter().map(|finding| {
+        function_metric_result(
+            TEST_GAP_METRIC_KEY,
+            test_gap_rule_index.unwrap_or_default(),
+            source_set,
+            &finding.id,
+            test_gap_finding_message(finding),
+            &finding.path,
+            finding.line,
+        )
+    });
     let external_findings = listed.external_metrics.iter().flat_map(|external| {
         let rule_index = external_rule_indices
             .get(external.key)
@@ -709,8 +727,48 @@ fn results(
         .chain(import_cycles)
         .chain(boundaries)
         .chain(orphan_files)
+        .chain(test_gap)
         .chain(external_findings)
         .collect()
+}
+
+fn function_metric_result(
+    rule_id: &str,
+    rule_index: usize,
+    source_set: SourceSet,
+    finding_id: &str,
+    message: String,
+    path: &str,
+    line: u32,
+) -> SarifResult {
+    SarifResult {
+        rule_id: rule_id.to_owned(),
+        rule_index,
+        level: "note",
+        message: Text { text: message },
+        locations: [Location::in_repository(path, line, None)],
+        related_locations: Vec::new(),
+        partial_fingerprints: PartialFingerprints {
+            codeint_finding_id: finding_id.to_owned(),
+        },
+        properties: ResultProperties {
+            source_set: Some(source_set.key()),
+            package: None,
+        },
+    }
+}
+
+fn test_gap_finding_message(finding: &TestGapFindingRow) -> String {
+    match finding.name.as_deref() {
+        Some(name) => format!(
+            "Untested function {name}: Function mass {}; untested share {}.",
+            finding.function_mass.0, finding.untested_share.0
+        ),
+        None => format!(
+            "Untested function: Function mass {}; untested share {}.",
+            finding.function_mass.0, finding.untested_share.0
+        ),
+    }
 }
 
 fn eroded_function_message(function: &ErodedFunctionFinding) -> String {
