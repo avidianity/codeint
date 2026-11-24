@@ -1,9 +1,44 @@
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 
+use codeint_plugin_host::{sha256, sha256_hex};
 use serde_json::{Value, json};
 
 use crate::common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
+
+static FOLDER_IMPORT_WASM: OnceLock<PathBuf> = OnceLock::new();
+
+fn folder_import_wasm_path() -> &'static Path {
+    FOLDER_IMPORT_WASM.get_or_init(|| {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest =
+            workspace_root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
+        let target_dir = workspace_root.join("target/wasm-fixtures");
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "folder-import-language-plugin",
+                "--locked",
+                "--offline",
+                "--target",
+                "wasm32-wasip2",
+            ])
+            .arg("--manifest-path")
+            .arg(&manifest)
+            .arg("--target-dir")
+            .arg(&target_dir)
+            .status()
+            .expect("build folder-import-language-plugin wasm fixture");
+        assert!(
+            status.success(),
+            "folder-import-language-plugin build failed: {status}"
+        );
+        target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm")
+    })
+}
 
 fn run_trace(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_codeint"))
@@ -62,6 +97,7 @@ fn trace_finds_shortest_runtime_import_path_in_cli_json_text_and_toon() {
     assert_eq!(parsed["connected"], true);
     assert_eq!(parsed["shortest_distance"], 2);
     assert_eq!(parsed["truncated"], false);
+    assert!(parsed.get("multi_file_imports").is_none());
     assert_eq!(
         parsed["paths"],
         json!([["src/a.ts", "src/d.ts", "src/target.ts"]])
@@ -105,6 +141,7 @@ fn trace_all_returns_multiple_shortest_paths_deterministically_with_cap() {
     let parsed = trace_json(repo.path(), &["src/entry.ts", "src/leaf.ts", "--all"]);
     assert_eq!(parsed["shortest_distance"], 2);
     assert_eq!(parsed["truncated"], false);
+    assert!(parsed.get("multi_file_imports").is_none());
     assert_eq!(
         parsed["paths"],
         json!([
@@ -280,4 +317,118 @@ fn trace_works_across_source_sets_and_python_and_rejects_zero_max_paths() {
         ],
     );
     assert_eq!(zero_cap.status.code(), Some(2));
+}
+
+#[test]
+fn trace_lists_every_file_of_a_folder_import_and_explains_reachability() {
+    let wasm_bytes = fs::read(folder_import_wasm_path()).expect("read folder import wasm");
+    let wasm_hash = sha256_hex(&sha256(&wasm_bytes));
+    let config = format!(
+        r#"{{"plugins":[{{"name":"folder-import-lang","path":"plugins/folder_import_language_plugin.wasm","sha256":"{wasm_hash}"}}]}}"#
+    );
+    let repo = init_git_repo(&[
+        ("codeint.json", &config),
+        (
+            "src/app.fld",
+            "program main\nuse pkg/mid\nuse pkg/unused\nfn main()\n",
+        ),
+        ("pkg/mid/a.fld", "use pkg/leaf\nfn alpha()\n"),
+        ("pkg/mid/b.fld", "use pkg/leaf\nfn beta()\n"),
+        ("pkg/mid/sibling.fld", "fn sibling()\n"),
+        ("pkg/leaf/end.fld", "fn end()\n"),
+        ("pkg/leaf/other.fld", "fn other()\n"),
+        ("pkg/unused/u1.fld", "fn u1()\n"),
+        ("pkg/unused/u2.fld", "fn u2()\n"),
+    ]);
+    let plugin_dest = repo
+        .path()
+        .join("plugins/folder_import_language_plugin.wasm");
+    fs::create_dir_all(plugin_dest.parent().unwrap()).unwrap();
+    fs::write(&plugin_dest, &wasm_bytes).unwrap();
+
+    let all_json = trace_json(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]);
+    assert_eq!(all_json["from"], "src/app.fld");
+    assert_eq!(all_json["to"], "pkg/leaf/end.fld");
+    assert_eq!(all_json["from_entry_point"], "program-start mark");
+    assert_eq!(all_json["connected"], true);
+    assert_eq!(all_json["shortest_distance"], 2);
+    assert_eq!(
+        all_json["paths"],
+        json!([
+            ["src/app.fld", "pkg/mid/a.fld", "pkg/leaf/end.fld"],
+            ["src/app.fld", "pkg/mid/b.fld", "pkg/leaf/end.fld"],
+        ])
+    );
+    assert_eq!(
+        all_json["multi_file_imports"],
+        json!([
+            {
+                "importer": "src/app.fld",
+                "specifier": "pkg/mid",
+                "targets": ["pkg/mid/a.fld", "pkg/mid/b.fld", "pkg/mid/sibling.fld"],
+            },
+            {
+                "importer": "pkg/mid/a.fld",
+                "specifier": "pkg/leaf",
+                "targets": ["pkg/leaf/end.fld", "pkg/leaf/other.fld"],
+            },
+            {
+                "importer": "pkg/mid/b.fld",
+                "specifier": "pkg/leaf",
+                "targets": ["pkg/leaf/end.fld", "pkg/leaf/other.fld"],
+            },
+        ])
+    );
+
+    let all_text = trace_text(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]);
+    assert_eq!(
+        all_text,
+        [
+            "Entry point: src/app.fld (program-start mark)",
+            "src/app.fld -> pkg/mid/a.fld -> pkg/leaf/end.fld",
+            "src/app.fld -> pkg/mid/b.fld -> pkg/leaf/end.fld",
+            "Import pkg/mid in src/app.fld leads to: pkg/mid/a.fld, pkg/mid/b.fld, pkg/mid/sibling.fld",
+            "Import pkg/leaf in pkg/mid/a.fld leads to: pkg/leaf/end.fld, pkg/leaf/other.fld",
+            "Import pkg/leaf in pkg/mid/b.fld leads to: pkg/leaf/end.fld, pkg/leaf/other.fld",
+        ]
+        .join("\n")
+    );
+
+    let toon_output = run_trace(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]);
+    assert!(
+        toon_output.status.success(),
+        "trace toon failed: {}",
+        String::from_utf8_lossy(&toon_output.stderr)
+    );
+    let toon = String::from_utf8(toon_output.stdout).unwrap();
+    assert!(toon.contains("multi_file_imports"), "toon: {toon}");
+    assert!(toon.contains("pkg/mid/sibling.fld"), "toon: {toon}");
+    assert!(toon.contains("pkg/leaf/other.fld"), "toon: {toon}");
+
+    let direct_json = trace_json(repo.path(), &["src/app.fld", "pkg/mid/sibling.fld"]);
+    assert_eq!(direct_json["connected"], true);
+    assert_eq!(direct_json["shortest_distance"], 1);
+    assert_eq!(
+        direct_json["paths"],
+        json!([["src/app.fld", "pkg/mid/sibling.fld"]])
+    );
+    assert_eq!(
+        direct_json["multi_file_imports"],
+        json!([
+            {
+                "importer": "src/app.fld",
+                "specifier": "pkg/mid",
+                "targets": ["pkg/mid/a.fld", "pkg/mid/b.fld", "pkg/mid/sibling.fld"],
+            }
+        ])
+    );
+    assert_eq!(
+        trace_text(repo.path(), &["src/app.fld", "pkg/mid/sibling.fld"]),
+        [
+            "Entry point: src/app.fld (program-start mark)",
+            "src/app.fld -> pkg/mid/sibling.fld",
+            "Import pkg/mid in src/app.fld leads to: pkg/mid/a.fld, pkg/mid/b.fld, pkg/mid/sibling.fld",
+        ]
+        .join("\n")
+    );
 }

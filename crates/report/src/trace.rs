@@ -8,6 +8,13 @@ use crate::ReportError;
 const PROGRAM_START_ENTRY_POINT_REASON: &str = "program-start mark";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TraceMultiFileImport {
+    pub importer: String,
+    pub specifier: String,
+    pub targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TraceReport {
     pub from: String,
     pub to: String,
@@ -18,6 +25,8 @@ pub struct TraceReport {
     pub connected: bool,
     pub shortest_distance: Option<usize>,
     pub paths: Vec<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub multi_file_imports: Vec<TraceMultiFileImport>,
     pub truncated: bool,
 }
 
@@ -48,6 +57,19 @@ impl TraceReport {
                 .paths
                 .into_iter()
                 .map(|chain| chain.into_iter().map(|path| path.to_string()).collect())
+                .collect(),
+            multi_file_imports: result
+                .multi_file_imports
+                .into_iter()
+                .map(|import| TraceMultiFileImport {
+                    importer: import.importer.to_string(),
+                    specifier: import.specifier,
+                    targets: import
+                        .targets
+                        .into_iter()
+                        .map(|target| target.to_string())
+                        .collect(),
+                })
                 .collect(),
             truncated: result.truncated,
         }
@@ -85,6 +107,14 @@ fn render_text(report: &TraceReport) -> String {
         return lines.join("\n");
     }
     lines.extend(report.paths.iter().map(|chain| chain.join(" -> ")));
+    for import in &report.multi_file_imports {
+        lines.push(format!(
+            "Import {} in {} leads to: {}",
+            import.specifier,
+            import.importer,
+            import.targets.join(", ")
+        ));
+    }
     if report.truncated {
         lines.push(format!("(truncated at {} paths)", report.paths.len()));
     }
