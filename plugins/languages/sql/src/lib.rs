@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod flagged;
+mod hazards;
 mod parser;
 mod source_set;
 mod statements;
@@ -18,6 +19,7 @@ use codeint_model::{
 };
 
 pub use flagged::flagged_line_rules;
+pub use hazards::{SQL_HAZARD_RULES, hazard_line_rules};
 pub use parser::{ParsedSqlStatement, RejectedSqlStatement};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -113,13 +115,14 @@ impl Sql {
         let (parsed_statements, rejected_statements) =
             parse_all_statements(path, self.dialect, extracted);
         let flagged_lines = flagged::evaluate(&parsed_statements, &code_lines);
+        let hazard_lines = hazards::collect_statement_hazards(&parsed_statements, self.dialect);
         let source_set = source_set::classify(path, source);
 
         Ok(SqlLowerOutput {
             file_model: FileModel {
                 runtime_imports: Vec::new(),
                 flagged_lines,
-                hazard_lines: Vec::new(),
+                hazard_lines,
                 tokens: duplication_tokens,
                 functions,
                 source_lines,
@@ -182,11 +185,14 @@ impl LanguagePlugin for Sql {
     }
 
     fn has_hazard_rules(&self) -> bool {
-        false
+        true
     }
 
     fn hazard_rules(&self) -> Vec<String> {
-        Vec::new()
+        SQL_HAZARD_RULES
+            .iter()
+            .map(|rule| (*rule).to_owned())
+            .collect()
     }
 
     fn has_imports(&self) -> bool {
