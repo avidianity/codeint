@@ -91,6 +91,7 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
         dependencies: Default::default(),
         duplication: Default::default(),
         entry_points: Vec::new(),
+        coverage_reports: Vec::new(),
         languages: (!languages.is_empty()).then(|| {
             languages
                 .iter()

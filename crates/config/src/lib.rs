@@ -31,9 +31,9 @@ pub use codeint_json::{
     DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, LanguageCoverage,
     Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource,
     SchemaValueSpan, SchemaVersionStatus, Sha256Digest, SourceSetOverrides,
-    StarterConfigurationError, configuration_schema, discover_config_file, inspect_configuration,
-    is_broken_symlink, published_schema_address, read_configuration, read_resolved_configuration,
-    schema_value_span, write_starter_configuration,
+    StarterConfigurationError, TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file,
+    inspect_configuration, is_broken_symlink, published_schema_address, read_configuration,
+    read_resolved_configuration, schema_value_span, write_starter_configuration,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use config_error::{

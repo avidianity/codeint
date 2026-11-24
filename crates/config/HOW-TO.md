@@ -48,6 +48,9 @@ if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric
 ```
 
 - `budget` returns `None` when `codeint.json` sets no Budget for that Metric in that Source set; that Metric then never fails.
+- `production_test_gap` reads `budgets.production.test_gap` as `Option<f64>`, and `budget_for_key(SourceSet::Production, "test_gap")` returns the corresponding `Option<Budget>`.
+- Setting `test_gap` under `budgets.test`, `budgets.generated`, or `budgets.vendored` fails with `ConfigurationFileError::TestGapBudgetOutsideProduction` (exit code 2), because Test gap covers only the Production Source set.
+- Setting `test_gap` under `regression_limits` (top-level or under any Source set) fails with `ConfigurationFileError::TestGapRegressionLimit` (exit code 2), because Test gap has no Regression check.
 - `dependency_budget` reads top-level Dependency hygiene Budgets (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`).
 - A Budget applies to the total of every Language plugin; the report never checks the section of one Language plugin against it.
 - A Budget is a ratio from 0 to 1; the shape check rejects any other number with exit code 2.
@@ -113,6 +116,11 @@ for declaration in &configuration.plugins {
 - `configuration.duplication.near_clones` is `false` by default, keeping exact Clone groups as the default behavior.
 - `configuration.duplication.min_similarity` is a validated `MinSimilarity` in `(0.0, 1.0]`, defaulting to `0.85`.
 - Any `min_similarity` outside `(0.0, 1.0]` fails `read_configuration` with `ConfigurationFileError::OutOfExclusiveMinRange` (exit code 2).
+
+## Read Coverage report paths
+
+- `configuration.coverage_reports` holds the repository-relative paths declared under `coverage_reports` in `codeint.json` or `codeint.jsonc`, and defaults to an empty list.
+- Empty entries, absolute paths, and `..` parent traversal segments fail `read_configuration` with `ConfigurationFileError` (exit code 2) naming `coverage_reports[i]`.
 
 ## Add a setting
 
