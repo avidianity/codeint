@@ -45,7 +45,7 @@ impl<'a> PathMatcher<'a> {
         {
             return resolved;
         }
-        let segments = normalize_segments(report_path);
+        let segments = normalize_segments(report_path)?;
         self.unique_match_for_segments(&segments)
     }
 
@@ -62,7 +62,9 @@ impl<'a> PathMatcher<'a> {
                 continue;
             }
             let combined = format!("{trimmed_root}/{report_path}");
-            let segments = normalize_segments(&combined);
+            let Some(segments) = normalize_segments(&combined) else {
+                continue;
+            };
             let MatchCandidateResult::Matched { score, paths } =
                 self.best_matches_for_segments(&segments)
             else {
@@ -173,7 +175,7 @@ fn has_windows_drive_prefix(path: &str) -> bool {
     bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
-fn normalize_segments(raw: &str) -> Vec<String> {
+fn normalize_segments(raw: &str) -> Option<Vec<String>> {
     let replaced = raw.trim().replace('\\', "/");
     let without_drive = if has_windows_drive_prefix(&replaced) {
         &replaced[2..]
@@ -185,14 +187,10 @@ fn normalize_segments(raw: &str) -> Vec<String> {
         match segment {
             "" | "." => {}
             ".." => {
-                if stack.last().is_some_and(|prev| prev != "..") {
-                    stack.pop();
-                } else {
-                    stack.push("..".to_owned());
-                }
+                stack.pop()?;
             }
             other => stack.push(other.to_owned()),
         }
     }
-    stack
+    Some(stack)
 }

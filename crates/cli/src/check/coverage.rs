@@ -51,7 +51,7 @@ pub(crate) fn select_coverage_report_paths(
 }
 
 fn resolve_cli_coverage_path(folder: &Path, repository_root: &Path, raw: &Path) -> PathBuf {
-    if raw.is_absolute() || raw.exists() {
+    if raw.is_absolute() {
         return raw.to_path_buf();
     }
     let under_folder = folder.join(raw);
@@ -62,12 +62,13 @@ fn resolve_cli_coverage_path(folder: &Path, repository_root: &Path, raw: &Path) 
 }
 
 pub(crate) fn load_coverage_reports(
+    repository_root: &Path,
     paths: &[ResolvedCoverageReportPath],
 ) -> Result<Vec<NamedCoverageReport>, CheckError> {
     paths
         .iter()
         .map(|target| {
-            let bytes = read_bounded_coverage_file(&target.display, &target.full)?;
+            let bytes = read_bounded_coverage_file(repository_root, &target.display, &target.full)?;
             let report = parse_coverage_report(&bytes).map_err(|source| {
                 CheckError::InvalidCoverageReport {
                     path: target.display.clone(),
@@ -109,7 +110,7 @@ pub(crate) fn hash_configured_coverage_reports(
         .iter()
         .map(|entry| {
             let full = repository_root.join(entry);
-            let digest = read_bounded_coverage_file(entry, &full)
+            let digest = read_bounded_coverage_file(repository_root, entry, &full)
                 .ok()
                 .map(|bytes| sha256_hex(&sha256(&bytes)));
             CoverageReportDigest {
@@ -120,19 +121,14 @@ pub(crate) fn hash_configured_coverage_reports(
         .collect()
 }
 
-fn read_bounded_coverage_file(display_path: &str, full_path: &Path) -> Result<Vec<u8>, CheckError> {
-    let file = std::fs::File::open(full_path).map_err(|source| {
-        if source.kind() == std::io::ErrorKind::NotFound {
-            CheckError::MissingCoverageReport {
-                path: display_path.to_owned(),
-            }
-        } else {
-            CheckError::UnreadableCoverageReport {
-                path: display_path.to_owned(),
-                source,
-            }
-        }
-    })?;
+fn read_bounded_coverage_file(
+    repository_root: &Path,
+    display_path: &str,
+    full_path: &Path,
+) -> Result<Vec<u8>, CheckError> {
+    let canonical_path = ensure_within_repository(repository_root, display_path, full_path)?;
+    let file = std::fs::File::open(&canonical_path)
+        .map_err(|source| map_coverage_io_error(display_path, source))?;
     if let Ok(metadata) = file.metadata() {
         let len = metadata.len();
         let max_bytes = MAX_COVERAGE_REPORT_BYTES as u64;
@@ -165,4 +161,34 @@ fn read_bounded_coverage_file(display_path: &str, full_path: &Path) -> Result<Ve
         });
     }
     Ok(bytes)
+}
+
+fn ensure_within_repository(
+    repository_root: &Path,
+    display_path: &str,
+    full_path: &Path,
+) -> Result<PathBuf, CheckError> {
+    let canonical_root = std::fs::canonicalize(repository_root)
+        .map_err(|source| map_coverage_io_error(display_path, source))?;
+    let canonical_path = std::fs::canonicalize(full_path)
+        .map_err(|source| map_coverage_io_error(display_path, source))?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err(CheckError::CoverageReportOutsideRepository {
+            path: display_path.to_owned(),
+        });
+    }
+    Ok(canonical_path)
+}
+
+fn map_coverage_io_error(display_path: &str, source: std::io::Error) -> CheckError {
+    if source.kind() == std::io::ErrorKind::NotFound {
+        CheckError::MissingCoverageReport {
+            path: display_path.to_owned(),
+        }
+    } else {
+        CheckError::UnreadableCoverageReport {
+            path: display_path.to_owned(),
+            source,
+        }
+    }
 }

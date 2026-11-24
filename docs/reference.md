@@ -1517,7 +1517,7 @@ The top-level object has these fields:
 | `coverage_unmatched_note` | string, optional | One note naming every Coverage report path that matched no repository file or matched several files equally well |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
 | `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
-| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note` and `dependencies` for that plugin's files |
+| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note`, `test_gap_note`, and `dependencies` for that plugin's files |
 | `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
@@ -1553,7 +1553,7 @@ Each Finding is an object with an `id`, followed by fields that depend on its ki
 
 - An eroded function has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cyclomatic_complexity`, `cognitive_complexity`, `source_lines`, and `function_mass`.
 - A complex function (Cognitive complexity) has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `cognitive_complexity`, `cyclomatic_complexity`, and `source_lines`.
-- A Test gap Finding has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `function_mass`, `untested_share`, and `untested_mass` (with optional `listed_lines` and `executed_lines`); Findings are ordered by `untested_mass` (`Function mass * untested_share`), largest first, and fully tested functions produce no Finding.
+- A Test gap Finding has `path`, `line`, `end_line`, optional `name` (omitted for anonymous closures), `function_mass`, `untested_share`, and optional `owners`; Findings are ordered by `function_mass * untested_share`, largest first, and fully tested functions produce no Finding.
 - A Clone group has `tokens`, optional `similarity` (present on near-clone Findings as a ratio in `(0, 1]`), and `locations`; each location has `path`, `start_line`, and `end_line`.
 - A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.

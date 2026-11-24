@@ -94,6 +94,8 @@ pub(crate) enum CheckError {
     },
     #[error("Coverage report {path:?} does not exist")]
     MissingCoverageReport { path: String },
+    #[error("Coverage report {path:?} is outside the Git repository")]
+    CoverageReportOutsideRepository { path: String },
     #[error("cannot read Coverage report {path:?}")]
     UnreadableCoverageReport {
         path: String,
@@ -612,7 +614,8 @@ fn check_loaded(
         request.cli_coverage_reports,
     );
     let coverage_reports_named = !selected_coverage_paths.is_empty();
-    let loaded_coverage = coverage::load_coverage_reports(&selected_coverage_paths)?;
+    let loaded_coverage =
+        coverage::load_coverage_reports(repository.root(), &selected_coverage_paths)?;
     let tree = repository.working_tree()?;
     let mut snapshot = measure_snapshot(&tree, plugins, configuration)?;
     let coverage_outcome = coverage::apply_loaded_coverage_reports(

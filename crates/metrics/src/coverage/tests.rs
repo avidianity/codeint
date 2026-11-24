@@ -557,3 +557,18 @@ fn apply_with_no_reports_leaves_all_coverage_facts_absent() {
     assert!(!models[0].languages[0].has_coverage);
     assert_eq!(models[0].files[0].model.functions[0].coverage, None);
 }
+
+#[test]
+fn path_matcher_rejects_relative_parent_traversal_paths() {
+    let repo = vec![repo_path("packages/web/src/view.ts")];
+    let matcher = PathMatcher::new(&repo);
+    assert_eq!(
+        matcher.match_path("../../packages/web/src/view.ts", &[]),
+        None
+    );
+    assert_eq!(matcher.match_path("../outside/view.ts", &[]), None);
+    assert_eq!(
+        matcher.match_path("/workspace/packages/web/src/../src/view.ts", &[]),
+        Some(&repo[0])
+    );
+}

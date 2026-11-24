@@ -777,3 +777,83 @@ fn mcp_check_returns_test_gap_findings_budget_failures_and_missing_coverage_budg
         "{err_text}"
     );
 }
+
+#[test]
+fn coverage_reports_outside_repository_and_mcp_cwd_isolation_are_enforced() {
+    let outer = tempfile::tempdir().expect("tempdir");
+    let outside_secret = outer.path().join("secret.info");
+    std::fs::write(&outside_secret, "TN:probe\nSECRET_VALUE=TOP_SECRET_12345\n")
+        .expect("write outside secret");
+    let outside_lcov = outer.path().join("outside.info");
+    std::fs::write(&outside_lcov, "SF:src/main.ts\nDA:2,1\nend_of_record\n")
+        .expect("write outside lcov");
+
+    let repo_a = init_git_repo(&[
+        ("src/a.ts", "export function a() { return 1; }\n"),
+        ("cov/lcov.info", "SF:src/a.ts\nDA:1,1\nend_of_record\n"),
+    ]);
+    let repo_b = init_git_repo(&[
+        ("src/b.ts", "export function b() { return 2; }\n"),
+        ("cov/lcov.info", "SF:src/b.ts\nDA:1,0\nend_of_record\n"),
+    ]);
+
+    let abs_out = run_codeint(
+        repo_a.path(),
+        &[
+            "check",
+            "--format",
+            "json",
+            "--coverage-report",
+            outside_secret.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(abs_out.status.code(), Some(2));
+    let abs_err = String::from_utf8_lossy(&abs_out.stderr);
+    assert!(abs_err.contains("outside the Git repository"), "{abs_err}");
+    assert!(!abs_err.contains("TOP_SECRET_12345"), "{abs_err}");
+
+    #[cfg(unix)]
+    {
+        let link = repo_a.path().join("cov/escape.info");
+        std::os::unix::fs::symlink(&outside_lcov, &link).expect("symlink");
+        write_coverage_config(repo_a.path(), &["cov/escape.info"], None);
+        let sym_out = run_codeint(repo_a.path(), &["check", "--format", "json"], None);
+        assert_eq!(sym_out.status.code(), Some(2));
+        let sym_err = String::from_utf8_lossy(&sym_out.stderr);
+        assert!(sym_err.contains("outside the Git repository"), "{sym_err}");
+        let _ = std::fs::remove_file(&link);
+        write_config(repo_a.path(), "{}");
+    }
+
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+            "name": "check",
+            "arguments": {
+                "path": repo_b.path().to_str().unwrap(),
+                "coverage_reports": ["cov/lcov.info"]
+            }
+        }
+    });
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .arg("mcp")
+        .current_dir(repo_a.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn mcp");
+    use std::io::Write;
+    writeln!(child.stdin.as_mut().unwrap(), "{request}").expect("write mcp");
+    drop(child.stdin.take());
+    let output = child.wait_with_output().expect("mcp output");
+    assert!(output.status.success());
+    let line = String::from_utf8(output.stdout).expect("utf8");
+    let resp: serde_json::Value = serde_json::from_str(line.trim()).expect("mcp json");
+    let payload = mcp_payload(&resp);
+    assert_eq!(prod_test_gap(&payload["report"])["ratio"], 1.0);
+    assert!(payload["report"].get("coverage_unmatched_note").is_none());
+}

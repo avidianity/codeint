@@ -90,6 +90,9 @@ fn coverage_check_remedy(error: &CheckError) -> Option<&'static str> {
         CheckError::MissingCoverageReport { .. } => {
             "Check that the Coverage report path exists and generate it with your test runner before running codeint check."
         }
+        CheckError::CoverageReportOutsideRepository { .. } => {
+            "Pass a Coverage report file inside the Git repository; codeint refuses paths and symbolic links outside the repository."
+        }
         CheckError::UnreadableCoverageReport { .. } => {
             "Check that you have permission to read the Coverage report file, then run codeint check again."
         }
@@ -122,6 +125,7 @@ fn check_plugin_remedy(error: &CheckError) -> &'static str {
         CheckError::ExtensionConflict { .. }
         | CheckError::UnknownWorkspacePackage { .. }
         | CheckError::MissingCoverageReport { .. }
+        | CheckError::CoverageReportOutsideRepository { .. }
         | CheckError::UnreadableCoverageReport { .. }
         | CheckError::InvalidCoverageReport { .. }
         | CheckError::CoverageApply(_)
