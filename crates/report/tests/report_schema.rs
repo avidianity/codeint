@@ -3,10 +3,13 @@ use std::path::PathBuf;
 use codeint_config::{Budgets, DependenciesConfig, DuplicationConfig, FindingsShown, ReportFormat};
 use codeint_model::language::Function;
 use codeint_model::{
-    CodeModel, FileModel, FunctionCoverage, LanguageFacts, ReferenceRanges, RepoPath, SourceFile,
-    SourceSet, Workspace,
+    CodeModel, FileModel, FunctionCoverage, HazardLine, LanguageFacts, ReferenceRanges, RepoPath,
+    SourceFile, SourceSet, Workspace,
 };
-use codeint_report::{MeasuredLanguage, OwnershipOptions, Report, ReportOptions, report_schema};
+use codeint_report::{
+    MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report, ReportExtras,
+    ReportOptions, SqlSchemaSummary, report_schema,
+};
 use serde_json::Value;
 
 fn published_report_schema_path() -> PathBuf {
@@ -102,11 +105,19 @@ fn check_array_schema(value: &Value, schema: &Value, root: &Value, path: &str) {
     }
 }
 
-fn sample_model(has_coverage: bool) -> CodeModel {
+fn sample_model(has_coverage: bool, has_hazard_rules: bool) -> CodeModel {
     let coverage = has_coverage.then_some(FunctionCoverage {
         listed_lines: 4,
         executed_lines: 1,
     });
+    let hazard_lines = if has_hazard_rules {
+        vec![HazardLine {
+            line: 2,
+            rule: "select-star".to_owned(),
+        }]
+    } else {
+        Vec::new()
+    };
     CodeModel {
         workspace: Workspace::new([RepoPath::new("packages/api").expect("pkg")]),
         files: vec![SourceFile {
@@ -125,7 +136,7 @@ fn sample_model(has_coverage: bool) -> CodeModel {
                 }],
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
-                hazard_lines: Vec::new(),
+                hazard_lines,
                 runtime_imports: Vec::new(),
                 program_start: false,
             },
@@ -133,7 +144,7 @@ fn sample_model(has_coverage: bool) -> CodeModel {
         languages: vec![LanguageFacts {
             language: "typescript-javascript".to_owned(),
             has_coverage,
-            has_hazard_rules: true,
+            has_hazard_rules,
             has_imports: true,
         }],
         ..CodeModel::default()
@@ -156,10 +167,10 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     let dependencies = DependenciesConfig::default();
     let budgets = Budgets::default();
 
-    let with_gap = Report::summarize_with_options(
+    let with_gap = Report::summarize_with_extras(
         vec![MeasuredLanguage {
             plugin: "typescript-javascript".to_owned(),
-            model: sample_model(true),
+            model: sample_model(true, true),
             reference_ranges: ReferenceRanges::default(),
             has_imports: true,
         }],
@@ -179,8 +190,19 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
             coverage_reports_named: true,
             unmatched_coverage_paths: &["missing/file.ts".to_owned()],
         },
+        ReportExtras::default()
+            .with_rejected_statements(vec![RejectedStatementEntry {
+                path: "packages/api/db/bad.sql".to_owned(),
+                line: 9,
+                dialect: "postgresql".to_owned(),
+            }])
+            .with_sql_schemas(vec![SqlSchemaSummary {
+                package: Some("packages/api".to_owned()),
+                dialect: "postgresql".to_owned(),
+                tables: 3,
+            }]),
     )
-    .expect("report with test gap");
+    .expect("report with test gap and hazards");
     let with_gap_json: Value =
         serde_json::from_str(&with_gap.render(ReportFormat::Json).expect("json"))
             .expect("valid JSON");
@@ -189,6 +211,10 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
         with_gap_json["source_sets"]["production"]["test_gap"]["ratio"],
         0.75
     );
+    assert_eq!(
+        with_gap_json["source_sets"]["production"]["hazards"]["hazard_lines"],
+        1
+    );
     let api_package = with_gap_json["source_sets"]["production"]["packages"]
         .as_array()
         .expect("packages")
@@ -196,11 +222,12 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
         .find(|pkg| pkg["path"] == "packages/api")
         .expect("packages/api entry");
     assert_eq!(api_package["test_gap"]["ratio"], 0.75);
+    assert_eq!(api_package["hazards"]["hazard_lines"], 1);
 
     let without_gap = Report::summarize(
         vec![MeasuredLanguage {
             plugin: "typescript-javascript".to_owned(),
-            model: sample_model(false),
+            model: sample_model(false, false),
             reference_ranges: ReferenceRanges::default(),
             has_imports: true,
         }],
@@ -215,6 +242,11 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     assert!(
         without_gap_json["source_sets"]["production"]
             .get("test_gap")
+            .is_none()
+    );
+    assert!(
+        without_gap_json["source_sets"]["production"]
+            .get("hazards")
             .is_none()
     );
     assert!(without_gap_json["test_gap_note"].is_string());

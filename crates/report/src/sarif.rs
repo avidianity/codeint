@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::Serialize;
 
@@ -10,14 +10,15 @@ use codeint_model::{Metric, SourceSet};
 
 use crate::schema::{
     BUILT_IN_METRICS, BuiltInMetricDescriptor, COGNITIVE_COMPLEXITY_DESCRIPTOR,
-    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR, ORPHAN_FILES_DESCRIPTOR, TEST_GAP_DESCRIPTOR,
-    UNLISTED_DEPENDENCIES_DESCRIPTOR, UNUSED_DEPENDENCIES_DESCRIPTOR, built_in_metric_descriptor,
+    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR, HAZARDS_DESCRIPTOR, ORPHAN_FILES_DESCRIPTOR,
+    TEST_GAP_DESCRIPTOR, UNLISTED_DEPENDENCIES_DESCRIPTOR, UNUSED_DEPENDENCIES_DESCRIPTOR,
+    built_in_metric_descriptor,
 };
 use crate::{
     BoundaryFindingRow, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding, CloneGroupFinding,
     CloneLocation, CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding,
-    FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, Report,
-    SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
+    FlaggedLineRow, HazardLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow,
+    Report, SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -161,6 +162,7 @@ pub(crate) struct ListedFindings<'findings> {
     pub(crate) boundaries: &'findings [BoundaryFindingRow],
     pub(crate) orphan_files: &'findings [OrphanFileRow],
     pub(crate) test_gap: &'findings [TestGapFindingRow],
+    pub(crate) hazards: &'findings [HazardLineRow],
     pub(crate) external_metrics: Vec<ListedExternalMetric<'findings>>,
 }
 
@@ -226,19 +228,18 @@ impl SarifLog {
                 )
             });
         let dependency_rules = register_dependency_rules(&mut rules, &dependencies);
+        let hazard_rule_indices = register_hazard_rules(&mut rules, &collected);
         let external_rule_indices = register_external_rules(&mut rules, &collected);
+        let optional_rules = OptionalRuleIndices {
+            boundaries: boundaries_rule_index,
+            orphan_files: orphan_files_rule_index,
+            test_gap: test_gap_rule_index,
+            hazards: &hazard_rule_indices,
+            external: &external_rule_indices,
+        };
         let mut all_results: Vec<SarifResult> = collected
             .iter()
-            .flat_map(|(source_set, listed)| {
-                results(
-                    *source_set,
-                    listed,
-                    boundaries_rule_index,
-                    orphan_files_rule_index,
-                    test_gap_rule_index,
-                    &external_rule_indices,
-                )
-            })
+            .flat_map(|(source_set, listed)| results(*source_set, listed, &optional_rules))
             .collect();
         all_results.extend(dependency_results(&dependencies, &dependency_rules));
         SarifLog {
@@ -280,6 +281,40 @@ fn rule_from_descriptor(id: &str, info: BuiltInMetricDescriptor) -> Rule {
         full_description: Text::from(info.full_description),
         help: Text::from(info.help),
     }
+}
+
+struct OptionalRuleIndices<'a> {
+    boundaries: Option<usize>,
+    orphan_files: Option<usize>,
+    test_gap: Option<usize>,
+    hazards: &'a BTreeMap<String, usize>,
+    external: &'a BTreeMap<String, usize>,
+}
+
+fn register_hazard_rules(
+    rules: &mut Vec<Rule>,
+    collected: &[(SourceSet, ListedFindings<'_>)],
+) -> BTreeMap<String, usize> {
+    let unique_rules: BTreeSet<&str> = collected
+        .iter()
+        .flat_map(|(_, listed)| listed.hazards.iter().map(|finding| finding.rule.as_str()))
+        .collect();
+    let mut indices = BTreeMap::new();
+    for rule_name in unique_rules {
+        let description = format!("Hazard line matched rule {rule_name}.");
+        let index = push_rule(
+            rules,
+            Rule {
+                id: rule_name.to_owned(),
+                name: rule_name.to_owned(),
+                short_description: Text::from(description.as_str()),
+                full_description: Text::from(description.as_str()),
+                help: Text::from(HAZARDS_DESCRIPTOR.help),
+            },
+        );
+        indices.insert(rule_name.to_owned(), index);
+    }
+    indices
 }
 
 fn register_external_rules(
@@ -563,6 +598,10 @@ impl<'findings> ListedFindings<'findings> {
                 .test_gap
                 .as_ref()
                 .map_or(&[], |test_gap| test_gap.findings.listed.as_slice()),
+            hazards: section
+                .hazards
+                .as_ref()
+                .map_or(&[], |hazards| hazards.findings.listed.as_slice()),
             external_metrics: section
                 .external_metrics
                 .iter()
@@ -580,10 +619,7 @@ impl<'findings> ListedFindings<'findings> {
 fn results(
     source_set: SourceSet,
     listed: &ListedFindings<'_>,
-    boundaries_rule_index: Option<usize>,
-    orphan_files_rule_index: Option<usize>,
-    test_gap_rule_index: Option<usize>,
-    external_rule_indices: &BTreeMap<String, usize>,
+    indices: &OptionalRuleIndices<'_>,
 ) -> Vec<SarifResult> {
     let eroded_functions = listed.eroded_functions.iter().map(|function| {
         metric_result(
@@ -643,7 +679,7 @@ fn results(
             .unwrap_or_default();
         SarifResult {
             rule_id: "boundaries".to_owned(),
-            rule_index: boundaries_rule_index.unwrap_or_default(),
+            rule_index: indices.boundaries.unwrap_or_default(),
             level: "note",
             message: Text {
                 text: finding.message.clone(),
@@ -661,7 +697,7 @@ fn results(
     });
     let orphan_files = listed.orphan_files.iter().map(|finding| SarifResult {
         rule_id: "orphan_files".to_owned(),
-        rule_index: orphan_files_rule_index.unwrap_or_default(),
+        rule_index: indices.orphan_files.unwrap_or_default(),
         level: "note",
         message: Text {
             text: finding.message.clone(),
@@ -684,7 +720,7 @@ fn results(
     let test_gap = listed.test_gap.iter().map(|finding| {
         function_metric_result(
             TEST_GAP_METRIC_KEY,
-            test_gap_rule_index.unwrap_or_default(),
+            indices.test_gap.unwrap_or_default(),
             source_set,
             &finding.id,
             test_gap_finding_message(finding),
@@ -692,8 +728,25 @@ fn results(
             finding.line,
         )
     });
+    let hazards = listed.hazards.iter().map(|finding| {
+        let rule_index = indices
+            .hazards
+            .get(&finding.rule)
+            .copied()
+            .unwrap_or_default();
+        function_metric_result(
+            &finding.rule,
+            rule_index,
+            source_set,
+            &finding.id,
+            format!("Hazard line: rule {}.", finding.rule),
+            &finding.path,
+            finding.line,
+        )
+    });
     let external_findings = listed.external_metrics.iter().flat_map(|external| {
-        let rule_index = external_rule_indices
+        let rule_index = indices
+            .external
             .get(external.key)
             .copied()
             .unwrap_or_default();
@@ -728,6 +781,7 @@ fn results(
         .chain(boundaries)
         .chain(orphan_files)
         .chain(test_gap)
+        .chain(hazards)
         .chain(external_findings)
         .collect()
 }
