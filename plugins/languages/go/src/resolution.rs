@@ -105,11 +105,12 @@ fn resolve_one(
     }
     let owner = owning_module(&request.importer, modules);
     if let Some(owner) = owner
-        && let Some(resolved) = resolve_via_replace(pkg_files, repo_dirs, owner, spec)
+        && let Some(resolved) =
+            resolve_via_replace(pkg_files, repo_dirs, owner, &request.importer, spec)
     {
         return resolved;
     }
-    if let Some(resolved) = resolve_via_repo_modules(pkg_files, modules, spec) {
+    if let Some(resolved) = resolve_via_repo_modules(pkg_files, modules, &request.importer, spec) {
         return resolved;
     }
     Resolution::External(resolve_external_module_name(owner, spec))
@@ -142,6 +143,7 @@ fn resolve_via_replace(
     pkg_files: &HashMap<String, Vec<String>>,
     repo_dirs: &HashSet<String>,
     owner: &RepoModule,
+    importer: &str,
     spec: &str,
 ) -> Option<Resolution> {
     let (rep, subpkg) = owner
@@ -156,10 +158,8 @@ fn resolve_via_replace(
     }
     let local_dir = normalize_relative_path(&owner.dir, target)?;
     let target_folder = join_dir(&local_dir, subpkg);
-    if let Some(files) = pkg_files.get(&target_folder)
-        && !files.is_empty()
-    {
-        return Some(Resolution::Resolved(files.clone()));
+    if let Some(targets) = package_targets(pkg_files, &target_folder, importer) {
+        return Some(Resolution::Resolved(targets));
     }
     if repo_dirs.contains(&local_dir) || target.starts_with("./") || target.starts_with("../") {
         return Some(Resolution::Unresolved(format!(
@@ -172,6 +172,7 @@ fn resolve_via_replace(
 fn resolve_via_repo_modules(
     pkg_files: &HashMap<String, Vec<String>>,
     modules: &[RepoModule],
+    importer: &str,
     spec: &str,
 ) -> Option<Resolution> {
     let (repo_mod, subpkg) = modules
@@ -179,14 +180,26 @@ fn resolve_via_repo_modules(
         .filter_map(|m| strip_module_prefix(spec, &m.go_mod.module_path).map(|sub| (m, sub)))
         .max_by_key(|(m, _)| m.go_mod.module_path.len())?;
     let target_folder = join_dir(&repo_mod.dir, subpkg);
-    if let Some(files) = pkg_files.get(&target_folder)
-        && !files.is_empty()
-    {
-        return Some(Resolution::Resolved(files.clone()));
+    if let Some(targets) = package_targets(pkg_files, &target_folder, importer) {
+        return Some(Resolution::Resolved(targets));
     }
     Some(Resolution::Unresolved(format!(
         "no Go package files in {target_folder:?} for import {spec:?}"
     )))
+}
+
+fn package_targets(
+    pkg_files: &HashMap<String, Vec<String>>,
+    target_folder: &str,
+    importer: &str,
+) -> Option<Vec<String>> {
+    let files = pkg_files.get(target_folder)?;
+    let targets: Vec<String> = files
+        .iter()
+        .filter(|path| path.as_str() != importer)
+        .cloned()
+        .collect();
+    (!targets.is_empty()).then_some(targets)
 }
 
 fn join_dir(base: &str, sub: &str) -> String {

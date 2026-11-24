@@ -17,6 +17,7 @@ use codeint_model::language::{
     DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
     Token, TokenKind, WorkspaceError,
 };
+use codeint_model::scan::build_reference_ranges;
 use codeint_model::token_text_hash;
 
 use crate::lexer::{GoKind, GoToken};
@@ -43,7 +44,15 @@ impl Guest for Go {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
+        build_reference_ranges(
+            "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0",
+            [
+                ("erosion", 0.379, 0.692),
+                ("verbosity", 0.045, 0.183),
+                ("duplication", 0.044, 0.181),
+                ("import_cycles", 0.000, 0.000),
+            ],
+        )
     }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {

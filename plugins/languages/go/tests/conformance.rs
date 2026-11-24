@@ -47,11 +47,24 @@ fn go_plugin_shell_lexer_literals_comments_and_unparsable_files() {
     assert!(Go.has_imports());
     assert!(!Go.has_hazard_rules());
     assert!(Go.hazard_rules().is_empty());
-    assert!(
-        Go.reference_ranges()
-            .unwrap()
-            .for_metric("erosion")
-            .is_none()
+    let ranges = Go.reference_ranges().unwrap();
+    let src_label = "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0";
+    let actual: Vec<(&str, f64, f64, &str)> =
+        ["erosion", "verbosity", "duplication", "import_cycles"]
+            .into_iter()
+            .map(|key| {
+                let r = ranges.for_metric(key).expect("calibrated Go range");
+                (key, r.low, r.high, r.source.as_str())
+            })
+            .collect();
+    assert_eq!(
+        actual,
+        [
+            ("erosion", 0.379, 0.692, src_label),
+            ("verbosity", 0.045, 0.183, src_label),
+            ("duplication", 0.044, 0.181, src_label),
+            ("import_cycles", 0.000, 0.000, src_label),
+        ]
     );
 
     let unsupported = Go.lower(&RepoPath::new("notes.txt").unwrap(), "package main\n");
@@ -395,6 +408,10 @@ fn go_five_flagged_line_rules_matches_and_near_misses() {
         "package p\nfunc f(x int) int {\n\tif y := x; y > 0 {\n\t\treturn y\n\t} else {\n\t\treturn 0\n\t}\n}\n",
     );
     assert_rule_hit(
+        "else-after-return",
+        "package p\nfunc f(x int) int {\n\tif x < 0 {\n\t\treturn -1\n\t} else if x == 0 {\n\t\treturn 0\n\t} else {\n\t\treturn 1\n\t}\n}\n",
+    );
+    assert_rule_hit(
         "if-else-returns-boolean",
         "package p\nfunc f(x int) bool {\n\tif x > 0 {\n\t\treturn true\n\t} else {\n\t\treturn false\n\t}\n}\n",
     );
@@ -430,6 +447,10 @@ fn go_five_flagged_line_rules_matches_and_near_misses() {
     assert_rule_silent(
         "else_if_chain_uses_outer_short_var",
         "package p\nfunc f() int {\n\tif v := load(); v < 0 {\n\t\treturn -1\n\t} else if v == 0 {\n\t\treturn 0\n\t} else {\n\t\treturn v\n\t}\n}\n",
+    );
+    assert_rule_silent(
+        "else_if_returns_after_non_returning_if",
+        "package p\nfunc f(x int) int {\n\tout := 0\n\tif x < 0 {\n\t\tout = -1\n\t} else if x == 0 {\n\t\treturn 0\n\t} else {\n\t\tout = 1\n\t}\n\treturn out\n}\n",
     );
     assert_rule_silent(
         "named_result_bool_and_bare_return",
@@ -621,6 +642,18 @@ replace (
     assert_eq!(
         resolutions[11],
         Resolution::External("github.com/acme/outside".into())
+    );
+
+    let self_pkg_res = Go
+        .resolve_imports(
+            &repo,
+            manifests.clone(),
+            make_requests(&[("pkg/init/a.go", "example.com/root/pkg/init")]),
+        )
+        .unwrap();
+    assert_eq!(
+        self_pkg_res,
+        vec![Resolution::Resolved(vec!["pkg/init/b.go".into()])]
     );
 
     let deps = Go.declared_dependencies(manifests).unwrap();

@@ -32,6 +32,19 @@ struct IfHeader {
     has_init: bool,
 }
 
+struct ElseBlock {
+    else_idx: usize,
+    else_open: usize,
+    else_close: usize,
+    all_prior_return: bool,
+}
+
+struct IfChainState {
+    is_else_if: bool,
+    prior_branches_return: bool,
+    scope_vars: HashSet<String>,
+}
+
 pub(crate) fn evaluate(
     tokens: &[GoToken],
     spans: &[GoFunctionSpan],
@@ -141,8 +154,12 @@ impl RuleEvaluator<'_> {
     ) {
         let first = &self.tokens[start];
         if first.is_kw("if") {
-            let mut scope_vars = HashSet::new();
-            self.inspect_if_chain(start, end, next_stmt, ctx, false, &mut scope_vars);
+            let mut chain = IfChainState {
+                is_else_if: false,
+                prior_branches_return: true,
+                scope_vars: HashSet::new(),
+            };
+            self.inspect_if_chain(start, end, next_stmt, ctx, &mut chain);
         } else if first.is_kw("switch") || first.is_kw("select") {
             self.inspect_switch_or_select(start, end, ctx);
         } else if first.is_kw("for") {
@@ -164,8 +181,7 @@ impl RuleEvaluator<'_> {
         limit: usize,
         next_stmt: Option<(usize, usize)>,
         ctx: FuncContext,
-        is_else_if: bool,
-        scope_vars: &mut HashSet<String>,
+        chain: &mut IfChainState,
     ) {
         let Some((then_open, then_close)) = find_control_body(self.tokens, if_idx + 1, limit)
         else {
@@ -177,15 +193,15 @@ impl RuleEvaluator<'_> {
             if_idx,
             then_open,
             then_close,
-            is_else_if,
+            is_else_if: chain.is_else_if,
             has_init: header_has_init_stmt(header),
         };
-        collect_header_short_vars(header, scope_vars);
+        collect_header_short_vars(header, &mut chain.scope_vars);
         self.inspect_nested_literals(if_idx + 1, then_open);
 
         let else_idx = then_close + 1;
         if else_idx < limit && self.tokens[else_idx].is_kw("else") {
-            self.inspect_if_with_else(&branch, else_idx, limit, ctx, scope_vars);
+            self.inspect_if_with_else(&branch, else_idx, limit, ctx, chain);
         } else if !branch.is_else_if && !branch.has_init && !ctx.has_named_results {
             self.check_if_followed_by_bool_return(&branch, next_stmt);
         }
@@ -198,14 +214,19 @@ impl RuleEvaluator<'_> {
         else_idx: usize,
         limit: usize,
         ctx: FuncContext,
-        scope_vars: &mut HashSet<String>,
+        chain: &mut IfChainState,
     ) {
         let after_else = else_idx + 1;
         if after_else >= limit {
             return;
         }
+        let then_stmts = split_statements(self.tokens, branch.then_open + 1, branch.then_close);
+        let all_prior_return =
+            chain.prior_branches_return && block_always_returns(self.tokens, &then_stmts);
         if self.tokens[after_else].is_kw("if") {
-            self.inspect_if_chain(after_else, limit, None, ctx, true, scope_vars);
+            chain.is_else_if = true;
+            chain.prior_branches_return = all_prior_return;
+            self.inspect_if_chain(after_else, limit, None, ctx, chain);
             return;
         }
         if self.tokens[after_else].text != "{" {
@@ -217,46 +238,54 @@ impl RuleEvaluator<'_> {
         if else_close >= limit {
             return;
         }
-        self.check_if_else_rules(branch, else_idx, after_else, else_close, ctx, scope_vars);
+        let else_block = ElseBlock {
+            else_idx,
+            else_open: after_else,
+            else_close,
+            all_prior_return,
+        };
+        self.check_if_else_rules(branch, &then_stmts, &else_block, ctx, &chain.scope_vars);
         self.inspect_block(after_else + 1, else_close, ctx);
     }
 
     fn check_if_else_rules(
         &mut self,
         branch: &IfHeader,
-        else_idx: usize,
-        else_open: usize,
-        else_close: usize,
+        then_stmts: &[(usize, usize)],
+        else_block: &ElseBlock,
         ctx: FuncContext,
         scope_vars: &HashSet<String>,
     ) {
-        let then_stmts = split_statements(self.tokens, branch.then_open + 1, branch.then_close);
-        let else_stmts = split_statements(self.tokens, else_open + 1, else_close);
+        let else_stmts =
+            split_statements(self.tokens, else_block.else_open + 1, else_block.else_close);
 
         if !branch.is_else_if
             && !branch.has_init
             && (self.try_flag_if_else_bool_return(
                 branch,
-                else_close,
+                else_block.else_close,
                 ctx,
-                &then_stmts,
+                then_stmts,
                 &else_stmts,
             ) || self.try_flag_conditional_bool_assign(
                 branch,
-                else_close,
-                &then_stmts,
+                else_block.else_close,
+                then_stmts,
                 &else_stmts,
             ))
         {
             return;
         }
 
-        if block_always_returns(self.tokens, &then_stmts)
-            && !uses_any_var(&self.tokens[else_open + 1..else_close], scope_vars)
+        if else_block.all_prior_return
+            && !uses_any_var(
+                &self.tokens[else_block.else_open + 1..else_block.else_close],
+                scope_vars,
+            )
         {
             flag_range(
-                self.tokens[else_idx].line,
-                self.tokens[else_close].line,
+                self.tokens[else_block.else_idx].line,
+                self.tokens[else_block.else_close].line,
                 "else-after-return",
                 self.code_lines,
                 &mut self.hits,
