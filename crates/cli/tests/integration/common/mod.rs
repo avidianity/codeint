@@ -1,9 +1,42 @@
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use serde_json::{Value, json};
 use tempfile::TempDir;
+
+static FOLDER_IMPORT_WASM: OnceLock<PathBuf> = OnceLock::new();
+
+pub(crate) fn folder_import_plugin_wasm() -> &'static Path {
+    FOLDER_IMPORT_WASM.get_or_init(|| {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path =
+            workspace_root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
+        let target_dir = workspace_root.join("target/wasm-fixtures");
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "-p",
+                "folder-import-language-plugin",
+                "--locked",
+                "--offline",
+                "--target",
+                "wasm32-wasip2",
+            ])
+            .arg("--manifest-path")
+            .arg(manifest_path)
+            .arg("--target-dir")
+            .arg(&target_dir)
+            .status()
+            .expect("build folder-import-language-plugin");
+        assert!(
+            status.success(),
+            "folder-import-language-plugin build exited with {status}"
+        );
+        target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm")
+    })
+}
 
 pub(crate) fn init_git_repo(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();

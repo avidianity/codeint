@@ -1802,3 +1802,62 @@ fn hazard_line_on_last_line_of_file_is_accepted_with_and_without_trailing_newlin
         );
     }
 }
+
+fn run_check_with_unlisted_hazard_probe(source: &str) -> Output {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("unlisted_hazard_rule_language_plugin.wasm"),
+        repo.path(),
+        "plugins/unlisted_hazard_rule_language_plugin.wasm",
+    );
+    write_plugin_config(
+        repo.path(),
+        "unlisted-hazard-lang",
+        None,
+        "plugins/unlisted_hazard_rule_language_plugin.wasm",
+        &hash,
+        "",
+    );
+    write_file(repo.path(), "src/query.uhr", source);
+    run_codeint(repo.path(), &["check", "--format", "json"])
+}
+
+#[test]
+fn unlisted_hazard_line_rule_stops_check_with_exit_2_naming_plugin_file_and_rule() {
+    let output = run_check_with_unlisted_hazard_probe("SELECT 1;\nUNLISTED_HAZARD\n");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit 2, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "expected no report on stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unlisted-hazard-lang")
+            && stderr.contains("src/query.uhr")
+            && stderr.contains("unlisted-secret-rule"),
+        "expected error naming plugin, file, and rule, got: {stderr}"
+    );
+}
+
+#[test]
+fn listed_hazard_line_rule_is_accepted_by_check() {
+    let output = run_check_with_unlisted_hazard_probe("SELECT 1;\nALLOWED_HAZARD\n");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse json report");
+    assert_eq!(report["files"], 1);
+}

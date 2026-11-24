@@ -516,6 +516,9 @@ fn language_plugin_remedy(error: &LanguagePluginError, file: ConfigFileKind) -> 
         LanguagePluginError::HazardLineOutOfRange { .. } => {
             "Return 1-based Hazard line numbers within the file's line count from the Language plugin, or report the defect to its author."
         }
+        LanguagePluginError::UnlistedHazardRule { .. } => {
+            "List every Hazard line rule name in the Language plugin's hazard-rules export, or report the defect to the plugin's author."
+        }
         _ => "Fix the defect in the Language plugin, or report it to the plugin's author.",
     }
 }

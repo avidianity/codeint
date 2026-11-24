@@ -1,44 +1,13 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::sync::OnceLock;
 
 use codeint_plugin_host::{sha256, sha256_hex};
 use serde_json::{Value, json};
 
-use crate::common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
-
-static FOLDER_IMPORT_WASM: OnceLock<PathBuf> = OnceLock::new();
-
-fn folder_import_wasm_path() -> &'static Path {
-    FOLDER_IMPORT_WASM.get_or_init(|| {
-        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let manifest =
-            workspace_root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
-        let target_dir = workspace_root.join("target/wasm-fixtures");
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "-p",
-                "folder-import-language-plugin",
-                "--locked",
-                "--offline",
-                "--target",
-                "wasm32-wasip2",
-            ])
-            .arg("--manifest-path")
-            .arg(&manifest)
-            .arg("--target-dir")
-            .arg(&target_dir)
-            .status()
-            .expect("build folder-import-language-plugin wasm fixture");
-        assert!(
-            status.success(),
-            "folder-import-language-plugin build failed: {status}"
-        );
-        target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm")
-    })
-}
+use crate::common::{
+    folder_import_plugin_wasm, init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests,
+};
 
 fn run_trace(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_codeint"))
@@ -321,7 +290,7 @@ fn trace_works_across_source_sets_and_python_and_rejects_zero_max_paths() {
 
 #[test]
 fn trace_lists_every_file_of_a_folder_import_and_explains_reachability() {
-    let wasm_bytes = fs::read(folder_import_wasm_path()).expect("read folder import wasm");
+    let wasm_bytes = fs::read(folder_import_plugin_wasm()).expect("read folder import wasm");
     let wasm_hash = sha256_hex(&sha256(&wasm_bytes));
     let config = format!(
         r#"{{"plugins":[{{"name":"folder-import-lang","path":"plugins/folder_import_language_plugin.wasm","sha256":"{wasm_hash}"}}]}}"#

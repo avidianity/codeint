@@ -540,3 +540,21 @@ fn hazard_line_out_of_range_error_names_plugin_file_and_line() {
     assert!(message.contains("line 5"), "message: {message}");
     assert!(message.contains("3 lines"), "message: {message}");
 }
+
+#[test]
+fn unlisted_hazard_rule_error_names_plugin_file_and_rule() {
+    let error = LanguagePluginError::UnlistedHazardRule {
+        plugin: "custom-sql".to_owned(),
+        path: path("queries/users.sql"),
+        rule: "unlisted-rule".to_owned(),
+    };
+
+    let message = error.to_string();
+
+    assert!(
+        message.contains("custom-sql")
+            && message.contains("queries/users.sql")
+            && message.contains("unlisted-rule"),
+        "unexpected error message: {message}"
+    );
+}

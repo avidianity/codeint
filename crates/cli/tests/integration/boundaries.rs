@@ -1,11 +1,12 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::sync::OnceLock;
 
 use codeint_plugin_host::{sha256, sha256_hex};
 use serde_json::Value;
 use tempfile::TempDir;
+
+use crate::common::folder_import_plugin_wasm;
 
 const GIT_ENV: [(&str, &str); 6] = [
     ("GIT_CONFIG_GLOBAL", "/dev/null"),
@@ -763,38 +764,6 @@ fn diff_classifies_boundary_findings_and_gates_new_regressions_without_failing_o
         resolved_diff["resolved"][0]["importer"],
         "src/domain/legacy.ts"
     );
-}
-
-static FOLDER_IMPORT_WASM: OnceLock<PathBuf> = OnceLock::new();
-
-fn folder_import_plugin_wasm() -> &'static Path {
-    FOLDER_IMPORT_WASM.get_or_init(|| {
-        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let manifest_path =
-            workspace_root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
-        let target_dir = workspace_root.join("target/wasm-fixtures");
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "-p",
-                "folder-import-language-plugin",
-                "--locked",
-                "--offline",
-                "--target",
-                "wasm32-wasip2",
-            ])
-            .arg("--manifest-path")
-            .arg(manifest_path)
-            .arg("--target-dir")
-            .arg(&target_dir)
-            .status()
-            .expect("build folder-import-language-plugin");
-        assert!(
-            status.success(),
-            "folder-import-language-plugin build exited with {status}"
-        );
-        target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm")
-    })
 }
 
 fn fixture_with_folder_import_plugin(

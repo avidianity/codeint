@@ -624,6 +624,19 @@ fn measure(
     )
 }
 
+fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
+    plugins
+        .iter()
+        .map(|named| {
+            if named.plugin.has_hazard_rules() {
+                named.plugin.hazard_rules().into_iter().collect()
+            } else {
+                HashSet::new()
+            }
+        })
+        .collect()
+}
+
 fn lower_covered_files(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
@@ -631,14 +644,22 @@ fn lower_covered_files(
     overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
 ) -> Result<Vec<(usize, LoweredFile)>, CheckError> {
+    let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
+    let lower_file = |bytes: Vec<u8>, path: &RepoPath, index: usize| {
+        let lowered = lower_bytes(
+            bytes,
+            path,
+            &plugins[index],
+            &listed_hazard_rules[index],
+            overrides,
+            config_file,
+        )?;
+        Ok((index, lowered))
+    };
     if let Some(reader) = tree.working_tree_reader() {
         return covered_files
             .par_iter()
-            .map(|&(path, index)| {
-                let bytes = reader.read(path)?;
-                let lowered = lower_bytes(bytes, path, &plugins[index], overrides, config_file)?;
-                Ok((index, lowered))
-            })
+            .map(|&(path, index)| lower_file(reader.read(path)?, path, index))
             .collect();
     }
     let loaded = covered_files
@@ -647,10 +668,7 @@ fn lower_covered_files(
         .collect::<Result<Vec<_>, CheckError>>()?;
     loaded
         .into_par_iter()
-        .map(|(path, index, bytes)| {
-            let lowered = lower_bytes(bytes, path, &plugins[index], overrides, config_file)?;
-            Ok((index, lowered))
-        })
+        .map(|(path, index, bytes)| lower_file(bytes, path, index))
         .collect()
 }
 
@@ -1000,10 +1018,29 @@ enum LoweredFile {
     Skipped(SkippedFile),
 }
 
+fn validate_hazard_rule_names(
+    plugin_name: &str,
+    path: &RepoPath,
+    hazard_lines: &[HazardLine],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    for hazard in hazard_lines {
+        if !listed_rules.contains(&hazard.rule) {
+            return Err(LanguagePluginError::UnlistedHazardRule {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                rule: hazard.rule.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn lower_bytes(
     bytes: Vec<u8>,
     path: &RepoPath,
     named: &NamedLanguagePlugin<'_>,
+    listed_hazard_rules: &HashSet<String>,
     overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
 ) -> Result<LoweredFile, CheckError> {
@@ -1014,6 +1051,8 @@ fn lower_bytes(
     match named.plugin.lower(path, &text) {
         Ok(mut file) => {
             validate_hazard_line_bounds(named.name, path, &text, &file.hazard_lines)
+                .map_err(|error| CheckError::language_plugin(config_file, error))?;
+            validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
                 .map_err(|error| CheckError::language_plugin(config_file, error))?;
             file.source_set =
                 overrides.source_set(path, settle_source_set(path, &text, file.source_set));
