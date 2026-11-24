@@ -39,7 +39,7 @@ fn build_model(
             .map(|(from, to)| RuntimeImport {
                 importer: repo_path(from),
                 specifier: format!("./{to}"),
-                resolution: ImportResolution::Resolved(repo_path(to)),
+                resolution: ImportResolution::Resolved(vec![repo_path(to)]),
             })
             .collect(),
         workspace: Workspace::new(workspace_members.iter().copied().map(repo_path)),

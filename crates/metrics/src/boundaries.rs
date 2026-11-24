@@ -108,17 +108,19 @@ fn evaluate_imports(
     let mut resolved_imports = 0usize;
     let mut pending = Vec::new();
     for runtime_import in &model.runtime_imports {
-        let ImportResolution::Resolved(target) = &runtime_import.resolution else {
+        let ImportResolution::Resolved(targets) = &runtime_import.resolution else {
             continue;
         };
-        resolved_imports += 1;
-        if let Some(finding) = check_import_edge(
-            &runtime_import.importer,
-            target,
-            &runtime_import.specifier,
-            policy,
-        ) {
-            pending.push(finding);
+        for target in targets {
+            resolved_imports += 1;
+            if let Some(finding) = check_import_edge(
+                &runtime_import.importer,
+                target,
+                &runtime_import.specifier,
+                policy,
+            ) {
+                pending.push(finding);
+            }
         }
     }
     (resolved_imports, pending)

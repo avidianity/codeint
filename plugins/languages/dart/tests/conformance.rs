@@ -112,8 +112,8 @@ fn dart_directives_and_resolution() {
         }],
         reqs,
     );
-    assert_eq!(res[0], Resolution::Resolved("lib/u.dart".into()));
-    assert_eq!(res[1], Resolution::Resolved("lib/h.dart".into()));
+    assert_eq!(res[0], Resolution::Resolved(vec!["lib/u.dart".into()]));
+    assert_eq!(res[1], Resolution::Resolved(vec!["lib/h.dart".into()]));
     assert_eq!(res[2], Resolution::Builtin);
     assert_eq!(res[3], Resolution::External("fl".into()));
     assert!(matches!(res[4], Resolution::Unresolved(_)));
@@ -254,7 +254,7 @@ int run() => coreValue();
         [
             Resolution::Builtin,
             Resolution::Builtin,
-            Resolution::Resolved("packages/core/lib/core.dart".into()),
+            Resolution::Resolved(vec!["packages/core/lib/core.dart".into()]),
             Resolution::External("flutter".into()),
             Resolution::External("path".into()),
             Resolution::External("unlisted_pkg".into()),

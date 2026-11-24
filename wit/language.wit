@@ -110,8 +110,9 @@ interface language {
 
     /// Where a runtime import leads.
     variant resolution {
-        /// The import names this file of the repository, relative to the root, with forward slashes.
-        resolved(string),
+        /// The import names one or more files of the repository, relative to the root, with forward slashes.
+        /// An empty list is a Plugin error.
+        resolved(list<string>),
         /// The import names a third-party package outside the repository; the payload is the canonical package name.
         external(string),
         /// The import names a standard-library or runtime built-in module.

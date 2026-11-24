@@ -12,7 +12,7 @@ use codeint_model::language::{ImportRequest, Resolution};
 use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError};
 use codeint_plugin_host::load_language_plugin;
 
-use common::{declaration_for, sample_plugin_wasm};
+use common::{declaration_for, sample_plugin_wasm, sandbox_probe_wasm};
 
 struct ConformanceFixture<'a> {
     name: &'a str,
@@ -32,7 +32,7 @@ struct ConformanceFixture<'a> {
     expected_workspace_package: &'a str,
     invalid_manifest_text: &'a str,
     import_requests: &'a [(&'a str, &'a str)],
-    expected_resolved_target: &'a str,
+    expected_resolved_targets: &'a [&'a str],
 }
 
 fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceFixture<'_>) {
@@ -219,9 +219,29 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         fixture.import_requests.len(),
         "{label}: resolve_imports length must match requests"
     );
+    for resolution in &resolutions {
+        if let Resolution::Resolved(targets) = resolution {
+            assert!(
+                !targets.is_empty(),
+                "{label}: Resolution::Resolved must contain at least one repository file"
+            );
+            for target in targets {
+                assert!(
+                    fixture.repository_paths.contains(&target.as_str()),
+                    "{label}: resolve_imports returned {target:?} outside repository_paths"
+                );
+            }
+        }
+    }
     assert_eq!(
         resolutions[0],
-        Resolution::Resolved(fixture.expected_resolved_target.to_owned()),
+        Resolution::Resolved(
+            fixture
+                .expected_resolved_targets
+                .iter()
+                .map(|target| (*target).to_owned())
+                .collect()
+        ),
         "{label}: first import resolves"
     );
     assert!(
@@ -314,7 +334,7 @@ fn built_in_typescript_javascript_plugin_passes_seam_2_conformance() {
             ("packages/app/src/main.ts", "node:path"),
             ("packages/app/src/main.ts", "./missing"),
         ],
-        expected_resolved_target: "packages/app/src/helper.ts",
+        expected_resolved_targets: &["packages/app/src/helper.ts"],
     };
 
     assert_seam_2_conformance(&TypeScriptAndJavaScript, &fixture);
@@ -353,7 +373,7 @@ fn sample_external_wasm_plugin_passes_seam_2_conformance() {
             ("packages/app/src/main.mini", "external-lib"),
             ("packages/app/src/main.mini", "./missing"),
         ],
-        expected_resolved_target: "packages/app/src/helper.mini",
+        expected_resolved_targets: &["packages/app/src/helper.mini"],
     };
 
     assert_seam_2_conformance(&plugin, &fixture);
@@ -443,7 +463,7 @@ fn run_simple_conformance(
             expected_workspace_package: workspace.1,
             invalid_manifest_text: workspace.2,
             import_requests: workspace.5,
-            expected_resolved_target: files.1,
+            expected_resolved_targets: &[files.1],
         },
     );
 }
@@ -491,7 +511,7 @@ fn built_in_php_plugin_passes_seam_2_conformance() {
         expected_workspace_package: "packages/app",
         invalid_manifest_text: "{not json",
         import_requests: &REQUESTS,
-        expected_resolved_target: REPO[3],
+        expected_resolved_targets: &[REPO[3]],
     };
     assert_seam_2_conformance(&Php, &fixture);
 }
@@ -535,7 +555,7 @@ fn built_in_dart_plugin_passes_seam_2_conformance() {
             expected_workspace_package: "packages/app",
             invalid_manifest_text: "workspace: [\n",
             import_requests: &requests,
-            expected_resolved_target: paths[3],
+            expected_resolved_targets: &[paths[3]],
         },
     );
 }
@@ -545,7 +565,7 @@ fn built_in_python_plugin_passes_seam_2_conformance() {
     let prod = "from app.helper import value\n\n# comment\ndef run(flag):\n    if flag:\n        return value()\n    else:\n        return 0\n";
     let prod_crlf = prod.replace('\n', "\r\n");
     let fixture = ConformanceFixture {
-        expected_resolved_target: "packages/app/src/app/helper.py",
+        expected_resolved_targets: &["packages/app/src/app/helper.py"],
         import_requests: &[
             ("packages/app/src/app/main.py", "app.helper"),
             ("packages/app/src/app/main.py", "os"),
@@ -580,4 +600,49 @@ fn built_in_python_plugin_passes_seam_2_conformance() {
         name: "python",
     };
     assert_seam_2_conformance(&Python, &fixture);
+}
+
+#[test]
+fn folder_import_external_wasm_plugin_passes_seam_2_conformance() {
+    let wasm_path = sandbox_probe_wasm("folder_import_language_plugin.wasm");
+    let declaration = declaration_for("folder-import", &wasm_path);
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("folder-import external wasm plugin loads");
+
+    let prod = "use packages/app/util\n\n# comment\nfn run()\n";
+    let prod_crlf = prod.replace('\n', "\r\n");
+    let fixture = ConformanceFixture {
+        name: "folder-import",
+        production_path: "packages/app/main.fld",
+        production_source: prod,
+        production_source_crlf: &prod_crlf,
+        test_path: "packages/app/main_test.fld",
+        test_source: "fn check()\n",
+        empty_path: "packages/app/empty.fld",
+        declaration_only: None,
+        unparsable_path: "packages/app/broken.fld",
+        unparsable_source: "SYNTAX_ERROR\n",
+        unsupported_path: "scripts/tool.unknown",
+        repository_paths: &[
+            "fld.workspace",
+            "packages/app/main.fld",
+            "packages/app/util/alpha.fld",
+            "packages/app/util/beta.fld",
+        ],
+        expected_manifest_path: "fld.workspace",
+        valid_manifests: &[(
+            "fld.workspace",
+            "packages/app\nentry:packages/app/main.fld\n",
+        )],
+        expected_workspace_package: "packages/app",
+        invalid_manifest_text: "INVALID: bad workspace entry\n",
+        import_requests: &[
+            ("packages/app/main.fld", "packages/app/util"),
+            ("packages/app/main.fld", "ext:external-lib"),
+            ("packages/app/main.fld", "packages/app/missing"),
+        ],
+        expected_resolved_targets: &["packages/app/util/alpha.fld", "packages/app/util/beta.fld"],
+    };
+
+    assert_seam_2_conformance(&plugin, &fixture);
 }

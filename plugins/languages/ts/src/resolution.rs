@@ -118,7 +118,7 @@ impl ProjectResolver {
                         resolution.path().display()
                     ))
                 },
-                Resolution::Resolved,
+                |path| Resolution::Resolved(vec![path]),
             ),
             Err(error) => self.classify_error(importer, specifier, error),
         }
@@ -169,7 +169,7 @@ impl ProjectResolver {
                 && let Some(repo_path) = snapshot::repository_path(resolution.path())
                 && is_within_package(folder, &repo_path)
             {
-                return Some(Resolution::Resolved(repo_path));
+                return Some(Resolution::Resolved(vec![repo_path]));
             }
         }
         Some(Resolution::Builtin)

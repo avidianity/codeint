@@ -304,7 +304,7 @@ pub fn resolve_relative_file(
         if joined == importer {
             Resolution::External(String::new())
         } else {
-            Resolution::Resolved(joined)
+            Resolution::Resolved(vec![joined])
         }
     } else {
         Resolution::Unresolved(format!("no file of the repository matches {rel_uri:?}"))

@@ -27,7 +27,7 @@ fn resolved(importer: &str, target: &str) -> RuntimeImport {
     RuntimeImport {
         importer: path(importer),
         specifier: format!("./{target}"),
-        resolution: ImportResolution::Resolved(path(target)),
+        resolution: ImportResolution::Resolved(vec![path(target)]),
     }
 }
 

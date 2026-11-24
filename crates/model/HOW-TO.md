@@ -137,7 +137,7 @@ impl Guest for Plain {
   Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
   It is the one way a Language plugin asks the host for files, so the host reads each file once.
 - `resolve_imports` receives every file path of the repository snapshot and each file that `manifest_paths` chose as a `Manifest` with its text, because a Plugin cannot read the file system.
-  Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` with the canonical third-party package name, `Builtin` for a standard-library or runtime built-in module, or `Unresolved` with the reason.
+  Return one `Resolution` per request, in request order: `Resolved` with a non-empty list of paths from `repository_paths`, `External` with the canonical third-party package name, `Builtin` for a standard-library or runtime built-in module, or `Unresolved` with the reason.
 - `declared_dependencies` extracts external dependencies declared in `manifests`, each with its `package-root`, normalized `name`, and `kind` (`Runtime`, `Dev`, or `Optional`).
 - `entry_points` discovers standard entry-point source files from `repository_paths` and `manifests`, naming only paths from `repository_paths`.
 
@@ -158,7 +158,7 @@ assert_eq!(model.source_lines, 2);
 - Before lowering, call `choose_manifests(plugin, repository_paths)` once per Language plugin and read each path it returns, once, as `Manifest { path, text }`.
   Pass those manifests to `workspace_packages`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers)` with the files the plugin lowered.
   `choose_manifests` fails with `ResolveError::UnknownManifest` when the plugin names a path outside the snapshot.
-  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
+  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests, returns an empty `Resolved` target list, or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.

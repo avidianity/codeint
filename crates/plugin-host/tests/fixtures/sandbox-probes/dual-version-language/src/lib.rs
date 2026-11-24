@@ -179,7 +179,7 @@ wit_bindgen::generate!({
                 }
 
                 variant resolution {
-                    resolved(string),
+                    resolved(list<string>),
                     external(string),
                     builtin,
                     unresolved(string),

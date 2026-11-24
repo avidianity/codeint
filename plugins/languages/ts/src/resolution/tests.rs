@@ -178,7 +178,7 @@ fn tsconfig_app_alias_resolves_to_repo_file_before_virtual_module_fallback() {
 
     assert_eq!(
         resolve("$app/foo"),
-        Resolution::Resolved("src/app/foo.ts".to_owned())
+        Resolution::Resolved(vec!["src/app/foo.ts".to_owned()])
     );
     assert_eq!(resolve("$app/navigation"), Resolution::Builtin);
     assert_eq!(resolve("$env/static/public"), Resolution::Builtin);

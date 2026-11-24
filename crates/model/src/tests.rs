@@ -213,7 +213,7 @@ fn import_of(importer: &str, target: &str) -> RuntimeImport {
     RuntimeImport {
         importer: RepoPath::new(importer).expect("a valid path"),
         specifier: format!("./{target}"),
-        resolution: ImportResolution::Resolved(RepoPath::new(target).expect("a valid path")),
+        resolution: ImportResolution::Resolved(vec![RepoPath::new(target).expect("a valid path")]),
     }
 }
 

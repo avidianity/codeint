@@ -10,9 +10,9 @@ use codeint_model::language::{
     DeclaredDep, DepKind, Function, FunctionCoverage, ImportRequest, Resolution,
 };
 use codeint_model::{
-    CodeModel, FileModel, LanguageFacts, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
-    MetricPlugin, MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind,
-    token_text_hash,
+    CodeModel, FileModel, ImportResolution, LanguageFacts, LanguagePlugin, LanguagePluginError,
+    LowerError, Manifest, MetricPlugin, MetricPluginError, RepoPath, ResolveError, SourceFile,
+    SourceSet, Token, TokenKind, resolve_runtime_imports, token_text_hash,
 };
 use codeint_plugin_host::{
     PLUGIN_INTERFACE_VERSION, PluginHostError, WasmLanguagePlugin, load_language_plugin,
@@ -20,10 +20,12 @@ use codeint_plugin_host::{
     load_metric_plugin_with_limits, load_metric_plugins, verify_plugin_component,
 };
 
-use common::{build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm};
+use common::{
+    build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm,
+    sandbox_probe_wasm,
+};
 
 static SAMPLE_METRIC_WASM: OnceLock<PathBuf> = OnceLock::new();
-static SANDBOX_PROBES_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn sample_metric_plugin_wasm() -> &'static Path {
     SAMPLE_METRIC_WASM.get_or_init(|| {
@@ -34,18 +36,6 @@ fn sample_metric_plugin_wasm() -> &'static Path {
         )
         .join("sample_long_functions_plugin.wasm")
     })
-}
-
-fn sandbox_probe_wasm(file_name: &str) -> PathBuf {
-    SANDBOX_PROBES_DIR
-        .get_or_init(|| {
-            build_fixture_workspace(
-                "tests/fixtures/sandbox-probes/Cargo.toml",
-                "wasm-fixtures",
-                true,
-            )
-        })
-        .join(file_name)
 }
 
 fn assert_sandbox_blocks(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
@@ -141,7 +131,7 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
     assert_eq!(
         resolutions,
         vec![
-            Resolution::Resolved("src/util.mini".to_owned()),
+            Resolution::Resolved(vec!["src/util.mini".to_owned()]),
             Resolution::External("external-pkg".to_owned()),
             Resolution::Builtin,
         ]
@@ -665,7 +655,7 @@ fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
             ],
         ),
         vec![
-            Resolution::Resolved("src/util.mini".to_owned()),
+            Resolution::Resolved(vec!["src/util.mini".to_owned()]),
             Resolution::External("serde".to_owned()),
             Resolution::Builtin,
             Resolution::Unresolved("cannot find src/missing.mini".to_owned()),
@@ -1349,5 +1339,94 @@ fn metric_plugin_reads_per_language_coverage_statement() {
                 "language=typescript-javascript has_coverage=false",
             ),
         ]
+    );
+}
+
+#[test]
+fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
+    let language_wasm = sandbox_probe_wasm("folder_import_language_plugin.wasm");
+    let language_decl = declaration_for("folder-import", &language_wasm);
+    let language =
+        load_language_plugin(Path::new("."), &language_decl, &PluginHostConfig::default())
+            .expect("folder-import Language plugin loads");
+
+    let metric_wasm = sandbox_probe_wasm("imports_reader_metric_plugin.wasm");
+    let metric_decl = declaration_with_kind("imports-reader", PluginKind::Metric, &metric_wasm);
+    let metric = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
+        .expect("imports-reader Metric plugin loads");
+
+    let main_path = RepoPath::new("src/main.fld").expect("valid repo path");
+    let alpha_path = RepoPath::new("pkg/util/alpha.fld").expect("valid repo path");
+    let beta_path = RepoPath::new("pkg/util/beta.fld").expect("valid repo path");
+    let repo_paths = vec![main_path.clone(), alpha_path.clone(), beta_path.clone()];
+
+    let main_model = language
+        .lower(&main_path, "use pkg/util\nfn main()\n")
+        .expect("lower main.fld");
+    let main_file = SourceFile {
+        path: main_path.clone(),
+        model: main_model,
+    };
+
+    let resolved = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&main_file])
+        .expect("resolve multi-file folder import");
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(
+        resolved[0].resolution,
+        ImportResolution::Resolved(vec![alpha_path.clone(), beta_path.clone()])
+    );
+
+    let code_model = CodeModel {
+        files: vec![main_file],
+        runtime_imports: resolved,
+        ..CodeModel::default()
+    };
+    let measured = metric
+        .measure(&code_model)
+        .expect("Metric plugin reads multi-file resolved import");
+    assert_eq!(metric.key(), "resolved_links");
+    assert!((measured.ratio - 1.0).abs() < 1e-9);
+    assert_eq!(measured.findings.len(), 1);
+    assert_eq!(
+        measured.findings[0].message,
+        "pkg/util -> [pkg/util/alpha.fld, pkg/util/beta.fld]"
+    );
+
+    let empty_model = language
+        .lower(&main_path, "use empty\nfn main()\n")
+        .expect("lower empty-import file");
+    let empty_file = SourceFile {
+        path: main_path.clone(),
+        model: empty_model,
+    };
+    let empty_err = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&empty_file])
+        .expect_err("empty resolved list must fail");
+    assert!(
+        matches!(
+            empty_err,
+            ResolveError::EmptyResolution {
+                ref importer,
+                ref specifier,
+            } if importer == &main_path && specifier == "empty"
+        ),
+        "unexpected error: {empty_err:?}"
+    );
+
+    let partial_model = language
+        .lower(&main_path, "use partial-missing\nfn main()\n")
+        .expect("lower partial-missing file");
+    let partial_file = SourceFile {
+        path: main_path,
+        model: partial_model,
+    };
+    let partial_err = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&partial_file])
+        .expect_err("unknown target inside multi-file list must fail");
+    assert!(
+        matches!(
+            partial_err,
+            ResolveError::UnknownTarget { ref target, .. }
+                if target == "missing/does_not_exist.fld"
+        ),
+        "unexpected error: {partial_err:?}"
     );
 }

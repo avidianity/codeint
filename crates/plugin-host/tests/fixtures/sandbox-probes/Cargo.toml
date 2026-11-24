@@ -16,6 +16,8 @@ members = [
     "coverage-reader-metric",
     "program-start-language",
     "program-start-metric",
+    "folder-import-language",
+    "imports-reader-metric",
 ]
 
 [workspace.package]

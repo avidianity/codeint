@@ -222,22 +222,25 @@ fn build_import_graphs(
     let mut reverse_non_test = vec![Vec::new(); count];
     let mut direct_test_importers = vec![BTreeSet::new(); count];
     for runtime_import in &model.runtime_imports {
-        let ImportResolution::Resolved(target) = &runtime_import.resolution else {
+        let ImportResolution::Resolved(targets) = &runtime_import.resolution else {
             continue;
         };
-        let (Some(&from), Some(&to)) =
-            (index_of.get(&runtime_import.importer), index_of.get(target))
-        else {
+        let Some(&from) = index_of.get(&runtime_import.importer) else {
             continue;
         };
-        if source_sets[from] == SourceSet::Test {
-            if source_sets[to] != SourceSet::Test {
-                direct_test_importers[to].insert(from);
-            }
-        } else {
-            forward[from].push(to);
-            if source_sets[to] != SourceSet::Test {
-                reverse_non_test[to].push(from);
+        for target in targets {
+            let Some(&to) = index_of.get(target) else {
+                continue;
+            };
+            if source_sets[from] == SourceSet::Test {
+                if source_sets[to] != SourceSet::Test {
+                    direct_test_importers[to].insert(from);
+                }
+            } else {
+                forward[from].push(to);
+                if source_sets[to] != SourceSet::Test {
+                    reverse_non_test[to].push(from);
+                }
             }
         }
     }

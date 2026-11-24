@@ -64,11 +64,14 @@ impl ImportCycles {
             .collect();
         let mut imports = vec![Vec::new(); modules.len()];
         for runtime_import in &model.runtime_imports {
-            if let ImportResolution::Resolved(target) = &runtime_import.resolution
-                && let (Some(&from), Some(&to)) =
-                    (index_of.get(&runtime_import.importer), index_of.get(target))
+            if let ImportResolution::Resolved(targets) = &runtime_import.resolution
+                && let Some(&from) = index_of.get(&runtime_import.importer)
             {
-                imports[from].push(to);
+                for target in targets {
+                    if let Some(&to) = index_of.get(target) {
+                        imports[from].push(to);
+                    }
+                }
             }
         }
         let mut cycle_modules: Vec<Vec<RepoPath>> = strongly_connected_components(&imports)

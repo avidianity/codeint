@@ -113,8 +113,10 @@ impl CouplingReport {
 fn direct_import_pairs(model: &CodeModel) -> BTreeSet<(RepoPath, RepoPath)> {
     let mut edges = BTreeSet::new();
     for import in &model.runtime_imports {
-        if let ImportResolution::Resolved(target) = &import.resolution {
-            edges.insert(ordered_pair(&import.importer, target));
+        if let ImportResolution::Resolved(targets) = &import.resolution {
+            for target in targets {
+                edges.insert(ordered_pair(&import.importer, target));
+            }
         }
     }
     edges

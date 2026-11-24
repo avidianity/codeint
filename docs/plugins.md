@@ -89,7 +89,7 @@ Implement all eight functions on `Guest`:
 | `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
 | `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. |
 | `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
-| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(string)`, `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
+| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(list<string>)` (one or more paths from `repository-paths`; an empty list is a Plugin error), `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
 | `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). |
 | `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. |
 | `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric. |
@@ -186,6 +186,27 @@ Rules for `code-model.languages` and `has-coverage`:
 - codeint attaches one `language-facts` entry per language in the Code model and preserves `languages` on every Source set.
 - `has-coverage` is `false` until codeint fills coverage facts from Coverage reports after Language plugins run and before Metrics run.
 - A Metric plugin can check `has-coverage` to stay absent for a language that no Coverage report covers, rather than reporting 0.
+
+### Multi-file resolved imports
+
+A runtime import can resolve to several repository files, such as an import of a whole folder or package directory:
+
+```wit
+variant resolution {
+    resolved(list<string>),
+    external(string),
+    builtin,
+    unresolved(string),
+}
+```
+
+Rules for `resolution.resolved`:
+
+- Every entry in the list must be a path from `repository-paths`, relative to the repository root, with forward slashes.
+- The list must contain at least one file.
+  Returning `resolved([])` stops the run with exit code 2 and an error naming the Plugin.
+- Each file in the list becomes one directed import link from the importing file for Import cycles, Orphan files, Import boundaries, `codeint trace`, and Metric plugins.
+- The five built-in Language plugins return a single-element list per resolved import.
 
 ### Program-start mark
 
@@ -302,7 +323,7 @@ The suite verifies:
 - Ordered `functions` and `tokens`, valid 1-based line spans, absent `coverage` (`none`) on every function, and non-empty Flagged line rules.
 - `manifest-paths` returning only paths from `repository-paths`.
 - `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
-- `resolve-imports` returning one `Resolved`, `External`, `Builtin`, or `Unresolved` result per request in request order.
+- `resolve-imports` returning one `Resolved` (non-empty list of paths from `repository-paths`), `External`, `Builtin`, or `Unresolved` result per request in request order.
 - `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
 - `reference-ranges` returning valid ranges.
 - Safe concurrent `lower` calls across threads.
