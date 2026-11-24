@@ -151,6 +151,7 @@ pub struct ManifestUsedDep {
 pub struct LanguageFacts {
     pub language: String,
     pub has_coverage: bool,
+    pub has_hazard_rules: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -177,7 +178,7 @@ pub struct SourceSets {
 impl CodeModel {
     pub fn merge(models: impl IntoIterator<Item = CodeModel>) -> CodeModel {
         let mut merged = CodeModel::default();
-        let mut languages: BTreeMap<String, bool> = BTreeMap::new();
+        let mut languages: BTreeMap<String, LanguageFacts> = BTreeMap::new();
         for model in models {
             merged.files.extend(model.files);
             merged.skipped.extend(model.skipped);
@@ -195,9 +196,12 @@ impl CodeModel {
                 .extend(model.manifest_used_dependencies);
             for facts in model.languages {
                 languages
-                    .entry(facts.language)
-                    .and_modify(|has_coverage| *has_coverage |= facts.has_coverage)
-                    .or_insert(facts.has_coverage);
+                    .entry(facts.language.clone())
+                    .and_modify(|existing| {
+                        existing.has_coverage |= facts.has_coverage;
+                        existing.has_hazard_rules |= facts.has_hazard_rules;
+                    })
+                    .or_insert(facts);
             }
         }
         merged
@@ -211,13 +215,7 @@ impl CodeModel {
         merged.dependency_manifests.dedup();
         merged.manifest_used_dependencies.sort();
         merged.manifest_used_dependencies.dedup();
-        merged.languages = languages
-            .into_iter()
-            .map(|(language, has_coverage)| LanguageFacts {
-                language,
-                has_coverage,
-            })
-            .collect();
+        merged.languages = languages.into_values().collect();
         merged
     }
 
@@ -447,6 +445,10 @@ pub trait LanguagePlugin: Sync {
     ) -> Result<Vec<RepoPath>, LanguagePluginError>;
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
+
+    fn has_hazard_rules(&self) -> bool;
+
+    fn hazard_rules(&self) -> Vec<String>;
 }
 
 impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
@@ -501,6 +503,14 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         ReferenceRanges::new(Plugin::reference_ranges())
+    }
+
+    fn has_hazard_rules(&self) -> bool {
+        Plugin::has_hazard_rules()
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        Plugin::hazard_rules()
     }
 }
 

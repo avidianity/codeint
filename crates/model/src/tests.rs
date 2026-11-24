@@ -98,6 +98,14 @@ impl Guest for MeasuredLanguage {
     fn reference_ranges() -> Vec<ReferenceRange> {
         vec![range("erosion", 0.12, 0.56, "Measured panel, Table 1")]
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
 }
 
 fn range(metric: &str, low: f64, high: f64, source: &str) -> ReferenceRange {
@@ -414,16 +422,18 @@ fn function_coverage_distinguishes_absent_from_zero_executed_lines() {
 }
 
 #[test]
-fn code_model_merge_sorts_languages_and_combines_coverage_facts() {
+fn code_model_merge_sorts_languages_and_combines_language_facts() {
     let first = CodeModel {
         languages: vec![
             LanguageFacts {
                 language: "typescript-javascript".to_owned(),
                 has_coverage: true,
+                has_hazard_rules: false,
             },
             LanguageFacts {
                 language: "rust".to_owned(),
                 has_coverage: false,
+                has_hazard_rules: true,
             },
         ],
         ..CodeModel::default()
@@ -433,14 +443,17 @@ fn code_model_merge_sorts_languages_and_combines_coverage_facts() {
             LanguageFacts {
                 language: "python".to_owned(),
                 has_coverage: false,
+                has_hazard_rules: false,
             },
             LanguageFacts {
                 language: "rust".to_owned(),
                 has_coverage: true,
+                has_hazard_rules: false,
             },
             LanguageFacts {
                 language: "typescript-javascript".to_owned(),
                 has_coverage: false,
+                has_hazard_rules: true,
             },
         ],
         ..CodeModel::default()
@@ -454,14 +467,17 @@ fn code_model_merge_sorts_languages_and_combines_coverage_facts() {
             LanguageFacts {
                 language: "python".to_owned(),
                 has_coverage: false,
+                has_hazard_rules: false,
             },
             LanguageFacts {
                 language: "rust".to_owned(),
                 has_coverage: true,
+                has_hazard_rules: true,
             },
             LanguageFacts {
                 language: "typescript-javascript".to_owned(),
                 has_coverage: true,
+                has_hazard_rules: true,
             },
         ]
     );
@@ -473,10 +489,12 @@ fn into_source_sets_preserves_language_facts_in_every_source_set() {
         LanguageFacts {
             language: "rust".to_owned(),
             has_coverage: true,
+            has_hazard_rules: false,
         },
         LanguageFacts {
             language: "typescript-javascript".to_owned(),
             has_coverage: false,
+            has_hazard_rules: true,
         },
     ];
     let model = CodeModel {
@@ -495,4 +513,12 @@ fn into_source_sets_preserves_language_facts_in_every_source_set() {
     ] {
         assert_eq!(source_sets.get(source_set).languages, expected);
     }
+}
+
+#[test]
+fn language_plugin_trait_forwards_hazard_rules_exports() {
+    let plugin: &dyn LanguagePlugin = &MeasuredLanguage;
+
+    assert!(!plugin.has_hazard_rules());
+    assert!(plugin.hazard_rules().is_empty());
 }

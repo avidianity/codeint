@@ -1262,6 +1262,14 @@ fn built_in_language_plugins_never_set_program_start() {
     }
 }
 
+fn summarize_findings(measurement: &codeint_model::ExternalMetricMeasurement) -> Vec<(&str, &str)> {
+    measurement
+        .findings
+        .iter()
+        .map(|finding| (finding.id.as_str(), finding.message.as_str()))
+        .collect()
+}
+
 #[test]
 fn metric_plugin_reads_per_language_coverage_statement() {
     let wasm_path = sandbox_probe_wasm("coverage_reader_metric_plugin.wasm");
@@ -1273,6 +1281,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
         languages: vec![LanguageFacts {
             language: "typescript-javascript".to_owned(),
             has_coverage: false,
+            has_hazard_rules: false,
         }],
         ..coverage_model_with(Vec::new())
     };
@@ -1280,6 +1289,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
         languages: vec![LanguageFacts {
             language: "typescript-javascript".to_owned(),
             has_coverage: true,
+            has_hazard_rules: false,
         }],
         ..coverage_model_with(Vec::new())
     };
@@ -1291,23 +1301,15 @@ fn metric_plugin_reads_per_language_coverage_statement() {
         .measure(&covered_language)
         .expect("measure language with coverage");
 
-    fn summarize(measurement: &codeint_model::ExternalMetricMeasurement) -> Vec<(&str, &str)> {
-        measurement
-            .findings
-            .iter()
-            .map(|finding| (finding.id.as_str(), finding.message.as_str()))
-            .collect()
-    }
-
     assert_eq!(
-        summarize(&absent_measured),
+        summarize_findings(&absent_measured),
         vec![(
             "language:typescript-javascript:absent",
             "language=typescript-javascript has_coverage=false",
         )]
     );
     assert_eq!(
-        summarize(&covered_measured),
+        summarize_findings(&covered_measured),
         vec![(
             "language:typescript-javascript:covered",
             "language=typescript-javascript has_coverage=true",
@@ -1330,6 +1332,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
         languages: vec![LanguageFacts {
             language: "rust".to_owned(),
             has_coverage: true,
+            has_hazard_rules: false,
         }],
         ..CodeModel::default()
     };
@@ -1341,12 +1344,130 @@ fn metric_plugin_reads_per_language_coverage_statement() {
         .expect("measure merged multi-language model");
 
     assert_eq!(
-        summarize(&multi_measured),
+        summarize_findings(&multi_measured),
         vec![
             ("language:rust:covered", "language=rust has_coverage=true"),
             (
                 "language:typescript-javascript:absent",
                 "language=typescript-javascript has_coverage=false",
+            ),
+        ]
+    );
+}
+
+#[test]
+fn built_in_language_plugins_have_no_hazard_rules() {
+    use codeint_lang_dart::Dart;
+    use codeint_lang_php::Php;
+    use codeint_lang_python::Python;
+    use codeint_lang_rust::Rust;
+    use codeint_lang_ts::TypeScriptAndJavaScript;
+
+    let plugins: [(&str, &dyn LanguagePlugin); 5] = [
+        ("typescript-javascript", &TypeScriptAndJavaScript),
+        ("rust", &Rust),
+        ("php", &Php),
+        ("dart", &Dart),
+        ("python", &Python),
+    ];
+
+    for (name, plugin) in plugins {
+        assert!(
+            !plugin.has_hazard_rules(),
+            "{name} built-in Language plugin must report has_hazard_rules = false"
+        );
+        assert!(
+            plugin.hazard_rules().is_empty(),
+            "{name} built-in Language plugin must list no hazard rules"
+        );
+    }
+}
+
+#[test]
+fn language_plugin_exports_hazard_rules_across_wasm_boundary() {
+    let wasm_path = sandbox_probe_wasm("hazard_rules_language_plugin.wasm");
+    let declaration = declaration_for("hazard-rules-language", &wasm_path);
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("hazard-rules Language plugin loads");
+
+    assert!(plugin.has_hazard_rules());
+    assert_eq!(
+        plugin.hazard_rules(),
+        vec![
+            "delete-without-where".to_owned(),
+            "leading-wildcard-like".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn metric_plugin_reads_per_language_hazard_rules_statement() {
+    let wasm_path = sandbox_probe_wasm("hazard_facts_metric_plugin.wasm");
+    let declaration = declaration_with_kind("hazard-facts", PluginKind::Metric, &wasm_path);
+    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("hazard-facts Metric plugin loads");
+
+    assert_eq!(plugin.key(), "hazard_facts");
+
+    let without_rules = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+        }],
+        ..coverage_model_with(Vec::new())
+    };
+    let with_rules = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "sql".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: true,
+        }],
+        ..CodeModel::default()
+    };
+
+    let without_measured = plugin
+        .measure(&without_rules)
+        .expect("measure language without hazard rules");
+    let with_measured = plugin
+        .measure(&with_rules)
+        .expect("measure language with hazard rules");
+
+    assert!((without_measured.ratio - 0.0).abs() < 1e-9);
+    assert_eq!(
+        summarize_findings(&without_measured),
+        vec![(
+            "hazard-rules:typescript-javascript:absent",
+            "language=typescript-javascript has_hazard_rules=false",
+        )]
+    );
+
+    assert!((with_measured.ratio - 1.0).abs() < 1e-9);
+    assert_eq!(
+        summarize_findings(&with_measured),
+        vec![(
+            "hazard-rules:sql:enabled",
+            "language=sql has_hazard_rules=true",
+        )]
+    );
+
+    let merged = CodeModel::merge([without_rules, with_rules]);
+    let source_sets = merged.into_source_sets();
+    let multi_measured = plugin
+        .measure(source_sets.get(SourceSet::Production))
+        .expect("measure merged multi-language model");
+
+    assert!((multi_measured.ratio - 0.5).abs() < 1e-9);
+    assert_eq!(
+        summarize_findings(&multi_measured),
+        vec![
+            (
+                "hazard-rules:sql:enabled",
+                "language=sql has_hazard_rules=true",
+            ),
+            (
+                "hazard-rules:typescript-javascript:absent",
+                "language=typescript-javascript has_hazard_rules=false",
             ),
         ]
     );

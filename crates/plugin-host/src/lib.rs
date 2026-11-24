@@ -310,6 +310,14 @@ impl LanguagePlugin for WasmLanguagePlugin {
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         self.reference_ranges_impl()
     }
+
+    fn has_hazard_rules(&self) -> bool {
+        self.has_hazard_rules_impl()
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        self.hazard_rules_impl()
+    }
 }
 
 impl MetricPlugin for WasmMetricPlugin {

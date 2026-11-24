@@ -141,6 +141,8 @@ impl<Pre, Bindings> InstancePool<Pre, Bindings> {
 pub struct WasmLanguagePlugin {
     name: String,
     extensions: Vec<String>,
+    has_hazard_rules: bool,
+    hazard_rules: Vec<String>,
     instances:
         InstancePool<bindings::LanguagePluginPre<PluginStoreState>, bindings::LanguagePlugin>,
 }
@@ -276,9 +278,43 @@ impl WasmLanguagePlugin {
             })?;
         let (ext_count, ext_bytes) = extensions.lifted_budget();
         enforce_lifted_budget(&name, limits, ext_count, ext_bytes)?;
+        arm_call_deadline(&mut component.store, limits);
+        let has_hazard_rules = component
+            .bindings
+            .codeint_plugin_language()
+            .call_has_hazard_rules(&mut component.store)
+            .map_err(|error| {
+                map_host_trap(
+                    &name,
+                    path,
+                    Some("has-hazard-rules"),
+                    limits,
+                    &component.store,
+                    error,
+                )
+            })?;
+        arm_call_deadline(&mut component.store, limits);
+        let hazard_rules = component
+            .bindings
+            .codeint_plugin_language()
+            .call_hazard_rules(&mut component.store)
+            .map_err(|error| {
+                map_host_trap(
+                    &name,
+                    path,
+                    Some("hazard-rules"),
+                    limits,
+                    &component.store,
+                    error,
+                )
+            })?;
+        let (rule_count, rule_bytes) = hazard_rules.lifted_budget();
+        enforce_lifted_budget(&name, limits, rule_count, rule_bytes)?;
         Ok(WasmLanguagePlugin {
             name,
             extensions,
+            has_hazard_rules,
+            hazard_rules,
             instances: InstancePool::from_component(component, limits),
         })
     }
@@ -325,6 +361,14 @@ impl WasmLanguagePlugin {
 
     pub(crate) fn extensions_impl(&self) -> Vec<String> {
         self.extensions.clone()
+    }
+
+    pub(crate) fn has_hazard_rules_impl(&self) -> bool {
+        self.has_hazard_rules
+    }
+
+    pub(crate) fn hazard_rules_impl(&self) -> Vec<String> {
+        self.hazard_rules.clone()
     }
 
     pub(crate) fn lower_impl(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {

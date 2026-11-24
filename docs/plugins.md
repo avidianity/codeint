@@ -81,7 +81,7 @@ export!(SampleMiniPlugin);
 
 ### Required functions
 
-Implement all eight functions on `Guest`:
+Implement all ten functions on `Guest`:
 
 | Function | Responsibility |
 | -------- | -------------- |
@@ -93,6 +93,8 @@ Implement all eight functions on `Guest`:
 | `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). |
 | `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. |
 | `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric. |
+| `has-hazard-rules() -> bool` | State whether this Language plugin defines Hazard line rules; when `false`, the Hazards Metric is absent for this language rather than `0`. |
+| `hazard-rules() -> list<string>` | Return the stable names of the Hazard line rules this Language plugin may emit; empty when `has-hazard-rules` returns `false`. |
 
 Follow these invariants in `lower`:
 
@@ -180,12 +182,26 @@ Rules for `function.coverage`:
 
 - `language`: the Language plugin name, such as `typescript-javascript` or `rust`.
 - `has-coverage`: whether at least one Coverage report covers at least one file of that language.
+- `has-hazard-rules`: whether that Language plugin defines Hazard line rules.
 
 Rules for `code-model.languages` and `has-coverage`:
 
 - codeint attaches one `language-facts` entry per language in the Code model and preserves `languages` on every Source set.
 - `has-coverage` is `false` until codeint fills coverage facts from Coverage reports after Language plugins run and before Metrics run.
 - A Metric plugin can check `has-coverage` to stay absent for a language that no Coverage report covers, rather than reporting 0.
+
+### Hazard line rules
+
+A Language plugin exports `has-hazard-rules() -> bool` and `hazard-rules() -> list<string>`.
+`code-model.languages` exposes each language's `has-hazard-rules` value to Metric plugins.
+
+Rules for `has-hazard-rules`, `hazard-rules`, and `language-facts.has-hazard-rules`:
+
+- Return `false` from `has-hazard-rules` and an empty list from `hazard-rules` when the Language plugin defines no Hazard line rules.
+- Return `true` from `has-hazard-rules` and a non-empty list of stable, non-empty rule names from `hazard-rules` when the Language plugin defines Hazard line rules.
+- The five built-in Language plugins return `false` and an empty list.
+- When `has-hazard-rules` is `false`, the Hazards Metric is absent for that language rather than `0`.
+- A Metric plugin reads `has-hazard-rules` on each `language-facts` entry in `code-model.languages`.
 
 ### Program-start mark
 
@@ -305,6 +321,7 @@ The suite verifies:
 - `resolve-imports` returning one `Resolved`, `External`, `Builtin`, or `Unresolved` result per request in request order.
 - `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
 - `reference-ranges` returning valid ranges.
+- `has-hazard-rules` and `hazard-rules` staying consistent (empty list when `false`, non-empty list of non-empty rule names when `true`).
 - Safe concurrent `lower` calls across threads.
 
 Run the conformance suite and the host sandbox tests:

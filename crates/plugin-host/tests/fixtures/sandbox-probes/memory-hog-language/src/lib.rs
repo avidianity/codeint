@@ -154,4 +154,12 @@ impl Guest for MemoryHogLanguagePlugin {
     fn reference_ranges() -> Vec<ReferenceRange> {
         vec![]
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        vec![]
+    }
 }

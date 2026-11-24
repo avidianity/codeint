@@ -57,6 +57,14 @@ impl LanguagePlugin for Answering {
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         ReferenceRanges::new(Vec::new())
     }
+
+    fn has_hazard_rules(&self) -> bool {
+        false
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 fn path(text: &str) -> RepoPath {

@@ -229,6 +229,8 @@ wit_bindgen::generate!({
                 declared-dependencies: func(manifests: list<manifest>) -> list<declared-dep>;
                 entry-points: func(repository-paths: list<string>, manifests: list<manifest>) -> list<string>;
                 reference-ranges: func() -> list<reference-range>;
+                has-hazard-rules: func() -> bool;
+                hazard-rules: func() -> list<string>;
             }
         }
     ",
@@ -309,4 +311,12 @@ impl exports::codeint::plugin0_2_0::language::Guest for DualVersionLanguagePlugi
 
 impl exports::codeint::plugin0_3_0::language::Guest for DualVersionLanguagePlugin {
     impl_common_guest!(plugin0_3_0, program_start: false);
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        vec![]
+    }
 }

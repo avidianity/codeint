@@ -84,6 +84,17 @@ fn lines_in(source_set: SourceSet, text: &str) -> Result<FileModel, LowerError> 
 
 macro_rules! every_import_is_external {
     () => {
+        every_import_is_external!(imports_only);
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> Vec<String> {
+            Vec::new()
+        }
+    };
+    (imports_only) => {
         fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
             Vec::new()
         }
@@ -821,6 +832,14 @@ impl LanguagePlugin for ParallelProofPlugin {
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         Ok(ReferenceRanges::default())
     }
+
+    fn has_hazard_rules(&self) -> bool {
+        false
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 #[test]
@@ -1085,13 +1104,53 @@ fn extension_conflict_error_and_remedy_name_codeint_jsonc_when_active() {
 }
 
 #[test]
-fn measure_snapshot_populates_per_language_coverage_statement_as_false() {
-    let folder = repository(&[("main.alpha", "one\n"), ("main.beta", "two\n")]);
+fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements() {
+    struct WithHazardRules;
+
+    impl Guest for WithHazardRules {
+        fn extensions() -> Vec<String> {
+            vec!["haz".to_owned()]
+        }
+
+        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+            lines_of(&text)
+        }
+
+        without_workspaces!();
+
+        fn reference_ranges() -> Vec<ReferenceRange> {
+            Vec::new()
+        }
+
+        every_import_is_external!(imports_only);
+
+        fn has_hazard_rules() -> bool {
+            true
+        }
+
+        fn hazard_rules() -> Vec<String> {
+            vec![
+                "delete-without-where".to_owned(),
+                "leading-wildcard-like".to_owned(),
+            ]
+        }
+    }
+
+    const WITH_HAZARD_RULES: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+        name: "hazard-lang",
+        plugin: &WithHazardRules,
+    };
+
+    let folder = repository(&[("main.alpha", "one\n"), ("query.haz", "two\n")]);
     let repo = Repository::discover(folder.path()).expect("open repository");
     let tree = repo.working_tree().expect("read working tree");
 
-    let snapshot = measure_snapshot(&tree, &[ALPHA, BETA], &Configuration::default())
-        .expect("measure snapshot succeeds");
+    let snapshot = measure_snapshot(
+        &tree,
+        &[ALPHA, WITH_HAZARD_RULES],
+        &Configuration::default(),
+    )
+    .expect("measure snapshot succeeds");
 
     let facts_by_plugin: Vec<(&str, &[LanguageFacts])> = snapshot
         .languages
@@ -1111,13 +1170,15 @@ fn measure_snapshot_populates_per_language_coverage_statement_as_false() {
                 &[LanguageFacts {
                     language: "alpha".to_owned(),
                     has_coverage: false,
+                    has_hazard_rules: false,
                 }][..]
             ),
             (
-                "beta",
+                "hazard-lang",
                 &[LanguageFacts {
-                    language: "beta".to_owned(),
+                    language: "hazard-lang".to_owned(),
                     has_coverage: false,
+                    has_hazard_rules: true,
                 }][..]
             ),
         ]

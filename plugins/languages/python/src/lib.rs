@@ -102,4 +102,12 @@ impl Guest for Python {
             program_start: false,
         })
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
 }
