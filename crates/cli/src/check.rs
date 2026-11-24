@@ -859,6 +859,31 @@ fn manifest_root(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
+fn scoped_manifests_for_package(
+    manifests: &[Manifest],
+    workspace: &Workspace,
+    selected: &SelectedPackage,
+) -> Vec<Manifest> {
+    let own: Vec<Manifest> = manifests
+        .iter()
+        .filter(|manifest| {
+            package_root_matches_selected(workspace, selected, manifest_root(&manifest.path))
+        })
+        .cloned()
+        .collect();
+    if matches!(selected, SelectedPackage::Root)
+        || vue_reference_ranges(&own).is_some()
+        || react_reference_ranges(&own).is_some()
+    {
+        return own;
+    }
+    manifests
+        .iter()
+        .filter(|manifest| manifest_root(&manifest.path).is_empty())
+        .cloned()
+        .collect()
+}
+
 fn refresh_reference_ranges_for_package(
     languages: &mut [MeasuredLanguage],
     plugins: &[NamedLanguagePlugin<'_>],
@@ -873,16 +898,10 @@ fn refresh_reference_ranges_for_package(
         let Some(named) = plugins.iter().find(|plugin| plugin.name == language.plugin) else {
             continue;
         };
-        let scoped: Vec<Manifest> = manifests_by_language
+        let scoped = manifests_by_language
             .get(&language.plugin)
-            .into_iter()
-            .flatten()
-            .filter(|manifest| {
-                let root = manifest_root(&manifest.path);
-                root.is_empty() || package_root_matches_selected(workspace, selected, root)
-            })
-            .cloned()
-            .collect();
+            .map(|manifests| scoped_manifests_for_package(manifests, workspace, selected))
+            .unwrap_or_default();
         language.reference_ranges = select_reference_ranges(named, &language.model, &scoped)?;
     }
     Ok(())

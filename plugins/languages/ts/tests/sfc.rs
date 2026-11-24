@@ -135,6 +135,20 @@ fn vue_reference_ranges_detects_vue_2_and_vue_3_from_package_json() {
         )])
         .is_none()
     );
+    assert!(
+        vue_reference_ranges(&[manifest(
+            "node_modules/foo/package.json",
+            r#"{"dependencies":{"vue":"^3.4.0"}}"#,
+        )])
+        .is_none()
+    );
+    assert!(
+        vue_reference_ranges(&[manifest(
+            "packages/app/node_modules/foo/package.json",
+            r#"{"dependencies":{"vue":"^2.7.16"}}"#,
+        )])
+        .is_none()
+    );
 }
 
 #[test]

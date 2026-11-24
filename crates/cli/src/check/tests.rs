@@ -1080,6 +1080,36 @@ fn extension_conflict_error_and_remedy_name_codeint_jsonc_when_active() {
     );
 }
 
+const TS_JS_RANGE: &str =
+    "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
+const VUE2_RANGE: &str = "codeint panel of 20 Vue 2 repositories, ADR 0014, codeint 0.4.0";
+const VUE3_RANGE: &str = "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0";
+const REACT_RANGE: &str =
+    "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0";
+
+fn package_reference_range_source(repo: &std::path::Path, pkg: &str) -> String {
+    let report = super::check(
+        repo,
+        FindingsShown::All,
+        Some(pkg),
+        None,
+        &codeint_config::PluginHostConfig::default(),
+    )
+    .expect("package check succeeds");
+    let rendered = report.render(ReportFormat::Json).expect("render json");
+    let parsed: Value = serde_json::from_str(&rendered).expect("parse json");
+    parsed["source_sets"]["production"]["erosion"]["reference_range"]["source"]
+        .as_str()
+        .expect("reference range source")
+        .to_owned()
+}
+
+fn assert_package_ranges(repo: &std::path::Path, cases: &[(&str, &str)]) {
+    for &(pkg, expected) in cases {
+        assert_eq!(package_reference_range_source(repo, pkg), expected, "{pkg}");
+    }
+}
+
 #[test]
 fn react_reference_ranges_select_adr_0020_and_preserve_vue_and_hybrid_precedence() {
     let ts_plugin = [NamedLanguagePlugin {
@@ -1087,95 +1117,82 @@ fn react_reference_ranges_select_adr_0020_and_preserve_vue_and_hybrid_precedence
         plugin: &codeint_lang_ts::TypeScriptAndJavaScript,
     }];
 
-    let react_report = json_report(
-        &[
-            ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
-            (
-                "src/App.tsx",
-                "export function App() { return <div>hello</div>; }\n",
-            ),
-        ],
-        &ts_plugin,
-    );
-    assert_eq!(
-        react_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
-        "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0"
-    );
-
-    let vue_with_tsx_report = json_report(
-        &[
-            ("package.json", r#"{"dependencies":{"vue":"^3.4.0"}}"#),
-            ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
-            ("src/Icon.tsx", "export const Icon = () => <span />;\n"),
-        ],
-        &ts_plugin,
-    );
-    assert_eq!(
-        vue_with_tsx_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
-        "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0"
-    );
-
-    let hybrid_report = json_report(
-        &[
-            (
-                "package.json",
-                r#"{"dependencies":{"react":"^18.3.1","vue":"^3.4.0"}}"#,
-            ),
-            ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
-            (
-                "src/Widget.tsx",
-                "export function Widget() { return <div />; }\n",
-            ),
-        ],
-        &ts_plugin,
-    );
-    assert_eq!(
-        hybrid_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
-        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
-    );
-
-    let plain_ts_report = json_report(
-        &[
-            ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
-            ("src/util.ts", "export const answer = 42;\n"),
-        ],
-        &ts_plugin,
-    );
-    assert_eq!(
-        plain_ts_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
-        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
-    );
-
-    let jsx_report = json_report(
-        &[
-            ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
-            (
-                "src/App.jsx",
-                "export function App() { return <div>hi</div>; }\n",
-            ),
-        ],
-        &ts_plugin,
-    );
-    assert_eq!(
-        jsx_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
-        "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0"
-    );
-
-    let vue_unparsed_hybrid_report = json_report(
-        &[
-            (
-                "package.json",
-                r#"{"dependencies":{"react":"^18.3.1","vue":"latest"}}"#,
-            ),
-            ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
-            ("src/Widget.tsx", "export const Widget = () => <div />;\n"),
-        ],
-        &ts_plugin,
-    );
-    assert_eq!(
-        vue_unparsed_hybrid_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
-        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
-    );
+    type RangeCase<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a str);
+    let cases: &[RangeCase<'_>] = &[
+        (
+            "react-tsx",
+            &[
+                ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
+                (
+                    "src/App.tsx",
+                    "export function App() { return <div>hello</div>; }\n",
+                ),
+            ],
+            REACT_RANGE,
+        ),
+        (
+            "react-jsx",
+            &[
+                ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
+                (
+                    "src/App.jsx",
+                    "export function App() { return <div>hi</div>; }\n",
+                ),
+            ],
+            REACT_RANGE,
+        ),
+        (
+            "vue-with-tsx",
+            &[
+                ("package.json", r#"{"dependencies":{"vue":"^3.4.0"}}"#),
+                ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
+                ("src/Icon.tsx", "export const Icon = () => <span />;\n"),
+            ],
+            VUE3_RANGE,
+        ),
+        (
+            "hybrid-vue-react",
+            &[
+                (
+                    "package.json",
+                    r#"{"dependencies":{"react":"^18.3.1","vue":"^3.4.0"}}"#,
+                ),
+                ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
+                (
+                    "src/Widget.tsx",
+                    "export function Widget() { return <div />; }\n",
+                ),
+            ],
+            TS_JS_RANGE,
+        ),
+        (
+            "hybrid-unparsed-vue",
+            &[
+                (
+                    "package.json",
+                    r#"{"dependencies":{"react":"^18.3.1","vue":"latest"}}"#,
+                ),
+                ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
+                ("src/Widget.tsx", "export const Widget = () => <div />;\n"),
+            ],
+            TS_JS_RANGE,
+        ),
+        (
+            "plain-ts-with-react",
+            &[
+                ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
+                ("src/util.ts", "export const answer = 42;\n"),
+            ],
+            TS_JS_RANGE,
+        ),
+    ];
+    for &(label, files, expected) in cases {
+        let report = json_report(files, &ts_plugin);
+        assert_eq!(
+            report["source_sets"]["production"]["erosion"]["reference_range"]["source"], expected,
+            "{label}"
+        );
+    }
 
     let monorepo = repository(&[
         (
@@ -1201,32 +1218,76 @@ fn react_reference_ranges_select_adr_0020_and_preserve_vue_and_hybrid_precedence
         ("packages/api/package.json", r#"{"name":"api"}"#),
         ("packages/api/src/index.ts", "export const ok = true;\n"),
     ]);
-    let check_pkg = |pkg: &str| {
-        let report = super::check(
-            monorepo.path(),
-            FindingsShown::All,
-            Some(pkg),
-            None,
-            &codeint_config::PluginHostConfig::default(),
-        )
-        .expect("package check succeeds");
-        let rendered = report.render(ReportFormat::Json).expect("render json");
-        let parsed: Value = serde_json::from_str(&rendered).expect("parse json");
-        parsed["source_sets"]["production"]["erosion"]["reference_range"]["source"]
-            .as_str()
-            .expect("reference range source")
-            .to_owned()
-    };
-    assert_eq!(
-        check_pkg("packages/react-app"),
-        "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0"
+    assert_package_ranges(
+        monorepo.path(),
+        &[
+            ("packages/react-app", REACT_RANGE),
+            ("packages/vue-app", VUE3_RANGE),
+            ("packages/api", TS_JS_RANGE),
+        ],
     );
-    assert_eq!(
-        check_pkg("packages/vue-app"),
-        "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0"
-    );
-    assert_eq!(
-        check_pkg("packages/api"),
-        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+}
+
+#[test]
+fn package_scoped_reference_ranges_prefer_member_manifests_over_root() {
+    let vue_script = "<script setup>\nconst x = 1;\n</script>\n";
+    let tsx_main = "export const App = () => <main />;\n";
+    let monorepo = repository(&[
+        (
+            "package.json",
+            r#"{"private":true,"workspaces":["packages/*"],"dependencies":{"vue":"^3.4.0"},"devDependencies":{"react":"^18.3.1"}}"#,
+        ),
+        (
+            "packages/legacy/package.json",
+            r#"{"name":"legacy","dependencies":{"vue":"^2.7.16"}}"#,
+        ),
+        (
+            "packages/legacy/src/App.vue",
+            "<script>\nexport default {};\n</script>\n",
+        ),
+        (
+            "packages/vue-jsx/package.json",
+            r#"{"name":"vue-jsx","dependencies":{"vue":"^3.4.0"}}"#,
+        ),
+        ("packages/vue-jsx/src/App.vue", vue_script),
+        (
+            "packages/vue-jsx/src/Icon.tsx",
+            "export const Icon = () => <span />;\n",
+        ),
+        (
+            "packages/hybrid/package.json",
+            r#"{"name":"hybrid","dependencies":{"vue":"^3.4.0","react":"^18.3.1"}}"#,
+        ),
+        ("packages/hybrid/src/App.vue", vue_script),
+        (
+            "packages/hybrid/src/Widget.tsx",
+            "export const Widget = () => <div />;\n",
+        ),
+        (
+            "packages/hoisted-react/package.json",
+            r#"{"name":"hoisted-react"}"#,
+        ),
+        ("packages/hoisted-react/src/App.tsx", tsx_main),
+        (
+            "packages/hoisted-vue/package.json",
+            r#"{"name":"hoisted-vue"}"#,
+        ),
+        ("packages/hoisted-vue/src/App.vue", vue_script),
+        ("packages/plain-api/package.json", r#"{"name":"plain-api"}"#),
+        (
+            "packages/plain-api/src/index.ts",
+            "export const ready = true;\n",
+        ),
+    ]);
+    assert_package_ranges(
+        monorepo.path(),
+        &[
+            ("packages/legacy", VUE2_RANGE),
+            ("packages/vue-jsx", VUE3_RANGE),
+            ("packages/hybrid", TS_JS_RANGE),
+            ("packages/hoisted-react", REACT_RANGE),
+            ("packages/hoisted-vue", VUE3_RANGE),
+            ("packages/plain-api", TS_JS_RANGE),
+        ],
     );
 }
