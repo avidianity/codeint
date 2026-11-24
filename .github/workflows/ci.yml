@@ -86,7 +86,7 @@ jobs:
   rust:
     name: rust
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -107,7 +107,7 @@ jobs:
   windows:
     name: windows
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -118,7 +118,7 @@ jobs:
   performance:
     name: performance
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -129,6 +129,7 @@ jobs:
   repository:
     name: repository
     needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -202,7 +203,7 @@ jobs:
 
   budget:
     name: budget
-    if: always() && github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true'
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' }}
     needs: [changes, rust, windows, performance, repository, risk-tier]
     runs-on: ubuntu-24.04
     permissions:

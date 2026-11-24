@@ -18,7 +18,6 @@ on:
       - 'docs/agents/review-and-merge.md'
       - 'docs/agents/security.md'
   pull_request:
-    branches: [main]
     paths:
       - '**'
       - '!README.md'

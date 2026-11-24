@@ -396,24 +396,25 @@ fn affected_tests(root: &Path, args: &[String]) -> Result<Violations, String> {
     })
 }
 
+fn feedback_loop_seconds(root: &Path, args: &[String]) -> Result<f64, String> {
+    if let Ok(seconds) = flag(args, "--seconds") {
+        return seconds
+            .parse::<f64>()
+            .map_err(|_| format!("--seconds must be a number, not {seconds}"));
+    }
+    let excluded_workflows = repeated_flag(args, "--exclude-workflow")?;
+    let jobs = budget::fetch_ci_gate_jobs(root, &flag(args, "--run-id")?, &excluded_workflows)?;
+    budget::ci_gate_seconds(&jobs, &flag(args, "--exclude-job")?)
+        .ok_or_else(|| "the run has no completed jobs".to_string())
+}
+
 fn feedback_budget(
     root: &Path,
     settings: &Settings,
     args: &[String],
 ) -> Result<Violations, String> {
     let feedback_loop = FeedbackLoop::from_name(&flag(args, "--loop")?)?;
-    let seconds = match flag(args, "--seconds") {
-        Ok(seconds) => seconds
-            .parse::<f64>()
-            .map_err(|_| format!("--seconds must be a number, not {seconds}"))?,
-        Err(_) => {
-            let excluded_workflows = repeated_flag(args, "--exclude-workflow")?;
-            let jobs =
-                budget::fetch_ci_gate_jobs(root, &flag(args, "--run-id")?, &excluded_workflows)?;
-            budget::ci_gate_seconds(&jobs, &flag(args, "--exclude-job")?)
-                .ok_or("the run has no completed jobs")?
-        }
-    };
+    let seconds = feedback_loop_seconds(root, args)?;
     let budget_seconds = feedback_loop.budget_seconds(settings);
     println!(
         "{} took {seconds:.0} seconds of a {budget_seconds:.0}-second budget.",
