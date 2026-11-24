@@ -1,51 +1,14 @@
-use sqlparser::ast::{
-    BinaryOperator, DuplicateTreatment, Expr, Function, FunctionArguments, InTarget, Spanned,
-    UnaryOperator, Value,
-};
+use sqlparser::ast::{BinaryOperator, Expr, Function, InTarget, UnaryOperator, Value};
 use sqlparser::keywords::Keyword;
+
+use crate::ast_loc::{expr_start_line, expr_start_loc, push_expr_children_rev, query_start_loc};
+use crate::flagged::is_aggregate_call;
 
 use super::HazardCtx;
 use super::expr_util::{
-    expr_contains_column, extract_string_literal, for_each_child_expr, function_args_any,
-    last_ident_lower, peel_nested, value_as_str,
+    expr_contains_column, extract_string_literal, function_args_any, peel_nested, value_as_str,
 };
-use super::locate::{keyword_line_before, span_line};
-
-const HAVING_AGGREGATES: &[&str] = &[
-    "any_value",
-    "array_agg",
-    "avg",
-    "bit_and",
-    "bit_or",
-    "bit_xor",
-    "bool_and",
-    "bool_or",
-    "count",
-    "every",
-    "first",
-    "group_concat",
-    "json_agg",
-    "json_arrayagg",
-    "json_object_agg",
-    "jsonb_agg",
-    "jsonb_object_agg",
-    "last",
-    "list",
-    "max",
-    "median",
-    "min",
-    "percentile_cont",
-    "percentile_disc",
-    "stddev",
-    "stddev_pop",
-    "stddev_samp",
-    "string_agg",
-    "sum",
-    "total",
-    "var_pop",
-    "var_samp",
-    "variance",
-];
+use super::locate::keyword_line_before;
 
 pub(super) fn check_leading_wildcard_like(ctx: &mut HazardCtx<'_>, expr: &Expr) {
     let (pattern, kw) = match expr {
@@ -59,11 +22,11 @@ pub(super) fn check_leading_wildcard_like(ctx: &mut HazardCtx<'_>, expr: &Expr) 
     if !lit.starts_with('%') && !lit.starts_with('_') {
         return;
     }
-    let kw_line = keyword_line_before(ctx.tokens, kw, pattern.span().start);
+    let kw_line = keyword_line_before(ctx.tokens, kw, expr_start_loc(pattern));
     let line = if kw_line > 0 {
         kw_line
     } else {
-        span_line(expr.span())
+        expr_start_line(expr)
     };
     ctx.emit(line, "leading-wildcard-like");
 }
@@ -77,21 +40,21 @@ pub(super) fn check_in_expr(ctx: &mut HazardCtx<'_>, expr: &Expr) {
     };
     match target {
         InTarget::Subquery(subquery) if *negated => {
-            let not_line = keyword_line_before(ctx.tokens, Keyword::NOT, subquery.span().start);
+            let not_line = keyword_line_before(ctx.tokens, Keyword::NOT, query_start_loc(subquery));
             let line = if not_line > 0 {
                 not_line
             } else {
-                span_line(expr.span())
+                expr_start_line(expr)
             };
             ctx.emit(line, "not-in-subquery");
         }
         InTarget::List(items) if items.len() > 100 => {
-            let first_loc = items[0].span().start;
+            let first_loc = expr_start_loc(&items[0]);
             let in_line = keyword_line_before(ctx.tokens, Keyword::IN, first_loc);
             let line = if in_line > 0 {
                 in_line
             } else {
-                span_line(expr.span())
+                expr_start_line(expr)
             };
             ctx.emit(line, "long-in-list");
         }
@@ -100,51 +63,43 @@ pub(super) fn check_in_expr(ctx: &mut HazardCtx<'_>, expr: &Expr) {
 }
 
 pub(super) fn check_filter_expr(ctx: &mut HazardCtx<'_>, expr: &Expr, in_having: bool) {
-    check_always_true(ctx, expr, true);
+    check_always_true(ctx, expr);
     check_function_on_column(ctx, expr, in_having);
 }
 
-fn check_always_true(ctx: &mut HazardCtx<'_>, expr: &Expr, in_bool_pos: bool) {
-    let unwrapped = peel_nested(expr);
-    if in_bool_pos && is_always_true_literal(unwrapped) {
-        ctx.emit(span_line(unwrapped.span()), "always-true-condition");
-        return;
-    }
-    match unwrapped {
-        Expr::BinaryOp { left, op, right } => {
-            check_always_true_binary(ctx, unwrapped, left, op, right);
+fn check_always_true(ctx: &mut HazardCtx<'_>, root: &Expr) {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        let unwrapped = peel_nested(expr);
+        if is_always_true_literal(unwrapped) {
+            ctx.emit(expr_start_line(unwrapped), "always-true-condition");
+            continue;
         }
-        Expr::IsNotDistinctFrom(left, right) if same_constant(left, right) => {
-            ctx.emit(span_line(unwrapped.span()), "always-true-condition");
+        match unwrapped {
+            Expr::BinaryOp {
+                left,
+                op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor,
+                right,
+            } => {
+                stack.push(right);
+                stack.push(left);
+            }
+            Expr::BinaryOp { left, op, right }
+                if matches!(
+                    op,
+                    BinaryOperator::Eq
+                        | BinaryOperator::GtEq
+                        | BinaryOperator::LtEq
+                        | BinaryOperator::Spaceship
+                ) && same_constant(left, right) =>
+            {
+                ctx.emit(expr_start_line(unwrapped), "always-true-condition");
+            }
+            Expr::IsNotDistinctFrom(left, right) if same_constant(left, right) => {
+                ctx.emit(expr_start_line(unwrapped), "always-true-condition");
+            }
+            _ => {}
         }
-        _ => {}
-    }
-}
-
-fn check_always_true_binary(
-    ctx: &mut HazardCtx<'_>,
-    whole: &Expr,
-    left: &Expr,
-    op: &BinaryOperator,
-    right: &Expr,
-) {
-    if matches!(
-        op,
-        BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor
-    ) {
-        check_always_true(ctx, left, true);
-        check_always_true(ctx, right, true);
-        return;
-    }
-    if matches!(
-        op,
-        BinaryOperator::Eq
-            | BinaryOperator::GtEq
-            | BinaryOperator::LtEq
-            | BinaryOperator::Spaceship
-    ) && same_constant(left, right)
-    {
-        ctx.emit(span_line(whole.span()), "always-true-condition");
     }
 }
 
@@ -173,21 +128,33 @@ fn same_constant(left: &Expr, right: &Expr) -> bool {
     }
 }
 
-fn extract_const(expr: &Expr) -> Option<ConstVal> {
-    match peel_nested(expr) {
-        Expr::Value(val) => value_to_const(&val.value),
-        Expr::UnaryOp {
-            op: UnaryOperator::Plus,
-            expr: inner,
-        } => extract_const(inner),
-        Expr::UnaryOp {
-            op: UnaryOperator::Minus,
-            expr: inner,
-        } => match extract_const(inner)? {
-            ConstVal::Num(n) => Some(ConstVal::Num(format!("-{n}"))),
-            _ => None,
-        },
-        _ => None,
+fn extract_const(mut expr: &Expr) -> Option<ConstVal> {
+    let mut negated = false;
+    loop {
+        match peel_nested(expr) {
+            Expr::Value(val) => {
+                let base = value_to_const(&val.value)?;
+                if !negated {
+                    return Some(base);
+                }
+                return match base {
+                    ConstVal::Num(n) => Some(ConstVal::Num(format!("-{n}"))),
+                    _ => None,
+                };
+            }
+            Expr::UnaryOp {
+                op: UnaryOperator::Plus,
+                expr: inner,
+            } => expr = inner,
+            Expr::UnaryOp {
+                op: UnaryOperator::Minus,
+                expr: inner,
+            } => {
+                negated = !negated;
+                expr = inner;
+            }
+            _ => return None,
+        }
     }
 }
 
@@ -202,50 +169,34 @@ fn value_to_const(value: &Value) -> Option<ConstVal> {
     }
 }
 
-fn check_function_on_column(ctx: &mut HazardCtx<'_>, expr: &Expr, in_having: bool) {
-    match expr {
-        Expr::Subquery(_) | Expr::Exists { .. } => {}
-        Expr::Function(func) => check_function_call(ctx, expr, func, in_having),
-        Expr::Substring { .. }
-        | Expr::Trim { .. }
-        | Expr::Extract { .. }
-        | Expr::Ceil { .. }
-        | Expr::Floor { .. }
-        | Expr::Position { .. }
-        | Expr::Overlay { .. } => {
-            if expr_contains_column(expr) {
-                ctx.emit(span_line(expr.span()), "function-on-filter-column");
+fn check_function_on_column(ctx: &mut HazardCtx<'_>, root: &Expr, in_having: bool) {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        match expr {
+            Expr::Subquery(_) | Expr::Exists { .. } => {}
+            Expr::Function(func) => check_function_call(ctx, expr, func, in_having),
+            Expr::Substring { .. }
+            | Expr::Trim { .. }
+            | Expr::Extract { .. }
+            | Expr::Ceil { .. }
+            | Expr::Floor { .. }
+            | Expr::Position { .. }
+            | Expr::Overlay { .. } => {
+                if expr_contains_column(expr) {
+                    ctx.emit(expr_start_line(expr), "function-on-filter-column");
+                }
             }
+            other => push_expr_children_rev(other, &mut stack),
         }
-        other => for_each_child_expr(other, &mut |child| {
-            check_function_on_column(ctx, child, in_having);
-        }),
     }
 }
 
 fn check_function_call(ctx: &mut HazardCtx<'_>, expr: &Expr, func: &Function, in_having: bool) {
-    if in_having && is_having_aggregate(func) {
+    if in_having && is_aggregate_call(func) {
         return;
     }
     if function_args_any(func, expr_contains_column) {
-        let line = span_line(expr.span());
+        let line = expr_start_line(expr);
         ctx.emit(line, "function-on-filter-column");
     }
-}
-
-fn is_having_aggregate(func: &Function) -> bool {
-    func.over.is_none() && (has_aggregate_modifier(func) || is_aggregate_name(func))
-}
-
-fn has_aggregate_modifier(func: &Function) -> bool {
-    let is_distinct = matches!(
-        &func.args,
-        FunctionArguments::List(list) if list.duplicate_treatment == Some(DuplicateTreatment::Distinct)
-    );
-    func.filter.is_some() || !func.within_group.is_empty() || is_distinct
-}
-
-fn is_aggregate_name(func: &Function) -> bool {
-    last_ident_lower(&func.name)
-        .is_some_and(|name| HAVING_AGGREGATES.binary_search(&name.as_str()).is_ok())
 }

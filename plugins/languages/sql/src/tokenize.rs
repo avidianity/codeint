@@ -5,10 +5,15 @@ use sqlparser::dialect::{
     Dialect, DuckDbDialect, GenericDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect,
 };
 use sqlparser::keywords::Keyword;
-use sqlparser::tokenizer::{Token, TokenWithSpan, Tokenizer};
+use sqlparser::tokenizer::{Location, Token, TokenWithSpan, Tokenizer};
 
 use crate::SqlDialect;
-use crate::source_set::parse_dollar_tag;
+use crate::source_set::{is_pg_escaped_prefix, parse_dollar_tag};
+
+pub(crate) struct ExpandedRoutineBody {
+    pub(crate) outer_start: Location,
+    pub(crate) tokens: Vec<TokenWithSpan>,
+}
 
 static GENERIC: GenericDialect = GenericDialect;
 static POSTGRESQL: PostgreSqlDialect = PostgreSqlDialect {};
@@ -112,7 +117,7 @@ fn shift_token_lines(tokens: &mut [TokenWithSpan], offset: u64) {
 #[derive(Clone, PartialEq, Eq)]
 enum ScanState {
     Normal,
-    SingleQuote,
+    SingleQuote { backslash_escape: bool },
     DoubleQuote,
     Backtick,
     BlockComment(usize),
@@ -372,7 +377,10 @@ fn step_scan_state(
 ) -> usize {
     match state {
         ScanState::Normal => step_normal_state(bytes, pos, state, mysql_mode),
-        ScanState::SingleQuote => step_quote_state(bytes, pos, b'\'', mysql_mode, state),
+        ScanState::SingleQuote { backslash_escape } => {
+            let escape = *backslash_escape;
+            step_quote_state(bytes, pos, b'\'', escape, state)
+        }
         ScanState::DoubleQuote => step_quote_state(bytes, pos, b'"', mysql_mode, state),
         ScanState::Backtick => step_quote_state(bytes, pos, b'`', false, state),
         ScanState::BlockComment(depth) => {
@@ -418,7 +426,8 @@ fn try_enter_quote(
 ) -> Option<usize> {
     match bytes[pos] {
         b'\'' => {
-            *state = ScanState::SingleQuote;
+            let backslash_escape = mysql_mode || is_pg_escaped_prefix(bytes, pos);
+            *state = ScanState::SingleQuote { backslash_escape };
             Some(pos + 1)
         }
         b'"' => {
@@ -490,19 +499,21 @@ fn step_dollar_quote_state(bytes: &[u8], pos: usize, tag: Vec<u8>, state: &mut S
 
 pub(crate) fn collect_statement_lines_and_tokens(
     tokens: &[TokenWithSpan],
-    routine_bodies: &[Vec<TokenWithSpan>],
+    routine_bodies: &[ExpandedRoutineBody],
     code_lines: &mut BTreeSet<u32>,
     out: &mut Vec<ModelToken>,
 ) {
-    let mut body_iter = routine_bodies.iter();
+    let mut body_idx = 0usize;
     for tok in tokens {
         if matches!(tok.token, Token::Whitespace(_) | Token::EOF) {
             continue;
         }
         if matches!(tok.token, Token::DollarQuotedString(_))
-            && let Some(body_tokens) = body_iter.next()
+            && let Some(body) = routine_bodies.get(body_idx)
+            && body.outer_start == tok.span.start
         {
-            collect_dollar_body(tok, body_tokens, code_lines, out);
+            body_idx += 1;
+            collect_dollar_body(tok, &body.tokens, code_lines, out);
             continue;
         }
         insert_span_lines(tok, code_lines);

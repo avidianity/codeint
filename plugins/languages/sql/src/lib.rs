@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod ast_loc;
 mod flagged;
 mod hazards;
 mod parser;

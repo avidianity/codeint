@@ -449,3 +449,48 @@ fn filter_and_join_respect_composite_prefixes_and_leading_index_in_and_chains() 
         &[],
     );
 }
+
+#[test]
+fn create_table_if_not_exists_does_not_overwrite_existing_table_schema() {
+    let migration_files = [
+        "CREATE TABLE users (id INT PRIMARY KEY, email TEXT);",
+        "ALTER TABLE users ADD COLUMN role TEXT; CREATE INDEX idx_email ON users (email);",
+        "CREATE TABLE IF NOT EXISTS users (id INT PRIMARY KEY, email TEXT);",
+    ]
+    .map(|sql| parse(SqlDialect::Generic, sql));
+    let schema = SqlSchema::build(migration_files.iter().map(Vec::as_slice));
+    let queries = parse(
+        SqlDialect::Generic,
+        "SELECT role FROM users WHERE email = 'a@b.com';",
+    );
+    let hazards = collect_schema_hazards(&queries, &schema, SqlDialect::Generic);
+    assert!(hazards.is_empty(), "unexpected schema hazards: {hazards:?}");
+}
+
+#[test]
+fn schema_rules_handle_deep_left_leaning_expressions_without_stack_overflow() {
+    let ddl = parse(SqlDialect::Generic, base_schema());
+    let schema = SqlSchema::build([ddl.as_slice()]);
+
+    let sum_terms = vec!["1"; 2500].join(" + ");
+    let sum_query = parse(
+        SqlDialect::Generic,
+        &format!("SELECT {sum_terms} FROM users WHERE id = 1;"),
+    );
+    let sum_hazards = collect_schema_hazards(&sum_query, &schema, SqlDialect::Generic);
+    assert!(sum_hazards.is_empty());
+
+    let or_terms: Vec<String> = (1..=2500)
+        .map(|i| format!("email = 'u{i}@x.com'"))
+        .collect();
+    let or_query = parse(
+        SqlDialect::Generic,
+        &format!("SELECT id FROM users WHERE {};", or_terms.join(" OR ")),
+    );
+    let or_hazards = collect_schema_hazards(&or_query, &schema, SqlDialect::Generic);
+    assert!(
+        or_hazards
+            .iter()
+            .any(|h| h.rule == "filter-on-unindexed-column")
+    );
+}

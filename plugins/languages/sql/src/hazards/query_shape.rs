@@ -1,18 +1,20 @@
 use sqlparser::ast::{
     Distinct, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArguments, GroupByExpr,
     InTarget, LimitClause, OrderBy, OrderByExpr, OrderByKind, Query, Select, SelectItem, SetExpr,
-    SetOperator, SetQuantifier, Spanned,
+    SetOperator, SetQuantifier,
 };
 use sqlparser::keywords::Keyword;
 
-use super::HazardCtx;
-use super::expr_util::{
-    extract_uint_literal, for_each_child_expr, function_arg_expr, last_ident_lower, peel_nested,
-    select_item_expr,
+use crate::ast_loc::{
+    expr_start_line, expr_start_loc, push_expr_children_rev, query_start_loc,
+    select_item_start_loc, set_expr_start_loc,
 };
+
+use super::HazardCtx;
+use super::expr_util::{extract_uint_literal, last_ident_lower, peel_nested, select_item_expr};
 use super::locate::{
-    first_keyword_line, keyword_line_at_or_after, keyword_line_before, keyword_line_in_range,
-    keyword_pair_line_before, select_line, select_start_loc, span_line,
+    first_keyword_line, keyword_line_at_or_after, keyword_line_before, keyword_pair_line_before,
+    last_keyword_line_before, select_line, select_start_loc,
 };
 
 const RANDOM_FUNCTIONS: &[&str] = &["gen_random_uuid", "newid", "rand", "random"];
@@ -34,7 +36,7 @@ pub(super) fn check_select_star(ctx: &mut HazardCtx<'_>, select: &Select) {
             item,
             SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)
         ) {
-            let item_line = span_line(item.span());
+            let item_line = select_item_start_loc(item).line as u32;
             let line = if item_line > 0 {
                 item_line
             } else {
@@ -51,18 +53,15 @@ pub(super) fn check_large_offset(ctx: &mut HazardCtx<'_>, limit: &LimitClause) {
             offset: Some(offset),
             ..
         } if extract_uint_literal(&offset.value).is_some_and(|n| n > 1000) => {
-            let kw = keyword_line_before(ctx.tokens, Keyword::OFFSET, offset.value.span().start);
-            let line = if kw > 0 {
-                kw
-            } else {
-                span_line(offset.value.span())
-            };
+            let offset_loc = expr_start_loc(&offset.value);
+            let kw = keyword_line_before(ctx.tokens, Keyword::OFFSET, offset_loc);
+            let line = if kw > 0 { kw } else { offset_loc.line as u32 };
             ctx.emit(line, "large-offset");
         }
         LimitClause::OffsetCommaLimit { offset, .. }
             if extract_uint_literal(offset).is_some_and(|n| n > 1000) =>
         {
-            let line = span_line(offset.span());
+            let line = expr_start_line(offset);
             let resolved = if line > 0 {
                 line
             } else {
@@ -111,29 +110,30 @@ fn direct_distinct_select(body: &SetExpr) -> Option<&Select> {
 pub(super) fn check_subquery_in_select_list(ctx: &mut HazardCtx<'_>, select: &Select) {
     for item in &select.projection {
         if let Some(expr) = select_item_expr(item) {
-            emit_subqueries_in_expr(ctx, expr, span_line(item.span()));
+            emit_subqueries_in_expr(ctx, expr, select_item_start_loc(item).line as u32);
         }
     }
 }
 
-fn emit_subqueries_in_expr(ctx: &mut HazardCtx<'_>, expr: &Expr, fallback_line: u32) {
-    match expr {
-        Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
-            let line = query_first_line(ctx, q, fallback_line);
-            ctx.emit(line, "subquery-in-select-list");
+fn emit_subqueries_in_expr(ctx: &mut HazardCtx<'_>, root: &Expr, fallback_line: u32) {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        match expr {
+            Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
+                let line = query_first_line(ctx, q, fallback_line);
+                ctx.emit(line, "subquery-in-select-list");
+            }
+            Expr::In {
+                expr: lhs,
+                target: InTarget::Subquery(q),
+                ..
+            } => {
+                let line = query_first_line(ctx, q, fallback_line);
+                ctx.emit(line, "subquery-in-select-list");
+                stack.push(lhs);
+            }
+            _ => push_expr_children_rev(expr, &mut stack),
         }
-        Expr::In {
-            expr: lhs,
-            target: InTarget::Subquery(q),
-            ..
-        } => {
-            emit_subqueries_in_expr(ctx, lhs, fallback_line);
-            let line = query_first_line(ctx, q, fallback_line);
-            ctx.emit(line, "subquery-in-select-list");
-        }
-        _ => for_each_child_expr(expr, &mut |child| {
-            emit_subqueries_in_expr(ctx, child, fallback_line);
-        }),
     }
 }
 
@@ -144,15 +144,14 @@ pub(super) fn query_first_line(ctx: &HazardCtx<'_>, query: &Query, fallback: u32
             return line;
         }
     }
-    let span_l = span_line(query.span());
-    if span_l > 0 { span_l } else { fallback }
+    let loc_line = query_start_loc(query).line as u32;
+    if loc_line > 0 { loc_line } else { fallback }
 }
 
 pub(super) fn check_union_without_all(
     ctx: &mut HazardCtx<'_>,
     op: SetOperator,
     quantifier: SetQuantifier,
-    left: &SetExpr,
     right: &SetExpr,
 ) {
     if op != SetOperator::Union {
@@ -161,12 +160,7 @@ pub(super) fn check_union_without_all(
     if matches!(quantifier, SetQuantifier::All | SetQuantifier::AllByName) {
         return;
     }
-    let line = keyword_line_in_range(
-        ctx.tokens,
-        Keyword::UNION,
-        left.span().end,
-        right.span().start,
-    );
+    let line = last_keyword_line_before(ctx.tokens, Keyword::UNION, set_expr_start_loc(right));
     ctx.emit(line, "union-without-all");
 }
 
@@ -192,23 +186,24 @@ pub(super) fn check_count_without_filter(ctx: &mut HazardCtx<'_>, select: &Selec
     }
 }
 
-fn emit_count_star_in_expr(ctx: &mut HazardCtx<'_>, expr: &Expr, fallback: u32) {
-    if matches!(expr, Expr::Subquery(_) | Expr::Exists { .. }) {
-        return;
+fn emit_count_star_in_expr(ctx: &mut HazardCtx<'_>, root: &Expr, fallback: u32) {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        if matches!(expr, Expr::Subquery(_) | Expr::Exists { .. }) {
+            continue;
+        }
+        if let Expr::Function(func) = expr
+            && is_unfiltered_count_star(func)
+        {
+            let line = expr_start_line(expr);
+            ctx.emit(
+                if line > 0 { line } else { fallback },
+                "count-without-filter",
+            );
+            continue;
+        }
+        push_expr_children_rev(expr, &mut stack);
     }
-    if let Expr::Function(func) = expr
-        && is_unfiltered_count_star(func)
-    {
-        let line = span_line(expr.span());
-        ctx.emit(
-            if line > 0 { line } else { fallback },
-            "count-without-filter",
-        );
-        return;
-    }
-    for_each_child_expr(expr, &mut |child| {
-        emit_count_star_in_expr(ctx, child, fallback);
-    });
 }
 
 fn is_unfiltered_count_star(func: &Function) -> bool {
@@ -228,13 +223,13 @@ fn is_unfiltered_count_star(func: &Function) -> bool {
 }
 
 pub(super) fn check_order_by_exprs(ctx: &mut HazardCtx<'_>, exprs: &[OrderByExpr]) {
-    let first_loc = exprs.first().map(|e| e.expr.span().start);
+    let first_loc = exprs.first().map(|e| expr_start_loc(&e.expr));
     let clause_line = first_loc
         .map(|loc| keyword_pair_line_before(ctx.tokens, Keyword::ORDER, Keyword::BY, loc))
         .unwrap_or(0);
     for item in exprs {
         if expr_contains_random_call(&item.expr) {
-            let expr_line = span_line(item.expr.span());
+            let expr_line = expr_start_line(&item.expr);
             let line = if clause_line > 0 {
                 clause_line
             } else {
@@ -243,7 +238,7 @@ pub(super) fn check_order_by_exprs(ctx: &mut HazardCtx<'_>, exprs: &[OrderByExpr
             ctx.emit(line, "order-by-random");
         }
         if extract_uint_literal(&item.expr).is_some() {
-            let expr_line = span_line(item.expr.span());
+            let expr_line = expr_start_line(&item.expr);
             let line = if expr_line > 0 {
                 expr_line
             } else {
@@ -258,13 +253,13 @@ pub(super) fn check_group_by_column_position(ctx: &mut HazardCtx<'_>, group_by: 
     let GroupByExpr::Expressions(exprs, _) = group_by else {
         return;
     };
-    let first_loc = exprs.first().map(|e| e.span().start);
+    let first_loc = exprs.first().map(expr_start_loc);
     let clause_line = first_loc
         .map(|loc| keyword_pair_line_before(ctx.tokens, Keyword::GROUP, Keyword::BY, loc))
         .unwrap_or(0);
     for expr in exprs {
         if extract_uint_literal(expr).is_some() {
-            let expr_line = span_line(expr.span());
+            let expr_line = expr_start_line(expr);
             let line = if expr_line > 0 {
                 expr_line
             } else {
@@ -275,31 +270,22 @@ pub(super) fn check_group_by_column_position(ctx: &mut HazardCtx<'_>, group_by: 
     }
 }
 
-fn expr_contains_random_call(expr: &Expr) -> bool {
-    match peel_nested(expr) {
-        Expr::Subquery(_) | Expr::Exists { .. } => false,
-        Expr::Function(func) => {
-            if is_random_function(func) {
-                return true;
-            }
-            let FunctionArguments::List(list) = &func.args else {
-                return false;
-            };
-            list.args
-                .iter()
-                .filter_map(function_arg_expr)
-                .any(expr_contains_random_call)
-        }
-        other => {
-            let mut found = false;
-            for_each_child_expr(other, &mut |child| {
-                if !found && expr_contains_random_call(child) {
-                    found = true;
+fn expr_contains_random_call(root: &Expr) -> bool {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        let unwrapped = peel_nested(expr);
+        match unwrapped {
+            Expr::Subquery(_) | Expr::Exists { .. } => {}
+            Expr::Function(func) => {
+                if is_random_function(func) {
+                    return true;
                 }
-            });
-            found
+                push_expr_children_rev(unwrapped, &mut stack);
+            }
+            other => push_expr_children_rev(other, &mut stack),
         }
     }
+    false
 }
 
 fn is_random_function(func: &Function) -> bool {

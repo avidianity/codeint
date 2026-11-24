@@ -180,7 +180,7 @@ fn skip_quoted_or_dollar(bytes: &[u8], pos: usize, mysql_mode: bool) -> Option<u
     }
 }
 
-fn is_pg_escaped_prefix(bytes: &[u8], quote_pos: usize) -> bool {
+pub(crate) fn is_pg_escaped_prefix(bytes: &[u8], quote_pos: usize) -> bool {
     if quote_pos == 0 || !matches!(bytes[quote_pos - 1], b'e' | b'E') {
         return false;
     }
@@ -250,7 +250,7 @@ pub(crate) fn parse_dollar_tag(bytes: &[u8], start: usize) -> Option<&[u8]> {
     while pos < bytes.len() && is_ident_byte(bytes[pos]) {
         pos += 1;
     }
-    (bytes.get(pos) == Some(&b'$')).then_some(&bytes[start..=pos])
+    (bytes.get(pos) == Some(&b'$')).then(|| &bytes[start..=pos])
 }
 
 fn skip_dollar_quoted(bytes: &[u8], start: usize) -> Option<usize> {

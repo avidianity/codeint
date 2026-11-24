@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sqlparser::ast::{
-    AccessExpr, BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr,
-    FunctionArguments, Ident, InTarget, Query, Spanned, UnaryOperator, WindowType,
+    AccessExpr, BinaryOperator, CaseWhen, Expr, Function, FunctionArguments, Ident, InTarget,
+    Query, UnaryOperator, WindowType,
 };
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Token, TokenWithSpan};
 
 use crate::SqlDialect;
+use crate::ast_loc::{expr_start_line, function_arg_expr, push_expr_children_rev};
 use crate::flagged::{is_aggregate_call, is_bare_number_literal};
 use crate::schema::scope::{BindingId, QueryScope, ResolvedColumn, peel_nested};
 use crate::schema::types::ColumnTypeClass;
@@ -101,54 +102,70 @@ impl<'a> ExprContext<'a> {
 
 pub(crate) fn check_filter_expr<V: ExprVisitor>(
     visitor: &mut V,
-    expr: &Expr,
+    root: &Expr,
     ctx: ExprContext<'_>,
 ) {
-    let mut merged = ctx.constrained.clone();
-    collect_conjunct_cols(expr, ctx.scope, ctx.excluded, false, &mut merged);
-    check_expr(visitor, expr, ctx.with_constrained(&merged));
+    let mut or_stack = vec![root];
+    while let Some(branch) = or_stack.pop() {
+        if let Expr::BinaryOp {
+            left,
+            op: BinaryOperator::Or,
+            right,
+        } = peel_nested(branch)
+        {
+            or_stack.push(right);
+            or_stack.push(left);
+            continue;
+        }
+        let mut merged = ctx.constrained.clone();
+        collect_conjunct_cols(branch, ctx.scope, ctx.excluded, false, &mut merged);
+        check_expr(visitor, branch, ctx.with_constrained(&merged));
+    }
 }
 
 pub(crate) fn collect_conjunct_cols(
-    expr: &Expr,
+    root: &Expr,
     scope: &QueryScope<'_>,
     excluded: &BTreeSet<String>,
     eq_only: bool,
     out: &mut ConstrainedCols,
 ) {
-    match peel_nested(expr) {
-        Expr::BinaryOp {
-            left,
-            op: BinaryOperator::And,
-            right,
-        } => {
-            collect_conjunct_cols(left, scope, excluded, eq_only, out);
-            collect_conjunct_cols(right, scope, excluded, eq_only, out);
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        match peel_nested(expr) {
+            Expr::BinaryOp {
+                left,
+                op: BinaryOperator::And,
+                right,
+            } => {
+                stack.push(right);
+                stack.push(left);
+            }
+            Expr::BinaryOp { left, op, right } if is_index_constraint_op(op, eq_only) => {
+                record_constrained_col(left, scope, excluded, out);
+                record_constrained_col(right, scope, excluded, out);
+            }
+            Expr::IsNotDistinctFrom(left, right) => {
+                record_constrained_col(left, scope, excluded, out);
+                record_constrained_col(right, scope, excluded, out);
+            }
+            Expr::IsNull(target) => {
+                record_constrained_col(target, scope, excluded, out);
+            }
+            Expr::In {
+                expr: target,
+                negated: false,
+                ..
+            }
+            | Expr::Between {
+                expr: target,
+                negated: false,
+                ..
+            } if !eq_only => {
+                record_constrained_col(target, scope, excluded, out);
+            }
+            _ => {}
         }
-        Expr::BinaryOp { left, op, right } if is_index_constraint_op(op, eq_only) => {
-            record_constrained_col(left, scope, excluded, out);
-            record_constrained_col(right, scope, excluded, out);
-        }
-        Expr::IsNotDistinctFrom(left, right) => {
-            record_constrained_col(left, scope, excluded, out);
-            record_constrained_col(right, scope, excluded, out);
-        }
-        Expr::IsNull(target) => {
-            record_constrained_col(target, scope, excluded, out);
-        }
-        Expr::In {
-            expr: target,
-            negated: false,
-            ..
-        }
-        | Expr::Between {
-            expr: target,
-            negated: false,
-            ..
-        } if !eq_only => {
-            record_constrained_col(target, scope, excluded, out);
-        }
-        _ => {}
     }
 }
 
@@ -183,34 +200,83 @@ fn record_constrained_col(
     }
 }
 
-pub(crate) fn check_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
+pub(crate) fn check_expr<V: ExprVisitor>(visitor: &mut V, root: &Expr, ctx: ExprContext<'_>) {
+    let mut stack = vec![(root, ctx.clause)];
+    while let Some((expr, clause)) = stack.pop() {
+        let cur_ctx = ctx.with_clause(clause);
+        step_check_expr(visitor, expr, cur_ctx, &mut stack);
+    }
+}
+
+fn step_check_expr<'e, V: ExprVisitor>(
+    visitor: &mut V,
+    expr: &'e Expr,
+    ctx: ExprContext<'_>,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
+) {
     match expr {
         Expr::UnaryOp {
             op: UnaryOperator::PGAbs,
             expr: inner,
         } if matches!(inner.as_ref(), Expr::Identifier(_)) => {}
         Expr::Identifier(ident) => {
-            if is_sqlite_double_quoted_literal(visitor.dialect(), ident) {
-                return;
+            if !is_sqlite_double_quoted_literal(visitor.dialect(), ident) {
+                check_column_ref(visitor, expr, ctx);
             }
-            check_column_ref(visitor, expr, ctx);
         }
-        Expr::CompoundIdentifier(_) => {
-            check_column_ref(visitor, expr, ctx);
-        }
+        Expr::CompoundIdentifier(_) => check_column_ref(visitor, expr, ctx),
         Expr::CompoundFieldAccess { root, access_chain } => {
-            check_compound_field_access(visitor, expr, root, access_chain, ctx);
+            check_compound_field_access(visitor, expr, root, access_chain, ctx, stack);
         }
         Expr::BinaryOp { left, op, right } => {
-            check_binary_op(visitor, expr, left, op, right, ctx);
+            check_binary_op(visitor, expr, left, op, right, ctx, stack);
         }
+        _ => step_check_structured_expr(visitor, expr, ctx, stack),
+    }
+}
+
+fn step_check_structured_expr<'e, V: ExprVisitor>(
+    visitor: &mut V,
+    expr: &'e Expr,
+    ctx: ExprContext<'_>,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
+) {
+    match expr {
         Expr::Subquery(query)
         | Expr::Exists {
             subquery: query, ..
-        } => {
-            visitor.visit_subquery(query, ctx.scope);
-        }
-        _ => check_nested_expr(visitor, expr, ctx),
+        } => visitor.visit_subquery(query, ctx.scope),
+        Expr::Case {
+            operand,
+            conditions,
+            else_result,
+            ..
+        } => push_case_work(
+            operand.as_deref(),
+            conditions,
+            else_result.as_deref(),
+            ctx,
+            stack,
+        ),
+        Expr::In {
+            expr: target_expr,
+            target,
+            ..
+        } => push_in_work(visitor, target_expr, target, ctx, stack),
+        Expr::Function(func) => push_function_work(visitor, func, ctx, stack),
+        _ => push_children_with_clause(expr, ctx.clause, stack),
+    }
+}
+
+fn push_children_with_clause<'e>(
+    expr: &'e Expr,
+    clause: ClauseKind,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
+) {
+    let mut children = Vec::new();
+    push_expr_children_rev(expr, &mut children);
+    for child in children {
+        stack.push((child, clause));
     }
 }
 
@@ -220,15 +286,16 @@ fn is_sqlite_double_quoted_literal(dialect: SqlDialect, ident: &Ident) -> bool {
         && (ident.value.is_empty() || ident.value.contains("://"))
 }
 
-fn check_compound_field_access<V: ExprVisitor>(
+fn check_compound_field_access<'e, V: ExprVisitor>(
     visitor: &mut V,
-    whole: &Expr,
-    root: &Expr,
+    whole: &'e Expr,
+    root: &'e Expr,
     access_chain: &[AccessExpr],
     ctx: ExprContext<'_>,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
 ) {
     let Expr::Identifier(first) = peel_nested(root) else {
-        check_expr(visitor, root, ctx);
+        stack.push((root, ctx.clause));
         return;
     };
     let mut leading = vec![first.clone()];
@@ -240,7 +307,7 @@ fn check_compound_field_access<V: ExprVisitor>(
         }
     }
     if leading.len() == 1 {
-        check_expr(visitor, root, ctx);
+        stack.push((root, ctx.clause));
         return;
     }
     if let Some(resolved) = resolve_leading_idents(&leading, ctx) {
@@ -323,24 +390,24 @@ fn is_column_indexed_in_context(resolved: &ResolvedColumn<'_>, ctx: ExprContext<
     }
 }
 
-fn check_binary_op<V: ExprVisitor>(
+fn check_binary_op<'e, V: ExprVisitor>(
     visitor: &mut V,
-    whole: &Expr,
-    left: &Expr,
+    whole: &'e Expr,
+    left: &'e Expr,
     op: &BinaryOperator,
-    right: &Expr,
+    right: &'e Expr,
     ctx: ExprContext<'_>,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
 ) {
     if matches!(ctx.clause, ClauseKind::Filter | ClauseKind::JoinOn) && *op == BinaryOperator::Or {
-        check_filter_expr(visitor, left, ctx);
-        check_filter_expr(visitor, right, ctx);
+        check_filter_expr(visitor, whole, ctx);
         return;
     }
     if is_comparison_operator(op) {
         check_text_compared_to_number(visitor, whole, left, right, ctx);
     }
-    check_expr(visitor, left, ctx);
-    check_expr(visitor, right, ctx);
+    stack.push((right, ctx.clause));
+    stack.push((left, ctx.clause));
 }
 
 fn check_text_compared_to_number<V: ExprVisitor>(
@@ -369,241 +436,96 @@ fn resolve_text_column(expr: &Expr, ctx: ExprContext<'_>) -> Option<String> {
         .then_some(resolved.column)
 }
 
-fn check_nested_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
-    if let Some(inner) = unwrap_unary_expr(expr).or_else(|| unwrap_predicate_expr(expr)) {
-        check_expr(visitor, inner, ctx);
-        return;
-    }
-    if let Some((left, right)) = unwrap_binary_like_expr(expr) {
-        check_expr(visitor, left, ctx);
-        check_expr(visitor, right, ctx);
-        return;
-    }
-    check_composite_expr(visitor, expr, ctx);
-}
-
-fn unwrap_unary_expr(expr: &Expr) -> Option<&Expr> {
-    match expr {
-        Expr::Nested(inner)
-        | Expr::UnaryOp { expr: inner, .. }
-        | Expr::Cast { expr: inner, .. }
-        | Expr::Convert { expr: inner, .. }
-        | Expr::Extract { expr: inner, .. }
-        | Expr::Ceil { expr: inner, .. }
-        | Expr::Floor { expr: inner, .. }
-        | Expr::Collate { expr: inner, .. }
-        | Expr::JsonAccess { value: inner, .. } => Some(inner),
-        _ => None,
-    }
-}
-
-fn unwrap_predicate_expr(expr: &Expr) -> Option<&Expr> {
-    if let Expr::IsNull(target) | Expr::IsNotNull(target) = expr {
-        return Some(target);
-    }
-    if let Expr::IsUnknown(target) | Expr::IsNotUnknown(target) = expr {
-        return Some(target);
-    }
-    match expr {
-        Expr::IsFalse(target)
-        | Expr::IsNotFalse(target)
-        | Expr::IsTrue(target)
-        | Expr::IsNotTrue(target) => Some(target),
-        _ => None,
-    }
-}
-
-fn unwrap_binary_like_expr(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    match expr {
-        Expr::IsDistinctFrom(lhs, rhs)
-        | Expr::IsNotDistinctFrom(lhs, rhs)
-        | Expr::AnyOp {
-            left: lhs,
-            right: rhs,
-            ..
-        }
-        | Expr::AllOp {
-            left: lhs,
-            right: rhs,
-            ..
-        }
-        | Expr::Like {
-            expr: lhs,
-            pattern: rhs,
-            ..
-        }
-        | Expr::ILike {
-            expr: lhs,
-            pattern: rhs,
-            ..
-        }
-        | Expr::SimilarTo {
-            expr: lhs,
-            pattern: rhs,
-            ..
-        }
-        | Expr::RLike {
-            expr: lhs,
-            pattern: rhs,
-            ..
-        }
-        | Expr::Position {
-            expr: lhs,
-            r#in: rhs,
-        } => Some((lhs, rhs)),
-        _ => None,
-    }
-}
-
-fn check_composite_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
-    match expr {
-        Expr::Between {
-            expr: target,
-            low,
-            high,
-            ..
-        } => {
-            check_expr_list(visitor, [target.as_ref(), low.as_ref(), high.as_ref()], ctx);
-        }
-        Expr::Case {
-            operand,
-            conditions,
-            else_result,
-            ..
-        } => check_case(
-            visitor,
-            operand.as_deref(),
-            conditions,
-            else_result.as_deref(),
-            ctx,
-        ),
-        Expr::In {
-            expr: target_expr,
-            target,
-            ..
-        } => {
-            check_expr(visitor, target_expr, ctx);
-            check_in_target(visitor, target, ctx);
-        }
-        Expr::Function(func) => check_function(visitor, func, ctx),
-        Expr::Tuple(items) => check_expr_list(visitor, items.iter(), ctx),
-        Expr::Array(array) => check_expr_list(visitor, array.elem.iter(), ctx),
-        _ => check_string_expr(visitor, expr, ctx),
-    }
-}
-
-fn check_string_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
-    match expr {
-        Expr::Substring {
-            expr: inner,
-            substring_from,
-            substring_for,
-            ..
-        } => {
-            let parts = [
-                Some(inner.as_ref()),
-                substring_from.as_deref(),
-                substring_for.as_deref(),
-            ];
-            check_expr_list(visitor, parts.into_iter().flatten(), ctx);
-        }
-        Expr::Trim {
-            expr: inner,
-            trim_what,
-            ..
-        } => {
-            let parts = [Some(inner.as_ref()), trim_what.as_deref()];
-            check_expr_list(visitor, parts.into_iter().flatten(), ctx);
-        }
-        _ => {}
-    }
-}
-
-fn check_expr_list<'a, V: ExprVisitor>(
-    visitor: &mut V,
-    exprs: impl IntoIterator<Item = &'a Expr>,
+fn push_case_work<'e>(
+    operand: Option<&'e Expr>,
+    conditions: &'e [CaseWhen],
+    else_result: Option<&'e Expr>,
     ctx: ExprContext<'_>,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
 ) {
-    for expr in exprs {
-        check_expr(visitor, expr, ctx);
-    }
-}
-
-fn check_case<V: ExprVisitor>(
-    visitor: &mut V,
-    operand: Option<&Expr>,
-    conditions: &[CaseWhen],
-    else_result: Option<&Expr>,
-    ctx: ExprContext<'_>,
-) {
-    let case_ctx = if ctx.clause == ClauseKind::OrderBy && ctx.in_grouped_query {
-        ctx.with_clause(ClauseKind::General)
+    let case_clause = if ctx.clause == ClauseKind::OrderBy && ctx.in_grouped_query {
+        ClauseKind::General
     } else {
-        ctx
+        ctx.clause
     };
-    if let Some(op) = operand {
-        check_expr(visitor, op, case_ctx);
-    }
-    for when in conditions {
-        check_expr(visitor, &when.condition, case_ctx);
-        check_expr(visitor, &when.result, case_ctx);
-    }
     if let Some(els) = else_result {
-        check_expr(visitor, els, case_ctx);
+        stack.push((els, case_clause));
+    }
+    for when in conditions.iter().rev() {
+        stack.push((&when.result, case_clause));
+        stack.push((&when.condition, case_clause));
+    }
+    if let Some(op) = operand {
+        stack.push((op, case_clause));
     }
 }
 
-fn check_in_target<V: ExprVisitor>(visitor: &mut V, target: &InTarget, ctx: ExprContext<'_>) {
+fn push_in_work<'e, V: ExprVisitor>(
+    visitor: &mut V,
+    target_expr: &'e Expr,
+    target: &'e InTarget,
+    ctx: ExprContext<'_>,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
+) {
     match target {
-        InTarget::List(items) => check_expr_list(visitor, items.iter(), ctx),
+        InTarget::List(items) => {
+            for item in items.iter().rev() {
+                stack.push((item, ctx.clause));
+            }
+        }
         InTarget::Subquery(query) => visitor.visit_subquery(query, ctx.scope),
-        InTarget::Unnest(inner) => check_expr(visitor, inner, ctx),
+        InTarget::Unnest(inner) => stack.push((inner, ctx.clause)),
         InTarget::Table { .. } => {}
     }
+    stack.push((target_expr, ctx.clause));
 }
 
-fn check_function<V: ExprVisitor>(visitor: &mut V, func: &Function, ctx: ExprContext<'_>) {
-    let arg_ctx = if ctx.clause == ClauseKind::OrderBy && is_aggregate_call(func) {
-        ctx.with_clause(ClauseKind::General)
+fn push_function_work<'e, V: ExprVisitor>(
+    visitor: &mut V,
+    func: &'e Function,
+    ctx: ExprContext<'_>,
+    stack: &mut Vec<(&'e Expr, ClauseKind)>,
+) {
+    let arg_clause = if ctx.clause == ClauseKind::OrderBy && is_aggregate_call(func) {
+        ClauseKind::General
     } else {
-        ctx
+        ctx.clause
     };
+    push_function_modifiers_work(func, stack);
     match &func.args {
         FunctionArguments::Subquery(query) => visitor.visit_subquery(query, ctx.scope),
         FunctionArguments::List(list) => {
-            for arg in &list.args {
-                check_function_arg(visitor, arg, arg_ctx);
+            for expr in list.args.iter().rev().filter_map(function_arg_expr) {
+                stack.push((expr, arg_clause));
             }
         }
         FunctionArguments::None => {}
     }
-    let general = ctx.with_clause(ClauseKind::General);
-    if let Some(filter) = &func.filter {
-        check_expr(visitor, filter, general);
-    }
-    check_expr_list(
-        visitor,
-        func.within_group.iter().map(|order| &order.expr),
-        general,
-    );
-    if let Some(WindowType::WindowSpec(spec)) = &func.over {
-        check_expr_list(visitor, spec.partition_by.iter(), general);
-        check_expr_list(
-            visitor,
-            spec.order_by.iter().map(|order| &order.expr),
-            general,
-        );
-    }
 }
 
-fn check_function_arg<V: ExprVisitor>(visitor: &mut V, arg: &FunctionArg, ctx: ExprContext<'_>) {
-    let expr_slot = match arg {
-        FunctionArg::Unnamed(slot) => slot,
-        FunctionArg::Named { arg: slot, .. } => slot,
-        FunctionArg::ExprNamed { arg: slot, .. } => slot,
-    };
-    if let FunctionArgExpr::Expr(expr) = expr_slot {
-        check_expr(visitor, expr, ctx);
+fn push_function_modifiers_work<'e>(func: &'e Function, stack: &mut Vec<(&'e Expr, ClauseKind)>) {
+    if let Some(WindowType::WindowSpec(spec)) = &func.over {
+        stack.extend(
+            spec.order_by
+                .iter()
+                .rev()
+                .map(|o| (&o.expr, ClauseKind::General)),
+        );
+        stack.extend(
+            spec.partition_by
+                .iter()
+                .rev()
+                .map(|p| (p, ClauseKind::General)),
+        );
+    }
+    stack.extend(
+        func.within_group
+            .iter()
+            .rev()
+            .map(|o| (&o.expr, ClauseKind::General)),
+    );
+    if let Some(filter) = &func.filter {
+        stack.push((filter, ClauseKind::General));
     }
 }
 
@@ -626,7 +548,7 @@ pub(crate) fn resolve_expr_line<V: ExprVisitor>(
     ident_hint: Option<&str>,
     keyword_hint: Option<Keyword>,
 ) -> u32 {
-    let span_line = expr.span().start.line as u32;
+    let span_line = expr_start_line(expr);
     if span_line > 0 {
         return span_line;
     }

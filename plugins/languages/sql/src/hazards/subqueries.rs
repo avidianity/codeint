@@ -5,10 +5,10 @@ use sqlparser::ast::{
     TableFactor, TableWithJoins,
 };
 
+use crate::ast_loc::push_expr_children_rev;
+
 use super::HazardCtx;
-use super::expr_util::{
-    for_each_child_expr, join_constraint, normalize_ident, object_name_key, select_item_expr,
-};
+use super::expr_util::{join_constraint, normalize_ident, object_name_key, select_item_expr};
 use super::query_shape::query_first_line;
 
 pub(super) fn collect_twj_bindings(twj: &TableWithJoins, out: &mut BTreeSet<String>) {
@@ -185,25 +185,23 @@ fn join_ons_refer_to_outer(
 }
 
 fn expr_refers_to_outer(
-    expr: &Expr,
+    root: &Expr,
     local: &BTreeSet<String>,
     outer_scopes: &[BTreeSet<String>],
 ) -> bool {
-    match expr {
-        Expr::Subquery(_) | Expr::Exists { .. } => false,
-        Expr::CompoundIdentifier(idents) if idents.len() >= 2 => {
-            compound_refers_to_outer(idents, local, outer_scopes)
-        }
-        other => {
-            let mut found = false;
-            for_each_child_expr(other, &mut |child| {
-                if !found && expr_refers_to_outer(child, local, outer_scopes) {
-                    found = true;
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        match expr {
+            Expr::Subquery(_) | Expr::Exists { .. } => {}
+            Expr::CompoundIdentifier(idents) if idents.len() >= 2 => {
+                if compound_refers_to_outer(idents, local, outer_scopes) {
+                    return true;
                 }
-            });
-            found
+            }
+            other => push_expr_children_rev(other, &mut stack),
         }
     }
+    false
 }
 
 fn compound_refers_to_outer(

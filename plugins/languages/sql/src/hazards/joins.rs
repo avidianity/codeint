@@ -1,18 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sqlparser::ast::{
-    BinaryOperator, Distinct, Expr, Join, JoinConstraint, JoinOperator, Select, Spanned,
-    TableFactor, TableWithJoins,
+    BinaryOperator, Distinct, Expr, Join, JoinConstraint, JoinOperator, Select, TableFactor,
+    TableWithJoins,
 };
 use sqlparser::keywords::Keyword;
 
-use super::HazardCtx;
-use super::expr_util::{
-    for_each_child_expr, join_constraint, normalize_ident, object_name_key, peel_nested,
+use crate::ast_loc::{
+    object_name_start_loc, push_expr_children_rev, table_factor_start_loc,
+    table_with_joins_start_loc,
 };
+
+use super::HazardCtx;
+use super::expr_util::{join_constraint, normalize_ident, object_name_key, peel_nested};
 use super::locate::{
     first_keyword_line, keyword_line_at_or_after, keyword_line_before, keyword_pair_line_before,
-    select_line, select_start_loc, span_line,
+    select_line, select_start_loc,
 };
 
 pub(super) fn check_tables_without_join_condition(ctx: &mut HazardCtx<'_>, select: &Select) {
@@ -24,16 +27,16 @@ pub(super) fn check_tables_without_join_condition(ctx: &mut HazardCtx<'_>, selec
         .collect();
 
     if non_lateral_from.len() >= 2 && !where_links {
-        let first_loc = select.from[0].span().start;
+        let first_loc = table_with_joins_start_loc(&select.from[0]);
         let from_line = keyword_line_before(ctx.tokens, Keyword::FROM, first_loc);
         let line = if from_line > 0 {
             from_line
         } else {
-            let second_line = span_line(non_lateral_from[1].span());
+            let second_line = table_with_joins_start_loc(non_lateral_from[1]).line as u32;
             if second_line > 0 {
                 second_line
             } else {
-                span_line(non_lateral_from[0].span())
+                table_with_joins_start_loc(non_lateral_from[0]).line as u32
             }
         };
         ctx.emit(line, "tables-without-join-condition");
@@ -77,13 +80,13 @@ fn check_single_join_condition(ctx: &mut HazardCtx<'_>, join: &Join, where_links
     if is_lateral_factor(&join.relation) {
         return;
     }
-    let rel_loc = join.relation.span().start;
+    let rel_loc = table_factor_start_loc(&join.relation);
     if matches!(join.join_operator, JoinOperator::CrossJoin(_)) {
         let cross = keyword_pair_line_before(ctx.tokens, Keyword::CROSS, Keyword::JOIN, rel_loc);
         let line = if cross > 0 {
             cross
         } else {
-            span_line(join.relation.span())
+            rel_loc.line as u32
         };
         ctx.emit(line, "tables-without-join-condition");
         return;
@@ -98,7 +101,7 @@ fn check_single_join_condition(ctx: &mut HazardCtx<'_>, join: &Join, where_links
         let line = if kw_line > 0 {
             kw_line
         } else {
-            span_line(join.relation.span())
+            rel_loc.line as u32
         };
         ctx.emit(line, "tables-without-join-condition");
     }
@@ -109,32 +112,42 @@ fn join_has_no_constraint(op: &JoinOperator) -> bool {
         && matches!(join_constraint(op), Some(JoinConstraint::None))
 }
 
-fn expr_links_tables(expr: &Expr) -> bool {
-    match peel_nested(expr) {
-        Expr::BinaryOp { left, op, right } => binary_expr_links_tables(left, op, right),
-        Expr::IsDistinctFrom(left, right) | Expr::IsNotDistinctFrom(left, right) => {
-            sides_link_tables(left, right)
+fn expr_links_tables(root: &Expr) -> bool {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        match peel_nested(expr) {
+            Expr::BinaryOp {
+                left,
+                op: BinaryOperator::And | BinaryOperator::Or,
+                right,
+            } => {
+                stack.push(right);
+                stack.push(left);
+            }
+            Expr::BinaryOp {
+                left,
+                op:
+                    BinaryOperator::Eq
+                    | BinaryOperator::NotEq
+                    | BinaryOperator::Lt
+                    | BinaryOperator::LtEq
+                    | BinaryOperator::Gt
+                    | BinaryOperator::GtEq
+                    | BinaryOperator::Spaceship,
+                right,
+            } => {
+                if sides_link_tables(left, right) {
+                    return true;
+                }
+            }
+            Expr::IsDistinctFrom(left, right) | Expr::IsNotDistinctFrom(left, right) => {
+                if sides_link_tables(left, right) {
+                    return true;
+                }
+            }
+            Expr::UnaryOp { expr: inner, .. } => stack.push(inner),
+            _ => {}
         }
-        Expr::UnaryOp { expr: inner, .. } => expr_links_tables(inner),
-        _ => false,
-    }
-}
-
-fn binary_expr_links_tables(left: &Expr, op: &BinaryOperator, right: &Expr) -> bool {
-    if matches!(op, BinaryOperator::And | BinaryOperator::Or) {
-        return expr_links_tables(left) || expr_links_tables(right);
-    }
-    if matches!(
-        op,
-        BinaryOperator::Eq
-            | BinaryOperator::NotEq
-            | BinaryOperator::Lt
-            | BinaryOperator::LtEq
-            | BinaryOperator::Gt
-            | BinaryOperator::GtEq
-            | BinaryOperator::Spaceship
-    ) {
-        return sides_link_tables(left, right);
     }
     false
 }
@@ -153,24 +166,22 @@ fn sides_link_tables(left: &Expr, right: &Expr) -> bool {
     true
 }
 
-fn collect_column_qualifiers(expr: &Expr, quals: &mut BTreeSet<String>) -> bool {
-    match peel_nested(expr) {
-        Expr::Identifier(_) => true,
-        Expr::CompoundIdentifier(idents) if idents.len() >= 2 => {
-            quals.insert(normalize_ident(&idents[0]));
-            true
-        }
-        Expr::Subquery(_) | Expr::Exists { .. } => false,
-        other => {
-            let mut found = false;
-            for_each_child_expr(other, &mut |child| {
-                if collect_column_qualifiers(child, quals) {
-                    found = true;
-                }
-            });
-            found
+fn collect_column_qualifiers(root: &Expr, quals: &mut BTreeSet<String>) -> bool {
+    let mut found = false;
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        let unwrapped = peel_nested(expr);
+        match unwrapped {
+            Expr::Identifier(_) => found = true,
+            Expr::CompoundIdentifier(idents) if idents.len() >= 2 => {
+                quals.insert(normalize_ident(&idents[0]));
+                found = true;
+            }
+            Expr::Subquery(_) | Expr::Exists { .. } => {}
+            other => push_expr_children_rev(other, &mut stack),
         }
     }
+    found
 }
 
 pub(super) fn check_distinct_over_join(ctx: &mut HazardCtx<'_>, select: &Select) {
@@ -214,7 +225,7 @@ pub(super) fn check_join_without_aliases(ctx: &mut HazardCtx<'_>, select: &Selec
     let line = if kw > 0 {
         kw
     } else {
-        span_line(select.from[0].span())
+        table_with_joins_start_loc(&select.from[0]).line as u32
     };
     ctx.emit(line, "join-without-aliases");
 }
@@ -297,7 +308,7 @@ pub(super) fn record_table_factor_read(
     if key.len() == 1 && is_cte_in_scope(&key[0], cte_scopes) {
         return;
     }
-    let line = span_line(name.span());
+    let line = object_name_start_loc(name).line as u32;
     reads.entry(key).or_default().push(line);
 }
 

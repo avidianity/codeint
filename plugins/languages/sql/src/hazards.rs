@@ -17,6 +17,7 @@ use sqlparser::ast::{
 };
 use sqlparser::tokenizer::TokenWithSpan;
 
+use crate::ast_loc::{function_arg_expr, push_expr_children_rev};
 use crate::{ParsedSqlStatement, SqlDialect};
 
 pub const SQL_HAZARD_RULES: &[&str] = &[
@@ -322,7 +323,7 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
                 set_quantifier,
                 right,
             } => {
-                query_shape::check_union_without_all(self.ctx, *op, *set_quantifier, left, right);
+                query_shape::check_union_without_all(self.ctx, *op, *set_quantifier, right);
                 let prev_allow = self.allow_where_true;
                 self.allow_where_true = false;
                 self.visit_set_expr(left);
@@ -495,60 +496,45 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
         self.subquery_depth -= 1;
     }
 
-    fn visit_expr(&mut self, expr: &Expr) {
-        match expr {
-            Expr::Like { .. } | Expr::ILike { .. } => {
-                predicates::check_leading_wildcard_like(self.ctx, expr);
-                self.visit_expr_children(expr);
-            }
-            Expr::In {
-                expr: lhs, target, ..
-            } => {
-                predicates::check_in_expr(self.ctx, expr);
-                self.visit_expr(lhs);
-                self.visit_in_target(target);
-            }
-            Expr::Subquery(q) => self.visit_subquery(q, false, true),
-            Expr::Exists { subquery, .. } => self.visit_subquery(subquery, true, true),
-            Expr::Function(func) => self.visit_function(func),
-            _ => self.visit_expr_children(expr),
-        }
-    }
-
-    fn visit_in_target(&mut self, target: &InTarget) {
-        match target {
-            InTarget::Subquery(q) => self.visit_subquery(q, false, true),
-            InTarget::List(items) => {
-                for item in items {
-                    self.visit_expr(item);
+    fn visit_expr(&mut self, root: &Expr) {
+        let mut stack = vec![root];
+        while let Some(expr) = stack.pop() {
+            match expr {
+                Expr::Like { .. } | Expr::ILike { .. } => {
+                    predicates::check_leading_wildcard_like(self.ctx, expr);
+                    push_expr_children_rev(expr, &mut stack);
                 }
+                Expr::In { target, .. } => {
+                    predicates::check_in_expr(self.ctx, expr);
+                    if let InTarget::Subquery(q) = target {
+                        self.visit_subquery(q, false, true);
+                    }
+                    push_expr_children_rev(expr, &mut stack);
+                }
+                Expr::Subquery(q) => self.visit_subquery(q, false, true),
+                Expr::Exists { subquery, .. } => self.visit_subquery(subquery, true, true),
+                Expr::Function(func) => self.visit_function_iterative(func, &mut stack),
+                _ => push_expr_children_rev(expr, &mut stack),
             }
-            InTarget::Unnest(e) => self.visit_expr(e),
-            InTarget::Table { .. } => {}
         }
     }
 
-    fn visit_function(&mut self, func: &sqlparser::ast::Function) {
+    fn visit_function_iterative<'e>(
+        &mut self,
+        func: &'e sqlparser::ast::Function,
+        stack: &mut Vec<&'e Expr>,
+    ) {
         if let Some(filter) = &func.filter {
-            self.visit_filter(filter, false);
+            predicates::check_filter_expr(self.ctx, filter, false);
+            stack.push(filter);
         }
         match &func.args {
             FunctionArguments::Subquery(q) => self.visit_subquery(q, false, true),
             FunctionArguments::List(list) => {
-                for arg in &list.args {
-                    if let Some(e) = expr_util::function_arg_expr(arg) {
-                        self.visit_expr(e);
-                    }
-                }
+                stack.extend(list.args.iter().rev().filter_map(function_arg_expr));
             }
             FunctionArguments::None => {}
         }
-    }
-
-    fn visit_expr_children(&mut self, expr: &Expr) {
-        expr_util::for_each_child_expr(expr, &mut |child| {
-            self.visit_expr(child);
-        });
     }
 }
 

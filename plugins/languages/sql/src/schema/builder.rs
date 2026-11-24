@@ -48,9 +48,13 @@ fn apply_create_table(schema: &mut SqlSchema, create: &CreateTable) {
     let Some((table_schema, table_name)) = split_object_name(&create.name) else {
         return;
     };
+    let key = (table_schema.clone(), table_name.clone());
+    if create.if_not_exists && schema.tables.contains_key(&key) {
+        return;
+    }
     let mut table = TableSchema {
-        schema: table_schema.clone(),
-        name: table_name.clone(),
+        schema: table_schema,
+        name: table_name,
         columns: BTreeMap::new(),
         primary_key: Vec::new(),
         indexes: Vec::new(),
@@ -66,7 +70,7 @@ fn apply_create_table(schema: &mut SqlSchema, create: &CreateTable) {
     {
         table.primary_key = extract_pk_expr_columns(expr);
     }
-    schema.tables.insert((table_schema, table_name), table);
+    schema.tables.insert(key, table);
 }
 
 fn apply_column_def(table: &mut TableSchema, column: &ColumnDef) {
@@ -428,12 +432,14 @@ fn extract_pk_expr_columns(expr: &Expr) -> Vec<String> {
     }
 }
 
-fn extract_expr_column_ident(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Nested(inner) | Expr::Collate { expr: inner, .. } => extract_expr_column_ident(inner),
-        Expr::Identifier(ident) => Some(normalize_ident(ident)),
-        Expr::CompoundIdentifier(idents) => idents.last().map(normalize_ident),
-        _ => None,
+fn extract_expr_column_ident(mut expr: &Expr) -> Option<String> {
+    loop {
+        match expr {
+            Expr::Nested(inner) | Expr::Collate { expr: inner, .. } => expr = inner,
+            Expr::Identifier(ident) => return Some(normalize_ident(ident)),
+            Expr::CompoundIdentifier(idents) => return idents.last().map(normalize_ident),
+            _ => return None,
+        }
     }
 }
 

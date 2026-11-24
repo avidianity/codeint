@@ -714,3 +714,168 @@ fn bare_cr_bytes_preserve_line_bounds_matching_str_lines() {
         assert!(func.line >= 1 && func.end_line <= line_count);
     }
 }
+
+#[test]
+fn dollar_ident_at_eof_and_eol_does_not_panic() {
+    for dialect in [
+        SqlDialect::Generic,
+        SqlDialect::Postgresql,
+        SqlDialect::Mysql,
+        SqlDialect::Sqlite,
+        SqlDialect::Duckdb,
+    ] {
+        let out = lower_dialect(dialect, "eof_dollar.sql", "SELECT $SENTINEL_TOK_3");
+        assert_eq!(out.file_model.functions.len(), 1);
+    }
+    for dialect in [SqlDialect::Postgresql, SqlDialect::Duckdb] {
+        let out = lower_dialect(dialect, "eol_dollar.sql", "SELECT $user_id\nFROM users;\n");
+        assert_eq!(out.file_model.functions.len(), 1);
+    }
+}
+
+#[test]
+fn deep_left_leaning_binary_expressions_do_not_overflow_stack() {
+    let sum_terms = vec!["1"; 2500].join(" + ");
+    let sum_sql = format!("SELECT {sum_terms} FROM t;\n");
+    let sum_out = lower_generic("deep_sum.sql", &sum_sql);
+    assert_eq!(sum_out.parsed_statements.len(), 1);
+    assert!(sum_out.rejected_statements.is_empty());
+
+    let concat_terms = vec!["'x'"; 2500].join(" || ");
+    let concat_sql = format!("SELECT {concat_terms} FROM t;\n");
+    let concat_out = lower_generic("deep_concat.sql", &concat_sql);
+    assert_eq!(concat_out.parsed_statements.len(), 1);
+    assert!(concat_out.rejected_statements.is_empty());
+
+    let or_terms: Vec<String> = (1..=2500).map(|i| format!("a = {i}")).collect();
+    let or_sql = format!("SELECT a FROM t WHERE {};\n", or_terms.join(" OR "));
+    let or_out = lower_generic("deep_or.sql", &or_sql);
+    assert_eq!(or_out.parsed_statements.len(), 1);
+    assert!(or_out.rejected_statements.is_empty());
+    assert!(
+        or_out
+            .file_model
+            .flagged_lines
+            .iter()
+            .any(|f| f.rule == "or-chain-collapses-to-in")
+    );
+}
+
+#[test]
+fn create_view_with_begin_and_trigger_columns_splits_next_statement() {
+    let src = "\
+CREATE VIEW v AS SELECT begin, trigger FROM events WHERE id = 1;
+DELETE FROM users;
+";
+    let out = lower_generic("view_then_delete.sql", src);
+    assert_eq!(out.file_model.functions.len(), 2);
+    assert_eq!(out.parsed_statements.len(), 2);
+    assert!(out.rejected_statements.is_empty());
+    assert!(
+        out.file_model
+            .hazard_lines
+            .iter()
+            .any(|h| h.line == 2 && h.rule == "delete-without-filter")
+    );
+}
+
+#[test]
+fn having_referencing_aggregate_select_alias_is_not_flagged() {
+    let aliased_agg = "\
+SELECT user_id, COUNT(*) AS cnt
+FROM orders
+WHERE active = 1
+GROUP BY user_id
+HAVING cnt > 5;
+";
+    let out = lower_generic("having_agg_alias.sql", aliased_agg);
+    assert!(
+        !out.file_model
+            .flagged_lines
+            .iter()
+            .any(|f| f.rule == "having-without-aggregate")
+    );
+
+    let aliased_non_agg = "\
+SELECT user_id, name AS n
+FROM orders
+GROUP BY user_id, name
+HAVING n = 'a';
+";
+    let out_non_agg = lower_generic("having_non_agg_alias.sql", aliased_non_agg);
+    assert!(
+        out_non_agg
+            .file_model
+            .flagged_lines
+            .iter()
+            .any(|f| f.rule == "having-without-aggregate")
+    );
+}
+
+#[test]
+fn pg_routine_body_expansion_aligns_when_preceded_by_dollar_default() {
+    let src = "\
+CREATE FUNCTION greet(prefix TEXT DEFAULT $$hi$$)
+RETURNS TEXT
+AS $body$
+-- comment inside body
+
+BEGIN
+  IF prefix = 'a' THEN
+    RETURN 'b';
+  END IF;
+  RETURN prefix;
+END;
+$body$ LANGUAGE plpgsql;
+";
+    let out = lower_dialect(SqlDialect::Postgresql, "pg_dollar_default.sql", src);
+    assert_eq!(out.file_model.source_lines, 10);
+    assert_eq!(out.file_model.functions.len(), 1);
+    assert_eq!(out.file_model.functions[0].source_lines, 10);
+}
+
+#[test]
+fn pg_cli_scanner_respects_escaped_quotes_in_e_strings() {
+    let src = "SELECT E'hello\\'\n\\dt' FROM users WHERE id = 1;\n";
+    let out = lower_dialect(SqlDialect::Postgresql, "pg_e_string.sql", src);
+    assert_eq!(out.parsed_statements.len(), 1);
+    assert!(out.rejected_statements.is_empty());
+}
+
+#[test]
+fn plpgsql_cursor_for_select_does_not_leak_routine_block_depth() {
+    let src = "\
+CREATE FUNCTION scan_items() RETURNS INT AS $$
+DECLARE
+  cur CURSOR FOR SELECT id FROM items WHERE id = 1;
+BEGIN
+  IF 1 = 1 THEN
+    RETURN 1;
+  END IF;
+  RETURN 0;
+END;
+$$ LANGUAGE plpgsql;
+";
+    let out = lower_dialect(SqlDialect::Postgresql, "pg_cursor.sql", src);
+    assert_eq!(out.file_model.functions.len(), 1);
+    assert_eq!(out.file_model.functions[0].cognitive_complexity, 1);
+    assert_eq!(out.file_model.functions[0].decision_points, 1);
+
+    let open_src = "\
+CREATE FUNCTION open_items() RETURNS INT AS $$
+DECLARE
+  cur REFCURSOR;
+BEGIN
+  OPEN cur FOR SELECT id FROM items WHERE id = 1;
+  IF 1 = 1 THEN
+    RETURN 1;
+  END IF;
+  RETURN 0;
+END;
+$$ LANGUAGE plpgsql;
+";
+    let open_out = lower_dialect(SqlDialect::Postgresql, "pg_open_cursor.sql", open_src);
+    assert_eq!(open_out.file_model.functions.len(), 1);
+    assert_eq!(open_out.file_model.functions[0].cognitive_complexity, 1);
+    assert_eq!(open_out.file_model.functions[0].decision_points, 1);
+}

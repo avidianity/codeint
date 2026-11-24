@@ -1,6 +1,6 @@
 use sqlparser::tokenizer::{Token, TokenWithSpan};
 
-use crate::tokenize::{TokenChunk, tokenize_pg_routine_body};
+use crate::tokenize::{ExpandedRoutineBody, TokenChunk, tokenize_pg_routine_body};
 
 pub(crate) struct ExtractedStatement {
     pub(crate) start_line: u32,
@@ -9,7 +9,7 @@ pub(crate) struct ExtractedStatement {
     pub(crate) decision_points: u32,
     pub(crate) cognitive_complexity: u32,
     pub(crate) tokens: Vec<TokenWithSpan>,
-    pub(crate) routine_body_tokens: Vec<Vec<TokenWithSpan>>,
+    pub(crate) routine_body_tokens: Vec<ExpandedRoutineBody>,
 }
 
 pub(crate) fn extract_statements(chunks: &[TokenChunk]) -> Vec<ExtractedStatement> {
@@ -112,21 +112,23 @@ fn starts_routine_header(tokens: &[TokenWithSpan], start: usize) -> bool {
     if !is_unquoted_kw(&tokens[start], "CREATE") {
         return false;
     }
-    let mut pos = start;
-    while let Some(next) = next_code_idx(tokens, pos + 1) {
-        let tok = &tokens[next];
-        if is_unquoted_kw(tok, "TRIGGER")
-            || is_unquoted_kw(tok, "PROCEDURE")
-            || is_unquoted_kw(tok, "FUNCTION")
-        {
-            return true;
-        }
-        if matches!(tok.token, Token::SemiColon | Token::LParen) {
-            return false;
-        }
-        pos = next;
-    }
-    false
+    let header_code: Vec<&TokenWithSpan> = tokens[start..]
+        .iter()
+        .filter(|t| !matches!(t.token, Token::Whitespace(_) | Token::EOF))
+        .take_while(|t| !matches!(t.token, Token::SemiColon | Token::LParen))
+        .take(32)
+        .collect();
+    let pos = skip_create_modifiers(&header_code, 1);
+    header_code
+        .get(pos)
+        .copied()
+        .is_some_and(is_routine_object_kind)
+}
+
+fn is_routine_object_kind(tok: &TokenWithSpan) -> bool {
+    is_unquoted_kw(tok, "FUNCTION")
+        || is_unquoted_kw(tok, "PROCEDURE")
+        || is_unquoted_kw(tok, "TRIGGER")
 }
 
 fn update_routine_split_blocks(
@@ -356,7 +358,7 @@ fn read_qualified_name(code: &[&TokenWithSpan], mut pos: usize) -> Option<String
 struct StatementScore {
     decision_points: u32,
     cognitive_complexity: u32,
-    routine_body_tokens: Vec<Vec<TokenWithSpan>>,
+    routine_body_tokens: Vec<ExpandedRoutineBody>,
 }
 
 fn score_statement(code: &[&TokenWithSpan]) -> StatementScore {
@@ -378,7 +380,10 @@ fn score_statement(code: &[&TokenWithSpan]) -> StatementScore {
                     .filter(|t| !matches!(t.token, Token::Whitespace(_) | Token::EOF))
                     .collect();
                 scorer.score_slice(&inner_code, true);
-                routine_body_tokens.push(inner);
+                routine_body_tokens.push(ExpandedRoutineBody {
+                    outer_start: code[idx].span.start,
+                    tokens: inner,
+                });
             }
             idx += 1;
             continue;
@@ -421,11 +426,7 @@ fn classify_routine_statement(code: &[&TokenWithSpan]) -> RoutineKind {
         return RoutineKind::None;
     }
     let pos = skip_create_modifiers(code, 1);
-    let is_routine = code.get(pos).is_some_and(|t| {
-        is_unquoted_kw(t, "FUNCTION")
-            || is_unquoted_kw(t, "PROCEDURE")
-            || is_unquoted_kw(t, "TRIGGER")
-    });
+    let is_routine = code.get(pos).copied().is_some_and(is_routine_object_kind);
     if is_routine {
         RoutineKind::CreateRoutine
     } else {
@@ -793,21 +794,26 @@ fn find_matching_rparen(code: &[&TokenWithSpan], open: usize) -> Option<usize> {
 }
 
 fn is_routine_for_loop(code: &[&TokenWithSpan], idx: usize, paren_depth: usize) -> bool {
-    if paren_depth > 0 {
+    if paren_depth > 0 || is_non_loop_for_prefix(code, idx) {
         return false;
     }
-    if idx > 0 && is_unquoted_kw(code[idx - 1], "HANDLER") {
-        return false;
-    }
-    let Some(next) = code.get(idx + 1) else {
+    code.get(idx + 1)
+        .copied()
+        .is_some_and(|next| !is_non_loop_for_target(next))
+}
+
+fn is_non_loop_for_prefix(code: &[&TokenWithSpan], idx: usize) -> bool {
+    idx > 0 && (is_unquoted_kw(code[idx - 1], "HANDLER") || is_unquoted_kw(code[idx - 1], "CURSOR"))
+}
+
+fn is_non_loop_for_target(tok: &TokenWithSpan) -> bool {
+    let Some(word) = unquoted_word(tok) else {
         return false;
     };
-    let excluded = is_unquoted_kw(next, "EACH")
-        || is_unquoted_kw(next, "UPDATE")
-        || is_unquoted_kw(next, "SHARE")
-        || is_unquoted_kw(next, "NO")
-        || is_unquoted_kw(next, "KEY");
-    !excluded
+    matches!(
+        word.to_ascii_uppercase().as_str(),
+        "EACH" | "UPDATE" | "SHARE" | "NO" | "KEY" | "SELECT" | "EXECUTE" | "VALUES" | "WITH"
+    )
 }
 
 fn is_non_condition_or(code: &[&TokenWithSpan], idx: usize) -> bool {

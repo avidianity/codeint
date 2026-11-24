@@ -3,15 +3,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use codeint_model::language::FlaggedLine;
 use codeint_model::scan::{finalize_flagged, flag_range};
 use sqlparser::ast::{
-    BinaryOperator, DuplicateTreatment, Expr, Function, FunctionArg, FunctionArgExpr,
-    FunctionArguments, Ident, InTarget, JoinConstraint, JoinOperator, MacroDefinition, Query,
-    Select, SelectItem, SetExpr, Spanned, Statement, TableFactor, TableWithJoins, UnaryOperator,
-    Value,
+    BinaryOperator, DuplicateTreatment, Expr, Function, FunctionArguments, Ident, InTarget,
+    JoinConstraint, JoinOperator, MacroDefinition, Query, Select, SelectItem, SetExpr, Statement,
+    TableFactor, TableWithJoins, UnaryOperator, Value,
 };
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Location, Token, TokenWithSpan};
 
 use crate::ParsedSqlStatement;
+use crate::ast_loc::{expr_start_line, expr_start_loc, peel_nested, push_expr_children_rev};
 
 const RULES: &[&str] = &["or-chain-collapses-to-in", "having-without-aggregate"];
 
@@ -237,7 +237,7 @@ impl StatementChecker<'_> {
             self.visit_expr(selection);
         }
         if let Some(having) = &select.having {
-            self.check_having_without_aggregate(having);
+            self.check_having_without_aggregate(select, having);
             self.visit_expr(having);
         }
         if let Some(qualify) = &select.qualify {
@@ -305,32 +305,55 @@ impl StatementChecker<'_> {
         }
     }
 
-    fn check_having_without_aggregate(&mut self, having: &Expr) {
+    fn check_having_without_aggregate(&mut self, select: &Select, having: &Expr) {
         if expr_contains_aggregate(having) {
             return;
         }
-        let line = find_having_line(self.tokens, having.span().start)
-            .unwrap_or(having.span().start.line as u32);
+        let aggregate_aliases = collect_aggregate_aliases(&select.projection);
+        if expr_references_any_alias(having, &aggregate_aliases) {
+            return;
+        }
+        let start = expr_start_loc(having);
+        let line = find_having_line(self.tokens, start).unwrap_or(start.line as u32);
         self.flag(line, "having-without-aggregate");
     }
 
-    fn visit_expr(&mut self, expr: &Expr) {
-        if let Expr::BinaryOp {
-            op: BinaryOperator::Or,
-            ..
-        } = expr
-        {
-            self.inspect_or_chain(expr);
-            return;
+    fn visit_expr(&mut self, root: &Expr) {
+        let mut stack = vec![root];
+        while let Some(expr) = stack.pop() {
+            match expr {
+                Expr::BinaryOp {
+                    op: BinaryOperator::Or,
+                    ..
+                } => self.inspect_or_chain(expr, &mut stack),
+                Expr::Subquery(query)
+                | Expr::Exists {
+                    subquery: query, ..
+                } => self.visit_query(query),
+                Expr::In {
+                    target: InTarget::Subquery(query),
+                    ..
+                } => {
+                    self.visit_query(query);
+                    push_expr_children_rev(expr, &mut stack);
+                }
+                Expr::Function(func) => {
+                    if let FunctionArguments::Subquery(query) = &func.args {
+                        self.visit_query(query);
+                    }
+                    push_expr_children_rev(expr, &mut stack);
+                }
+                _ => push_expr_children_rev(expr, &mut stack),
+            }
         }
-        self.visit_expr_children(expr);
     }
 
-    fn inspect_or_chain(&mut self, root: &Expr) {
+    fn inspect_or_chain<'a>(&mut self, root: &'a Expr, stack: &mut Vec<&'a Expr>) {
         let mut operands = Vec::new();
         flatten_or_operands(root, &mut operands);
 
         let mut counts: BTreeMap<Vec<String>, (usize, u32)> = BTreeMap::new();
+        let mut deferred = Vec::new();
         for &operand in &operands {
             if let Some((col_key, line)) = extract_column_eq_literal(operand) {
                 counts
@@ -343,9 +366,10 @@ impl StatementChecker<'_> {
                     })
                     .or_insert((1, line));
             } else {
-                self.visit_expr_children(operand);
+                deferred.push(operand);
             }
         }
+        stack.extend(deferred.into_iter().rev());
 
         for (count, first_line) in counts.into_values() {
             if count >= 3 {
@@ -353,131 +377,62 @@ impl StatementChecker<'_> {
             }
         }
     }
+}
 
-    fn visit_expr_children(&mut self, expr: &Expr) {
-        match expr {
-            Expr::BinaryOp { left, right, .. }
-            | Expr::IsDistinctFrom(left, right)
-            | Expr::IsNotDistinctFrom(left, right)
-            | Expr::AnyOp { left, right, .. }
-            | Expr::AllOp { left, right, .. } => {
-                self.visit_expr(left);
-                self.visit_expr(right);
+fn collect_aggregate_aliases(projection: &[SelectItem]) -> BTreeSet<String> {
+    let mut aliases = BTreeSet::new();
+    for item in projection {
+        match item {
+            SelectItem::ExprWithAlias { expr, alias } if expr_contains_aggregate(expr) => {
+                aliases.insert(alias.value.to_ascii_lowercase());
             }
-            Expr::UnaryOp { expr: inner, .. }
-            | Expr::Nested(inner)
-            | Expr::Cast { expr: inner, .. }
-            | Expr::IsNull(inner)
-            | Expr::IsNotNull(inner)
-            | Expr::IsTrue(inner)
-            | Expr::IsNotTrue(inner)
-            | Expr::IsFalse(inner)
-            | Expr::IsNotFalse(inner) => self.visit_expr(inner),
-            Expr::Between {
-                expr: target,
-                low,
-                high,
-                ..
-            } => {
-                self.visit_expr(target);
-                self.visit_expr(low);
-                self.visit_expr(high);
-            }
-            Expr::Case {
-                operand,
-                conditions,
-                else_result,
-                ..
-            } => self.visit_case(operand.as_deref(), conditions, else_result.as_deref()),
-            Expr::In { expr, target, .. } => {
-                self.visit_expr(expr);
-                self.visit_in_target(target);
-            }
-            Expr::Subquery(query)
-            | Expr::Exists {
-                subquery: query, ..
-            } => {
-                self.visit_query(query);
-            }
-            Expr::Function(func) => self.visit_function(func),
-            Expr::Tuple(items) => {
-                for item in items {
-                    self.visit_expr(item);
+            SelectItem::ExprWithAliases {
+                expr,
+                aliases: item_aliases,
+            } if expr_contains_aggregate(expr) => {
+                for alias in item_aliases {
+                    aliases.insert(alias.value.to_ascii_lowercase());
                 }
             }
             _ => {}
         }
     }
-
-    fn visit_case(
-        &mut self,
-        operand: Option<&Expr>,
-        conditions: &[sqlparser::ast::CaseWhen],
-        else_result: Option<&Expr>,
-    ) {
-        if let Some(op) = operand {
-            self.visit_expr(op);
-        }
-        for when in conditions {
-            self.visit_expr(&when.condition);
-            self.visit_expr(&when.result);
-        }
-        if let Some(els) = else_result {
-            self.visit_expr(els);
-        }
-    }
-
-    fn visit_in_target(&mut self, target: &InTarget) {
-        match target {
-            InTarget::List(items) => {
-                for item in items {
-                    self.visit_expr(item);
-                }
-            }
-            InTarget::Subquery(query) => self.visit_query(query),
-            InTarget::Unnest(expr) => self.visit_expr(expr),
-            InTarget::Table { .. } => {}
-        }
-    }
-
-    fn visit_function(&mut self, func: &Function) {
-        if let Some(filter) = &func.filter {
-            self.visit_expr(filter);
-        }
-        match &func.args {
-            FunctionArguments::Subquery(query) => self.visit_query(query),
-            FunctionArguments::List(list) => {
-                for arg in &list.args {
-                    if let Some(expr) = function_arg_expr(arg) {
-                        self.visit_expr(expr);
-                    }
-                }
-            }
-            FunctionArguments::None => {}
-        }
-    }
+    aliases
 }
 
-fn flatten_or_operands<'a>(expr: &'a Expr, out: &mut Vec<&'a Expr>) {
-    let unwrapped = peel_nested(expr);
-    if let Expr::BinaryOp {
-        left,
-        op: BinaryOperator::Or,
-        right,
-    } = unwrapped
-    {
-        flatten_or_operands(left, out);
-        flatten_or_operands(right, out);
-    } else {
-        out.push(unwrapped);
+fn expr_references_any_alias(root: &Expr, aliases: &BTreeSet<String>) -> bool {
+    if aliases.is_empty() {
+        return false;
     }
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        match expr {
+            Expr::Subquery(_) | Expr::Exists { .. } => {}
+            Expr::Identifier(ident) if aliases.contains(&ident.value.to_ascii_lowercase()) => {
+                return true;
+            }
+            other => push_expr_children_rev(other, &mut stack),
+        }
+    }
+    false
 }
 
-fn peel_nested(mut expr: &Expr) -> &Expr {
-    while let Expr::Nested(inner) = expr {
-        expr = inner;
+fn flatten_or_operands<'a>(root: &'a Expr, out: &mut Vec<&'a Expr>) {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        let unwrapped = peel_nested(expr);
+        if let Expr::BinaryOp {
+            left,
+            op: BinaryOperator::Or,
+            right,
+        } = unwrapped
+        {
+            stack.push(right);
+            stack.push(left);
+        } else {
+            out.push(unwrapped);
+        }
     }
-    expr
 }
 
 fn extract_column_eq_literal(expr: &Expr) -> Option<(Vec<String>, u32)> {
@@ -489,7 +444,7 @@ fn extract_column_eq_literal(expr: &Expr) -> Option<(Vec<String>, u32)> {
     else {
         return None;
     };
-    let line = expr.span().start.line as u32;
+    let line = expr_start_line(expr);
     if let Some(col) = extract_column_key(left)
         && is_constant_literal(right)
     {
@@ -546,119 +501,21 @@ fn is_constant_literal(expr: &Expr) -> bool {
     }
 }
 
-pub(crate) fn expr_contains_aggregate(expr: &Expr) -> bool {
-    if let Some(inner) = unwrap_single_child_expr(expr) {
-        return expr_contains_aggregate(inner);
-    }
-    if let Some((left, right)) = unwrap_pair_expr(expr) {
-        return expr_contains_aggregate(left) || expr_contains_aggregate(right);
-    }
-    compound_expr_contains_aggregate(expr)
-}
-
-fn unwrap_single_child_expr(expr: &Expr) -> Option<&Expr> {
-    match expr {
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Nested(inner)
-        | Expr::Cast { expr: inner, .. }
-        | Expr::Convert { expr: inner, .. }
-        | Expr::Extract { expr: inner, .. }
-        | Expr::Ceil { expr: inner, .. }
-        | Expr::Floor { expr: inner, .. }
-        | Expr::Trim { expr: inner, .. }
-        | Expr::Collate { expr: inner, .. }
-        | Expr::IsNull(inner)
-        | Expr::IsNotNull(inner)
-        | Expr::IsTrue(inner)
-        | Expr::IsNotTrue(inner)
-        | Expr::IsFalse(inner)
-        | Expr::IsNotFalse(inner)
-        | Expr::IsUnknown(inner)
-        | Expr::IsNotUnknown(inner) => Some(inner),
-        _ => None,
-    }
-}
-
-fn unwrap_pair_expr(expr: &Expr) -> Option<(&Expr, &Expr)> {
-    match expr {
-        Expr::BinaryOp { left, right, .. }
-        | Expr::IsDistinctFrom(left, right)
-        | Expr::IsNotDistinctFrom(left, right)
-        | Expr::Like {
-            expr: left,
-            pattern: right,
-            ..
+pub(crate) fn expr_contains_aggregate(root: &Expr) -> bool {
+    let mut stack = vec![root];
+    while let Some(expr) = stack.pop() {
+        match expr {
+            Expr::Subquery(_) | Expr::Exists { .. } => {}
+            Expr::Function(func) => {
+                if is_aggregate_call(func) {
+                    return true;
+                }
+                push_expr_children_rev(expr, &mut stack);
+            }
+            other => push_expr_children_rev(other, &mut stack),
         }
-        | Expr::ILike {
-            expr: left,
-            pattern: right,
-            ..
-        }
-        | Expr::AnyOp { left, right, .. }
-        | Expr::AllOp { left, right, .. } => Some((left, right)),
-        _ => None,
     }
-}
-
-fn compound_expr_contains_aggregate(expr: &Expr) -> bool {
-    match expr {
-        Expr::Function(func) => is_aggregate_call(func) || function_args_contain_aggregate(func),
-        Expr::Between {
-            expr: target,
-            low,
-            high,
-            ..
-        } => between_contains_aggregate(target, low, high),
-        Expr::In { expr, target, .. } => {
-            expr_contains_aggregate(expr) || in_target_contains_aggregate(target)
-        }
-        Expr::Case {
-            operand,
-            conditions,
-            else_result,
-            ..
-        } => case_contains_aggregate(operand.as_deref(), conditions, else_result.as_deref()),
-        Expr::Tuple(items) => items.iter().any(expr_contains_aggregate),
-        Expr::Substring {
-            expr: inner,
-            substring_from,
-            substring_for,
-            ..
-        } => {
-            substring_contains_aggregate(inner, substring_from.as_deref(), substring_for.as_deref())
-        }
-        _ => false,
-    }
-}
-
-fn between_contains_aggregate(target: &Expr, low: &Expr, high: &Expr) -> bool {
-    expr_contains_aggregate(target) || expr_contains_aggregate(low) || expr_contains_aggregate(high)
-}
-
-fn substring_contains_aggregate(inner: &Expr, from: Option<&Expr>, for_len: Option<&Expr>) -> bool {
-    expr_contains_aggregate(inner)
-        || from.is_some_and(expr_contains_aggregate)
-        || for_len.is_some_and(expr_contains_aggregate)
-}
-
-fn case_contains_aggregate(
-    operand: Option<&Expr>,
-    conditions: &[sqlparser::ast::CaseWhen],
-    else_result: Option<&Expr>,
-) -> bool {
-    operand.is_some_and(expr_contains_aggregate)
-        || conditions
-            .iter()
-            .any(|w| expr_contains_aggregate(&w.condition) || expr_contains_aggregate(&w.result))
-        || else_result.is_some_and(expr_contains_aggregate)
-}
-
-fn in_target_contains_aggregate(target: &InTarget) -> bool {
-    match target {
-        InTarget::List(items) => items.iter().any(expr_contains_aggregate),
-        InTarget::Unnest(expr) => expr_contains_aggregate(expr),
-        InTarget::Subquery(_) | InTarget::Table { .. } => false,
-    }
+    false
 }
 
 pub(crate) fn is_aggregate_call(func: &Function) -> bool {
@@ -678,28 +535,6 @@ pub(crate) fn is_aggregate_call(func: &Function) -> bool {
     };
     let lower = last_ident.value.to_ascii_lowercase();
     AGGREGATE_FUNCTIONS.binary_search(&lower.as_str()).is_ok()
-}
-
-fn function_args_contain_aggregate(func: &Function) -> bool {
-    let FunctionArguments::List(list) = &func.args else {
-        return false;
-    };
-    list.args
-        .iter()
-        .filter_map(function_arg_expr)
-        .any(expr_contains_aggregate)
-}
-
-fn function_arg_expr(arg: &FunctionArg) -> Option<&Expr> {
-    let arg_expr = match arg {
-        FunctionArg::Unnamed(expr)
-        | FunctionArg::Named { arg: expr, .. }
-        | FunctionArg::ExprNamed { arg: expr, .. } => expr,
-    };
-    match arg_expr {
-        FunctionArgExpr::Expr(expr) => Some(expr),
-        _ => None,
-    }
 }
 
 fn find_having_line(tokens: &[TokenWithSpan], expr_start: Location) -> Option<u32> {

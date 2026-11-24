@@ -4,8 +4,7 @@ use codeint_model::HazardLine;
 use sqlparser::ast::{
     AssignmentTarget, Delete, Expr, FromTable, GroupByExpr, Insert, Join, JoinConstraint,
     JoinOperator, Merge, ObjectName, OrderBy, OrderByExpr, OrderByKind, Query, Select, SelectItem,
-    SetExpr, Spanned, Statement, TableFactor, TableObject, TableWithJoins, Update,
-    UpdateTableFromKind,
+    SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Update, UpdateTableFromKind,
 };
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::TokenWithSpan;
@@ -631,7 +630,7 @@ impl<'a> SchemaRuleChecker<'a> {
         ident_hint: &str,
         keyword_hint: Option<Keyword>,
     ) -> u32 {
-        let span_line = obj.span().start.line as u32;
+        let span_line = crate::ast_loc::object_name_start_loc(obj).line as u32;
         if span_line > 0 {
             return span_line;
         }

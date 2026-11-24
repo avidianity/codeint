@@ -1,4 +1,4 @@
-use sqlparser::ast::{Select, Spanned};
+use sqlparser::ast::Select;
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Location, Span, Token, TokenWithSpan};
 
@@ -29,24 +29,26 @@ pub(super) fn keyword_line_at_or_after(
     if min_loc.line == 0 {
         return first_keyword_line(tokens, kw);
     }
-    tokens
-        .iter()
-        .find(|t| t.span.start >= min_loc && is_keyword(t, kw))
-        .map_or(0, |t| t.span.start.line as u32)
+    keyword_line_from(tokens.iter(), kw, |t| t.span.start >= min_loc)
 }
 
-pub(super) fn keyword_line_in_range(
+pub(super) fn last_keyword_line_before(
     tokens: &[TokenWithSpan],
     kw: Keyword,
-    start: Location,
-    end: Location,
+    before_loc: Location,
 ) -> u32 {
-    if start.line == 0 || end.line == 0 {
+    if before_loc.line == 0 {
         return first_keyword_line(tokens, kw);
     }
-    tokens
-        .iter()
-        .find(|t| t.span.start >= start && t.span.end <= end && is_keyword(t, kw))
+    keyword_line_from(tokens.iter().rev(), kw, |t| t.span.start < before_loc)
+}
+
+fn keyword_line_from<'a>(
+    mut iter: impl Iterator<Item = &'a TokenWithSpan>,
+    kw: Keyword,
+    predicate: impl Fn(&TokenWithSpan) -> bool,
+) -> u32 {
+    iter.find(|t| predicate(t) && is_keyword(t, kw))
         .map_or(0, |t| t.span.start.line as u32)
 }
 
@@ -120,21 +122,13 @@ pub(super) fn first_keyword_pair_line(
 }
 
 pub(super) fn select_line(select: &Select, tokens: &[TokenWithSpan]) -> u32 {
-    let tok_line = select.select_token.0.span.start.line as u32;
-    if tok_line > 0 {
-        return tok_line;
-    }
-    let span_l = span_line(select.span());
-    if span_l > 0 {
-        return span_l;
+    let loc_line = crate::ast_loc::select_start_loc(select).line as u32;
+    if loc_line > 0 {
+        return loc_line;
     }
     first_keyword_line(tokens, Keyword::SELECT)
 }
 
 pub(super) fn select_start_loc(select: &Select) -> Location {
-    if select.select_token.0.span.start.line > 0 {
-        select.select_token.0.span.start
-    } else {
-        select.span().start
-    }
+    crate::ast_loc::select_start_loc(select)
 }

@@ -4,9 +4,11 @@ use sqlparser::ast::helpers::key_value_options::{
 use sqlparser::ast::{
     AlterRoleOperation, AlterUser, Assignment, AssignmentTarget, CreateRole, CreateServerOption,
     CreateUser, Expr, Insert, ObjectName, OnConflictAction, OnInsert, Password, RoleOption,
-    SecretOption, SetExpr, Spanned, Statement,
+    SecretOption, SetExpr, Statement,
 };
 use sqlparser::keywords::Keyword;
+
+use crate::ast_loc::{expr_start_line, object_name_start_loc};
 
 use super::HazardCtx;
 use super::expr_util::{
@@ -76,7 +78,7 @@ fn check_password(ctx: &mut HazardCtx<'_>, password: &Password) {
 }
 
 fn password_line(ctx: &HazardCtx<'_>, expr: &Expr) -> u32 {
-    let expr_line = span_line(expr.span());
+    let expr_line = expr_start_line(expr);
     if expr_line > 0 {
         expr_line
     } else {
@@ -225,11 +227,11 @@ fn check_column_value(ctx: &mut HazardCtx<'_>, col: &ObjectName, value: &Expr) {
     if !is_sensitive_column(col) || !is_non_empty_string_literal_expr(value) {
         return;
     }
-    let val_line = span_line(value.span());
+    let val_line = expr_start_line(value);
     let line = if val_line > 0 {
         val_line
     } else {
-        span_line(col.span())
+        object_name_start_loc(col).line as u32
     };
     ctx.emit(line, "plain-text-secret");
 }

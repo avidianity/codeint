@@ -760,3 +760,17 @@ fn plain_text_secret_rules_and_no_secret_leakage() {
         assert!(!debug_repr.contains(sentinel));
     }
 }
+
+#[test]
+fn function_on_filter_column_recognizes_full_having_aggregate_list() {
+    check_rule(
+        SqlDialect::Generic,
+        "function-on-filter-column",
+        &[],
+        &[
+            "SELECT region FROM orders WHERE active = 1 GROUP BY region HAVING SUM_IF(amount, active) > 100;",
+            "SELECT region FROM orders WHERE active = 1 GROUP BY GROUPING SETS ((region), ()) HAVING GROUPING(region) = 0;",
+            "SELECT region FROM orders WHERE active = 1 GROUP BY region HAVING JSON_GROUP_ARRAY(region) IS NOT NULL;",
+        ],
+    );
+}
