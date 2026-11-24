@@ -127,3 +127,29 @@ pub(crate) fn mcp_tool_call(id: u64, name: &str, arguments: Value) -> Value {
         "params": { "name": name, "arguments": arguments }
     })
 }
+
+pub(crate) fn run_codeint_output(dir: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("run codeint")
+}
+
+pub(crate) fn run_codeint_text(dir: &Path, args: &[&str], expected_code: i32) -> (String, String) {
+    let output = run_codeint_output(dir, args);
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert_eq!(
+        output.status.code(),
+        Some(expected_code),
+        "codeint {args:?} exited {:?}\nstdout: {stdout}\nstderr: {stderr}",
+        output.status.code()
+    );
+    (stdout, stderr)
+}
+
+pub(crate) fn run_check_json(dir: &Path) -> Value {
+    let (stdout, _) = run_codeint_text(dir, &["check", "--format", "json"], 0);
+    serde_json::from_str(&stdout).expect("valid json")
+}

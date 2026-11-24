@@ -6,7 +6,7 @@ use std::string::FromUtf8Error;
 use codeint_config::{
     Codeowners, CodeownersError, ConfigFileKind, Configuration, ConfigurationFileError,
     DependenciesConfig, EntryPoints, FindingsShown, LanguageCoverage, OwnerFilter,
-    PluginHostConfig, SourceSetOverrides, read_configuration,
+    PluginHostConfig, SourceSetOverrides, SqlDialectConflict, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_dart::Dart;
@@ -14,6 +14,7 @@ use codeint_lang_go::Go;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
+use codeint_lang_sql::{ParsedSqlStatement, SqlDialect};
 use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
 use codeint_metrics::{CoverageApplyError, CoverageParseError, DependencyHygiene, OrphanFiles};
 use codeint_model::{
@@ -26,10 +27,16 @@ use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
     load_metric_plugins_with_limits,
 };
-use codeint_report::{LanguageSchema, MeasuredLanguage, OwnershipOptions, Report, ReportOptions};
-use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use codeint_report::{
+    LanguageSchema, MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report,
+    ReportExtras, ReportOptions, SqlSchemaSummary,
+};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+};
 
 mod coverage;
+mod sql;
 #[cfg(test)]
 mod tests;
 
@@ -115,6 +122,16 @@ pub(crate) enum CheckError {
         "budgets.production.test_gap ({budget}) is set, but Test gap is absent; the Test gap Budget needs a Coverage report"
     )]
     TestGapBudgetWithoutCoverage { budget: f64 },
+    #[error("{config_file}: sql.dialects conflict: {conflict}")]
+    SqlDialectConflict {
+        config_file: ConfigFileKind,
+        conflict: SqlDialectConflict,
+    },
+    #[error("{config_file} names an unknown Hazard line rule {rule:?} in hazards.disabled_rules")]
+    UnknownHazardRule {
+        config_file: ConfigFileKind,
+        rule: String,
+    },
 }
 
 impl CheckError {
@@ -308,7 +325,7 @@ pub(crate) struct NamedLanguagePlugin<'plugin> {
     pub(crate) plugin: &'plugin dyn LanguagePlugin,
 }
 
-pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 6] = [
+pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 7] = [
     NamedLanguagePlugin {
         name: "typescript-javascript",
         plugin: &TypeScriptAndJavaScript,
@@ -333,6 +350,10 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 6] = 
         name: "go",
         plugin: &Go,
     },
+    NamedLanguagePlugin {
+        name: sql::SQL_PLUGIN_NAME,
+        plugin: &sql::BuiltInSql,
+    },
 ];
 
 pub(crate) fn built_in_languages() -> Vec<LanguageSchema> {
@@ -342,6 +363,14 @@ pub(crate) fn built_in_languages() -> Vec<LanguageSchema> {
             name: named.name.to_owned(),
             extensions: named.plugin.extensions(),
         })
+        .collect()
+}
+
+pub(crate) fn built_in_language_hazard_rules() -> BTreeMap<String, Vec<String>> {
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .filter(|named| named.plugin.has_hazard_rules())
+        .map(|named| (named.name.to_owned(), named.plugin.hazard_rules()))
         .collect()
 }
 
@@ -382,10 +411,12 @@ impl LoadedPlugins {
             .map(|(_, plugin)| plugin.key())
             .collect();
         configuration.validate_metrics(&metric_keys)?;
-        Ok(LoadedPlugins {
+        let loaded = LoadedPlugins {
             external_languages,
             external_metrics,
-        })
+        };
+        sql::validate_disabled_hazard_rules(&loaded.as_named(), configuration)?;
+        Ok(loaded)
     }
 
     pub(crate) fn as_named(&self) -> Vec<NamedLanguagePlugin<'_>> {
@@ -527,6 +558,7 @@ fn check_with(
     let repository = Repository::discover(folder)?;
     let configuration = read_configuration(repository.root())?;
     configuration.validate_metrics(&[])?;
+    sql::validate_disabled_hazard_rules(plugins, &configuration)?;
     check_loaded(
         &repository,
         &configuration,
@@ -555,6 +587,8 @@ pub(crate) struct MeasuredSnapshot {
     pub(crate) entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
     pub(crate) manifests_by_language: BTreeMap<String, Vec<Manifest>>,
     pub(crate) file_line_counts: BTreeMap<RepoPath, usize>,
+    pub(crate) rejected_statements: Vec<RejectedStatementEntry>,
+    pub(crate) sql_schemas: Vec<SqlSchemaSummary>,
 }
 
 pub(crate) fn compute_orphan_files(
@@ -634,7 +668,7 @@ fn check_loaded(
     let (dependency_hygiene, dependency_hygiene_by_language) =
         compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected_ref);
     apply_selected_package(&mut snapshot, plugins, selected.as_ref())?;
-    let report = Report::summarize_with_options(
+    let report = Report::summarize_with_extras(
         snapshot.languages,
         tree.submodules().to_vec(),
         ReportOptions {
@@ -652,6 +686,10 @@ fn check_loaded(
             coverage_reports_named,
             unmatched_coverage_paths: &coverage_outcome.unmatched_paths,
         },
+        ReportExtras::default()
+            .with_disabled_hazard_rules(configuration.hazards.disabled_rules_set())
+            .with_rejected_statements(snapshot.rejected_statements)
+            .with_sql_schemas(snapshot.sql_schemas),
     )
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))?;
     ensure_test_gap_budget_present(configuration, &report)?;
@@ -681,6 +719,12 @@ fn apply_selected_package(
         return Ok(());
     };
     filter_languages_to_package(&mut snapshot.languages, selected_pkg);
+    sql::filter_sql_extras_to_package(
+        &mut snapshot.rejected_statements,
+        &mut snapshot.sql_schemas,
+        workspace,
+        selected_pkg,
+    );
     refresh_reference_ranges_for_package(
         &mut snapshot.languages,
         plugins,
@@ -717,40 +761,51 @@ pub(crate) fn measure_snapshot(
 ) -> Result<MeasuredSnapshot, CheckError> {
     let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
     let coverage = configuration.languages.coverage_of(&names)?;
-    measure(
-        tree,
-        plugins,
-        &coverage,
-        &configuration.source_set_overrides,
-        &configuration.entry_points,
-        configuration.config_file(),
-    )
+    measure(tree, plugins, &coverage, configuration)
 }
 
 fn measure(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     coverage: &[LanguageCoverage<'_>],
-    overrides: &SourceSetOverrides,
-    configured_entry_points: &EntryPoints,
-    config_file: ConfigFileKind,
+    configuration: &Configuration,
 ) -> Result<MeasuredSnapshot, CheckError> {
+    let config_file = configuration.config_file();
     let covered_files = assign_files_to_plugins(tree, plugins, coverage, config_file)?;
+    let sql_dialects =
+        sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
-    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides, config_file)?;
-    let (models, file_line_counts) = collect_plugin_models(plugins.len(), workspace, outcomes);
+    let outcomes = lower_covered_files(
+        tree,
+        plugins,
+        &covered_files,
+        &sql_dialects,
+        &configuration.source_set_overrides,
+        config_file,
+    )?;
+    let mut collected = collect_plugin_models(plugins.len(), workspace, outcomes);
+    let sql_schemas = plugins
+        .iter()
+        .position(|named| named.name == sql::SQL_PLUGIN_NAME)
+        .filter(|&index| !collected.models[index].files.is_empty())
+        .map(|index| {
+            sql::apply_sql_schema_pass(&mut collected.models[index], &collected.sql_parsed)
+        })
+        .unwrap_or_default();
     let mut snapshot = resolve_measured_snapshot(
         tree,
         plugins,
-        models,
+        collected.models,
         manifests_by_plugin,
         &plugin_members,
-        configured_entry_points,
+        &configuration.entry_points,
         config_file,
     )?;
-    snapshot.file_line_counts = file_line_counts;
+    snapshot.file_line_counts = collected.file_line_counts;
+    snapshot.rejected_statements = collected.rejected_statements;
+    snapshot.sql_schemas = sql_schemas;
     Ok(snapshot)
 }
 
@@ -771,42 +826,54 @@ fn lower_covered_files(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
+    sql_dialects: &[Option<SqlDialect>],
     overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
 ) -> Result<Vec<(usize, LoweredOutcome)>, CheckError> {
     let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
-    let lower_file = |bytes: Vec<u8>, path: &RepoPath, index: usize| {
-        let lowered = lower_bytes(
-            bytes,
-            path,
-            &plugins[index],
-            &listed_hazard_rules[index],
-            overrides,
-            config_file,
-        )?;
-        Ok((index, lowered))
-    };
+    let lower_file =
+        |bytes: Vec<u8>, path: &RepoPath, index: usize, dialect: Option<SqlDialect>| {
+            let lowered = lower_bytes(
+                bytes,
+                path,
+                &plugins[index],
+                dialect,
+                &listed_hazard_rules[index],
+                overrides,
+                config_file,
+            )?;
+            Ok((index, lowered))
+        };
     if let Some(reader) = tree.working_tree_reader() {
         return covered_files
             .par_iter()
-            .map(|&(path, index)| lower_file(reader.read(path)?, path, index))
+            .zip(sql_dialects.par_iter())
+            .map(|(&(path, index), &dialect)| lower_file(reader.read(path)?, path, index, dialect))
             .collect();
     }
     let loaded = covered_files
         .iter()
-        .map(|&(path, index)| Ok((path, index, tree.read(path)?)))
+        .zip(sql_dialects.iter())
+        .map(|(&(path, index), &dialect)| Ok((path, index, dialect, tree.read(path)?)))
         .collect::<Result<Vec<_>, CheckError>>()?;
     loaded
         .into_par_iter()
-        .map(|(path, index, bytes)| lower_file(bytes, path, index))
+        .map(|(path, index, dialect, bytes)| lower_file(bytes, path, index, dialect))
         .collect()
+}
+
+struct CollectedPluginModels {
+    models: Vec<CodeModel>,
+    file_line_counts: BTreeMap<RepoPath, usize>,
+    sql_parsed: BTreeMap<RepoPath, (SqlDialect, Vec<ParsedSqlStatement>)>,
+    rejected_statements: Vec<RejectedStatementEntry>,
 }
 
 fn collect_plugin_models(
     plugin_count: usize,
     workspace: Workspace,
     outcomes: Vec<(usize, LoweredOutcome)>,
-) -> (Vec<CodeModel>, BTreeMap<RepoPath, usize>) {
+) -> CollectedPluginModels {
     let mut models: Vec<CodeModel> = (0..plugin_count)
         .map(|_| CodeModel {
             workspace: workspace.clone(),
@@ -814,18 +881,41 @@ fn collect_plugin_models(
         })
         .collect();
     let mut file_line_counts = BTreeMap::new();
+    let mut sql_parsed = BTreeMap::new();
+    let mut rejected_statements = Vec::new();
     for (index, outcome) in outcomes {
         if let Some((path, lines)) = outcome.line_count {
             file_line_counts.insert(path, lines);
         }
         let model = &mut models[index];
         match outcome.file {
-            LoweredFile::Measured(file) => model.files.push(file),
+            LoweredFile::Measured(file) => {
+                if let Some(details) = outcome.sql {
+                    rejected_statements.extend(details.rejected_statements);
+                    sql_parsed.insert(
+                        file.path.clone(),
+                        (details.dialect, details.parsed_statements),
+                    );
+                }
+                model.files.push(file);
+            }
             LoweredFile::DeclarationOnly(path) => model.declaration_only.push(path),
             LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
         }
     }
-    (models, file_line_counts)
+    rejected_statements.sort_by(|a, b| {
+        (a.path.as_str(), a.line, a.dialect.as_str()).cmp(&(
+            b.path.as_str(),
+            b.line,
+            b.dialect.as_str(),
+        ))
+    });
+    CollectedPluginModels {
+        models,
+        file_line_counts,
+        sql_parsed,
+        rejected_statements,
+    }
 }
 
 fn resolve_measured_snapshot(
@@ -875,6 +965,8 @@ fn resolve_measured_snapshot(
         entry_points_by_language,
         manifests_by_language,
         file_line_counts: BTreeMap::new(),
+        rejected_statements: Vec::new(),
+        sql_schemas: Vec::new(),
     })
 }
 
@@ -1244,6 +1336,7 @@ fn find_plugin_workspaces(
 struct LoweredOutcome {
     file: LoweredFile,
     line_count: Option<(RepoPath, usize)>,
+    sql: Option<sql::SqlLowerDetails>,
 }
 
 enum LoweredFile {
@@ -1274,6 +1367,7 @@ fn lower_bytes(
     bytes: Vec<u8>,
     path: &RepoPath,
     named: &NamedLanguagePlugin<'_>,
+    sql_dialect: Option<SqlDialect>,
     listed_hazard_rules: &HashSet<String>,
     overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
@@ -1284,13 +1378,20 @@ fn lower_bytes(
             return Ok(LoweredOutcome {
                 file: LoweredFile::Skipped(not_utf8(path.clone(), &error)),
                 line_count: None,
+                sql: None,
             });
         }
     };
     let line_count = text.lines().count();
     let recorded_lines = Some((path.clone(), line_count));
-    match named.plugin.lower(path, &text) {
-        Ok(mut file) => {
+    let lowered = match sql_dialect {
+        Some(dialect) => {
+            sql::lower_sql_source(path, &text, dialect).map(|(file, details)| (file, Some(details)))
+        }
+        None => named.plugin.lower(path, &text).map(|file| (file, None)),
+    };
+    match lowered {
+        Ok((mut file, sql_details)) => {
             validate_hazard_line_bounds(named.name, path, line_count, &file.hazard_lines)
                 .map_err(|error| CheckError::language_plugin(config_file, error))?;
             validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
@@ -1309,18 +1410,21 @@ fn lower_bytes(
                     model: file,
                 }),
                 line_count: recorded_lines,
+                sql: sql_details,
             })
         }
         Err(LowerError::DeclarationOnly) => Ok(LoweredOutcome {
             file: LoweredFile::DeclarationOnly(path.clone()),
             line_count: recorded_lines,
+            sql: None,
         }),
         Err(reason) => Ok(LoweredOutcome {
             file: LoweredFile::Skipped(SkippedFile {
                 path: path.clone(),
-                reason: reason.to_string(),
+                reason: sql::format_lower_error(sql_dialect.is_some(), reason),
             }),
             line_count: recorded_lines,
+            sql: None,
         }),
     }
 }

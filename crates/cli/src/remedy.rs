@@ -77,6 +77,16 @@ fn check_remedy(error: &CheckError) -> &'static str {
         CheckError::UnknownWorkspacePackage { .. } => {
             "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository."
         }
+        CheckError::SqlDialectConflict { config_file, .. } => choose_file_remedy(
+            *config_file,
+            "Adjust the include globs in sql.dialects in codeint.json so each SQL file matches at most one Dialect.",
+            "Adjust the include globs in sql.dialects in codeint.jsonc so each SQL file matches at most one Dialect.",
+        ),
+        CheckError::UnknownHazardRule { config_file, .. } => choose_file_remedy(
+            *config_file,
+            "Remove the unknown rule name from hazards.disabled_rules in codeint.json, or run codeint schema to list the known Hazard line rules.",
+            "Remove the unknown rule name from hazards.disabled_rules in codeint.jsonc, or run codeint schema to list the known Hazard line rules.",
+        ),
         CheckError::Git(error) => git_remedy(error),
         CheckError::Configuration(error) => configuration_file_remedy(error),
         CheckError::Codeowners(error) => codeowners_remedy(error),
@@ -130,6 +140,8 @@ fn check_plugin_remedy(error: &CheckError) -> &'static str {
         | CheckError::InvalidCoverageReport { .. }
         | CheckError::CoverageApply(_)
         | CheckError::TestGapBudgetWithoutCoverage { .. }
+        | CheckError::SqlDialectConflict { .. }
+        | CheckError::UnknownHazardRule { .. }
         | CheckError::Git(_)
         | CheckError::Configuration(_)
         | CheckError::Codeowners(_)
@@ -302,6 +314,7 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
 pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
     plugin_config_remedy(error)
         .or_else(|| test_gap_config_remedy(error))
+        .or_else(|| sql_and_hazards_config_remedy(error))
         .or_else(|| boundary_config_remedy(error))
         .or_else(|| file_access_remedy(error))
         .or_else(|| json_shape_remedy(error))
@@ -490,6 +503,29 @@ fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<&'static str
         ),
         _ => return None,
     })
+}
+
+fn sql_and_hazards_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+    use ConfigurationFileError::*;
+    let (file, json, jsonc) = match error {
+        EmptySqlDialectInclude { file, .. } => (
+            *file,
+            "Add at least one glob pattern under include for every entry in sql.dialects in codeint.json.",
+            "Add at least one glob pattern under include for every entry in sql.dialects in codeint.jsonc.",
+        ),
+        EmptySqlDialectPattern { file, .. } => (
+            *file,
+            "Set non-empty glob patterns in sql.dialects in codeint.json, or remove the empty entry.",
+            "Set non-empty glob patterns in sql.dialects in codeint.jsonc, or remove the empty entry.",
+        ),
+        EmptyHazardRuleName { file, .. } => (
+            *file,
+            "Set non-empty rule names in hazards.disabled_rules in codeint.json, or remove the empty entry.",
+            "Set non-empty rule names in hazards.disabled_rules in codeint.jsonc, or remove the empty entry.",
+        ),
+        _ => return None,
+    };
+    Some(choose_file_remedy(file, json, jsonc))
 }
 
 fn plugin_host_remedy(error: &PluginHostError, file: ConfigFileKind) -> &'static str {
