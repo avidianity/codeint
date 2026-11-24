@@ -5,6 +5,7 @@ use crate::PluginHostError;
 fn rejects_test_gap_and_other_built_in_metric_keys_as_reserved() {
     for reserved in [
         "test_gap",
+        "hazards",
         "erosion",
         "duplication",
         "verbosity",

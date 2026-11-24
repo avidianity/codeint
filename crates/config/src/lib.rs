@@ -14,9 +14,11 @@ mod codeowners;
 mod config_error;
 mod coupling;
 mod dependencies;
+mod hazards;
 mod regression_limits;
 mod resolved;
 mod result_cache_folder;
+mod sql;
 
 pub use boundaries::{
     Boundaries, BoundaryDirective, BoundaryPreset, BoundaryRuleDecision, BoundarySourceSet,
@@ -28,9 +30,9 @@ pub use cli_schema::{
 };
 pub use codeint_json::{
     Budget, Budgets, Configuration, ConfigurationInspection, DEPENDENCY_METRIC_KEYS,
-    DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, LanguageCoverage,
-    Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits, PluginSource,
-    SchemaValueSpan, SchemaVersionStatus, Sha256Digest, SourceSetOverrides,
+    DetectedLanguage, DiscoveredConfigFile, DuplicationConfig, EntryPoints, HAZARDS_METRIC_KEY,
+    LanguageCoverage, Languages, MinSimilarity, PluginDeclaration, PluginKind, PluginLimits,
+    PluginSource, SchemaValueSpan, SchemaVersionStatus, Sha256Digest, SourceSetOverrides,
     StarterConfigurationError, TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file,
     inspect_configuration, is_broken_symlink, published_schema_address, read_configuration,
     read_resolved_configuration, schema_value_span, write_starter_configuration,
@@ -44,11 +46,13 @@ pub use coupling::{
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
 };
 pub use dependencies::DependenciesConfig;
+pub use hazards::HazardsConfig;
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 pub use resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
     SourceSetOverride,
 };
+pub use sql::{KNOWN_SQL_DIALECTS, SqlConfig, SqlDialect, SqlDialectConflict};
 
 const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
 

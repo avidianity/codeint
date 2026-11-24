@@ -273,6 +273,16 @@ pub enum ConfigurationFileError {
     CliTestGapBudgetOutsideProduction { source_set: SourceSet },
     #[error("{file}: {key} is not supported; Test gap has no Regression check")]
     TestGapRegressionLimit { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} for SQL dialect {dialect:?} must list at least one glob pattern")]
+    EmptySqlDialectInclude {
+        file: ConfigFileKind,
+        key: KeyPath,
+        dialect: String,
+    },
+    #[error("{file}: {key} must not be empty")]
+    EmptySqlDialectPattern { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} must not be empty")]
+    EmptyHazardRuleName { file: ConfigFileKind, key: KeyPath },
 }
 
 impl ConfigurationFileError {
@@ -308,7 +318,10 @@ impl ConfigurationFileError {
             | AbsoluteCoverageReportPath { file, .. }
             | ParentTraversalCoverageReportPath { file, .. }
             | TestGapBudgetOutsideProduction { file, .. }
-            | TestGapRegressionLimit { file, .. } => *file = file_kind,
+            | TestGapRegressionLimit { file, .. }
+            | EmptySqlDialectInclude { file, .. }
+            | EmptySqlDialectPattern { file, .. }
+            | EmptyHazardRuleName { file, .. } => *file = file_kind,
             AmbiguousConfigFiles
             | UnknownCliBudgetMetric { .. }
             | CliTestGapBudgetOutsideProduction { .. }
@@ -346,6 +359,13 @@ pub(crate) fn glob_set(key: &KeyPath, globs: &[String]) -> Result<GlobSet, Confi
 }
 
 impl KeyPath {
+    pub(crate) fn nested(parent: &str, child: &str) -> KeyPath {
+        KeyPath(vec![
+            KeySegment::Key(parent.to_owned()),
+            KeySegment::Key(child.to_owned()),
+        ])
+    }
+
     pub(crate) fn child(&self, segment: KeySegment) -> KeyPath {
         let mut segments = self.0.clone();
         segments.push(segment);
