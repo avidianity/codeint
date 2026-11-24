@@ -1,5 +1,6 @@
 use codeint_config::Configuration;
 use codeint_git::{CommitId, Repository, ResultCache, Snapshot};
+use codeint_plugin_host::PLUGIN_INTERFACE_VERSION;
 use codeint_report::CommitMeasurement;
 use serde::Serialize;
 
@@ -11,12 +12,13 @@ use crate::check::{
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MEASUREMENT_CACHE_VERSION: u32 = 5;
+const MEASUREMENT_CACHE_VERSION: u32 = 6;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {
     codeint_version: &'static str,
     cache_version: u32,
+    plugin_interface_version: String,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,6 +76,7 @@ impl<'run> CommitMeasurer<'run> {
             settings: MeasurementSettings {
                 codeint_version: CODEINT_VERSION,
                 cache_version: MEASUREMENT_CACHE_VERSION,
+                plugin_interface_version: PLUGIN_INTERFACE_VERSION.to_owned(),
                 language_plugins,
                 configuration,
                 package,
