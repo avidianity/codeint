@@ -20,8 +20,73 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          is_doc_path() {
+            case "$1" in
+              README.md|CHANGELOG.md|CONTRIBUTING.md|GLOSSARY.md|LICENSE|llms.txt)
+                return 0
+                ;;
+              docs/reference.md|docs/checks/*|docs/agents/review-and-merge.md|docs/agents/security.md)
+                return 1
+                ;;
+              docs/*.md)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          if [ "$EVENT" = pull_request ]; then
+            range="origin/$BASE_REF...HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git diff --name-only --no-renames -z "$range" > "$RUNNER_TEMP/changed.bin"; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          count=0
+          docs_only=true
+          while IFS= read -r -d '' path; do
+            count=$((count + 1))
+            if ! is_doc_path "$path"; then
+              docs_only=false
+              break
+            fi
+          done < "$RUNNER_TEMP/changed.bin"
+
+          if [ "$count" -eq 0 ]; then
+            docs_only=false
+          fi
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "Classified $count changed file(s): docs_only=$docs_only"
+
   rust:
     name: rust
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -41,6 +106,8 @@ jobs:
 
   windows:
     name: windows
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -50,6 +117,8 @@ jobs:
 
   performance:
     name: performance
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -59,6 +128,7 @@ jobs:
 
   repository:
     name: repository
+    needs: [changes]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -80,18 +150,24 @@ jobs:
           else
             echo "BASE=$(git rev-list --max-parents=0 HEAD | tail -n 1)" >> "$GITHUB_ENV"
           fi
-      - run: cargo xtask no-comments --base "$BASE"
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: cargo xtask no-comments --base "$BASE"
       - run: cargo xtask commit-message --range "$BASE"
-      - run: npm run --silent duplicates
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: npm run --silent duplicates
       - run: npx --no-install markdownlint-cli2
       - uses: ./.github/actions/lychee
       - run: git ls-files -z '*.md' .rules ':!:.agents/skills/**' | xargs -0 lychee --config lychee.toml
-      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f
+      - if: needs.changes.outputs.docs_only != 'true'
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f
         with:
           tool: cargo-shear@1.14.1
-      - run: cargo shear
-      - uses: ./.github/actions/actionlint
-      - run: actionlint
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: cargo shear
+      - if: needs.changes.outputs.docs_only != 'true'
+        uses: ./.github/actions/actionlint
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: actionlint
       - run: gitleaks git --redact --no-banner
 
   risk-tier:
@@ -126,8 +202,8 @@ jobs:
 
   budget:
     name: budget
-    if: always() && github.event_name == 'pull_request'
-    needs: [rust, windows, performance, repository, risk-tier]
+    if: always() && github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true'
+    needs: [changes, rust, windows, performance, repository, risk-tier]
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -174,4 +250,4 @@ jobs:
         run: |
           report=()
           if [ "$SAME_REPOSITORY" = true ]; then report=(--report); fi
-          cargo xtask feedback-budget --loop ci-gate --run-id "$RUN_ID" --exclude-job budget "${report[@]}"
+          cargo xtask feedback-budget --loop ci-gate --run-id "$RUN_ID" --exclude-job budget --exclude-workflow CodeQL "${report[@]}"

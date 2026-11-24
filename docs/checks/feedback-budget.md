@@ -12,8 +12,8 @@ The budget file is the `feedback_budget` table in [checks.toml](../../checks.tom
 At 80% of a budget it opens or updates one issue labelled `budget`; over the budget it fails.
 
 **Runs in**:
-CI, `budget` job of the `ci` workflow, on every pull request.
-It times the Git hook on the changed files, `cargo xtask affected-tests`, and the wall clock across every gating workflow run on the pull request's head commit, excluding the `budget` job.
+CI, `budget` job of the `ci` workflow, on every pull request that changes non-documentation files (skipped on docs-only pull requests).
+It times the Git hook on the changed files, `cargo xtask affected-tests`, and the wall clock across every gating workflow run on the pull request's head commit, excluding the `budget` job and non-gating `CodeQL` workflow.
 It opens or updates the `budget` issue only for pull requests from this repository, because a fork's token cannot write issues.
 
 **Error text**:
