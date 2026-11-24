@@ -58,6 +58,7 @@ pub(crate) fn diff(
             budgets: &run.context.configuration.budgets,
             limits: &run.context.configuration.regression_limits,
             ownership: run.ownership(),
+            include_test_gap_note: !run.context.configuration.coverage_reports.is_empty(),
         },
     ))
 }

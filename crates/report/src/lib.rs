@@ -12,8 +12,8 @@ use codeint_metrics::{
     CognitiveComplexity, ComplexFunction, DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
     DependencyHygiene, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
     ImportCycle, ImportCycles, MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig,
-    OrphanFileFinding, OrphanFiles, UNLISTED_DEPENDENCIES_METRIC_KEY,
-    UNUSED_DEPENDENCIES_METRIC_KEY, UnresolvedImport, Verbosity,
+    OrphanFileFinding, OrphanFiles, TEST_GAP_METRIC_KEY, TestGap, TestGapFinding,
+    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -34,6 +34,7 @@ mod impact;
 mod markdown;
 mod measurement;
 mod ownership;
+mod report_schema;
 mod sarif;
 mod saved;
 mod schema;
@@ -55,6 +56,7 @@ pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::CommitMeasurement;
 pub use ownership::OwnershipOptions;
+pub use report_schema::report_schema;
 pub use saved::{SavedReport, SavedReportError};
 pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
 pub use trace::{TraceMultiFileImport, TraceReport};
@@ -70,6 +72,14 @@ const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
 const NOT_SHOWN_FOR_NEAR_CLONES: &str = "not shown, because near-clone detection is enabled (Reference ranges are calibrated for exact Clone groups)";
 const NO_IMPORTS_METRIC_NOTE: &str = "This language has no imports, so Import cycles, Orphan files, Import boundaries, and Dependency hygiene are not measured.";
+const TEST_GAP_NO_REPORT_NOTE: &str =
+    "Test gap is not measured because no Coverage report was named.";
+const TEST_GAP_NO_LANGUAGE_COVERAGE_NOTE: &str =
+    "Test gap is not measured because no named Coverage report covers this language.";
+const TEST_GAP_NO_REPO_COVERAGE_NOTE: &str =
+    "Test gap is not measured because no named Coverage report covers any measured language.";
+pub(crate) const TEST_GAP_DIFF_NOTE: &str = "Test gap is left out of codeint diff because a Coverage report exists only for the code under measurement.";
+pub(crate) const TEST_GAP_TREND_NOTE: &str = "Test gap is left out of codeint trend because a Coverage report exists only for the code under measurement.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReportError {
@@ -85,6 +95,8 @@ pub enum ReportError {
 pub struct Report {
     #[serde(flatten)]
     measured: MeasuredSection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    coverage_unmatched_note: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     languages: BTreeMap<String, MeasuredSection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -120,6 +132,8 @@ struct MeasuredSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     import_metrics_note: Option<String>,
     source_sets: SourceSetSections,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test_gap_note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependenciesSection>,
 }
@@ -262,10 +276,36 @@ struct SourceSetSection {
     boundaries: Option<BoundariesSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     orphan_files: Option<OrphanFilesSection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test_gap: Option<TestGapSection>,
     #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricSection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TestGapSection {
+    ratio: Decimal,
+    untested_function_mass: Decimal,
+    total_function_mass: Decimal,
+    measured_functions: usize,
+    #[serde(flatten)]
+    findings: Findings<TestGapFindingRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestGapFindingRow {
+    id: String,
+    path: String,
+    line: u32,
+    end_line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    function_mass: Decimal,
+    untested_share: Decimal,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -372,6 +412,15 @@ struct PackageSection {
     verbosity: PackageVerbosity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     import_cycles: Option<PackageImportCycles>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test_gap: Option<PackageTestGap>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PackageTestGap {
+    ratio: Decimal,
+    untested_function_mass: Decimal,
+    total_function_mass: Decimal,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -613,7 +662,7 @@ struct ImportCycleFinding {
     owners: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(transparent)]
 struct Decimal(f64);
 
@@ -824,6 +873,7 @@ impl_single_path_owner!(UnresolvedImportRow, importer);
 impl_single_path_owner!(ExternalMetricFinding, path);
 impl_single_path_owner!(BoundaryFindingRow, importer);
 impl_single_path_owner!(OrphanFileRow, path);
+impl_single_path_owner!(TestGapFindingRow, path);
 
 impl OwnedFinding for CloneGroupFinding {
     fn assign_owners(&mut self, codeowners: &Codeowners) {
@@ -870,6 +920,10 @@ impl FindingKind for ImportedDependencyRow {
 }
 
 impl FindingKind for OrphanFileRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for TestGapFindingRow {
     const LIST_KEY: &'static str = "findings";
 }
 
@@ -1065,6 +1119,35 @@ impl From<&OrphanFileFinding> for OrphanFileRow {
     }
 }
 
+impl TestGapSection {
+    fn new(test_gap: &TestGap, view: FindingsView<'_>) -> TestGapSection {
+        let totals = test_gap.totals();
+        let findings = view.map(test_gap.findings());
+        TestGapSection {
+            ratio: Decimal::rounded(totals.ratio()),
+            untested_function_mass: Decimal::rounded(totals.untested),
+            total_function_mass: Decimal::rounded(totals.total),
+            measured_functions: totals.measured_functions,
+            findings,
+        }
+    }
+}
+
+impl From<&TestGapFinding> for TestGapFindingRow {
+    fn from(finding: &TestGapFinding) -> TestGapFindingRow {
+        TestGapFindingRow {
+            id: finding.id.to_string(),
+            path: finding.path.to_string(),
+            line: finding.line,
+            end_line: finding.end_line,
+            name: finding.name.clone(),
+            function_mass: Decimal::rounded(finding.function_mass),
+            untested_share: Decimal::rounded(finding.untested_share),
+            owners: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct SectionOptions<'a> {
     findings: FindingsShown,
@@ -1074,12 +1157,15 @@ struct SectionOptions<'a> {
     orphan_files: Option<&'a OrphanFiles>,
     ownership: OwnershipOptions<'a>,
     has_imports: bool,
+    coverage_reports_named: bool,
+    per_language_section: bool,
 }
 
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
         import_source_sets: Option<&SourceSets>,
+        coverage_source_sets: Option<&SourceSets>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSections, MetricPluginError> {
@@ -1089,6 +1175,17 @@ impl SourceSetSections {
                 let import_model = import_source_sets
                     .map(|sets| sets.get(source_set))
                     .filter(|imports| !imports.files.is_empty());
+                let coverage_model = if source_set == SourceSet::Production {
+                    match coverage_source_sets {
+                        Some(sets) => {
+                            let prod = sets.get(SourceSet::Production);
+                            (!prod.files.is_empty()).then_some(prod)
+                        }
+                        None => Some(model),
+                    }
+                } else {
+                    None
+                };
                 let source_set_options = SectionOptions {
                     boundaries: options.boundaries.filter(|config| {
                         import_model.is_some() && config.applies_to_source_set(source_set)
@@ -1101,6 +1198,7 @@ impl SourceSetSections {
                 *sections.slot(source_set) = Some(SourceSetSection::new(
                     model,
                     import_model,
+                    coverage_model,
                     ranges,
                     source_set_options,
                 )?);
@@ -1156,6 +1254,12 @@ impl SourceSetSections {
                         .map(move |orphans| (source_set, "orphan_files", orphans.ratio.0)),
                 )
                 .chain(
+                    section
+                        .test_gap
+                        .iter()
+                        .map(move |test_gap| (source_set, TEST_GAP_METRIC_KEY, test_gap.ratio.0)),
+                )
+                .chain(
                     section.external_metrics.iter().map(move |(key, metric)| {
                         (source_set, key.as_str(), metric.header.ratio.0)
                     }),
@@ -1169,6 +1273,7 @@ impl SourceSetSection {
     fn new<'a>(
         model: &'a CodeModel,
         import_model: Option<&'a CodeModel>,
+        coverage_model: Option<&'a CodeModel>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSection, MetricPluginError> {
@@ -1184,6 +1289,7 @@ impl SourceSetSection {
         let measured = Measured::new(
             model,
             effective_import_model,
+            coverage_model,
             boundaries_config,
             options.duplication,
         );
@@ -1196,6 +1302,10 @@ impl SourceSetSection {
             .then_some(options.orphan_files)
             .flatten()
             .map(|measured| OrphanFilesSection::new(measured, view));
+        let test_gap = measured
+            .test_gap
+            .as_ref()
+            .map(|evaluated| TestGapSection::new(evaluated, view));
         let mut external_metrics = BTreeMap::new();
         for plugin in options.metric_plugins {
             let result = plugin.measure(model)?;
@@ -1286,8 +1396,9 @@ impl SourceSetSection {
                 }),
             boundaries,
             orphan_files,
+            test_gap,
             external_metrics,
-            packages: package_sections(model, effective_import_model, &measured),
+            packages: package_sections(model, effective_import_model, coverage_model, &measured),
         })
     }
 }
@@ -1504,12 +1615,14 @@ struct Measured {
     verbosity: Verbosity,
     import_cycles: Option<ImportCycles>,
     boundaries: Option<Boundaries>,
+    test_gap: Option<TestGap>,
 }
 
 impl Measured {
     fn new(
         model: &CodeModel,
         import_model: Option<&CodeModel>,
+        coverage_model: Option<&CodeModel>,
         boundaries: Option<&BoundariesConfig>,
         duplication_config: DuplicationConfig,
     ) -> Measured {
@@ -1527,6 +1640,7 @@ impl Measured {
         let boundaries = import_model.and_then(|imports| {
             boundaries.map(|config| Boundaries::measure(imports, &ConfigBoundaryPolicy(config)))
         });
+        let test_gap = coverage_model.and_then(TestGap::measure);
         Measured {
             erosion: Erosion::measure(model),
             cognitive_complexity: CognitiveComplexity::measure(model),
@@ -1534,6 +1648,7 @@ impl Measured {
             duplication,
             import_cycles,
             boundaries,
+            test_gap,
         }
     }
 }
@@ -1541,6 +1656,7 @@ impl Measured {
 fn package_sections<'a>(
     model: &'a CodeModel,
     import_model: Option<&'a CodeModel>,
+    coverage_model: Option<&'a CodeModel>,
     measured: &Measured,
 ) -> Vec<PackageSection> {
     if !model.workspace.has_members() {
@@ -1558,6 +1674,9 @@ fn package_sections<'a>(
     let mut import_cycles = import_model
         .zip(measured.import_cycles.as_ref())
         .map(|(imports, cycles)| cycles.by_package(imports));
+    let mut test_gap = coverage_model
+        .zip(measured.test_gap.as_ref())
+        .map(|(coverage, gap)| gap.by_package(coverage));
     measured
         .erosion
         .by_package(model)
@@ -1572,6 +1691,14 @@ fn package_sections<'a>(
                 (modules.modules > 0 || package_files == 0).then(|| PackageImportCycles {
                     ratio: Decimal::rounded(modules.ratio()),
                     modules_in_import_cycles: modules.modules_in_import_cycles,
+                })
+            });
+            let package_test_gap = test_gap.as_mut().and_then(|by_package| {
+                let gap = by_package.remove(&package).unwrap_or_default();
+                (gap.files > 0).then(|| PackageTestGap {
+                    ratio: Decimal::rounded(gap.ratio()),
+                    untested_function_mass: Decimal::rounded(gap.untested),
+                    total_function_mass: Decimal::rounded(gap.total),
                 })
             });
             PackageSection {
@@ -1597,6 +1724,7 @@ fn package_sections<'a>(
                     verbose_lines: verbose_lines.lines,
                 },
                 import_cycles: package_import_cycles,
+                test_gap: package_test_gap,
             }
         })
         .collect()
@@ -1614,12 +1742,15 @@ pub struct ReportOptions<'a> {
     pub orphan_files: Option<&'a OrphanFiles>,
     pub orphan_files_by_language: Option<&'a BTreeMap<String, OrphanFiles>>,
     pub ownership: OwnershipOptions<'a>,
+    pub coverage_reports_named: bool,
+    pub unmatched_coverage_paths: &'a [String],
 }
 
 impl MeasuredSection {
     fn new(
         model: CodeModel,
         import_model: Option<CodeModel>,
+        coverage_model: Option<CodeModel>,
         hygiene: &DependencyHygiene,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
@@ -1651,13 +1782,33 @@ impl MeasuredSection {
         } else {
             None
         };
-        let source_sets =
-            SourceSetSections::new(&source_sets, import_source_sets, ranges, section_options)?;
+        let separate_coverage_source_sets = coverage_model.map(CodeModel::into_source_sets);
+        let source_sets = SourceSetSections::new(
+            &source_sets,
+            import_source_sets,
+            separate_coverage_source_sets.as_ref(),
+            ranges,
+            section_options,
+        )?;
+        let test_gap_note = source_sets
+            .production
+            .as_ref()
+            .filter(|prod| prod.test_gap.is_none())
+            .map(|_| {
+                if !options.coverage_reports_named {
+                    TEST_GAP_NO_REPORT_NOTE.to_owned()
+                } else if options.per_language_section {
+                    TEST_GAP_NO_LANGUAGE_COVERAGE_NOTE.to_owned()
+                } else {
+                    TEST_GAP_NO_REPO_COVERAGE_NOTE.to_owned()
+                }
+            });
         Ok(MeasuredSection {
             files,
             source_lines: lines,
             import_metrics_note,
             source_sets,
+            test_gap_note,
             dependencies,
         })
     }
@@ -1670,6 +1821,41 @@ impl MeasuredSection {
                 }
             }
         }
+    }
+}
+
+impl<'a> ReportOptions<'a> {
+    fn basic(
+        findings: FindingsShown,
+        budgets: &'a Budgets,
+        metric_plugins: &'a [&'a dyn MetricPlugin],
+        boundaries: Option<&'a BoundariesConfig>,
+        dependencies: &'a DependenciesConfig,
+    ) -> ReportOptions<'a> {
+        ReportOptions {
+            findings,
+            budgets,
+            metric_plugins,
+            boundaries,
+            dependencies,
+            dependency_hygiene: None,
+            dependency_hygiene_by_language: None,
+            duplication: DuplicationConfig::default(),
+            orphan_files: None,
+            orphan_files_by_language: None,
+            ownership: OwnershipOptions::default(),
+            coverage_reports_named: false,
+            unmatched_coverage_paths: &[],
+        }
+    }
+    fn with_duplication(mut self, duplication: DuplicationConfig) -> ReportOptions<'a> {
+        self.duplication = duplication;
+        self
+    }
+
+    fn with_ownership(mut self, ownership: OwnershipOptions<'a>) -> ReportOptions<'a> {
+        self.ownership = ownership;
+        self
     }
 }
 
@@ -1713,19 +1899,7 @@ impl Report {
         Report::summarize_with_options(
             languages,
             submodules,
-            ReportOptions {
-                findings,
-                budgets,
-                metric_plugins,
-                boundaries,
-                dependencies: &dependencies,
-                dependency_hygiene: None,
-                dependency_hygiene_by_language: None,
-                duplication: DuplicationConfig::default(),
-                orphan_files: None,
-                orphan_files_by_language: None,
-                ownership: OwnershipOptions::default(),
-            },
+            ReportOptions::basic(findings, budgets, metric_plugins, boundaries, &dependencies),
         )
     }
 
@@ -1739,23 +1913,10 @@ impl Report {
         duplication: DuplicationConfig,
     ) -> Result<Report, MetricPluginError> {
         let dependencies = DependenciesConfig::default();
-        Report::summarize_with_options(
-            languages,
-            submodules,
-            ReportOptions {
-                findings,
-                budgets,
-                metric_plugins,
-                boundaries,
-                dependencies: &dependencies,
-                dependency_hygiene: None,
-                dependency_hygiene_by_language: None,
-                duplication,
-                orphan_files: None,
-                orphan_files_by_language: None,
-                ownership: OwnershipOptions::default(),
-            },
-        )
+        let options =
+            ReportOptions::basic(findings, budgets, metric_plugins, boundaries, &dependencies)
+                .with_duplication(duplication);
+        Report::summarize_with_options(languages, submodules, options)
     }
 
     pub fn summarize_with_ownership(
@@ -1771,19 +1932,8 @@ impl Report {
         Report::summarize_with_options(
             languages,
             submodules,
-            ReportOptions {
-                findings,
-                budgets,
-                metric_plugins,
-                boundaries,
-                dependencies: &dependencies,
-                dependency_hygiene: None,
-                dependency_hygiene_by_language: None,
-                duplication: DuplicationConfig::default(),
-                orphan_files: None,
-                orphan_files_by_language: None,
-                ownership,
-            },
+            ReportOptions::basic(findings, budgets, metric_plugins, boundaries, &dependencies)
+                .with_ownership(ownership),
         )
     }
 
@@ -1814,10 +1964,13 @@ impl Report {
             orphan_files: options.orphan_files,
             ownership: options.ownership,
             has_imports: top_has_imports,
+            coverage_reports_named: options.coverage_reports_named,
+            per_language_section: false,
         };
         let (total_ranges, sections_per_language) =
             build_per_language_sections(&measured, &options, ignored, section_options)?;
         let import_bearing_model = collect_import_bearing_model(&measured, top_has_imports);
+        let coverage_bearing_model = collect_coverage_bearing_model(&measured);
         let model = CodeModel::merge(
             measured
                 .into_iter()
@@ -1833,6 +1986,7 @@ impl Report {
         let measured = MeasuredSection::new(
             model,
             import_bearing_model,
+            coverage_bearing_model,
             total_hygiene,
             &total_ranges,
             section_options,
@@ -1847,8 +2001,19 @@ impl Report {
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),
             measured,
+            coverage_unmatched_note: format_unmatched_coverage_note(
+                options.unmatched_coverage_paths,
+            ),
             languages: sections_per_language,
         })
+    }
+
+    pub fn has_production_test_gap(&self) -> bool {
+        self.measured
+            .source_sets
+            .production
+            .as_ref()
+            .is_some_and(|section| section.test_gap.is_some())
     }
 
     pub(crate) fn populate_external_metric_names(&mut self) {
@@ -1883,6 +2048,39 @@ fn measure_combined_hygiene(
             .filter(|language| language.has_imports)
             .map(|language| DependencyHygiene::measure(&language.model, ignored)),
     )
+}
+
+fn collect_coverage_bearing_model(measured: &[MeasuredLanguage]) -> Option<CodeModel> {
+    let mut covered = Vec::new();
+    for language in measured {
+        if language
+            .model
+            .languages
+            .iter()
+            .any(|facts| facts.has_coverage)
+        {
+            covered.push(language);
+        }
+    }
+    if covered.is_empty() || covered.len() == measured.len() {
+        return None;
+    }
+    Some(CodeModel::merge(
+        covered.into_iter().map(|language| language.model.clone()),
+    ))
+}
+
+fn format_unmatched_coverage_note(paths: &[String]) -> Option<String> {
+    match paths {
+        [] => None,
+        [only] => Some(format!(
+            "Coverage report path matched no repository file unambiguously: {only}."
+        )),
+        many => Some(format!(
+            "Coverage report paths matched no repository file unambiguously: {}.",
+            many.join(", ")
+        )),
+    }
 }
 
 fn collect_import_bearing_model(
@@ -1960,11 +2158,13 @@ fn build_single_language_section(
     MeasuredSection::new(
         language.model.clone(),
         None,
+        None,
         language_hygiene,
         &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
         SectionOptions {
             orphan_files: language_orphans,
             has_imports: language.has_imports,
+            per_language_section: true,
             ..section_options
         },
     )

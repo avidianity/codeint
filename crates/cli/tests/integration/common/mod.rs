@@ -52,6 +52,16 @@ pub(crate) fn no_imports_language_plugin_wasm() -> &'static Path {
     })
 }
 
+pub(crate) fn write_repo_files(root: &Path, files: &[(&str, &str)]) {
+    for (relative, content) in files {
+        let full = root.join(relative);
+        if let Some(parent) = full.parent() {
+            std::fs::create_dir_all(parent).expect("create parent folder");
+        }
+        std::fs::write(full, content).expect("write file");
+    }
+}
+
 pub(crate) fn init_git_repo(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();
     let run_git = |args: &[&str]| {
@@ -69,13 +79,7 @@ pub(crate) fn init_git_repo(files: &[(&str, &str)]) -> TempDir {
         assert!(status.success(), "git {args:?} failed");
     };
     run_git(&["init", "-q", "-b", "main"]);
-    for (rel, content) in files {
-        let path = dir.path().join(rel);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, content).unwrap();
-    }
+    write_repo_files(dir.path(), files);
     run_git(&["add", "."]);
     run_git(&["commit", "-q", "-m", "initial"]);
     dir

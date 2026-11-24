@@ -9,7 +9,7 @@ use crate::markdown::{
     ORPHAN_FILE, ORPHAN_FILE_COLUMNS, UNUSED_DEPENDENCY_COLUMNS, boundary_finding_row,
     clone_family_item, clone_group_item, code, complex_function_row, eroded_function_row,
     external_finding_row, findings_table, flagged_line_row, import_cycle_item,
-    imported_dependency_row, list, orphan_file_row, push_findings, sentence_item, table,
+    imported_dependency_row, list, orphan_file_row, prose, push_findings, sentence_item, table,
     unused_dependency_row,
 };
 
@@ -28,6 +28,9 @@ const DEPENDENCY_COLUMNS: [&str; 6] = ["Metric", "Base", "Head", "New", "Resolve
 pub(super) fn render(report: &DiffReport) -> String {
     let sections = report.source_sets.named();
     let mut blocks = vec![TITLE.to_string(), comparison_sentence(report)];
+    if let Some(note) = &report.test_gap_note {
+        blocks.push(prose(note));
+    }
     if !sections.is_empty() {
         blocks.push(table(
             &METRIC_COLUMNS,

@@ -107,7 +107,15 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
                 .collect()
         }),
     };
-    let json = serde_json::to_value(&starter)
+    let mut json = serde_json::to_value(&starter)
         .expect("the configuration types serialize to JSON without fallible keys");
-    format!("{json:#}\n")
+    if let Some(root) = json.as_object_mut() {
+        root.insert("coverage_reports".to_owned(), serde_json::json!([]));
+    }
+    let rendered = format!("{json:#}\n");
+    rendered.replacen(
+        "  \"budgets\": {\n    \"production\": {},",
+        "  \"budgets\": {\n    \"production\": {\n      // \"test_gap\": 0.2\n    },",
+        1,
+    )
 }

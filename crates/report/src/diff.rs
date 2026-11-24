@@ -21,8 +21,8 @@ use crate::{
     BoundaryFindingRow, BudgetFailure, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding,
     CloneGroupFinding, CognitiveComplexityFinding, Decimal, ErodedFunctionFinding,
     ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow,
-    OrphanFileRow, PerSourceSet, ReportError, UnusedDependencyRow, clustered_clone_group_ids,
-    dependency_over_budget, unlisted_clone_family_group_ids,
+    OrphanFileRow, PerSourceSet, ReportError, TEST_GAP_DIFF_NOTE, UnusedDependencyRow,
+    clustered_clone_group_ids, dependency_over_budget, unlisted_clone_family_group_ids,
 };
 
 mod markdown;
@@ -50,6 +50,8 @@ pub struct HeadCommit {
 pub struct DiffReport {
     base: BaseEntry,
     head: HeadEntry,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    test_gap_note: Option<String>,
     source_sets: SourceSetChangesSections,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependenciesChanges>,
@@ -159,6 +161,7 @@ pub struct DiffReportOptions<'a> {
     pub budgets: &'a Budgets,
     pub limits: &'a RegressionLimits,
     pub ownership: OwnershipOptions<'a>,
+    pub include_test_gap_note: bool,
 }
 
 impl DiffReport {
@@ -181,6 +184,7 @@ impl DiffReport {
                 budgets,
                 limits,
                 ownership: OwnershipOptions::default(),
+                include_test_gap_note: false,
             },
         )
     }
@@ -228,6 +232,9 @@ impl DiffReport {
             over_budget: over_budget_failures,
             regressions: regression_failures,
             source_sets,
+            test_gap_note: options
+                .include_test_gap_note
+                .then(|| TEST_GAP_DIFF_NOTE.to_owned()),
             dependencies,
         }
     }
@@ -311,6 +318,7 @@ impl DiffReport {
                             .orphan_files
                             .as_ref()
                             .map_or(&[], |orphans| orphans.new.listed.as_slice()),
+                        test_gap: &[],
                         external_metrics: changes
                             .external_metrics
                             .iter()

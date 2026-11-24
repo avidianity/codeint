@@ -2,6 +2,8 @@
 
 codeint measured 1 file with 7 source lines.
 
+Test gap is not measured because no Coverage report was named.
+
 | Source set | Metric | Value | Behind the value | Reference range |
 | ---------- | ------ | ----- | ---------------- | --------------- |
 | Production | Erosion | 0 | 0 of 5.2915 Function mass in eroded functions | 0.352 to 0.6, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |

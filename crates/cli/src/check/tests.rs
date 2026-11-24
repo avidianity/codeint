@@ -663,7 +663,9 @@ fn the_markdown_report_shows_the_metrics_and_packages_of_each_language_after_the
         .expect("the Findings follow the sections per language");
 
     assert!(
-        alpha.starts_with("codeint measured 2 files with 3 source lines.\n\n| Source set |"),
+        alpha.starts_with(
+            "codeint measured 2 files with 3 source lines.\n\nTest gap is not measured because no Coverage report was named.\n\n| Source set |"
+        ),
         "unexpected report: {report}"
     );
     assert!(
@@ -675,7 +677,9 @@ fn the_markdown_report_shows_the_metrics_and_packages_of_each_language_after_the
         "unexpected report: {report}"
     );
     assert!(
-        flagged.starts_with("codeint measured 1 file with 1 source line.\n\n| Source set |"),
+        flagged.starts_with(
+            "codeint measured 1 file with 1 source line.\n\nTest gap is not measured because no Coverage report was named.\n\n| Source set |"
+        ),
         "unexpected report: {report}"
     );
     assert!(
@@ -1192,6 +1196,7 @@ fn package_reference_range_source(repo: &std::path::Path, pkg: &str) -> String {
         FindingsShown::All,
         Some(pkg),
         None,
+        &[],
         &codeint_config::PluginHostConfig::default(),
     )
     .expect("package check succeeds");
