@@ -416,14 +416,19 @@ impl WorkspaceContext {
         let plugins = self.plugins.as_named();
         let tree = self.repository.working_tree()?;
         let mut languages = measure_with(&tree, &plugins, &self.configuration)?;
-        if let Some(requested) = package {
+        let workspace = if let Some(requested) = package {
             let workspace = workspace_of_languages(&languages);
             let selected = select_workspace_package(&workspace, requested)?;
             filter_languages_to_package(&mut languages, &selected);
+            Some(workspace)
+        } else {
+            None
+        };
+        let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+        if let Some(workspace) = workspace {
+            model.workspace = workspace;
         }
-        Ok(CodeModel::merge(
-            languages.into_iter().map(|language| language.model),
-        ))
+        Ok(model)
     }
 }
 
@@ -1179,6 +1184,9 @@ fn lower_bytes(
                 .map_err(|error| CheckError::language_plugin(config_file, error))?;
             for function in &mut file.functions {
                 function.coverage = None;
+            }
+            if !named.plugin.has_imports() {
+                file.program_start = false;
             }
             file.source_set =
                 overrides.source_set(path, settle_source_set(path, &text, file.source_set));

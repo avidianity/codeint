@@ -1339,6 +1339,7 @@ fn no_imports_language_plugin_never_has_import_manifest_or_entry_point_functions
         fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
             let mut model = lines_of(&text)?;
             model.runtime_imports.push("./never-resolved".to_owned());
+            model.program_start = true;
             Ok(model)
         }
 
@@ -1378,6 +1379,7 @@ fn no_imports_language_plugin_never_has_import_manifest_or_entry_point_functions
         .find(|language| language.plugin == "no-imports")
         .expect("no-imports language measured");
     assert_eq!(no_imports_lang.model.files.len(), 1);
+    assert!(!no_imports_lang.model.files[0].model.program_start);
     assert!(no_imports_lang.model.runtime_imports.is_empty());
     assert!(no_imports_lang.model.declared_dependencies.is_empty());
     assert!(no_imports_lang.model.dependency_manifests.is_empty());

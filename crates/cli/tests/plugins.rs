@@ -1437,6 +1437,45 @@ fn trace_names_program_start_mark_for_marked_production_file_and_omits_it_for_te
     .expect("valid tooling trace JSON");
     assert!(tooling_trace.get("from_entry_point").is_none());
     assert!(tooling_trace.get("to_entry_point").is_none());
+
+    let (pkg_repo, _hash) = init_single_probe_repo(
+        "folder-import-lang",
+        None,
+        "folder_import_language_plugin.wasm",
+        "",
+    );
+    write_file(pkg_repo.path(), "fld.workspace", "packages/app\n");
+    write_file(
+        pkg_repo.path(),
+        "packages/app/src/main.fld",
+        "program main\nfn main()\n",
+    );
+    write_file(
+        pkg_repo.path(),
+        "packages/app/scripts/tool.fld",
+        "program main\nfn tool()\n",
+    );
+    let pkg_trace_out = run_codeint(
+        pkg_repo.path(),
+        &[
+            "trace",
+            "--package",
+            "packages/app",
+            "packages/app/scripts/tool.fld",
+            "packages/app/scripts/tool.fld",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(
+        pkg_trace_out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&pkg_trace_out.stderr)
+    );
+    let pkg_trace: Value = serde_json::from_slice(&pkg_trace_out.stdout).expect("pkg trace json");
+    assert!(pkg_trace.get("from_entry_point").is_none());
+    assert!(pkg_trace.get("to_entry_point").is_none());
 }
 
 fn init_paired_language_and_metric_repo(
