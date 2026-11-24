@@ -494,6 +494,9 @@ pub(crate) fn compute_orphan_files(
 ) -> (Option<OrphanFiles>, BTreeMap<String, OrphanFiles>) {
     let mut by_language = BTreeMap::new();
     for language in &snapshot.languages {
+        if !language.has_imports {
+            continue;
+        }
         let entry_points = snapshot
             .entry_points_by_language
             .get(&language.plugin)
@@ -519,6 +522,9 @@ pub(crate) fn compute_dependency_hygiene(
     let ignored = dependencies.ignored();
     let mut by_language = BTreeMap::new();
     for language in &snapshot.languages {
+        if !language.has_imports {
+            continue;
+        }
         let measured = DependencyHygiene::measure_filtered(&language.model, ignored, |root| {
             selected.is_none_or(|pkg| {
                 package_root_matches_selected(&language.model.workspace, pkg, root)
@@ -795,6 +801,7 @@ fn finalize_language_model(
         plugin: named.name.to_owned(),
         model,
         reference_ranges,
+        has_imports,
     })
 }
 

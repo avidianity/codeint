@@ -3,7 +3,10 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+use codeint_plugin_host::{sha256, sha256_hex};
 use tempfile::TempDir;
+
+use crate::common::no_imports_language_plugin_wasm;
 
 const GIT_ENV: [(&str, &str); 6] = [
     ("GIT_CONFIG_GLOBAL", "/dev/null"),
@@ -810,4 +813,264 @@ fn rerenders_check_and_diff_json_with_cognitive_complexity_and_dependencies_loss
         "\"cognitive_complexity\"",
         "deps-diff.json",
     );
+}
+
+fn install_no_imports_plugin(root: &Path) -> String {
+    let bytes = fs::read(no_imports_language_plugin_wasm()).expect("read no-imports wasm");
+    let target = root.join("plugins/no_imports_language_plugin.wasm");
+    fs::create_dir_all(target.parent().expect("plugin parent")).expect("mkdir plugins");
+    fs::write(&target, &bytes).expect("write no-imports wasm");
+    sha256_hex(&sha256(&bytes))
+}
+
+fn assert_import_metrics_absent_in_section(section: &serde_json::Value, label: &str) {
+    assert_eq!(
+        section.get("dependencies"),
+        None,
+        "{label} must omit dependencies"
+    );
+    let note = section
+        .get("import_metrics_note")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_else(|| panic!("{label} must include import_metrics_note: {section}"));
+    assert!(
+        !note.contains('\n'),
+        "{label} import_metrics_note must be one line: {note:?}"
+    );
+    assert!(
+        note.contains("has no imports"),
+        "{label} import_metrics_note must explain language has no imports: {note:?}"
+    );
+    let source_sets = section["source_sets"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{label} missing source_sets"));
+    assert!(!source_sets.is_empty(), "{label} source_sets empty");
+    for (source_set_name, source_set) in source_sets {
+        assert_eq!(
+            source_set.get("import_cycles"),
+            None,
+            "{label}.{source_set_name} must omit import_cycles"
+        );
+        assert_eq!(
+            source_set.get("orphan_files"),
+            None,
+            "{label}.{source_set_name} must omit orphan_files"
+        );
+        assert_eq!(
+            source_set.get("boundaries"),
+            None,
+            "{label}.{source_set_name} must omit boundaries"
+        );
+        assert!(source_set.get("erosion").is_some());
+        assert!(source_set.get("cognitive_complexity").is_some());
+        assert!(source_set.get("duplication").is_some());
+        assert!(source_set.get("verbosity").is_some());
+        if let Some(packages) = source_set
+            .get("packages")
+            .and_then(serde_json::Value::as_array)
+        {
+            for package in packages {
+                assert_eq!(
+                    package.get("import_cycles"),
+                    None,
+                    "{label}.{source_set_name} package {} must omit import_cycles",
+                    package["path"]
+                );
+            }
+        }
+    }
+}
+
+fn assert_toon_omits_import_metrics(toon_section: &str, label: &str) {
+    assert!(
+        toon_section.contains("import_metrics_note:") && toon_section.contains("has no imports"),
+        "{label} TOON must include one-line import_metrics_note:\n{toon_section}"
+    );
+    for forbidden in [
+        "import_cycles:",
+        "orphan_files:",
+        "boundaries:",
+        "dependencies:",
+        "unused_dependencies:",
+        "unlisted_dependencies:",
+        "dev_in_production_dependencies:",
+    ] {
+        assert!(
+            !toon_section.contains(forbidden),
+            "{label} TOON must omit {forbidden}:\n{toon_section}"
+        );
+    }
+}
+
+fn run_no_imports_check_with_parity(
+    files: &[(&str, &str)],
+    entry_points: &[&str],
+    zones: serde_json::Value,
+    rules: serde_json::Value,
+    budgets: Option<serde_json::Value>,
+) -> (serde_json::Value, String) {
+    let (dir, cache) = setup_workspace(files);
+    let hash = install_no_imports_plugin(dir.path());
+    let mut config = serde_json::json!({
+        "plugins": [{
+            "name": "no-imports-lang",
+            "path": "plugins/no_imports_language_plugin.wasm",
+            "sha256": hash,
+        }],
+        "entry_points": entry_points,
+        "boundaries": {
+            "strict_zones": true,
+            "zones": zones,
+            "rules": rules,
+        },
+    });
+    if let Some(budgets) = budgets {
+        config["budgets"] = budgets;
+    }
+    let config_text = serde_json::to_string_pretty(&config).expect("serialize config");
+    populate(dir.path(), &[("codeint.json", &config_text)]);
+
+    let json_run = invoke(
+        dir.path(),
+        cache.path(),
+        &["check", "--format", "json"],
+        None,
+    );
+    assert_eq!(
+        json_run.status.code(),
+        Some(0),
+        "check --format json failed: {}",
+        utf8(&json_run.stderr)
+    );
+    let toon_run = invoke(
+        dir.path(),
+        cache.path(),
+        &["check", "--format", "toon"],
+        None,
+    );
+    assert_eq!(
+        toon_run.status.code(),
+        Some(0),
+        "check --format toon failed: {}",
+        utf8(&toon_run.stderr)
+    );
+    let json_text = utf8(&json_run.stdout);
+    let toon_text = utf8(&toon_run.stdout);
+    for (format, expected) in [("json", json_text.as_str()), ("toon", toon_text.as_str())] {
+        let rerendered = invoke(
+            dir.path(),
+            cache.path(),
+            &["report", "-", "--format", format],
+            Some(&json_run.stdout),
+        );
+        assert_eq!(
+            rerendered.status.code(),
+            Some(0),
+            "report - --format {format} failed: {}",
+            utf8(&rerendered.stderr)
+        );
+        assert_eq!(utf8(&rerendered.stdout), expected);
+    }
+    let doc: serde_json::Value = serde_json::from_slice(&json_run.stdout).expect("parse json");
+    (doc, toon_text)
+}
+
+#[test]
+fn no_imports_language_omits_import_metrics_with_reason_in_json_and_toon() {
+    let (doc, toon) = run_no_imports_check_with_parity(
+        &[
+            (
+                "package.json",
+                r#"{"name":"root","private":true,"workspaces":["packages/*"]}"#,
+            ),
+            (
+                "packages/app/package.json",
+                r#"{"name":"app","main":"src/index.ts","dependencies":{"unused-pkg":"^1.0.0"}}"#,
+            ),
+            (
+                "packages/app/src/index.ts",
+                "export const ok = (): number => 1;\n",
+            ),
+            (
+                "packages/app/src/orphan.ts",
+                "export const unused = (): number => 2;\n",
+            ),
+            ("packages/app/queries/users.noimp", "fn select_users()\n"),
+            (
+                "packages/app/queries/users_test.noimp",
+                "fn test_select_users()\n",
+            ),
+        ],
+        &[
+            "packages/app/src/index.ts",
+            "packages/app/queries/users.noimp",
+        ],
+        serde_json::json!({
+            "app": { "patterns": ["packages/app/src/**"] },
+            "queries": { "patterns": ["packages/app/queries/**"] },
+        }),
+        serde_json::json!([{ "from": "app", "allow": ["app"] }]),
+        None,
+    );
+
+    let no_imports = &doc["languages"]["no-imports-lang"];
+    assert_import_metrics_absent_in_section(no_imports, "languages.no-imports-lang");
+    let no_imports_packages = no_imports["source_sets"]["production"]["packages"]
+        .as_array()
+        .expect("no-imports-lang production packages");
+    assert!(
+        !no_imports_packages.is_empty(),
+        "expected workspace package entry in no-imports-lang section"
+    );
+
+    let ts = &doc["languages"]["typescript-javascript"];
+    assert_eq!(ts.get("import_metrics_note"), None);
+    assert!(ts.get("dependencies").is_some());
+    assert!(ts["dependencies"].get("unused_dependencies").is_some());
+    assert!(ts["dependencies"].get("unlisted_dependencies").is_some());
+    assert!(
+        ts["dependencies"]
+            .get("dev_in_production_dependencies")
+            .is_some()
+    );
+    let ts_prod = &ts["source_sets"]["production"];
+    assert!(ts_prod.get("import_cycles").is_some());
+    assert!(ts_prod.get("orphan_files").is_some());
+    assert!(ts_prod.get("boundaries").is_some());
+    let ts_packages = ts_prod["packages"].as_array().expect("ts packages");
+    assert!(ts_packages[0].get("import_cycles").is_some());
+
+    let no_imports_start = toon
+        .find("\n  \"no-imports-lang\":\n")
+        .unwrap_or_else(|| panic!("no-imports-lang section in TOON:\n{toon}"));
+    let ts_start = toon
+        .find("\n  \"typescript-javascript\":\n")
+        .unwrap_or_else(|| panic!("typescript-javascript section in TOON:\n{toon}"));
+    assert!(no_imports_start < ts_start);
+    let no_imports_toon = &toon[no_imports_start..ts_start];
+    let ts_toon = &toon[ts_start..];
+    assert_toon_omits_import_metrics(no_imports_toon, "languages.no-imports-lang");
+    assert!(ts_toon.contains("import_cycles:"));
+    assert!(ts_toon.contains("orphan_files:"));
+    assert!(ts_toon.contains("boundaries:"));
+    assert!(ts_toon.contains("dependencies:"));
+    assert!(!ts_toon.contains("import_metrics_note:"));
+}
+
+#[test]
+fn no_imports_only_repo_omits_import_metrics_with_reason_in_json_and_toon() {
+    let (doc, toon) = run_no_imports_check_with_parity(
+        &[
+            ("queries/users.noimp", "fn select_users()\n"),
+            ("queries/users_test.noimp", "fn test_select_users()\n"),
+        ],
+        &["queries/users.noimp"],
+        serde_json::json!({ "queries": { "patterns": ["queries/**"] } }),
+        serde_json::json!([]),
+        Some(serde_json::json!({ "production": { "import_cycles": 0.0 } })),
+    );
+    assert_eq!(doc.get("languages"), None);
+    assert_eq!(doc.get("over_budget"), None);
+    assert_import_metrics_absent_in_section(&doc, "top-level no-imports-only repo");
+    assert_toon_omits_import_metrics(&toon, "top-level no-imports-only repo");
 }

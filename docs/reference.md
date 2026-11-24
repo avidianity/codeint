@@ -1436,13 +1436,15 @@ The top-level object has these fields:
 | ----- | ---- | ------- |
 | `files` | integer | Number of measured source files, in every Source set |
 | `source_lines` | integer | Source lines of the measured files; blank and comment-only lines do not count |
+| `import_metrics_note` | string, optional | One line explaining why import Metrics are absent when the measured language has no imports |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
-| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, and `source_sets` for that plugin's files |
+| `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
+| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note` and `dependencies` for that plugin's files |
 | `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
-A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and `import_cycles`.
+A Source set section has `files` and `source_lines` for that Source set, and one object per measured Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and (for languages with imports) `import_cycles`, `boundaries`, and `orphan_files`.
 Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
@@ -1461,6 +1463,10 @@ Each Metric object has these fields:
 `import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
 It has `count`, the list `imports`, and the optional `imports_left_out`.
 Each import has `importer`, the path of the importing file, `specifier`, the text of the import, and `reason`.
+
+For a language with no imports, TOON and JSON reports omit `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) from that language's section and its Workspace package entries.
+Those six Metrics are absent rather than `0`.
+The section includes `import_metrics_note` as a single line stating that the language has no imports.
 
 Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
@@ -1486,7 +1492,7 @@ The content behind the `id` of each kind:
 Every `path` is relative to the root of the Git repository and uses `/` as the separator.
 Line numbers start at 1.
 
-An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `declaration_only`, or `over_budget` list, and `findings_left_out` when no Finding is left out.
+An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `declaration_only`, or `over_budget` list, import Metrics for a language with no imports, and `findings_left_out` when no Finding is left out.
 
 #### Compatibility rule
 

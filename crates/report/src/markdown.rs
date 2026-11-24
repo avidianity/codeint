@@ -252,7 +252,10 @@ fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
         package.cognitive_complexity.ratio.0.to_string(),
         package.duplication.ratio.0.to_string(),
         package.verbosity.ratio.0.to_string(),
-        package.import_cycles.ratio.0.to_string(),
+        package.import_cycles.as_ref().map_or_else(
+            || "not measured".to_string(),
+            |cycles| cycles.ratio.0.to_string(),
+        ),
     ]
 }
 
@@ -309,7 +312,6 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         ),
     };
     let verbosity = &section.verbosity;
-    let import_cycles = &section.import_cycles;
     let mut rows = vec![
         row(
             "Erosion",
@@ -340,12 +342,14 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
                 CLONE_LINE.counted(verbosity.totals.clone_lines)
             ),
         ),
-        row(
+    ];
+    if let Some(import_cycles) = &section.import_cycles {
+        rows.push(row(
             "Import cycles",
             &import_cycles.header,
             import_cycles_behind_the_value(import_cycles),
-        ),
-    ];
+        ));
+    }
     if let Some(boundaries) = &section.boundaries {
         let total_findings = boundaries
             .findings
@@ -451,20 +455,22 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
         &FLAGGED_LINE,
         |listed| findings_table(&FLAGGED_LINE_COLUMNS, listed, flagged_line_row),
     );
-    push_findings(
-        &mut blocks,
-        "Import cycles",
-        &section.import_cycles.findings,
-        &IMPORT_CYCLE,
-        |listed| list(listed.iter().map(import_cycle_item)),
-    );
-    push_findings(
-        &mut blocks,
-        "Unresolved imports",
-        &section.import_cycles.unresolved_imports.imports,
-        &UNRESOLVED_IMPORT,
-        |listed| findings_table(&UNRESOLVED_IMPORT_COLUMNS, listed, unresolved_import_row),
-    );
+    if let Some(import_cycles) = &section.import_cycles {
+        push_findings(
+            &mut blocks,
+            "Import cycles",
+            &import_cycles.findings,
+            &IMPORT_CYCLE,
+            |listed| list(listed.iter().map(import_cycle_item)),
+        );
+        push_findings(
+            &mut blocks,
+            "Unresolved imports",
+            &import_cycles.unresolved_imports.imports,
+            &UNRESOLVED_IMPORT,
+            |listed| findings_table(&UNRESOLVED_IMPORT_COLUMNS, listed, unresolved_import_row),
+        );
+    }
     if let Some(boundaries) = &section.boundaries {
         push_findings(
             &mut blocks,

@@ -7,34 +7,48 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 static FOLDER_IMPORT_WASM: OnceLock<PathBuf> = OnceLock::new();
+static NO_IMPORTS_WASM: OnceLock<PathBuf> = OnceLock::new();
+
+fn build_sandbox_probe_wasm(package: &str, file_name: &str) -> PathBuf {
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest_path =
+        workspace_root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
+    let target_dir = workspace_root.join("target/wasm-fixtures");
+    let status = Command::new("cargo")
+        .args([
+            "build",
+            "-p",
+            package,
+            "--locked",
+            "--offline",
+            "--target",
+            "wasm32-wasip2",
+        ])
+        .arg("--manifest-path")
+        .arg(manifest_path)
+        .arg("--target-dir")
+        .arg(&target_dir)
+        .status()
+        .expect("build sandbox probe wasm");
+    assert!(status.success(), "{package} build exited with {status}");
+    target_dir.join("wasm32-wasip2/debug").join(file_name)
+}
 
 pub(crate) fn folder_import_plugin_wasm() -> &'static Path {
     FOLDER_IMPORT_WASM.get_or_init(|| {
-        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let manifest_path =
-            workspace_root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
-        let target_dir = workspace_root.join("target/wasm-fixtures");
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "-p",
-                "folder-import-language-plugin",
-                "--locked",
-                "--offline",
-                "--target",
-                "wasm32-wasip2",
-            ])
-            .arg("--manifest-path")
-            .arg(manifest_path)
-            .arg("--target-dir")
-            .arg(&target_dir)
-            .status()
-            .expect("build folder-import-language-plugin");
-        assert!(
-            status.success(),
-            "folder-import-language-plugin build exited with {status}"
-        );
-        target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm")
+        build_sandbox_probe_wasm(
+            "folder-import-language-plugin",
+            "folder_import_language_plugin.wasm",
+        )
+    })
+}
+
+pub(crate) fn no_imports_language_plugin_wasm() -> &'static Path {
+    NO_IMPORTS_WASM.get_or_init(|| {
+        build_sandbox_probe_wasm(
+            "no-imports-language-plugin",
+            "no_imports_language_plugin.wasm",
+        )
     })
 }
 

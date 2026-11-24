@@ -537,7 +537,9 @@ impl<'findings> ListedFindings<'findings> {
             clone_families: &section.duplication.clone_families.listed,
             clustered_clone_group_ids: &section.duplication.unlisted_clone_family_group_ids,
             flagged_lines: &section.verbosity.findings.listed,
-            import_cycles: &section.import_cycles.findings.listed,
+            import_cycles: section.import_cycles.as_ref().map_or(&[], |import_cycles| {
+                import_cycles.findings.listed.as_slice()
+            }),
             boundaries: section
                 .boundaries
                 .as_ref()
