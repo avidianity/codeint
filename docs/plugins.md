@@ -362,10 +362,13 @@ The suite verifies:
 - Production and Test Source set classification.
 - LF and CRLF equivalence for `source-lines` and `functions`.
 - Ordered `functions` and `tokens`, valid 1-based line spans, absent `coverage` (`none`) on every function, and non-empty Flagged line rules.
-- `manifest-paths` returning only paths from `repository-paths`.
-- `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
-- `resolve-imports` returning one `Resolved` (non-empty list of paths from `repository-paths`), `External`, `Builtin`, or `Unresolved` result per request in request order.
-- `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
+- When `has-imports` returns `true`:
+  - Non-empty `runtime-imports` on the production fixture.
+  - `manifest-paths` returning only paths from `repository-paths`.
+  - `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
+  - `resolve-imports` returning one `Resolved` (non-empty list of paths from `repository-paths`), `External`, `Builtin`, or `Unresolved` result per request in request order.
+  - `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
+- When `has-imports` returns `false`, empty `runtime-imports` and no calls to `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`.
 - `reference-ranges` returning valid ranges.
 - `has-hazard-rules`, `hazard-rules`, and `hazard-lines` staying consistent (empty `hazard-rules` and empty `hazard-lines` when `false`, non-empty list of non-empty rule names when `true`, every `hazard-line.line` within `1..=line_count`, and every `hazard-line.rule` listed in `hazard-rules`).
 - Safe concurrent `lower` calls across threads.
