@@ -23,7 +23,8 @@ The tracker does not hold:
 
 ## Mandatory: labels
 
-Bootstrap creates these labels:
+The Project uses these labels.
+Bootstrap creates all of them except `spec`, which the Owner added later.
 
 | Label | Meaning |
 | ----- | ------- |
@@ -36,6 +37,7 @@ Bootstrap creates these labels:
 | `wontfix` | An issue that nobody will act on |
 | `bug` | A category for `triage`: something is broken |
 | `enhancement` | A category for `triage`: a new feature or an improvement |
+| `spec` | A Spec |
 | `wayfinder:map` | A Map |
 | `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling`, `wayfinder:task` | The type of a decision ticket on a Map |
 | `budget` | A Feedback loop took 80% of its Feedback budget or more |
@@ -91,9 +93,11 @@ When a skill says "fetch the ticket", read the issue with its comments.
 
 ## Mandatory: Specs, Tickets, and Maps
 
-- A Spec is one issue.
-  `to-spec` writes it and applies `ready-for-agent`.
+- A Spec is one issue labelled `spec`.
+  `to-spec` writes it and applies `spec` and `ready-for-agent`.
+  The label stays on the Spec after it closes.
 - Each Ticket is one issue and a sub-issue of its Spec.
+  A Ticket never has the `spec` label.
   Its body states what it delivers, its acceptance criteria, and its Expected Tier.
 - A Blocking edge uses the tracker's native "blocked by" relationship.
   Write a `Blocked by` line in the body only when the tracker has no such relationship.
