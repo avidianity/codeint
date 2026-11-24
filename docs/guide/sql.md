@@ -27,9 +27,10 @@ After checking any `source_sets` globs in `codeint.jsonc` or `codeint.json` (whi
 
 - **Generated**:
   - A database dump header in the first 20 lines: `-- PostgreSQL database dump`, `-- Dumped by pg_dump`, `-- MySQL dump` (followed by a space), `-- MariaDB database dump`, or `-- MariaDB dump` (followed by a space).
+  - A `-- Code generated` header with `DO NOT EDIT.` (case-insensitive) in the first 20 lines.
   - A migration tool marker anywhere in the file: `--> statement-breakpoint`, `-- atlas:txmode`, or `-- atlas:nolint`.
   - Any file inside a `prisma/migrations/` or `drizzle/` folder.
-- **Test**: any file under a `test`, `tests`, or `fixtures` folder at any depth.
+- **Test**: any file under a `test`, `tests`, `fixtures`, or `testdata` folder at any depth, or any file named `*.test.sql` or `test_*.sql`.
 - **Production**: every other `.sql` file, including hand-written migrations.
 
 Hand-written migrations are measured as Production so complex or destructive migrations receive every Metric and every Hazard line rule.
@@ -102,8 +103,8 @@ In a monorepo that mixes databases, assign each folder its own Dialect:
 
 codeint builds an in-memory schema automatically from the repository's own SQL files, with no live database connection and no schema-path configuration.
 
-- **Included statements**: `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE` (including added, modified, renamed, and dropped columns, constraints, and table renames), `DROP TABLE`, and `DROP INDEX`.
-- **Included Source sets**: Production, Test, and Generated SQL (including tool-written migrations), never Vendored SQL.
+- **Included statements**: `CREATE TABLE` (excluding `CREATE TEMP` / `CREATE TEMPORARY TABLE`), `CREATE INDEX`, `ALTER TABLE` (including added, modified, renamed, and dropped columns, constraints, and table renames), `DROP TABLE`, and `DROP INDEX`.
+- **Included Source sets**: Production, Test, and Generated SQL (including tool-written migrations), never Vendored SQL; rollback down-migration files (`down.sql` or `*.down.sql`) are skipped from schema construction while still checked as SQL files.
 - **Ordering**: files are applied in repository-relative path order, and statements in file order, so sequential migrations produce the final table, column, primary key, and index definitions.
 - **Scopes**: codeint builds one schema per Workspace package and Dialect, plus one root schema per Dialect for `.sql` files outside every Workspace package.
   Generic SQL is its own Dialect scope.

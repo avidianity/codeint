@@ -8,6 +8,15 @@ const SYSTEM_COLUMNS: &[&str] = &[
     "_rowid_", "cmax", "cmin", "ctid", "oid", "rowid", "tableoid", "xmax", "xmin",
 ];
 
+pub(crate) type BindingId = (u32, usize);
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedColumn<'a> {
+    pub(crate) binding_id: BindingId,
+    pub(crate) table: &'a TableSchema,
+    pub(crate) column: String,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct TableBinding<'a> {
     pub(crate) schema: Option<String>,
@@ -33,6 +42,7 @@ impl<'a> TableBinding<'a> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct QueryScope<'a> {
+    pub(crate) depth: u32,
     pub(crate) bindings: Vec<TableBinding<'a>>,
     pub(crate) cte_names: BTreeSet<String>,
     pub(crate) parent: Option<&'a QueryScope<'a>>,
@@ -41,6 +51,7 @@ pub(crate) struct QueryScope<'a> {
 impl<'a> QueryScope<'a> {
     pub(crate) fn root(cte_names: BTreeSet<String>) -> QueryScope<'a> {
         QueryScope {
+            depth: 0,
             bindings: Vec::new(),
             cte_names,
             parent: None,
@@ -49,6 +60,7 @@ impl<'a> QueryScope<'a> {
 
     pub(crate) fn child(&'a self) -> QueryScope<'a> {
         QueryScope {
+            depth: self.depth + 1,
             bindings: Vec::new(),
             cte_names: self.cte_names.clone(),
             parent: Some(self),
@@ -136,7 +148,7 @@ impl<'a> QueryScope<'a> {
         &self,
         expr: &Expr,
         excluded_names: &BTreeSet<String>,
-    ) -> Option<(&'a TableSchema, String)> {
+    ) -> Option<ResolvedColumn<'a>> {
         match peel_nested(expr) {
             Expr::Identifier(ident) => self.resolve_unqualified(ident, excluded_names),
             Expr::CompoundIdentifier(idents) => self.resolve_qualified(idents),
@@ -148,30 +160,53 @@ impl<'a> QueryScope<'a> {
         &self,
         ident: &Ident,
         excluded_names: &BTreeSet<String>,
-    ) -> Option<(&'a TableSchema, String)> {
+    ) -> Option<ResolvedColumn<'a>> {
         let col = normalize_ident(ident);
         if excluded_names.contains(&col) || is_system_column(&col) {
             return None;
         }
-        if let Some(found) = self.resolve_known_column_in_chain(&col) {
-            return Some((found, col));
+        if let Some((binding_id, table)) = self.resolve_known_column_in_chain(&col) {
+            return Some(ResolvedColumn {
+                binding_id,
+                table,
+                column: col,
+            });
+        }
+        if self.matches_binding_qualifier(&col) {
+            return None;
         }
         self.resolve_single_unambiguous_table()
-            .map(|table| (table, col))
+            .map(|(binding_id, table)| ResolvedColumn {
+                binding_id,
+                table,
+                column: col,
+            })
     }
 
-    fn resolve_known_column_in_chain(&self, col: &str) -> Option<&'a TableSchema> {
+    fn matches_binding_qualifier(&self, name: &str) -> bool {
+        let mut cursor = Some(self);
+        while let Some(scope) = cursor {
+            if scope.bindings.iter().any(|b| b.matches_qualifier(name)) {
+                return true;
+            }
+            cursor = scope.parent;
+        }
+        false
+    }
+
+    fn resolve_known_column_in_chain(&self, col: &str) -> Option<(BindingId, &'a TableSchema)> {
         let mut cursor = Some(self);
         while let Some(scope) = cursor {
             if !scope.bindings.is_empty() {
                 if scope.has_unknown_binding() {
                     return None;
                 }
-                let matches: Vec<&'a TableSchema> = scope
+                let matches: Vec<(BindingId, &'a TableSchema)> = scope
                     .bindings
                     .iter()
-                    .filter_map(|b| b.table)
-                    .filter(|t| t.columns.contains_key(col))
+                    .enumerate()
+                    .filter_map(|(idx, b)| b.table.map(|t| ((scope.depth, idx), t)))
+                    .filter(|(_, t)| t.columns.contains_key(col))
                     .collect();
                 if matches.len() == 1 {
                     return Some(matches[0]);
@@ -185,27 +220,27 @@ impl<'a> QueryScope<'a> {
         None
     }
 
-    fn resolve_single_unambiguous_table(&self) -> Option<&'a TableSchema> {
-        let mut known_table: Option<&'a TableSchema> = None;
+    fn resolve_single_unambiguous_table(&self) -> Option<(BindingId, &'a TableSchema)> {
+        let mut known_table: Option<(BindingId, &'a TableSchema)> = None;
         let mut total_tables = 0usize;
         let mut cursor = Some(self);
         while let Some(scope) = cursor {
             if scope.has_unknown_binding() {
                 return None;
             }
-            for binding in &scope.bindings {
+            for (idx, binding) in scope.bindings.iter().enumerate() {
                 total_tables += 1;
                 if total_tables > 1 {
                     return None;
                 }
-                known_table = binding.table;
+                known_table = binding.table.map(|t| ((scope.depth, idx), t));
             }
             cursor = scope.parent;
         }
         known_table
     }
 
-    pub(crate) fn resolve_qualified(&self, idents: &[Ident]) -> Option<(&'a TableSchema, String)> {
+    pub(crate) fn resolve_qualified(&self, idents: &[Ident]) -> Option<ResolvedColumn<'a>> {
         match idents {
             [qual, col] => {
                 let q = normalize_ident(qual);
@@ -213,7 +248,12 @@ impl<'a> QueryScope<'a> {
                 if is_system_column(&c) {
                     return None;
                 }
-                self.lookup_by_qualifier(&q).map(|table| (table, c))
+                self.lookup_by_qualifier(&q)
+                    .map(|(binding_id, table)| ResolvedColumn {
+                        binding_id,
+                        table,
+                        column: c,
+                    })
             }
             [schema, table, col] => {
                 let s = normalize_ident(schema);
@@ -222,41 +262,44 @@ impl<'a> QueryScope<'a> {
                 if is_system_column(&c) {
                     return None;
                 }
-                self.lookup_by_schema_table(&s, &t).map(|ts| (ts, c))
+                self.lookup_by_schema_table(&s, &t)
+                    .map(|(binding_id, ts)| ResolvedColumn {
+                        binding_id,
+                        table: ts,
+                        column: c,
+                    })
             }
             _ => None,
         }
     }
 
-    fn lookup_by_qualifier(&self, qualifier: &str) -> Option<&'a TableSchema> {
-        let mut cursor = Some(self);
-        while let Some(scope) = cursor {
-            let matches: Vec<&TableBinding<'a>> = scope
-                .bindings
-                .iter()
-                .filter(|b| b.matches_qualifier(qualifier))
-                .collect();
-            if matches.len() == 1 {
-                return matches[0].table;
-            }
-            if matches.len() > 1 {
-                return None;
-            }
-            cursor = scope.parent;
-        }
-        None
+    fn lookup_by_qualifier(&self, qualifier: &str) -> Option<(BindingId, &'a TableSchema)> {
+        self.lookup_binding(|b| b.matches_qualifier(qualifier))
     }
 
-    fn lookup_by_schema_table(&self, schema: &str, table: &str) -> Option<&'a TableSchema> {
+    fn lookup_by_schema_table(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Option<(BindingId, &'a TableSchema)> {
+        self.lookup_binding(|b| b.matches_schema_table(schema, table))
+    }
+
+    fn lookup_binding(
+        &self,
+        pred: impl Fn(&TableBinding<'a>) -> bool,
+    ) -> Option<(BindingId, &'a TableSchema)> {
         let mut cursor = Some(self);
         while let Some(scope) = cursor {
-            let matches: Vec<&TableBinding<'a>> = scope
+            let matches: Vec<(usize, &TableBinding<'a>)> = scope
                 .bindings
                 .iter()
-                .filter(|b| b.matches_schema_table(schema, table))
+                .enumerate()
+                .filter(|(_, b)| pred(b))
                 .collect();
             if matches.len() == 1 {
-                return matches[0].table;
+                let (idx, binding) = matches[0];
+                return binding.table.map(|t| ((scope.depth, idx), t));
             }
             if matches.len() > 1 {
                 return None;

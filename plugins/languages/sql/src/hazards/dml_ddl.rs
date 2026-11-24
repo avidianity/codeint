@@ -1,4 +1,7 @@
-use sqlparser::ast::{Delete, Expr, ObjectName, Statement, Update};
+use sqlparser::ast::{
+    Delete, Expr, FromTable, JoinConstraint, JoinOperator, ObjectName, Statement, TableFactor,
+    TableWithJoins, Update,
+};
 use sqlparser::keywords::Keyword;
 
 use super::HazardCtx;
@@ -36,7 +39,7 @@ pub(super) fn check_statement(ctx: &mut HazardCtx<'_>, stmt: &Statement) {
 }
 
 fn check_update(ctx: &mut HazardCtx<'_>, update: &Update) {
-    if update.selection.is_some() {
+    if update.selection.is_some() || twj_has_filtering_inner_join(&update.table) {
         return;
     }
     let tok_line = update.update_token.0.span.start.line as u32;
@@ -49,7 +52,7 @@ fn check_update(ctx: &mut HazardCtx<'_>, update: &Update) {
 }
 
 fn check_delete(ctx: &mut HazardCtx<'_>, delete: &Delete) {
-    if delete.selection.is_some() {
+    if delete.selection.is_some() || delete_has_filtering_inner_join(delete) {
         return;
     }
     let tok_line = delete.delete_token.0.span.start.line as u32;
@@ -59,6 +62,52 @@ fn check_delete(ctx: &mut HazardCtx<'_>, delete: &Delete) {
         first_keyword_line(ctx.tokens, Keyword::DELETE)
     };
     ctx.emit(line, "delete-without-filter");
+}
+
+fn delete_has_filtering_inner_join(delete: &Delete) -> bool {
+    let from_tables = match &delete.from {
+        FromTable::WithFromKeyword(tables) | FromTable::WithoutKeyword(tables) => tables,
+    };
+    if from_tables.iter().any(twj_has_filtering_inner_join) {
+        return true;
+    }
+    delete
+        .using
+        .as_deref()
+        .is_some_and(|tables| tables.iter().any(twj_has_filtering_inner_join))
+}
+
+fn twj_has_filtering_inner_join(twj: &TableWithJoins) -> bool {
+    if let TableFactor::NestedJoin {
+        table_with_joins, ..
+    } = &twj.relation
+        && twj_has_filtering_inner_join(table_with_joins)
+    {
+        return true;
+    }
+    twj.joins.iter().any(|join| {
+        is_filtering_inner_join(&join.join_operator)
+            || matches!(
+                &join.relation,
+                TableFactor::NestedJoin { table_with_joins, .. }
+                    if twj_has_filtering_inner_join(table_with_joins)
+            )
+    })
+}
+
+fn is_filtering_inner_join(op: &JoinOperator) -> bool {
+    matches!(
+        op,
+        JoinOperator::Inner(constraint)
+            | JoinOperator::Join(constraint)
+            | JoinOperator::StraightJoin(constraint)
+            if matches!(
+                constraint,
+                JoinConstraint::On(_)
+                    | JoinConstraint::Using(_)
+                    | JoinConstraint::UsingAlias(_, _)
+            )
+    )
 }
 
 fn is_drop_statement(stmt: &Statement) -> bool {

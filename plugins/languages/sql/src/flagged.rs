@@ -521,10 +521,9 @@ fn normalize_ident(ident: &Ident) -> String {
     }
 }
 
-fn is_constant_literal(expr: &Expr) -> bool {
+pub(crate) fn is_bare_number_literal(expr: &Expr) -> bool {
     match peel_nested(expr) {
-        Expr::Value(val) => !matches!(val.value, Value::Null | Value::Placeholder(_)),
-        Expr::TypedString(_) => true,
+        Expr::Value(val) => matches!(val.value, Value::Number(_, _)),
         Expr::UnaryOp {
             op: UnaryOperator::Plus | UnaryOperator::Minus,
             expr: inner,
@@ -536,7 +535,18 @@ fn is_constant_literal(expr: &Expr) -> bool {
     }
 }
 
-fn expr_contains_aggregate(expr: &Expr) -> bool {
+fn is_constant_literal(expr: &Expr) -> bool {
+    if is_bare_number_literal(expr) {
+        return true;
+    }
+    match peel_nested(expr) {
+        Expr::Value(val) => !matches!(val.value, Value::Null | Value::Placeholder(_)),
+        Expr::TypedString(_) => true,
+        _ => false,
+    }
+}
+
+pub(crate) fn expr_contains_aggregate(expr: &Expr) -> bool {
     if let Some(inner) = unwrap_single_child_expr(expr) {
         return expr_contains_aggregate(inner);
     }
@@ -651,7 +661,7 @@ fn in_target_contains_aggregate(target: &InTarget) -> bool {
     }
 }
 
-fn is_aggregate_call(func: &Function) -> bool {
+pub(crate) fn is_aggregate_call(func: &Function) -> bool {
     if func.over.is_some() {
         return false;
     }

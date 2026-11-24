@@ -18,16 +18,17 @@ const MIGRATION_MARKER_PREFIXES: &[&str] = &[
     "-- atlas:nolint",
 ];
 
-const TEST_FOLDER_NAMES: &[&str] = &["test", "tests", "fixtures"];
+const TEST_FOLDER_NAMES: &[&str] = &["test", "tests", "fixtures", "testdata"];
 
 pub(crate) fn classify(path: &RepoPath, source: &str) -> SourceSet {
     if has_dump_header(source)
+        || has_generated_header(source)
         || has_migration_marker(source)
         || is_generated_migration_folder(path)
     {
         return SourceSet::Generated;
     }
-    if is_test_folder(path) {
+    if is_test_path(path) {
         return SourceSet::Test;
     }
     SourceSet::Production
@@ -41,6 +42,29 @@ fn has_dump_header(source: &str) -> bool {
             .iter()
             .any(|prefix| trimmed.starts_with(prefix))
     })
+}
+
+fn has_generated_header(source: &str) -> bool {
+    let text = source.strip_prefix('\u{feff}').unwrap_or(source);
+    let mut saw_code_generated = false;
+    let mut saw_do_not_edit = false;
+    for line in text.lines().take(DUMP_HEADER_LINES) {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("--") {
+            continue;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.contains("code generated") {
+            saw_code_generated = true;
+        }
+        if lower.contains("do not edit") {
+            saw_do_not_edit = true;
+        }
+        if saw_code_generated && saw_do_not_edit {
+            return true;
+        }
+    }
+    false
 }
 
 fn has_migration_marker(source: &str) -> bool {
@@ -65,13 +89,24 @@ fn is_generated_migration_folder(path: &RepoPath) -> bool {
     has_drizzle || has_prisma_migrations
 }
 
-fn is_test_folder(path: &RepoPath) -> bool {
-    let Some((parent, _)) = path.as_str().rsplit_once('/') else {
-        return false;
+fn is_test_path(path: &RepoPath) -> bool {
+    let raw = path.as_str();
+    let (parent, file_name) = match raw.rsplit_once('/') {
+        Some((dir, name)) => (Some(dir), name),
+        None => (None, raw),
     };
-    parent
-        .split('/')
-        .any(|segment| TEST_FOLDER_NAMES.contains(&segment))
+    if is_test_file_name(file_name) {
+        return true;
+    }
+    parent.is_some_and(|dir| {
+        dir.split('/')
+            .any(|segment| TEST_FOLDER_NAMES.contains(&segment))
+    })
+}
+
+fn is_test_file_name(file_name: &str) -> bool {
+    file_name.ends_with(".test.sql")
+        || (file_name.starts_with("test_") && file_name.ends_with(".sql"))
 }
 
 pub(crate) fn has_template_markers(source: &str, dialect: SqlDialect) -> bool {

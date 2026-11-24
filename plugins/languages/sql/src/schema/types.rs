@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sqlparser::ast::{Ident, ObjectName};
 
@@ -44,6 +44,39 @@ impl TableSchema {
                 .iter()
                 .any(|idx| idx.columns.first().map(String::as_str) == Some(lower.as_str()))
     }
+
+    pub(crate) fn is_covered_by_prefix(
+        &self,
+        column: &str,
+        prefix_cols: &BTreeSet<String>,
+    ) -> bool {
+        let lower = column.to_ascii_lowercase();
+        index_covers_with_prefix(&self.primary_key, &lower, prefix_cols)
+            || self
+                .indexes
+                .iter()
+                .any(|idx| index_covers_with_prefix(&idx.columns, &lower, prefix_cols))
+    }
+
+    pub(crate) fn has_leading_indexed_in(&self, cols: &BTreeSet<String>) -> bool {
+        self.primary_key.first().is_some_and(|pk| cols.contains(pk))
+            || self
+                .indexes
+                .iter()
+                .any(|idx| idx.columns.first().is_some_and(|c| cols.contains(c)))
+    }
+}
+
+fn index_covers_with_prefix(cols: &[String], target: &str, prefix_cols: &BTreeSet<String>) -> bool {
+    for col in cols {
+        if col == target {
+            return true;
+        }
+        if !prefix_cols.contains(col) {
+            return false;
+        }
+    }
+    false
 }
 
 pub(crate) type TableKey = (Option<String>, String);

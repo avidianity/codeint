@@ -90,12 +90,19 @@ pub(super) fn value_as_str(value: &Value) -> Option<&str> {
     }
 }
 
-pub(super) fn is_string_literal_value(value: &Value) -> bool {
-    value_as_str(value).is_some()
+pub(super) fn is_non_empty_string_literal_value(value: &Value) -> bool {
+    value_as_str(value).is_some_and(|s| !s.is_empty())
 }
 
-pub(super) fn is_string_literal_expr(expr: &Expr) -> bool {
-    matches!(peel_nested(expr), Expr::Value(v) if is_string_literal_value(&v.value))
+pub(super) fn is_non_empty_string_literal_expr(expr: &Expr) -> bool {
+    matches!(peel_nested(expr), Expr::Value(v) if is_non_empty_string_literal_value(&v.value))
+}
+
+pub(super) fn is_boolean_true_literal(expr: &Expr) -> bool {
+    matches!(
+        peel_nested(expr),
+        Expr::Value(val) if val.value == Value::Boolean(true)
+    )
 }
 
 pub(super) fn extract_uint_literal(expr: &Expr) -> Option<u128> {

@@ -10,8 +10,8 @@ use sqlparser::keywords::Keyword;
 
 use super::HazardCtx;
 use super::expr_util::{
-    is_string_literal_expr, is_string_literal_value, last_ident_lower, peel_nested,
-    select_item_expr,
+    is_non_empty_string_literal_expr, is_non_empty_string_literal_value, last_ident_lower,
+    peel_nested, select_item_expr,
 };
 use super::locate::{first_keyword_line, span_line};
 
@@ -68,7 +68,7 @@ fn check_alter_role(ctx: &mut HazardCtx<'_>, operation: &AlterRoleOperation) {
 
 fn check_password(ctx: &mut HazardCtx<'_>, password: &Password) {
     if let Password::Password(expr) = password
-        && is_string_literal_expr(expr)
+        && is_non_empty_string_literal_expr(expr)
     {
         let line = password_line(ctx, expr);
         ctx.emit(line, "plain-text-secret");
@@ -90,7 +90,7 @@ fn check_create_user(ctx: &mut HazardCtx<'_>, user: &CreateUser) {
 
 fn check_alter_user(ctx: &mut HazardCtx<'_>, user: &AlterUser) {
     if let Some(pw) = &user.password
-        && pw.password.is_some()
+        && pw.password.as_deref().is_some_and(|s| !s.is_empty())
     {
         let line = first_keyword_line(ctx.tokens, Keyword::PASSWORD);
         ctx.emit(line, "plain-text-secret");
@@ -112,12 +112,12 @@ fn check_kv_option(ctx: &mut HazardCtx<'_>, opt: &KeyValueOption) {
         return;
     }
     match &opt.option_value {
-        KeyValueOptionKind::Single(val) if is_string_literal_value(&val.value) => {
+        KeyValueOptionKind::Single(val) if is_non_empty_string_literal_value(&val.value) => {
             ctx.emit(span_line(val.span), "plain-text-secret");
         }
         KeyValueOptionKind::Multi(vals) => {
             for val in vals {
-                if is_string_literal_value(&val.value) {
+                if is_non_empty_string_literal_value(&val.value) {
                     ctx.emit(span_line(val.span), "plain-text-secret");
                 }
             }
@@ -129,25 +129,34 @@ fn check_kv_option(ctx: &mut HazardCtx<'_>, opt: &KeyValueOption) {
 
 fn check_create_secret(ctx: &mut HazardCtx<'_>, options: &[SecretOption]) {
     for opt in options {
-        if opt.value.quote_style == Some('\'') && is_sensitive_name(&opt.key.value) {
-            let line = span_line(opt.value.span);
-            let resolved = if line > 0 {
-                line
-            } else {
-                first_keyword_line(ctx.tokens, Keyword::SECRET)
-            };
-            ctx.emit(resolved, "plain-text-secret");
-        }
+        check_quoted_option(ctx, &opt.key.value, &opt.value, Some(Keyword::SECRET));
     }
 }
 
 fn check_server_options(ctx: &mut HazardCtx<'_>, options: &[CreateServerOption]) {
     for opt in options {
-        if opt.value.quote_style == Some('\'') && is_sensitive_name(&opt.key.value) {
-            let line = span_line(opt.value.span);
-            ctx.emit(line, "plain-text-secret");
-        }
+        check_quoted_option(ctx, &opt.key.value, &opt.value, None);
     }
+}
+
+fn check_quoted_option(
+    ctx: &mut HazardCtx<'_>,
+    key: &str,
+    value: &sqlparser::ast::Ident,
+    fallback_kw: Option<Keyword>,
+) {
+    if value.quote_style != Some('\'') || value.value.is_empty() || !is_sensitive_name(key) {
+        return;
+    }
+    let line = span_line(value.span);
+    let resolved = if line > 0 {
+        line
+    } else if let Some(kw) = fallback_kw {
+        first_keyword_line(ctx.tokens, kw)
+    } else {
+        0
+    };
+    ctx.emit(resolved, "plain-text-secret");
 }
 
 fn check_insert(ctx: &mut HazardCtx<'_>, insert: &Insert) {
@@ -213,7 +222,7 @@ fn check_assignments(ctx: &mut HazardCtx<'_>, assignments: &[Assignment]) {
 }
 
 fn check_column_value(ctx: &mut HazardCtx<'_>, col: &ObjectName, value: &Expr) {
-    if !is_sensitive_column(col) || !is_string_literal_expr(value) {
+    if !is_sensitive_column(col) || !is_non_empty_string_literal_expr(value) {
         return;
     }
     let val_line = span_line(value.span());

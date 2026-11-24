@@ -959,7 +959,7 @@ The Language plugin and the core rules settle the Source set of each file.
 - `python` puts a file in `test` when any folder in its path is named `test` or `tests`, when its name starts with `test_`, ends with `_test.py`, or is `conftest.py`, and puts files ending in `_pb2.py` or `_pb2_grpc.py` into `generated`.
 - `go` puts a file in `test` when its name ends in `_test.go` or when any folder in its path is named `testdata`, puts a file in `generated` when a line comment before any code matches `// Code generated ... DO NOT EDIT.`, and puts files under `vendor/` in `vendored`.
   `go` evaluates no build conditions, so platform-specific files are measured like any other file.
-- `sql` puts a file in `generated` when its first 20 lines contain a database dump header (`-- PostgreSQL database dump`, `-- Dumped by pg_dump`, `-- MySQL dump` followed by a space, `-- MariaDB database dump`, or `-- MariaDB dump` followed by a space), when any line starts with a migration tool marker (`--> statement-breakpoint`, `-- atlas:txmode`, or `-- atlas:nolint`), or when its path lies under `prisma/migrations/` or `drizzle/`; puts a file in `test` when any folder in its path is named `test`, `tests`, or `fixtures`; and puts every other `.sql` file (including hand-written migrations) in `production`.
+- `sql` puts a file in `generated` when its first 20 lines contain a database dump header (`-- PostgreSQL database dump`, `-- Dumped by pg_dump`, `-- MySQL dump` followed by a space, `-- MariaDB database dump`, or `-- MariaDB dump` followed by a space) or `-- Code generated` with `DO NOT EDIT.` (case-insensitive), when any line starts with a migration tool marker (`--> statement-breakpoint`, `-- atlas:txmode`, or `-- atlas:nolint`), or when its path lies under `prisma/migrations/` or `drizzle/`; puts a file in `test` when any folder in its path is named `test`, `tests`, `fixtures`, or `testdata`, or when its file name ends with `.test.sql` or starts with `test_` (and ends with `.sql`); and puts every other `.sql` file (including hand-written migrations) in `production`.
 - Core rules put files under `vendor/` or `third_party/` into `vendored`, and files with generated-file markers (such as `@generated` or `GENERATED CODE`) into `generated`.
 
 Globs under `source_sets` win over every rule.
@@ -1400,7 +1400,7 @@ See [docs/guide/sql.md](./guide/sql.md) for a walkthrough and monorepo examples.
   PostgreSQL `psql` backslash commands and DuckDB CLI dot-commands count as source lines and are not parsed as statements.
 - **Templated SQL and rejected statements**: files containing `{{`, `{%`, `%}`, `<%`, or `%>` outside SQL strings and comments are skipped under `skipped` with reason `templated SQL`.
   A single statement that the parser rejects still counts in every token-layer Metric, receives no Flagged line or Hazard line rules, and is listed under `rejected_statements` with `path`, `line`, and `dialect`.
-- **SQL Schema (`sql_schemas`)**: built automatically in repository-relative path order from `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE`, `DROP TABLE`, and `DROP INDEX` across Production, Test, and Generated SQL (never Vendored), scoped per Workspace package and Dialect (plus root per Dialect; generic SQL is its own Dialect).
+- **SQL Schema (`sql_schemas`)**: built automatically in repository-relative path order from `CREATE TABLE` (excluding `CREATE TEMP` / `CREATE TEMPORARY TABLE`), `CREATE INDEX`, `ALTER TABLE`, `DROP TABLE`, and `DROP INDEX` across Production, Test, and Generated SQL (never Vendored, and skipping rollback down-migration files named `down.sql` or ending in `.down.sql`), scoped per Workspace package and Dialect (plus root per Dialect; generic SQL is its own Dialect).
   Reports list each scope's table count under `sql_schemas`.
   The 5 schema-backed Hazard line rules stay silent when a table is unknown or an unqualified column is ambiguous.
 - **Flagged line rules (Verbosity)**:
@@ -1414,33 +1414,33 @@ All 32 built-in SQL Hazard line rules (27 statement rules and 5 schema-backed ru
 | `select-star` | statement | `SELECT *` or `SELECT t.*` (outside direct `EXISTS` subqueries) |
 | `leading-wildcard-like` | statement | `LIKE` or `ILIKE` string literal starting with `%` or `_` |
 | `large-offset` | statement | `OFFSET` constant above `1,000` |
-| `tables-without-join-condition` | statement | `CROSS JOIN`, a join without a constraint, or multiple `FROM` tables with no linking condition |
+| `tables-without-join-condition` | statement | Non-lateral `CROSS JOIN`, a join without a constraint, or multiple non-lateral `FROM` tables with no linking condition |
 | `distinct-with-order-by` | statement | `SELECT DISTINCT` paired with `ORDER BY` |
 | `subquery-in-select-list` | statement | A subquery inside a `SELECT` projection expression |
 | `function-on-filter-column` | statement | A function call (or `TRIM`/`SUBSTRING`/`EXTRACT`/`CEIL`/`FLOOR`/`POSITION`/`OVERLAY`) applied to a column in a filter (excluding aggregates in `HAVING`) |
 | `not-in-subquery` | statement | `NOT IN` with a subquery |
 | `union-without-all` | statement | `UNION` without `ALL` |
 | `select-without-filter-or-limit` | statement | `SELECT` from a table with no `WHERE`/`PREWHERE` and no `LIMIT`/`FETCH`/`TOP` (outside `CREATE VIEW`) |
-| `count-without-filter` | statement | `COUNT(*)` from a table with no `WHERE`/`PREWHERE` and no `FILTER` clause |
+| `count-without-filter` | statement | `COUNT(*)` from a table with no `WHERE`/`PREWHERE` and no `FILTER` clause (outside `CREATE VIEW`) |
 | `order-by-random` | statement | `ORDER BY` calling `RANDOM()`, `RAND()`, `NEWID()`, or `GEN_RANDOM_UUID()` |
-| `distinct-over-join` | statement | `DISTINCT` or `DISTINCT ON` over two or more joined tables |
+| `distinct-over-join` | statement | `DISTINCT` over two or more joined tables (excluding `DISTINCT ON`) |
 | `table-read-twice` | statement | The same non-CTE table read more than once in one statement |
 | `subquery-refers-to-outer-table` | statement | A correlated subquery referencing a table or alias from an outer scope |
 | `long-in-list` | statement | An `IN` list with more than `100` items |
 | `deep-subquery-nesting` | statement | Subqueries nested three levels or more |
 | `join-without-aliases` | statement | A join of two or more tables where at least one table lacks an alias |
 | `column-position` | statement | An integer column position in `ORDER BY` or `GROUP BY` |
-| `update-without-filter` | statement | `UPDATE` with no `WHERE` clause |
-| `delete-without-filter` | statement | `DELETE` with no `WHERE` clause |
+| `update-without-filter` | statement | `UPDATE` with no `WHERE` clause and no filtering `INNER JOIN` |
+| `delete-without-filter` | statement | `DELETE` with no `WHERE` clause and no filtering `INNER JOIN` |
 | `truncate` | statement | `TRUNCATE` statement |
 | `drop` | statement | `DROP` statement for any object |
 | `grant-or-revoke` | statement | `GRANT` or `REVOKE` statement |
-| `always-true-condition` | statement | A tautological filter condition such as `OR 1 = 1`, `TRUE`, or `NOT FALSE` |
+| `always-true-condition` | statement | A tautological filter condition such as `OR 1 = 1`, `TRUE`, or `NOT FALSE` (excluding `LEFT [OUTER] JOIN ... ON TRUE` and `INSERT ... SELECT ... WHERE TRUE ON CONFLICT`) |
 | `sql-built-at-run-time` | statement | Dynamic SQL execution such as `EXECUTE IMMEDIATE`, `EXECUTE '...'`, or `sp_executesql` |
-| `plain-text-secret` | statement | A string literal in a password/secret clause, or written to a column whose name contains `password`, `passwd`, `pwd`, `secret`, `token`, `api_key`, `apikey`, `private_key`, or `access_key` |
-| `filter-on-unindexed-column` | schema | A filter condition on a known table's column that is not the leading column of its primary key or any index |
-| `order-by-unindexed-column` | schema | An `ORDER BY` on a known table's column that is not the leading column of its primary key or any index |
-| `join-on-unindexed-column` | schema | A join condition (`ON` or `USING`) on a known table's column that is neither a primary key leading column nor the leading column of any index |
+| `plain-text-secret` | statement | A non-empty string literal in a password/secret clause, or written to a column whose name contains `password`, `passwd`, `pwd`, `secret`, `token`, `api_key`, `apikey`, `private_key`, or `access_key` |
+| `filter-on-unindexed-column` | schema | A filter condition on a known table's column not covered by its primary key, index prefix, or a leading indexed column in the same `AND` chain |
+| `order-by-unindexed-column` | schema | An `ORDER BY` on a known table's column not covered by its primary key or composite index prefix (excluding aggregates and `CASE` in grouped queries) |
+| `join-on-unindexed-column` | schema | A join condition (`ON` or `USING`) on a known table's column not covered by its primary key, index prefix, or a leading indexed column in the same `AND` chain |
 | `unknown-column` | schema | A reference or assignment to a column not present on a known table in the built schema |
 | `text-compared-to-number` | schema | A text-typed column in a known table compared to a bare numeric literal |
 

@@ -177,7 +177,13 @@ pub(crate) fn apply_sql_schema_pass(
             tables: schema.table_count(),
         });
         if !schema.is_empty() {
-            apply_scope_schema_hazards(&mut sql_model.files, &indices, parsed_by_path, &schema);
+            apply_scope_schema_hazards(
+                &mut sql_model.files,
+                &indices,
+                parsed_by_path,
+                &schema,
+                dialect,
+            );
         }
     }
     summaries.sort_by(|a, b| {
@@ -193,7 +199,7 @@ fn build_scope_schema(
 ) -> SqlSchema {
     let schema_inputs = indices.iter().filter_map(|&index| {
         let file = &files[index];
-        if file.model.source_set == SourceSet::Vendored {
+        if file.model.source_set == SourceSet::Vendored || is_down_migration_path(&file.path) {
             return None;
         }
         parsed_by_path
@@ -203,18 +209,25 @@ fn build_scope_schema(
     SqlSchema::build(schema_inputs)
 }
 
+fn is_down_migration_path(path: &RepoPath) -> bool {
+    let file_name = path.as_str().rsplit('/').next().unwrap_or(path.as_str());
+    file_name.eq_ignore_ascii_case("down.sql")
+        || file_name.to_ascii_lowercase().ends_with(".down.sql")
+}
+
 fn apply_scope_schema_hazards(
     files: &mut [codeint_model::SourceFile],
     indices: &[usize],
     parsed_by_path: &BTreeMap<RepoPath, (SqlDialect, Vec<ParsedSqlStatement>)>,
     schema: &SqlSchema,
+    dialect: SqlDialect,
 ) {
     for &index in indices {
         let file = &mut files[index];
         let Some((_, parsed)) = parsed_by_path.get(&file.path) else {
             continue;
         };
-        let extra = collect_schema_hazards(parsed, schema);
+        let extra = collect_schema_hazards(parsed, schema, dialect);
         if extra.is_empty() {
             continue;
         }

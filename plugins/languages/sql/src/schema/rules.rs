@@ -10,14 +10,16 @@ use sqlparser::ast::{
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::TokenWithSpan;
 
-use crate::ParsedSqlStatement;
+use crate::flagged::expr_contains_aggregate;
 use crate::schema::expr::{
-    ClauseKind, ExprContext, ExprVisitor, check_expr, resolve_fallback_line,
+    ClauseKind, ConstrainedCols, ExprContext, ExprVisitor, check_expr, check_filter_expr,
+    collect_conjunct_cols, resolve_fallback_line,
 };
 use crate::schema::scope::{QueryScope, collect_select_aliases};
 use crate::schema::types::{
     SqlSchema, TableSchema, normalize_ident, object_name_last_ident, split_object_name,
 };
+use crate::{ParsedSqlStatement, SqlDialect};
 
 const SCHEMA_RULES: &[&str] = &[
     "filter-on-unindexed-column",
@@ -34,6 +36,7 @@ pub fn schema_hazard_rules() -> impl Iterator<Item = &'static str> {
 pub fn collect_schema_hazards(
     statements: &[ParsedSqlStatement],
     schema: &SqlSchema,
+    dialect: SqlDialect,
 ) -> Vec<HazardLine> {
     if schema.is_empty() {
         return Vec::new();
@@ -42,6 +45,7 @@ pub fn collect_schema_hazards(
     for parsed in statements {
         let mut checker = SchemaRuleChecker {
             schema,
+            dialect,
             tokens: &parsed.tokens,
             stmt_start_line: parsed.start_line,
             hits: &mut hits,
@@ -58,6 +62,7 @@ pub fn collect_schema_hazards(
 
 struct SchemaRuleChecker<'a> {
     schema: &'a SqlSchema,
+    dialect: SqlDialect,
     tokens: &'a [TokenWithSpan],
     stmt_start_line: u32,
     hits: &'a mut BTreeSet<(u32, &'static str)>,
@@ -70,6 +75,10 @@ impl ExprVisitor for SchemaRuleChecker<'_> {
 
     fn stmt_start_line(&self) -> u32 {
         self.stmt_start_line
+    }
+
+    fn dialect(&self) -> SqlDialect {
+        self.dialect
     }
 
     fn record(&mut self, line: u32, rule: &'static str) {
@@ -132,6 +141,7 @@ impl<'a> SchemaRuleChecker<'a> {
         let target_table =
             self.resolve_single_factor_table(&update.table.relation, &scope.cte_names);
         let empty = BTreeSet::new();
+        let no_constrained = ConstrainedCols::new();
         self.visit_table_with_joins_subqueries(&update.table, &scope);
         self.check_table_with_joins_conditions(&update.table, &scope);
 
@@ -142,7 +152,7 @@ impl<'a> SchemaRuleChecker<'a> {
             check_expr(
                 self,
                 &assign.value,
-                ExprContext::new(&scope, &empty, ClauseKind::General),
+                ExprContext::new(&scope, &empty, ClauseKind::General, &no_constrained),
             );
         }
         self.check_dml_tail(
@@ -186,17 +196,20 @@ impl<'a> SchemaRuleChecker<'a> {
         scope: &QueryScope<'_>,
     ) {
         let empty = BTreeSet::new();
+        let no_constrained = ConstrainedCols::new();
+        let mut order_prefix = ConstrainedCols::new();
         if let Some(filter) = selection {
-            check_expr(
+            check_filter_expr(
                 self,
                 filter,
-                ExprContext::new(scope, &empty, ClauseKind::Filter),
+                ExprContext::new(scope, &empty, ClauseKind::Filter, &no_constrained),
             );
+            collect_conjunct_cols(filter, scope, &empty, true, &mut order_prefix);
         }
         if let Some(items) = returning {
             self.check_select_items(items, scope, &empty);
         }
-        self.check_order_by_exprs(order_by, scope, &empty);
+        self.check_order_by_exprs(order_by, scope, &empty, order_prefix, false);
     }
 
     fn visit_merge(&mut self, merge: &Merge) {
@@ -204,19 +217,20 @@ impl<'a> SchemaRuleChecker<'a> {
         scope.add_table_factor(&merge.table, self.schema);
         scope.add_table_factor(&merge.source, self.schema);
         let empty = BTreeSet::new();
+        let no_constrained = ConstrainedCols::new();
         self.visit_table_factor_subqueries(&merge.table, &scope);
         self.visit_table_factor_subqueries(&merge.source, &scope);
-        check_expr(
+        check_filter_expr(
             self,
             &merge.on,
-            ExprContext::new(&scope, &empty, ClauseKind::JoinOn),
+            ExprContext::new(&scope, &empty, ClauseKind::JoinOn, &no_constrained),
         );
         for clause in &merge.clauses {
             if let Some(predicate) = &clause.predicate {
-                check_expr(
+                check_filter_expr(
                     self,
                     predicate,
-                    ExprContext::new(&scope, &empty, ClauseKind::Filter),
+                    ExprContext::new(&scope, &empty, ClauseKind::Filter, &no_constrained),
                 );
             }
         }
@@ -303,6 +317,7 @@ impl<'a> SchemaRuleChecker<'a> {
         }
 
         let empty = BTreeSet::new();
+        let no_constrained = ConstrainedCols::new();
         let select_aliases = collect_select_aliases(&select.projection);
 
         for twj in &select.from {
@@ -311,17 +326,17 @@ impl<'a> SchemaRuleChecker<'a> {
         }
         self.check_select_items(&select.projection, &scope, &empty);
         if let Some(prewhere) = &select.prewhere {
-            check_expr(
+            check_filter_expr(
                 self,
                 prewhere,
-                ExprContext::new(&scope, &empty, ClauseKind::Filter),
+                ExprContext::new(&scope, &empty, ClauseKind::Filter, &no_constrained),
             );
         }
         if let Some(selection) = &select.selection {
-            check_expr(
+            check_filter_expr(
                 self,
                 selection,
-                ExprContext::new(&scope, &empty, ClauseKind::Filter),
+                ExprContext::new(&scope, &empty, ClauseKind::Filter, &no_constrained),
             );
         }
         self.check_select_post_clauses(select, order_by, &scope, &select_aliases);
@@ -334,8 +349,9 @@ impl<'a> SchemaRuleChecker<'a> {
         scope: &QueryScope<'_>,
         select_aliases: &BTreeSet<String>,
     ) {
+        let no_constrained = ConstrainedCols::new();
         if let GroupByExpr::Expressions(exprs, _) = &select.group_by {
-            let ctx = ExprContext::new(scope, select_aliases, ClauseKind::General);
+            let ctx = ExprContext::new(scope, select_aliases, ClauseKind::General, &no_constrained);
             for expr in exprs {
                 check_expr(self, expr, ctx);
             }
@@ -344,20 +360,22 @@ impl<'a> SchemaRuleChecker<'a> {
             check_expr(
                 self,
                 having,
-                ExprContext::new(scope, select_aliases, ClauseKind::General),
+                ExprContext::new(scope, select_aliases, ClauseKind::General, &no_constrained),
             );
         }
         if let Some(qualify) = &select.qualify {
             check_expr(
                 self,
                 qualify,
-                ExprContext::new(scope, select_aliases, ClauseKind::General),
+                ExprContext::new(scope, select_aliases, ClauseKind::General, &no_constrained),
             );
         }
         if let Some(order) = order_by
             && let OrderByKind::Expressions(exprs) = &order.kind
         {
-            self.check_order_by_exprs(exprs, scope, select_aliases);
+            let order_prefix = collect_select_order_prefix(select, scope);
+            let grouped = select_has_grouping_or_aggregates(select);
+            self.check_order_by_exprs(exprs, scope, select_aliases, order_prefix, grouped);
         }
     }
 
@@ -367,7 +385,8 @@ impl<'a> SchemaRuleChecker<'a> {
         scope: &QueryScope<'_>,
         excluded: &BTreeSet<String>,
     ) {
-        let ctx = ExprContext::new(scope, excluded, ClauseKind::General);
+        let no_constrained = ConstrainedCols::new();
+        let ctx = ExprContext::new(scope, excluded, ClauseKind::General, &no_constrained);
         for item in items {
             match item {
                 SelectItem::UnnamedExpr(expr)
@@ -385,10 +404,20 @@ impl<'a> SchemaRuleChecker<'a> {
         exprs: &[OrderByExpr],
         scope: &QueryScope<'_>,
         excluded: &BTreeSet<String>,
+        mut prefix: ConstrainedCols,
+        in_grouped_query: bool,
     ) {
-        let ctx = ExprContext::new(scope, excluded, ClauseKind::OrderBy);
         for order_expr in exprs {
+            let ctx = ExprContext::order_by(scope, excluded, &prefix, in_grouped_query);
             check_expr(self, &order_expr.expr, ctx);
+            if let Some(resolved) = scope.resolve_column_expr(&order_expr.expr, excluded)
+                && resolved.table.columns.contains_key(&resolved.column)
+            {
+                prefix
+                    .entry(resolved.binding_id)
+                    .or_default()
+                    .insert(resolved.column);
+            }
         }
     }
 
@@ -466,10 +495,11 @@ impl<'a> SchemaRuleChecker<'a> {
                 match_condition,
                 constraint,
             } => {
-                check_expr(
+                let no_constrained = ConstrainedCols::new();
+                check_filter_expr(
                     self,
                     match_condition,
-                    ExprContext::new(full_scope, &empty, ClauseKind::JoinOn),
+                    ExprContext::new(full_scope, &empty, ClauseKind::JoinOn, &no_constrained),
                 );
                 self.check_join_constraint(constraint, &join.relation, left_scope, full_scope);
             }
@@ -485,19 +515,22 @@ impl<'a> SchemaRuleChecker<'a> {
         full_scope: &QueryScope<'_>,
     ) {
         let empty = BTreeSet::new();
+        let no_constrained = ConstrainedCols::new();
         match constraint {
             JoinConstraint::On(expr) => {
-                check_expr(
+                check_filter_expr(
                     self,
                     expr,
-                    ExprContext::new(full_scope, &empty, ClauseKind::JoinOn),
+                    ExprContext::new(full_scope, &empty, ClauseKind::JoinOn, &no_constrained),
                 );
             }
             JoinConstraint::Using(columns) | JoinConstraint::UsingAlias(columns, _) => {
                 let right_table =
                     self.resolve_single_factor_table(right_relation, &full_scope.cte_names);
+                let using_cols: BTreeSet<String> =
+                    columns.iter().filter_map(object_name_last_ident).collect();
                 for col_obj in columns {
-                    self.check_using_column(col_obj, left_scope, right_table);
+                    self.check_using_column(col_obj, left_scope, right_table, &using_cols);
                 }
             }
             JoinConstraint::Natural | JoinConstraint::None => {}
@@ -509,13 +542,14 @@ impl<'a> SchemaRuleChecker<'a> {
         col_obj: &ObjectName,
         left_scope: &QueryScope<'_>,
         right_table: Option<&TableSchema>,
+        using_cols: &BTreeSet<String>,
     ) {
         let Some(col) = object_name_last_ident(col_obj) else {
             return;
         };
         let line = self.resolve_object_name_line(col_obj, &col, Some(Keyword::USING));
         if let Some(table) = right_table {
-            self.check_join_column_on_table(table, &col, line);
+            self.check_join_column_on_table(table, &col, using_cols, line);
         }
         if !left_scope.has_unknown_binding() {
             let left_matches: Vec<&TableSchema> = left_scope
@@ -525,7 +559,7 @@ impl<'a> SchemaRuleChecker<'a> {
                 .filter(|t| t.columns.contains_key(&col))
                 .collect();
             if left_matches.len() == 1 {
-                self.check_join_column_on_table(left_matches[0], &col, line);
+                self.check_join_column_on_table(left_matches[0], &col, using_cols, line);
             } else if left_matches.is_empty()
                 && left_scope.bindings.len() == 1
                 && left_scope.bindings[0].table.is_some()
@@ -535,10 +569,19 @@ impl<'a> SchemaRuleChecker<'a> {
         }
     }
 
-    fn check_join_column_on_table(&mut self, table: &TableSchema, col: &str, line: u32) {
+    fn check_join_column_on_table(
+        &mut self,
+        table: &TableSchema,
+        col: &str,
+        using_cols: &BTreeSet<String>,
+        line: u32,
+    ) {
         if !table.columns.contains_key(col) {
             self.record(line, "unknown-column");
-        } else if !table.is_indexed_column(col) {
+        } else if !table.is_indexed_column(col)
+            && !table.is_covered_by_prefix(col, using_cols)
+            && !table.has_leading_indexed_in(using_cols)
+        {
             self.record(line, "join-on-unindexed-column");
         }
     }
@@ -598,5 +641,64 @@ impl<'a> SchemaRuleChecker<'a> {
             Some(ident_hint),
             keyword_hint,
         )
+    }
+}
+
+fn select_has_grouping_or_aggregates(select: &Select) -> bool {
+    let has_group_by = match &select.group_by {
+        GroupByExpr::All(_) => true,
+        GroupByExpr::Expressions(exprs, _) => !exprs.is_empty(),
+    };
+    if has_group_by {
+        return true;
+    }
+    select.projection.iter().any(|item| match item {
+        SelectItem::UnnamedExpr(expr)
+        | SelectItem::ExprWithAlias { expr, .. }
+        | SelectItem::ExprWithAliases { expr, .. } => expr_contains_aggregate(expr),
+        SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) => false,
+    })
+}
+
+fn collect_select_order_prefix(select: &Select, scope: &QueryScope<'_>) -> ConstrainedCols {
+    let empty = BTreeSet::new();
+    let mut prefix = ConstrainedCols::new();
+    if let Some(prewhere) = &select.prewhere {
+        collect_conjunct_cols(prewhere, scope, &empty, true, &mut prefix);
+    }
+    if let Some(selection) = &select.selection {
+        collect_conjunct_cols(selection, scope, &empty, true, &mut prefix);
+    }
+    for twj in &select.from {
+        collect_inner_join_order_prefix(twj, scope, &empty, &mut prefix);
+    }
+    prefix
+}
+
+fn collect_inner_join_order_prefix(
+    twj: &TableWithJoins,
+    scope: &QueryScope<'_>,
+    excluded: &BTreeSet<String>,
+    prefix: &mut ConstrainedCols,
+) {
+    if let TableFactor::NestedJoin {
+        table_with_joins, ..
+    } = &twj.relation
+    {
+        collect_inner_join_order_prefix(table_with_joins, scope, excluded, prefix);
+    }
+    for join in &twj.joins {
+        if let TableFactor::NestedJoin {
+            table_with_joins, ..
+        } = &join.relation
+        {
+            collect_inner_join_order_prefix(table_with_joins, scope, excluded, prefix);
+        }
+        if let JoinOperator::Inner(JoinConstraint::On(expr))
+        | JoinOperator::Join(JoinConstraint::On(expr))
+        | JoinOperator::StraightJoin(JoinConstraint::On(expr)) = &join.join_operator
+        {
+            collect_conjunct_cols(expr, scope, excluded, true, prefix);
+        }
     }
 }

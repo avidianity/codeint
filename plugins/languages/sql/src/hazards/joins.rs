@@ -11,62 +11,72 @@ use super::expr_util::{
     for_each_child_expr, join_constraint, normalize_ident, object_name_key, peel_nested,
 };
 use super::locate::{
-    first_keyword_line, keyword_line_at_or_after, keyword_pair_line_before, select_line,
-    select_start_loc, span_line,
+    first_keyword_line, keyword_line_at_or_after, keyword_line_before, keyword_pair_line_before,
+    select_line, select_start_loc, span_line,
 };
 
 pub(super) fn check_tables_without_join_condition(ctx: &mut HazardCtx<'_>, select: &Select) {
     let where_links = select.selection.as_ref().is_some_and(expr_links_tables);
-    let from_start = select
+    let non_lateral_from: Vec<&TableWithJoins> = select
         .from
-        .first()
-        .map_or_else(|| select_start_loc(select), |t| t.span().start);
+        .iter()
+        .filter(|twj| !is_lateral_factor(&twj.relation))
+        .collect();
 
-    if select.from.len() >= 2 && !where_links {
-        let from_line =
-            keyword_line_at_or_after(ctx.tokens, Keyword::FROM, select_start_loc(select));
+    if non_lateral_from.len() >= 2 && !where_links {
+        let first_loc = select.from[0].span().start;
+        let from_line = keyword_line_before(ctx.tokens, Keyword::FROM, first_loc);
         let line = if from_line > 0 {
             from_line
         } else {
-            span_line(select.from[0].span())
+            let second_line = span_line(non_lateral_from[1].span());
+            if second_line > 0 {
+                second_line
+            } else {
+                span_line(non_lateral_from[0].span())
+            }
         };
         ctx.emit(line, "tables-without-join-condition");
     }
 
     for twj in &select.from {
-        check_joins_for_missing_condition(ctx, twj, where_links, from_start);
+        check_joins_for_missing_condition(ctx, twj, where_links);
     }
+}
+
+fn is_lateral_factor(factor: &TableFactor) -> bool {
+    matches!(
+        factor,
+        TableFactor::Derived { lateral: true, .. } | TableFactor::Function { lateral: true, .. }
+    )
 }
 
 fn check_joins_for_missing_condition(
     ctx: &mut HazardCtx<'_>,
     twj: &TableWithJoins,
     where_links: bool,
-    from_start: sqlparser::tokenizer::Location,
 ) {
     if let TableFactor::NestedJoin {
         table_with_joins, ..
     } = &twj.relation
     {
-        check_joins_for_missing_condition(ctx, table_with_joins, where_links, from_start);
+        check_joins_for_missing_condition(ctx, table_with_joins, where_links);
     }
     for join in &twj.joins {
         if let TableFactor::NestedJoin {
             table_with_joins, ..
         } = &join.relation
         {
-            check_joins_for_missing_condition(ctx, table_with_joins, where_links, from_start);
+            check_joins_for_missing_condition(ctx, table_with_joins, where_links);
         }
-        check_single_join_condition(ctx, join, where_links, from_start);
+        check_single_join_condition(ctx, join, where_links);
     }
 }
 
-fn check_single_join_condition(
-    ctx: &mut HazardCtx<'_>,
-    join: &Join,
-    where_links: bool,
-    from_start: sqlparser::tokenizer::Location,
-) {
+fn check_single_join_condition(ctx: &mut HazardCtx<'_>, join: &Join, where_links: bool) {
+    if is_lateral_factor(&join.relation) {
+        return;
+    }
     let rel_loc = join.relation.span().start;
     if matches!(join.join_operator, JoinOperator::CrossJoin(_)) {
         let cross = keyword_pair_line_before(ctx.tokens, Keyword::CROSS, Keyword::JOIN, rel_loc);
@@ -79,9 +89,14 @@ fn check_single_join_condition(
         return;
     }
     if join_has_no_constraint(&join.join_operator) && !where_links {
-        let join_kw = keyword_line_at_or_after(ctx.tokens, Keyword::JOIN, from_start);
-        let line = if join_kw > 0 {
+        let join_kw = keyword_line_before(ctx.tokens, Keyword::JOIN, rel_loc);
+        let kw_line = if join_kw > 0 {
             join_kw
+        } else {
+            keyword_line_before(ctx.tokens, Keyword::STRAIGHT_JOIN, rel_loc)
+        };
+        let line = if kw_line > 0 {
+            kw_line
         } else {
             span_line(join.relation.span())
         };
@@ -159,7 +174,7 @@ fn collect_column_qualifiers(expr: &Expr, quals: &mut BTreeSet<String>) -> bool 
 }
 
 pub(super) fn check_distinct_over_join(ctx: &mut HazardCtx<'_>, select: &Select) {
-    if !matches!(select.distinct, Some(Distinct::Distinct | Distinct::On(_))) {
+    if !matches!(select.distinct, Some(Distinct::Distinct)) {
         return;
     }
     let table_count = count_from_tables(&select.from);

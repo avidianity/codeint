@@ -108,6 +108,7 @@ struct StatementWalker<'a, 'b> {
     in_create_view: bool,
     in_exists_direct: bool,
     has_row_limit: bool,
+    allow_where_true: bool,
     subquery_depth: u32,
     outer_scopes: Vec<BTreeSet<String>>,
     cte_scopes: Vec<BTreeSet<String>>,
@@ -121,6 +122,7 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
             in_create_view: false,
             in_exists_direct: false,
             has_row_limit: false,
+            allow_where_true: false,
             subquery_depth: 0,
             outer_scopes: Vec::new(),
             cte_scopes: Vec::new(),
@@ -176,7 +178,10 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
 
     fn visit_insert(&mut self, insert: &sqlparser::ast::Insert) {
         if let Some(src) = insert.source.as_deref() {
+            let prev_allow = self.allow_where_true;
+            self.allow_where_true = matches!(insert.on, Some(OnInsert::OnConflict(_)));
             self.visit_query(src);
+            self.allow_where_true = prev_allow;
         }
         for assign in &insert.assignments {
             self.visit_expr(&assign.value);
@@ -291,8 +296,10 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
         self.cte_scopes.push(scope);
         let prev_exists = self.in_exists_direct;
         let prev_limit = self.has_row_limit;
+        let prev_allow = self.allow_where_true;
         self.in_exists_direct = false;
         self.has_row_limit = false;
+        self.allow_where_true = false;
         for cte in &with.cte_tables {
             self.visit_query(&cte.query);
             if let Some(top) = self.cte_scopes.last_mut() {
@@ -301,6 +308,7 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
         }
         self.in_exists_direct = prev_exists;
         self.has_row_limit = prev_limit;
+        self.allow_where_true = prev_allow;
         true
     }
 
@@ -315,8 +323,12 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
                 right,
             } => {
                 query_shape::check_union_without_all(self.ctx, *op, *set_quantifier, left, right);
+                let prev_allow = self.allow_where_true;
+                self.allow_where_true = false;
                 self.visit_set_expr(left);
+                self.allow_where_true = prev_allow;
                 self.visit_set_expr(right);
+                self.allow_where_true = false;
             }
             SetExpr::Values(values) => {
                 for row in &values.rows {
@@ -333,13 +345,18 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
     }
 
     fn visit_select(&mut self, select: &Select) {
+        let allow_where_true = self.allow_where_true;
+        self.allow_where_true = false;
+
         if !self.in_exists_direct {
             query_shape::check_select_star(self.ctx, select);
         }
         if !self.in_create_view && !self.has_row_limit {
             query_shape::check_select_without_filter_or_limit(self.ctx, select);
         }
-        query_shape::check_count_without_filter(self.ctx, select);
+        if !self.in_create_view {
+            query_shape::check_count_without_filter(self.ctx, select);
+        }
         query_shape::check_subquery_in_select_list(self.ctx, select);
         query_shape::check_group_by_column_position(self.ctx, &select.group_by);
         query_shape::check_order_by_exprs(self.ctx, &select.sort_by);
@@ -357,7 +374,7 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
 
         let local_bindings = subqueries::collect_select_bindings(select);
         self.outer_scopes.push(local_bindings);
-        self.visit_select_clauses(select);
+        self.visit_select_clauses(select, allow_where_true);
         self.outer_scopes.pop();
         self.in_exists_direct = saved_exists;
     }
@@ -403,7 +420,7 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
         }
     }
 
-    fn visit_select_clauses(&mut self, select: &Select) {
+    fn visit_select_clauses(&mut self, select: &Select, allow_where_true: bool) {
         for item in &select.projection {
             self.visit_select_item(item);
         }
@@ -411,7 +428,11 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
             self.visit_filter(prewhere, false);
         }
         if let Some(selection) = &select.selection {
-            self.visit_filter(selection, false);
+            if allow_where_true && expr_util::is_boolean_true_literal(selection) {
+                self.visit_expr(selection);
+            } else {
+                self.visit_filter(selection, false);
+            }
         }
         if let Some(having) = &select.having {
             self.visit_filter(having, true);
@@ -440,7 +461,11 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
             self.visit_filter(match_condition, false);
         }
         if let Some(JoinConstraint::On(expr)) = expr_util::join_constraint(op) {
-            self.visit_filter(expr, false);
+            if is_left_join_on_true(op, expr) {
+                self.visit_expr(expr);
+            } else {
+                self.visit_filter(expr, false);
+            }
         }
     }
 
@@ -459,11 +484,14 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
         }
         let prev_exists = self.in_exists_direct;
         let prev_limit = self.has_row_limit;
+        let prev_allow = self.allow_where_true;
         self.in_exists_direct = is_exists;
         self.has_row_limit = false;
+        self.allow_where_true = false;
         self.visit_query(subquery);
         self.in_exists_direct = prev_exists;
         self.has_row_limit = prev_limit;
+        self.allow_where_true = prev_allow;
         self.subquery_depth -= 1;
     }
 
@@ -522,4 +550,9 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
             self.visit_expr(child);
         });
     }
+}
+
+fn is_left_join_on_true(op: &JoinOperator, expr: &Expr) -> bool {
+    matches!(op, JoinOperator::Left(_) | JoinOperator::LeftOuter(_))
+        && expr_util::is_boolean_true_literal(expr)
 }

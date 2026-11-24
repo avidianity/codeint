@@ -1,18 +1,23 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sqlparser::ast::{
-    BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArguments,
-    InTarget, Query, Spanned, UnaryOperator, Value, WindowType,
+    AccessExpr, BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr,
+    FunctionArguments, Ident, InTarget, Query, Spanned, UnaryOperator, WindowType,
 };
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Token, TokenWithSpan};
 
-use crate::schema::scope::{QueryScope, peel_nested};
+use crate::SqlDialect;
+use crate::flagged::{is_aggregate_call, is_bare_number_literal};
+use crate::schema::scope::{BindingId, QueryScope, ResolvedColumn, peel_nested};
 use crate::schema::types::ColumnTypeClass;
+
+pub(crate) type ConstrainedCols = BTreeMap<BindingId, BTreeSet<String>>;
 
 pub(crate) trait ExprVisitor {
     fn tokens(&self) -> &[TokenWithSpan];
     fn stmt_start_line(&self) -> u32;
+    fn dialect(&self) -> SqlDialect;
     fn record(&mut self, line: u32, rule: &'static str);
     fn visit_subquery(&mut self, query: &Query, parent: &QueryScope<'_>);
 }
@@ -41,6 +46,8 @@ pub(crate) struct ExprContext<'a> {
     pub(crate) scope: &'a QueryScope<'a>,
     pub(crate) excluded: &'a BTreeSet<String>,
     pub(crate) clause: ClauseKind,
+    pub(crate) constrained: &'a ConstrainedCols,
+    pub(crate) in_grouped_query: bool,
 }
 
 impl<'a> ExprContext<'a> {
@@ -48,23 +55,151 @@ impl<'a> ExprContext<'a> {
         scope: &'a QueryScope<'a>,
         excluded: &'a BTreeSet<String>,
         clause: ClauseKind,
+        constrained: &'a ConstrainedCols,
     ) -> ExprContext<'a> {
         ExprContext {
             scope,
             excluded,
             clause,
+            constrained,
+            in_grouped_query: false,
+        }
+    }
+
+    pub(crate) fn order_by(
+        scope: &'a QueryScope<'a>,
+        excluded: &'a BTreeSet<String>,
+        constrained: &'a ConstrainedCols,
+        in_grouped_query: bool,
+    ) -> ExprContext<'a> {
+        ExprContext {
+            scope,
+            excluded,
+            clause: ClauseKind::OrderBy,
+            constrained,
+            in_grouped_query,
         }
     }
 
     fn with_clause(self, clause: ClauseKind) -> ExprContext<'a> {
         ExprContext { clause, ..self }
     }
+
+    fn with_constrained<'b>(self, constrained: &'b ConstrainedCols) -> ExprContext<'b>
+    where
+        'a: 'b,
+    {
+        ExprContext {
+            scope: self.scope,
+            excluded: self.excluded,
+            clause: self.clause,
+            constrained,
+            in_grouped_query: self.in_grouped_query,
+        }
+    }
+}
+
+pub(crate) fn check_filter_expr<V: ExprVisitor>(
+    visitor: &mut V,
+    expr: &Expr,
+    ctx: ExprContext<'_>,
+) {
+    let mut merged = ctx.constrained.clone();
+    collect_conjunct_cols(expr, ctx.scope, ctx.excluded, false, &mut merged);
+    check_expr(visitor, expr, ctx.with_constrained(&merged));
+}
+
+pub(crate) fn collect_conjunct_cols(
+    expr: &Expr,
+    scope: &QueryScope<'_>,
+    excluded: &BTreeSet<String>,
+    eq_only: bool,
+    out: &mut ConstrainedCols,
+) {
+    match peel_nested(expr) {
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::And,
+            right,
+        } => {
+            collect_conjunct_cols(left, scope, excluded, eq_only, out);
+            collect_conjunct_cols(right, scope, excluded, eq_only, out);
+        }
+        Expr::BinaryOp { left, op, right } if is_index_constraint_op(op, eq_only) => {
+            record_constrained_col(left, scope, excluded, out);
+            record_constrained_col(right, scope, excluded, out);
+        }
+        Expr::IsNotDistinctFrom(left, right) => {
+            record_constrained_col(left, scope, excluded, out);
+            record_constrained_col(right, scope, excluded, out);
+        }
+        Expr::IsNull(target) => {
+            record_constrained_col(target, scope, excluded, out);
+        }
+        Expr::In {
+            expr: target,
+            negated: false,
+            ..
+        }
+        | Expr::Between {
+            expr: target,
+            negated: false,
+            ..
+        } if !eq_only => {
+            record_constrained_col(target, scope, excluded, out);
+        }
+        _ => {}
+    }
+}
+
+fn is_index_constraint_op(op: &BinaryOperator, eq_only: bool) -> bool {
+    if eq_only {
+        matches!(op, BinaryOperator::Eq | BinaryOperator::Spaceship)
+    } else {
+        matches!(
+            op,
+            BinaryOperator::Eq
+                | BinaryOperator::Spaceship
+                | BinaryOperator::Lt
+                | BinaryOperator::LtEq
+                | BinaryOperator::Gt
+                | BinaryOperator::GtEq
+        )
+    }
+}
+
+fn record_constrained_col(
+    expr: &Expr,
+    scope: &QueryScope<'_>,
+    excluded: &BTreeSet<String>,
+    out: &mut ConstrainedCols,
+) {
+    if let Some(resolved) = scope.resolve_column_expr(expr, excluded)
+        && resolved.table.columns.contains_key(&resolved.column)
+    {
+        out.entry(resolved.binding_id)
+            .or_default()
+            .insert(resolved.column);
+    }
 }
 
 pub(crate) fn check_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
     match expr {
-        Expr::Identifier(_) | Expr::CompoundIdentifier(_) => {
+        Expr::UnaryOp {
+            op: UnaryOperator::PGAbs,
+            expr: inner,
+        } if matches!(inner.as_ref(), Expr::Identifier(_)) => {}
+        Expr::Identifier(ident) => {
+            if is_sqlite_double_quoted_literal(visitor.dialect(), ident) {
+                return;
+            }
             check_column_ref(visitor, expr, ctx);
+        }
+        Expr::CompoundIdentifier(_) => {
+            check_column_ref(visitor, expr, ctx);
+        }
+        Expr::CompoundFieldAccess { root, access_chain } => {
+            check_compound_field_access(visitor, expr, root, access_chain, ctx);
         }
         Expr::BinaryOp { left, op, right } => {
             check_binary_op(visitor, expr, left, op, right, ctx);
@@ -79,16 +214,81 @@ pub(crate) fn check_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: Expr
     }
 }
 
-fn check_column_ref<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
-    let Some((table, col)) = ctx.scope.resolve_column_expr(expr, ctx.excluded) else {
+fn is_sqlite_double_quoted_literal(dialect: SqlDialect, ident: &Ident) -> bool {
+    dialect == SqlDialect::Sqlite
+        && ident.quote_style == Some('"')
+        && (ident.value.is_empty() || ident.value.contains("://"))
+}
+
+fn check_compound_field_access<V: ExprVisitor>(
+    visitor: &mut V,
+    whole: &Expr,
+    root: &Expr,
+    access_chain: &[AccessExpr],
+    ctx: ExprContext<'_>,
+) {
+    let Expr::Identifier(first) = peel_nested(root) else {
+        check_expr(visitor, root, ctx);
         return;
     };
-    let line = resolve_expr_line(visitor, expr, Some(&col), ctx.clause.fallback_keyword());
-    if !table.columns.contains_key(&col) {
+    let mut leading = vec![first.clone()];
+    for step in access_chain {
+        if let AccessExpr::Dot(Expr::Identifier(ident)) = step {
+            leading.push(ident.clone());
+        } else {
+            break;
+        }
+    }
+    if leading.len() == 1 {
+        check_expr(visitor, root, ctx);
+        return;
+    }
+    if let Some(resolved) = resolve_leading_idents(&leading, ctx) {
+        check_resolved_column(visitor, whole, &resolved, ctx);
+    }
+}
+
+fn resolve_leading_idents<'a>(
+    leading: &[Ident],
+    ctx: ExprContext<'a>,
+) -> Option<ResolvedColumn<'a>> {
+    if leading.len() >= 3
+        && let Some(resolved) = ctx.scope.resolve_qualified(&leading[..3])
+    {
+        return Some(resolved);
+    }
+    if let Some(resolved) = ctx.scope.resolve_qualified(&leading[..2]) {
+        return Some(resolved);
+    }
+    ctx.scope
+        .resolve_unqualified(&leading[0], ctx.excluded)
+        .filter(|resolved| resolved.table.columns.contains_key(&resolved.column))
+}
+
+fn check_column_ref<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
+    let Some(resolved) = ctx.scope.resolve_column_expr(expr, ctx.excluded) else {
+        return;
+    };
+    check_resolved_column(visitor, expr, &resolved, ctx);
+}
+
+fn check_resolved_column<V: ExprVisitor>(
+    visitor: &mut V,
+    expr: &Expr,
+    resolved: &ResolvedColumn<'_>,
+    ctx: ExprContext<'_>,
+) {
+    let line = resolve_expr_line(
+        visitor,
+        expr,
+        Some(&resolved.column),
+        ctx.clause.fallback_keyword(),
+    );
+    if !resolved.table.columns.contains_key(&resolved.column) {
         visitor.record(line, "unknown-column");
         return;
     }
-    if table.is_indexed_column(&col) {
+    if is_column_indexed_in_context(resolved, ctx) {
         return;
     }
     match ctx.clause {
@@ -102,6 +302,27 @@ fn check_column_ref<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprConte
     }
 }
 
+fn is_column_indexed_in_context(resolved: &ResolvedColumn<'_>, ctx: ExprContext<'_>) -> bool {
+    if resolved.table.is_indexed_column(&resolved.column) {
+        return true;
+    }
+    let Some(constrained_cols) = ctx.constrained.get(&resolved.binding_id) else {
+        return false;
+    };
+    match ctx.clause {
+        ClauseKind::General => true,
+        ClauseKind::OrderBy => resolved
+            .table
+            .is_covered_by_prefix(&resolved.column, constrained_cols),
+        ClauseKind::Filter | ClauseKind::JoinOn => {
+            resolved
+                .table
+                .is_covered_by_prefix(&resolved.column, constrained_cols)
+                || resolved.table.has_leading_indexed_in(constrained_cols)
+        }
+    }
+}
+
 fn check_binary_op<V: ExprVisitor>(
     visitor: &mut V,
     whole: &Expr,
@@ -110,6 +331,11 @@ fn check_binary_op<V: ExprVisitor>(
     right: &Expr,
     ctx: ExprContext<'_>,
 ) {
+    if matches!(ctx.clause, ClauseKind::Filter | ClauseKind::JoinOn) && *op == BinaryOperator::Or {
+        check_filter_expr(visitor, left, ctx);
+        check_filter_expr(visitor, right, ctx);
+        return;
+    }
     if is_comparison_operator(op) {
         check_text_compared_to_number(visitor, whole, left, right, ctx);
     }
@@ -138,8 +364,9 @@ fn check_text_compared_to_number<V: ExprVisitor>(
 }
 
 fn resolve_text_column(expr: &Expr, ctx: ExprContext<'_>) -> Option<String> {
-    let (table, col) = ctx.scope.resolve_column_expr(expr, ctx.excluded)?;
-    (table.columns.get(&col).copied() == Some(ColumnTypeClass::Text)).then_some(col)
+    let resolved = ctx.scope.resolve_column_expr(expr, ctx.excluded)?;
+    (resolved.table.columns.get(&resolved.column).copied() == Some(ColumnTypeClass::Text))
+        .then_some(resolved.column)
 }
 
 fn check_nested_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr, ctx: ExprContext<'_>) {
@@ -165,8 +392,7 @@ fn unwrap_unary_expr(expr: &Expr) -> Option<&Expr> {
         | Expr::Ceil { expr: inner, .. }
         | Expr::Floor { expr: inner, .. }
         | Expr::Collate { expr: inner, .. }
-        | Expr::JsonAccess { value: inner, .. }
-        | Expr::CompoundFieldAccess { root: inner, .. } => Some(inner),
+        | Expr::JsonAccess { value: inner, .. } => Some(inner),
         _ => None,
     }
 }
@@ -310,15 +536,20 @@ fn check_case<V: ExprVisitor>(
     else_result: Option<&Expr>,
     ctx: ExprContext<'_>,
 ) {
+    let case_ctx = if ctx.clause == ClauseKind::OrderBy && ctx.in_grouped_query {
+        ctx.with_clause(ClauseKind::General)
+    } else {
+        ctx
+    };
     if let Some(op) = operand {
-        check_expr(visitor, op, ctx);
+        check_expr(visitor, op, case_ctx);
     }
     for when in conditions {
-        check_expr(visitor, &when.condition, ctx);
-        check_expr(visitor, &when.result, ctx);
+        check_expr(visitor, &when.condition, case_ctx);
+        check_expr(visitor, &when.result, case_ctx);
     }
     if let Some(els) = else_result {
-        check_expr(visitor, els, ctx);
+        check_expr(visitor, els, case_ctx);
     }
 }
 
@@ -332,11 +563,16 @@ fn check_in_target<V: ExprVisitor>(visitor: &mut V, target: &InTarget, ctx: Expr
 }
 
 fn check_function<V: ExprVisitor>(visitor: &mut V, func: &Function, ctx: ExprContext<'_>) {
+    let arg_ctx = if ctx.clause == ClauseKind::OrderBy && is_aggregate_call(func) {
+        ctx.with_clause(ClauseKind::General)
+    } else {
+        ctx
+    };
     match &func.args {
         FunctionArguments::Subquery(query) => visitor.visit_subquery(query, ctx.scope),
         FunctionArguments::List(list) => {
             for arg in &list.args {
-                check_function_arg(visitor, arg, ctx);
+                check_function_arg(visitor, arg, arg_ctx);
             }
         }
         FunctionArguments::None => {}
@@ -382,20 +618,6 @@ pub(crate) fn is_comparison_operator(op: &BinaryOperator) -> bool {
             | BinaryOperator::GtEq
             | BinaryOperator::Spaceship
     )
-}
-
-pub(crate) fn is_bare_number_literal(expr: &Expr) -> bool {
-    match peel_nested(expr) {
-        Expr::Value(val) => matches!(val.value, Value::Number(_, _)),
-        Expr::UnaryOp {
-            op: UnaryOperator::Plus | UnaryOperator::Minus,
-            expr: inner,
-        } => matches!(
-            peel_nested(inner),
-            Expr::Value(val) if matches!(val.value, Value::Number(_, _))
-        ),
-        _ => false,
-    }
 }
 
 pub(crate) fn resolve_expr_line<V: ExprVisitor>(

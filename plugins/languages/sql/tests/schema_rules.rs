@@ -19,7 +19,7 @@ fn assert_hits_dialect(
     let ddl = parse(dialect, schema_sql);
     let schema = SqlSchema::build([ddl.as_slice()]);
     let stmts = parse(dialect, query_sql);
-    let actual = collect_schema_hazards(&stmts, &schema);
+    let actual = collect_schema_hazards(&stmts, &schema, dialect);
     let expected_lines: Vec<HazardLine> = expected
         .iter()
         .map(|&(line, rule)| HazardLine {
@@ -235,7 +235,7 @@ fn follows_migration_order_for_schema_backed_hazards() {
 
     let s1 = SqlSchema::build([m1.as_slice()]);
     assert_eq!(
-        collect_schema_hazards(&query, &s1),
+        collect_schema_hazards(&query, &s1, SqlDialect::Postgresql),
         vec![HazardLine {
             line: 1,
             rule: "filter-on-unindexed-column".to_owned(),
@@ -243,11 +243,11 @@ fn follows_migration_order_for_schema_backed_hazards() {
     );
 
     let s2 = SqlSchema::build([m1.as_slice(), m2.as_slice()]);
-    assert!(collect_schema_hazards(&query, &s2).is_empty());
+    assert!(collect_schema_hazards(&query, &s2, SqlDialect::Postgresql).is_empty());
 
     let s3 = SqlSchema::build([m1.as_slice(), m2.as_slice(), m3.as_slice()]);
     assert_eq!(
-        collect_schema_hazards(&query, &s3),
+        collect_schema_hazards(&query, &s3, SqlDialect::Postgresql),
         vec![HazardLine {
             line: 1,
             rule: "unknown-column".to_owned(),
@@ -293,5 +293,159 @@ fn handles_sqlite_and_duckdb_dialects() {
         "CREATE TABLE metrics (id INT PRIMARY KEY, tag VARCHAR);",
         "SELECT id FROM metrics ORDER BY tag;",
         &[(1, "order-by-unindexed-column")],
+    );
+}
+
+#[test]
+fn ignores_temporary_tables_in_schema_builder() {
+    let persistent = parse(
+        SqlDialect::Postgresql,
+        "CREATE TABLE sessions (id INT PRIMARY KEY, user_id INT NOT NULL);",
+    );
+    let temp = parse(
+        SqlDialect::Postgresql,
+        "CREATE TEMPORARY TABLE sessions (scratch TEXT);\nCREATE TEMP TABLE ephemeral (x INT);",
+    );
+    let schema = SqlSchema::build([persistent.as_slice(), temp.as_slice()]);
+    assert_eq!(schema.table_count(), 1);
+    let sessions = schema.get_table(None, "sessions").expect("sessions exists");
+    assert!(sessions.has_column("user_id"));
+    assert!(!sessions.has_column("scratch"));
+    assert!(schema.get_table(None, "ephemeral").is_none());
+}
+
+#[test]
+fn unknown_column_handles_pg_named_params_duckdb_row_vars_subscripts_and_sqlite_dqs() {
+    assert_hits_dialect(
+        SqlDialect::Postgresql,
+        "CREATE TABLE users (id INT PRIMARY KEY, name TEXT);",
+        "SELECT id, name FROM users WHERE id = @user_id;",
+        &[],
+    );
+    assert_hits_dialect(
+        SqlDialect::Duckdb,
+        "CREATE TABLE users (id INT PRIMARY KEY, name TEXT);",
+        "SELECT u FROM users AS u WHERE u.id = 1;\nSELECT users FROM users WHERE id = 1;",
+        &[],
+    );
+    assert_hits_dialect(
+        SqlDialect::Postgresql,
+        "CREATE TABLE spans (id INT PRIMARY KEY, attributes JSONB);",
+        "SELECT s.attributes['env'], s.attributes[$2], attributes[$2]\nFROM spans s\nWHERE s.id = 1;",
+        &[],
+    );
+    assert_hits_dialect(
+        SqlDialect::Postgresql,
+        "CREATE TABLE spans (id INT PRIMARY KEY, attributes JSONB);",
+        "SELECT s.missing_map[$2]\nFROM spans s\nWHERE s.id = 1;",
+        &[(1, "unknown-column")],
+    );
+    assert_hits_dialect(
+        SqlDialect::Sqlite,
+        "CREATE TABLE links (id INTEGER PRIMARY KEY, url TEXT);",
+        "SELECT id FROM links WHERE id = 1 AND url <> \"\" AND url <> \"https://example.com\";",
+        &[],
+    );
+    assert_hits_dialect(
+        SqlDialect::Sqlite,
+        "CREATE TABLE links (id INTEGER PRIMARY KEY, url TEXT);",
+        "SELECT \"missing_col\" FROM links WHERE id = 1;",
+        &[(1, "unknown-column")],
+    );
+}
+
+#[test]
+fn order_by_respects_aggregates_grouped_case_and_composite_prefixes() {
+    assert_hits(
+        base_schema(),
+        "SELECT status, COUNT(*)\nFROM orders\nGROUP BY status\nORDER BY MAX(amount) DESC, CASE WHEN status = 'open' THEN 0 ELSE 1 END;",
+        &[],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT COUNT(*)\nFROM orders\nORDER BY CASE WHEN amount > 10 THEN 0 ELSE 1 END;",
+        &[],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM orders\nORDER BY CASE WHEN amount > 10 THEN 0 ELSE 1 END;",
+        &[(3, "order-by-unindexed-column")],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT status\nFROM orders\nGROUP BY status\nORDER BY MAX(bogus_col);",
+        &[(4, "unknown-column")],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nWHERE tenant_id = 5\nORDER BY created_at DESC;",
+        &[],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nORDER BY tenant_id, created_at;",
+        &[],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nWHERE tenant_id > 5\nORDER BY created_at;",
+        &[(4, "order-by-unindexed-column")],
+    );
+    assert_hits(
+        "CREATE TABLE events (tenant_id INT, bucket INT, seq INT, payload TEXT, PRIMARY KEY (tenant_id, bucket, seq));",
+        "SELECT payload FROM events WHERE tenant_id = 1 AND bucket = 2 ORDER BY seq;",
+        &[],
+    );
+}
+
+#[test]
+fn filter_and_join_respect_composite_prefixes_and_leading_index_in_and_chains() {
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nWHERE tenant_id = 5\n  AND created_at > '2026-01-01';",
+        &[],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nWHERE id = 1\n  AND email = 'a@b.com';",
+        &[],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nWHERE id = 1\n  AND email = 42;",
+        &[(4, "text-compared-to-number")],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nWHERE id = 1\n   OR email = 'a@b.com';",
+        &[(4, "filter-on-unindexed-column")],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT id\nFROM users\nWHERE id <> 1\n  AND email = 'a@b.com';",
+        &[(4, "filter-on-unindexed-column")],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT u.id, o.id\nFROM users u\nJOIN orders o\n  ON o.id = u.id\n AND o.user_id = u.id;",
+        &[],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT u.id, o.id\nFROM users u\nJOIN orders o ON o.id = u.id\nWHERE u.id = 1\n  AND o.user_id = 5;",
+        &[(5, "filter-on-unindexed-column")],
+    );
+    assert_hits(
+        base_schema(),
+        "SELECT a.id, b.id\nFROM users a\nJOIN users b\n  ON a.id = 1\n AND b.email = 'x@y.com';",
+        &[
+            (5, "filter-on-unindexed-column"),
+            (5, "join-on-unindexed-column"),
+        ],
+    );
+    assert_hits(
+        "CREATE TABLE left_t (a INT, b INT, PRIMARY KEY (a, b));\nCREATE TABLE right_t (a INT, b INT, PRIMARY KEY (a, b));",
+        "SELECT l.a\nFROM left_t l\nJOIN right_t r\n  ON r.a = l.a AND r.b = l.b;",
+        &[],
     );
 }

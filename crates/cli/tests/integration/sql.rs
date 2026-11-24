@@ -50,6 +50,12 @@ fn dialects_config(entries: &[(&str, &[&str])], disabled_rules: &[&str]) -> Stri
     }
 }
 
+fn prod_hazard_findings(report: &Value) -> &[Value] {
+    report["source_sets"]["production"]["hazards"]["findings"]
+        .as_array()
+        .expect("hazard findings")
+}
+
 fn has_rejected(report: &Value, path: &str, dialect: Option<&str>) -> bool {
     report["rejected_statements"]
         .as_array()
@@ -535,10 +541,7 @@ fn sql_schema_pass_handles_migrations_source_sets_scopes_all_five_rules_and_disa
         "report: {report}"
     );
 
-    let prod_findings = report["source_sets"]["production"]["hazards"]["findings"]
-        .as_array()
-        .expect("hazard findings");
-    let query_hits: Vec<(u64, &str)> = prod_findings
+    let query_hits: Vec<(u64, &str)> = prod_hazard_findings(&report)
         .iter()
         .filter(|f| f["path"] == "packages/billing/pg/queries.sql")
         .map(|f| {
@@ -593,13 +596,57 @@ fn sql_schema_pass_handles_migrations_source_sets_scopes_all_five_rules_and_disa
     )
     .expect("update config");
     let disabled = check_json(repo.path());
-    let disabled_rules: Vec<&str> = disabled["source_sets"]["production"]["hazards"]["findings"]
-        .as_array()
-        .expect("findings")
+    let disabled_rules: Vec<&str> = prod_hazard_findings(&disabled)
         .iter()
         .filter_map(|f| f["rule"].as_str())
         .collect();
     assert!(!disabled_rules.contains(&"unknown-column"));
     assert!(!disabled_rules.contains(&"text-compared-to-number"));
     assert!(disabled_rules.contains(&"filter-on-unindexed-column"));
+}
+
+#[test]
+fn sql_schema_skips_down_migration_files_while_still_running_rules_on_them() {
+    let repo = init_git_repo(&[
+        (
+            "migrations/001_init/up.sql",
+            "CREATE TABLE accounts (id INT PRIMARY KEY, email TEXT NOT NULL);\n",
+        ),
+        ("migrations/001_init/down.sql", "DROP TABLE accounts;\n"),
+        (
+            "migrations/002_add_handle.up.sql",
+            "ALTER TABLE accounts ADD COLUMN handle TEXT;\n",
+        ),
+        (
+            "migrations/002_add_handle.down.sql",
+            "ALTER TABLE accounts DROP COLUMN handle;\nDROP TABLE IF EXISTS legacy_audit;\n",
+        ),
+        (
+            "queries/fetch.sql",
+            "SELECT id, handle FROM accounts WHERE id = 1;\n",
+        ),
+    ]);
+
+    let report = check_json(repo.path());
+    assert_eq!(report["sql_schemas"][0]["tables"], 1, "report: {report}");
+
+    let findings = prod_hazard_findings(&report);
+    let query_findings: Vec<&Value> = findings
+        .iter()
+        .filter(|f| f["path"] == "queries/fetch.sql")
+        .collect();
+    assert!(
+        query_findings.is_empty(),
+        "down migrations must not drop forward schema columns: {query_findings:?}"
+    );
+    let down_drops: Vec<&str> = findings
+        .iter()
+        .filter(|f| f["rule"] == "drop")
+        .filter_map(|f| f["path"].as_str())
+        .collect();
+    assert!(
+        down_drops.contains(&"migrations/001_init/down.sql")
+            && down_drops.contains(&"migrations/002_add_handle.down.sql"),
+        "down migrations must still run statement hazard rules: {down_drops:?}"
+    );
 }

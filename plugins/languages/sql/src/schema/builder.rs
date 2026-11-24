@@ -42,7 +42,7 @@ fn apply_statement(schema: &mut SqlSchema, stmt: &Statement) {
 }
 
 fn apply_create_table(schema: &mut SqlSchema, create: &CreateTable) {
-    if create.columns.is_empty() && create.query.is_some() {
+    if create.temporary || (create.columns.is_empty() && create.query.is_some()) {
         return;
     }
     let Some((table_schema, table_name)) = split_object_name(&create.name) else {

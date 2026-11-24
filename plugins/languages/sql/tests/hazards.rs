@@ -163,6 +163,8 @@ fn select_projection_and_set_operation_rules() {
             "SELECT COUNT(*) FILTER (WHERE active = true) FROM users;",
             "SELECT COUNT(id) FROM users;",
             "SELECT COUNT(*);",
+            "CREATE VIEW user_totals AS SELECT COUNT(*) AS total FROM users;",
+            "CREATE MATERIALIZED VIEW mv_user_totals AS SELECT COUNT(*) AS total FROM users;",
             "-- SELECT COUNT(*) FROM users\nSELECT 'COUNT(*)' FROM users WHERE id = 1;",
         ],
     );
@@ -295,12 +297,28 @@ fn join_and_table_access_rules() {
                 "SELECT a.id, b.id\nFROM users a, orders b\nWHERE a.active = true;",
                 &[2],
             ),
+            (
+                "SELECT a.id, b.id, c.val\nFROM users a, orders b, LATERAL (SELECT 1 AS val) c;",
+                &[2],
+            ),
+            (
+                "SELECT sub.id, z.id\nFROM (\n  SELECT x.id\n  FROM x\n  LEFT JOIN y ON x.id = y.x_id\n) sub\nJOIN z;",
+                &[7],
+            ),
+            (
+                "SELECT\n  (SELECT id FROM lookup WHERE id = 1) AS ref_id,\n  a.id\nFROM users a, orders b;",
+                &[4],
+            ),
         ],
         &[
             "SELECT a.id, b.id FROM users a, orders b WHERE a.id = b.user_id;",
             "SELECT a.id, b.id FROM users a JOIN orders b ON a.id = b.user_id;",
             "SELECT a.id, b.id FROM users a JOIN orders b USING (id);",
             "SELECT a.id FROM users a NATURAL JOIN orders b;",
+            "SELECT a.id, b.total FROM users a CROSS JOIN LATERAL (SELECT COUNT(*) AS total FROM orders o WHERE o.user_id = a.id) b;",
+            "SELECT a.id, b.total FROM users a, LATERAL (SELECT COUNT(*) AS total FROM orders o WHERE o.user_id = a.id) b;",
+            "SELECT a.id, b.elem FROM users a CROSS JOIN LATERAL jsonb_array_elements(a.tags) b;",
+            "SELECT a.id, b.elem FROM users a, LATERAL jsonb_array_elements(a.tags) b;",
             "SELECT id FROM users WHERE id = 1;",
             "-- CROSS JOIN orders\nSELECT 'CROSS JOIN orders' FROM users WHERE id = 1;",
         ],
@@ -317,6 +335,14 @@ fn join_and_table_access_rules() {
             "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id WHERE u.active = true;",
             "SELECT ALL u.id FROM users u JOIN orders o ON u.id = o.user_id WHERE u.active = true;",
             "-- SELECT DISTINCT a FROM x JOIN y\nSELECT 'DISTINCT JOIN' FROM users WHERE id = 1;",
+        ],
+    );
+    check_rule(
+        SqlDialect::Postgresql,
+        "distinct-over-join",
+        &[],
+        &[
+            "SELECT DISTINCT ON (u.id) u.id, o.id FROM users u JOIN orders o ON u.id = o.user_id WHERE u.active = true ORDER BY u.id, o.id;",
         ],
     );
     check_rule(
@@ -495,6 +521,18 @@ fn predicate_and_filter_rules() {
                 &[4],
             ),
             ("SELECT id\nFROM users\nWHERE NOT FALSE;", &[3]),
+            (
+                "SELECT a.id\nFROM users a\nLEFT JOIN orders b\n  ON 1 = 1;",
+                &[4],
+            ),
+            (
+                "SELECT a.id\nFROM users a\nINNER JOIN orders b\n  ON TRUE;",
+                &[4],
+            ),
+            (
+                "INSERT INTO archive (id)\nSELECT id FROM users\nWHERE TRUE;",
+                &[3],
+            ),
         ],
         &[
             "SELECT id FROM users WHERE 1 = 2;",
@@ -504,7 +542,20 @@ fn predicate_and_filter_rules() {
             "SELECT id FROM users WHERE NULL = NULL;",
             "SELECT id FROM users WHERE $1 = $1;",
             "SELECT TRUE FROM users WHERE id = 1;",
+            "SELECT a.id FROM users a LEFT JOIN LATERAL (SELECT 1 AS n) b ON TRUE;",
+            "SELECT a.id FROM users a LEFT OUTER JOIN LATERAL (SELECT 1 AS n) b ON TRUE;",
             "-- WHERE 1 = 1\nSELECT 'OR 1 = 1' FROM users WHERE id = 1;",
+        ],
+    );
+    check_rule(
+        SqlDialect::Sqlite,
+        "always-true-condition",
+        &[(
+            "INSERT INTO kv (k, v)\nSELECT k, v FROM staging\nWHERE k = 'a' OR TRUE\nON CONFLICT (k) DO UPDATE SET v = excluded.v;",
+            &[3],
+        )],
+        &[
+            "INSERT INTO kv (k, v) SELECT k, v FROM staging WHERE TRUE ON CONFLICT (k) DO UPDATE SET v = excluded.v;",
         ],
     );
 
@@ -545,12 +596,43 @@ fn destructive_dml_ddl_dcl_and_dynamic_sql_rules() {
         ],
     );
     check_rule(
+        SqlDialect::Mysql,
+        "update-without-filter",
+        &[
+            (
+                "\nUPDATE users u\nLEFT JOIN banned b ON u.id = b.user_id\nSET u.active = 0;",
+                &[2],
+            ),
+            (
+                "\nUPDATE users u\nCROSS JOIN flags f\nSET u.active = 0;",
+                &[2],
+            ),
+        ],
+        &[
+            "UPDATE users u INNER JOIN banned b ON u.id = b.user_id SET u.active = 0;",
+            "UPDATE users u JOIN banned b USING (id) SET u.active = 0;",
+        ],
+    );
+    check_rule(
         g,
         "delete-without-filter",
         &[("\nDELETE FROM users;", &[2])],
         &[
             "DELETE FROM users WHERE id = 1;",
             "-- DELETE FROM users\nSELECT 'DELETE FROM users' FROM users WHERE id = 1;",
+        ],
+    );
+    check_rule(
+        SqlDialect::Mysql,
+        "delete-without-filter",
+        &[(
+            "\nDELETE u FROM users u\nLEFT JOIN expired e ON u.id = e.user_id;",
+            &[2],
+        )],
+        &[
+            "DELETE u FROM users u INNER JOIN expired e ON u.id = e.user_id;",
+            "DELETE FROM users USING users INNER JOIN expired ON users.id = expired.user_id;",
+            "DELETE u FROM users u JOIN expired e USING (id);",
         ],
     );
     check_rule(
@@ -638,12 +720,16 @@ fn plain_text_secret_rules_and_no_secret_leakage() {
         &[(&pg_role, &[2]), (&pg_alter, &[2]), (&pg_alter_role, &[2])],
         &[
             "CREATE ROLE app_user WITH PASSWORD NULL;",
+            "CREATE ROLE app_user WITH PASSWORD '';",
             "ALTER USER app_user WITH PASSWORD NULL;",
+            "ALTER USER app_user WITH PASSWORD '';",
+            "INSERT INTO users (name, password) VALUES ('alice', '');",
             "INSERT INTO users (name, password) VALUES ('alice', $1);",
             "INSERT INTO users (name, password) VALUES ('alice', ?);",
             "INSERT INTO users (name, password) VALUES ('alice', :pwd);",
             "INSERT INTO users (name, password) VALUES ('alice', crypt($1, gen_salt('bf')));",
             "INSERT INTO users (name, password) VALUES ('alice', NULL);",
+            "UPDATE users SET access_token = '' WHERE id = 1;",
             "UPDATE users SET password = $1 WHERE id = 1;",
             "UPDATE users SET api_key = sha256(seed) WHERE id = 1;",
             "UPDATE users SET display_name = 'alice' WHERE id = 1;",
