@@ -13,8 +13,8 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    SourceSet, WorkspaceError,
+    DeclaredDep, FileModel, Guest, HazardLine, ImportRequest, LowerError, Manifest, ReferenceRange,
+    Resolution, SourceSet, WorkspaceError,
 };
 
 struct HazardRulesLanguagePlugin;
@@ -31,12 +31,29 @@ impl Guest for HazardRulesLanguagePlugin {
             return Err(LowerError::UnsupportedFile("unsupported".to_string()));
         }
         let source_lines = text.lines().filter(|line| !line.trim().is_empty()).count() as u32;
+        let mut hazard_lines = Vec::new();
+        for (index, line) in text.lines().enumerate() {
+            let line_number = (index + 1) as u32;
+            if line.contains("DELETE FROM") && !line.contains("WHERE") {
+                hazard_lines.push(HazardLine {
+                    line: line_number,
+                    rule: "delete-without-where".to_string(),
+                });
+            }
+            if line.contains("LIKE '%") {
+                hazard_lines.push(HazardLine {
+                    line: line_number,
+                    rule: "leading-wildcard-like".to_string(),
+                });
+            }
+        }
         Ok(FileModel {
             source_set: SourceSet::Production,
             source_lines,
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines,
             runtime_imports: Vec::new(),
             program_start: false,
         })

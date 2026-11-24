@@ -95,6 +95,7 @@ impl Guest for Python {
         Ok(FileModel {
             functions: functions::extract(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
             flagged_lines: rules::evaluate(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
+            hazard_lines: Vec::new(),
             source_set: source_set::classify(&path, &lexed.header_comments),
             runtime_imports,
             tokens,

@@ -77,6 +77,7 @@ fn lines_in(source_set: SourceSet, text: &str) -> Result<FileModel, LowerError> 
         functions: Vec::new(),
         tokens: Vec::new(),
         flagged_lines: Vec::new(),
+        hazard_lines: Vec::new(),
         runtime_imports: Vec::new(),
         program_start: false,
     })

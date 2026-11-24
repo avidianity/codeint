@@ -52,6 +52,17 @@ impl Guest for HazardFactsMetricPlugin {
                 ),
             });
         }
+        for file in &model.files {
+            for hazard in &file.model.hazard_lines {
+                findings.push(Finding {
+                    id: format!("hazard:{}:{}:{}", file.path, hazard.line, hazard.rule),
+                    path: file.path.clone(),
+                    line: hazard.line,
+                    end_line: None,
+                    message: format!("hazard rule={}", hazard.rule),
+                });
+            }
+        }
         let numerator = enabled as f64;
         let denominator = model.languages.len() as f64;
         let ratio = if model.languages.is_empty() {

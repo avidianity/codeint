@@ -109,6 +109,7 @@ impl Guest for FolderImportLanguagePlugin {
             functions,
             tokens,
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports,
             program_start,
         })

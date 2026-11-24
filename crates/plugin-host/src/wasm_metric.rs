@@ -312,6 +312,14 @@ fn to_guest_file_model(model: &FileModel) -> guest_language::FileModel {
                 rule: flagged.rule.clone(),
             })
             .collect(),
+        hazard_lines: model
+            .hazard_lines
+            .iter()
+            .map(|hazard| guest_language::HazardLine {
+                line: hazard.line,
+                rule: hazard.rule.clone(),
+            })
+            .collect(),
         runtime_imports: model.runtime_imports.clone(),
         program_start: model.program_start,
     }

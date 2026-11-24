@@ -50,6 +50,7 @@ impl Guest for ProgramStartLanguagePlugin {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports,
             program_start,
         })

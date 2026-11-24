@@ -152,6 +152,7 @@ fn lower_script(path: &str, text: &str, source_type: SourceType) -> Result<FileM
         functions: functions(&parsed.program, &code_lines),
         tokens: tokens(text, &parsed.tokens, &parsed.program)?,
         flagged_lines: rules::flag(&parsed.program, &code, &code_lines)?,
+        hazard_lines: Vec::new(),
         runtime_imports: runtime_import_specifiers(&parsed.program),
         program_start: false,
     })
@@ -167,6 +168,7 @@ fn lower_sfc(path: &str, text: &str) -> Result<FileModel, LowerError> {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
         });
@@ -203,6 +205,7 @@ fn lower_sfc(path: &str, text: &str) -> Result<FileModel, LowerError> {
         functions: all_functions,
         tokens: all_tokens,
         flagged_lines: all_flagged,
+        hazard_lines: Vec::new(),
         runtime_imports: all_imports,
         program_start: false,
     })

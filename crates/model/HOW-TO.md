@@ -40,6 +40,7 @@ impl Guest for Plain {
             functions: Vec::new(),
             tokens,
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
         })
@@ -140,6 +141,10 @@ impl Guest for Plain {
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
+- `hazard_lines` lists each Hazard line as `HazardLine { line, rule }`, with `line` counted from 1 and `rule` a stable rule name listed by `hazard_rules`.
+  A `HazardLine` never holds source text.
+  A line that matches two rules appears once per rule.
+  Return an empty list when `has_hazard_rules` returns `false`; the five built-in Language plugins always return an empty list.
 - `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
 - `program_start` is `false` unless the source text marks the file as a program start, such as a Go `package main` file.
   The five built-in Language plugins always set `program_start` to `false`.

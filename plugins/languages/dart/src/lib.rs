@@ -67,6 +67,7 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
     Ok(FileModel {
         runtime_imports,
         flagged_lines,
+        hazard_lines: Vec::new(),
         tokens,
         functions,
         source_lines,

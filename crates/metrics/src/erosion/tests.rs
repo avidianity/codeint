@@ -18,6 +18,7 @@ fn model_with(functions: Vec<Function>) -> CodeModel {
                     line: 1,
                 }],
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
             },

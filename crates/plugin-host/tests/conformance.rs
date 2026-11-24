@@ -9,7 +9,9 @@ use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
-use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError};
+use codeint_model::{
+    HazardLine, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError,
+};
 use codeint_plugin_host::load_language_plugin;
 
 use common::{declaration_for, sample_plugin_wasm, sandbox_probe_wasm};
@@ -35,6 +37,35 @@ struct ConformanceFixture<'a> {
     expected_resolved_targets: &'a [&'a str],
 }
 
+fn assert_valid_hazard_lines(
+    label: &str,
+    file_kind: &str,
+    source: &str,
+    hazard_lines: &[HazardLine],
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) {
+    if !has_hazard_rules {
+        assert!(
+            hazard_lines.is_empty(),
+            "{label}: {file_kind} returned hazard_lines when has_hazard_rules is false: {hazard_lines:?}"
+        );
+    }
+    let source_line_count = source.lines().count();
+    for hazard in hazard_lines {
+        assert!(
+            hazard.line >= 1 && (hazard.line as usize) <= source_line_count,
+            "{label}: {file_kind} hazard line {} is outside 1..={source_line_count}",
+            hazard.line
+        );
+        assert!(
+            hazard_rules.iter().any(|rule| rule == &hazard.rule),
+            "{label}: {file_kind} hazard rule {:?} is not listed in hazard_rules ({hazard_rules:?})",
+            hazard.rule
+        );
+    }
+}
+
 fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceFixture<'_>) {
     let label = fixture.name;
 
@@ -47,6 +78,26 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         assert!(
             !extension.is_empty() && !extension.starts_with('.'),
             "{label}: invalid extension {extension:?}"
+        );
+    }
+
+    let has_hazard_rules = plugin.has_hazard_rules();
+    let hazard_rules = plugin.hazard_rules();
+    if has_hazard_rules {
+        assert!(
+            !hazard_rules.is_empty(),
+            "{label}: has_hazard_rules is true, so hazard_rules must not be empty"
+        );
+    } else {
+        assert!(
+            hazard_rules.is_empty(),
+            "{label}: has_hazard_rules is false, so hazard_rules must be empty"
+        );
+    }
+    for rule in &hazard_rules {
+        assert!(
+            !rule.is_empty(),
+            "{label}: hazard_rules must not contain empty rule names"
         );
     }
 
@@ -69,9 +120,18 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         empty.flagged_lines.is_empty(),
         "{label}: empty flagged_lines"
     );
+    assert!(empty.hazard_lines.is_empty(), "{label}: empty hazard_lines");
     assert!(
         empty.runtime_imports.is_empty(),
         "{label}: empty runtime_imports"
+    );
+    assert_valid_hazard_lines(
+        label,
+        "empty",
+        "",
+        &empty.hazard_lines,
+        has_hazard_rules,
+        &hazard_rules,
     );
 
     if let Some((decl_path, decl_source)) = fixture.declaration_only {
@@ -132,6 +192,14 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: invalid flagged line"
         );
     }
+    assert_valid_hazard_lines(
+        label,
+        "production",
+        fixture.production_source,
+        &prod.hazard_lines,
+        has_hazard_rules,
+        &hazard_rules,
+    );
 
     let crlf = plugin
         .lower(&prod_path, fixture.production_source_crlf)
@@ -141,6 +209,18 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         "{label}: CRLF source_lines"
     );
     assert_eq!(crlf.functions, prod.functions, "{label}: CRLF functions");
+    assert_eq!(
+        crlf.hazard_lines, prod.hazard_lines,
+        "{label}: CRLF hazard_lines"
+    );
+    assert_valid_hazard_lines(
+        label,
+        "production CRLF",
+        fixture.production_source_crlf,
+        &crlf.hazard_lines,
+        has_hazard_rules,
+        &hazard_rules,
+    );
 
     let test_model = plugin
         .lower(
@@ -159,6 +239,14 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: Language plugin must leave test function coverage absent"
         );
     }
+    assert_valid_hazard_lines(
+        label,
+        "test",
+        fixture.test_source,
+        &test_model.hazard_lines,
+        has_hazard_rules,
+        &hazard_rules,
+    );
 
     let repo_paths: Vec<RepoPath> = fixture
         .repository_paths
@@ -278,26 +366,6 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         ranges.for_metric("erosion").is_some(),
         "{label}: expected erosion reference range"
     );
-
-    let has_hazard_rules = plugin.has_hazard_rules();
-    let hazard_rules = plugin.hazard_rules();
-    if has_hazard_rules {
-        assert!(
-            !hazard_rules.is_empty(),
-            "{label}: has_hazard_rules is true, so hazard_rules must not be empty"
-        );
-    } else {
-        assert!(
-            hazard_rules.is_empty(),
-            "{label}: has_hazard_rules is false, so hazard_rules must be empty"
-        );
-    }
-    for rule in &hazard_rules {
-        assert!(
-            !rule.is_empty(),
-            "{label}: hazard_rules must not contain empty rule names"
-        );
-    }
 
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)

@@ -59,6 +59,7 @@ fn lower_rust(path: &str, text: &str) -> Result<FileModel, LowerError> {
         functions: functions(&parsed, &code_lines, exclude_cfg_test),
         tokens: tokens(text, &parsed, &excluded_lines, exclude_cfg_test)?,
         flagged_lines: rules::flag(&parsed, &code_lines, exclude_cfg_test),
+        hazard_lines: Vec::new(),
         runtime_imports: runtime_import_specifiers(&parsed, exclude_cfg_test),
         program_start: false,
     })
