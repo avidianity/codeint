@@ -4,6 +4,7 @@ use std::path::Path;
 
 use codeint_config::PluginHostConfig;
 use codeint_lang_dart::Dart;
+use codeint_lang_go::Go;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
@@ -39,6 +40,7 @@ struct ConformanceFixture<'a> {
     unparsable_source: &'a str,
     unsupported_path: &'a str,
     imports: Option<ImportConformanceFixture<'a>>,
+    expect_erosion_reference_range: bool,
 }
 
 fn assert_valid_hazard_lines(
@@ -450,10 +452,12 @@ fn assert_reference_ranges_and_concurrency(
     let ranges = plugin
         .reference_ranges()
         .unwrap_or_else(|error| panic!("{label}: reference_ranges failed: {error}"));
-    assert!(
-        ranges.for_metric("erosion").is_some(),
-        "{label}: expected erosion reference range"
-    );
+    if fixture.expect_erosion_reference_range {
+        assert!(
+            ranges.for_metric("erosion").is_some(),
+            "{label}: expected erosion reference range"
+        );
+    }
     let prod_path = RepoPath::new(fixture.production_path).unwrap();
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
@@ -513,6 +517,7 @@ fn built_in_typescript_javascript_plugin_passes_seam_2_conformance() {
             ],
             expected_resolved_targets: &["packages/app/src/helper.ts"],
         }),
+        expect_erosion_reference_range: true,
     };
 
     assert_seam_2_conformance(&TypeScriptAndJavaScript, &fixture);
@@ -554,6 +559,7 @@ fn sample_external_wasm_plugin_passes_seam_2_conformance() {
             ],
             expected_resolved_targets: &["packages/app/src/helper.mini"],
         }),
+        expect_erosion_reference_range: true,
     };
 
     assert_seam_2_conformance(&plugin, &fixture);
@@ -646,6 +652,7 @@ fn run_simple_conformance(
                 import_requests: workspace.5,
                 expected_resolved_targets: &[files.1],
             }),
+            expect_erosion_reference_range: true,
         },
     );
 }
@@ -696,6 +703,7 @@ fn built_in_php_plugin_passes_seam_2_conformance() {
             import_requests: &REQUESTS,
             expected_resolved_targets: &[REPO[3]],
         }),
+        expect_erosion_reference_range: true,
     };
     assert_seam_2_conformance(&Php, &fixture);
 }
@@ -742,6 +750,7 @@ fn built_in_dart_plugin_passes_seam_2_conformance() {
                 import_requests: &requests,
                 expected_resolved_targets: &[paths[3]],
             }),
+            expect_erosion_reference_range: true,
         },
     );
 }
@@ -786,8 +795,54 @@ fn built_in_python_plugin_passes_seam_2_conformance() {
         production_source: prod,
         production_path: "packages/app/src/app/main.py",
         name: "python",
+        expect_erosion_reference_range: true,
     };
     assert_seam_2_conformance(&Python, &fixture);
+}
+
+#[test]
+fn built_in_go_plugin_passes_seam_2_conformance() {
+    let prod = "package main\n\nimport (\n\t\"fmt\"\n\t\"example.com/app/helper\"\n)\n\n// comment\nfunc run(flag bool) int {\n\tif flag {\n\t\tfmt.Println(\"hi\")\n\t\treturn helper.Value()\n\t} else {\n\t\treturn 0\n\t}\n}\n";
+    let prod_crlf = prod.replace('\n', "\r\n");
+    let imports = ImportConformanceFixture {
+        expected_resolved_targets: &["services/app/helper/a.go", "services/app/helper/b.go"],
+        import_requests: &[
+            ("services/app/main.go", "example.com/app/helper"),
+            ("services/app/main.go", "fmt"),
+            ("services/app/main.go", "example.com/app/missing"),
+        ],
+        invalid_manifest_text: "not valid go.mod\n",
+        expected_workspace_package: "services/app",
+        valid_manifests: &[
+            ("go.mod", "module example.com/root\n\ngo 1.24\n"),
+            ("services/app/go.mod", "module example.com/app\n\ngo 1.24\n"),
+        ],
+        expected_manifest_path: "go.mod",
+        repository_paths: &[
+            "go.mod",
+            "services/app/go.mod",
+            "services/app/main.go",
+            "services/app/helper/a.go",
+            "services/app/helper/b.go",
+            "services/app/helper/a_test.go",
+        ],
+    };
+    let fixture = ConformanceFixture {
+        expect_erosion_reference_range: false,
+        name: "go",
+        imports: Some(imports),
+        unsupported_path: "scripts/tool.unknown",
+        declaration_only: None,
+        empty_path: "services/app/empty.go",
+        unparsable_path: "services/app/broken.go",
+        unparsable_source: "package main\n\nfunc broken() {\n\ts := \"unclosed\n}\n",
+        test_path: "services/app/main_test.go",
+        test_source: "package main\n\nfunc TestRun() int {\n\treturn 1\n}\n",
+        production_path: "services/app/main.go",
+        production_source: prod,
+        production_source_crlf: &prod_crlf,
+    };
+    assert_seam_2_conformance(&Go, &fixture);
 }
 
 fn load_external_plugin(name: &str, wasm_path: &Path) -> codeint_plugin_host::WasmLanguagePlugin {
@@ -826,6 +881,7 @@ fn assert_sandbox_probe_conformance(
             unparsable_source: "SYNTAX_ERROR\n",
             unsupported_path: "scripts/tool.unknown",
             imports,
+            expect_erosion_reference_range: true,
         },
     );
 }
