@@ -30,6 +30,8 @@ interface metric {
         has-coverage: bool,
         /// Whether this Language plugin defines Hazard line rules.
         has-hazard-rules: bool,
+        /// Whether this language has runtime imports, manifests, and entry points.
+        has-imports: bool,
     }
 
     /// The language-neutral Code model of one Source set that a Metric plugin reads.

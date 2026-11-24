@@ -107,6 +107,10 @@ impl Guest for MeasuredLanguage {
     fn hazard_rules() -> Vec<String> {
         Vec::new()
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }
 
 fn range(metric: &str, low: f64, high: f64, source: &str) -> ReferenceRange {
@@ -431,11 +435,13 @@ fn code_model_merge_sorts_languages_and_combines_language_facts() {
                 language: "typescript-javascript".to_owned(),
                 has_coverage: true,
                 has_hazard_rules: false,
+                has_imports: true,
             },
             LanguageFacts {
                 language: "rust".to_owned(),
                 has_coverage: false,
                 has_hazard_rules: true,
+                has_imports: false,
             },
         ],
         ..CodeModel::default()
@@ -446,16 +452,19 @@ fn code_model_merge_sorts_languages_and_combines_language_facts() {
                 language: "python".to_owned(),
                 has_coverage: false,
                 has_hazard_rules: false,
+                has_imports: false,
             },
             LanguageFacts {
                 language: "rust".to_owned(),
                 has_coverage: true,
                 has_hazard_rules: false,
+                has_imports: true,
             },
             LanguageFacts {
                 language: "typescript-javascript".to_owned(),
                 has_coverage: false,
                 has_hazard_rules: true,
+                has_imports: false,
             },
         ],
         ..CodeModel::default()
@@ -470,16 +479,19 @@ fn code_model_merge_sorts_languages_and_combines_language_facts() {
                 language: "python".to_owned(),
                 has_coverage: false,
                 has_hazard_rules: false,
+                has_imports: false,
             },
             LanguageFacts {
                 language: "rust".to_owned(),
                 has_coverage: true,
                 has_hazard_rules: true,
+                has_imports: true,
             },
             LanguageFacts {
                 language: "typescript-javascript".to_owned(),
                 has_coverage: true,
                 has_hazard_rules: true,
+                has_imports: true,
             },
         ]
     );
@@ -492,11 +504,13 @@ fn into_source_sets_preserves_language_facts_in_every_source_set() {
             language: "rust".to_owned(),
             has_coverage: true,
             has_hazard_rules: false,
+            has_imports: true,
         },
         LanguageFacts {
-            language: "typescript-javascript".to_owned(),
+            language: "sql".to_owned(),
             has_coverage: false,
             has_hazard_rules: true,
+            has_imports: false,
         },
     ];
     let model = CodeModel {
@@ -518,9 +532,10 @@ fn into_source_sets_preserves_language_facts_in_every_source_set() {
 }
 
 #[test]
-fn language_plugin_trait_forwards_hazard_rules_exports() {
+fn language_plugin_trait_forwards_hazard_rules_and_has_imports_exports() {
     let plugin: &dyn LanguagePlugin = &MeasuredLanguage;
 
     assert!(!plugin.has_hazard_rules());
     assert!(plugin.hazard_rules().is_empty());
+    assert!(plugin.has_imports());
 }

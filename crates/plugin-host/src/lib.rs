@@ -318,6 +318,10 @@ impl LanguagePlugin for WasmLanguagePlugin {
     fn hazard_rules(&self) -> Vec<String> {
         self.hazard_rules_impl()
     }
+
+    fn has_imports(&self) -> bool {
+        self.has_imports_impl()
+    }
 }
 
 impl MetricPlugin for WasmMetricPlugin {

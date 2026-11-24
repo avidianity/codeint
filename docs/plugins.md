@@ -81,20 +81,21 @@ export!(SampleMiniPlugin);
 
 ### Required functions
 
-Implement all ten functions on `Guest`:
+Implement all eleven functions on `Guest`:
 
 | Function | Responsibility |
 | -------- | -------------- |
 | `extensions() -> list<string>` | Return file extensions without a leading dot, such as `["mini"]`. |
 | `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `hazard-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
-| `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. |
-| `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
-| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(list<string>)` (one or more paths from `repository-paths`; an empty list is a Plugin error), `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
-| `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). |
-| `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. |
+| `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. Never called when `has-imports` returns `false`. |
+| `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. Never called when `has-imports` returns `false`. |
+| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(list<string>)` (one or more paths from `repository-paths`; an empty list is a Plugin error), `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. Never called when `has-imports` returns `false`. |
+| `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). Never called when `has-imports` returns `false`. |
+| `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. Never called when `has-imports` returns `false`. |
 | `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric. |
 | `has-hazard-rules() -> bool` | State whether this Language plugin defines Hazard line rules; when `false`, the Hazards Metric is absent for this language rather than `0`. |
 | `hazard-rules() -> list<string>` | Return the stable names of the Hazard line rules this Language plugin may emit; empty when `has-hazard-rules` returns `false`. |
+| `has-imports() -> bool` | State whether this language has runtime imports, manifests, and entry points; when `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`. |
 
 Follow these invariants in `lower`:
 
@@ -186,6 +187,7 @@ Rules for `function.coverage`:
 - `language`: the Language plugin name, such as `typescript-javascript` or `rust`.
 - `has-coverage`: whether at least one Coverage report covers at least one file of that language.
 - `has-hazard-rules`: whether that Language plugin defines Hazard line rules.
+- `has-imports`: whether that language has runtime imports, manifests, and entry points.
 
 Rules for `code-model.languages` and `has-coverage`:
 
@@ -212,6 +214,19 @@ Rules for `has-hazard-rules`, `hazard-rules`, `hazard-lines`, and `language-fact
 - The five built-in Language plugins return `false`, an empty `hazard-rules` list, and an empty `hazard-lines` list on every file.
 - When `has-hazard-rules` is `false`, the Hazards Metric is absent for that language rather than `0`.
 - A Metric plugin reads `has-hazard-rules` on each `language-facts` entry in `code-model.languages` and `hazard-lines` on each `source-file.model`.
+
+### Languages without imports
+
+A Language plugin exports `has-imports() -> bool` to state whether its language has runtime imports, manifests, and entry points.
+`code-model.languages` exposes each language's `has-imports` value to Metric plugins on `language-facts`.
+
+Rules for `has-imports` and `language-facts.has-imports`:
+
+- Return `true` when the language has runtime imports, manifests, or entry points.
+  The five built-in Language plugins (`typescript-javascript`, `rust`, `php`, `dart`, and `python`) all return `true`.
+- Return `false` when the language has no imports, such as SQL or a configuration language.
+- When `has-imports` returns `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points` on that Language plugin.
+- A Metric plugin reads `has-imports` on each `language-facts` entry in `code-model.languages` to tell whether a language has imports rather than treating empty `runtime-imports` as zero import issues.
 
 ### Multi-file resolved imports
 

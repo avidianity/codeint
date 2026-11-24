@@ -121,4 +121,8 @@ impl Guest for Rust {
     fn hazard_rules() -> Vec<String> {
         Vec::new()
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }

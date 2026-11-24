@@ -65,6 +65,10 @@ impl LanguagePlugin for Answering {
     fn hazard_rules(&self) -> Vec<String> {
         Vec::new()
     }
+
+    fn has_imports(&self) -> bool {
+        true
+    }
 }
 
 fn path(text: &str) -> RepoPath {
@@ -202,4 +206,81 @@ fn the_manifests_a_plugin_chooses_must_be_files_of_the_snapshot() {
         matches!(&missing, Err(ResolveError::UnknownManifest { path }) if path == "package.json"),
         "unexpected result: {missing:?}"
     );
+}
+
+#[test]
+fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
+    struct NoImportsPlugin;
+
+    impl LanguagePlugin for NoImportsPlugin {
+        fn extensions(&self) -> Vec<String> {
+            vec!["noimp".to_owned()]
+        }
+
+        fn lower(&self, _path: &RepoPath, _text: &str) -> Result<FileModel, LowerError> {
+            Err(LowerError::TooLarge)
+        }
+
+        fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
+            panic!("manifest_paths must not be called when has_imports is false");
+        }
+
+        fn workspace_packages(
+            &self,
+            _manifests: Vec<Manifest>,
+        ) -> Result<Vec<RepoPath>, WorkspaceError> {
+            panic!("workspace_packages must not be called when has_imports is false");
+        }
+
+        fn resolve_imports(
+            &self,
+            _repository_paths: &[RepoPath],
+            _manifests: Vec<Manifest>,
+            _requests: Vec<ImportRequest>,
+        ) -> Vec<Resolution> {
+            panic!("resolve_imports must not be called when has_imports is false");
+        }
+
+        fn declared_dependencies(
+            &self,
+            _manifests: Vec<Manifest>,
+        ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+            panic!("declared_dependencies must not be called when has_imports is false");
+        }
+
+        fn entry_points(
+            &self,
+            _repository_paths: &[RepoPath],
+            _manifests: Vec<Manifest>,
+        ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+            panic!("entry_points must not be called when has_imports is false");
+        }
+
+        fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+            ReferenceRanges::new(Vec::new())
+        }
+
+        fn has_hazard_rules(&self) -> bool {
+            false
+        }
+
+        fn hazard_rules(&self) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn has_imports(&self) -> bool {
+            false
+        }
+    }
+
+    let plugin = NoImportsPlugin;
+    let file = importer("a.noimp", &["./ignored"]);
+
+    let manifests =
+        choose_manifests(&plugin, &[path("a.noimp")]).expect("choose_manifests skips no-imports");
+    assert!(manifests.is_empty());
+
+    let resolved = resolve_runtime_imports(&plugin, &[path("a.noimp")], Vec::new(), &[&file])
+        .expect("resolve_runtime_imports skips no-imports");
+    assert!(resolved.is_empty());
 }

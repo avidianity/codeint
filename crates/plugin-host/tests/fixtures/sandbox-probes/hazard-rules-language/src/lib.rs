@@ -97,4 +97,8 @@ impl Guest for HazardRulesLanguagePlugin {
             "leading-wildcard-like".to_string(),
         ]
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }

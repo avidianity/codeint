@@ -110,6 +110,10 @@ impl Guest for TypeScriptAndJavaScript {
     fn hazard_rules() -> Vec<String> {
         Vec::new()
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }
 
 fn source_type(path: &str) -> Result<SourceType, LowerError> {

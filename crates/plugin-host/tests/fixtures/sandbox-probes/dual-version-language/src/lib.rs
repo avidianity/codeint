@@ -237,6 +237,7 @@ wit_bindgen::generate!({
                 reference-ranges: func() -> list<reference-range>;
                 has-hazard-rules: func() -> bool;
                 hazard-rules: func() -> list<string>;
+                has-imports: func() -> bool;
             }
         }
     ",
@@ -325,5 +326,9 @@ impl exports::codeint::plugin0_3_0::language::Guest for DualVersionLanguagePlugi
 
     fn hazard_rules() -> Vec<String> {
         vec![]
+    }
+
+    fn has_imports() -> bool {
+        true
     }
 }

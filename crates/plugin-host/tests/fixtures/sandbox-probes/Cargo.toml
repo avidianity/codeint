@@ -20,6 +20,8 @@ members = [
     "hazard-facts-metric",
     "folder-import-language",
     "imports-reader-metric",
+    "no-imports-language",
+    "import-capability-metric",
 ]
 
 [workspace.package]
