@@ -115,6 +115,8 @@ impl Guest for Plain {
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
 - Each `Function` has `line` and `end-line`, the lines where it starts and ends, counted from 1; `end-line` equals `line` for a function on one line.
   The core reads the tokens from `line` to `end-line` as the content of the function's Finding identity.
+  Each `Function` also carries `coverage: Option<FunctionCoverage>` with `listed_lines` and `executed_lines`.
+  A Language plugin always sets `coverage` to `None`; codeint fills coverage facts from Coverage reports before Metrics run.
 - `tokens` lists every token of the file in source order, each with its kind, the hash of its text, and the 1-based line on which it starts.
   Leave out whitespace and comments; the core finds Clone groups from this stream.
 - `kind` says whether a token is an identifier, a literal, another token, or a token of an import or export declaration.

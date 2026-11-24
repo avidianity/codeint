@@ -4,6 +4,14 @@ package codeint:plugin@0.3.0;
 
 /// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
 interface language {
+    /// Coverage counts for one function from Coverage reports.
+    record function-coverage {
+        /// The count of the function's lines listed by a Coverage report.
+        listed-lines: u32,
+        /// The count of those listed lines executed by tests.
+        executed-lines: u32,
+    }
+
     /// One function of a source file.
     /// A nested function is a function of its own and adds no decision points to the function around it.
     record function {
@@ -19,6 +27,9 @@ interface language {
         name: option<string>,
         /// The nesting-weighted cognitive complexity of the function, not counting nested functions.
         cognitive-complexity: u32,
+        /// Coverage counts for the function from Coverage reports; `none` when no Coverage report covers the function.
+        /// A Language plugin always returns `none`; codeint fills this in before Metrics run.
+        coverage: option<function-coverage>,
     }
 
     /// What a token is to clone detection, by the rules of the Language plugin.

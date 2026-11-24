@@ -11,6 +11,7 @@ members = [
     "legacy-v0-1-0-language",
     "legacy-v0-1-0-metric",
     "dual-version-language",
+    "coverage-reader-metric",
 ]
 
 [workspace.package]

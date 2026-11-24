@@ -334,6 +334,7 @@ fn push_function_header(
         source_lines: 0,
         name: name.clone(),
         cognitive_complexity: 0,
+        coverage: None,
     });
     stack.push(OpenFunction {
         slot,
@@ -390,6 +391,7 @@ fn update_function_stack(
             source_lines: finished.source_lines,
             name: finished.name,
             cognitive_complexity: finished.cognitive_complexity,
+            coverage: None,
         };
     }
     Ok(())

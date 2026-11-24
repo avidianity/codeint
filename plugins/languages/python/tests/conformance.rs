@@ -58,6 +58,7 @@ fn python_functions_decisions_and_source_sets() {
             source_lines: 10,
             name: Some("evaluate".to_owned()),
             cognitive_complexity: 5,
+            coverage: None,
         }
     );
     assert_eq!(model.functions[1].decision_points, 1);

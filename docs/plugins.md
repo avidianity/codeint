@@ -86,7 +86,7 @@ Implement all eight functions on `Guest`:
 | Function | Responsibility |
 | -------- | -------------- |
 | `extensions() -> list<string>` | Return file extensions without a leading dot, such as `["mini"]`. |
-| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name` and nesting-weighted `cognitive-complexity`), `tokens`, `flagged-lines`, and `runtime-imports`. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
+| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, and `runtime-imports`. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
 | `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. |
 | `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
 | `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(string)`, `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
@@ -97,6 +97,8 @@ Implement all eight functions on `Guest`:
 Follow these invariants in `lower`:
 
 - Keep `functions` sorted by start `line` (`line >= 1` and `line <= end-line`), with `name` set to `none` for anonymous lambdas or closures.
+- Always set `coverage` to `none` on every `function` that `lower` returns.
+  codeint fills in `coverage` from Coverage reports after Language plugins run and before Metrics run.
 - Keep `tokens` sorted by 1-based `line`, with 64-bit FNV-1a `text-hash` values of each token's UTF-8 text.
 - Produce identical `source-lines` and `functions` for LF and CRLF line endings.
 - Do not count nested functions' decision points, cognitive complexity, or source lines in their enclosing function.
@@ -157,6 +159,21 @@ The Plugin host enforces these rules at load and measurement time:
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
 - Compute each Finding `id` from file path and content (never from line numbers) so `codeint diff` tracks moved Findings as unchanged.
 - Order `findings` worst first.
+
+### Per-function coverage facts
+
+Each `function` in `file-model` carries `coverage: option<function-coverage>`, where `function-coverage` holds two counts from Coverage reports:
+
+- `listed-lines`: the count of the function's lines listed by a Coverage report.
+- `executed-lines`: the count of those listed lines executed by tests.
+
+Rules for `function.coverage`:
+
+- A Language plugin always returns `none`.
+- codeint fills in `coverage` after Language plugins run and before any Metric runs.
+- `none` means no Coverage report covers the function.
+- `some({ listed-lines, executed-lines: 0 })` means a Coverage report covers the function and tests executed 0 of its listed lines.
+  A Metric plugin can distinguish absent coverage (`none`) from 0 executed lines (`some` with `executed-lines == 0`).
 
 ### Compile the sample Metric plugin
 
@@ -260,7 +277,7 @@ The suite verifies:
 - `UnsupportedFile`, empty file, `DeclarationOnly`, and `Unparsable` handling in `lower`.
 - Production and Test Source set classification.
 - LF and CRLF equivalence for `source-lines` and `functions`.
-- Ordered `functions` and `tokens`, valid 1-based line spans, and non-empty Flagged line rules.
+- Ordered `functions` and `tokens`, valid 1-based line spans, absent `coverage` (`none`) on every function, and non-empty Flagged line rules.
 - `manifest-paths` returning only paths from `repository-paths`.
 - `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
 - `resolve-imports` returning one `Resolved`, `External`, `Builtin`, or `Unresolved` result per request in request order.

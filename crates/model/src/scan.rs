@@ -203,6 +203,7 @@ pub fn score_function_spans<T: ScanToken>(
                 source_lines: code_lines.range(start_line..=end_line).count() as u32,
                 name: None,
                 cognitive_complexity: 0,
+                coverage: None,
             }
         })
         .collect();

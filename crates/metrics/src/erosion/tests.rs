@@ -36,6 +36,7 @@ fn eroded_functions_preserve_name_line_range_and_cognitive_complexity() {
             source_lines: 18,
             name: Some("routeRequest".to_owned()),
             cognitive_complexity: 22,
+            coverage: None,
         },
         Function {
             line: 22,
@@ -44,6 +45,7 @@ fn eroded_functions_preserve_name_line_range_and_cognitive_complexity() {
             source_lines: 14,
             name: None,
             cognitive_complexity: 16,
+            coverage: None,
         },
     ]);
 

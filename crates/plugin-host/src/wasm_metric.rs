@@ -255,6 +255,12 @@ fn to_guest_file_model(model: &FileModel) -> guest_language::FileModel {
                 source_lines: function.source_lines,
                 name: function.name.clone(),
                 cognitive_complexity: function.cognitive_complexity,
+                coverage: function.coverage.as_ref().map(|coverage| {
+                    guest_language::FunctionCoverage {
+                        listed_lines: coverage.listed_lines,
+                        executed_lines: coverage.executed_lines,
+                    }
+                }),
             })
             .collect(),
         tokens: model

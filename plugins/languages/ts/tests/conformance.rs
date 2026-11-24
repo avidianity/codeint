@@ -343,6 +343,7 @@ fn named_function(
         source_lines,
         name: name.map(str::to_owned),
         cognitive_complexity,
+        coverage: None,
     }
 }
 

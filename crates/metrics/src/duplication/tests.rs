@@ -469,6 +469,7 @@ fn whole_function(line_count: usize) -> Vec<Function> {
         source_lines: u32::try_from(line_count).expect("few lines"),
         name: None,
         cognitive_complexity: 0,
+        coverage: None,
     }]
 }
 
@@ -639,6 +640,7 @@ fn three_near_clones_cluster_into_one_clone_family_with_stable_id_across_line_sh
         source_lines: u32::try_from(second.len()).expect("few lines"),
         name: None,
         cognitive_complexity: 0,
+        coverage: None,
     }];
     let shifted_run = Duplication::measure_with_near_clones(
         &model(vec![

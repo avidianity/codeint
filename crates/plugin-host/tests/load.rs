@@ -6,7 +6,9 @@ use std::sync::OnceLock;
 use codeint_config::{
     PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource, Sha256Digest,
 };
-use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
+use codeint_model::language::{
+    DeclaredDep, DepKind, Function, FunctionCoverage, ImportRequest, Resolution,
+};
 use codeint_model::{
     CodeModel, FileModel, LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin,
     MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
@@ -215,6 +217,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                         source_lines: 3,
                         name: Some("brief".to_owned()),
                         cognitive_complexity: 0,
+                        coverage: None,
                     },
                     Function {
                         line: 5,
@@ -223,6 +226,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                         source_lines: 14,
                         name: Some("verbose".to_owned()),
                         cognitive_complexity: 1,
+                        coverage: None,
                     },
                 ],
                 tokens: vec![Token {
@@ -590,8 +594,10 @@ fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
     assert_eq!(lowered.functions[0].name.as_deref(), Some("outer"));
     assert_eq!(lowered.functions[0].decision_points, 2);
     assert_eq!(lowered.functions[0].cognitive_complexity, 3);
+    assert_eq!(lowered.functions[0].coverage, None);
     assert_eq!(lowered.functions[1].name, None);
     assert_eq!(lowered.functions[1].cognitive_complexity, 0);
+    assert_eq!(lowered.functions[1].coverage, None);
 
     let repo_paths = vec![
         RepoPath::new("mini.workspace").expect("valid repo path"),
@@ -943,5 +949,127 @@ fn loads_dual_version_language_plugin_exporting_0_2_0_and_0_3_0() {
             name: "dual-dep".to_owned(),
             kind: DepKind::Runtime,
         }]
+    );
+}
+
+fn coverage_model_with(functions: Vec<Function>) -> CodeModel {
+    CodeModel {
+        files: vec![SourceFile {
+            path: RepoPath::new("src/work.ts").expect("valid repo path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 30,
+                functions,
+                tokens: Vec::new(),
+                flagged_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+            },
+        }],
+        ..CodeModel::default()
+    }
+}
+
+#[test]
+fn metric_plugin_reads_per_function_coverage_and_distinguishes_absent_from_zero_executed() {
+    let wasm_path = sandbox_probe_wasm("coverage_reader_metric_plugin.wasm");
+    let declaration = declaration_with_kind("coverage-reader", PluginKind::Metric, &wasm_path);
+    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("coverage reader Metric plugin loads");
+
+    assert_eq!(plugin.key(), "coverage_reader");
+
+    let absent_only = coverage_model_with(vec![Function {
+        line: 1,
+        end_line: 6,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("unreported".to_owned()),
+        cognitive_complexity: 1,
+        coverage: None,
+    }]);
+    let zero_only = coverage_model_with(vec![Function {
+        line: 1,
+        end_line: 6,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("unexecuted".to_owned()),
+        cognitive_complexity: 1,
+        coverage: Some(FunctionCoverage {
+            listed_lines: 5,
+            executed_lines: 0,
+        }),
+    }]);
+
+    let absent_measured = plugin
+        .measure(&absent_only)
+        .expect("measure absent coverage");
+    let zero_measured = plugin.measure(&zero_only).expect("measure zero executed");
+
+    assert!((absent_measured.ratio - 0.0).abs() < 1e-9);
+    assert!((absent_measured.numerator - 0.0).abs() < 1e-9);
+    assert!((absent_measured.denominator - 0.0).abs() < 1e-9);
+    assert_eq!(absent_measured.findings.len(), 1);
+    assert_eq!(absent_measured.findings[0].id, "absent:unreported");
+    assert_eq!(absent_measured.findings[0].message, "absent");
+
+    assert!((zero_measured.ratio - 1.0).abs() < 1e-9);
+    assert!((zero_measured.numerator - 5.0).abs() < 1e-9);
+    assert!((zero_measured.denominator - 5.0).abs() < 1e-9);
+    assert_eq!(zero_measured.findings.len(), 1);
+    assert_eq!(zero_measured.findings[0].id, "zero:unexecuted");
+    assert_eq!(zero_measured.findings[0].message, "listed=5 executed=0");
+
+    let mixed = coverage_model_with(vec![
+        Function {
+            line: 1,
+            end_line: 6,
+            decision_points: 1,
+            source_lines: 5,
+            name: Some("unreported".to_owned()),
+            cognitive_complexity: 1,
+            coverage: None,
+        },
+        Function {
+            line: 8,
+            end_line: 14,
+            decision_points: 2,
+            source_lines: 5,
+            name: Some("unexecuted".to_owned()),
+            cognitive_complexity: 2,
+            coverage: Some(FunctionCoverage {
+                listed_lines: 5,
+                executed_lines: 0,
+            }),
+        },
+        Function {
+            line: 16,
+            end_line: 22,
+            decision_points: 2,
+            source_lines: 5,
+            name: Some("partial".to_owned()),
+            cognitive_complexity: 2,
+            coverage: Some(FunctionCoverage {
+                listed_lines: 5,
+                executed_lines: 3,
+            }),
+        },
+    ]);
+
+    let mixed_measured = plugin.measure(&mixed).expect("measure mixed coverage");
+    assert!((mixed_measured.ratio - 0.7).abs() < 1e-9);
+    assert!((mixed_measured.numerator - 7.0).abs() < 1e-9);
+    assert!((mixed_measured.denominator - 10.0).abs() < 1e-9);
+    let summary: Vec<(&str, &str)> = mixed_measured
+        .findings
+        .iter()
+        .map(|finding| (finding.id.as_str(), finding.message.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("absent:unreported", "absent"),
+            ("zero:unexecuted", "listed=5 executed=0"),
+            ("covered:partial", "listed=5 executed=3"),
+        ]
     );
 }
