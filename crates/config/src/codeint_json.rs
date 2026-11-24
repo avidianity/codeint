@@ -30,6 +30,8 @@ pub const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
     "dev_in_production_dependencies",
 ];
 
+pub const TEST_GAP_METRIC_KEY: &str = "test_gap";
+
 mod shape;
 mod starter;
 #[cfg(test)]
@@ -113,6 +115,7 @@ pub struct Configuration {
     pub dependencies: DependenciesConfig,
     pub duplication: DuplicationConfig,
     pub entry_points: EntryPoints,
+    pub coverage_reports: Vec<String>,
     config_file: ConfigFileKind,
     effective: ConfigurationFile,
 }
@@ -210,11 +213,19 @@ impl Configuration {
         external_metric_keys: &[&str],
     ) -> Result<(), ConfigurationFileError> {
         for entry in overrides {
+            if entry.metric == TEST_GAP_METRIC_KEY {
+                if entry.source_set != SourceSet::Production {
+                    return Err(ConfigurationFileError::CliTestGapBudgetOutsideProduction {
+                        source_set: entry.source_set,
+                    });
+                }
+                continue;
+            }
             if !is_known_metric(&entry.metric, external_metric_keys) {
                 return Err(ConfigurationFileError::UnknownCliBudgetMetric {
                     source_set: entry.source_set,
                     metric: entry.metric.clone(),
-                    allowed: allowed_metric_keys(external_metric_keys),
+                    allowed: allowed_budget_metric_keys(entry.source_set, external_metric_keys),
                 });
             }
         }
@@ -226,6 +237,18 @@ impl Configuration {
         external_metric_keys: &[&str],
     ) -> Result<(), ConfigurationFileError> {
         for (source_set, metric_key, _) in &self.budgets.set {
+            if metric_key == TEST_GAP_METRIC_KEY {
+                if *source_set != SourceSet::Production {
+                    return Err(ConfigurationFileError::TestGapBudgetOutsideProduction {
+                        file: self.config_file,
+                        key: KeyPath::default()
+                            .child(KeySegment::Key("budgets".to_owned()))
+                            .child(KeySegment::Key(source_set.key().to_owned()))
+                            .child(KeySegment::Key(metric_key.clone())),
+                    });
+                }
+                continue;
+            }
             if !is_known_metric(metric_key, external_metric_keys) {
                 return Err(ConfigurationFileError::UnknownKey {
                     file: self.config_file,
@@ -233,7 +256,7 @@ impl Configuration {
                         .child(KeySegment::Key("budgets".to_owned()))
                         .child(KeySegment::Key(source_set.key().to_owned()))
                         .child(KeySegment::Key(metric_key.clone())),
-                    allowed: allowed_metric_keys(external_metric_keys),
+                    allowed: allowed_budget_metric_keys(*source_set, external_metric_keys),
                 });
             }
         }
@@ -251,6 +274,17 @@ fn validate_regression_limit_keys(
     external_metric_keys: &[&str],
 ) -> Result<(), ConfigurationFileError> {
     for (source_set, metric_key) in limits.metric_keys() {
+        if metric_key == TEST_GAP_METRIC_KEY {
+            let mut path =
+                KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
+            if let Some(source_set) = source_set {
+                path = path.child(KeySegment::Key(source_set.key().to_owned()));
+            }
+            return Err(ConfigurationFileError::TestGapRegressionLimit {
+                file: config_file,
+                key: path.child(KeySegment::Key(metric_key.to_owned())),
+            });
+        }
         let allowed_here = is_known_metric(metric_key, external_metric_keys)
             || (source_set.is_none() && DEPENDENCY_METRIC_KEYS.contains(&metric_key));
         if !allowed_here {
@@ -275,6 +309,15 @@ fn validate_regression_limit_keys(
         }
     }
     Ok(())
+}
+
+fn allowed_budget_metric_keys(source_set: SourceSet, external_metric_keys: &[&str]) -> Vec<String> {
+    let mut allowed = allowed_metric_keys(external_metric_keys);
+    if source_set == SourceSet::Production {
+        let insert_at = allowed.len() - external_metric_keys.len();
+        allowed.insert(insert_at, TEST_GAP_METRIC_KEY.to_owned());
+    }
+    allowed
 }
 
 fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
@@ -331,6 +374,11 @@ impl Budgets {
             .iter()
             .find(|(set, measured, _)| *set == source_set && measured == metric_key)
             .map(|(_, _, budget)| *budget)
+    }
+
+    pub fn production_test_gap(&self) -> Option<f64> {
+        self.budget_for_key(SourceSet::Production, TEST_GAP_METRIC_KEY)
+            .map(Budget::ratio)
     }
 
     pub fn dependency_budget(&self, metric_key: &str) -> Option<Budget> {
@@ -513,6 +561,11 @@ struct ConfigurationFile {
         description = "Globs of repository-relative paths treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points."
     )]
     entry_points: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap."
+    )]
+    coverage_reports: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -736,7 +789,7 @@ fn built_in_metric_pairs<T>(values: [T; 7]) -> impl Iterator<Item = (String, T)>
 struct SourceSetBudgets {
     #[serde(default)]
     #[schemars(description = "The Budgets of the Production Source set.")]
-    production: MetricBudgets,
+    production: ProductionMetricBudgets,
     #[serde(default)]
     #[schemars(description = "The Budgets of the Test Source set.")]
     test: MetricBudgets,
@@ -770,7 +823,30 @@ struct SourceSetBudgets {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+struct ProductionMetricBudgets {
+    #[serde(flatten)]
+    common: SharedMetricBudgets,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Test gap ratio, from 0 to 1. Applies to the Production Source set only."
+    )]
+    test_gap: Option<Budget>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    external: BTreeMap<String, Budget>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 struct MetricBudgets {
+    #[serde(flatten)]
+    common: SharedMetricBudgets,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    external: BTreeMap<String, Budget>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+struct SharedMetricBudgets {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
@@ -820,8 +896,6 @@ struct MetricBudgets {
         description = "The highest Orphan files ratio, from 0 to 1."
     )]
     orphan_files: Option<Budget>,
-    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
-    external: BTreeMap<String, Budget>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -1168,6 +1242,7 @@ fn parse_configuration_file(
     let Some(value) = raw else {
         return Ok(ConfigurationFile::default());
     };
+    reject_unsupported_test_gap_keys(value)?;
     let schema = schemars::schema_for!(ConfigurationFile);
     shape::check_shape(value, schema.as_value())?;
     serde_json::from_value(value.clone()).map_err(|source| ConfigurationFileError::NotJson {
@@ -1176,11 +1251,59 @@ fn parse_configuration_file(
     })
 }
 
+fn reject_unsupported_test_gap_keys(root: &Value) -> Result<(), ConfigurationFileError> {
+    let Some(root) = root.as_object() else {
+        return Ok(());
+    };
+    if let Some(budgets) = root.get("budgets").and_then(Value::as_object) {
+        for source_set in ["test", "generated", "vendored"] {
+            if budgets
+                .get(source_set)
+                .and_then(Value::as_object)
+                .is_some_and(|section| section.contains_key(TEST_GAP_METRIC_KEY))
+            {
+                return Err(ConfigurationFileError::TestGapBudgetOutsideProduction {
+                    file: ConfigFileKind::Json,
+                    key: KeyPath::default()
+                        .child(KeySegment::Key("budgets".to_owned()))
+                        .child(KeySegment::Key(source_set.to_owned()))
+                        .child(KeySegment::Key(TEST_GAP_METRIC_KEY.to_owned())),
+                });
+            }
+        }
+    }
+    if let Some(limits) = root.get("regression_limits").and_then(Value::as_object) {
+        let limits_key = KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
+        if limits.contains_key(TEST_GAP_METRIC_KEY) {
+            return Err(ConfigurationFileError::TestGapRegressionLimit {
+                file: ConfigFileKind::Json,
+                key: limits_key.child(KeySegment::Key(TEST_GAP_METRIC_KEY.to_owned())),
+            });
+        }
+        for source_set in ["production", "test", "generated", "vendored"] {
+            if limits
+                .get(source_set)
+                .and_then(Value::as_object)
+                .is_some_and(|section| section.contains_key(TEST_GAP_METRIC_KEY))
+            {
+                return Err(ConfigurationFileError::TestGapRegressionLimit {
+                    file: ConfigFileKind::Json,
+                    key: limits_key
+                        .child(KeySegment::Key(source_set.to_owned()))
+                        .child(KeySegment::Key(TEST_GAP_METRIC_KEY.to_owned())),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 struct ParsedFeatureSections {
     boundaries: Option<Boundaries>,
     dependencies: DependenciesConfig,
     duplication: DuplicationConfig,
     entry_points: EntryPoints,
+    coverage_reports: Vec<String>,
 }
 
 fn parse_feature_sections(
@@ -1189,6 +1312,7 @@ fn parse_feature_sections(
     dependencies_file: DependenciesFile,
     duplication_file: DuplicationConfigFile,
     entry_points_globs: &[String],
+    coverage_report_paths: &[String],
     settings: &mut Vec<ResolvedSetting>,
 ) -> Result<ParsedFeatureSections, ConfigurationFileError> {
     let boundaries = boundaries_file.map(Boundaries::from_file).transpose()?;
@@ -1198,12 +1322,15 @@ fn parse_feature_sections(
     let duplication = duplication_config(duplication_file)?;
     append_duplication_settings(raw, duplication, settings);
     let entry_points = entry_points(entry_points_globs)?;
-    append_entry_points_setting(raw, entry_points_globs, settings);
+    append_string_list_setting(raw, "entry_points", entry_points_globs, settings);
+    let coverage_reports = coverage_reports(coverage_report_paths)?;
+    append_string_list_setting(raw, "coverage_reports", &coverage_reports, settings);
     Ok(ParsedFeatureSections {
         boundaries,
         dependencies,
         duplication,
         entry_points,
+        coverage_reports,
     })
 }
 
@@ -1237,6 +1364,7 @@ fn parse_value_with_overrides(
         file.dependencies,
         file.duplication,
         &effective.entry_points,
+        &effective.coverage_reports,
         &mut settings,
     )?;
     let configuration = Configuration {
@@ -1252,6 +1380,7 @@ fn parse_value_with_overrides(
         dependencies: features.dependencies,
         duplication: features.duplication,
         entry_points: features.entry_points,
+        coverage_reports: features.coverage_reports,
     };
     Ok(ResolvedConfiguration {
         config_file,
@@ -1285,17 +1414,60 @@ fn entry_points(globs: &[String]) -> Result<EntryPoints, ConfigurationFileError>
     })
 }
 
-fn append_entry_points_setting(
+fn append_string_list_setting(
     raw: Option<&Value>,
+    key: &str,
     entries: &[String],
     settings: &mut Vec<ResolvedSetting>,
 ) {
-    let source = if has_json_path(raw, &["entry_points"]) {
+    let source = if has_json_path(raw, &[key]) {
         ConfigProvenance::File
     } else {
         ConfigProvenance::Default
     };
-    push_setting(settings, "entry_points", json!(entries), source);
+    push_setting(settings, key, json!(entries), source);
+}
+
+fn coverage_reports(reports: &[String]) -> Result<Vec<String>, ConfigurationFileError> {
+    let reports_key = KeyPath::default().child(KeySegment::Key("coverage_reports".to_owned()));
+    let mut validated = Vec::with_capacity(reports.len());
+    for (index, entry) in reports.iter().enumerate() {
+        let entry_key = reports_key.child(KeySegment::Index(index));
+        if entry.trim().is_empty() {
+            return Err(ConfigurationFileError::EmptyCoverageReportPath {
+                file: ConfigFileKind::Json,
+                key: entry_key,
+            });
+        }
+        if is_absolute_coverage_report_path(entry) {
+            return Err(ConfigurationFileError::AbsoluteCoverageReportPath {
+                file: ConfigFileKind::Json,
+                key: entry_key,
+                path: entry.clone(),
+            });
+        }
+        if contains_parent_traversal(entry) {
+            return Err(ConfigurationFileError::ParentTraversalCoverageReportPath {
+                file: ConfigFileKind::Json,
+                key: entry_key,
+                path: entry.clone(),
+            });
+        }
+        validated.push(entry.clone());
+    }
+    Ok(validated)
+}
+
+fn is_absolute_coverage_report_path(path: &str) -> bool {
+    if Path::new(path).is_absolute() || path.starts_with('/') || path.starts_with('\\') {
+        return true;
+    }
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+fn contains_parent_traversal(path: &str) -> bool {
+    path.split(['/', '\\']).any(|segment| segment == "..")
 }
 
 fn duplication_config(
@@ -1690,20 +1862,17 @@ fn append_boundaries_settings(
 
 impl SourceSetBudgets {
     fn set(&mut self, source_set: SourceSet, metric: &str, budget: Budget) {
-        let slots = [
-            (SourceSet::Production, &mut self.production),
-            (SourceSet::Test, &mut self.test),
-            (SourceSet::Generated, &mut self.generated),
-            (SourceSet::Vendored, &mut self.vendored),
-        ];
-        if let Some((_, target)) = slots.into_iter().find(|(set, _)| *set == source_set) {
-            target.set(metric, budget);
+        match source_set {
+            SourceSet::Production => self.production.set(metric, budget),
+            SourceSet::Test => self.test.set(metric, budget),
+            SourceSet::Generated => self.generated.set(metric, budget),
+            SourceSet::Vendored => self.vendored.set(metric, budget),
         }
     }
 }
 
-impl MetricBudgets {
-    fn set(&mut self, metric: &str, budget: Budget) {
+impl SharedMetricBudgets {
+    fn set_known(&mut self, metric: &str, budget: Budget) -> bool {
         match metric {
             "erosion" => self.erosion = Some(budget),
             "cognitive_complexity" => self.cognitive_complexity = Some(budget),
@@ -1712,9 +1881,51 @@ impl MetricBudgets {
             "import_cycles" => self.import_cycles = Some(budget),
             "boundaries" => self.boundaries = Some(budget),
             "orphan_files" => self.orphan_files = Some(budget),
-            other => {
-                self.external.insert(other.to_owned(), budget);
-            }
+            _ => return false,
+        }
+        true
+    }
+
+    fn into_pairs(self) -> impl Iterator<Item = (String, Budget)> {
+        let SharedMetricBudgets {
+            erosion,
+            cognitive_complexity,
+            duplication,
+            verbosity,
+            import_cycles,
+            boundaries,
+            orphan_files,
+        } = self;
+        built_in_metric_pairs([
+            erosion,
+            cognitive_complexity,
+            duplication,
+            verbosity,
+            import_cycles,
+            boundaries,
+            orphan_files,
+        ])
+        .filter_map(|(metric, ratio)| Some((metric, ratio?)))
+    }
+}
+
+impl ProductionMetricBudgets {
+    fn set(&mut self, metric: &str, budget: Budget) {
+        if self.common.set_known(metric, budget) {
+            return;
+        }
+        if metric == TEST_GAP_METRIC_KEY {
+            self.test_gap = Some(budget);
+        } else {
+            self.external.insert(metric.to_owned(), budget);
+        }
+    }
+}
+
+impl MetricBudgets {
+    fn set(&mut self, metric: &str, budget: Budget) {
+        if !self.common.set_known(metric, budget) {
+            self.external.insert(metric.to_owned(), budget);
         }
     }
 }
@@ -1892,41 +2103,30 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
     .into_iter()
     .filter_map(|(metric, ratio)| Some((metric, ratio?)))
     .collect();
-    let set = [
-        (SourceSet::Production, production),
+    let production_entries = production
+        .common
+        .into_pairs()
+        .chain(
+            production
+                .test_gap
+                .map(|ratio| (TEST_GAP_METRIC_KEY.to_owned(), ratio)),
+        )
+        .chain(production.external)
+        .map(|(metric, ratio)| (SourceSet::Production, metric, ratio));
+    let other_entries = [
         (SourceSet::Test, test),
         (SourceSet::Generated, generated),
         (SourceSet::Vendored, vendored),
     ]
     .into_iter()
     .flat_map(|(source_set, metric_budgets)| {
-        let MetricBudgets {
-            erosion,
-            cognitive_complexity,
-            duplication,
-            verbosity,
-            import_cycles,
-            boundaries,
-            orphan_files,
-            external,
-        } = metric_budgets;
-        built_in_metric_pairs([
-            erosion,
-            cognitive_complexity,
-            duplication,
-            verbosity,
-            import_cycles,
-            boundaries,
-            orphan_files,
-        ])
-        .filter_map(move |(metric, ratio)| Some((source_set, metric, ratio?)))
-        .chain(
-            external
-                .into_iter()
-                .map(move |(metric, ratio)| (source_set, metric, ratio)),
-        )
-    })
-    .collect();
+        metric_budgets
+            .common
+            .into_pairs()
+            .chain(metric_budgets.external)
+            .map(move |(metric, ratio)| (source_set, metric, ratio))
+    });
+    let set = production_entries.chain(other_entries).collect();
     Budgets {
         set,
         dependency_set,
