@@ -4,8 +4,8 @@ use codeint_config::{
     Budgets, FindingsShown, NewFindingsRule, RegressionLimit, RegressionLimits, ReportFormat,
 };
 use codeint_metrics::{
-    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, UNLISTED_DEPENDENCIES_METRIC_KEY,
-    UNUSED_DEPENDENCIES_METRIC_KEY,
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, HAZARDS_METRIC_KEY,
+    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
 };
 use codeint_model::{Metric, SourceSet};
 
@@ -20,9 +20,10 @@ use crate::sarif::{ListedDependencies, ListedExternalMetric, ListedFindings, Sar
 use crate::{
     BoundaryFindingRow, BudgetFailure, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding,
     CloneGroupFinding, CognitiveComplexityFinding, Decimal, ErodedFunctionFinding,
-    ExternalMetricFinding, Findings, FlaggedLineRow, ImportCycleFinding, ImportedDependencyRow,
-    OrphanFileRow, PerSourceSet, ReportError, TEST_GAP_DIFF_NOTE, UnusedDependencyRow,
-    clustered_clone_group_ids, dependency_over_budget, unlisted_clone_family_group_ids,
+    ExternalMetricFinding, Findings, FlaggedLineRow, HazardLineRow, ImportCycleFinding,
+    ImportedDependencyRow, OrphanFileRow, PerSourceSet, ReportError, TEST_GAP_DIFF_NOTE,
+    UnusedDependencyRow, clustered_clone_group_ids, dependency_over_budget,
+    unlisted_clone_family_group_ids,
 };
 
 mod markdown;
@@ -113,6 +114,8 @@ struct SourceSetChanges {
     boundaries: Option<MetricChanges<BoundaryFindingRow>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     orphan_files: Option<MetricChanges<OrphanFileRow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hazards: Option<MetricChanges<HazardLineRow>>,
     #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricChanges>,
 }
@@ -319,6 +322,10 @@ impl DiffReport {
                             .as_ref()
                             .map_or(&[], |orphans| orphans.new.listed.as_slice()),
                         test_gap: &[],
+                        hazards: changes
+                            .hazards
+                            .as_ref()
+                            .map_or(&[], |hazards| hazards.new.listed.as_slice()),
                         external_metrics: changes
                             .external_metrics
                             .iter()
@@ -568,6 +575,12 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                     .map(move |orphans| (source_set, "orphan_files", orphans.head_ratio.0)),
             )
             .chain(
+                changes
+                    .hazards
+                    .iter()
+                    .map(move |hazards| (source_set, HAZARDS_METRIC_KEY, hazards.head_ratio.0)),
+            )
+            .chain(
                 changes.external_metrics.iter().map(move |(key, metric)| {
                     (source_set, key.as_str(), metric.changes.head_ratio.0)
                 }),
@@ -610,6 +623,9 @@ impl SourceSetChanges {
         }
         if let Some(orphan_files) = &self.orphan_files {
             found.extend(orphan_files.regressions(source_set, "orphan_files", limits));
+        }
+        if let Some(hazards) = &self.hazards {
+            found.extend(hazards.regressions(source_set, HAZARDS_METRIC_KEY, limits));
         }
         for (key, external) in &self.external_metrics {
             found.extend(external.changes.regressions(source_set, key, limits));
@@ -834,7 +850,7 @@ impl std::fmt::Display for Regression {
     }
 }
 
-const NUMERATOR_KEYS: [(&str, &str); 10] = [
+const NUMERATOR_KEYS: [(&str, &str); 11] = [
     ("erosion", "eroded_function_mass"),
     ("cognitive_complexity", "complex_cognitive_complexity"),
     ("duplication", "clone_lines"),
@@ -842,6 +858,7 @@ const NUMERATOR_KEYS: [(&str, &str); 10] = [
     ("import_cycles", "modules_in_import_cycles"),
     ("boundaries", "boundary_findings"),
     ("orphan_files", "orphan_files"),
+    ("hazards", "hazard_lines"),
     ("unused_dependencies", "unused"),
     ("unlisted_dependencies", "unlisted"),
     ("dev_in_production_dependencies", "dev_in_production"),
@@ -916,33 +933,10 @@ fn source_set_changes(
             },
         );
     }
-    let import_cycles = match (base.import_cycles, head.import_cycles) {
-        (None, None) => None,
-        (base_cycles, head_cycles) => Some(classify(
-            base_cycles.unwrap_or_default(),
-            head_cycles.unwrap_or_default(),
-            shown,
-            ownership,
-        )),
-    };
-    let boundaries = match (base.boundaries, head.boundaries) {
-        (None, None) => None,
-        (base_boundaries, head_boundaries) => Some(classify(
-            base_boundaries.unwrap_or_default(),
-            head_boundaries.unwrap_or_default(),
-            shown,
-            ownership,
-        )),
-    };
-    let orphan_files = match (base.orphan_files, head.orphan_files) {
-        (None, None) => None,
-        (base_orphans, head_orphans) => Some(classify(
-            base_orphans.unwrap_or_default(),
-            head_orphans.unwrap_or_default(),
-            shown,
-            ownership,
-        )),
-    };
+    let import_cycles = classify_optional(base.import_cycles, head.import_cycles, shown, ownership);
+    let boundaries = classify_optional(base.boundaries, head.boundaries, shown, ownership);
+    let orphan_files = classify_optional(base.orphan_files, head.orphan_files, shown, ownership);
+    let hazards = classify_optional(base.hazards, head.hazards, shown, ownership);
     let duplication_groups = classify(base.duplication, head.duplication, shown, ownership);
     let base_families = ownership.apply(base.clone_families);
     let head_families = ownership.apply(head.clone_families);
@@ -982,7 +976,25 @@ fn source_set_changes(
         import_cycles,
         boundaries,
         orphan_files,
+        hazards,
         external_metrics,
+    }
+}
+
+fn classify_optional<T: Identified + OwnedFinding>(
+    base: Option<MetricMeasurement<T>>,
+    head: Option<MetricMeasurement<T>>,
+    shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
+) -> Option<MetricChanges<T>> {
+    match (base, head) {
+        (None, None) => None,
+        (base_metric, head_metric) => Some(classify(
+            base_metric.unwrap_or_default(),
+            head_metric.unwrap_or_default(),
+            shown,
+            ownership,
+        )),
     }
 }
 
@@ -1047,6 +1059,12 @@ impl Identified for ImportedDependencyRow {
 }
 
 impl Identified for OrphanFileRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for HazardLineRow {
     fn id(&self) -> &str {
         &self.id
     }

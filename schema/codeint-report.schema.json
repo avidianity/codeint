@@ -58,6 +58,20 @@
         }
       }
     },
+    "rejected_statements": {
+      "type": "array",
+      "description": "Statements that a Language plugin's parser could not parse; they still count in token Metrics and receive no statement rules.",
+      "items": {
+        "$ref": "#/$defs/RejectedStatementEntry"
+      }
+    },
+    "sql_schemas": {
+      "type": "array",
+      "description": "Table counts of each SQL schema built per Workspace package (or repository root) and Dialect.",
+      "items": {
+        "$ref": "#/$defs/SqlSchemaSummary"
+      }
+    },
     "declaration_only": {
       "type": "array",
       "items": {
@@ -169,6 +183,9 @@
         "test_gap": {
           "$ref": "#/$defs/TestGapSection"
         },
+        "hazards": {
+          "$ref": "#/$defs/HazardsSection"
+        },
         "packages": {
           "type": "array",
           "items": {
@@ -215,6 +232,9 @@
           "type": "object"
         },
         "test_gap": false,
+        "hazards": {
+          "$ref": "#/$defs/HazardsSection"
+        },
         "packages": {
           "type": "array",
           "items": {
@@ -350,6 +370,9 @@
         },
         "test_gap": {
           "$ref": "#/$defs/PackageTestGap"
+        },
+        "hazards": {
+          "$ref": "#/$defs/PackageHazards"
         }
       },
       "additionalProperties": false
@@ -373,6 +396,138 @@
         },
         "total_function_mass": {
           "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "HazardsSection": {
+      "type": "object",
+      "description": "Hazards for this Source set; omitted when no measured language has Hazard line rules.",
+      "required": [
+        "ratio",
+        "hazard_lines",
+        "source_lines",
+        "findings"
+      ],
+      "properties": {
+        "ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "hazard_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HazardLineFinding"
+          }
+        },
+        "findings_left_out": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "HazardLineFinding": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "line",
+        "rule"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rule": {
+          "type": "string"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PackageHazards": {
+      "type": "object",
+      "required": [
+        "ratio",
+        "hazard_lines",
+        "source_lines"
+      ],
+      "properties": {
+        "ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "hazard_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_lines": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RejectedStatementEntry": {
+      "type": "object",
+      "required": [
+        "path",
+        "line",
+        "dialect"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dialect": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SqlSchemaSummary": {
+      "type": "object",
+      "required": [
+        "dialect",
+        "tables"
+      ],
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "dialect": {
+          "type": "string"
+        },
+        "tables": {
+          "type": "integer",
           "minimum": 0
         }
       },

@@ -3,7 +3,7 @@ use codeint_model::SourceSet;
 use super::{ListedFindings, SarifLog, relative_uri};
 use crate::{
     CloneFamilyFinding, CloneGroupFinding, CloneLocation, CognitiveComplexityFinding, Decimal,
-    ErodedFunctionFinding, FlaggedLineRow, ImportCycleFinding,
+    ErodedFunctionFinding, FlaggedLineRow, HazardLineRow, ImportCycleFinding,
 };
 
 fn empty_listed_findings<'a>() -> ListedFindings<'a> {
@@ -18,6 +18,7 @@ fn empty_listed_findings<'a>() -> ListedFindings<'a> {
         boundaries: &[],
         orphan_files: &[],
         test_gap: &[],
+        hazards: &[],
         external_metrics: Vec::new(),
     }
 }
@@ -456,4 +457,60 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
             .expect("saved diff toon"),
         diff.render(ReportFormat::Toon).expect("direct diff toon")
     );
+}
+
+#[test]
+fn sarif_emits_hazard_rules_by_rule_name_and_never_includes_source_text() {
+    let hazards = [
+        HazardLineRow {
+            id: "aaaa000000000001".to_owned(),
+            path: "db/query.sql".to_owned(),
+            line: 7,
+            rule: "select-star".to_owned(),
+            owners: Vec::new(),
+        },
+        HazardLineRow {
+            id: "bbbb000000000002".to_owned(),
+            path: "db/query.sql".to_owned(),
+            line: 12,
+            rule: "plain-text-secret".to_owned(),
+            owners: Vec::new(),
+        },
+    ];
+    let listed = ListedFindings {
+        hazards: &hazards,
+        ..empty_listed_findings()
+    };
+
+    let log = serde_json::to_value(SarifLog::listing(
+        std::iter::once((SourceSet::Production, listed)),
+        super::ListedDependencies::EMPTY,
+    ))
+    .expect("SARIF serializes");
+
+    let rules = log["runs"][0]["tool"]["driver"]["rules"]
+        .as_array()
+        .expect("rules");
+    let results = log["runs"][0]["results"].as_array().expect("results");
+    assert_eq!(results.len(), 2);
+    for (result, (expected_rule, expected_line, expected_id)) in results.iter().zip([
+        ("select-star", 7u64, "aaaa000000000001"),
+        ("plain-text-secret", 12u64, "bbbb000000000002"),
+    ]) {
+        assert_eq!(result["ruleId"], expected_rule);
+        let idx = result["ruleIndex"].as_u64().expect("ruleIndex") as usize;
+        assert_eq!(rules[idx]["id"], expected_rule);
+        assert_eq!(
+            rules[idx]["shortDescription"]["text"],
+            format!("Hazard line matched rule {expected_rule}.")
+        );
+        assert_eq!(
+            result["locations"][0]["physicalLocation"]["region"]["startLine"],
+            expected_line
+        );
+        assert_eq!(
+            result["partialFingerprints"]["codeintFindingId"],
+            expected_id
+        );
+    }
 }

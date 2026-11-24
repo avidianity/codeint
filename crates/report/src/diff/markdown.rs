@@ -5,12 +5,12 @@ use crate::Findings;
 use crate::markdown::{
     BOUNDARY_FINDING_COLUMNS, CLONE_FAMILY, CLONE_GROUP, COMPLEX_FUNCTION,
     COMPLEX_FUNCTION_COLUMNS, ERODED_FUNCTION, ERODED_FUNCTION_COLUMNS, EXTERNAL_FINDING_COLUMNS,
-    FINDING, FLAGGED_LINE, FLAGGED_LINE_COLUMNS, IMPORT_CYCLE, IMPORTED_DEPENDENCY_COLUMNS, Noun,
-    ORPHAN_FILE, ORPHAN_FILE_COLUMNS, UNUSED_DEPENDENCY_COLUMNS, boundary_finding_row,
-    clone_family_item, clone_group_item, code, complex_function_row, eroded_function_row,
-    external_finding_row, findings_table, flagged_line_row, import_cycle_item,
-    imported_dependency_row, list, orphan_file_row, prose, push_findings, sentence_item, table,
-    unused_dependency_row,
+    FINDING, FLAGGED_LINE, FLAGGED_LINE_COLUMNS, HAZARD_LINE, HAZARD_LINE_COLUMNS, IMPORT_CYCLE,
+    IMPORTED_DEPENDENCY_COLUMNS, Noun, ORPHAN_FILE, ORPHAN_FILE_COLUMNS, UNUSED_DEPENDENCY_COLUMNS,
+    boundary_finding_row, clone_family_item, clone_group_item, code, complex_function_row,
+    eroded_function_row, external_finding_row, findings_table, flagged_line_row, hazard_line_row,
+    import_cycle_item, imported_dependency_row, list, orphan_file_row, prose, push_findings,
+    sentence_item, table, unused_dependency_row,
 };
 
 const TITLE: &str = "# codeint diff";
@@ -106,6 +106,9 @@ fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>>
     if let Some(orphan_files) = &changes.orphan_files {
         rows.push(metric_row(source_set, "Orphan files", orphan_files));
     }
+    if let Some(hazards) = &changes.hazards {
+        rows.push(metric_row(source_set, "Hazards", hazards));
+    }
     for external in changes.external_metrics.values() {
         rows.push(metric_row(source_set, &external.name, &external.changes));
     }
@@ -196,6 +199,11 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
             &ORPHAN_FILE,
             |listed| findings_table(&ORPHAN_FILE_COLUMNS, listed, orphan_file_row),
         );
+    }
+    if let Some(hazards) = &changes.hazards {
+        push_changes(&mut blocks, "Hazards", hazards, &HAZARD_LINE, |listed| {
+            findings_table(&HAZARD_LINE_COLUMNS, listed, hazard_line_row)
+        });
     }
     for external in changes.external_metrics.values() {
         push_changes(
