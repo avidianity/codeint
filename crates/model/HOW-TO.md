@@ -85,7 +85,7 @@ impl Guest for Plain {
 }
 ```
 
-- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.2.0`.
+- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.3.0`.
 - `codeint_model::language` holds the Rust types that wit-bindgen generates from that file.
   Never write a second Rust copy of a WIT type.
 - A built-in Language plugin implements the generated `Guest` trait, so it compiles against the same interface as an external WebAssembly Plugin.

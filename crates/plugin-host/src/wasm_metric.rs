@@ -13,7 +13,7 @@ use crate::wasm::{ContractSpec, InstancePool, instantiate_sandboxed_component, m
 
 const METRIC_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/metric@",
-    expected_interface: "codeint:plugin/metric@0.2.0",
+    expected_interface: "codeint:plugin/metric@0.3.0",
 };
 
 mod bindings {

@@ -12,8 +12,9 @@ use codeint_model::{
     MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
 };
 use codeint_plugin_host::{
-    PluginHostError, WasmLanguagePlugin, load_language_plugin, load_language_plugin_with_limits,
-    load_language_plugins, load_metric_plugin, load_metric_plugin_with_limits, load_metric_plugins,
+    PLUGIN_INTERFACE_VERSION, PluginHostError, WasmLanguagePlugin, load_language_plugin,
+    load_language_plugin_with_limits, load_language_plugins, load_metric_plugin,
+    load_metric_plugin_with_limits, load_metric_plugins,
 };
 
 use common::{build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm};
@@ -572,11 +573,12 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
 }
 
 #[test]
-fn verifies_0_2_0_contract_fields_and_methods_across_wasm_boundary() {
+fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
+    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.3.0");
     let wasm_path = sample_plugin_wasm();
     let declaration = declaration_for("sample-mini", wasm_path);
     let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
-        .expect("0.2.0 sample plugin loads");
+        .expect("0.3.0 sample plugin loads");
 
     let lowered = plugin
         .lower(
@@ -698,12 +700,12 @@ fn rejects_v0_1_0_language_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Language plugin must be rejected by 0.2.0 host");
+        .expect("0.1.0 Language plugin must be rejected by 0.3.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-lang",
-        "codeint:plugin/language@0.2.0",
+        "codeint:plugin/language@0.3.0",
         "codeint:plugin/language@0.1.0",
     );
 }
@@ -715,12 +717,12 @@ fn rejects_v0_1_0_metric_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Metric plugin must be rejected by 0.2.0 host");
+        .expect("0.1.0 Metric plugin must be rejected by 0.3.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-metric",
-        "codeint:plugin/metric@0.2.0",
+        "codeint:plugin/metric@0.3.0",
         "codeint:plugin/metric@0.1.0",
     );
 }
@@ -918,7 +920,7 @@ fn rejects_invalid_entry_points_and_declared_dependencies_from_wasm_plugin() {
 }
 
 #[test]
-fn loads_dual_version_language_plugin_exporting_0_1_0_and_0_2_0() {
+fn loads_dual_version_language_plugin_exporting_0_2_0_and_0_3_0() {
     let plugin = load_probe(
         "dual-lang",
         "dual_version_language_plugin.wasm",

@@ -10,20 +10,22 @@ use alloc::vec::Vec;
 wit_bindgen::generate!({
     world: "dual-language-plugin",
     inline: "
-        package codeint:dual@0.2.0;
+        package codeint:dual@0.3.0;
 
         world dual-language-plugin {
-            export codeint:plugin/language@0.1.0;
             export codeint:plugin/language@0.2.0;
+            export codeint:plugin/language@0.3.0;
         }
 
-        package codeint:plugin@0.1.0 {
+        package codeint:plugin@0.2.0 {
             interface language {
                 record function {
                     line: u32,
                     end-line: u32,
                     decision-points: u32,
                     source-lines: u32,
+                    name: option<string>,
+                    cognitive-complexity: u32,
                 }
 
                 enum token-kind {
@@ -67,8 +69,21 @@ wit_bindgen::generate!({
 
                 variant resolution {
                     resolved(string),
-                    external,
+                    external(string),
+                    builtin,
                     unresolved(string),
+                }
+
+                enum dep-kind {
+                    runtime,
+                    dev,
+                    optional,
+                }
+
+                record declared-dep {
+                    package-root: string,
+                    name: string,
+                    kind: dep-kind,
                 }
 
                 variant lower-error {
@@ -100,11 +115,13 @@ wit_bindgen::generate!({
                 manifest-paths: func(repository-paths: list<string>) -> list<string>;
                 workspace-packages: func(manifests: list<manifest>) -> result<list<string>, workspace-error>;
                 resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>) -> list<resolution>;
+                declared-dependencies: func(manifests: list<manifest>) -> list<declared-dep>;
+                entry-points: func(repository-paths: list<string>, manifests: list<manifest>) -> list<string>;
                 reference-ranges: func() -> list<reference-range>;
             }
         }
 
-        package codeint:plugin@0.2.0 {
+        package codeint:plugin@0.3.0 {
             interface language {
                 record function {
                     line: u32,
@@ -255,33 +272,33 @@ macro_rules! impl_common_guest {
             vec![]
         }
 
+        fn declared_dependencies(
+            _manifests: Vec<exports::codeint::$pkg::language::Manifest>,
+        ) -> Vec<exports::codeint::$pkg::language::DeclaredDep> {
+            vec![exports::codeint::$pkg::language::DeclaredDep {
+                package_root: String::new(),
+                name: "dual-dep".to_string(),
+                kind: exports::codeint::$pkg::language::DepKind::Runtime,
+            }]
+        }
+
+        fn entry_points(
+            repository_paths: Vec<String>,
+            _manifests: Vec<exports::codeint::$pkg::language::Manifest>,
+        ) -> Vec<String> {
+            repository_paths.into_iter().take(1).collect()
+        }
+
         fn reference_ranges() -> Vec<exports::codeint::$pkg::language::ReferenceRange> {
             vec![]
         }
     };
 }
 
-impl exports::codeint::plugin0_1_0::language::Guest for DualVersionLanguagePlugin {
-    impl_common_guest!(plugin0_1_0);
-}
-
 impl exports::codeint::plugin0_2_0::language::Guest for DualVersionLanguagePlugin {
     impl_common_guest!(plugin0_2_0);
+}
 
-    fn declared_dependencies(
-        _manifests: Vec<exports::codeint::plugin0_2_0::language::Manifest>,
-    ) -> Vec<exports::codeint::plugin0_2_0::language::DeclaredDep> {
-        vec![exports::codeint::plugin0_2_0::language::DeclaredDep {
-            package_root: String::new(),
-            name: "dual-dep".to_string(),
-            kind: exports::codeint::plugin0_2_0::language::DepKind::Runtime,
-        }]
-    }
-
-    fn entry_points(
-        repository_paths: Vec<String>,
-        _manifests: Vec<exports::codeint::plugin0_2_0::language::Manifest>,
-    ) -> Vec<String> {
-        repository_paths.into_iter().take(1).collect()
-    }
+impl exports::codeint::plugin0_3_0::language::Guest for DualVersionLanguagePlugin {
+    impl_common_guest!(plugin0_3_0);
 }

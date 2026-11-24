@@ -6,11 +6,11 @@ This guide explains how to build, hash, declare, and test a Language plugin and 
 
 ## Versioned WIT contract
 
-codeint defines its Plugin contract in `package codeint:plugin@0.2.0`.
+codeint defines its Plugin contract in `package codeint:plugin@0.3.0`.
 Two WIT files hold the contract:
 
-- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.2.0` and the `language-plugin` world.
-- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.2.0` and the `metric-plugin` world.
+- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.3.0` and the `language-plugin` world.
+- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.3.0` and the `metric-plugin` world.
 
 The `metric` interface reuses `file-model` and `resolution` from `language`.
 A Language plugin exports `language` and lowers source files into the Code model.
@@ -304,15 +304,15 @@ cargo test --locked -p codeint-cli --test plugins
 The WIT package declaration carries a Semantic Versioning number:
 
 ```wit
-package codeint:plugin@0.2.0;
+package codeint:plugin@0.3.0;
 ```
 
-This version identifies the exported interfaces `codeint:plugin/language@0.2.0` and `codeint:plugin/metric@0.2.0` in the compiled WebAssembly component.
+This version identifies the exported interfaces `codeint:plugin/language@0.3.0` and `codeint:plugin/metric@0.3.0` in the compiled WebAssembly component.
 
 ### Compatibility rules
 
-- **Pre-1.0 (`0.x.y`)**: While the major version is `0`, a minor version bump (`0.1.0` to `0.2.0`) may introduce breaking changes.
-  A patch version bump (`0.1.0` to `0.1.1`) contains only non-breaking fixes.
+- **Pre-1.0 (`0.x.y`)**: While the major version is `0`, a minor version bump (`0.2.0` to `0.3.0`) may introduce breaking changes.
+  A patch version bump (`0.3.0` to `0.3.1`) contains only non-breaking fixes.
 - **Stable (`1.x.y` and later)**:
   - Additive, backward-compatible changes (such as adding a new optional interface or new world) bump the minor version (`1.0.0` to `1.1.0`).
   - Breaking changes (removing or renaming a function, changing record fields, or changing variant or enum cases) bump the major version (`1.0.0` to `2.0.0`).
@@ -322,6 +322,18 @@ This version identifies the exported interfaces `codeint:plugin/language@0.2.0` 
 `wasmtime::component::bindgen!` binds the codeint host to the exact WIT interface version compiled into the binary.
 At load time, wasmtime checks that the component's exported interface name and version match what the host expects.
 
-- A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.1.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.2.0` interface version, and how to rebuild it.
+- A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.2.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.3.0` interface version, and how to rebuild it.
 - Rebuild the Plugin against the updated `wit/` files and update its `sha256` in `codeint.jsonc` or `codeint.json` when upgrading to a breaking WIT version.
 - Never silently mutate an existing released WIT version in place; every breaking change gets a new version number.
+
+### Moving a Plugin from 0.2.0 to 0.3.0
+
+codeint loads only `codeint:plugin@0.3.0`.
+A Plugin built against `codeint:plugin@0.2.0` stops the run with exit code 2.
+
+Move an existing external Plugin to `0.3.0`:
+
+1. Update your copy of [wit/language.wit](../wit/language.wit) and [wit/metric.wit](../wit/metric.wit) to `package codeint:plugin@0.3.0;`.
+2. Rebuild the WebAssembly component for `wasm32-wasip2` so it exports `codeint:plugin/language@0.3.0` or `codeint:plugin/metric@0.3.0`.
+3. Compute the SHA-256 digest of the rebuilt `.wasm` file and update `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
+4. Run `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.

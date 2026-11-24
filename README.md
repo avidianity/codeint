@@ -79,7 +79,7 @@ Beyond static snapshots, codeint helps humans and coding agents understand how f
 
 codeint is written in safe Rust (`#![forbid(unsafe_code)]`, [ADR 0004](./docs/adr/0004-forbid-unsafe-code.md)) around two clean seams: Language plugins lower source files into a language-neutral Code model, and Metric plugins compute Metrics and Findings over that model.
 It reads tracked files and commit history directly from Git objects without modifying your working tree, scanning `laravel/framework` (132k Production lines) in `0.47s` and `flutter/packages` (434k Production lines) in `3.68s` on Apple Silicon.
-External WebAssembly Plugins implement the versioned `codeint:plugin@0.2.0` WIT contract with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps.
+External WebAssembly Plugins implement the versioned `codeint:plugin@0.3.0` WIT contract with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps.
 
 Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-architecture.md) for the full architecture diagram and design rationale.
 

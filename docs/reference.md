@@ -1064,7 +1064,9 @@ In a multi-language repository, list each built-in Language plugin with its own 
 ### Plugins
 
 Each entry of `plugins` declares an external WebAssembly component Language plugin or Metric plugin loaded from either a local `path` or an HTTPS `url`, with a required 64-character hexadecimal SHA-256 digest.
-See [docs/plugins.md](./plugins.md) to build, hash, test, and version external Plugins.
+External Plugins implement `codeint:plugin@0.3.0` (`codeint:plugin/language@0.3.0` or `codeint:plugin/metric@0.3.0`).
+A Plugin built for another interface version (such as `0.2.0`) stops the run with exit code 2, naming the Plugin, both interface versions, and how to rebuild it.
+See [docs/plugins.md](./plugins.md) to build, hash, test, version, and upgrade external Plugins.
 Set `kind` to `"language"` (the default) for a Language plugin, or `"metric"` for a Metric plugin.
 Set either `path` or `url` on each entry, never both.
 External Metric plugins appear alongside the built-in Metrics in `codeint check`, `codeint diff`, and `codeint trend`, and support `budgets` and `regression_limits` under their Metric key.

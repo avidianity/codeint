@@ -33,7 +33,7 @@ pub(crate) struct ContractSpec {
 
 const LANGUAGE_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/language@",
-    expected_interface: "codeint:plugin/language@0.2.0",
+    expected_interface: "codeint:plugin/language@0.3.0",
 };
 
 pub(crate) fn check_contract_version(

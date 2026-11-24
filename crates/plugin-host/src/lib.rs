@@ -20,6 +20,8 @@ pub use sha256::{format_hex as sha256_hex, sha256};
 pub use wasm::WasmLanguagePlugin;
 pub use wasm_metric::WasmMetricPlugin;
 
+pub const PLUGIN_INTERFACE_VERSION: &str = "0.3.0";
+
 #[derive(Debug, thiserror::Error)]
 pub enum PluginHostError {
     #[error("cannot read Plugin {name:?} at {}", path.display())]
