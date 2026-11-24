@@ -3,6 +3,9 @@ use codeint_model::{CodeModel, ImportResolution, RepoPath, token_text_hash};
 use crate::FindingId;
 use crate::finding_id::FindingIds;
 
+#[cfg(test)]
+mod tests;
+
 const BOUNDARIES_METRIC_KEY: &str = "boundaries";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
