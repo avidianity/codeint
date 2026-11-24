@@ -955,6 +955,8 @@ A Budget is the highest ratio a Metric may reach in one Source set.
 Each Budget is a number from 0 to 1.
 A Budget applies only to its own Source set, and a Metric without a Budget never fails.
 A Budget applies to the total of every language, never to the section of one Language plugin under `languages`.
+For Import cycles, Orphan files, Import boundaries, and Dependency hygiene, repository totals and Budgets count only languages with imports.
+When no measured language has imports, those repository totals are absent and Budgets on them do not fail.
 codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
 
 ```json codeint.json
@@ -1467,6 +1469,8 @@ Each import has `importer`, the path of the importing file, `specifier`, the tex
 For a language with no imports, TOON and JSON reports omit `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) from that language's section and its Workspace package entries.
 Those six Metrics are absent rather than `0`.
 The section includes `import_metrics_note` as a single line stating that the language has no imports.
+In a multi-language repository, the repository totals for `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` (including Workspace package entries and Budget checks) count only files and manifests of languages with imports on both sides of each ratio.
+When every measured language has no imports, those repository totals are absent, `import_metrics_note` is included at the top level, and Budgets on those Metrics do not fail.
 
 Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
