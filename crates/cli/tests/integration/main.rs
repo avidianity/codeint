@@ -12,6 +12,7 @@ mod diff;
 mod doctor;
 mod go;
 mod guard;
+mod hazards;
 mod impact;
 mod init;
 #[cfg(unix)]
@@ -23,6 +24,7 @@ mod package_filter;
 mod report;
 mod schema;
 mod sdk;
+mod sql;
 mod test_gap;
 mod trace;
 mod trend;

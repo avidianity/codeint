@@ -1,7 +1,7 @@
 use codeint_config::Configuration;
 use codeint_git::{CommitId, Repository, ResultCache, Snapshot};
 use codeint_plugin_host::PLUGIN_INTERFACE_VERSION;
-use codeint_report::CommitMeasurement;
+use codeint_report::{CommitMeasurement, CommitMeasurementOptions};
 use serde::Serialize;
 
 use crate::check::{
@@ -13,7 +13,7 @@ use crate::check::{
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MEASUREMENT_CACHE_VERSION: u32 = 6;
+const MEASUREMENT_CACHE_VERSION: u32 = 7;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {
@@ -180,14 +180,18 @@ fn measure_snapshot_to_commit(
         .into_iter()
         .map(|language| language.model)
         .collect();
-    CommitMeasurement::of_languages_with_options(
+    let disabled_hazard_rules = configuration.hazards.disabled_rules_set();
+    CommitMeasurement::of_languages_with_full_options(
         models,
-        &metric_plugins,
-        configuration.boundaries.as_ref(),
-        &configuration.dependencies,
-        configuration.duplication,
-        orphan_files.as_ref(),
-        Some(&dependency_hygiene),
+        CommitMeasurementOptions {
+            metric_plugins: &metric_plugins,
+            boundaries: configuration.boundaries.as_ref(),
+            dependencies: &configuration.dependencies,
+            duplication: configuration.duplication,
+            orphan_files: orphan_files.as_ref(),
+            dependency_hygiene: Some(&dependency_hygiene),
+            disabled_hazard_rules: &disabled_hazard_rules,
+        },
     )
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }

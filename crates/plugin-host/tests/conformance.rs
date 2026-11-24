@@ -8,6 +8,7 @@ use codeint_lang_go::Go;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
+use codeint_lang_sql::Sql;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
 use codeint_model::{
@@ -915,6 +916,28 @@ fn folder_import_external_wasm_plugin_passes_seam_2_conformance() {
             expected_resolved_targets: &resolved_targets,
         }),
     );
+}
+
+#[test]
+fn built_in_sql_plugin_passes_seam_2_conformance() {
+    let prod = "-- active orders view\nCREATE VIEW active_orders AS\nSELECT id, total\nFROM orders\nWHERE status = 'open' AND total > 0;\n\nSELECT * FROM orders;\n";
+    let prod_crlf = prod.replace('\n', "\r\n");
+    let fixture = ConformanceFixture {
+        name: "sql",
+        production_path: "queries/orders.sql",
+        production_source: prod,
+        production_source_crlf: &prod_crlf,
+        test_path: "tests/orders.sql",
+        test_source: "SELECT id FROM orders WHERE id = 1;\n",
+        empty_path: "queries/empty.sql",
+        declaration_only: None,
+        unparsable_path: "queries/template.sql",
+        unparsable_source: "SELECT id FROM {{ table_name }};\n",
+        unsupported_path: "scripts/tool.unknown",
+        imports: None,
+        expect_erosion_reference_range: false,
+    };
+    assert_seam_2_conformance(&Sql::new(), &fixture);
 }
 
 #[test]

@@ -129,7 +129,7 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
     vec![
         McpToolSchema {
             name: "check".to_owned(),
-            description: "Measure Software entropy of a Git repository working tree (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, Test gap) and report any Budget failures.".to_owned(),
+            description: "Measure Software entropy of a Git repository working tree (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, Test gap, Hazards) and report any Budget failures.".to_owned(),
             input_schema: json!({
                 "type": "object",
                 "properties": {

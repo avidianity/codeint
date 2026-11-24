@@ -2729,7 +2729,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -2873,7 +2873,7 @@ fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
     assert_operational_error(
         &output,
         "codeint: codeint.jsonc names an unknown Language plugin cobol at languages[0].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go\n\
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql\n\
          Name one of the Language plugins listed, or remove the entry from languages.\n",
     );
 }
@@ -3045,7 +3045,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "cobol", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin cobol at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go",
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -4121,7 +4121,7 @@ fn a_budget_for_an_unknown_metric_names_the_metrics_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budgets": { "production": { "complexity": 0.1 } } }"#,
         "codeint.json has an unknown key budgets.production.complexity; \
-         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries, orphan_files, test_gap",
+         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries, orphan_files, hazards, test_gap",
         UNKNOWN_KEY_REMEDY,
     );
 }

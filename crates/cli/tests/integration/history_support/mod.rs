@@ -18,7 +18,7 @@ impl HistoryFixture {
         HistoryFixture(dir)
     }
 
-    fn root(&self) -> &Path {
+    pub(crate) fn root(&self) -> &Path {
         self.0.path()
     }
 
