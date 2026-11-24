@@ -8,11 +8,12 @@ Each page below focuses on one topic and links to [docs/reference.md](../referen
 1. [Philosophy and Architecture](./philosophy-and-architecture.md): why codeint measures Software entropy, how its independent Metrics and structural checks work, and how the codebase is structured.
 2. [Getting Started](./getting-started.md): install codeint, initialize `codeint.jsonc`, and run `check`, `diff`, `trend`, `doctor`, `config`, `report`, `guard`, `trace`, `impact`, `churn`, and `coupling`.
 3. [Configuration (`codeint.jsonc` / `codeint.json`)](./configuration.md): configure JSONC files, Budgets, Regression limits, Source-set globs, architectural boundaries, near-clone detection, entry points, dependency hygiene, and multi-language folders.
-4. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, and Python are measured, plus their calibrated Reference ranges.
-5. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
-6. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.
-7. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
-8. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
+4. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, Python, and Go are measured, plus their calibrated Reference ranges.
+5. [Go](./go.md): Go terminology mapping, Source sets, Flagged line rules, multi-file Go package imports, entry points, and `go.mod` Dependency hygiene.
+6. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
+7. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.
+8. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
+9. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
 
 ## Reference and domain docs
 

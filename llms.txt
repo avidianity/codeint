@@ -1,6 +1,6 @@
 # codeint
 
-> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, and external WebAssembly Language and Metric plugins.
+> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, and external WebAssembly Language and Metric plugins.
 > CLI commands include `check`, `diff`, `trend`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `agent`, `mcp`, `init`, and `update`, configured via `codeint.jsonc` or `codeint.json`.
 
 ## Guide
@@ -9,7 +9,8 @@
 - [Philosophy and Architecture](docs/guide/philosophy-and-architecture.md): why Software entropy matters, how all independent Metrics and structural checks work, and how the codebase is structured.
 - [Getting Started](docs/guide/getting-started.md): install codeint, initialize `codeint.jsonc`, and run `check`, `diff`, `trend`, `doctor`, `config`, `report`, `guard`, `trace`, `impact`, `churn`, `coupling`, and `update`.
 - [Configuration](docs/guide/configuration.md): configure `codeint.jsonc` or `codeint.json` Budgets, Regression limits, Source sets, architectural boundaries, near-clones, entry points, dependency hygiene, and multi-language folders, plus `codeint config --resolved`.
-- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, and Python rules, function names, cognitive complexity, manifests, and calibrated Reference ranges.
+- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, and Go rules, function names, cognitive complexity, manifests, and calibrated Reference ranges.
+- [Go Guide](docs/guide/go.md): Go terminology mapping, Source sets, Flagged line rules, multi-file Go package imports, entry points, and `go.mod` Dependency hygiene.
 - [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` `--owner` filtering, `--package` scoping, and SARIF upload.
 - [Coding-Agent Integration (MCP Server)](docs/guide/mcp.md): automatic `codeint agent status`/`install`, `codeint schema`, and local stdio MCP server (`codeint mcp`) exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 
@@ -35,4 +36,5 @@
 - [ADR 0013: Python Reference ranges](docs/adr/0013-python-reference-ranges.md)
 - [ADR 0014: Vue 2 Reference ranges](docs/adr/0014-vue2-reference-ranges.md)
 - [ADR 0015: Vue 3 Reference ranges](docs/adr/0015-vue3-reference-ranges.md)
+- [ADR 0019: A Go import leads to every file of a Go package](docs/adr/0019-go-imports-lead-to-packages.md)
 - [ADR 0020: React (JSX and TSX) Reference ranges](docs/adr/0020-react-reference-ranges.md)
