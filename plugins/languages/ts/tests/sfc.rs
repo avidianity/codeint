@@ -144,16 +144,32 @@ fn react_reference_ranges_detects_react_manifests_and_skips_node_modules() {
         r#"{"dependencies":{"react":"^18.3.1"}}"#,
     )])
     .unwrap();
-    assert!(root[0].source.contains("ADR 0020"));
-    assert_eq!(root[0].low, 0.106);
-    assert_eq!(root[0].high, 0.544);
+    let by_metric: Vec<(&str, f64, f64)> = root
+        .iter()
+        .map(|r| (r.metric.as_str(), r.low, r.high))
+        .collect();
+    assert_eq!(
+        by_metric,
+        [
+            ("erosion", 0.106, 0.544),
+            ("verbosity", 0.047, 0.368),
+            ("duplication", 0.046, 0.368),
+            ("import_cycles", 0.000, 0.144),
+        ]
+    );
+    assert!(root.iter().all(|r| r.source.contains("ADR 0020")));
 
-    let nested = react_reference_ranges(&[manifest(
-        "packages/web/package.json",
-        r#"{"peerDependencies":{"react":">=17"}}"#,
-    )])
-    .unwrap();
-    assert!(nested[0].source.contains("ADR 0020"));
+    for section in [
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ] {
+        let found = react_reference_ranges(&[manifest(
+            "packages/web/package.json",
+            &format!(r#"{{"{section}":{{"react":">=17"}}}}"#),
+        )]);
+        assert!(found.is_some(), "expected React ranges for {section}");
+    }
 
     assert!(
         react_reference_ranges(&[manifest(
@@ -162,6 +178,7 @@ fn react_reference_ranges_detects_react_manifests_and_skips_node_modules() {
         )])
         .is_none()
     );
+    assert!(react_reference_ranges(&[manifest("package.json", "{not valid json")]).is_none());
     assert!(
         react_reference_ranges(&[manifest(
             "package.json",

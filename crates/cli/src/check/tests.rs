@@ -1145,4 +1145,88 @@ fn react_reference_ranges_select_adr_0020_and_preserve_vue_and_hybrid_precedence
         plain_ts_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
         "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
     );
+
+    let jsx_report = json_report(
+        &[
+            ("package.json", r#"{"dependencies":{"react":"^18.3.1"}}"#),
+            (
+                "src/App.jsx",
+                "export function App() { return <div>hi</div>; }\n",
+            ),
+        ],
+        &ts_plugin,
+    );
+    assert_eq!(
+        jsx_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
+        "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0"
+    );
+
+    let vue_unparsed_hybrid_report = json_report(
+        &[
+            (
+                "package.json",
+                r#"{"dependencies":{"react":"^18.3.1","vue":"latest"}}"#,
+            ),
+            ("src/App.vue", "<script setup>\nconst x = 1;\n</script>\n"),
+            ("src/Widget.tsx", "export const Widget = () => <div />;\n"),
+        ],
+        &ts_plugin,
+    );
+    assert_eq!(
+        vue_unparsed_hybrid_report["source_sets"]["production"]["erosion"]["reference_range"]["source"],
+        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+    );
+
+    let monorepo = repository(&[
+        (
+            "package.json",
+            r#"{"private":true,"workspaces":["packages/*"]}"#,
+        ),
+        (
+            "packages/react-app/package.json",
+            r#"{"name":"react-app","dependencies":{"react":"^18.3.1"}}"#,
+        ),
+        (
+            "packages/react-app/src/App.tsx",
+            "export const App = () => <main />;\n",
+        ),
+        (
+            "packages/vue-app/package.json",
+            r#"{"name":"vue-app","dependencies":{"vue":"^3.4.0"}}"#,
+        ),
+        (
+            "packages/vue-app/src/App.vue",
+            "<script setup>\nconst x = 1;\n</script>\n",
+        ),
+        ("packages/api/package.json", r#"{"name":"api"}"#),
+        ("packages/api/src/index.ts", "export const ok = true;\n"),
+    ]);
+    let check_pkg = |pkg: &str| {
+        let report = super::check(
+            monorepo.path(),
+            FindingsShown::All,
+            Some(pkg),
+            None,
+            &codeint_config::PluginHostConfig::default(),
+        )
+        .expect("package check succeeds");
+        let rendered = report.render(ReportFormat::Json).expect("render json");
+        let parsed: Value = serde_json::from_str(&rendered).expect("parse json");
+        parsed["source_sets"]["production"]["erosion"]["reference_range"]["source"]
+            .as_str()
+            .expect("reference range source")
+            .to_owned()
+    };
+    assert_eq!(
+        check_pkg("packages/react-app"),
+        "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0"
+    );
+    assert_eq!(
+        check_pkg("packages/vue-app"),
+        "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0"
+    );
+    assert_eq!(
+        check_pkg("packages/api"),
+        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
+    );
 }

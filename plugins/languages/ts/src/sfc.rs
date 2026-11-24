@@ -87,7 +87,7 @@ fn detect_vue_major(manifests: &[Manifest]) -> Option<u8> {
     }
     manifests
         .iter()
-        .filter(|m| m.path.ends_with("/package.json"))
+        .filter(|m| m.path != "package.json" && is_active_package_manifest(&m.path))
         .find_map(|m| vue_major_in_manifest(&m.text))
 }
 
