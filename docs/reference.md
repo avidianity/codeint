@@ -928,6 +928,9 @@ The Language plugin and the core rules settle the Source set of each file.
   Inline `#[cfg(test)]` modules inside a production file are skipped from `production` metrics.
 - `php` puts a file in `test` when any folder in its path is named `tests` or `test`, or when its name ends in `Test.php`.
 - `dart` puts a file in `test` when any folder in its path is named `test`, `tests`, or `integration_test`, or when its name ends in `_test.dart`, and puts files ending in `.g.dart`, `.freezed.dart`, `.gr.dart`, `.mocks.dart`, `.pb.dart`, `.pbenum.dart`, `.pbjson.dart`, or `.pbserver.dart` into `generated`.
+- `python` puts a file in `test` when any folder in its path is named `test` or `tests`, when its name starts with `test_`, ends with `_test.py`, or is `conftest.py`, and puts files ending in `_pb2.py` or `_pb2_grpc.py` into `generated`.
+- `go` puts a file in `test` when its name ends in `_test.go` or when any folder in its path is named `testdata`, puts a file in `generated` when a line comment before any code matches `// Code generated ... DO NOT EDIT.`, and puts files under `vendor/` in `vendored`.
+  `go` evaluates no build conditions, so platform-specific files are measured like any other file.
 - Core rules put files under `vendor/` or `third_party/` into `vendored`, and files with generated-file markers (such as `@generated` or `GENERATED CODE`) into `generated`.
 
 Globs under `source_sets` win over every rule.
@@ -1030,14 +1033,22 @@ Each entry of `languages` names a Language plugin, the globs of the folders or f
 Several entries may name one Language plugin; it measures what any of them includes.
 Without `languages`, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include.
 When two Language plugins claim the same file extension for the same folder, codeint stops with exit code 2 until `languages` assigns separate folders to each plugin.
-codeint ships four built-in Language plugins:
+codeint ships six built-in Language plugins:
 
 | Plugin name | Extensions | Workspace manifest |
 | ----------- | ---------- | ------------------ |
-| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` | `package.json` / `pnpm-workspace.yaml` |
+| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` / `pnpm-workspace.yaml` |
 | `rust` | `.rs` | `Cargo.toml` |
 | `php` | `.php` | `composer.json` |
 | `dart` | `.dart` | `pubspec.yaml` |
+| `python` | `.py` | `pyproject.toml` |
+| `go` | `.go` | `go.mod` |
+
+For Go (`go`), each folder with a `go.mod` file below the repository root is one Workspace package (`go.work` is not read), an import of a repository Go package leads to every non-test `.go` file in that folder, standard library and cgo (`"C"`) imports count as built in, every named function and method (`ReceiverType.MethodName`) with a body is one function, function literals inside a function count toward the enclosing function one nesting level deeper (package-level function literals are not separate functions), and decision points are `if`, `for`, `case` except `default`, `&&`, and `||`.
+Go Verbosity applies five Flagged line rules (never flagging idiomatic `if err != nil` checks):
+`else-after-return` (an `else` after a branch chain that always returns, silent when an `if` short variable is used in `else`), `if-else-returns-boolean` (an `if`/`else` or `if` followed by `return` returning `true` and `false`), `conditional-yields-boolean` (an `if`/`else` assigning `true` and `false` to the same variable), `trailing-bare-return` (a bare `return` as the last statement of a function with no results), and `redundant-break` (an unlabeled `break` as the last statement of a `switch` or `select` `case`).
+Calibrated Go Reference ranges come from a panel of 20 pre-2023 public Go repositories ([ADR 0021](./adr/0021-go-reference-ranges.md), source `codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0`): Erosion `37.9% to 69.2%`, Duplication `4.4% to 18.1%`, Verbosity `4.5% to 18.3%`, and Import cycles `0.0% to 0.0%`.
+See [docs/guide/go.md](./guide/go.md) for the full Go guide.
 
 ```json codeint.json
 {
@@ -1060,7 +1071,8 @@ In a multi-language repository, list each built-in Language plugin with its own 
     { "plugin": "rust", "include": ["crates"], "exclude": [] },
     { "plugin": "php", "include": ["app", "src"], "exclude": [] },
     { "plugin": "dart", "include": ["lib"], "exclude": [] },
-    { "plugin": "python", "include": ["services"], "exclude": [] }
+    { "plugin": "python", "include": ["services"], "exclude": [] },
+    { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] }
   ]
 }
 ```
@@ -1185,15 +1197,16 @@ codeint check
 
 ### Dependencies
 
-codeint compares declared manifest dependencies against imported external packages for every Workspace package that has a dependency manifest (`package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, or `pubspec.yaml`), reporting three independent Metrics:
+codeint compares declared manifest dependencies against imported external packages for every Workspace package that has a dependency manifest (`package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pubspec.yaml`, or `go.mod`), reporting three independent Metrics:
 
 - `unused_dependencies`: declared runtime and dev dependencies not imported by any Production, Test, or Generated file in the owning package.
-  Optional declarations (such as `peerDependencies`, `optionalDependencies`, ambient `@types/*` packages, Cargo `optional = true`, Python `optional-dependencies`, and Composer `suggest`) satisfy imports without being flagged as unused.
+  Optional declarations (such as `peerDependencies`, `optionalDependencies`, ambient `@types/*` packages, Cargo `optional = true`, Python `optional-dependencies`, Composer `suggest`, and Go `require ... // indirect`) satisfy imports without being flagged as unused.
+  In Go, a module imported only by `_test.go` files stays a runtime dependency with no Finding, and a local `replace` pointing at a repository folder resolves imports to that folder's Go files.
   In JavaScript and TypeScript projects, `devDependencies` invoked in command position by `package.json` `scripts` (including workspace member scripts for root `devDependencies`) are credited as used while keeping their `dev` classification for `declared` counts and `dev_in_production_dependencies`.
 - `unlisted_dependencies`: external packages imported by Production or Test files in a package that has a dependency manifest but does not declare them.
   Standard library and runtime built-ins are never flagged.
   In JavaScript and TypeScript workspaces, a workspace member may import dependencies hoisted in the root `package.json`, crediting the root as used while still enforcing `dev_in_production_dependencies` for root dev dependencies imported by runtime Production files.
-- `dev_in_production_dependencies`: dependencies declared only as dev dependencies that are imported by runtime Production files.
+- `dev_in_production_dependencies`: dependencies declared only as dev dependencies (including Go modules named only by `tool` directives without a plain `require` line) that are imported by runtime Production files.
   Dev dependencies imported by Test files or non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are treated as used and are not flagged.
 
 List canonical external package names under `dependencies.ignore` to exclude them from all three dependency Metrics.
@@ -1242,7 +1255,7 @@ codeint check
 
 ### Orphan files
 
-Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`), Production files marked as program starts by a Language plugin, and configured `entry_points` globs in `codeint.json`.
+Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pubspec.yaml`, and Go public packages outside `internal/` relative to `go.mod`), Production files marked as program starts by a Language plugin (such as Go files declaring `package main`), and configured `entry_points` globs in `codeint.json`.
 Marked files in the Test, Generated, or Vendored Source sets stay out of entry points.
 Production files unreachable from any Production entry point are reported as `unreferenced`, or as `test-only` when still imported by Test files.
 Generated and Vendored Source sets and non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are excluded from both entry-point roots and evaluated Production files.

@@ -286,6 +286,7 @@ dependencies = [
  "codeint-config",
  "codeint-git",
  "codeint-lang-dart",
+ "codeint-lang-go",
  "codeint-lang-php",
  "codeint-lang-python",
  "codeint-lang-rust",
@@ -336,6 +337,13 @@ dependencies = [
  "globset",
  "serde",
  "serde-saphyr",
+]
+
+[[package]]
+name = "codeint-lang-go"
+version = "0.6.0"
+dependencies = [
+ "codeint-model",
 ]
 
 [[package]]
@@ -407,6 +415,7 @@ version = "0.6.0"
 dependencies = [
  "codeint-config",
  "codeint-lang-dart",
+ "codeint-lang-go",
  "codeint-lang-php",
  "codeint-lang-python",
  "codeint-lang-rust",
