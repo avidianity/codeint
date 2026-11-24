@@ -51,6 +51,11 @@ impl FunctionMasses {
     }
 }
 
+pub(crate) fn function_mass(function: &codeint_model::language::Function) -> f64 {
+    let cyclomatic_complexity = function.decision_points.saturating_add(1);
+    f64::from(cyclomatic_complexity) * f64::from(function.source_lines).sqrt()
+}
+
 impl Erosion {
     pub fn measure(model: &CodeModel) -> Erosion {
         let mut masses = FunctionMasses::default();
@@ -61,8 +66,7 @@ impl Erosion {
             let mut file_masses = FunctionMasses::default();
             for function in &file.model.functions {
                 let cyclomatic_complexity = function.decision_points.saturating_add(1);
-                let function_mass =
-                    f64::from(cyclomatic_complexity) * f64::from(function.source_lines).sqrt();
+                let function_mass = function_mass(function);
                 file_masses.total += function_mass;
                 if cyclomatic_complexity > ERODED_ABOVE_CYCLOMATIC_COMPLEXITY {
                     file_masses.eroded += function_mass;

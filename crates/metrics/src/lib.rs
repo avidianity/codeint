@@ -2,6 +2,7 @@
 
 mod boundaries;
 mod cognitive_complexity;
+mod coverage;
 mod dependencies;
 mod duplication;
 mod erosion;
@@ -10,6 +11,7 @@ mod impact;
 mod import_cycles;
 mod line_share;
 mod orphan_files;
+mod test_gap;
 mod tooling_paths;
 mod trace;
 mod verbosity;
@@ -19,6 +21,13 @@ pub use boundaries::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryFindingKind, BoundaryPolicy,
 };
 pub use cognitive_complexity::{CognitiveComplexity, CognitiveComplexityTotals, ComplexFunction};
+pub use coverage::{
+    CoverageApplyError, CoverageApplyOutcome, CoverageFileRecord, CoverageFormat, CoverageLimits,
+    CoverageParseError, MAX_COVERAGE_REPORT_BYTES, MAX_XML_NESTING_DEPTH, NamedCoverageReport,
+    ParsedCoverageReport, PathMatcher, apply_coverage_reports, match_coverage_path,
+    parse_cobertura, parse_cobertura_with_limits, parse_coverage_report,
+    parse_coverage_report_with_limits, parse_lcov, parse_lcov_with_limits,
+};
 pub use dependencies::{
     DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, DependencyHygiene, DevInProductionDependencyFinding,
     UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY, UnlistedDependencyFinding,
@@ -33,6 +42,7 @@ pub use finding_id::FindingId;
 pub use impact::{ImpactAnalysis, ImpactDependent, ImpactError, ImpactSummary, ImpactTarget};
 pub use import_cycles::{ImportCycle, ImportCycles, ModuleShare, UnresolvedImport};
 pub use line_share::LineShare;
+pub use test_gap::{TEST_GAP_METRIC_KEY, TestGap, TestGapFinding, TestGapMasses};
 pub use trace::{DEFAULT_MAX_TRACE_PATHS, MultiFileImport, TraceError, TraceResult, trace_imports};
 pub use verbosity::{FlaggedLineFinding, Verbosity};
 
