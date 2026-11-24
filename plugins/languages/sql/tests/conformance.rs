@@ -24,8 +24,8 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
     assert_eq!(sql.dialect(), SqlDialect::Generic);
     assert_eq!(sql.extensions(), ["sql"]);
     assert!(!sql.has_imports());
-    assert!(!sql.has_hazard_rules());
-    assert!(sql.hazard_rules().is_empty());
+    assert!(sql.has_hazard_rules());
+    assert_eq!(sql.hazard_rules().len(), 32);
     assert!(
         sql.reference_ranges()
             .unwrap()
