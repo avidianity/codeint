@@ -110,13 +110,14 @@ fn copy_metric_plugin_into(repo_root: &Path, relative: &str) -> String {
     copy_wasm_into(built_sample_metric_plugin(), repo_root, relative)
 }
 
-fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
+fn run_check_with_sandbox_probe(plugin_name: &str, kind: Option<&str>, wasm_file: &str) -> Output {
     let repo = init_repo();
     let hash = copy_wasm_into(
         &built_sandbox_probe(wasm_file),
         repo.path(),
         &format!("plugins/{wasm_file}"),
     );
+    let kind_line = kind.map_or_else(String::new, |kind| format!(r#""kind": "{kind}","#));
     write_file(
         repo.path(),
         "codeint.json",
@@ -125,6 +126,7 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
               "plugins": [
                 {{
                   "name": "{plugin_name}",
+                  {kind_line}
                   "path": "plugins/{wasm_file}",
                   "sha256": "{hash}"
                 }}
@@ -135,7 +137,6 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
     write_file(repo.path(), "src/app.ts", "export const ok = 1;\n");
 
     let output = run_codeint(repo.path(), &["check"]);
-
     assert_eq!(
         output.status.code(),
         Some(2),
@@ -143,6 +144,11 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
         output.status.code(),
         String::from_utf8_lossy(&output.stderr)
     );
+    output
+}
+
+fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
+    let output = run_check_with_sandbox_probe(plugin_name, None, wasm_file);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("cannot instantiate Plugin")
@@ -1248,4 +1254,61 @@ fn invalid_plugin_limits_print_the_offending_key_and_exit_2() {
             "expected stderr to name {expected_key} for {config_json}, got: {stderr}"
         );
     }
+}
+
+fn assert_legacy_v0_2_0_plugin_stops_check(
+    plugin_name: &str,
+    kind: &str,
+    wasm_file: &str,
+    found_interface: &str,
+    expected_interface: &str,
+) {
+    let output = run_check_with_sandbox_probe(plugin_name, Some(kind), wasm_file);
+    assert!(
+        output.stdout.is_empty(),
+        "expected empty stdout before any report is written, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(
+        lines.len() >= 2,
+        "expected error line and rebuild remedy line, got: {stderr}"
+    );
+    assert!(
+        lines[0].contains(plugin_name)
+            && lines[0].contains(found_interface)
+            && lines[0].contains("0.2.0")
+            && lines[0].contains(expected_interface)
+            && lines[0].contains("0.3.0"),
+        "expected stderr line 1 to name plugin and both versions, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[1].to_ascii_lowercase().contains("rebuild") && lines[1].contains("0.3.0"),
+        "expected stderr line 2 to instruct rebuilding against 0.3.0, got: {}",
+        lines[1]
+    );
+}
+
+#[test]
+fn v0_2_0_language_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
+    assert_legacy_v0_2_0_plugin_stops_check(
+        "legacy-v02-lang",
+        "language",
+        "legacy_v0_2_0_language_plugin.wasm",
+        "codeint:plugin/language@0.2.0",
+        "codeint:plugin/language@0.3.0",
+    );
+}
+
+#[test]
+fn v0_2_0_metric_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
+    assert_legacy_v0_2_0_plugin_stops_check(
+        "legacy-v02-metric",
+        "metric",
+        "legacy_v0_2_0_metric_plugin.wasm",
+        "codeint:plugin/metric@0.2.0",
+        "codeint:plugin/metric@0.3.0",
+    );
 }

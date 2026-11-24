@@ -725,7 +725,7 @@ codeint report missing.json --format sarif
 | `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
 | `-h, --help` | Print the help of `codeint doctor` |
 
-`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths and SHA-256 digests.
+`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths, SHA-256 digests, and interface compatibility.
 It separates passing checks, warnings, and blocking errors, exiting with code 0 when no blocking error is found and code 1 when at least one blocking error is found.
 
 ```sh exit=0

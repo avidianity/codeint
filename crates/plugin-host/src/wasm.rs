@@ -40,10 +40,10 @@ pub(crate) fn check_contract_version(
     name: &str,
     path: &Path,
     engine: &Engine,
-    instance_pre: &wasmtime::component::InstancePre<PluginStoreState>,
+    component: &Component,
     spec: ContractSpec,
 ) -> Result<(), PluginHostError> {
-    let component_type = instance_pre.component().component_type();
+    let component_type = component.component_type();
     let mut incompatible: Option<String> = None;
     for (export_name, _) in component_type.exports(engine) {
         if export_name == spec.expected_interface {
@@ -145,11 +145,11 @@ pub struct WasmLanguagePlugin {
         InstancePool<bindings::LanguagePluginPre<PluginStoreState>, bindings::LanguagePlugin>,
 }
 
-pub(crate) fn compile_sandboxed_component(
+fn compile_component(
     name: &str,
     path: &Path,
     bytes: &[u8],
-) -> Result<(Engine, wasmtime::component::InstancePre<PluginStoreState>), PluginHostError> {
+) -> Result<(Engine, Component), PluginHostError> {
     let mut config = Config::new();
     config.wasm_component_model(true);
     config.epoch_interruption(true);
@@ -164,6 +164,20 @@ pub(crate) fn compile_sandboxed_component(
             path: path.to_path_buf(),
             reason: error.to_string(),
         })?;
+    Ok((engine, component))
+}
+
+pub(crate) fn prepare_sandboxed_component<Pre>(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+    spec: ContractSpec,
+    bind: impl FnOnce(
+        wasmtime::component::InstancePre<PluginStoreState>,
+    ) -> Result<Pre, wasmtime::Error>,
+) -> Result<(Engine, Pre), PluginHostError> {
+    let (engine, component) = compile_component(name, path, bytes)?;
+    check_contract_version(name, path, &engine, &component, spec)?;
     let linker: Linker<PluginStoreState> = Linker::new(&engine);
     let instance_pre =
         linker
@@ -173,7 +187,27 @@ pub(crate) fn compile_sandboxed_component(
                 path: path.to_path_buf(),
                 reason: error.to_string(),
             })?;
-    Ok((engine, instance_pre))
+    let pre = bind(instance_pre).map_err(|error| PluginHostError::Instantiate {
+        name: name.to_owned(),
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
+    Ok((engine, pre))
+}
+
+pub(crate) fn verify_language_component(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), PluginHostError> {
+    prepare_sandboxed_component(
+        name,
+        path,
+        bytes,
+        LANGUAGE_CONTRACT,
+        bindings::LanguagePluginPre::new,
+    )?;
+    Ok(())
 }
 
 pub(crate) struct InstantiatedComponent<Pre, Bindings> {
@@ -195,14 +229,8 @@ pub(crate) fn instantiate_sandboxed_component<Pre, Bindings>(
     ) -> Result<Pre, wasmtime::Error>,
     instantiate: impl FnOnce(&Pre, &mut Store<PluginStoreState>) -> Result<Bindings, wasmtime::Error>,
 ) -> Result<InstantiatedComponent<Pre, Bindings>, PluginHostError> {
-    let (engine, instance_pre) = compile_sandboxed_component(name, path, bytes)?;
-    check_contract_version(name, path, &engine, &instance_pre, spec)?;
+    let (engine, pre) = prepare_sandboxed_component(name, path, bytes, spec, bind)?;
     let ticker = EpochTicker::start(engine.clone());
-    let pre = bind(instance_pre).map_err(|error| PluginHostError::Instantiate {
-        name: name.to_owned(),
-        path: path.to_path_buf(),
-        reason: error.to_string(),
-    })?;
     let mut store = new_limited_store(&engine, limits);
     let bindings = instantiate(&pre, &mut store)
         .map_err(|error| map_host_trap(name, path, None, limits, &store, error))?;

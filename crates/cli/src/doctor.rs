@@ -6,7 +6,9 @@ use codeint_config::{
     PluginKind, PluginSource, SchemaVersionStatus, inspect_configuration, is_broken_symlink,
 };
 use codeint_git::{GitError, Repository, Snapshot};
-use codeint_plugin_host::{sha256, sha256_hex};
+use codeint_plugin_host::{
+    PLUGIN_INTERFACE_VERSION, PluginHostError, sha256, sha256_hex, verify_plugin_component,
+};
 use codeint_report::{DoctorCheck, DoctorReport};
 
 use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, find_workspace, read_manifests};
@@ -375,6 +377,7 @@ fn check_single_plugin(
             verify_plugin_file(
                 id,
                 &declaration.name,
+                declaration.kind,
                 &resolved,
                 &declaration.sha256.to_hex(),
                 &declared_path.display().to_string(),
@@ -443,6 +446,7 @@ fn inspect_cached_plugin(
         Ok(_) => Some(verify_plugin_file(
             id.to_owned(),
             &declaration.name,
+            declaration.kind,
             path,
             expected,
             &format!("cached from {url}"),
@@ -468,6 +472,7 @@ fn inspect_cached_plugin(
 fn verify_plugin_file(
     id: String,
     name: &str,
+    kind: PluginKind,
     resolved_path: &Path,
     expected_hex: &str,
     label: &str,
@@ -505,9 +510,61 @@ fn verify_plugin_file(
             "Verify the plugin file has not been modified, then update sha256 in {file_name} to match the trusted file."
         ));
     }
+    if let Err(error) = verify_plugin_component(name, resolved_path, kind, &bytes) {
+        return plugin_component_error(id, name, label, file_name, &error);
+    }
     DoctorCheck::pass(
         id,
         format!("External Wasm Plugin {name:?} verified ({label})"),
     )
     .with_detail(format!("sha256: {expected_hex}"))
+}
+
+fn plugin_component_error(
+    id: String,
+    name: &str,
+    label: &str,
+    file_name: &'static str,
+    error: &PluginHostError,
+) -> DoctorCheck {
+    match error {
+        PluginHostError::IncompatibleContractVersion {
+            expected, found, ..
+        } => DoctorCheck::error(
+            id,
+            format!(
+                "External Wasm Plugin {name:?} at {label} is not loadable: targets incompatible WIT contract {found}, requires {expected}"
+            ),
+        )
+        .with_remedy(format!(
+            "Rebuild the Plugin against codeint:plugin@{PLUGIN_INTERFACE_VERSION} and update its sha256 in {file_name}."
+        )),
+        PluginHostError::Compile { reason, .. } => DoctorCheck::error(
+            id,
+            format!(
+                "External Wasm Plugin {name:?} at {label} is not loadable: cannot compile WebAssembly component"
+            ),
+        )
+        .with_detail(reason.clone())
+        .with_remedy(format!(
+            "Build the Plugin as a WebAssembly component targeting codeint:plugin@{PLUGIN_INTERFACE_VERSION} and update its sha256 in {file_name}."
+        )),
+        PluginHostError::Instantiate { reason, .. } => DoctorCheck::error(
+            id,
+            format!(
+                "External Wasm Plugin {name:?} at {label} is not loadable: component does not satisfy the codeint:plugin@{PLUGIN_INTERFACE_VERSION} sandbox contract"
+            ),
+        )
+        .with_detail(reason.clone())
+        .with_remedy(format!(
+            "Ensure the Plugin exports codeint:plugin/language@{PLUGIN_INTERFACE_VERSION} or codeint:plugin/metric@{PLUGIN_INTERFACE_VERSION} and imports no host capabilities."
+        )),
+        _ => DoctorCheck::error(
+            id,
+            format!("External Wasm Plugin {name:?} at {label} is not loadable: {error}"),
+        )
+        .with_remedy(format!(
+            "Rebuild the Plugin against codeint:plugin@{PLUGIN_INTERFACE_VERSION} and update its sha256 in {file_name}."
+        )),
+    }
 }
