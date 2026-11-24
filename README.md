@@ -87,20 +87,20 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 
 ## Calibrated Reference ranges
 
-10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework ([ADR 0008](./docs/adr/0008-typescript-reference-ranges.md), [ADR 0010](./docs/adr/0010-rust-reference-ranges.md), [ADR 0011](./docs/adr/0011-php-reference-ranges.md), [ADR 0012](./docs/adr/0012-dart-reference-ranges.md), [ADR 0013](./docs/adr/0013-python-reference-ranges.md), [ADR 0014](./docs/adr/0014-vue2-reference-ranges.md), [ADR 0015](./docs/adr/0015-vue3-reference-ranges.md), [ADR 0020](./docs/adr/0020-react-reference-ranges.md), [ADR 0021](./docs/adr/0021-go-reference-ranges.md), [ADR 0022](./docs/adr/0022-sql-reference-ranges.md)):
+10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework:
 
-| Language | Erosion | Duplication | Verbosity | Import cycles |
-| -------- | ------- | ----------- | --------- | ------------- |
-| TypeScript / JavaScript | 35.2% to 60.0% | 1.7% to 34.6% | 1.8% to 34.7% | 0.0% to 30.8% |
-| React (`.jsx` / `.tsx`) | 10.6% to 54.4% | 4.6% to 36.8% | 4.7% to 36.8% | 0.0% to 14.4% |
-| Vue 2 (`.vue`) | 2.0% to 45.2% | 3.6% to 19.2% | 3.6% to 19.2% | 0.0% to 11.4% |
-| Vue 3 (`.vue`) | 1.9% to 38.8% | 2.3% to 34.5% | 2.4% to 34.6% | 0.0% to 7.7% |
-| Rust | 38.0% to 64.2% | 5.0% to 32.5% | 6.0% to 32.9% | 2.1% to 50.6% |
-| PHP | 5.5% to 67.7% | 4.1% to 29.0% | 4.2% to 29.2% | 0.0% to 10.7% |
-| Dart | 4.7% to 41.9% | 7.3% to 25.6% | 8.0% to 25.9% | 7.3% to 52.4% |
-| Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% |
-| Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% |
-| SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | absent |
+| Language | Erosion | Duplication | Verbosity | Import cycles | Docs |
+| -------- | ------- | ----------- | --------- | ------------- | ---- |
+| TypeScript / JavaScript | 35.2% to 60.0% | 1.7% to 34.6% | 1.8% to 34.7% | 0.0% to 30.8% | [ADR 0008](./docs/adr/0008-typescript-reference-ranges.md) |
+| React (`.jsx` / `.tsx`) | 10.6% to 54.4% | 4.6% to 36.8% | 4.7% to 36.8% | 0.0% to 14.4% | [ADR 0020](./docs/adr/0020-react-reference-ranges.md) |
+| Vue 2 (`.vue`) | 2.0% to 45.2% | 3.6% to 19.2% | 3.6% to 19.2% | 0.0% to 11.4% | [ADR 0014](./docs/adr/0014-vue2-reference-ranges.md) |
+| Vue 3 (`.vue`) | 1.9% to 38.8% | 2.3% to 34.5% | 2.4% to 34.6% | 0.0% to 7.7% | [ADR 0015](./docs/adr/0015-vue3-reference-ranges.md) |
+| Rust | 38.0% to 64.2% | 5.0% to 32.5% | 6.0% to 32.9% | 2.1% to 50.6% | [ADR 0010](./docs/adr/0010-rust-reference-ranges.md) |
+| PHP | 5.5% to 67.7% | 4.1% to 29.0% | 4.2% to 29.2% | 0.0% to 10.7% | [ADR 0011](./docs/adr/0011-php-reference-ranges.md) |
+| Dart | 4.7% to 41.9% | 7.3% to 25.6% | 8.0% to 25.9% | 7.3% to 52.4% | [ADR 0012](./docs/adr/0012-dart-reference-ranges.md) |
+| Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% | [ADR 0013](./docs/adr/0013-python-reference-ranges.md) |
+| Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% | [ADR 0021](./docs/adr/0021-go-reference-ranges.md) |
+| SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | N/A | [ADR 0022](./docs/adr/0022-sql-reference-ranges.md) |
 
 See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings.
 

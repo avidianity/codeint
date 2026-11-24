@@ -136,6 +136,6 @@ Calibrated SQL Reference ranges come from a panel of 20 pre-2023 public SQL repo
 | Erosion | 9.4% to 97.6% |
 | Duplication | 4.2% to 92.1% |
 | Verbosity | 4.2% to 92.1% |
-| Import cycles | absent |
+| Import cycles | N/A |
 
 `codeint check` displays these Reference ranges next to SQL values for Erosion, Duplication, and Verbosity; Import cycles stays absent because SQL has no runtime imports.
