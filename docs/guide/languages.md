@@ -37,6 +37,7 @@ Measured across 20 pre-2023 public repositories per language (10th to 90th perce
 | PHP | 5.5% to 67.7% | 4.1% to 29.0% | 4.2% to 29.2% | 0.0% to 10.7% | [ADR 0011](../adr/0011-php-reference-ranges.md) |
 | Dart | 4.7% to 41.9% | 7.3% to 25.6% | 8.0% to 25.9% | 7.3% to 52.4% | [ADR 0012](../adr/0012-dart-reference-ranges.md) |
 | Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% | [ADR 0013](../adr/0013-python-reference-ranges.md) |
+| Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% | [ADR 0021](../adr/0021-go-reference-ranges.md) |
 
 To add another language as an external WebAssembly plugin, see [docs/plugins.md](../plugins.md).
 
