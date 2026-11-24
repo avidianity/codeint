@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # SQL Reference ranges come from a panel of 20 public repositories
@@ -13,7 +13,7 @@ This record applies the selection rule and measurement method of [ADR 0008](./00
 
 ### SQL adaptations to ADR 0008
 
-Standalone SQL repositories differ from application repositories in TypeScript, Rust, or Go in four ways that require pre-committed adaptations (committed before any `codeint` measurement and awaiting Owner approval with this record):
+Standalone SQL repositories differ from application repositories in TypeScript, Rust, or Go in four ways that require pre-committed adaptations (committed before any `codeint` measurement and approved by the Owner with this record):
 
 1. **Combined GitHub language query (`language:SQL language:PLpgSQL`)**: GitHub Linguist splits `.sql` repositories across `SQL`, `PLpgSQL`, `PLSQL`, `TSQL`, and `SQLPL`.
    `PLSQL`, `TSQL`, and `SQLPL` target proprietary Oracle, SQL Server, and Db2 dialects outside Spec #224's Dialect scope.
@@ -171,4 +171,4 @@ The source label reads `codeint panel of 20 SQL repositories, ADR 0022, codeint 
 - SQL reports show a Reference range next to Erosion, Verbosity, and Duplication with the source label above, and leave Import cycles absent.
 - No code, fixture, or text of a panel repository enters codeint; this record holds only names, commits, and numbers.
 - Any future change to default Metric rules, SQL statement or routine complexity rules, SQL Flagged line rules, or SQL Source set rules requires re-measuring the panel and amending this record.
-- This ADR starts as `proposed` and moves to `accepted` once the Owner approves it and its SQL adaptations to [ADR 0008](./0008-typescript-reference-ranges.md).
+- The Owner accepted this ADR and its SQL adaptations to [ADR 0008](./0008-typescript-reference-ranges.md) alongside PR #434.
