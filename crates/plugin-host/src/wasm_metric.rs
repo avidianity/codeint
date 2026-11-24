@@ -9,12 +9,30 @@ use wasmtime::Store;
 
 use crate::PluginHostError;
 use crate::limits::{LimitTrap, PluginStoreState, arm_call_deadline, classify_trap};
-use crate::wasm::{ContractSpec, InstancePool, instantiate_sandboxed_component, map_host_trap};
+use crate::wasm::{
+    ContractSpec, InstancePool, instantiate_sandboxed_component, map_host_trap,
+    prepare_sandboxed_component,
+};
 
 const METRIC_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/metric@",
     expected_interface: "codeint:plugin/metric@0.3.0",
 };
+
+pub(crate) fn verify_metric_component(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), PluginHostError> {
+    prepare_sandboxed_component(
+        name,
+        path,
+        bytes,
+        METRIC_CONTRACT,
+        bindings::MetricPluginPre::new,
+    )?;
+    Ok(())
+}
 
 mod bindings {
     wasmtime::component::bindgen!({

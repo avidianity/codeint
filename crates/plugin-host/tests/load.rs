@@ -16,7 +16,7 @@ use codeint_model::{
 use codeint_plugin_host::{
     PLUGIN_INTERFACE_VERSION, PluginHostError, WasmLanguagePlugin, load_language_plugin,
     load_language_plugin_with_limits, load_language_plugins, load_metric_plugin,
-    load_metric_plugin_with_limits, load_metric_plugins,
+    load_metric_plugin_with_limits, load_metric_plugins, verify_plugin_component,
 };
 
 use common::{build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm};
@@ -730,6 +730,83 @@ fn rejects_v0_1_0_metric_plugin_with_actionable_version_mismatch_error() {
         "legacy-metric",
         "codeint:plugin/metric@0.3.0",
         "codeint:plugin/metric@0.1.0",
+    );
+}
+
+#[test]
+fn rejects_v0_2_0_language_and_metric_plugins_with_actionable_version_mismatch_error() {
+    let lang_path = sandbox_probe_wasm("legacy_v0_2_0_language_plugin.wasm");
+    let lang_decl = declaration_for("legacy-v02-lang", &lang_path);
+    let lang_err = load_language_plugin(Path::new("."), &lang_decl, &PluginHostConfig::default())
+        .err()
+        .expect("0.2.0 Language plugin must be rejected by 0.3.0 host");
+    assert_incompatible_contract_error(
+        lang_err,
+        "legacy-v02-lang",
+        "codeint:plugin/language@0.3.0",
+        "codeint:plugin/language@0.2.0",
+    );
+
+    let metric_path = sandbox_probe_wasm("legacy_v0_2_0_metric_plugin.wasm");
+    let metric_decl = declaration_with_kind("legacy-v02-metric", PluginKind::Metric, &metric_path);
+    let metric_err = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
+        .err()
+        .expect("0.2.0 Metric plugin must be rejected by 0.3.0 host");
+    assert_incompatible_contract_error(
+        metric_err,
+        "legacy-v02-metric",
+        "codeint:plugin/metric@0.3.0",
+        "codeint:plugin/metric@0.2.0",
+    );
+
+    let sample_lang_bytes = std::fs::read(sample_plugin_wasm()).expect("read sample language wasm");
+    assert!(
+        verify_plugin_component(
+            "sample-mini",
+            sample_plugin_wasm(),
+            PluginKind::Language,
+            &sample_lang_bytes,
+        )
+        .is_ok()
+    );
+    let sample_metric_bytes =
+        std::fs::read(sample_metric_plugin_wasm()).expect("read sample metric wasm");
+    assert!(
+        verify_plugin_component(
+            "sample-metric",
+            sample_metric_plugin_wasm(),
+            PluginKind::Metric,
+            &sample_metric_bytes,
+        )
+        .is_ok()
+    );
+    let legacy_lang_bytes = std::fs::read(&lang_path).expect("read legacy 0.2.0 language wasm");
+    let verify_lang_err = verify_plugin_component(
+        "legacy-v02-lang",
+        &lang_path,
+        PluginKind::Language,
+        &legacy_lang_bytes,
+    )
+    .expect_err("0.2.0 language component must fail contract verification");
+    assert_incompatible_contract_error(
+        verify_lang_err,
+        "legacy-v02-lang",
+        "codeint:plugin/language@0.3.0",
+        "codeint:plugin/language@0.2.0",
+    );
+    let legacy_metric_bytes = std::fs::read(&metric_path).expect("read legacy 0.2.0 metric wasm");
+    let verify_metric_err = verify_plugin_component(
+        "legacy-v02-metric",
+        &metric_path,
+        PluginKind::Metric,
+        &legacy_metric_bytes,
+    )
+    .expect_err("0.2.0 metric component must fail contract verification");
+    assert_incompatible_contract_error(
+        verify_metric_err,
+        "legacy-v02-metric",
+        "codeint:plugin/metric@0.3.0",
+        "codeint:plugin/metric@0.2.0",
     );
 }
 

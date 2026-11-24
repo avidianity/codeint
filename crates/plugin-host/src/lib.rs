@@ -111,6 +111,18 @@ pub enum PluginHostError {
     },
 }
 
+pub fn verify_plugin_component(
+    name: &str,
+    path: &Path,
+    kind: PluginKind,
+    bytes: &[u8],
+) -> Result<(), PluginHostError> {
+    match kind {
+        PluginKind::Language => wasm::verify_language_component(name, path, bytes),
+        PluginKind::Metric => wasm_metric::verify_metric_component(name, path, bytes),
+    }
+}
+
 pub fn load_language_plugin(
     repository_root: &Path,
     declaration: &PluginDeclaration,

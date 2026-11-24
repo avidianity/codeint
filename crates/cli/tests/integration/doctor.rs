@@ -1,11 +1,62 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 
 use codeint_plugin_host::{sha256, sha256_hex};
 use serde_json::{Value, json};
 use tempfile::TempDir;
+
+static DOCTOR_SAMPLE_PLUGIN: OnceLock<PathBuf> = OnceLock::new();
+static DOCTOR_SANDBOX_PROBES: OnceLock<PathBuf> = OnceLock::new();
+
+fn compile_fixture_dir(manifest_rel: &str, workspace: bool) -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let target = root.join("target/wasm-fixtures");
+    let mut cmd = Command::new("cargo");
+    cmd.args([
+        "build",
+        "--locked",
+        "--offline",
+        "--target",
+        "wasm32-wasip2",
+    ]);
+    if workspace {
+        cmd.arg("--workspace");
+    }
+    let status = cmd
+        .args([
+            "--manifest-path",
+            &root.join(manifest_rel).to_string_lossy(),
+        ])
+        .args(["--target-dir", &target.to_string_lossy()])
+        .status()
+        .expect("build wasm fixture");
+    assert!(status.success(), "wasm fixture build failed: {status}");
+    target.join("wasm32-wasip2/debug")
+}
+
+fn sample_plugin_bytes() -> Vec<u8> {
+    let path = DOCTOR_SAMPLE_PLUGIN.get_or_init(|| {
+        compile_fixture_dir(
+            "crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml",
+            false,
+        )
+        .join("sample_mini_plugin.wasm")
+    });
+    fs::read(path).expect("read compiled sample plugin")
+}
+
+fn sandbox_probe_bytes(file_name: &str) -> Vec<u8> {
+    let dir = DOCTOR_SANDBOX_PROBES.get_or_init(|| {
+        compile_fixture_dir(
+            "crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml",
+            true,
+        )
+    });
+    fs::read(dir.join(file_name)).expect("read compiled sandbox probe")
+}
 
 struct DoctorFixture {
     dir: TempDir,
@@ -334,9 +385,9 @@ fn doctor_verifies_external_wasm_plugins_and_fails_on_missing_or_mismatched_sha2
         "error"
     );
 
-    let wasm_bytes = b"\0asm\x01\0\0\0";
-    fixture.write("plugins/sample.wasm", wasm_bytes);
-    let actual_hash = sha256_hex(&sha256(wasm_bytes));
+    let wasm_bytes = sample_plugin_bytes();
+    fixture.write("plugins/sample.wasm", &wasm_bytes);
+    let actual_hash = sha256_hex(&sha256(&wasm_bytes));
 
     fixture.write_local_plugin("sample-plugin", "plugins/sample.wasm", zeros);
     let mismatch_report = fixture.run_json(&[], 1);
@@ -514,4 +565,72 @@ fn doctor_plugin_error_remedies_name_codeint_jsonc_when_active() {
             "unexpected codeint.json in remedy for {check_id}: {remedy:?}"
         );
     }
+}
+
+#[test]
+fn doctor_reports_v0_2_0_language_and_metric_plugins_as_not_loadable() {
+    let cases = [
+        (
+            "legacy-v02-lang",
+            "language",
+            "legacy_v0_2_0_language_plugin.wasm",
+            "codeint:plugin/language@0.2.0",
+            "codeint:plugin/language@0.3.0",
+        ),
+        (
+            "legacy-v02-metric",
+            "metric",
+            "legacy_v0_2_0_metric_plugin.wasm",
+            "codeint:plugin/metric@0.2.0",
+            "codeint:plugin/metric@0.3.0",
+        ),
+    ];
+
+    for (name, kind, wasm_file, found_interface, expected_interface) in cases {
+        let fixture = DoctorFixture::git_repo_with_ts();
+        let bytes = sandbox_probe_bytes(wasm_file);
+        let digest = sha256_hex(&sha256(&bytes));
+        let rel_path = format!("plugins/{wasm_file}");
+        fixture.write(&rel_path, &bytes);
+        fixture.write_plugin_config(json!({
+            "name": name,
+            "kind": kind,
+            "path": rel_path,
+            "sha256": digest
+        }));
+
+        let report = fixture.run_json(&[], 1);
+        assert_eq!(report["status"], "error", "report: {report}");
+        let check = find_check(&report, &format!("plugin:{name}"));
+        assert_eq!(check["status"], "error", "check: {check}");
+        let summary = check["summary"].as_str().unwrap_or_default();
+        assert!(
+            summary.contains("not loadable")
+                && summary.contains(name)
+                && summary.contains(found_interface)
+                && summary.contains("0.2.0")
+                && summary.contains(expected_interface)
+                && summary.contains("0.3.0"),
+            "expected summary to report {name} not loadable with both versions, got: {summary:?}"
+        );
+        let remedy = check["remedy"].as_str().unwrap_or_default();
+        assert!(
+            remedy.to_ascii_lowercase().contains("rebuild") && remedy.contains("0.3.0"),
+            "expected remedy to instruct rebuilding against 0.3.0, got: {remedy:?}"
+        );
+    }
+
+    let invalid_fixture = DoctorFixture::git_repo_with_ts();
+    let invalid_bytes = b"\0asm\x01\0\0\0";
+    let invalid_hash = sha256_hex(&sha256(invalid_bytes));
+    invalid_fixture.write("plugins/bad.wasm", invalid_bytes);
+    invalid_fixture.write_local_plugin("bad-plugin", "plugins/bad.wasm", &invalid_hash);
+    let invalid_report = invalid_fixture.run_json(&[], 1);
+    assert_check_field(
+        &invalid_report,
+        "plugin:bad-plugin",
+        "error",
+        "summary",
+        "not loadable",
+    );
 }
