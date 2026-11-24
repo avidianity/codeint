@@ -21,13 +21,35 @@ struct NoImportsLanguagePlugin;
 
 export!(NoImportsLanguagePlugin);
 
-fn fnv1a_64(text: &str) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in text.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
+fn parse_noimp_line(
+    line_number: u32,
+    trimmed: &str,
+    functions: &mut Vec<Function>,
+    tokens: &mut Vec<Token>,
+) {
+    if let Some(rest) = trimmed.strip_prefix("fn ") {
+        functions.push(Function {
+            line: line_number,
+            end_line: line_number,
+            decision_points: 0,
+            source_lines: 1,
+            name: probe_runtime::parse_fn_name(rest),
+            cognitive_complexity: 0,
+            coverage: None,
+        });
     }
-    hash
+    for word in trimmed.split_whitespace() {
+        let kind = if word == "fn" {
+            TokenKind::Other
+        } else {
+            TokenKind::Identifier
+        };
+        tokens.push(Token {
+            kind,
+            text_hash: probe_runtime::fnv1a_64(word),
+            line: line_number,
+        });
+    }
 }
 
 impl Guest for NoImportsLanguagePlugin {
@@ -55,91 +77,17 @@ impl Guest for NoImportsLanguagePlugin {
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 continue;
             }
-            let line_number = (index + 1) as u32;
             source_lines += 1;
-            if let Some(rest) = trimmed.strip_prefix("fn ") {
-                let name = rest
-                    .split(|ch: char| ch == '(' || ch.is_whitespace())
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                functions.push(Function {
-                    line: line_number,
-                    end_line: line_number,
-                    decision_points: 0,
-                    source_lines: 1,
-                    name: if name.is_empty() { None } else { Some(name) },
-                    cognitive_complexity: 0,
-                    coverage: None,
-                });
-            }
-            for word in trimmed.split_whitespace() {
-                let kind = if word == "fn" {
-                    TokenKind::Other
-                } else {
-                    TokenKind::Identifier
-                };
-                tokens.push(Token {
-                    kind,
-                    text_hash: fnv1a_64(word),
-                    line: line_number,
-                });
-            }
+            parse_noimp_line((index + 1) as u32, trimmed, &mut functions, &mut tokens);
         }
-        Ok(FileModel {
+        Ok(probe_runtime::blank_file_model!(
             source_set,
             source_lines,
-            functions,
-            tokens,
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
-        })
+            functions: functions,
+            tokens: tokens,
+        ))
     }
 
-    fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-        panic!("manifest-paths must not be called when has-imports is false");
-    }
-
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        panic!("workspace-packages must not be called when has-imports is false");
-    }
-
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        _manifests: Vec<Manifest>,
-        _requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        panic!("resolve-imports must not be called when has-imports is false");
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        panic!("declared-dependencies must not be called when has-imports is false");
-    }
-
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        panic!("entry-points must not be called when has-imports is false");
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        vec![ReferenceRange {
-            metric: "erosion".to_string(),
-            low: 0.0,
-            high: 0.2,
-            source: "no-imports language fixture".to_string(),
-        }]
-    }
-
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports() -> bool {
-        false
-    }
+    probe_runtime::panic_no_imports_stubs!();
+    probe_runtime::fixture_erosion_ranges!("no-imports language fixture", false);
 }

@@ -52,16 +52,8 @@ pub struct ExternalMetricMeasurement {
 
 #[derive(Debug, thiserror::Error)]
 pub enum MetricPluginError {
-    #[error("Metric plugin {plugin:?} failed during measure: {reason}")]
-    Call { plugin: String, reason: String },
-    #[error("Metric plugin {plugin:?} exceeded its memory cap of {memory_mb} MiB")]
-    MemoryLimitExceeded { plugin: String, memory_mb: u64 },
-    #[error("Metric plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
-    TimeLimitExceeded { plugin: String, timeout_ms: u64 },
-    #[error(
-        "Metric plugin {plugin:?} returned an invalid ratio {ratio}; it must be finite and between 0 and 1"
-    )]
-    InvalidRatio { plugin: String, ratio: f64 },
+    #[error("Metric plugin {plugin:?} returned a Finding with an empty id")]
+    EmptyFindingId { plugin: String },
     #[error(
         "Metric plugin {plugin:?} returned an invalid {field} {value}; it must be finite and non-negative"
     )]
@@ -70,12 +62,20 @@ pub enum MetricPluginError {
         field: &'static str,
         value: f64,
     },
-    #[error("Metric plugin {plugin:?} returned a Finding with an empty id")]
-    EmptyFindingId { plugin: String },
-    #[error("Metric plugin {plugin:?} returned a Finding with an invalid path {path:?}")]
-    InvalidFindingPath { plugin: String, path: String },
     #[error("Metric plugin {plugin:?} returned a Finding with line 0; lines start at 1")]
     InvalidFindingLine { plugin: String },
+    #[error("Metric plugin {plugin:?} failed during measure: {reason}")]
+    Call { plugin: String, reason: String },
+    #[error("Metric plugin {plugin:?} returned a Finding with an invalid path {path:?}")]
+    InvalidFindingPath { plugin: String, path: String },
+    #[error("Metric plugin {plugin:?} exceeded its memory cap of {memory_mb} MiB")]
+    MemoryLimitExceeded { plugin: String, memory_mb: u64 },
+    #[error("Metric plugin {plugin:?} exceeded its time limit of {timeout_ms} ms")]
+    TimeLimitExceeded { plugin: String, timeout_ms: u64 },
+    #[error(
+        "Metric plugin {plugin:?} returned an invalid ratio {ratio}; it must be finite and between 0 and 1"
+    )]
+    InvalidRatio { plugin: String, ratio: f64 },
 }
 
 pub trait MetricPlugin: Sync {

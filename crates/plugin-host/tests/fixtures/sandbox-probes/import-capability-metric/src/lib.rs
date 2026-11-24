@@ -32,35 +32,18 @@ impl Guest for ImportCapabilityMetricPlugin {
     }
 
     fn measure(model: CodeModel) -> Measurement {
-        let mut with_imports: usize = 0;
-        let mut findings = Vec::new();
-        for facts in &model.languages {
-            let status = if facts.has_imports {
-                with_imports += 1;
-                "imports"
-            } else {
-                "no-imports"
-            };
-            findings.push(Finding {
-                id: format!("imports:{}:{status}", facts.language),
-                path: format!("languages/{}", facts.language),
-                line: 1,
-                end_line: None,
-                message: format!(
-                    "language={} has_imports={}",
-                    facts.language, facts.has_imports
-                ),
-            });
-        }
+        let (with_imports, findings) = probe_runtime::language_fact_findings!(
+            &model.languages,
+            "imports",
+            "has_imports",
+            "imports",
+            "no-imports",
+            |facts: &self::exports::codeint::plugin::metric::LanguageFacts| facts.has_imports
+        );
         let numerator = with_imports as f64;
         let denominator = model.languages.len() as f64;
-        let ratio = if model.languages.is_empty() {
-            0.0
-        } else {
-            numerator / denominator
-        };
         Measurement {
-            ratio,
+            ratio: probe_runtime::ratio(numerator, denominator),
             numerator,
             denominator,
             findings,

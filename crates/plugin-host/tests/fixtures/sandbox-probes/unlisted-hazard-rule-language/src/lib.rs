@@ -30,7 +30,7 @@ impl Guest for UnlistedHazardRuleLanguagePlugin {
         if !path.ends_with(".uhr") {
             return Err(LowerError::UnsupportedFile("unsupported".to_string()));
         }
-        let source_lines = text.lines().filter(|line| !line.trim().is_empty()).count() as u32;
+        let source_lines = probe_runtime::count_non_empty_lines(&text);
         let mut hazard_lines = Vec::new();
         for (index, line) in text.lines().enumerate() {
             let line_number = (index + 1) as u32;
@@ -47,45 +47,14 @@ impl Guest for UnlistedHazardRuleLanguagePlugin {
                 });
             }
         }
-        Ok(FileModel {
-            source_set: SourceSet::Production,
+        Ok(probe_runtime::blank_file_model!(
+            SourceSet::Production,
             source_lines,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines,
-            runtime_imports: Vec::new(),
-            program_start: false,
-        })
+            hazard_lines: hazard_lines,
+        ))
     }
 
-    fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
-    }
-
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        _manifests: Vec<Manifest>,
-        _requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        Vec::new()
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
-    }
-
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
+    probe_runtime::empty_language_metadata_stubs!();
 
     fn has_hazard_rules() -> bool {
         true

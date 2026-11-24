@@ -12,7 +12,7 @@ wit_bindgen::generate!({
     path: "../../../../../../wit",
 });
 
-use codeint::plugin::language::Resolution;
+use self::codeint::plugin::language::Resolution;
 use exports::codeint::plugin::metric::{CodeModel, Finding, Guest, Measurement};
 
 struct ImportsReaderMetricPlugin;

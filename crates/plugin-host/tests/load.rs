@@ -1151,19 +1151,82 @@ fn metric_plugin_reads_per_function_coverage_and_distinguishes_absent_from_zero_
     );
 }
 
+fn load_probe_language(name: &str, wasm_file: &str) -> codeint_plugin_host::WasmLanguagePlugin {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let declaration = declaration_for(name, &wasm_path);
+    load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .unwrap_or_else(|error| panic!("{name} Language plugin loads: {error}"))
+}
+
+fn load_probe_metric(name: &str, wasm_file: &str) -> codeint_plugin_host::WasmMetricPlugin {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let declaration = declaration_with_kind(name, PluginKind::Metric, &wasm_path);
+    load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .unwrap_or_else(|error| panic!("{name} Metric plugin loads: {error}"))
+}
+
+fn language_facts(
+    language: &str,
+    has_coverage: bool,
+    has_hazard_rules: bool,
+    has_imports: bool,
+) -> LanguageFacts {
+    LanguageFacts {
+        language: language.to_owned(),
+        has_coverage,
+        has_hazard_rules,
+        has_imports,
+    }
+}
+
+fn model_with_language_facts(facts: LanguageFacts, with_file: bool) -> CodeModel {
+    let base = if with_file {
+        coverage_model_with(Vec::new())
+    } else {
+        CodeModel::default()
+    };
+    CodeModel {
+        languages: vec![facts],
+        ..base
+    }
+}
+
+fn assert_two_language_fact_probe(
+    plugin: &codeint_plugin_host::WasmMetricPlugin,
+    first: (LanguageFacts, bool, f64, (&str, &str)),
+    second: (LanguageFacts, bool, f64, (&str, &str)),
+    expected_merged_ratio: f64,
+    expected_merged: Vec<(&str, &str)>,
+) {
+    let first_model = model_with_language_facts(first.0, first.1);
+    let second_model = model_with_language_facts(second.0, second.1);
+    let first_measured = plugin
+        .measure(&first_model)
+        .expect("measure first language");
+    let second_measured = plugin
+        .measure(&second_model)
+        .expect("measure second language");
+    assert!((first_measured.ratio - first.2).abs() < 1e-9);
+    assert_eq!(summarize_findings(&first_measured), vec![first.3]);
+    assert!((second_measured.ratio - second.2).abs() < 1e-9);
+    assert_eq!(summarize_findings(&second_measured), vec![second.3]);
+
+    let merged = CodeModel::merge([first_model, second_model]);
+    let source_sets = merged.into_source_sets();
+    let multi_measured = plugin
+        .measure(source_sets.get(SourceSet::Production))
+        .expect("measure merged multi-language model");
+    assert!((multi_measured.ratio - expected_merged_ratio).abs() < 1e-9);
+    assert_eq!(summarize_findings(&multi_measured), expected_merged);
+}
+
 #[test]
 fn language_plugin_sets_program_start_mark_and_metric_plugin_reads_it() {
-    let language_wasm = sandbox_probe_wasm("program_start_language_plugin.wasm");
-    let language_decl = declaration_for("program-start-language", &language_wasm);
-    let language =
-        load_language_plugin(Path::new("."), &language_decl, &PluginHostConfig::default())
-            .expect("program-start Language plugin loads");
-
-    let metric_wasm = sandbox_probe_wasm("program_start_metric_plugin.wasm");
-    let metric_decl =
-        declaration_with_kind("program-start-metric", PluginKind::Metric, &metric_wasm);
-    let metric = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
-        .expect("program-start Metric plugin loads");
+    let language = load_probe_language(
+        "program-start-language",
+        "program_start_language_plugin.wasm",
+    );
+    let metric = load_probe_metric("program-start-metric", "program_start_metric_plugin.wasm");
 
     let main_path = RepoPath::new("cmd/app/main.prog").expect("valid repo path");
     let lib_path = RepoPath::new("internal/util/helper.prog").expect("valid repo path");
@@ -1405,66 +1468,39 @@ fn language_plugin_exports_hazard_rules_across_wasm_boundary() {
 
 #[test]
 fn metric_plugin_reads_per_language_hazard_rules_statement() {
-    let wasm_path = sandbox_probe_wasm("hazard_facts_metric_plugin.wasm");
-    let declaration = declaration_with_kind("hazard-facts", PluginKind::Metric, &wasm_path);
-    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
-        .expect("hazard-facts Metric plugin loads");
-
+    let plugin = load_probe_metric("hazard-facts", "hazard_facts_metric_plugin.wasm");
     assert_eq!(plugin.key(), "hazard_facts");
-
-    let without_rules = CodeModel {
-        languages: vec![LanguageFacts {
-            language: "typescript-javascript".to_owned(),
-            has_coverage: false,
-            has_hazard_rules: false,
-            has_imports: true,
-        }],
-        ..coverage_model_with(Vec::new())
-    };
-    let with_rules = CodeModel {
-        languages: vec![LanguageFacts {
-            language: "sql".to_owned(),
-            has_coverage: false,
-            has_hazard_rules: true,
-            has_imports: false,
-        }],
-        ..CodeModel::default()
-    };
-
-    let without_measured = plugin
-        .measure(&without_rules)
-        .expect("measure language without hazard rules");
-    let with_measured = plugin
-        .measure(&with_rules)
-        .expect("measure language with hazard rules");
-
-    assert!((without_measured.ratio - 0.0).abs() < 1e-9);
-    assert_eq!(
-        summarize_findings(&without_measured),
-        vec![(
-            "hazard-rules:typescript-javascript:absent",
-            "language=typescript-javascript has_hazard_rules=false",
-        )]
-    );
-
-    assert!((with_measured.ratio - 1.0).abs() < 1e-9);
-    assert_eq!(
-        summarize_findings(&with_measured),
-        vec![(
-            "hazard-rules:sql:enabled",
-            "language=sql has_hazard_rules=true",
-        )]
-    );
-
-    let merged = CodeModel::merge([without_rules, with_rules]);
-    let source_sets = merged.into_source_sets();
-    let multi_measured = plugin
-        .measure(source_sets.get(SourceSet::Production))
-        .expect("measure merged multi-language model");
-
-    assert!((multi_measured.ratio - 0.5).abs() < 1e-9);
-    assert_eq!(
-        summarize_findings(&multi_measured),
+    assert_two_language_fact_probe(
+        &plugin,
+        (
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: false,
+                has_imports: true,
+            },
+            true,
+            0.0,
+            (
+                "hazard-rules:typescript-javascript:absent",
+                "language=typescript-javascript has_hazard_rules=false",
+            ),
+        ),
+        (
+            LanguageFacts {
+                language: "sql".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: true,
+                has_imports: false,
+            },
+            false,
+            1.0,
+            (
+                "hazard-rules:sql:enabled",
+                "language=sql has_hazard_rules=true",
+            ),
+        ),
+        0.5,
         vec![
             (
                 "hazard-rules:sql:enabled",
@@ -1474,22 +1510,14 @@ fn metric_plugin_reads_per_language_hazard_rules_statement() {
                 "hazard-rules:typescript-javascript:absent",
                 "language=typescript-javascript has_hazard_rules=false",
             ),
-        ]
+        ],
     );
 }
 
 #[test]
 fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
-    let language_wasm = sandbox_probe_wasm("folder_import_language_plugin.wasm");
-    let language_decl = declaration_for("folder-import", &language_wasm);
-    let language =
-        load_language_plugin(Path::new("."), &language_decl, &PluginHostConfig::default())
-            .expect("folder-import Language plugin loads");
-
-    let metric_wasm = sandbox_probe_wasm("imports_reader_metric_plugin.wasm");
-    let metric_decl = declaration_with_kind("imports-reader", PluginKind::Metric, &metric_wasm);
-    let metric = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
-        .expect("imports-reader Metric plugin loads");
+    let language = load_probe_language("folder-import", "folder_import_language_plugin.wasm");
+    let metric = load_probe_metric("imports-reader", "imports_reader_metric_plugin.wasm");
 
     let main_path = RepoPath::new("src/main.fld").expect("valid repo path");
     let alpha_path = RepoPath::new("pkg/util/alpha.fld").expect("valid repo path");
@@ -1569,16 +1597,9 @@ fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
 
 #[test]
 fn language_plugin_reports_hazard_lines_and_metric_plugin_reads_them() {
-    let language_wasm = sandbox_probe_wasm("hazard_rules_language_plugin.wasm");
-    let language_decl = declaration_for("hazard-rules-language", &language_wasm);
     let language =
-        load_language_plugin(Path::new("."), &language_decl, &PluginHostConfig::default())
-            .expect("hazard-rules Language plugin loads");
-
-    let metric_wasm = sandbox_probe_wasm("hazard_facts_metric_plugin.wasm");
-    let metric_decl = declaration_with_kind("hazard-facts", PluginKind::Metric, &metric_wasm);
-    let metric = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
-        .expect("hazard-facts Metric plugin loads");
+        load_probe_language("hazard-rules-language", "hazard_rules_language_plugin.wasm");
+    let metric = load_probe_metric("hazard-facts", "hazard_facts_metric_plugin.wasm");
 
     let unsafe_path = RepoPath::new("queries/unsafe.haz").expect("valid repo path");
     let clean_path = RepoPath::new("queries/clean.haz").expect("valid repo path");
@@ -1710,66 +1731,29 @@ fn language_plugin_exports_has_imports_false_across_wasm_boundary() {
 
 #[test]
 fn metric_plugin_reads_per_language_has_imports_statement() {
-    let wasm_path = sandbox_probe_wasm("import_capability_metric_plugin.wasm");
-    let declaration = declaration_with_kind("import-capability", PluginKind::Metric, &wasm_path);
-    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
-        .expect("import-capability Metric plugin loads");
-
+    let plugin = load_probe_metric("import-capability", "import_capability_metric_plugin.wasm");
     assert_eq!(plugin.key(), "import_capability");
-
-    let with_imports = CodeModel {
-        languages: vec![LanguageFacts {
-            language: "typescript-javascript".to_owned(),
-            has_coverage: false,
-            has_hazard_rules: false,
-            has_imports: true,
-        }],
-        ..coverage_model_with(Vec::new())
-    };
-    let without_imports = CodeModel {
-        languages: vec![LanguageFacts {
-            language: "no-imports-lang".to_owned(),
-            has_coverage: false,
-            has_hazard_rules: false,
-            has_imports: false,
-        }],
-        ..CodeModel::default()
-    };
-
-    let with_measured = plugin
-        .measure(&with_imports)
-        .expect("measure language with imports");
-    let without_measured = plugin
-        .measure(&without_imports)
-        .expect("measure language without imports");
-
-    assert!((with_measured.ratio - 1.0).abs() < 1e-9);
-    assert_eq!(
-        summarize_findings(&with_measured),
-        vec![(
-            "imports:typescript-javascript:imports",
-            "language=typescript-javascript has_imports=true",
-        )]
-    );
-
-    assert!((without_measured.ratio - 0.0).abs() < 1e-9);
-    assert_eq!(
-        summarize_findings(&without_measured),
-        vec![(
-            "imports:no-imports-lang:no-imports",
-            "language=no-imports-lang has_imports=false",
-        )]
-    );
-
-    let merged = CodeModel::merge([with_imports, without_imports]);
-    let source_sets = merged.into_source_sets();
-    let multi_measured = plugin
-        .measure(source_sets.get(SourceSet::Production))
-        .expect("measure merged multi-language model");
-
-    assert!((multi_measured.ratio - 0.5).abs() < 1e-9);
-    assert_eq!(
-        summarize_findings(&multi_measured),
+    assert_two_language_fact_probe(
+        &plugin,
+        (
+            language_facts("typescript-javascript", false, false, true),
+            true,
+            1.0,
+            (
+                "imports:typescript-javascript:imports",
+                "language=typescript-javascript has_imports=true",
+            ),
+        ),
+        (
+            language_facts("no-imports-lang", false, false, false),
+            false,
+            0.0,
+            (
+                "imports:no-imports-lang:no-imports",
+                "language=no-imports-lang has_imports=false",
+            ),
+        ),
+        0.5,
         vec![
             (
                 "imports:no-imports-lang:no-imports",
@@ -1779,6 +1763,6 @@ fn metric_plugin_reads_per_language_has_imports_statement() {
                 "imports:typescript-javascript:imports",
                 "language=typescript-javascript has_imports=true",
             ),
-        ]
+        ],
     );
 }

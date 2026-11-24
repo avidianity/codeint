@@ -136,40 +136,14 @@ impl Guest for LegacyV020LanguagePlugin {
 
     fn lower(_path: String, _text: String) -> Result<FileModel, LowerError> {
         Ok(FileModel {
-            source_set: SourceSet::Production,
-            source_lines: 0,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            flagged_lines: Vec::new(),
+            tokens: Vec::new(),
+            functions: Vec::new(),
+            source_lines: 0,
+            source_set: SourceSet::Production,
         })
     }
 
-    fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
-    }
-
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        _manifests: Vec<Manifest>,
-        _requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        Vec::new()
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
-    }
-
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
+    probe_runtime::empty_language_metadata_stubs!();
 }

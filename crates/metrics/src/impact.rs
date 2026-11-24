@@ -57,97 +57,30 @@ impl ImpactAnalysis {
             .enumerate()
             .map(|(index, file)| (&file.path, index))
             .collect();
-
-        let mut unique_target_indices: BTreeSet<usize> = BTreeSet::new();
-        for target in targets {
-            let Some(&index) = index_of.get(target) else {
-                return Err(ImpactError::TargetNotInCodeModel {
-                    path: target.clone(),
-                });
-            };
-            unique_target_indices.insert(index);
-        }
-
-        let mut forward: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); model.files.len()];
-        let mut reverse: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); model.files.len()];
-        for runtime_import in &model.runtime_imports {
-            if let ImportResolution::Resolved(targets) = &runtime_import.resolution
-                && let Some(&from) = index_of.get(&runtime_import.importer)
-            {
-                for target in targets {
-                    if let Some(&to) = index_of.get(target)
-                        && from != to
-                    {
-                        forward[from].insert(to);
-                        reverse[to].insert(from);
-                    }
-                }
-            }
-        }
-
+        let unique_target_indices = resolve_target_indices(targets, &index_of)?;
+        let (forward, reverse) = build_import_graphs(model, &index_of);
         let has_workspace_members = model.workspace.has_members();
-        let package_name = |path: &RepoPath| -> Option<String> {
-            has_workspace_members.then(|| model.workspace.package_of(path).to_string())
-        };
-
-        let mut target_rows: Vec<ImpactTarget> = unique_target_indices
-            .iter()
-            .map(|&index| {
-                let file = &model.files[index];
-                ImpactTarget {
-                    path: file.path.clone(),
-                    source_set: file.model.source_set,
-                    package: package_name(&file.path),
-                    fan_in: reverse[index].len(),
-                    fan_out: forward[index].len(),
-                    transitive_import_weight: reverse_reachable_count(&reverse, index, max_depth),
-                }
-            })
-            .collect();
-        target_rows.sort_by(|left, right| left.path.cmp(&right.path));
-
+        let target_rows = build_target_rows(
+            model,
+            &unique_target_indices,
+            &forward,
+            &reverse,
+            max_depth,
+            has_workspace_members,
+        );
         let distances = multi_source_reverse_bfs(&reverse, &unique_target_indices, max_depth);
-        let mut dependents: Vec<ImpactDependent> = distances
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, distance)| {
-                let distance = distance?;
-                if distance == 0 {
-                    return None;
-                }
-                let file = &model.files[index];
-                Some(ImpactDependent {
-                    path: file.path.clone(),
-                    distance,
-                    source_set: file.model.source_set,
-                    package: package_name(&file.path),
-                })
-            })
-            .collect();
-        dependents.sort_by(|left, right| {
-            left.distance
-                .cmp(&right.distance)
-                .then_with(|| left.path.cmp(&right.path))
-        });
-
+        let dependents = collect_dependents(model, distances, has_workspace_members);
         let direct_dependents = dependents.iter().filter(|dep| dep.distance == 1).count();
-        let transitive_dependents = dependents.len() - direct_dependents;
         let total_dependents = dependents.len();
-
+        let transitive_dependents = total_dependents - direct_dependents;
         let fan_out = unique_target_indices
             .iter()
             .flat_map(|&index| forward[index].iter().copied())
             .filter(|target_import| !unique_target_indices.contains(target_import))
             .collect::<BTreeSet<usize>>()
             .len();
-
-        let affected_packages: Vec<String> = if has_workspace_members {
-            dependents
-                .iter()
-                .filter_map(|dep| dep.package.clone())
-                .collect::<BTreeSet<String>>()
-                .into_iter()
-                .collect()
+        let affected_packages = if has_workspace_members {
+            collect_affected_packages(&dependents)
         } else {
             Vec::new()
         };
@@ -183,15 +116,123 @@ impl ImpactAnalysis {
         self.summary.total_dependents = total_dependents;
         self.summary.fan_in = direct_dependents;
         self.summary.transitive_import_weight = total_dependents;
-        self.affected_packages = self
-            .dependents
-            .iter()
-            .filter_map(|dep| dep.package.clone())
-            .collect::<BTreeSet<String>>()
-            .into_iter()
-            .collect();
+        self.affected_packages = collect_affected_packages(&self.dependents);
         self
     }
+}
+
+fn resolve_target_indices(
+    targets: &[RepoPath],
+    index_of: &HashMap<&RepoPath, usize>,
+) -> Result<BTreeSet<usize>, ImpactError> {
+    let mut unique_target_indices = BTreeSet::new();
+    for target in targets {
+        let Some(&index) = index_of.get(target) else {
+            return Err(ImpactError::TargetNotInCodeModel {
+                path: target.clone(),
+            });
+        };
+        unique_target_indices.insert(index);
+    }
+    Ok(unique_target_indices)
+}
+
+fn build_import_graphs(
+    model: &CodeModel,
+    index_of: &HashMap<&RepoPath, usize>,
+) -> (Vec<BTreeSet<usize>>, Vec<BTreeSet<usize>>) {
+    let mut forward = vec![BTreeSet::new(); model.files.len()];
+    let mut reverse = vec![BTreeSet::new(); model.files.len()];
+    for runtime_import in &model.runtime_imports {
+        let ImportResolution::Resolved(targets) = &runtime_import.resolution else {
+            continue;
+        };
+        let Some(&from) = index_of.get(&runtime_import.importer) else {
+            continue;
+        };
+        for target in targets {
+            if let Some(&to) = index_of.get(target)
+                && from != to
+            {
+                forward[from].insert(to);
+                reverse[to].insert(from);
+            }
+        }
+    }
+    (forward, reverse)
+}
+
+fn package_name_for(
+    model: &CodeModel,
+    path: &RepoPath,
+    has_workspace_members: bool,
+) -> Option<String> {
+    has_workspace_members.then(|| model.workspace.package_of(path).to_string())
+}
+
+fn build_target_rows(
+    model: &CodeModel,
+    unique_target_indices: &BTreeSet<usize>,
+    forward: &[BTreeSet<usize>],
+    reverse: &[BTreeSet<usize>],
+    max_depth: Option<usize>,
+    has_workspace_members: bool,
+) -> Vec<ImpactTarget> {
+    let mut target_rows: Vec<ImpactTarget> = unique_target_indices
+        .iter()
+        .map(|&index| {
+            let file = &model.files[index];
+            ImpactTarget {
+                path: file.path.clone(),
+                source_set: file.model.source_set,
+                package: package_name_for(model, &file.path, has_workspace_members),
+                fan_in: reverse[index].len(),
+                fan_out: forward[index].len(),
+                transitive_import_weight: reverse_reachable_count(reverse, index, max_depth),
+            }
+        })
+        .collect();
+    target_rows.sort_by(|left, right| left.path.cmp(&right.path));
+    target_rows
+}
+
+fn collect_dependents(
+    model: &CodeModel,
+    distances: Vec<Option<usize>>,
+    has_workspace_members: bool,
+) -> Vec<ImpactDependent> {
+    let mut dependents: Vec<ImpactDependent> = distances
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, distance)| {
+            let distance = distance?;
+            if distance == 0 {
+                return None;
+            }
+            let file = &model.files[index];
+            Some(ImpactDependent {
+                path: file.path.clone(),
+                distance,
+                source_set: file.model.source_set,
+                package: package_name_for(model, &file.path, has_workspace_members),
+            })
+        })
+        .collect();
+    dependents.sort_by(|left, right| {
+        left.distance
+            .cmp(&right.distance)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    dependents
+}
+
+fn collect_affected_packages(dependents: &[ImpactDependent]) -> Vec<String> {
+    dependents
+        .iter()
+        .filter_map(|dep| dep.package.clone())
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect()
 }
 
 fn reverse_reachable_count(

@@ -32,26 +32,14 @@ impl Guest for HazardFactsMetricPlugin {
     }
 
     fn measure(model: CodeModel) -> Measurement {
-        let mut enabled: usize = 0;
-        let mut findings = Vec::new();
-        for facts in &model.languages {
-            let status = if facts.has_hazard_rules {
-                enabled += 1;
-                "enabled"
-            } else {
-                "absent"
-            };
-            findings.push(Finding {
-                id: format!("hazard-rules:{}:{status}", facts.language),
-                path: format!("languages/{}", facts.language),
-                line: 1,
-                end_line: None,
-                message: format!(
-                    "language={} has_hazard_rules={}",
-                    facts.language, facts.has_hazard_rules
-                ),
-            });
-        }
+        let (enabled, mut findings) = probe_runtime::language_fact_findings!(
+            &model.languages,
+            "hazard-rules",
+            "has_hazard_rules",
+            "enabled",
+            "absent",
+            |facts: &self::exports::codeint::plugin::metric::LanguageFacts| facts.has_hazard_rules
+        );
         for file in &model.files {
             for hazard in &file.model.hazard_lines {
                 findings.push(Finding {
@@ -65,13 +53,8 @@ impl Guest for HazardFactsMetricPlugin {
         }
         let numerator = enabled as f64;
         let denominator = model.languages.len() as f64;
-        let ratio = if model.languages.is_empty() {
-            0.0
-        } else {
-            numerator / denominator
-        };
         Measurement {
-            ratio,
+            ratio: probe_runtime::ratio(numerator, denominator),
             numerator,
             denominator,
             findings,

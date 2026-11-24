@@ -1,29 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_model::{
-    CodeModel, FileModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet,
-};
+use codeint_model::{CodeModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet};
 
 use super::{Boundaries, BoundaryEdgeCheck, BoundaryFindingKind, BoundaryPolicy};
-
-fn path(text: &str) -> RepoPath {
-    RepoPath::new(text).expect("valid repo path")
-}
+use crate::test_support::{empty_source_file, repo_path as path};
 
 fn production_file(name: &str) -> SourceFile {
-    SourceFile {
-        path: path(name),
-        model: FileModel {
-            source_set: SourceSet::Production,
-            source_lines: 1,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
-        },
-    }
+    empty_source_file(name, SourceSet::Production, 1)
 }
 
 struct StubPolicy {
@@ -98,13 +81,11 @@ fn model_with_multi_target_import(
     targets: &[&str],
 ) -> CodeModel {
     CodeModel {
-        files: files.iter().map(|file| production_file(file)).collect(),
+        files: files.iter().copied().map(production_file).collect(),
         runtime_imports: vec![RuntimeImport {
             importer: path(importer),
             specifier: specifier.to_owned(),
-            resolution: ImportResolution::Resolved(
-                targets.iter().map(|target| path(target)).collect(),
-            ),
+            resolution: ImportResolution::Resolved(targets.iter().copied().map(path).collect()),
         }],
         ..CodeModel::default()
     }

@@ -36,7 +36,7 @@ impl Guest for ProgramStartLanguagePlugin {
         } else {
             SourceSet::Production
         };
-        let source_lines = text.lines().filter(|line| !line.trim().is_empty()).count() as u32;
+        let source_lines = probe_runtime::count_non_empty_lines(&text);
         let program_start = text.lines().any(|line| line.trim() == "program main");
         let runtime_imports = text
             .lines()
@@ -44,16 +44,12 @@ impl Guest for ProgramStartLanguagePlugin {
             .map(|spec| spec.trim().to_string())
             .filter(|spec| !spec.is_empty())
             .collect();
-        Ok(FileModel {
+        Ok(probe_runtime::blank_file_model!(
             source_set,
             source_lines,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports,
-            program_start,
-        })
+            runtime_imports: runtime_imports,
+            program_start: program_start,
+        ))
     }
 
     fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
@@ -72,26 +68,23 @@ impl Guest for ProgramStartLanguagePlugin {
         requests
             .into_iter()
             .map(|request| {
-                let candidate = if let Some(relative) = request.specifier.strip_prefix("./") {
-                    match request.importer.rsplit_once('/') {
+                let target = match request.specifier.strip_prefix("./") {
+                    Some(relative) => match request.importer.rsplit_once('/') {
                         Some((dir, _)) => format!("{dir}/{relative}"),
                         None => relative.to_string(),
-                    }
-                } else {
-                    request.specifier
+                    },
+                    None => request.specifier,
                 };
-                let with_ext = if candidate.ends_with(".prog") {
-                    candidate.clone()
+                let candidates = if target.ends_with(".prog") {
+                    vec![target.clone()]
                 } else {
-                    format!("{candidate}.prog")
+                    vec![target.clone(), format!("{target}.prog")]
                 };
-                if repository_paths.iter().any(|path| path == &candidate) {
-                    Resolution::Resolved(vec![candidate])
-                } else if repository_paths.iter().any(|path| path == &with_ext) {
-                    Resolution::Resolved(vec![with_ext])
-                } else {
-                    Resolution::Unresolved(format!("cannot find {with_ext}"))
-                }
+                candidates
+                    .into_iter()
+                    .find(|candidate| repository_paths.iter().any(|path| path == candidate))
+                    .map(|found| Resolution::Resolved(vec![found]))
+                    .unwrap_or_else(|| Resolution::Unresolved(format!("missing {target}")))
             })
             .collect()
     }

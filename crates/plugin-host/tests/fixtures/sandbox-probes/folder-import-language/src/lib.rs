@@ -22,13 +22,104 @@ struct FolderImportLanguagePlugin;
 
 export!(FolderImportLanguagePlugin);
 
-fn fnv1a_64(text: &str) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in text.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
+struct LowerAccumulator {
+    source_lines: u32,
+    functions: Vec<Function>,
+    tokens: Vec<Token>,
+    runtime_imports: Vec<String>,
+    program_start: bool,
+}
+
+impl LowerAccumulator {
+    fn new() -> Self {
+        Self {
+            source_lines: 0,
+            functions: Vec::new(),
+            tokens: Vec::new(),
+            runtime_imports: Vec::new(),
+            program_start: false,
+        }
     }
-    hash
+
+    fn process_line(&mut self, line_no: u32, raw_line: &str) -> Result<(), LowerError> {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return Ok(());
+        }
+        if trimmed == "SYNTAX_ERROR" {
+            return Err(LowerError::Unparsable("syntax error".to_string()));
+        }
+        self.source_lines += 1;
+        if trimmed == "program main" {
+            self.program_start = true;
+        }
+        let kind = if let Some(specifier) = trimmed.strip_prefix("use ") {
+            let spec = specifier.trim();
+            if !spec.is_empty() {
+                self.runtime_imports.push(spec.to_string());
+            }
+            TokenKind::ImportOrExport
+        } else {
+            TokenKind::Other
+        };
+        if let Some(rest) = trimmed.strip_prefix("fn ") {
+            self.functions.push(Function {
+                line: line_no,
+                end_line: line_no,
+                decision_points: 0,
+                source_lines: 1,
+                name: probe_runtime::parse_fn_name(rest),
+                cognitive_complexity: 0,
+                coverage: None,
+            });
+        }
+        for word in trimmed.split_whitespace() {
+            self.tokens.push(Token {
+                kind,
+                text_hash: probe_runtime::fnv1a_64(word),
+                line: line_no,
+            });
+        }
+        Ok(())
+    }
+}
+
+fn resolve_folder_import(repository_paths: &[String], request: ImportRequest) -> Resolution {
+    if request.specifier == "empty" {
+        return Resolution::Resolved(Vec::new());
+    }
+    if request.specifier == "partial-missing" {
+        let mut targets = Vec::new();
+        if let Some(first) = repository_paths.first() {
+            targets.push(first.clone());
+        }
+        targets.push("missing/does_not_exist.fld".to_string());
+        return Resolution::Resolved(targets);
+    }
+    if request.specifier.starts_with("std:") {
+        return Resolution::Builtin;
+    }
+    if let Some(pkg) = request.specifier.strip_prefix("ext:") {
+        return Resolution::External(pkg.to_string());
+    }
+    let prefix = format!("{}/", request.specifier);
+    let mut targets: Vec<String> = repository_paths
+        .iter()
+        .filter(|path| {
+            path.as_str() != request.importer.as_str()
+                && path.ends_with(".fld")
+                && path
+                    .strip_prefix(&prefix)
+                    .is_some_and(|rest| !rest.contains('/'))
+        })
+        .cloned()
+        .collect();
+    targets.sort();
+    if targets.is_empty() {
+        Resolution::Unresolved(format!("no folder matches {:?}", request.specifier))
+    } else {
+        Resolution::Resolved(targets)
+    }
 }
 
 impl Guest for FolderImportLanguagePlugin {
@@ -45,74 +136,18 @@ impl Guest for FolderImportLanguagePlugin {
         } else {
             SourceSet::Production
         };
-        let mut source_lines: u32 = 0;
-        let mut functions = Vec::new();
-        let mut tokens = Vec::new();
-        let mut runtime_imports = Vec::new();
-        let mut program_start = false;
-
+        let mut acc = LowerAccumulator::new();
         for (index, raw_line) in text.lines().enumerate() {
-            let line_no = (index + 1) as u32;
-            let trimmed = raw_line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            if trimmed == "SYNTAX_ERROR" {
-                return Err(LowerError::Unparsable("syntax error".to_string()));
-            }
-            source_lines += 1;
-            if trimmed == "program main" {
-                program_start = true;
-            }
-            let is_import = if let Some(specifier) = trimmed.strip_prefix("use ") {
-                let spec = specifier.trim();
-                if !spec.is_empty() {
-                    runtime_imports.push(spec.to_string());
-                }
-                true
-            } else {
-                false
-            };
-            if let Some(rest) = trimmed.strip_prefix("fn ") {
-                let name = rest
-                    .split(|ch: char| ch == '(' || ch.is_whitespace())
-                    .next()
-                    .filter(|name| !name.is_empty())
-                    .map(ToString::to_string);
-                functions.push(Function {
-                    line: line_no,
-                    end_line: line_no,
-                    decision_points: 0,
-                    source_lines: 1,
-                    name,
-                    cognitive_complexity: 0,
-                    coverage: None,
-                });
-            }
-            let kind = if is_import {
-                TokenKind::ImportOrExport
-            } else {
-                TokenKind::Other
-            };
-            for word in trimmed.split_whitespace() {
-                tokens.push(Token {
-                    kind,
-                    text_hash: fnv1a_64(word),
-                    line: line_no,
-                });
-            }
+            acc.process_line((index + 1) as u32, raw_line)?;
         }
-
-        Ok(FileModel {
+        Ok(probe_runtime::blank_file_model!(
             source_set,
-            source_lines,
-            functions,
-            tokens,
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports,
-            program_start,
-        })
+            acc.source_lines,
+            functions: acc.functions,
+            tokens: acc.tokens,
+            runtime_imports: acc.runtime_imports,
+            program_start: acc.program_start,
+        ))
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
@@ -123,23 +158,12 @@ impl Guest for FolderImportLanguagePlugin {
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        let mut packages = Vec::new();
-        for manifest in manifests {
-            for line in manifest.text.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() || trimmed.starts_with("entry:") {
-                    continue;
-                }
-                if let Some(problem) = trimmed.strip_prefix("INVALID:") {
-                    return Err(WorkspaceError {
-                        path: manifest.path,
-                        message: problem.trim().to_string(),
-                    });
-                }
-                packages.push(trimmed.to_string());
-            }
-        }
-        Ok(packages)
+        let pairs: Vec<(&str, &str)> = manifests
+            .iter()
+            .map(|m| (m.path.as_str(), m.text.as_str()))
+            .collect();
+        probe_runtime::parse_workspace_manifest_lines(&pairs, "entry:")
+            .map_err(|(path, message)| WorkspaceError { path, message })
     }
 
     fn resolve_imports(
@@ -149,43 +173,7 @@ impl Guest for FolderImportLanguagePlugin {
     ) -> Vec<Resolution> {
         requests
             .into_iter()
-            .map(|request| {
-                if request.specifier == "empty" {
-                    return Resolution::Resolved(Vec::new());
-                }
-                if request.specifier == "partial-missing" {
-                    let mut targets = Vec::new();
-                    if let Some(first) = repository_paths.first() {
-                        targets.push(first.clone());
-                    }
-                    targets.push("missing/does_not_exist.fld".to_string());
-                    return Resolution::Resolved(targets);
-                }
-                if request.specifier.starts_with("std:") {
-                    return Resolution::Builtin;
-                }
-                if let Some(pkg) = request.specifier.strip_prefix("ext:") {
-                    return Resolution::External(pkg.to_string());
-                }
-                let prefix = format!("{}/", request.specifier);
-                let mut targets: Vec<String> = repository_paths
-                    .iter()
-                    .filter(|path| {
-                        path.as_str() != request.importer.as_str()
-                            && path.ends_with(".fld")
-                            && path
-                                .strip_prefix(&prefix)
-                                .is_some_and(|rest| !rest.contains('/'))
-                    })
-                    .cloned()
-                    .collect();
-                targets.sort();
-                if targets.is_empty() {
-                    Resolution::Unresolved(format!("no folder matches {:?}", request.specifier))
-                } else {
-                    Resolution::Resolved(targets)
-                }
-            })
+            .map(|request| resolve_folder_import(&repository_paths, request))
             .collect()
     }
 
@@ -194,38 +182,9 @@ impl Guest for FolderImportLanguagePlugin {
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
-        let mut entries = Vec::new();
-        for manifest in manifests {
-            for line in manifest.text.lines() {
-                if let Some(entry) = line.trim().strip_prefix("entry:") {
-                    let candidate = entry.trim();
-                    if repository_paths.iter().any(|path| path == candidate) {
-                        entries.push(candidate.to_string());
-                    }
-                }
-            }
-        }
-        entries
+        let texts: Vec<&str> = manifests.iter().map(|m| m.text.as_str()).collect();
+        probe_runtime::extract_manifest_entries(&repository_paths, &texts)
     }
 
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        vec![ReferenceRange {
-            metric: "erosion".to_string(),
-            low: 0.0,
-            high: 0.2,
-            source: "folder import language fixture".to_string(),
-        }]
-    }
-
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports() -> bool {
-        true
-    }
+    probe_runtime::fixture_erosion_ranges!("folder import language fixture", true);
 }

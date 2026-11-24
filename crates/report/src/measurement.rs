@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
-use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet};
+use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet, SourceSets};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -137,86 +137,40 @@ impl CommitMeasurement {
         let hygiene = match dependency_hygiene {
             Some(precomputed) => precomputed,
             None => {
-                measured_hygiene = DependencyHygiene::merge(
-                    languages
-                        .iter()
-                        .filter(|model| model_has_imports(model))
-                        .map(|model| DependencyHygiene::measure(model, ignored)),
-                );
+                measured_hygiene = measure_commit_hygiene(&languages, ignored);
                 &measured_hygiene
             }
         };
         let any_has_imports = languages.is_empty() || languages.iter().any(model_has_imports);
         let all_have_imports = languages.iter().all(model_has_imports);
-        let separate_import_source_sets = (any_has_imports && !all_have_imports).then(|| {
-            CodeModel::merge(
-                languages
-                    .iter()
-                    .filter(|model| model_has_imports(model))
-                    .cloned(),
-            )
-            .into_source_sets()
-        });
+        let separate_import_source_sets =
+            (any_has_imports && !all_have_imports).then(|| build_import_source_sets(&languages));
         let dependencies = any_has_imports
             .then(|| DependenciesMeasurement::from_hygiene(hygiene))
             .flatten();
-        let model = CodeModel::merge(languages);
-        let source_sets = model.into_source_sets();
-        let import_model_for = |source_set: SourceSet| {
-            if !any_has_imports {
-                return None;
-            }
-            let candidate = separate_import_source_sets
-                .as_ref()
-                .map_or_else(|| source_sets.get(source_set), |sets| sets.get(source_set));
-            (!candidate.files.is_empty()).then_some(candidate)
+        let source_sets = CodeModel::merge(languages).into_source_sets();
+        let measure = |source_set: SourceSet, set_orphans: Option<&OrphanFiles>| {
+            let import_model = select_import_model(
+                source_set,
+                any_has_imports,
+                &source_sets,
+                separate_import_source_sets.as_ref(),
+            );
+            measure_source_set(
+                source_set,
+                source_sets.get(source_set),
+                import_model,
+                metric_plugins,
+                boundaries,
+                duplication,
+                set_orphans,
+            )
         };
-        let prod_imports = import_model_for(SourceSet::Production);
-        let test_imports = import_model_for(SourceSet::Test);
-        let generated_imports = import_model_for(SourceSet::Generated);
-        let vendored_imports = import_model_for(SourceSet::Vendored);
         Ok(CommitMeasurement {
-            production: SourceSetMeasurement::of(
-                source_sets.get(SourceSet::Production),
-                prod_imports,
-                metric_plugins,
-                boundaries.filter(|config| {
-                    prod_imports.is_some() && config.applies_to_source_set(SourceSet::Production)
-                }),
-                duplication,
-                orphan_files.filter(|_| prod_imports.is_some()),
-            )?,
-            test: SourceSetMeasurement::of(
-                source_sets.get(SourceSet::Test),
-                test_imports,
-                metric_plugins,
-                boundaries.filter(|config| {
-                    test_imports.is_some() && config.applies_to_source_set(SourceSet::Test)
-                }),
-                duplication,
-                None,
-            )?,
-            generated: SourceSetMeasurement::of(
-                source_sets.get(SourceSet::Generated),
-                generated_imports,
-                metric_plugins,
-                boundaries.filter(|config| {
-                    generated_imports.is_some()
-                        && config.applies_to_source_set(SourceSet::Generated)
-                }),
-                duplication,
-                None,
-            )?,
-            vendored: SourceSetMeasurement::of(
-                source_sets.get(SourceSet::Vendored),
-                vendored_imports,
-                metric_plugins,
-                boundaries.filter(|config| {
-                    vendored_imports.is_some() && config.applies_to_source_set(SourceSet::Vendored)
-                }),
-                duplication,
-                None,
-            )?,
+            production: measure(SourceSet::Production, orphan_files)?,
+            test: measure(SourceSet::Test, None)?,
+            generated: measure(SourceSet::Generated, None)?,
+            vendored: measure(SourceSet::Vendored, None)?,
             dependencies,
         })
     }
@@ -386,4 +340,63 @@ fn finding_measurement<'a, T: 'a, R: From<&'a T>>(
     findings: &'a [T],
 ) -> MetricMeasurement<R> {
     MetricMeasurement::from_items(ratio, findings.len() as f64, findings, R::from)
+}
+
+fn measure_commit_hygiene(
+    languages: &[CodeModel],
+    ignored: &BTreeSet<String>,
+) -> DependencyHygiene {
+    let mut measured = Vec::new();
+    for model in languages {
+        if model_has_imports(model) {
+            measured.push(DependencyHygiene::measure(model, ignored));
+        }
+    }
+    DependencyHygiene::merge(measured)
+}
+
+fn build_import_source_sets(languages: &[CodeModel]) -> SourceSets {
+    let mut models = Vec::new();
+    for model in languages {
+        if model_has_imports(model) {
+            models.push(model.clone());
+        }
+    }
+    CodeModel::merge(models).into_source_sets()
+}
+
+fn select_import_model<'a>(
+    source_set: SourceSet,
+    any_has_imports: bool,
+    source_sets: &'a SourceSets,
+    separate_import_source_sets: Option<&'a SourceSets>,
+) -> Option<&'a CodeModel> {
+    if !any_has_imports {
+        return None;
+    }
+    let candidate = separate_import_source_sets
+        .map_or_else(|| source_sets.get(source_set), |sets| sets.get(source_set));
+    (!candidate.files.is_empty()).then_some(candidate)
+}
+
+fn measure_source_set(
+    source_set: SourceSet,
+    model: &CodeModel,
+    import_model: Option<&CodeModel>,
+    metric_plugins: &[&dyn MetricPlugin],
+    boundaries: Option<&BoundariesConfig>,
+    duplication: DuplicationConfig,
+    orphan_files: Option<&OrphanFiles>,
+) -> Result<SourceSetMeasurement, MetricPluginError> {
+    let applicable_boundaries = boundaries
+        .filter(|config| import_model.is_some() && config.applies_to_source_set(source_set));
+    let applicable_orphans = orphan_files.filter(|_| import_model.is_some());
+    SourceSetMeasurement::of(
+        model,
+        import_model,
+        metric_plugins,
+        applicable_boundaries,
+        duplication,
+        applicable_orphans,
+    )
 }

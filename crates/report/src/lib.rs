@@ -1797,12 +1797,7 @@ impl Report {
         let total_hygiene = match options.dependency_hygiene {
             Some(precomputed) => precomputed,
             None => {
-                measured_total_hygiene = DependencyHygiene::merge(
-                    languages
-                        .iter()
-                        .filter(|language| language.has_imports)
-                        .map(|language| DependencyHygiene::measure(&language.model, ignored)),
-                );
+                measured_total_hygiene = measure_combined_hygiene(&languages, ignored);
                 &measured_total_hygiene
             }
         };
@@ -1820,70 +1815,9 @@ impl Report {
             ownership: options.ownership,
             has_imports: top_has_imports,
         };
-        let (total_ranges, sections_per_language) = match measured.as_slice() {
-            [] => (
-                ReferenceRangeScope::OneLanguage(ReferenceRanges::default()),
-                BTreeMap::new(),
-            ),
-            [only] => (
-                ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
-                BTreeMap::new(),
-            ),
-            _ => {
-                let mut per_language = BTreeMap::new();
-                for language in &measured {
-                    let measured_language_hygiene;
-                    let language_hygiene = if language.has_imports {
-                        match options
-                            .dependency_hygiene_by_language
-                            .and_then(|map| map.get(&language.plugin))
-                        {
-                            Some(precomputed) => precomputed,
-                            None => {
-                                measured_language_hygiene =
-                                    DependencyHygiene::measure(&language.model, ignored);
-                                &measured_language_hygiene
-                            }
-                        }
-                    } else {
-                        measured_language_hygiene = DependencyHygiene::default();
-                        &measured_language_hygiene
-                    };
-                    let language_orphans = language
-                        .has_imports
-                        .then(|| {
-                            options
-                                .orphan_files_by_language
-                                .and_then(|map| map.get(&language.plugin))
-                        })
-                        .flatten();
-                    per_language.insert(
-                        language.plugin.clone(),
-                        MeasuredSection::new(
-                            language.model.clone(),
-                            None,
-                            language_hygiene,
-                            &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
-                            SectionOptions {
-                                orphan_files: language_orphans,
-                                has_imports: language.has_imports,
-                                ..section_options
-                            },
-                        )?,
-                    );
-                }
-                (ReferenceRangeScope::SeveralLanguages, per_language)
-            }
-        };
-        let all_measured_have_imports = measured.iter().all(|language| language.has_imports);
-        let import_bearing_model = (top_has_imports && !all_measured_have_imports).then(|| {
-            CodeModel::merge(
-                measured
-                    .iter()
-                    .filter(|language| language.has_imports)
-                    .map(|language| language.model.clone()),
-            )
-        });
+        let (total_ranges, sections_per_language) =
+            build_per_language_sections(&measured, &options, ignored, section_options)?;
+        let import_bearing_model = collect_import_bearing_model(&measured, top_has_imports);
         let model = CodeModel::merge(
             measured
                 .into_iter()
@@ -1937,6 +1871,103 @@ impl Report {
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
     }
+}
+
+fn measure_combined_hygiene(
+    languages: &[MeasuredLanguage],
+    ignored: &std::collections::BTreeSet<String>,
+) -> DependencyHygiene {
+    DependencyHygiene::merge(
+        languages
+            .iter()
+            .filter(|language| language.has_imports)
+            .map(|language| DependencyHygiene::measure(&language.model, ignored)),
+    )
+}
+
+fn collect_import_bearing_model(
+    measured: &[MeasuredLanguage],
+    top_has_imports: bool,
+) -> Option<CodeModel> {
+    let all_measured_have_imports = measured.iter().all(|language| language.has_imports);
+    (top_has_imports && !all_measured_have_imports).then(|| {
+        CodeModel::merge(
+            measured
+                .iter()
+                .filter(|language| language.has_imports)
+                .map(|language| language.model.clone()),
+        )
+    })
+}
+
+fn build_per_language_sections(
+    measured: &[MeasuredLanguage],
+    options: &ReportOptions<'_>,
+    ignored: &std::collections::BTreeSet<String>,
+    section_options: SectionOptions<'_>,
+) -> Result<(ReferenceRangeScope, BTreeMap<String, MeasuredSection>), MetricPluginError> {
+    match measured {
+        [] => Ok((
+            ReferenceRangeScope::OneLanguage(ReferenceRanges::default()),
+            BTreeMap::new(),
+        )),
+        [only] => Ok((
+            ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
+            BTreeMap::new(),
+        )),
+        _ => {
+            let mut per_language = BTreeMap::new();
+            for language in measured {
+                let section =
+                    build_single_language_section(language, options, ignored, section_options)?;
+                per_language.insert(language.plugin.clone(), section);
+            }
+            Ok((ReferenceRangeScope::SeveralLanguages, per_language))
+        }
+    }
+}
+
+fn build_single_language_section(
+    language: &MeasuredLanguage,
+    options: &ReportOptions<'_>,
+    ignored: &std::collections::BTreeSet<String>,
+    section_options: SectionOptions<'_>,
+) -> Result<MeasuredSection, MetricPluginError> {
+    let measured_language_hygiene;
+    let language_hygiene = if language.has_imports {
+        match options
+            .dependency_hygiene_by_language
+            .and_then(|map| map.get(&language.plugin))
+        {
+            Some(precomputed) => precomputed,
+            None => {
+                measured_language_hygiene = DependencyHygiene::measure(&language.model, ignored);
+                &measured_language_hygiene
+            }
+        }
+    } else {
+        measured_language_hygiene = DependencyHygiene::default();
+        &measured_language_hygiene
+    };
+    let language_orphans = language
+        .has_imports
+        .then(|| {
+            options
+                .orphan_files_by_language
+                .and_then(|map| map.get(&language.plugin))
+        })
+        .flatten();
+    MeasuredSection::new(
+        language.model.clone(),
+        None,
+        language_hygiene,
+        &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
+        SectionOptions {
+            orphan_files: language_orphans,
+            has_imports: language.has_imports,
+            ..section_options
+        },
+    )
 }
 
 pub(crate) enum TextReportFormat {

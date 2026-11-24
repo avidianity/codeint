@@ -130,11 +130,12 @@ impl Guest for LegacyV020MetricPlugin {
     }
 
     fn measure(_model: CodeModel) -> Measurement {
+        let zero = 0.0;
         Measurement {
-            ratio: 0.0,
-            numerator: 0.0,
-            denominator: 0.0,
             findings: Vec::new(),
+            denominator: zero,
+            numerator: zero,
+            ratio: zero,
         }
     }
 }

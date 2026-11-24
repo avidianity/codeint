@@ -195,7 +195,31 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         has_imports,
         "{label}: fixture.imports presence must match plugin.has_imports() ({has_imports})"
     );
+    assert_extensions_and_hazard_rules(plugin, label);
+    let has_hazard_rules = plugin.has_hazard_rules();
+    let hazard_rules = plugin.hazard_rules();
+    assert_edge_case_lowers(plugin, fixture, has_hazard_rules, &hazard_rules);
+    let prod = assert_production_and_crlf_lower(
+        plugin,
+        fixture,
+        has_imports,
+        has_hazard_rules,
+        &hazard_rules,
+    );
+    assert_test_lower(
+        plugin,
+        fixture,
+        has_imports,
+        has_hazard_rules,
+        &hazard_rules,
+    );
+    if let Some(imports) = &fixture.imports {
+        assert_import_conformance(plugin, label, imports);
+    }
+    assert_reference_ranges_and_concurrency(plugin, fixture, &prod);
+}
 
+fn assert_extensions_and_hazard_rules(plugin: &dyn LanguagePlugin, label: &str) {
     let extensions = plugin.extensions();
     assert!(
         !extensions.is_empty(),
@@ -207,7 +231,6 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: invalid extension {extension:?}"
         );
     }
-
     let has_hazard_rules = plugin.has_hazard_rules();
     let hazard_rules = plugin.hazard_rules();
     if has_hazard_rules {
@@ -227,7 +250,15 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: hazard_rules must not contain empty rule names"
         );
     }
+}
 
+fn assert_edge_case_lowers(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) {
+    let label = fixture.name;
     let unsupported = plugin.lower(
         &RepoPath::new(fixture.unsupported_path).unwrap(),
         "plain text\n",
@@ -236,7 +267,6 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         matches!(unsupported, Err(LowerError::UnsupportedFile { .. })),
         "{label}: expected UnsupportedFile, got {unsupported:?}"
     );
-
     let empty = plugin
         .lower(&RepoPath::new(fixture.empty_path).unwrap(), "")
         .unwrap_or_else(|error| panic!("{label}: empty file failed to lower: {error}"));
@@ -258,9 +288,8 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         "",
         &empty.hazard_lines,
         has_hazard_rules,
-        &hazard_rules,
+        hazard_rules,
     );
-
     if let Some((decl_path, decl_source)) = fixture.declaration_only {
         let decl = plugin.lower(&RepoPath::new(decl_path).unwrap(), decl_source);
         assert!(
@@ -268,7 +297,6 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: expected DeclarationOnly, got {decl:?}"
         );
     }
-
     let unparsable = plugin.lower(
         &RepoPath::new(fixture.unparsable_path).unwrap(),
         fixture.unparsable_source,
@@ -277,7 +305,16 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         matches!(&unparsable, Err(LowerError::Unparsable { message }) if !message.is_empty()),
         "{label}: expected Unparsable with message, got {unparsable:?}"
     );
+}
 
+fn assert_production_and_crlf_lower(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    has_imports: bool,
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) -> codeint_model::FileModel {
+    let label = fixture.name;
     let prod_path = RepoPath::new(fixture.production_path).unwrap();
     let prod = plugin
         .lower(&prod_path, fixture.production_source)
@@ -301,6 +338,39 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: production runtime_imports must be empty when has_imports is false"
         );
     }
+    assert_file_model_ordering_and_spans(label, &prod);
+    assert_valid_hazard_lines(
+        label,
+        "production",
+        fixture.production_source,
+        &prod.hazard_lines,
+        has_hazard_rules,
+        hazard_rules,
+    );
+    let crlf = plugin
+        .lower(&prod_path, fixture.production_source_crlf)
+        .unwrap_or_else(|error| panic!("{label}: CRLF file failed to lower: {error}"));
+    assert_eq!(
+        crlf.source_lines, prod.source_lines,
+        "{label}: CRLF source_lines"
+    );
+    assert_eq!(crlf.functions, prod.functions, "{label}: CRLF functions");
+    assert_eq!(
+        crlf.hazard_lines, prod.hazard_lines,
+        "{label}: CRLF hazard_lines"
+    );
+    assert_valid_hazard_lines(
+        label,
+        "production CRLF",
+        fixture.production_source_crlf,
+        &crlf.hazard_lines,
+        has_hazard_rules,
+        hazard_rules,
+    );
+    prod
+}
+
+fn assert_file_model_ordering_and_spans(label: &str, prod: &codeint_model::FileModel) {
     for pair in prod.functions.windows(2) {
         assert!(
             pair[0].line <= pair[1].line,
@@ -326,36 +396,16 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: invalid flagged line"
         );
     }
-    assert_valid_hazard_lines(
-        label,
-        "production",
-        fixture.production_source,
-        &prod.hazard_lines,
-        has_hazard_rules,
-        &hazard_rules,
-    );
+}
 
-    let crlf = plugin
-        .lower(&prod_path, fixture.production_source_crlf)
-        .unwrap_or_else(|error| panic!("{label}: CRLF file failed to lower: {error}"));
-    assert_eq!(
-        crlf.source_lines, prod.source_lines,
-        "{label}: CRLF source_lines"
-    );
-    assert_eq!(crlf.functions, prod.functions, "{label}: CRLF functions");
-    assert_eq!(
-        crlf.hazard_lines, prod.hazard_lines,
-        "{label}: CRLF hazard_lines"
-    );
-    assert_valid_hazard_lines(
-        label,
-        "production CRLF",
-        fixture.production_source_crlf,
-        &crlf.hazard_lines,
-        has_hazard_rules,
-        &hazard_rules,
-    );
-
+fn assert_test_lower(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    has_imports: bool,
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) {
+    let label = fixture.name;
     let test_model = plugin
         .lower(
             &RepoPath::new(fixture.test_path).unwrap(),
@@ -379,7 +429,7 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         fixture.test_source,
         &test_model.hazard_lines,
         has_hazard_rules,
-        &hazard_rules,
+        hazard_rules,
     );
     if !has_imports {
         assert!(
@@ -387,11 +437,14 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             "{label}: test runtime_imports must be empty when has_imports is false"
         );
     }
+}
 
-    if let Some(imports) = &fixture.imports {
-        assert_import_conformance(plugin, label, imports);
-    }
-
+fn assert_reference_ranges_and_concurrency(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    prod: &codeint_model::FileModel,
+) {
+    let label = fixture.name;
     let ranges = plugin
         .reference_ranges()
         .unwrap_or_else(|error| panic!("{label}: reference_ranges failed: {error}"));
@@ -399,7 +452,7 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         ranges.for_metric("erosion").is_some(),
         "{label}: expected erosion reference range"
     );
-
+    let prod_path = RepoPath::new(fixture.production_path).unwrap();
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
             .map(|_| {
@@ -412,7 +465,7 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             .collect();
         for handle in handles {
             assert_eq!(
-                handle.join().unwrap(),
+                &handle.join().unwrap(),
                 prod,
                 "{label}: concurrent lower mismatch"
             );

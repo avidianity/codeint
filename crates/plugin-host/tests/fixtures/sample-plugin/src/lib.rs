@@ -397,6 +397,91 @@ fn update_function_stack(
     Ok(())
 }
 
+struct LowerState {
+    source_lines: u32,
+    functions: Vec<Function>,
+    stack: Vec<OpenFunction>,
+    tokens: Vec<Token>,
+    flagged_lines: Vec<FlaggedLine>,
+    runtime_imports: Vec<String>,
+}
+
+impl LowerState {
+    fn new() -> Self {
+        Self {
+            source_lines: 0,
+            functions: Vec::new(),
+            stack: Vec::new(),
+            tokens: Vec::new(),
+            flagged_lines: Vec::new(),
+            runtime_imports: Vec::new(),
+        }
+    }
+
+    fn lower_line(&mut self, line_number: u32, raw_line: &str) -> Result<(), LowerError> {
+        let code = strip_comment(raw_line);
+        let trimmed = code.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+        if trimmed.contains("SYNTAX_ERROR") {
+            return Err(LowerError::Unparsable(format!(
+                "syntax error at line {line_number}"
+            )));
+        }
+        self.source_lines = self
+            .source_lines
+            .checked_add(1)
+            .ok_or(LowerError::TooLarge)?;
+        let is_import = if let Some(specifier) = extract_import_specifier(trimmed) {
+            self.runtime_imports.push(specifier);
+            true
+        } else {
+            false
+        };
+        if trimmed == "pass;" {
+            self.flagged_lines.push(FlaggedLine {
+                line: line_number,
+                rule: "redundant-pass".to_string(),
+            });
+        }
+        tokenize_line(code, line_number, is_import, &mut self.tokens);
+        push_function_header(trimmed, line_number, &mut self.functions, &mut self.stack);
+        update_function_stack(
+            code,
+            trimmed,
+            line_number,
+            &mut self.functions,
+            &mut self.stack,
+        )
+    }
+}
+
+fn resolve_single_import(repository_paths: &[String], request: ImportRequest) -> Resolution {
+    if request.specifier.starts_with("std:") {
+        return Resolution::Builtin;
+    }
+    let Some(relative) = request.specifier.strip_prefix("./") else {
+        return Resolution::External(request.specifier);
+    };
+    let candidate = match request.importer.rsplit_once('/') {
+        Some((dir, _)) => format!("{dir}/{relative}"),
+        None => relative.to_string(),
+    };
+    let with_ext = if candidate.ends_with(".mini") {
+        candidate.clone()
+    } else {
+        format!("{candidate}.mini")
+    };
+    if repository_paths.iter().any(|path| path == &candidate) {
+        Resolution::Resolved(vec![candidate])
+    } else if repository_paths.iter().any(|path| path == &with_ext) {
+        Resolution::Resolved(vec![with_ext])
+    } else {
+        Resolution::Unresolved(format!("cannot find {with_ext}"))
+    }
+}
+
 impl Guest for SampleMiniPlugin {
     fn extensions() -> Vec<String> {
         vec!["mini".to_string()]
@@ -412,61 +497,24 @@ impl Guest for SampleMiniPlugin {
         if file_name.ends_with(".d.mini") {
             return Err(LowerError::DeclarationOnly);
         }
-
-        let mut source_lines: u32 = 0;
-        let mut functions: Vec<Function> = Vec::new();
-        let mut stack: Vec<OpenFunction> = Vec::new();
-        let mut tokens: Vec<Token> = Vec::new();
-        let mut flagged_lines: Vec<FlaggedLine> = Vec::new();
-        let mut runtime_imports: Vec<String> = Vec::new();
-
+        let mut state = LowerState::new();
         for (zero_based, raw_line) in text.lines().enumerate() {
             let line_number = u32::try_from(zero_based + 1).map_err(|_| LowerError::TooLarge)?;
-            let code = strip_comment(raw_line);
-            let trimmed = code.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if trimmed.contains("SYNTAX_ERROR") {
-                return Err(LowerError::Unparsable(format!(
-                    "syntax error at line {line_number}"
-                )));
-            }
-            source_lines = source_lines.checked_add(1).ok_or(LowerError::TooLarge)?;
-
-            let is_import = if let Some(specifier) = extract_import_specifier(trimmed) {
-                runtime_imports.push(specifier);
-                true
-            } else {
-                false
-            };
-
-            if trimmed == "pass;" {
-                flagged_lines.push(FlaggedLine {
-                    line: line_number,
-                    rule: "redundant-pass".to_string(),
-                });
-            }
-
-            tokenize_line(code, line_number, is_import, &mut tokens);
-            push_function_header(trimmed, line_number, &mut functions, &mut stack);
-            update_function_stack(code, trimmed, line_number, &mut functions, &mut stack)?;
+            state.lower_line(line_number, raw_line)?;
         }
-
-        if !stack.is_empty() {
+        if !state.stack.is_empty() {
             return Err(LowerError::Unparsable(
                 "unclosed function block".to_string(),
             ));
         }
-
         Ok(FileModel {
             source_set: source_set_of(&path),
-            source_lines,
-            functions,
-            tokens,
-            flagged_lines,
+            source_lines: state.source_lines,
+            functions: state.functions,
+            tokens: state.tokens,
+            flagged_lines: state.flagged_lines,
             hazard_lines: Vec::new(),
-            runtime_imports,
+            runtime_imports: state.runtime_imports,
             program_start: false,
         })
     }
@@ -509,36 +557,7 @@ impl Guest for SampleMiniPlugin {
     ) -> Vec<Resolution> {
         requests
             .into_iter()
-            .map(|request| {
-                if request.specifier.starts_with("std:") {
-                    return Resolution::Builtin;
-                }
-                if !request.specifier.starts_with("./") {
-                    return Resolution::External(request.specifier);
-                }
-                let relative = request.specifier.trim_start_matches("./");
-                let folder = match request.importer.rsplit_once('/') {
-                    Some((dir, _)) => dir,
-                    None => "",
-                };
-                let candidate = if folder.is_empty() {
-                    relative.to_string()
-                } else {
-                    format!("{folder}/{relative}")
-                };
-                let with_ext = if candidate.ends_with(".mini") {
-                    candidate.clone()
-                } else {
-                    format!("{candidate}.mini")
-                };
-                if repository_paths.iter().any(|path| path == &candidate) {
-                    Resolution::Resolved(vec![candidate])
-                } else if repository_paths.iter().any(|path| path == &with_ext) {
-                    Resolution::Resolved(vec![with_ext])
-                } else {
-                    Resolution::Unresolved(format!("cannot find {with_ext}"))
-                }
-            })
+            .map(|request| resolve_single_import(&repository_paths, request))
             .collect()
     }
 

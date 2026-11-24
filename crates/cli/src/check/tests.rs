@@ -142,95 +142,79 @@ macro_rules! without_workspaces {
     };
 }
 
-impl Guest for Alpha {
-    fn extensions() -> Vec<String> {
-        vec!["alpha".to_owned()]
-    }
+macro_rules! panic_on_import_calls {
+    () => {
+        fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
+            panic!("manifest_paths must not be called when has_imports is false");
+        }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
+        fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+            panic!("workspace_packages must not be called when has_imports is false");
+        }
 
-    without_workspaces!();
+        fn resolve_imports(
+            _repository_paths: Vec<String>,
+            _manifests: Vec<Manifest>,
+            _requests: Vec<ImportRequest>,
+        ) -> Vec<Resolution> {
+            panic!("resolve_imports must not be called when has_imports is false");
+        }
 
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
-    }
+        fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+            panic!("declared_dependencies must not be called when has_imports is false");
+        }
 
-    every_import_is_external!();
+        fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+            panic!("entry_points must not be called when has_imports is false");
+        }
+    };
 }
 
-impl Guest for AlphaTwo {
-    fn extensions() -> Vec<String> {
-        vec!["alpha".to_owned()]
-    }
-
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
-
-    without_workspaces!();
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
-    every_import_is_external!();
+fn measure_test_snapshot(
+    files: &[(&str, &str)],
+    plugins: &[NamedLanguagePlugin<'_>],
+) -> Result<super::MeasuredSnapshot, CheckError> {
+    let folder = repository(files);
+    let repo = Repository::discover(folder.path()).expect("open repository");
+    let tree = repo.working_tree().expect("read working tree");
+    measure_snapshot(&tree, plugins, &Configuration::default())
 }
 
-impl Guest for DuplicateExtension {
-    fn extensions() -> Vec<String> {
-        vec!["dup".to_owned(), "dup".to_owned()]
-    }
+macro_rules! stub_language_plugin {
+    ($name:ident, [$($ext:expr),+ $(,)?], $ranges:expr) => {
+        impl Guest for $name {
+            fn extensions() -> Vec<String> {
+                vec![$($ext.to_owned()),+]
+            }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
+            fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+                lines_of(&text)
+            }
 
-    without_workspaces!();
+            without_workspaces!();
 
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
+            fn reference_ranges() -> Vec<ReferenceRange> {
+                $ranges
+            }
 
-    every_import_is_external!();
+            every_import_is_external!();
+        }
+    };
 }
 
-impl Guest for Beta {
-    fn extensions() -> Vec<String> {
-        vec!["beta".to_owned()]
-    }
-
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
-
-    without_workspaces!();
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
-    every_import_is_external!();
-}
-
-impl Guest for Malformed {
-    fn extensions() -> Vec<String> {
-        vec!["malformed".to_owned()]
-    }
-
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
-
-    without_workspaces!();
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        erosion_range(0.7, 0.2, "Reversed")
-    }
-
-    every_import_is_external!();
-}
+stub_language_plugin!(
+    Alpha,
+    ["alpha"],
+    erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
+);
+stub_language_plugin!(AlphaTwo, ["alpha"], Vec::new());
+stub_language_plugin!(DuplicateExtension, ["dup", "dup"], Vec::new());
+stub_language_plugin!(Beta, ["beta"], Vec::new());
+stub_language_plugin!(
+    Malformed,
+    ["malformed"],
+    erosion_range(0.7, 0.2, "Reversed")
+);
 
 impl Guest for FlagsEveryLineInOnePackage {
     fn extensions() -> Vec<String> {
@@ -1154,14 +1138,9 @@ fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements()
         plugin: &WithHazardRules,
     };
 
-    let folder = repository(&[("main.alpha", "one\n"), ("query.haz", "two\n")]);
-    let repo = Repository::discover(folder.path()).expect("open repository");
-    let tree = repo.working_tree().expect("read working tree");
-
-    let snapshot = measure_snapshot(
-        &tree,
+    let snapshot = measure_test_snapshot(
+        &[("main.alpha", "one\n"), ("query.haz", "two\n")],
         &[ALPHA, WITH_HAZARD_RULES],
-        &Configuration::default(),
     )
     .expect("measure snapshot succeeds");
 
@@ -1363,29 +1342,7 @@ fn no_imports_language_plugin_never_has_import_manifest_or_entry_point_functions
             Ok(model)
         }
 
-        fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-            panic!("manifest_paths must not be called when has_imports is false");
-        }
-
-        fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-            panic!("workspace_packages must not be called when has_imports is false");
-        }
-
-        fn resolve_imports(
-            _repository_paths: Vec<String>,
-            _manifests: Vec<Manifest>,
-            _requests: Vec<ImportRequest>,
-        ) -> Vec<Resolution> {
-            panic!("resolve_imports must not be called when has_imports is false");
-        }
-
-        fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-            panic!("declared_dependencies must not be called when has_imports is false");
-        }
-
-        fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-            panic!("entry_points must not be called when has_imports is false");
-        }
+        panic_on_import_calls!();
 
         fn reference_ranges() -> Vec<ReferenceRange> {
             Vec::new()
@@ -1409,12 +1366,11 @@ fn no_imports_language_plugin_never_has_import_manifest_or_entry_point_functions
         plugin: &NoImports,
     };
 
-    let folder = repository(&[("main.alpha", "one\n"), ("query.noimp", "two\n")]);
-    let repo = Repository::discover(folder.path()).expect("open repository");
-    let tree = repo.working_tree().expect("read working tree");
-
-    let snapshot = measure_snapshot(&tree, &[ALPHA, NO_IMPORTS], &Configuration::default())
-        .expect("measure snapshot skips import, manifest, and entry point calls");
+    let snapshot = measure_test_snapshot(
+        &[("main.alpha", "one\n"), ("query.noimp", "two\n")],
+        &[ALPHA, NO_IMPORTS],
+    )
+    .expect("measure snapshot skips import, manifest, and entry point calls");
 
     let no_imports_lang = snapshot
         .languages

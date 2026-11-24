@@ -1,27 +1,10 @@
-use codeint_model::{
-    CodeModel, FileModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet,
-};
+use codeint_model::{CodeModel, ImportResolution, RepoPath, RuntimeImport, SourceFile, SourceSet};
 
 use super::{ImportCycles, UnresolvedImport};
-
-fn path(text: &str) -> RepoPath {
-    RepoPath::new(text).expect("a valid path")
-}
+use crate::test_support::{empty_source_file, repo_path as path};
 
 fn module(name: &str) -> SourceFile {
-    SourceFile {
-        path: path(name),
-        model: FileModel {
-            source_set: SourceSet::Production,
-            source_lines: 1,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
-        },
-    }
+    empty_source_file(name, SourceSet::Production, 1)
 }
 
 fn resolved(importer: &str, target: &str) -> RuntimeImport {
@@ -34,7 +17,7 @@ fn resolved(importer: &str, target: &str) -> RuntimeImport {
 
 fn graph(modules: &[&str], imports: &[(&str, &str)]) -> CodeModel {
     CodeModel {
-        files: modules.iter().map(|name| module(name)).collect(),
+        files: modules.iter().copied().map(module).collect(),
         runtime_imports: imports
             .iter()
             .map(|(importer, target)| resolved(importer, target))
@@ -197,7 +180,7 @@ fn resolved_many(importer: &str, specifier: &str, targets: &[&str]) -> RuntimeIm
     RuntimeImport {
         importer: path(importer),
         specifier: specifier.to_owned(),
-        resolution: ImportResolution::Resolved(targets.iter().map(|t| path(t)).collect()),
+        resolution: ImportResolution::Resolved(targets.iter().copied().map(path).collect()),
     }
 }
 

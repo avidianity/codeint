@@ -81,7 +81,9 @@ pub fn trace_imports(
             truncated: false,
         });
     }
-    let adjacency = build_adjacency(model, &index_of, modules.len());
+    let adjacency = crate::build_resolved_import_adjacency(model, modules.len(), |path| {
+        index_of.get(path).copied()
+    });
     let (dist, parents) = shortest_path_dag(&adjacency, from_idx, to_idx);
     let Some(target_distance) = dist[to_idx] else {
         return Ok(TraceResult {
@@ -124,81 +126,84 @@ fn collect_multi_file_imports(
     modules: &[&RepoPath],
     index_paths: &[Vec<usize>],
 ) -> Vec<MultiFileImport> {
-    let mut by_importer: BTreeMap<usize, Vec<(&str, Vec<usize>)>> = BTreeMap::new();
-    for runtime_import in &model.runtime_imports {
-        if let ImportResolution::Resolved(targets) = &runtime_import.resolution
-            && let Some(&from_idx) = index_of.get(&runtime_import.importer)
-        {
-            let mut target_indices: Vec<usize> = targets
-                .iter()
-                .filter_map(|target| index_of.get(target).copied())
-                .collect();
-            target_indices.sort_unstable();
-            target_indices.dedup();
-            if target_indices.len() > 1 {
-                by_importer
-                    .entry(from_idx)
-                    .or_default()
-                    .push((runtime_import.specifier.as_str(), target_indices));
-            }
-        }
-    }
+    let by_importer = index_multi_file_imports(model, index_of);
     if by_importer.is_empty() {
         return Vec::new();
-    }
-    for imports in by_importer.values_mut() {
-        imports.sort();
-        imports.dedup();
     }
     let mut seen: BTreeSet<(usize, &str, &[usize])> = BTreeSet::new();
     let mut result = Vec::new();
     for chain in index_paths {
         for edge in chain.windows(2) {
-            let (from_idx, to_idx) = (edge[0], edge[1]);
-            let Some(imports) = by_importer.get(&from_idx) else {
-                continue;
-            };
-            for (specifier, target_indices) in imports {
-                if target_indices.binary_search(&to_idx).is_ok()
-                    && seen.insert((from_idx, *specifier, target_indices.as_slice()))
-                {
-                    result.push(MultiFileImport {
-                        importer: modules[from_idx].clone(),
-                        specifier: (*specifier).to_owned(),
-                        targets: target_indices
-                            .iter()
-                            .map(|&index| modules[index].clone())
-                            .collect(),
-                    });
-                }
-            }
+            record_multi_file_edge(
+                edge[0],
+                edge[1],
+                &by_importer,
+                modules,
+                &mut seen,
+                &mut result,
+            );
         }
     }
     result
 }
 
-fn build_adjacency(
-    model: &CodeModel,
+fn index_multi_file_imports<'a>(
+    model: &'a CodeModel,
     index_of: &BTreeMap<&RepoPath, usize>,
-    node_count: usize,
-) -> Vec<Vec<usize>> {
-    let mut adjacency = vec![Vec::new(); node_count];
+) -> BTreeMap<usize, Vec<(&'a str, Vec<usize>)>> {
+    let mut by_importer: BTreeMap<usize, Vec<(&'a str, Vec<usize>)>> = BTreeMap::new();
     for runtime_import in &model.runtime_imports {
-        if let ImportResolution::Resolved(targets) = &runtime_import.resolution
-            && let Some(&from) = index_of.get(&runtime_import.importer)
-        {
-            for target in targets {
-                if let Some(&to) = index_of.get(target) {
-                    adjacency[from].push(to);
-                }
-            }
+        let ImportResolution::Resolved(targets) = &runtime_import.resolution else {
+            continue;
+        };
+        let Some(&from_idx) = index_of.get(&runtime_import.importer) else {
+            continue;
+        };
+        let mut target_indices: Vec<usize> = targets
+            .iter()
+            .filter_map(|target| index_of.get(target).copied())
+            .collect();
+        target_indices.sort_unstable();
+        target_indices.dedup();
+        if target_indices.len() > 1 {
+            by_importer
+                .entry(from_idx)
+                .or_default()
+                .push((runtime_import.specifier.as_str(), target_indices));
         }
     }
-    for neighbors in &mut adjacency {
-        neighbors.sort_unstable();
-        neighbors.dedup();
+    for imports in by_importer.values_mut() {
+        imports.sort();
+        imports.dedup();
     }
-    adjacency
+    by_importer
+}
+
+fn record_multi_file_edge<'a>(
+    from_idx: usize,
+    to_idx: usize,
+    by_importer: &'a BTreeMap<usize, Vec<(&'a str, Vec<usize>)>>,
+    modules: &[&RepoPath],
+    seen: &mut BTreeSet<(usize, &'a str, &'a [usize])>,
+    result: &mut Vec<MultiFileImport>,
+) {
+    let Some(imports) = by_importer.get(&from_idx) else {
+        return;
+    };
+    for (specifier, target_indices) in imports {
+        if target_indices.binary_search(&to_idx).is_ok()
+            && seen.insert((from_idx, *specifier, target_indices.as_slice()))
+        {
+            result.push(MultiFileImport {
+                importer: modules[from_idx].clone(),
+                specifier: (*specifier).to_owned(),
+                targets: target_indices
+                    .iter()
+                    .map(|&index| modules[index].clone())
+                    .collect(),
+            });
+        }
+    }
 }
 
 fn shortest_path_dag(

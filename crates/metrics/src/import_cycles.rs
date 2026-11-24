@@ -62,22 +62,9 @@ impl ImportCycles {
             .enumerate()
             .map(|(index, path)| (*path, index))
             .collect();
-        let mut imports = vec![Vec::new(); modules.len()];
-        for runtime_import in &model.runtime_imports {
-            if let ImportResolution::Resolved(targets) = &runtime_import.resolution
-                && let Some(&from) = index_of.get(&runtime_import.importer)
-            {
-                for target in targets {
-                    if let Some(&to) = index_of.get(target) {
-                        imports[from].push(to);
-                    }
-                }
-            }
-        }
-        for edges in &mut imports {
-            edges.sort_unstable();
-            edges.dedup();
-        }
+        let imports = crate::build_resolved_import_adjacency(model, modules.len(), |path| {
+            index_of.get(path).copied()
+        });
         let mut cycle_modules: Vec<Vec<RepoPath>> = strongly_connected_components(&imports)
             .into_iter()
             .filter(|component| match component.as_slice() {

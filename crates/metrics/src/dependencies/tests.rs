@@ -1,26 +1,15 @@
 use std::collections::BTreeSet;
 
 use codeint_model::{
-    CodeModel, DeclaredDep, DepKind, DependencyManifest, FileModel, ImportResolution,
-    ManifestUsedDep, RepoPath, RuntimeImport, SourceFile, SourceSet, Workspace,
+    CodeModel, DeclaredDep, DepKind, DependencyManifest, ImportResolution, ManifestUsedDep,
+    RepoPath, RuntimeImport, SourceFile, SourceSet, Workspace,
 };
 
 use super::{DependencyHygiene, UnusedDependencyKind};
+use crate::test_support::empty_source_file;
 
 fn source_file(path: &str, source_set: SourceSet) -> SourceFile {
-    SourceFile {
-        path: RepoPath::new(path).expect("valid path"),
-        model: FileModel {
-            source_set,
-            source_lines: 10,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            hazard_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-            program_start: false,
-        },
-    }
+    empty_source_file(path, source_set, 10)
 }
 
 fn manifest(package_root: &str, path: &str) -> DependencyManifest {
