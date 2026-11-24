@@ -5593,11 +5593,15 @@ fn sandbox_probe_repo(
         "sha256": digest,
     }]);
     repository.write("codeint.json", &config.to_string());
+    write_and_commit(&repository, files);
+    repository
+}
+
+fn write_and_commit(repository: &Repository, files: &[(&str, &str)]) {
     for &(path, contents) in files {
         repository.write(path, contents);
     }
     repository.commit_all();
-    repository
 }
 
 fn check_json_with_exit(
@@ -5864,25 +5868,17 @@ fn no_imports_only_repo_shows_absent_import_totals_and_budgets_do_not_trip() {
     }
 }
 
-#[test]
-fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
+fn check_calibrated_reference_ranges(
+    files: &[(&str, &str)],
+    expected_source: &str,
+    expected: &[(&str, f64, f64)],
+) -> serde_json::Value {
     let repository = Repository::new();
-    repository.write("go.mod", "module example.com/demo\n\ngo 1.24\n");
-    repository.write(
-        "main.go",
-        "package main\n\nfunc classify(x int) int {\n\tif x > 0 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n",
-    );
-    repository.commit_all();
+    write_and_commit(&repository, files);
 
     let report = check_json_with_exit(&repository, &["check", "--format", "json"], 0);
     let prod = &report["source_sets"]["production"];
-    let expected_source = "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0";
-    for (metric, low, high) in [
-        ("erosion", 0.379, 0.692),
-        ("verbosity", 0.045, 0.183),
-        ("duplication", 0.044, 0.181),
-        ("import_cycles", 0.0, 0.0),
-    ] {
+    for &(metric, low, high) in expected {
         let rr = &prod[metric]["reference_range"];
         assert_eq!(rr["low"], low, "{metric} reference_range.low");
         assert_eq!(rr["high"], high, "{metric} reference_range.high");
@@ -5891,4 +5887,45 @@ fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
             "{metric} reference_range.source"
         );
     }
+    report
+}
+
+#[test]
+fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
+    check_calibrated_reference_ranges(
+        &[
+            ("go.mod", "module example.com/demo\n\ngo 1.24\n"),
+            (
+                "main.go",
+                "package main\n\nfunc classify(x int) int {\n\tif x > 0 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n",
+            ),
+        ],
+        "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0",
+        &[
+            ("erosion", 0.379, 0.692),
+            ("verbosity", 0.045, 0.183),
+            ("duplication", 0.044, 0.181),
+            ("import_cycles", 0.0, 0.0),
+        ],
+    );
+}
+
+#[test]
+fn sql_check_displays_calibrated_reference_ranges_next_to_sql_values() {
+    let report = check_calibrated_reference_ranges(
+        &[(
+            "queries/orders.sql",
+            "CREATE VIEW active_orders AS\nSELECT id, total\nFROM orders\nWHERE status = 'open' AND total > 0;\n",
+        )],
+        "codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0",
+        &[
+            ("erosion", 0.094, 0.976),
+            ("verbosity", 0.042, 0.921),
+            ("duplication", 0.042, 0.921),
+        ],
+    );
+    assert_eq!(
+        report["source_sets"]["production"].get("import_cycles"),
+        None
+    );
 }

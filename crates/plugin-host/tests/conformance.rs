@@ -935,7 +935,7 @@ fn built_in_sql_plugin_passes_seam_2_conformance() {
         unparsable_source: "SELECT id FROM {{ table_name }};\n",
         unsupported_path: "scripts/tool.unknown",
         imports: None,
-        expect_erosion_reference_range: false,
+        expect_erosion_reference_range: true,
     };
     assert_seam_2_conformance(&Sql::new(), &fixture);
 }

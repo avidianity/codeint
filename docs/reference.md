@@ -1085,6 +1085,7 @@ Calibrated Go Reference ranges come from a panel of 20 pre-2023 public Go reposi
 See [docs/guide/go.md](./guide/go.md) for the full Go guide.
 
 For SQL (`sql`), codeint reads every `.sql` file in two layers with `sqlparser` ([ADR 0018](./adr/0018-sql-through-sqlparser-in-two-layers.md)), supports generic SQL by default plus `postgresql`, `mysql` (covering MariaDB), `sqlite`, and `duckdb` Dialects, defines 2 Flagged line rules and 32 Hazard line rules (27 statement rules and 5 schema-backed rules), builds schemas automatically from repository SQL files, and leaves import Metrics absent because SQL has no imports.
+Calibrated SQL Reference ranges come from a panel of 20 pre-2023 public SQL repositories ([ADR 0022](./adr/0022-sql-reference-ranges.md), source `codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0`): Erosion `9.4% to 97.6%`, Duplication `4.2% to 92.1%`, and Verbosity `4.2% to 92.1%` (Import cycles is absent because SQL has no imports).
 See [SQL](#sql) below and [docs/guide/sql.md](./guide/sql.md) for details.
 
 ```json codeint.json
@@ -1406,6 +1407,7 @@ See [docs/guide/sql.md](./guide/sql.md) for a walkthrough and monorepo examples.
 - **Flagged line rules (Verbosity)**:
   - `or-chain-collapses-to-in`: three or more `OR` equality comparisons of the same column against constant literals.
   - `having-without-aggregate`: a `HAVING` condition that contains no aggregate function.
+- **Reference ranges**: calibrated across 20 pre-2023 public SQL repositories ([ADR 0022](./adr/0022-sql-reference-ranges.md), source `codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0`): Erosion `9.4% to 97.6%`, Duplication `4.2% to 92.1%`, and Verbosity `4.2% to 92.1%` (Import cycles is absent).
 
 All 32 built-in SQL Hazard line rules (27 statement rules and 5 schema-backed rules):
 

@@ -26,12 +26,23 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
     assert!(!sql.has_imports());
     assert!(sql.has_hazard_rules());
     assert_eq!(sql.hazard_rules().len(), 32);
-    assert!(
-        sql.reference_ranges()
-            .unwrap()
-            .for_metric("erosion")
-            .is_none()
-    );
+    let ranges = sql.reference_ranges().unwrap();
+    for (metric, low, high) in [
+        ("erosion", 0.094, 0.976),
+        ("verbosity", 0.042, 0.921),
+        ("duplication", 0.042, 0.921),
+    ] {
+        let range = ranges
+            .for_metric(metric)
+            .unwrap_or_else(|| panic!("missing SQL reference range for {metric}"));
+        assert_eq!(range.low, low);
+        assert_eq!(range.high, high);
+        assert_eq!(
+            range.source,
+            "codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0"
+        );
+    }
+    assert!(ranges.for_metric("import_cycles").is_none());
     assert!(sql.manifest_paths(&[repo_path("schema.sql")]).is_empty());
     assert!(sql.workspace_packages(Vec::new()).unwrap().is_empty());
     assert!(
