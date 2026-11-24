@@ -9,11 +9,11 @@ Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dar
 ### Measurement
 
 **Software entropy**:
-The maintainability cost carried in the shape of code: duplication, needless verbosity, and complexity concentrated in a few large functions.
+The maintainability cost carried in the shape of code: duplication, needless verbosity, complexity concentrated in a few large functions, and weight that tests do not reach.
 _Avoid_: structural debt, tech debt, code quality
 
 **Metric**:
-One named measurement of Software entropy, reported on its own and never blended with other Metrics into a combined score.
+One named measurement of a codebase, reported on its own and never blended with other Metrics into a combined score.
 _Avoid_: score, index, grade, rating
 
 **Erosion**:
@@ -28,6 +28,15 @@ _Avoid_: function weight, function size
 The share of total nesting-weighted cognitive complexity held by functions whose cognitive complexity is greater than 15.
 _Avoid_: readability score, nesting score
 
+**Test gap**:
+The share of total Function mass that tests do not execute.
+Each function adds its Function mass times the share of it that the Coverage report shows as not executed.
+_Avoid_: CRAP, change risk, coverage score
+
+**Coverage report**:
+A file, written by the user's own test run, that records which source lines the tests executed.
+_Avoid_: coverage data, test report
+
 **Verbosity**:
 The share of source lines that are Flagged lines, clone lines, or both.
 _Avoid_: bloat, wordiness
@@ -35,6 +44,14 @@ _Avoid_: bloat, wordiness
 **Flagged line**:
 A source line that matches a verbose-code pattern of the source language.
 _Avoid_: lint hit, violation, smell
+
+**Hazards**:
+The share of source lines that are Hazard lines.
+_Avoid_: lint score, defect rate
+
+**Hazard line**:
+A source line that matches a pattern of the source language that is likely to cause wrong results, slow execution, or a security exposure.
+_Avoid_: violation, vulnerability, anti-pattern
 
 **Duplication**:
 The share of source lines that belong to at least one Clone group.
@@ -101,12 +118,16 @@ A unit that extends codeint with either support for one source language or one M
 _Avoid_: extension, add-on, provider
 
 **Code model**:
-The language-neutral description of a codebase that Language plugins produce and Metric plugins read.
+The language-neutral description of a codebase that Language plugins produce, codeint completes with Coverage report facts, and Metric plugins read.
 _Avoid_: AST, IR, inventory, syntax tree
 
 **Language plugin**:
 A Plugin that owns every rule specific to one language family and lowers its source files into the Code model.
 _Avoid_: parser plugin, language adapter, language provider
+
+**Dialect**:
+One variant of a language that its Language plugin reads with different rules, such as PostgreSQL or SQLite within SQL.
+_Avoid_: flavor, variant, engine
 
 **Metric plugin**:
 A Plugin that computes one Metric from the Code model alone, without knowing the source language.
@@ -115,11 +136,16 @@ _Avoid_: analyzer, detector, rule
 ## Relationships
 
 - A **Language plugin** supports exactly one language family.
+- A language family may have several **Dialects**; one **Language plugin** reads them all.
 - A **Metric plugin** works on every language that has a **Language plugin**.
 - A **Metric plugin** computes exactly one **Metric**.
+- Every **Metric** except **Hazards** measures **Software entropy**.
 - **Verbosity** counts the lines of every **Clone group** that **Duplication** finds.
+- **Test gap** reads test execution from a **Coverage report**; codeint never runs tests.
+- **Test gap** covers the Production **Source set** only.
+- A **Language plugin** may report **Hazard lines**; **Hazards** counts them without knowing the language.
 - A **Metric** may have one or more **Reference ranges**, each for one language family.
-- Everything that differs between languages belongs to a **Language plugin**: decision points, imports, workspaces, **Source set** rules, and **Flagged line** rules.
+- Everything that differs between languages belongs to a **Language plugin**: decision points, imports, workspaces, **Source set** rules, **Flagged line** rules, and **Hazard line** rules.
 - A **Metric** value is backed by zero or more **Findings**.
 - A **Budget** applies to one **Metric** in one **Source set**.
 - Every source file belongs to exactly one **Source set**.
