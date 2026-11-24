@@ -558,6 +558,7 @@ codeint impact src/sign.ts --package packages/missing
 | `-h, --help` | Print the help of `codeint trace` |
 
 `codeint trace` finds the shortest runtime import path connecting two measured files in the working tree.
+When `<FROM>` or `<TO>` is a Production file that its Language plugin marks as a program start, the report names `"program-start mark"` as the entry-point reason in `from_entry_point` or `to_entry_point` (and `Entry point: <path> (program-start mark)` in `text` format).
 When no runtime import path connects them, it reports `connected: false` and exits with code 0:
 
 ```sh exit=0
@@ -1238,7 +1239,8 @@ codeint check
 
 ### Orphan files
 
-Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`) and configured `entry_points` globs in `codeint.json`.
+Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`), Production files marked as program starts by a Language plugin, and configured `entry_points` globs in `codeint.json`.
+Marked files in the Test, Generated, or Vendored Source sets stay out of entry points.
 Production files unreachable from any Production entry point are reported as `unreferenced`, or as `test-only` when still imported by Test files.
 Generated and Vendored Source sets and non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are excluded from both entry-point roots and evaluated Production files.
 When no runtime entry points exist for a language or isolated Workspace package, Orphan files reporting stays silently inactive.

@@ -18,8 +18,8 @@ use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
     LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, Package,
-    ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
-    choose_manifests, resolve_runtime_imports, settle_source_set,
+    ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, SourceSet, Workspace,
+    WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
@@ -715,11 +715,12 @@ fn combine_entry_points(
     configured: &EntryPoints,
 ) -> Vec<RepoPath> {
     let mut entries: BTreeSet<RepoPath> = manifest_entries.into_iter().collect();
-    if !configured.is_empty() {
-        for file in files {
-            if configured.matches(&file.path) {
-                entries.insert(file.path.clone());
-            }
+    for file in files {
+        let marked_production =
+            file.model.program_start && file.model.source_set == SourceSet::Production;
+        let configured_match = !configured.is_empty() && configured.matches(&file.path);
+        if marked_production || configured_match {
+            entries.insert(file.path.clone());
         }
     }
     entries.into_iter().collect()
