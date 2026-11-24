@@ -40,9 +40,9 @@ If you run codeint through npm without a global binary install, set `"command": 
 
 | Tool | Required arguments | Optional arguments | Purpose |
 | ---- | ------------------ | ------------------ | ------- |
-| `check` | none | `path`, `package`, `coverage_reports`, `all` | Measure Software entropy of the working tree (Erosion, Cognitive complexity, Test gap when Coverage reports are configured, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene) and report Budget failures. |
-| `diff` | `base_ref` | `head_ref`, `path`, `package`, `all` | Compare against the merge-base of `base_ref` and classify Findings as new, resolved, or unchanged. |
-| `trend` | none | `path`, `since` (`YYYY-MM-DD`) | Measure each main-line commit over time (latest 20 commits or since a UTC date). |
+| `check` | none | `path`, `package`, `coverage_reports`, `all` | Measure Software entropy and Hazards of the working tree (Erosion, Cognitive complexity, Test gap when Coverage reports are configured, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, and Hazards when a measured language defines Hazard line rules) and report Budget failures, `sql_schemas`, and `rejected_statements`. |
+| `diff` | `base_ref` | `head_ref`, `path`, `package`, `all` | Compare against the merge-base of `base_ref` (including Hazards and new Hazard line Findings) and classify Findings as new, resolved, or unchanged. |
+| `trend` | none | `path`, `since` (`YYYY-MM-DD`) | Measure each main-line commit over time (latest 20 commits or since a UTC date), including `hazards` when measured. |
 | `guard` | `file` | `path` | Query the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for an existing or planned file path. |
 | `impact` | none (`paths` or `changed`) | `path`, `paths`, `changed`, `depth`, `package` | Compute the transitive reverse-dependency blast radius, separating Production and Test dependents and listing affected Workspace packages. |
 | `trace` | `from`, `to` | `path`, `package`, `all`, `max_paths` | Find the shortest runtime import path(s) connecting two repository files. |

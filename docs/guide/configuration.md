@@ -30,6 +30,7 @@ If your config file pins an official `$schema` tag newer than the running binary
       "import_cycles": 0.05,
       "boundaries": 0,
       "orphan_files": 0,
+      "hazards": 0.02,
       "test_gap": 0.25,
     },
     "unused_dependencies": 0,
@@ -43,7 +44,19 @@ If your config file pins an official `$schema` tag newer than the running binary
     },
     "production": {
       "boundaries": { "ratio_rise": 0, "new_findings": "any_new_finding" },
+      "hazards": { "ratio_rise": 0, "new_findings": "any_new_finding" },
     },
+  },
+  // SQL Dialect mappings (files covered by no entry use generic SQL)
+  "sql": {
+    "dialects": [
+      { "dialect": "postgresql", "include": ["db/postgres"] },
+      { "dialect": "duckdb", "include": ["analytics"] },
+    ],
+  },
+  // Turn off specific Hazard line rules across the repository
+  "hazards": {
+    "disabled_rules": ["select-star"],
   },
   // Optional shingle-based near-clone detection
   "duplication": {
@@ -87,6 +100,7 @@ If your config file pins an official `$schema` tag newer than the running binary
     { "plugin": "dart", "include": ["lib"], "exclude": [] },
     { "plugin": "python", "include": ["services"], "exclude": [] },
     { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] },
+    { "plugin": "sql", "include": ["db", "analytics"], "exclude": [] },
   ],
 }
 ```
@@ -94,13 +108,18 @@ If your config file pins an official `$schema` tag newer than the running binary
 ## Key sections
 
 - **`source_sets`**: globs that override built-in classification into `production`, `test`, `generated`, or `vendored`.
-- **`budgets`**: hard maximum ratios (`0` to `1`) per Source set (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, plus `test_gap` under `production` only and external Metric keys) and top-level Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`).
+- **`budgets`**: hard maximum ratios (`0` to `1`) per Source set (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, `hazards`, plus `test_gap` under `production` only and external Metric keys) and top-level Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`).
   `codeint check` and `codeint diff` exit `1` when any Budget is exceeded.
+  A `hazards` Budget passes when Hazards is absent because no measured language defines Hazard line rules.
   Setting `budgets.production.test_gap` without a matching Coverage report stops the run with exit code `2`; setting `test_gap` under another Source set also stops with exit code `2`.
 - **`regression_limits`**: per-Metric or per-Source-set tolerances for `codeint diff`.
   `ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise_with_new_findings`, or `never`.
-  By default, `import_cycles`, `boundaries`, `orphan_files`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding`.
+  By default, `import_cycles`, `boundaries`, `orphan_files`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding`, while `hazards` uses the same defaults as the other ratio Metrics (`ratio_rise: 0.01`, `new_findings: "numerator_rise_with_new_findings"`).
   Setting `test_gap` under `regression_limits` stops the run with exit code `2`, because `codeint diff` leaves Test gap out.
+- **`sql`**: map folders or file globs under `sql.dialects` to `postgresql`, `mysql` (covering MariaDB), `sqlite`, or `duckdb`; unmatched `.sql` files stay generic SQL.
+  See [SQL](./sql.md).
+- **`hazards`**: list Hazard line rule names under `hazards.disabled_rules` to turn them off across the repository.
+  See [Hazards](./hazards.md).
 - **`coverage_reports`**: repository-relative paths to LCOV or Cobertura XML Coverage reports used to compute **Test gap**; overridden when `--coverage-report` is passed on `codeint check`.
   See [Test gap](./test-gap.md).
 - **`boundaries`**: architectural import zones, optional `preset` (`layered` or `hexagonal`), `public_files` encapsulation, directional `allow` or `deny` rules with optional `reason`, `strict_zones`, and `source_sets` (default `["production"]`).

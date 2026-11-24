@@ -1,8 +1,8 @@
 # codeint
 
-codeint measures the Software entropy of a codebase, in any language that has a Language plugin: Erosion, Cognitive complexity, Test gap, Duplication, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene.
+codeint measures the Software entropy of a codebase (Erosion, Cognitive complexity, Test gap, Duplication, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy, in any language that has a Language plugin.
 It is for developers whose code is increasingly written by coding agents, so they see Software entropy grow before it compounds.
-Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, and Go.
+Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, and SQL.
 
 ## Language
 
@@ -92,7 +92,7 @@ A package declared by a repository workspace or by a module manifest such as `go
 _Avoid_: subpackage, member package, workspace member
 
 **Finding**:
-One located piece of evidence behind a Metric value, such as an eroded function, an untested function, a Clone group, a Flagged line, or an Import cycle.
+One located piece of evidence behind a Metric value, such as an eroded function, an untested function, a Clone group, a Flagged line, a Hazard line, or an Import cycle.
 _Avoid_: issue, violation, warning, hotspot
 
 **Reference range**:

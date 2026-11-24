@@ -1,7 +1,7 @@
 # Agent guidance
 
-codeint is a command-line tool that measures the Software entropy of a codebase, in any language that has a Language plugin, so that developers who work with coding agents see it grow before it compounds.
-Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, and Go.
+codeint is a command-line tool that measures the Software entropy of a codebase, and reports Hazards next to Software entropy, in any language that has a Language plugin, so that developers who work with coding agents see it grow before it compounds.
+Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, and SQL.
 Test gap measures untested Production Function mass from user-named LCOV or Cobertura XML Coverage reports; codeint never runs tests and never guesses report paths.
 
 Kit: avidianity/factory v0.4.0, bootstrapped 2026-11-21.
