@@ -28,6 +28,7 @@ Measured across 20 pre-2023 public repositories per language (10th to 90th perce
 | Language | Erosion | Duplication | Verbosity | Import cycles | Record |
 | -------- | ------- | ----------- | --------- | ------------- | ------ |
 | TypeScript / JavaScript | 35.2% to 60.0% | 1.7% to 34.6% | 1.8% to 34.7% | 0.0% to 30.8% | [ADR 0008](../adr/0008-typescript-reference-ranges.md) |
+| React (`.jsx` / `.tsx`) | 10.6% to 54.4% | 4.6% to 36.8% | 4.7% to 36.8% | 0.0% to 14.4% | [ADR 0020](../adr/0020-react-reference-ranges.md) |
 | Vue 2 (`.vue`) | 2.0% to 45.2% | 3.6% to 19.2% | 3.6% to 19.2% | 0.0% to 11.4% | [ADR 0014](../adr/0014-vue2-reference-ranges.md) |
 | Vue 3 (`.vue`) | 1.9% to 38.8% | 2.3% to 34.5% | 2.4% to 34.6% | 0.0% to 7.7% | [ADR 0015](../adr/0015-vue3-reference-ranges.md) |
 | Rust | 38.0% to 64.2% | 5.0% to 32.5% | 6.0% to 32.9% | 2.1% to 50.6% | [ADR 0010](../adr/0010-rust-reference-ranges.md) |

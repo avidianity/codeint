@@ -6,6 +6,53 @@ const VUE2_REFERENCE_SOURCE: &str =
     "codeint panel of 20 Vue 2 repositories, ADR 0014, codeint 0.4.0";
 const VUE3_REFERENCE_SOURCE: &str =
     "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0";
+const REACT_REFERENCE_SOURCE: &str =
+    "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0";
+
+pub fn react_reference_ranges(manifests: &[Manifest]) -> Option<Vec<ReferenceRange>> {
+    if !has_react_dependency(manifests) {
+        return None;
+    }
+    Some(build_reference_ranges(
+        REACT_REFERENCE_SOURCE,
+        [
+            ("erosion", 0.106, 0.544),
+            ("verbosity", 0.047, 0.368),
+            ("duplication", 0.046, 0.368),
+            ("import_cycles", 0.000, 0.144),
+        ],
+    ))
+}
+
+fn has_react_dependency(manifests: &[Manifest]) -> bool {
+    manifests.iter().any(|manifest| {
+        is_active_package_manifest(&manifest.path) && declares_package(&manifest.text, "react")
+    })
+}
+
+fn is_active_package_manifest(path: &str) -> bool {
+    (path == "package.json" || path.ends_with("/package.json"))
+        && !path.split('/').any(|segment| segment == "node_modules")
+}
+
+fn declares_package(text: &str, name: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return false;
+    };
+    [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ]
+    .iter()
+    .any(|section| {
+        value
+            .get(*section)
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|entries| entries.contains_key(name))
+    })
+}
 
 pub fn vue_reference_ranges(manifests: &[Manifest]) -> Option<Vec<ReferenceRange>> {
     let major = detect_vue_major(manifests)?;
@@ -40,7 +87,7 @@ fn detect_vue_major(manifests: &[Manifest]) -> Option<u8> {
     }
     manifests
         .iter()
-        .filter(|m| m.path.ends_with("/package.json"))
+        .filter(|m| m.path != "package.json" && is_active_package_manifest(&m.path))
         .find_map(|m| vue_major_in_manifest(&m.text))
 }
 
