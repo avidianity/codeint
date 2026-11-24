@@ -203,6 +203,7 @@ pub fn score_function_spans<T: ScanToken>(
                 source_lines: code_lines.range(start_line..=end_line).count() as u32,
                 name: None,
                 cognitive_complexity: 0,
+                coverage: None,
             }
         })
         .collect();
@@ -303,7 +304,7 @@ pub fn resolve_relative_file(
         if joined == importer {
             Resolution::External(String::new())
         } else {
-            Resolution::Resolved(joined)
+            Resolution::Resolved(vec![joined])
         }
     } else {
         Resolution::Unresolved(format!("no file of the repository matches {rel_uri:?}"))

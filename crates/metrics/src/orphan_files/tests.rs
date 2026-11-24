@@ -18,7 +18,9 @@ fn source_file(name: &str, source_set: SourceSet) -> SourceFile {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }
@@ -38,7 +40,7 @@ fn build_model(
             .map(|(from, to)| RuntimeImport {
                 importer: repo_path(from),
                 specifier: format!("./{to}"),
-                resolution: ImportResolution::Resolved(repo_path(to)),
+                resolution: ImportResolution::Resolved(vec![repo_path(to)]),
             })
             .collect(),
         workspace: Workspace::new(workspace_members.iter().copied().map(repo_path)),
@@ -473,5 +475,118 @@ fn excludes_nested_example_subpackage_from_orphan_roots_and_evaluated_files() {
         "pkgs/foo/lib/main.dart",
         &["pkgs/foo/example/lib/main.dart"],
         "pkgs/foo/lib/dead.dart",
+    );
+}
+
+#[test]
+fn multi_file_resolved_imports_mark_all_targets_and_transitive_folders_reachable() {
+    let mut model = build_model(
+        &[
+            ("app/main.fld", SourceSet::Production),
+            ("core/alpha.fld", SourceSet::Production),
+            ("core/beta.fld", SourceSet::Production),
+            ("core/alpha_test.fld", SourceSet::Test),
+            ("nested/first.fld", SourceSet::Production),
+            ("nested/second.fld", SourceSet::Production),
+            ("solo/only.fld", SourceSet::Production),
+            ("unused/orphan_a.fld", SourceSet::Production),
+            ("unused/orphan_b.fld", SourceSet::Production),
+            ("helpers/mock_a.fld", SourceSet::Production),
+            ("helpers/mock_b.fld", SourceSet::Production),
+            ("helpers_deep/deep_a.fld", SourceSet::Production),
+            ("helpers_deep/deep_b.fld", SourceSet::Production),
+            ("tests/suite_test.fld", SourceSet::Test),
+        ],
+        &[],
+        &[],
+    );
+    let multi_import = |importer: &str, specifier: &str, targets: &[&str]| RuntimeImport {
+        importer: repo_path(importer),
+        specifier: specifier.to_owned(),
+        resolution: ImportResolution::Resolved(targets.iter().copied().map(repo_path).collect()),
+    };
+    model.runtime_imports = vec![
+        multi_import(
+            "app/main.fld",
+            "core",
+            &["core/alpha.fld", "core/alpha_test.fld", "core/beta.fld"],
+        ),
+        multi_import("app/main.fld", "solo", &["solo/only.fld"]),
+        multi_import(
+            "core/beta.fld",
+            "nested",
+            &["nested/first.fld", "nested/second.fld"],
+        ),
+        multi_import(
+            "core/alpha_test.fld",
+            "helpers",
+            &["helpers/mock_a.fld", "helpers/mock_b.fld"],
+        ),
+        multi_import(
+            "tests/suite_test.fld",
+            "helpers",
+            &["helpers/mock_a.fld", "helpers/mock_b.fld"],
+        ),
+        multi_import(
+            "helpers/mock_b.fld",
+            "helpers_deep",
+            &["helpers_deep/deep_a.fld", "helpers_deep/deep_b.fld"],
+        ),
+    ];
+
+    let measured = OrphanFiles::measure(&model, &[repo_path("app/main.fld")])
+        .expect("entry point activates orphan-file detection");
+
+    assert_eq!(measured.evaluated_files(), 12);
+    assert_eq!(measured.entry_points(), &[repo_path("app/main.fld")]);
+    assert_eq!(measured.unreferenced_count(), 2);
+    assert_eq!(measured.test_only_count(), 4);
+
+    let expected_importers: &[&str] = &["core/alpha_test.fld", "tests/suite_test.fld"];
+    let expected: Vec<(&str, OrphanFileKind, &[&str])> = vec![
+        (
+            "helpers/mock_a.fld",
+            OrphanFileKind::TestOnly,
+            expected_importers,
+        ),
+        (
+            "helpers/mock_b.fld",
+            OrphanFileKind::TestOnly,
+            expected_importers,
+        ),
+        (
+            "helpers_deep/deep_a.fld",
+            OrphanFileKind::TestOnly,
+            expected_importers,
+        ),
+        (
+            "helpers_deep/deep_b.fld",
+            OrphanFileKind::TestOnly,
+            expected_importers,
+        ),
+        ("unused/orphan_a.fld", OrphanFileKind::Unreferenced, &[]),
+        ("unused/orphan_b.fld", OrphanFileKind::Unreferenced, &[]),
+    ];
+    let summary: Vec<(&str, OrphanFileKind, Vec<&str>)> = measured
+        .findings()
+        .iter()
+        .map(|finding| {
+            (
+                finding.path.as_str(),
+                finding.kind,
+                finding
+                    .test_importers
+                    .iter()
+                    .map(RepoPath::as_str)
+                    .collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary
+            .iter()
+            .map(|(path, kind, importers)| (*path, *kind, importers.as_slice()))
+            .collect::<Vec<_>>(),
+        expected
     );
 }

@@ -24,7 +24,8 @@ mod bindings {
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{
-    DeclaredDep, DepKind, FileModel, Manifest, ReferenceRange, SourceSet, Token, TokenKind,
+    DeclaredDep, DepKind, FileModel, FunctionCoverage, HazardLine, Manifest, ReferenceRange,
+    SourceSet, Token, TokenKind,
 };
 pub use metric::{
     ExternalFinding, ExternalMetricMeasurement, Metric, MetricPlugin, MetricPluginError,
@@ -146,6 +147,14 @@ pub struct ManifestUsedDep {
     pub name: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LanguageFacts {
+    pub language: String,
+    pub has_coverage: bool,
+    pub has_hazard_rules: bool,
+    pub has_imports: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CodeModel {
     pub files: Vec<SourceFile>,
@@ -156,6 +165,7 @@ pub struct CodeModel {
     pub declared_dependencies: Vec<DeclaredDep>,
     pub dependency_manifests: Vec<DependencyManifest>,
     pub manifest_used_dependencies: Vec<ManifestUsedDep>,
+    pub languages: Vec<LanguageFacts>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -169,6 +179,7 @@ pub struct SourceSets {
 impl CodeModel {
     pub fn merge(models: impl IntoIterator<Item = CodeModel>) -> CodeModel {
         let mut merged = CodeModel::default();
+        let mut languages: BTreeMap<String, LanguageFacts> = BTreeMap::new();
         for model in models {
             merged.files.extend(model.files);
             merged.skipped.extend(model.skipped);
@@ -184,6 +195,16 @@ impl CodeModel {
             merged
                 .manifest_used_dependencies
                 .extend(model.manifest_used_dependencies);
+            for facts in model.languages {
+                languages
+                    .entry(facts.language.clone())
+                    .and_modify(|existing| {
+                        existing.has_coverage |= facts.has_coverage;
+                        existing.has_hazard_rules |= facts.has_hazard_rules;
+                        existing.has_imports |= facts.has_imports;
+                    })
+                    .or_insert(facts);
+            }
         }
         merged
             .files
@@ -196,6 +217,7 @@ impl CodeModel {
         merged.dependency_manifests.dedup();
         merged.manifest_used_dependencies.sort();
         merged.manifest_used_dependencies.dedup();
+        merged.languages = languages.into_values().collect();
         merged
     }
 
@@ -213,6 +235,7 @@ impl CodeModel {
             &mut source_sets.vendored,
         ] {
             source_set.workspace = self.workspace.clone();
+            source_set.languages = self.languages.clone();
         }
         for file in self.files {
             source_sets.get_mut(file.model.source_set).files.push(file);
@@ -357,6 +380,23 @@ pub enum LanguagePluginError {
         call: &'static str,
         reason: String,
     },
+    #[error(
+        "Language plugin {plugin:?} returned Hazard line {line} in {path}, which is outside the file's {line_count} lines"
+    )]
+    HazardLineOutOfRange {
+        plugin: String,
+        path: RepoPath,
+        line: u32,
+        line_count: usize,
+    },
+    #[error(
+        "Language plugin {plugin:?} returned a Hazard line with unlisted rule {rule:?} in {path}"
+    )]
+    UnlistedHazardRule {
+        plugin: String,
+        path: RepoPath,
+        rule: String,
+    },
 }
 
 pub fn validate_declared_dependencies(
@@ -410,7 +450,7 @@ pub trait LanguagePlugin: Sync {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution>;
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError>;
 
     fn declared_dependencies(
         &self,
@@ -424,6 +464,12 @@ pub trait LanguagePlugin: Sync {
     ) -> Result<Vec<RepoPath>, LanguagePluginError>;
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
+
+    fn has_hazard_rules(&self) -> bool;
+
+    fn hazard_rules(&self) -> Vec<String>;
+
+    fn has_imports(&self) -> bool;
 }
 
 impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
@@ -454,8 +500,12 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution> {
-        Plugin::resolve_imports(owned_paths(repository_paths), manifests, requests)
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
+        Ok(Plugin::resolve_imports(
+            owned_paths(repository_paths),
+            manifests,
+            requests,
+        ))
     }
 
     fn declared_dependencies(
@@ -478,6 +528,18 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         ReferenceRanges::new(Plugin::reference_ranges())
+    }
+
+    fn has_hazard_rules(&self) -> bool {
+        Plugin::has_hazard_rules()
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        Plugin::hazard_rules()
+    }
+
+    fn has_imports(&self) -> bool {
+        Plugin::has_imports()
     }
 }
 

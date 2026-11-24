@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::error::Error;
 use std::fmt;
 
@@ -29,12 +29,20 @@ impl fmt::Display for TraceError {
 impl Error for TraceError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultiFileImport {
+    pub importer: RepoPath,
+    pub specifier: String,
+    pub targets: Vec<RepoPath>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TraceResult {
     pub from: RepoPath,
     pub to: RepoPath,
     pub connected: bool,
     pub shortest_distance: Option<usize>,
     pub paths: Vec<Vec<RepoPath>>,
+    pub multi_file_imports: Vec<MultiFileImport>,
     pub truncated: bool,
 }
 
@@ -69,10 +77,13 @@ pub fn trace_imports(
             connected: true,
             shortest_distance: Some(0),
             paths: vec![vec![from.clone()]],
+            multi_file_imports: Vec::new(),
             truncated: false,
         });
     }
-    let adjacency = build_adjacency(model, &index_of, modules.len());
+    let adjacency = crate::build_resolved_import_adjacency(model, modules.len(), |path| {
+        index_of.get(path).copied()
+    });
     let (dist, parents) = shortest_path_dag(&adjacency, from_idx, to_idx);
     let Some(target_distance) = dist[to_idx] else {
         return Ok(TraceResult {
@@ -81,12 +92,14 @@ pub fn trace_imports(
             connected: false,
             shortest_distance: None,
             paths: Vec::new(),
+            multi_file_imports: Vec::new(),
             truncated: false,
         });
     };
     let forward = build_forward_shortest_dag(&parents, to_idx, modules.len());
     let limit = if all_shortest { max_paths } else { 1 };
     let (index_paths, truncated) = collect_shortest_paths(&forward, from_idx, to_idx, limit);
+    let multi_file_imports = collect_multi_file_imports(model, &index_of, &modules, &index_paths);
     let paths = index_paths
         .into_iter()
         .map(|chain| {
@@ -102,29 +115,95 @@ pub fn trace_imports(
         connected: true,
         shortest_distance: Some(target_distance),
         paths,
+        multi_file_imports,
         truncated: all_shortest && truncated,
     })
 }
 
-fn build_adjacency(
+fn collect_multi_file_imports(
     model: &CodeModel,
     index_of: &BTreeMap<&RepoPath, usize>,
-    node_count: usize,
-) -> Vec<Vec<usize>> {
-    let mut adjacency = vec![Vec::new(); node_count];
-    for runtime_import in &model.runtime_imports {
-        if let ImportResolution::Resolved(target) = &runtime_import.resolution
-            && let (Some(&from), Some(&to)) =
-                (index_of.get(&runtime_import.importer), index_of.get(target))
-        {
-            adjacency[from].push(to);
+    modules: &[&RepoPath],
+    index_paths: &[Vec<usize>],
+) -> Vec<MultiFileImport> {
+    let by_importer = index_multi_file_imports(model, index_of);
+    if by_importer.is_empty() {
+        return Vec::new();
+    }
+    let mut seen: BTreeSet<(usize, &str, &[usize])> = BTreeSet::new();
+    let mut result = Vec::new();
+    for chain in index_paths {
+        for edge in chain.windows(2) {
+            record_multi_file_edge(
+                edge[0],
+                edge[1],
+                &by_importer,
+                modules,
+                &mut seen,
+                &mut result,
+            );
         }
     }
-    for neighbors in &mut adjacency {
-        neighbors.sort_unstable();
-        neighbors.dedup();
+    result
+}
+
+fn index_multi_file_imports<'a>(
+    model: &'a CodeModel,
+    index_of: &BTreeMap<&RepoPath, usize>,
+) -> BTreeMap<usize, Vec<(&'a str, Vec<usize>)>> {
+    let mut by_importer: BTreeMap<usize, Vec<(&'a str, Vec<usize>)>> = BTreeMap::new();
+    for runtime_import in &model.runtime_imports {
+        let ImportResolution::Resolved(targets) = &runtime_import.resolution else {
+            continue;
+        };
+        let Some(&from_idx) = index_of.get(&runtime_import.importer) else {
+            continue;
+        };
+        let mut target_indices: Vec<usize> = targets
+            .iter()
+            .filter_map(|target| index_of.get(target).copied())
+            .collect();
+        target_indices.sort_unstable();
+        target_indices.dedup();
+        if target_indices.len() > 1 {
+            by_importer
+                .entry(from_idx)
+                .or_default()
+                .push((runtime_import.specifier.as_str(), target_indices));
+        }
     }
-    adjacency
+    for imports in by_importer.values_mut() {
+        imports.sort();
+        imports.dedup();
+    }
+    by_importer
+}
+
+fn record_multi_file_edge<'a>(
+    from_idx: usize,
+    to_idx: usize,
+    by_importer: &'a BTreeMap<usize, Vec<(&'a str, Vec<usize>)>>,
+    modules: &[&RepoPath],
+    seen: &mut BTreeSet<(usize, &'a str, &'a [usize])>,
+    result: &mut Vec<MultiFileImport>,
+) {
+    let Some(imports) = by_importer.get(&from_idx) else {
+        return;
+    };
+    for (specifier, target_indices) in imports {
+        if target_indices.binary_search(&to_idx).is_ok()
+            && seen.insert((from_idx, *specifier, target_indices.as_slice()))
+        {
+            result.push(MultiFileImport {
+                importer: modules[from_idx].clone(),
+                specifier: (*specifier).to_owned(),
+                targets: target_indices
+                    .iter()
+                    .map(|&index| modules[index].clone())
+                    .collect(),
+            });
+        }
+    }
 }
 
 fn shortest_path_dag(

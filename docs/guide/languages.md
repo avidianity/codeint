@@ -6,7 +6,7 @@ Each plugin parses the modern superset of its language family with no language-v
 Every built-in Language plugin extracts:
 
 - **Function names and complexity**: named functions (with `none` for anonymous lambdas) for Erosion and nesting-weighted Cognitive complexity Findings.
-- **Workspaces and entry points**: Workspace package roots and standard entry-point files discovered from language manifests for `--package` scoping and Orphan files detection.
+- **Workspaces and entry points**: Workspace package roots and standard entry-point files discovered from language manifests for `--package` scoping and Orphan files detection; Language plugins can also mark Production files as program starts from source text.
 - **Dependency manifests and built-ins**: declared runtime, dev, and optional dependencies from each ecosystem's manifest, plus standard-library and runtime built-in classification so built-in imports are never flagged as unlisted dependencies.
 
 ## Summary

@@ -47,7 +47,7 @@ People and coding agents follow the same rules in this repository: read [.rules]
 
 ## Adding a Language or Metric plugin
 
-Read [docs/plugins.md](./docs/plugins.md) to build an external WebAssembly Plugin against `codeint:plugin@0.2.0`, or inspect `plugins/languages/` to see how built-in Language plugins implement the Code model contract.
+Read [docs/plugins.md](./docs/plugins.md) to build an external WebAssembly Plugin against `codeint:plugin@0.3.0`, or inspect `plugins/languages/` to see how built-in Language plugins implement the Code model contract.
 
 ## Code of Conduct
 

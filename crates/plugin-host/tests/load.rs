@@ -6,20 +6,27 @@ use std::sync::OnceLock;
 use codeint_config::{
     PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource, Sha256Digest,
 };
-use codeint_model::language::{DeclaredDep, DepKind, Function, ImportRequest, Resolution};
+use codeint_model::language::{
+    DeclaredDep, DepKind, Function, FunctionCoverage, ImportRequest, Resolution,
+};
 use codeint_model::{
-    CodeModel, FileModel, LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin,
-    MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
+    CodeModel, FileModel, HazardLine, ImportResolution, LanguageFacts, LanguagePlugin,
+    LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, RepoPath,
+    ResolveError, SourceFile, SourceSet, Token, TokenKind, resolve_runtime_imports,
+    token_text_hash,
 };
 use codeint_plugin_host::{
-    PluginHostError, WasmLanguagePlugin, load_language_plugin, load_language_plugin_with_limits,
-    load_language_plugins, load_metric_plugin, load_metric_plugin_with_limits, load_metric_plugins,
+    PLUGIN_INTERFACE_VERSION, PluginHostError, WasmLanguagePlugin, load_language_plugin,
+    load_language_plugin_with_limits, load_language_plugins, load_metric_plugin,
+    load_metric_plugin_with_limits, load_metric_plugins, verify_plugin_component,
 };
 
-use common::{build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm};
+use common::{
+    build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm,
+    sandbox_probe_wasm,
+};
 
 static SAMPLE_METRIC_WASM: OnceLock<PathBuf> = OnceLock::new();
-static SANDBOX_PROBES_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn sample_metric_plugin_wasm() -> &'static Path {
     SAMPLE_METRIC_WASM.get_or_init(|| {
@@ -30,18 +37,6 @@ fn sample_metric_plugin_wasm() -> &'static Path {
         )
         .join("sample_long_functions_plugin.wasm")
     })
-}
-
-fn sandbox_probe_wasm(file_name: &str) -> PathBuf {
-    SANDBOX_PROBES_DIR
-        .get_or_init(|| {
-            build_fixture_workspace(
-                "tests/fixtures/sandbox-probes/Cargo.toml",
-                "wasm-fixtures",
-                true,
-            )
-        })
-        .join(file_name)
 }
 
 fn assert_sandbox_blocks(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
@@ -116,28 +111,30 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
         .expect("workspace packages");
     assert_eq!(packages, vec![RepoPath::new("packages/core").unwrap()]);
 
-    let resolutions = plugin.resolve_imports(
-        &repo_paths,
-        Vec::new(),
-        vec![
-            ImportRequest {
-                importer: "src/app.mini".to_owned(),
-                specifier: "./util".to_owned(),
-            },
-            ImportRequest {
-                importer: "src/app.mini".to_owned(),
-                specifier: "external-pkg".to_owned(),
-            },
-            ImportRequest {
-                importer: "src/app.mini".to_owned(),
-                specifier: "std:io".to_owned(),
-            },
-        ],
-    );
+    let resolutions = plugin
+        .resolve_imports(
+            &repo_paths,
+            Vec::new(),
+            vec![
+                ImportRequest {
+                    importer: "src/app.mini".to_owned(),
+                    specifier: "./util".to_owned(),
+                },
+                ImportRequest {
+                    importer: "src/app.mini".to_owned(),
+                    specifier: "external-pkg".to_owned(),
+                },
+                ImportRequest {
+                    importer: "src/app.mini".to_owned(),
+                    specifier: "std:io".to_owned(),
+                },
+            ],
+        )
+        .expect("resolve imports");
     assert_eq!(
         resolutions,
         vec![
-            Resolution::Resolved("src/util.mini".to_owned()),
+            Resolution::Resolved(vec!["src/util.mini".to_owned()]),
             Resolution::External("external-pkg".to_owned()),
             Resolution::Builtin,
         ]
@@ -214,6 +211,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                         source_lines: 3,
                         name: Some("brief".to_owned()),
                         cognitive_complexity: 0,
+                        coverage: None,
                     },
                     Function {
                         line: 5,
@@ -222,6 +220,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                         source_lines: 14,
                         name: Some("verbose".to_owned()),
                         cognitive_complexity: 1,
+                        coverage: None,
                     },
                 ],
                 tokens: vec![Token {
@@ -230,7 +229,9 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                     line: 6,
                 }],
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
+                program_start: false,
             },
         }],
         ..CodeModel::default()
@@ -477,7 +478,9 @@ fn metric_plugin_that_loops_forever_or_exceeds_memory_cap_returns_limit_error() 
                 functions: Vec::new(),
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
+                program_start: false,
             },
         }],
         ..CodeModel::default()
@@ -572,11 +575,12 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
 }
 
 #[test]
-fn verifies_0_2_0_contract_fields_and_methods_across_wasm_boundary() {
+fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
+    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.3.0");
     let wasm_path = sample_plugin_wasm();
     let declaration = declaration_for("sample-mini", wasm_path);
     let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
-        .expect("0.2.0 sample plugin loads");
+        .expect("0.3.0 sample plugin loads");
 
     let lowered = plugin
         .lower(
@@ -588,8 +592,12 @@ fn verifies_0_2_0_contract_fields_and_methods_across_wasm_boundary() {
     assert_eq!(lowered.functions[0].name.as_deref(), Some("outer"));
     assert_eq!(lowered.functions[0].decision_points, 2);
     assert_eq!(lowered.functions[0].cognitive_complexity, 3);
+    assert_eq!(lowered.functions[0].coverage, None);
     assert_eq!(lowered.functions[1].name, None);
     assert_eq!(lowered.functions[1].cognitive_complexity, 0);
+    assert_eq!(lowered.functions[1].coverage, None);
+    assert!(lowered.hazard_lines.is_empty());
+    assert!(!lowered.program_start);
 
     let repo_paths = vec![
         RepoPath::new("mini.workspace").expect("valid repo path"),
@@ -630,30 +638,32 @@ fn verifies_0_2_0_contract_fields_and_methods_across_wasm_boundary() {
         vec![RepoPath::new("src/main.mini").expect("valid repo path")]
     );
     assert_eq!(
-        plugin.resolve_imports(
-            &repo_paths,
-            manifests,
-            vec![
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "./util".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "serde".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "std:fs".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "./missing".to_owned(),
-                },
-            ],
-        ),
+        plugin
+            .resolve_imports(
+                &repo_paths,
+                manifests,
+                vec![
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "./util".to_owned(),
+                    },
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "serde".to_owned(),
+                    },
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "std:fs".to_owned(),
+                    },
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "./missing".to_owned(),
+                    },
+                ],
+            )
+            .expect("resolve imports"),
         vec![
-            Resolution::Resolved("src/util.mini".to_owned()),
+            Resolution::Resolved(vec!["src/util.mini".to_owned()]),
             Resolution::External("serde".to_owned()),
             Resolution::Builtin,
             Resolution::Unresolved("cannot find src/missing.mini".to_owned()),
@@ -698,12 +708,12 @@ fn rejects_v0_1_0_language_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Language plugin must be rejected by 0.2.0 host");
+        .expect("0.1.0 Language plugin must be rejected by 0.3.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-lang",
-        "codeint:plugin/language@0.2.0",
+        "codeint:plugin/language@0.3.0",
         "codeint:plugin/language@0.1.0",
     );
 }
@@ -715,13 +725,90 @@ fn rejects_v0_1_0_metric_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Metric plugin must be rejected by 0.2.0 host");
+        .expect("0.1.0 Metric plugin must be rejected by 0.3.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-metric",
-        "codeint:plugin/metric@0.2.0",
+        "codeint:plugin/metric@0.3.0",
         "codeint:plugin/metric@0.1.0",
+    );
+}
+
+#[test]
+fn rejects_v0_2_0_language_and_metric_plugins_with_actionable_version_mismatch_error() {
+    let lang_path = sandbox_probe_wasm("legacy_v0_2_0_language_plugin.wasm");
+    let lang_decl = declaration_for("legacy-v02-lang", &lang_path);
+    let lang_err = load_language_plugin(Path::new("."), &lang_decl, &PluginHostConfig::default())
+        .err()
+        .expect("0.2.0 Language plugin must be rejected by 0.3.0 host");
+    assert_incompatible_contract_error(
+        lang_err,
+        "legacy-v02-lang",
+        "codeint:plugin/language@0.3.0",
+        "codeint:plugin/language@0.2.0",
+    );
+
+    let metric_path = sandbox_probe_wasm("legacy_v0_2_0_metric_plugin.wasm");
+    let metric_decl = declaration_with_kind("legacy-v02-metric", PluginKind::Metric, &metric_path);
+    let metric_err = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
+        .err()
+        .expect("0.2.0 Metric plugin must be rejected by 0.3.0 host");
+    assert_incompatible_contract_error(
+        metric_err,
+        "legacy-v02-metric",
+        "codeint:plugin/metric@0.3.0",
+        "codeint:plugin/metric@0.2.0",
+    );
+
+    let sample_lang_bytes = std::fs::read(sample_plugin_wasm()).expect("read sample language wasm");
+    assert!(
+        verify_plugin_component(
+            "sample-mini",
+            sample_plugin_wasm(),
+            PluginKind::Language,
+            &sample_lang_bytes,
+        )
+        .is_ok()
+    );
+    let sample_metric_bytes =
+        std::fs::read(sample_metric_plugin_wasm()).expect("read sample metric wasm");
+    assert!(
+        verify_plugin_component(
+            "sample-metric",
+            sample_metric_plugin_wasm(),
+            PluginKind::Metric,
+            &sample_metric_bytes,
+        )
+        .is_ok()
+    );
+    let legacy_lang_bytes = std::fs::read(&lang_path).expect("read legacy 0.2.0 language wasm");
+    let verify_lang_err = verify_plugin_component(
+        "legacy-v02-lang",
+        &lang_path,
+        PluginKind::Language,
+        &legacy_lang_bytes,
+    )
+    .expect_err("0.2.0 language component must fail contract verification");
+    assert_incompatible_contract_error(
+        verify_lang_err,
+        "legacy-v02-lang",
+        "codeint:plugin/language@0.3.0",
+        "codeint:plugin/language@0.2.0",
+    );
+    let legacy_metric_bytes = std::fs::read(&metric_path).expect("read legacy 0.2.0 metric wasm");
+    let verify_metric_err = verify_plugin_component(
+        "legacy-v02-metric",
+        &metric_path,
+        PluginKind::Metric,
+        &legacy_metric_bytes,
+    )
+    .expect_err("0.2.0 metric component must fail contract verification");
+    assert_incompatible_contract_error(
+        verify_metric_err,
+        "legacy-v02-metric",
+        "codeint:plugin/metric@0.3.0",
+        "codeint:plugin/metric@0.2.0",
     );
 }
 
@@ -918,7 +1005,7 @@ fn rejects_invalid_entry_points_and_declared_dependencies_from_wasm_plugin() {
 }
 
 #[test]
-fn loads_dual_version_language_plugin_exporting_0_1_0_and_0_2_0() {
+fn loads_dual_version_language_plugin_exporting_0_2_0_and_0_3_0() {
     let plugin = load_probe(
         "dual-lang",
         "dual_version_language_plugin.wasm",
@@ -941,5 +1028,745 @@ fn loads_dual_version_language_plugin_exporting_0_1_0_and_0_2_0() {
             name: "dual-dep".to_owned(),
             kind: DepKind::Runtime,
         }]
+    );
+}
+
+fn coverage_model_with(functions: Vec<Function>) -> CodeModel {
+    CodeModel {
+        files: vec![SourceFile {
+            path: RepoPath::new("src/work.ts").expect("valid repo path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 30,
+                functions,
+                tokens: Vec::new(),
+                flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+                program_start: false,
+            },
+        }],
+        ..CodeModel::default()
+    }
+}
+
+#[test]
+fn metric_plugin_reads_per_function_coverage_and_distinguishes_absent_from_zero_executed() {
+    let wasm_path = sandbox_probe_wasm("coverage_reader_metric_plugin.wasm");
+    let declaration = declaration_with_kind("coverage-reader", PluginKind::Metric, &wasm_path);
+    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("coverage reader Metric plugin loads");
+
+    assert_eq!(plugin.key(), "coverage_reader");
+
+    let absent_only = coverage_model_with(vec![Function {
+        line: 1,
+        end_line: 6,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("unreported".to_owned()),
+        cognitive_complexity: 1,
+        coverage: None,
+    }]);
+    let zero_only = coverage_model_with(vec![Function {
+        line: 1,
+        end_line: 6,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("unexecuted".to_owned()),
+        cognitive_complexity: 1,
+        coverage: Some(FunctionCoverage {
+            listed_lines: 5,
+            executed_lines: 0,
+        }),
+    }]);
+
+    let absent_measured = plugin
+        .measure(&absent_only)
+        .expect("measure absent coverage");
+    let zero_measured = plugin.measure(&zero_only).expect("measure zero executed");
+
+    assert!((absent_measured.ratio - 0.0).abs() < 1e-9);
+    assert!((absent_measured.numerator - 0.0).abs() < 1e-9);
+    assert!((absent_measured.denominator - 0.0).abs() < 1e-9);
+    assert_eq!(absent_measured.findings.len(), 1);
+    assert_eq!(absent_measured.findings[0].id, "absent:unreported");
+    assert_eq!(absent_measured.findings[0].message, "absent");
+
+    assert!((zero_measured.ratio - 1.0).abs() < 1e-9);
+    assert!((zero_measured.numerator - 5.0).abs() < 1e-9);
+    assert!((zero_measured.denominator - 5.0).abs() < 1e-9);
+    assert_eq!(zero_measured.findings.len(), 1);
+    assert_eq!(zero_measured.findings[0].id, "zero:unexecuted");
+    assert_eq!(zero_measured.findings[0].message, "listed=5 executed=0");
+
+    let mixed = coverage_model_with(vec![
+        Function {
+            line: 1,
+            end_line: 6,
+            decision_points: 1,
+            source_lines: 5,
+            name: Some("unreported".to_owned()),
+            cognitive_complexity: 1,
+            coverage: None,
+        },
+        Function {
+            line: 8,
+            end_line: 14,
+            decision_points: 2,
+            source_lines: 5,
+            name: Some("unexecuted".to_owned()),
+            cognitive_complexity: 2,
+            coverage: Some(FunctionCoverage {
+                listed_lines: 5,
+                executed_lines: 0,
+            }),
+        },
+        Function {
+            line: 16,
+            end_line: 22,
+            decision_points: 2,
+            source_lines: 5,
+            name: Some("partial".to_owned()),
+            cognitive_complexity: 2,
+            coverage: Some(FunctionCoverage {
+                listed_lines: 5,
+                executed_lines: 3,
+            }),
+        },
+    ]);
+
+    let mixed_measured = plugin.measure(&mixed).expect("measure mixed coverage");
+    assert!((mixed_measured.ratio - 0.7).abs() < 1e-9);
+    assert!((mixed_measured.numerator - 7.0).abs() < 1e-9);
+    assert!((mixed_measured.denominator - 10.0).abs() < 1e-9);
+    let summary: Vec<(&str, &str)> = mixed_measured
+        .findings
+        .iter()
+        .map(|finding| (finding.id.as_str(), finding.message.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("absent:unreported", "absent"),
+            ("zero:unexecuted", "listed=5 executed=0"),
+            ("covered:partial", "listed=5 executed=3"),
+        ]
+    );
+}
+
+fn load_probe_language(name: &str, wasm_file: &str) -> codeint_plugin_host::WasmLanguagePlugin {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let declaration = declaration_for(name, &wasm_path);
+    load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .unwrap_or_else(|error| panic!("{name} Language plugin loads: {error}"))
+}
+
+fn load_probe_metric(name: &str, wasm_file: &str) -> codeint_plugin_host::WasmMetricPlugin {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let declaration = declaration_with_kind(name, PluginKind::Metric, &wasm_path);
+    load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .unwrap_or_else(|error| panic!("{name} Metric plugin loads: {error}"))
+}
+
+fn language_facts(
+    language: &str,
+    has_coverage: bool,
+    has_hazard_rules: bool,
+    has_imports: bool,
+) -> LanguageFacts {
+    LanguageFacts {
+        language: language.to_owned(),
+        has_coverage,
+        has_hazard_rules,
+        has_imports,
+    }
+}
+
+fn model_with_language_facts(facts: LanguageFacts, with_file: bool) -> CodeModel {
+    let base = if with_file {
+        coverage_model_with(Vec::new())
+    } else {
+        CodeModel::default()
+    };
+    CodeModel {
+        languages: vec![facts],
+        ..base
+    }
+}
+
+fn assert_two_language_fact_probe(
+    plugin: &codeint_plugin_host::WasmMetricPlugin,
+    first: (LanguageFacts, bool, f64, (&str, &str)),
+    second: (LanguageFacts, bool, f64, (&str, &str)),
+    expected_merged_ratio: f64,
+    expected_merged: Vec<(&str, &str)>,
+) {
+    let first_model = model_with_language_facts(first.0, first.1);
+    let second_model = model_with_language_facts(second.0, second.1);
+    let first_measured = plugin
+        .measure(&first_model)
+        .expect("measure first language");
+    let second_measured = plugin
+        .measure(&second_model)
+        .expect("measure second language");
+    assert!((first_measured.ratio - first.2).abs() < 1e-9);
+    assert_eq!(summarize_findings(&first_measured), vec![first.3]);
+    assert!((second_measured.ratio - second.2).abs() < 1e-9);
+    assert_eq!(summarize_findings(&second_measured), vec![second.3]);
+
+    let merged = CodeModel::merge([first_model, second_model]);
+    let source_sets = merged.into_source_sets();
+    let multi_measured = plugin
+        .measure(source_sets.get(SourceSet::Production))
+        .expect("measure merged multi-language model");
+    assert!((multi_measured.ratio - expected_merged_ratio).abs() < 1e-9);
+    assert_eq!(summarize_findings(&multi_measured), expected_merged);
+}
+
+#[test]
+fn language_plugin_sets_program_start_mark_and_metric_plugin_reads_it() {
+    let language = load_probe_language(
+        "program-start-language",
+        "program_start_language_plugin.wasm",
+    );
+    let metric = load_probe_metric("program-start-metric", "program_start_metric_plugin.wasm");
+
+    let main_path = RepoPath::new("cmd/app/main.prog").expect("valid repo path");
+    let lib_path = RepoPath::new("internal/util/helper.prog").expect("valid repo path");
+
+    let main_model = language
+        .lower(&main_path, "program main\nrun()\n")
+        .expect("lowers program-start file");
+    let lib_model = language
+        .lower(&lib_path, "library util\nhelper()\n")
+        .expect("lowers library file");
+
+    assert!(main_model.program_start);
+    assert!(!lib_model.program_start);
+
+    let code_model = CodeModel {
+        files: vec![
+            SourceFile {
+                path: main_path.clone(),
+                model: main_model,
+            },
+            SourceFile {
+                path: lib_path,
+                model: lib_model,
+            },
+        ],
+        ..CodeModel::default()
+    };
+
+    let measured = metric
+        .measure(&code_model)
+        .expect("Metric plugin reads program_start from Code model");
+    assert_eq!(metric.key(), "program_starts");
+    assert!((measured.ratio - 0.5).abs() < 1e-9);
+    assert!((measured.numerator - 1.0).abs() < 1e-9);
+    assert!((measured.denominator - 2.0).abs() < 1e-9);
+    assert_eq!(measured.findings.len(), 1);
+    assert_eq!(measured.findings[0].id, "program-start:cmd/app/main.prog");
+    assert_eq!(measured.findings[0].path, main_path);
+    assert_eq!(measured.findings[0].message, "program start");
+}
+
+#[test]
+fn built_in_language_plugins_never_set_program_start() {
+    use codeint_lang_dart::Dart;
+    use codeint_lang_php::Php;
+    use codeint_lang_python::Python;
+    use codeint_lang_rust::Rust;
+    use codeint_lang_ts::TypeScriptAndJavaScript;
+
+    let cases: [(&str, &dyn LanguagePlugin, &str, &str); 5] = [
+        (
+            "typescript-javascript",
+            &TypeScriptAndJavaScript,
+            "src/main.ts",
+            "export function main(): void {\n  console.log('hi');\n}\nmain();\n",
+        ),
+        (
+            "rust",
+            &Rust,
+            "src/main.rs",
+            "fn main() {\n    println!(\"hi\");\n}\n",
+        ),
+        (
+            "php",
+            &Php,
+            "public/index.php",
+            "<?php\nfunction main(): int {\n    return 0;\n}\nmain();\n",
+        ),
+        (
+            "dart",
+            &Dart,
+            "bin/main.dart",
+            "void main() {\n  print('hi');\n}\n",
+        ),
+        (
+            "python",
+            &Python,
+            "src/__main__.py",
+            "def main():\n    return 0\n\nif __name__ == '__main__':\n    main()\n",
+        ),
+    ];
+
+    for (name, plugin, path, source) in cases {
+        let model = plugin
+            .lower(&RepoPath::new(path).expect("valid repo path"), source)
+            .unwrap_or_else(|error| panic!("{name}: lower failed: {error}"));
+        assert!(
+            !model.program_start,
+            "{name} built-in Language plugin must leave program_start false"
+        );
+        assert!(
+            model.hazard_lines.is_empty(),
+            "{name} built-in Language plugin must report no hazard lines"
+        );
+    }
+}
+
+fn summarize_findings(measurement: &codeint_model::ExternalMetricMeasurement) -> Vec<(&str, &str)> {
+    measurement
+        .findings
+        .iter()
+        .map(|finding| (finding.id.as_str(), finding.message.as_str()))
+        .collect()
+}
+
+#[test]
+fn metric_plugin_reads_per_language_coverage_statement() {
+    let wasm_path = sandbox_probe_wasm("coverage_reader_metric_plugin.wasm");
+    let declaration = declaration_with_kind("coverage-reader", PluginKind::Metric, &wasm_path);
+    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("coverage reader Metric plugin loads");
+
+    let absent_language = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+            has_imports: true,
+        }],
+        ..coverage_model_with(Vec::new())
+    };
+    let covered_language = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: true,
+            has_hazard_rules: false,
+            has_imports: true,
+        }],
+        ..coverage_model_with(Vec::new())
+    };
+
+    let absent_measured = plugin
+        .measure(&absent_language)
+        .expect("measure language without coverage");
+    let covered_measured = plugin
+        .measure(&covered_language)
+        .expect("measure language with coverage");
+
+    assert_eq!(
+        summarize_findings(&absent_measured),
+        vec![(
+            "language:typescript-javascript:absent",
+            "language=typescript-javascript has_coverage=false",
+        )]
+    );
+    assert_eq!(
+        summarize_findings(&covered_measured),
+        vec![(
+            "language:typescript-javascript:covered",
+            "language=typescript-javascript has_coverage=true",
+        )]
+    );
+
+    let rust_covered = CodeModel {
+        files: vec![SourceFile {
+            path: RepoPath::new("src/lib.rs").expect("valid repo path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 10,
+                functions: Vec::new(),
+                tokens: Vec::new(),
+                flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+                program_start: false,
+            },
+        }],
+        languages: vec![LanguageFacts {
+            language: "rust".to_owned(),
+            has_coverage: true,
+            has_hazard_rules: false,
+            has_imports: true,
+        }],
+        ..CodeModel::default()
+    };
+    let merged = CodeModel::merge([absent_language, rust_covered]);
+    let source_sets = merged.into_source_sets();
+
+    let multi_measured = plugin
+        .measure(source_sets.get(SourceSet::Production))
+        .expect("measure merged multi-language model");
+
+    assert_eq!(
+        summarize_findings(&multi_measured),
+        vec![
+            ("language:rust:covered", "language=rust has_coverage=true"),
+            (
+                "language:typescript-javascript:absent",
+                "language=typescript-javascript has_coverage=false",
+            ),
+        ]
+    );
+}
+
+#[test]
+fn built_in_language_plugins_have_no_hazard_rules() {
+    use codeint_lang_dart::Dart;
+    use codeint_lang_php::Php;
+    use codeint_lang_python::Python;
+    use codeint_lang_rust::Rust;
+    use codeint_lang_ts::TypeScriptAndJavaScript;
+
+    let plugins: [(&str, &dyn LanguagePlugin); 5] = [
+        ("typescript-javascript", &TypeScriptAndJavaScript),
+        ("rust", &Rust),
+        ("php", &Php),
+        ("dart", &Dart),
+        ("python", &Python),
+    ];
+
+    for (name, plugin) in plugins {
+        assert!(
+            !plugin.has_hazard_rules(),
+            "{name} built-in Language plugin must report has_hazard_rules = false"
+        );
+        assert!(
+            plugin.hazard_rules().is_empty(),
+            "{name} built-in Language plugin must list no hazard rules"
+        );
+    }
+}
+
+#[test]
+fn language_plugin_exports_hazard_rules_across_wasm_boundary() {
+    let wasm_path = sandbox_probe_wasm("hazard_rules_language_plugin.wasm");
+    let declaration = declaration_for("hazard-rules-language", &wasm_path);
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("hazard-rules Language plugin loads");
+
+    assert!(plugin.has_hazard_rules());
+    assert_eq!(
+        plugin.hazard_rules(),
+        vec![
+            "delete-without-where".to_owned(),
+            "leading-wildcard-like".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn metric_plugin_reads_per_language_hazard_rules_statement() {
+    let plugin = load_probe_metric("hazard-facts", "hazard_facts_metric_plugin.wasm");
+    assert_eq!(plugin.key(), "hazard_facts");
+    assert_two_language_fact_probe(
+        &plugin,
+        (
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: false,
+                has_imports: true,
+            },
+            true,
+            0.0,
+            (
+                "hazard-rules:typescript-javascript:absent",
+                "language=typescript-javascript has_hazard_rules=false",
+            ),
+        ),
+        (
+            LanguageFacts {
+                language: "sql".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: true,
+                has_imports: false,
+            },
+            false,
+            1.0,
+            (
+                "hazard-rules:sql:enabled",
+                "language=sql has_hazard_rules=true",
+            ),
+        ),
+        0.5,
+        vec![
+            (
+                "hazard-rules:sql:enabled",
+                "language=sql has_hazard_rules=true",
+            ),
+            (
+                "hazard-rules:typescript-javascript:absent",
+                "language=typescript-javascript has_hazard_rules=false",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
+    let language = load_probe_language("folder-import", "folder_import_language_plugin.wasm");
+    let metric = load_probe_metric("imports-reader", "imports_reader_metric_plugin.wasm");
+
+    let main_path = RepoPath::new("src/main.fld").expect("valid repo path");
+    let alpha_path = RepoPath::new("pkg/util/alpha.fld").expect("valid repo path");
+    let beta_path = RepoPath::new("pkg/util/beta.fld").expect("valid repo path");
+    let repo_paths = vec![main_path.clone(), alpha_path.clone(), beta_path.clone()];
+
+    let main_model = language
+        .lower(&main_path, "use pkg/util\nfn main()\n")
+        .expect("lower main.fld");
+    let main_file = SourceFile {
+        path: main_path.clone(),
+        model: main_model,
+    };
+
+    let resolved = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&main_file])
+        .expect("resolve multi-file folder import");
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(
+        resolved[0].resolution,
+        ImportResolution::Resolved(vec![alpha_path.clone(), beta_path.clone()])
+    );
+
+    let code_model = CodeModel {
+        files: vec![main_file],
+        runtime_imports: resolved,
+        ..CodeModel::default()
+    };
+    let measured = metric
+        .measure(&code_model)
+        .expect("Metric plugin reads multi-file resolved import");
+    assert_eq!(metric.key(), "resolved_links");
+    assert!((measured.ratio - 1.0).abs() < 1e-9);
+    assert_eq!(measured.findings.len(), 1);
+    assert_eq!(
+        measured.findings[0].message,
+        "pkg/util -> [pkg/util/alpha.fld, pkg/util/beta.fld]"
+    );
+
+    let empty_model = language
+        .lower(&main_path, "use empty\nfn main()\n")
+        .expect("lower empty-import file");
+    let empty_file = SourceFile {
+        path: main_path.clone(),
+        model: empty_model,
+    };
+    let empty_err = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&empty_file])
+        .expect_err("empty resolved list must fail");
+    assert!(
+        matches!(
+            empty_err,
+            ResolveError::EmptyResolution {
+                ref importer,
+                ref specifier,
+            } if importer == &main_path && specifier == "empty"
+        ),
+        "unexpected error: {empty_err:?}"
+    );
+
+    let partial_model = language
+        .lower(&main_path, "use partial-missing\nfn main()\n")
+        .expect("lower partial-missing file");
+    let partial_file = SourceFile {
+        path: main_path,
+        model: partial_model,
+    };
+    let partial_err = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&partial_file])
+        .expect_err("unknown target inside multi-file list must fail");
+    assert!(
+        matches!(
+            partial_err,
+            ResolveError::UnknownTarget { ref target, .. }
+                if target == "missing/does_not_exist.fld"
+        ),
+        "unexpected error: {partial_err:?}"
+    );
+}
+
+#[test]
+fn language_plugin_reports_hazard_lines_and_metric_plugin_reads_them() {
+    let language =
+        load_probe_language("hazard-rules-language", "hazard_rules_language_plugin.wasm");
+    let metric = load_probe_metric("hazard-facts", "hazard_facts_metric_plugin.wasm");
+
+    let unsafe_path = RepoPath::new("queries/unsafe.haz").expect("valid repo path");
+    let clean_path = RepoPath::new("queries/clean.haz").expect("valid repo path");
+    let unsafe_source = "SELECT id FROM users;\nDELETE FROM sessions;\nSELECT name FROM users WHERE name LIKE '%admin';\nDELETE FROM audit_logs WHERE id = 1;\n";
+    let clean_source = "SELECT id FROM users WHERE id = 1;\n";
+
+    let unsafe_model = language
+        .lower(&unsafe_path, unsafe_source)
+        .expect("lowers file with hazard lines");
+    let clean_model = language
+        .lower(&clean_path, clean_source)
+        .expect("lowers clean file");
+
+    assert_eq!(
+        unsafe_model.hazard_lines,
+        vec![
+            HazardLine {
+                line: 2,
+                rule: "delete-without-where".to_owned(),
+            },
+            HazardLine {
+                line: 3,
+                rule: "leading-wildcard-like".to_owned(),
+            },
+        ]
+    );
+    let HazardLine { line, rule } = &unsafe_model.hazard_lines[0];
+    assert_eq!(*line, 2);
+    assert_eq!(rule, "delete-without-where");
+    assert!(clean_model.hazard_lines.is_empty());
+
+    let listed_rules = language.hazard_rules();
+    let line_count = unsafe_source.lines().count();
+    for hazard in &unsafe_model.hazard_lines {
+        assert!(hazard.line >= 1 && (hazard.line as usize) <= line_count);
+        assert!(listed_rules.contains(&hazard.rule));
+    }
+
+    let code_model = CodeModel {
+        files: vec![
+            SourceFile {
+                path: clean_path,
+                model: clean_model,
+            },
+            SourceFile {
+                path: unsafe_path.clone(),
+                model: unsafe_model,
+            },
+        ],
+        languages: vec![LanguageFacts {
+            language: "hazard-lang".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: true,
+            has_imports: true,
+        }],
+        ..CodeModel::default()
+    };
+
+    let measured = metric
+        .measure(&code_model)
+        .expect("Metric plugin reads hazard_lines from Code model");
+
+    assert_eq!(
+        summarize_findings(&measured),
+        vec![
+            (
+                "hazard-rules:hazard-lang:enabled",
+                "language=hazard-lang has_hazard_rules=true",
+            ),
+            (
+                "hazard:queries/unsafe.haz:2:delete-without-where",
+                "hazard rule=delete-without-where",
+            ),
+            (
+                "hazard:queries/unsafe.haz:3:leading-wildcard-like",
+                "hazard rule=leading-wildcard-like",
+            ),
+        ]
+    );
+    assert_eq!(measured.findings[1].path, unsafe_path);
+    assert_eq!(measured.findings[1].line, 2);
+    assert_eq!(measured.findings[2].path, unsafe_path);
+    assert_eq!(measured.findings[2].line, 3);
+}
+
+#[test]
+fn built_in_language_plugins_state_they_have_imports() {
+    use codeint_lang_dart::Dart;
+    use codeint_lang_php::Php;
+    use codeint_lang_python::Python;
+    use codeint_lang_rust::Rust;
+    use codeint_lang_ts::TypeScriptAndJavaScript;
+
+    let plugins: [(&str, &dyn LanguagePlugin); 5] = [
+        ("typescript-javascript", &TypeScriptAndJavaScript),
+        ("rust", &Rust),
+        ("php", &Php),
+        ("dart", &Dart),
+        ("python", &Python),
+    ];
+
+    for (name, plugin) in plugins {
+        assert!(
+            plugin.has_imports(),
+            "{name} built-in Language plugin must report has_imports = true"
+        );
+    }
+}
+
+#[test]
+fn language_plugin_exports_has_imports_false_across_wasm_boundary() {
+    let wasm_path = sandbox_probe_wasm("no_imports_language_plugin.wasm");
+    let declaration = declaration_for("no-imports-language", &wasm_path);
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("no-imports Language plugin loads");
+
+    assert_eq!(plugin.extensions(), vec!["noimp"]);
+    assert!(!plugin.has_imports());
+    let lowered = plugin
+        .lower(
+            &RepoPath::new("queries/select.noimp").expect("valid repo path"),
+            "fn select_users()\n",
+        )
+        .expect("no-imports Language plugin lowers .noimp file");
+    assert_eq!(lowered.source_lines, 1);
+    assert_eq!(lowered.functions.len(), 1);
+    assert!(lowered.runtime_imports.is_empty());
+}
+
+#[test]
+fn metric_plugin_reads_per_language_has_imports_statement() {
+    let plugin = load_probe_metric("import-capability", "import_capability_metric_plugin.wasm");
+    assert_eq!(plugin.key(), "import_capability");
+    assert_two_language_fact_probe(
+        &plugin,
+        (
+            language_facts("typescript-javascript", false, false, true),
+            true,
+            1.0,
+            (
+                "imports:typescript-javascript:imports",
+                "language=typescript-javascript has_imports=true",
+            ),
+        ),
+        (
+            language_facts("no-imports-lang", false, false, false),
+            false,
+            0.0,
+            (
+                "imports:no-imports-lang:no-imports",
+                "language=no-imports-lang has_imports=false",
+            ),
+        ),
+        0.5,
+        vec![
+            (
+                "imports:no-imports-lang:no-imports",
+                "language=no-imports-lang has_imports=false",
+            ),
+            (
+                "imports:typescript-javascript:imports",
+                "language=typescript-javascript has_imports=true",
+            ),
+        ],
     );
 }

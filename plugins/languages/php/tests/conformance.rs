@@ -77,6 +77,7 @@ fn php_decision_points_cover_control_flow_match_and_arrow_functions() {
                 source_lines: 15,
                 name: Some("evaluate".to_owned()),
                 cognitive_complexity: 7,
+                coverage: None,
             },
             Function {
                 line: 10,
@@ -85,6 +86,7 @@ fn php_decision_points_cover_control_flow_match_and_arrow_functions() {
                 source_lines: 1,
                 name: None,
                 cognitive_complexity: 1,
+                coverage: None,
             },
         ]
     );
@@ -189,6 +191,7 @@ fn resolve_single_manifest_php(
         })
         .collect();
     Php.resolve_imports(&repo, manifests, requests)
+        .expect("resolve imports")
 }
 
 #[test]
@@ -211,9 +214,12 @@ fn php_resolver_handles_psr4_and_static_require() {
     );
     assert_eq!(
         out[0],
-        Resolution::Resolved("app/Models/Order.php".to_owned())
+        Resolution::Resolved(vec!["app/Models/Order.php".to_owned()])
     );
-    assert_eq!(out[1], Resolution::Resolved("app/helpers.php".to_owned()));
+    assert_eq!(
+        out[1],
+        Resolution::Resolved(vec!["app/helpers.php".to_owned()])
+    );
     assert_eq!(out[2], Resolution::External("illuminate/support".into()));
     assert!(matches!(out[3], Resolution::Unresolved(_)));
 }
@@ -233,7 +239,10 @@ fn php_internal_psr4_namespace_import_does_not_fall_through_to_external() {
     );
     assert!(matches!(out[0], Resolution::Unresolved(_)));
     assert!(matches!(out[1], Resolution::Unresolved(_)));
-    assert_eq!(out[2], Resolution::Resolved("src/Models/User.php".into()));
+    assert_eq!(
+        out[2],
+        Resolution::Resolved(vec!["src/Models/User.php".into()])
+    );
     assert_eq!(out[3], Resolution::External("acme/http-client".into()));
 }
 
@@ -340,18 +349,20 @@ final class InvoiceService {
     .into_iter()
     .map(|p| RepoPath::new(p).unwrap())
     .collect();
-    let resolved = Php.resolve_imports(
-        &repo,
-        manifests.clone(),
-        lowered
-            .runtime_imports
-            .iter()
-            .map(|specifier| ImportRequest {
-                importer: importer.to_owned(),
-                specifier: specifier.clone(),
-            })
-            .collect(),
-    );
+    let resolved = Php
+        .resolve_imports(
+            &repo,
+            manifests.clone(),
+            lowered
+                .runtime_imports
+                .iter()
+                .map(|specifier| ImportRequest {
+                    importer: importer.to_owned(),
+                    specifier: specifier.clone(),
+                })
+                .collect(),
+        )
+        .expect("resolve imports");
     let by_spec: std::collections::BTreeMap<&str, Resolution> = lowered
         .runtime_imports
         .iter()
@@ -360,7 +371,7 @@ final class InvoiceService {
         .collect();
     assert_eq!(
         by_spec["use:Acme\\Auth\\Token"],
-        Resolution::Resolved("packages/auth/src/Token.php".into())
+        Resolution::Resolved(vec!["packages/auth/src/Token.php".into()])
     );
     assert_eq!(by_spec["use:DateTimeImmutable"], Resolution::Builtin);
     assert_eq!(by_spec["use:Random\\Randomizer"], Resolution::Builtin);

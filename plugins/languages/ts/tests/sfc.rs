@@ -71,10 +71,15 @@ fn svelte_module_and_instance_scripts_and_cross_file_resolution() {
             specifier: "./Panel.svelte".into(),
         },
     ];
-    let res = TypeScriptAndJavaScript.resolve_imports(&files, vec![], reqs);
-    assert_eq!(res[0], Resolution::Resolved("src/Child.vue".into()));
-    assert_eq!(res[1], Resolution::Resolved("src/helper.ts".into()));
-    assert_eq!(res[2], Resolution::Resolved("src/Panel.svelte".into()));
+    let res = TypeScriptAndJavaScript
+        .resolve_imports(&files, vec![], reqs)
+        .expect("resolve imports");
+    assert_eq!(res[0], Resolution::Resolved(vec!["src/Child.vue".into()]));
+    assert_eq!(res[1], Resolution::Resolved(vec!["src/helper.ts".into()]));
+    assert_eq!(
+        res[2],
+        Resolution::Resolved(vec!["src/Panel.svelte".into()])
+    );
 }
 
 #[test]

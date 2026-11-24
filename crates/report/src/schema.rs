@@ -74,7 +74,7 @@ pub(crate) const COGNITIVE_COMPLEXITY_DESCRIPTOR: BuiltInMetricDescriptor =
 pub(crate) const ORPHAN_FILES_DESCRIPTOR: BuiltInMetricDescriptor = BuiltInMetricDescriptor {
     name: "Orphan files",
     short_description: "A Production file unreachable from any entry point",
-    full_description: "Orphan files measures the share of Production files that cannot be reached through resolved runtime imports from any manifest-declared or configured entry point, annotating files imported only by tests as test-only.",
+    full_description: "Orphan files measures the share of Production files that cannot be reached through resolved runtime imports from any manifest-declared, program-start, or configured entry point, annotating files imported only by tests as test-only.",
     help: "Delete the unused Production file (and any stale tests that only import it), wire it into an entry point, or add its path glob to entry_points in codeint.json.",
 };
 

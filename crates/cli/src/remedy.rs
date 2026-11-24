@@ -84,7 +84,7 @@ fn check_remedy(error: &CheckError) -> &'static str {
 
 fn check_plugin_remedy(error: &CheckError) -> &'static str {
     match error {
-        CheckError::Resolve(_) => {
+        CheckError::Resolve { .. } => {
             "This is a defect in the Language plugin; report it to the author of the Language plugin."
         }
         CheckError::ReferenceRange(_) => {
@@ -446,15 +446,15 @@ fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<&
             )
         }
         PluginHostError::Compile { .. } => {
-            "Build the plugin as a WebAssembly component targeting codeint:plugin@0.2.0."
+            "Build the plugin as a WebAssembly component targeting codeint:plugin@0.3.0."
         }
         PluginHostError::Instantiate { .. } => {
-            "Ensure the plugin exports codeint:plugin/language@0.2.0 or codeint:plugin/metric@0.2.0 and imports no host capabilities."
+            "Ensure the plugin exports codeint:plugin/language@0.3.0 or codeint:plugin/metric@0.3.0 and imports no host capabilities."
         }
         PluginHostError::IncompatibleContractVersion { .. } => choose_file_remedy(
             file,
-            "Rebuild the plugin against codeint:plugin@0.2.0 and update its sha256 in codeint.json.",
-            "Rebuild the plugin against codeint:plugin@0.2.0 and update its sha256 in codeint.jsonc.",
+            "Rebuild the plugin against codeint:plugin@0.3.0 and update its sha256 in codeint.json.",
+            "Rebuild the plugin against codeint:plugin@0.3.0 and update its sha256 in codeint.jsonc.",
         ),
         PluginHostError::NonHttpsUrl { .. } => choose_file_remedy(
             file,
@@ -513,6 +513,12 @@ fn language_plugin_remedy(error: &LanguagePluginError, file: ConfigFileKind) -> 
             "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Language plugin needs more resources, or fix the defect in the plugin.",
             "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.jsonc if the Language plugin needs more resources, or fix the defect in the plugin.",
         ),
+        LanguagePluginError::HazardLineOutOfRange { .. } => {
+            "Return 1-based Hazard line numbers within the file's line count from the Language plugin, or report the defect to its author."
+        }
+        LanguagePluginError::UnlistedHazardRule { .. } => {
+            "List every Hazard line rule name in the Language plugin's hazard-rules export, or report the defect to the plugin's author."
+        }
         _ => "Fix the defect in the Language plugin, or report it to the plugin's author.",
     }
 }

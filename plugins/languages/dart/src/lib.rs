@@ -67,10 +67,12 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
     Ok(FileModel {
         runtime_imports,
         flagged_lines,
+        hazard_lines: Vec::new(),
         tokens,
         functions,
         source_lines,
         source_set,
+        program_start: false,
     })
 }
 
@@ -117,5 +119,17 @@ impl Guest for Dart {
                 ("import_cycles", 0.073, 0.524),
             ],
         )
+    }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports() -> bool {
+        true
     }
 }

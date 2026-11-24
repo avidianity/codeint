@@ -19,7 +19,9 @@ fn file(path: &str, source_lines: u32, flagged: &[(u32, &str)]) -> SourceFile {
                     rule: rule.to_owned(),
                 })
                 .collect(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }

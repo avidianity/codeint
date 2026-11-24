@@ -343,6 +343,7 @@ fn named_function(
         source_lines,
         name: name.map(str::to_owned),
         cognitive_complexity,
+        coverage: None,
     }
 }
 
@@ -1163,13 +1164,15 @@ fn resolve(repository_paths: &[&str], importer: &str, specifier: &str) -> Resolu
         importer: importer.to_owned(),
         specifier: specifier.to_owned(),
     };
-    let mut resolutions = plugin().resolve_imports(&paths, Vec::new(), vec![request]);
+    let mut resolutions = plugin()
+        .resolve_imports(&paths, Vec::new(), vec![request])
+        .expect("resolve imports");
     assert_eq!(resolutions.len(), 1, "one resolution per request");
     resolutions.remove(0)
 }
 
 fn resolved(path: &str) -> Resolution {
-    Resolution::Resolved(path.to_owned())
+    Resolution::Resolved(vec![path.to_owned()])
 }
 
 #[test]
@@ -1266,7 +1269,9 @@ fn resolutions_come_back_one_per_request_in_request_order() {
     })
     .collect();
 
-    let resolutions = plugin().resolve_imports(&paths, Vec::new(), requests);
+    let resolutions = plugin()
+        .resolve_imports(&paths, Vec::new(), requests)
+        .expect("resolve imports");
 
     assert_eq!(
         resolutions,
@@ -1300,7 +1305,9 @@ fn resolve_in_project(files: &[(&str, &str)], importer: &str, specifier: &str) -
         importer: importer.to_owned(),
         specifier: specifier.to_owned(),
     };
-    let mut resolutions = plugin().resolve_imports(&paths, manifests, vec![request]);
+    let mut resolutions = plugin()
+        .resolve_imports(&paths, manifests, vec![request])
+        .expect("resolve imports");
     assert_eq!(resolutions.len(), 1, "one resolution per request");
     resolutions.remove(0)
 }
@@ -1957,7 +1964,9 @@ fn resolve_for(
             specifier: (*specifier).to_owned(),
         })
         .collect();
-    plugin().resolve_imports(&repo_paths, manifest_list, import_requests)
+    plugin()
+        .resolve_imports(&repo_paths, manifest_list, import_requests)
+        .expect("resolve imports")
 }
 
 #[test]
@@ -1999,9 +2008,9 @@ fn bun_export_condition_resolves_workspace_source_file() {
     );
     assert_eq!(
         resolutions,
-        vec![Resolution::Resolved(
+        vec![Resolution::Resolved(vec![
             "packages/shared/src/bun.ts".to_owned()
-        )]
+        ])]
     );
 }
 
@@ -2066,9 +2075,9 @@ fn workspaces_and_cross_package_imports_work_for_bun_npm_yarn_and_pnpm() {
         );
         assert_eq!(
             resolutions,
-            vec![Resolution::Resolved(
+            vec![Resolution::Resolved(vec![
                 "packages/core/src/index.ts".to_owned()
-            )],
+            ])],
             "{name}"
         );
     }

@@ -558,6 +558,8 @@ codeint impact src/sign.ts --package packages/missing
 | `-h, --help` | Print the help of `codeint trace` |
 
 `codeint trace` finds the shortest runtime import path connecting two measured files in the working tree.
+When `<FROM>` or `<TO>` is a Production file that its Language plugin marks as a program start, the report names `"program-start mark"` as the entry-point reason in `from_entry_point` or `to_entry_point` (and `Entry point: <path> (program-start mark)` in `text` format).
+When a step on a traced path comes from one import that leads to several files, the report lists that import and every file it leads to in `multi_file_imports` (and `Import <specifier> in <importer> leads to: <targets>` in `text` format).
 When no runtime import path connects them, it reports `connected: false` and exits with code 0:
 
 ```sh exit=0
@@ -725,7 +727,7 @@ codeint report missing.json --format sarif
 | `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
 | `-h, --help` | Print the help of `codeint doctor` |
 
-`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths and SHA-256 digests.
+`codeint doctor` runs strictly read-only, offline diagnostics on Git repository status, `codeint.json` validity, `$schema` version compatibility, detected Language plugins, Workspace packages, and external Wasm Plugin paths, SHA-256 digests, and interface compatibility.
 It separates passing checks, warnings, and blocking errors, exiting with code 0 when no blocking error is found and code 1 when at least one blocking error is found.
 
 ```sh exit=0
@@ -953,6 +955,8 @@ A Budget is the highest ratio a Metric may reach in one Source set.
 Each Budget is a number from 0 to 1.
 A Budget applies only to its own Source set, and a Metric without a Budget never fails.
 A Budget applies to the total of every language, never to the section of one Language plugin under `languages`.
+For Import cycles, Orphan files, Import boundaries, and Dependency hygiene, repository totals and Budgets count only languages with imports.
+When no measured language has imports, those repository totals are absent and Budgets on them do not fail.
 codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
 
 ```json codeint.json
@@ -1064,7 +1068,9 @@ In a multi-language repository, list each built-in Language plugin with its own 
 ### Plugins
 
 Each entry of `plugins` declares an external WebAssembly component Language plugin or Metric plugin loaded from either a local `path` or an HTTPS `url`, with a required 64-character hexadecimal SHA-256 digest.
-See [docs/plugins.md](./plugins.md) to build, hash, test, and version external Plugins.
+External Plugins implement `codeint:plugin@0.3.0` (`codeint:plugin/language@0.3.0` or `codeint:plugin/metric@0.3.0`).
+A Plugin built for another interface version (such as `0.2.0`) stops the run with exit code 2, naming the Plugin, both interface versions, and how to rebuild it.
+See [docs/plugins.md](./plugins.md) to build, hash, test, version, and upgrade external Plugins.
 Set `kind` to `"language"` (the default) for a Language plugin, or `"metric"` for a Metric plugin.
 Set either `path` or `url` on each entry, never both.
 External Metric plugins appear alongside the built-in Metrics in `codeint check`, `codeint diff`, and `codeint trend`, and support `budgets` and `regression_limits` under their Metric key.
@@ -1236,7 +1242,8 @@ codeint check
 
 ### Orphan files
 
-Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`) and configured `entry_points` globs in `codeint.json`.
+Orphan files detection traverses resolved runtime imports from the union of manifest-declared entry points (such as `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml`), Production files marked as program starts by a Language plugin, and configured `entry_points` globs in `codeint.json`.
+Marked files in the Test, Generated, or Vendored Source sets stay out of entry points.
 Production files unreachable from any Production entry point are reported as `unreferenced`, or as `test-only` when still imported by Test files.
 Generated and Vendored Source sets and non-runtime tooling paths (tooling dot-directories, `scripts/`, `examples/`, `example/`, `tool/`, `tools/`, `benchmarks/`, `bench/`, `benches/`, and `docs/` at the repository root or a package root, root-level or package-root config/build files such as `*.config.*`, rc dotfiles, `conf.py`, `setup.py`, `noxfile.py`, and `fabfile.py`, and `conftest.py`) are excluded from both entry-point roots and evaluated Production files.
 When no runtime entry points exist for a language or isolated Workspace package, Orphan files reporting stays silently inactive.
@@ -1431,13 +1438,15 @@ The top-level object has these fields:
 | ----- | ---- | ------- |
 | `files` | integer | Number of measured source files, in every Source set |
 | `source_lines` | integer | Source lines of the measured files; blank and comment-only lines do not count |
+| `import_metrics_note` | string, optional | One line explaining why import Metrics are absent when the measured language has no imports |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
-| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, and `source_sets` for that plugin's files |
+| `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
+| `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note` and `dependencies` for that plugin's files |
 | `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
-A Source set section has `files` and `source_lines` for that Source set, and one object per Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and `import_cycles`.
+A Source set section has `files` and `source_lines` for that Source set, and one object per measured Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and (for languages with imports) `import_cycles`, `boundaries`, and `orphan_files`.
 Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
@@ -1456,6 +1465,12 @@ Each Metric object has these fields:
 `import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
 It has `count`, the list `imports`, and the optional `imports_left_out`.
 Each import has `importer`, the path of the importing file, `specifier`, the text of the import, and `reason`.
+
+For a language with no imports, TOON and JSON reports omit `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) from that language's section and its Workspace package entries.
+Those six Metrics are absent rather than `0`.
+The section includes `import_metrics_note` as a single line stating that the language has no imports.
+In a multi-language repository, the repository totals for `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` (including Workspace package entries and Budget checks) count only files and manifests of languages with imports on both sides of each ratio.
+When every measured language has no imports, those repository totals are absent, `import_metrics_note` is included at the top level, and Budgets on those Metrics do not fail.
 
 Each Finding is an object with an `id`, followed by fields that depend on its kind:
 
@@ -1481,7 +1496,7 @@ The content behind the `id` of each kind:
 Every `path` is relative to the root of the Git repository and uses `/` as the separator.
 Line numbers start at 1.
 
-An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `declaration_only`, or `over_budget` list, and `findings_left_out` when no Finding is left out.
+An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `declaration_only`, or `over_budget` list, import Metrics for a language with no imports, and `findings_left_out` when no Finding is left out.
 
 #### Compatibility rule
 
@@ -1499,6 +1514,7 @@ Readers ignore fields they do not know, and treat a missing optional field as em
 `--format sarif` prints a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html) log, so code scanning tools such as GitHub code scanning show each Finding as an annotation.
 The log has one run, and the run has one result per Finding of the report.
 It takes the Findings from the total, never from the sections under `languages`, so a Finding appears once.
+For a language with no imports, the log holds no Import cycle, Import boundary, Orphan file, or Dependency hygiene Finding for files of that language.
 `--all` and `--output` work as they do for every other format: without `--all`, the log holds the 20 worst Findings per Metric and Source set.
 
 ```sh exit=0
@@ -1675,6 +1691,7 @@ A character that a URI cannot hold, such as a space, is percent-encoded: `src/my
 It starts with one table: each Metric's value per Source set, the counts behind the value, and the Reference range.
 Next come each Metric over its Budget and a table of the ratios of each workspace package, when there are any.
 When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
+For a language with no imports, the report omits the six import Metrics and prints the one-line reason.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 

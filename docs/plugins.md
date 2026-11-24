@@ -6,11 +6,11 @@ This guide explains how to build, hash, declare, and test a Language plugin and 
 
 ## Versioned WIT contract
 
-codeint defines its Plugin contract in `package codeint:plugin@0.2.0`.
+codeint defines its Plugin contract in `package codeint:plugin@0.3.0`.
 Two WIT files hold the contract:
 
-- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.2.0` and the `language-plugin` world.
-- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.2.0` and the `metric-plugin` world.
+- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.3.0` and the `language-plugin` world.
+- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.3.0` and the `metric-plugin` world.
 
 The `metric` interface reuses `file-model` and `resolution` from `language`.
 A Language plugin exports `language` and lowers source files into the Code model.
@@ -81,25 +81,34 @@ export!(SampleMiniPlugin);
 
 ### Required functions
 
-Implement all eight functions on `Guest`:
+Implement all eleven functions on `Guest`:
 
 | Function | Responsibility |
 | -------- | -------------- |
 | `extensions() -> list<string>` | Return file extensions without a leading dot, such as `["mini"]`. |
-| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name` and nesting-weighted `cognitive-complexity`), `tokens`, `flagged-lines`, and `runtime-imports`. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
-| `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. |
-| `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
-| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(string)`, `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
-| `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). |
-| `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. |
+| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `hazard-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
+| `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. Never called when `has-imports` returns `false`. |
+| `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. Never called when `has-imports` returns `false`. |
+| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(list<string>)` (one or more paths from `repository-paths`; an empty list is a Plugin error), `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. Never called when `has-imports` returns `false`. |
+| `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). Never called when `has-imports` returns `false`. |
+| `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. Never called when `has-imports` returns `false`. |
 | `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric. |
+| `has-hazard-rules() -> bool` | State whether this Language plugin defines Hazard line rules; when `false`, the Hazards Metric is absent for this language rather than `0`. |
+| `hazard-rules() -> list<string>` | Return the stable names of the Hazard line rules this Language plugin may emit; empty when `has-hazard-rules` returns `false`. |
+| `has-imports() -> bool` | State whether this language has runtime imports, manifests, and entry points; when `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`. |
 
 Follow these invariants in `lower`:
 
 - Keep `functions` sorted by start `line` (`line >= 1` and `line <= end-line`), with `name` set to `none` for anonymous lambdas or closures.
+- Always set `coverage` to `none` on every `function` that `lower` returns.
+  codeint fills in `coverage` from Coverage reports after Language plugins run and before Metrics run.
 - Keep `tokens` sorted by 1-based `line`, with 64-bit FNV-1a `text-hash` values of each token's UTF-8 text.
-- Produce identical `source-lines` and `functions` for LF and CRLF line endings.
+- Produce identical `source-lines`, `functions`, and `hazard-lines` for LF and CRLF line endings.
 - Do not count nested functions' decision points, cognitive complexity, or source lines in their enclosing function.
+- Report every Hazard line in `hazard-lines` with a 1-based `line` inside the file and a `rule` name listed by `hazard-rules`, and never include source text.
+  Leave `hazard-lines` empty when `has-hazard-rules` returns `false`.
+- Set `program-start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
+  codeint counts every marked Production file as an entry point for Orphan files and names the mark in `codeint trace`; marked files in other Source sets stay out of entry points.
 
 ### Compile the sample Language plugin
 
@@ -157,6 +166,99 @@ The Plugin host enforces these rules at load and measurement time:
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
 - Compute each Finding `id` from file path and content (never from line numbers) so `codeint diff` tracks moved Findings as unchanged.
 - Order `findings` worst first.
+
+### Coverage facts in the Code model
+
+Each `function` in `file-model` carries `coverage: option<function-coverage>`, where `function-coverage` holds two counts from Coverage reports:
+
+- `listed-lines`: the count of the function's lines listed by a Coverage report.
+- `executed-lines`: the count of those listed lines executed by tests.
+
+Rules for `function.coverage`:
+
+- A Language plugin always returns `none`.
+- codeint fills in `coverage` after Language plugins run and before any Metric runs.
+- `none` means no Coverage report covers the function.
+- `some({ listed-lines, executed-lines: 0 })` means a Coverage report covers the function and tests executed 0 of its listed lines.
+  A Metric plugin can distinguish absent coverage (`none`) from 0 executed lines (`some` with `executed-lines == 0`).
+
+`code-model` also carries `languages: list<language-facts>`, sorted by `language` name, where each `language-facts` record holds:
+
+- `language`: the Language plugin name, such as `typescript-javascript` or `rust`.
+- `has-coverage`: whether at least one Coverage report covers at least one file of that language.
+- `has-hazard-rules`: whether that Language plugin defines Hazard line rules.
+- `has-imports`: whether that language has runtime imports, manifests, and entry points.
+
+Rules for `code-model.languages` and `has-coverage`:
+
+- codeint attaches one `language-facts` entry per language in the Code model and preserves `languages` on every Source set.
+- `has-coverage` is `false` until codeint fills coverage facts from Coverage reports after Language plugins run and before Metrics run.
+- A Metric plugin can check `has-coverage` to stay absent for a language that no Coverage report covers, rather than reporting 0.
+
+### Hazard line rules and per-file Hazard lines
+
+A Language plugin exports `has-hazard-rules() -> bool` and `hazard-rules() -> list<string>`, and reports per-file matches in `file-model.hazard-lines: list<hazard-line>`.
+Each `hazard-line` record holds two fields and never holds source text:
+
+- `line`: the 1-based line number inside the file.
+- `rule`: the stable identifier of the Hazard line rule the line matched, listed in `hazard-rules`.
+
+`code-model.languages` exposes each language's `has-hazard-rules` value to Metric plugins, and each `source-file.model` exposes `hazard-lines`.
+
+Rules for `has-hazard-rules`, `hazard-rules`, `hazard-lines`, and `language-facts.has-hazard-rules`:
+
+- Return `false` from `has-hazard-rules`, an empty list from `hazard-rules`, and an empty `hazard-lines` list on every file when the Language plugin defines no Hazard line rules.
+- Return `true` from `has-hazard-rules` and a non-empty list of stable, non-empty rule names from `hazard-rules` when the Language plugin defines Hazard line rules.
+- A line that matches two Hazard line rules appears once per rule in `hazard-lines`.
+- Every `hazard-line.line` must be between `1` and the line count of the file, and every `hazard-line.rule` must appear in the Language plugin's `hazard-rules` list.
+- The five built-in Language plugins return `false`, an empty `hazard-rules` list, and an empty `hazard-lines` list on every file.
+- When `has-hazard-rules` is `false`, the Hazards Metric is absent for that language rather than `0`.
+- A Metric plugin reads `has-hazard-rules` on each `language-facts` entry in `code-model.languages` and `hazard-lines` on each `source-file.model`.
+
+### Languages without imports
+
+A Language plugin exports `has-imports() -> bool` to state whether its language has runtime imports, manifests, and entry points.
+`code-model.languages` exposes each language's `has-imports` value to Metric plugins on `language-facts`.
+
+Rules for `has-imports` and `language-facts.has-imports`:
+
+- Return `true` when the language has runtime imports, manifests, or entry points.
+  The five built-in Language plugins (`typescript-javascript`, `rust`, `php`, `dart`, and `python`) all return `true`.
+- Return `false` when the language has no imports, such as SQL or a configuration language.
+- When `has-imports` returns `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points` on that Language plugin.
+- When `has-imports` returns `false`, TOON, JSON, Markdown, and SARIF reports omit Import cycles, Orphan files, Import boundaries, and Dependency hygiene for that language, and TOON, JSON, and Markdown reports include a one-line `import_metrics_note`.
+- A Metric plugin reads `has-imports` on each `language-facts` entry in `code-model.languages` to tell whether a language has imports rather than treating empty `runtime-imports` as zero import issues.
+
+### Multi-file resolved imports
+
+A runtime import can resolve to several repository files, such as an import of a whole folder or package directory:
+
+```wit
+variant resolution {
+    resolved(list<string>),
+    external(string),
+    builtin,
+    unresolved(string),
+}
+```
+
+Rules for `resolution.resolved`:
+
+- Every entry in the list must be a path from `repository-paths`, relative to the repository root, with forward slashes.
+- The list must contain at least one file.
+  Returning `resolved([])` stops the run with exit code 2 and an error naming the Plugin.
+- Each file in the list becomes one directed import link from the importing file for Import cycles, Orphan files, Import boundaries, `codeint trace`, and Metric plugins.
+- The five built-in Language plugins return a single-element list per resolved import.
+
+### Program-start mark
+
+Each `file-model` carries `program-start: bool`, which lets a Language plugin mark a file as a program start when only its source text shows it (such as a Go file declaring `package main`).
+
+Rules for `file-model.program-start`:
+
+- `program-start` is `false` unless the Language plugin sets it to `true` in `lower`.
+- The five built-in Language plugins always set `program-start` to `false`.
+- A Metric plugin reads `program-start` on each `source-file.model` passed to `measure`.
 
 ### Compile the sample Metric plugin
 
@@ -260,12 +362,16 @@ The suite verifies:
 - `UnsupportedFile`, empty file, `DeclarationOnly`, and `Unparsable` handling in `lower`.
 - Production and Test Source set classification.
 - LF and CRLF equivalence for `source-lines` and `functions`.
-- Ordered `functions` and `tokens`, valid 1-based line spans, and non-empty Flagged line rules.
-- `manifest-paths` returning only paths from `repository-paths`.
-- `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
-- `resolve-imports` returning one `Resolved`, `External`, `Builtin`, or `Unresolved` result per request in request order.
-- `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
+- Ordered `functions` and `tokens`, valid 1-based line spans, absent `coverage` (`none`) on every function, and non-empty Flagged line rules.
+- When `has-imports` returns `true`:
+  - Non-empty `runtime-imports` on the production fixture.
+  - `manifest-paths` returning only paths from `repository-paths`.
+  - `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
+  - `resolve-imports` returning one `Resolved` (non-empty list of paths from `repository-paths`), `External`, `Builtin`, or `Unresolved` result per request in request order.
+  - `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
+- When `has-imports` returns `false`, empty `runtime-imports` and no calls to `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`.
 - `reference-ranges` returning valid ranges.
+- `has-hazard-rules`, `hazard-rules`, and `hazard-lines` staying consistent (empty `hazard-rules` and empty `hazard-lines` when `false`, non-empty list of non-empty rule names when `true`, every `hazard-line.line` within `1..=line_count`, and every `hazard-line.rule` listed in `hazard-rules`).
 - Safe concurrent `lower` calls across threads.
 
 Run the conformance suite and the host sandbox tests:
@@ -304,15 +410,15 @@ cargo test --locked -p codeint-cli --test plugins
 The WIT package declaration carries a Semantic Versioning number:
 
 ```wit
-package codeint:plugin@0.2.0;
+package codeint:plugin@0.3.0;
 ```
 
-This version identifies the exported interfaces `codeint:plugin/language@0.2.0` and `codeint:plugin/metric@0.2.0` in the compiled WebAssembly component.
+This version identifies the exported interfaces `codeint:plugin/language@0.3.0` and `codeint:plugin/metric@0.3.0` in the compiled WebAssembly component.
 
 ### Compatibility rules
 
-- **Pre-1.0 (`0.x.y`)**: While the major version is `0`, a minor version bump (`0.1.0` to `0.2.0`) may introduce breaking changes.
-  A patch version bump (`0.1.0` to `0.1.1`) contains only non-breaking fixes.
+- **Pre-1.0 (`0.x.y`)**: While the major version is `0`, a minor version bump (`0.2.0` to `0.3.0`) may introduce breaking changes.
+  A patch version bump (`0.3.0` to `0.3.1`) contains only non-breaking fixes.
 - **Stable (`1.x.y` and later)**:
   - Additive, backward-compatible changes (such as adding a new optional interface or new world) bump the minor version (`1.0.0` to `1.1.0`).
   - Breaking changes (removing or renaming a function, changing record fields, or changing variant or enum cases) bump the major version (`1.0.0` to `2.0.0`).
@@ -322,6 +428,18 @@ This version identifies the exported interfaces `codeint:plugin/language@0.2.0` 
 `wasmtime::component::bindgen!` binds the codeint host to the exact WIT interface version compiled into the binary.
 At load time, wasmtime checks that the component's exported interface name and version match what the host expects.
 
-- A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.1.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.2.0` interface version, and how to rebuild it.
+- A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.2.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.3.0` interface version, and how to rebuild it.
 - Rebuild the Plugin against the updated `wit/` files and update its `sha256` in `codeint.jsonc` or `codeint.json` when upgrading to a breaking WIT version.
 - Never silently mutate an existing released WIT version in place; every breaking change gets a new version number.
+
+### Moving a Plugin from 0.2.0 to 0.3.0
+
+codeint loads only `codeint:plugin@0.3.0`.
+A Plugin built against `codeint:plugin@0.2.0` stops the run with exit code 2.
+
+Move an existing external Plugin to `0.3.0`:
+
+1. Update your copy of [wit/language.wit](../wit/language.wit) and [wit/metric.wit](../wit/metric.wit) to `package codeint:plugin@0.3.0;`.
+2. Rebuild the WebAssembly component for `wasm32-wasip2` so it exports `codeint:plugin/language@0.3.0` or `codeint:plugin/metric@0.3.0`.
+3. Compute the SHA-256 digest of the rebuilt `.wasm` file and update `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
+4. Run `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.

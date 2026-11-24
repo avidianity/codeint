@@ -75,6 +75,7 @@ fn counts_decision_points_and_nested_functions_separately() {
                 source_lines: 16,
                 name: Some("outer".to_owned()),
                 cognitive_complexity: 5,
+                coverage: None,
             },
             Function {
                 line: 7,
@@ -83,6 +84,7 @@ fn counts_decision_points_and_nested_functions_separately() {
                 source_lines: 3,
                 name: Some("inner".to_owned()),
                 cognitive_complexity: 3,
+                coverage: None,
             },
         ]
     );
@@ -247,14 +249,16 @@ fn resolves_intra_crate_mod_and_use_imports_and_marks_external_crates() {
         },
     ];
 
-    let resolutions = plugin().resolve_imports(&paths, manifests, requests);
+    let resolutions = plugin()
+        .resolve_imports(&paths, manifests, requests)
+        .expect("resolve imports");
     assert_eq!(
         resolutions,
         vec![
-            Resolution::Resolved("src/alpha.rs".to_owned()),
-            Resolution::Resolved("src/beta/mod.rs".to_owned()),
-            Resolution::Resolved("src/beta/child.rs".to_owned()),
-            Resolution::Resolved("src/alpha.rs".to_owned()),
+            Resolution::Resolved(vec!["src/alpha.rs".to_owned()]),
+            Resolution::Resolved(vec!["src/beta/mod.rs".to_owned()]),
+            Resolution::Resolved(vec!["src/beta/child.rs".to_owned()]),
+            Resolution::Resolved(vec!["src/alpha.rs".to_owned()]),
             Resolution::Builtin,
             Resolution::External("serde".to_owned()),
         ]
@@ -438,7 +442,9 @@ fn rust_builtins_external_crate_normalization_and_workspace_imports() {
     .collect();
 
     assert_eq!(
-        plugin().resolve_imports(&paths, manifests, requests),
+        plugin()
+            .resolve_imports(&paths, manifests, requests)
+            .expect("resolve imports"),
         vec![
             Resolution::Builtin,
             Resolution::Builtin,
@@ -448,8 +454,8 @@ fn rust_builtins_external_crate_normalization_and_workspace_imports() {
             Resolution::External("serde_json".to_owned()),
             Resolution::External("proc_macro2".to_owned()),
             Resolution::External("async".to_owned()),
-            Resolution::Resolved("crates/core/src/lib.rs".to_owned()),
-            Resolution::Resolved("crates/app/src/rules.rs".to_owned()),
+            Resolution::Resolved(vec!["crates/core/src/lib.rs".to_owned()]),
+            Resolution::Resolved(vec!["crates/app/src/rules.rs".to_owned()]),
             Resolution::Builtin,
         ]
     );
@@ -622,7 +628,9 @@ fn value_namespace_items_do_not_suppress_external_use_imports() {
         })
         .collect();
     assert_eq!(
-        plugin().resolve_imports(&paths, manifests, requests),
+        plugin()
+            .resolve_imports(&paths, manifests, requests)
+            .expect("resolve imports"),
         vec![
             Resolution::External("anyhow".to_owned()),
             Resolution::External("regex".to_owned()),
@@ -713,9 +721,9 @@ fn local_uses_inline_mods_bindgen_exports_pascalcase_and_nested_workspaces_are_n
             (
                 "crates/app/tests/fixtures/probes/clock/src/lib.rs",
                 "use:probe_runtime",
-                Resolution::Resolved(
+                Resolution::Resolved(vec![
                     "crates/app/tests/fixtures/probes/probe-runtime/src/lib.rs".to_owned(),
-                ),
+                ]),
             ),
         ],
     );
@@ -747,7 +755,9 @@ fn assert_rust_resolutions(
         expected.push(outcome.clone());
     }
     assert_eq!(
-        plugin().resolve_imports(&repo, manifest_list, requests),
+        plugin()
+            .resolve_imports(&repo, manifest_list, requests)
+            .expect("resolve imports"),
         expected
     );
 }
@@ -786,22 +796,22 @@ fn emits_and_resolves_attributed_external_mods_path_attrs_and_skips_cfg_test() {
             (
                 "src/main.rs",
                 "mod-path:custom/alt.rs",
-                Resolution::Resolved("src/custom/alt.rs".to_owned()),
+                Resolution::Resolved(vec!["src/custom/alt.rs".to_owned()]),
             ),
             (
                 "src/main.rs",
                 "mod:error",
-                Resolution::Resolved("src/error.rs".to_owned()),
+                Resolution::Resolved(vec!["src/error.rs".to_owned()]),
             ),
             (
                 "src/main.rs",
                 "mod:helper",
-                Resolution::Resolved("src/helper.rs".to_owned()),
+                Resolution::Resolved(vec!["src/helper.rs".to_owned()]),
             ),
             (
                 "src/main.rs",
                 "mod:unix",
-                Resolution::Resolved("src/unix/mod.rs".to_owned()),
+                Resolution::Resolved(vec!["src/unix/mod.rs".to_owned()]),
             ),
         ],
     );
@@ -881,7 +891,7 @@ fn resolves_custom_bin_crate_root_bin_to_lib_and_qualified_crate_paths() {
             (
                 "crates/cli/src/main.rs",
                 "path:codeint_cli",
-                Resolution::Resolved("crates/cli/src/lib.rs".to_owned()),
+                Resolution::Resolved(vec!["crates/cli/src/lib.rs".to_owned()]),
             ),
             (
                 "crates/cli/src/lib.rs",
@@ -921,12 +931,12 @@ fn resolves_custom_bin_crate_root_bin_to_lib_and_qualified_crate_paths() {
             (
                 "crates/core/main.rs",
                 "mod:flags",
-                Resolution::Resolved("crates/core/flags/mod.rs".to_owned()),
+                Resolution::Resolved(vec!["crates/core/flags/mod.rs".to_owned()]),
             ),
             (
                 "crates/core/flags/hiargs.rs",
                 "use:crate::haystack::Read",
-                Resolution::Resolved("crates/core/haystack.rs".to_owned()),
+                Resolution::Resolved(vec!["crates/core/haystack.rs".to_owned()]),
             ),
         ],
     );
@@ -1007,7 +1017,7 @@ mod shared;
             (
                 importer,
                 "mod-path:../shared.rs",
-                Resolution::Resolved("crates/pkg_a/shared.rs".to_owned()),
+                Resolution::Resolved(vec!["crates/pkg_a/shared.rs".to_owned()]),
             ),
         ],
     );
@@ -1150,7 +1160,7 @@ fn assert_intra_crate_targets(
         .iter()
         .map(|(importer, specifier, target)| {
             let outcome = target.map_or(Resolution::Builtin, |path| {
-                Resolution::Resolved(path.to_owned())
+                Resolution::Resolved(vec![path.to_owned()])
             });
             (*importer, *specifier, outcome)
         })

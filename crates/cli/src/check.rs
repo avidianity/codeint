@@ -16,10 +16,10 @@ use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
-    CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
-    LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, Package,
-    ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
-    choose_manifests, resolve_runtime_imports, settle_source_set,
+    CodeModel, DeclaredDep, DependencyManifest, HazardLine, InvalidReferenceRange, LanguageFacts,
+    LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
+    Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, SourceSet,
+    Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
@@ -57,8 +57,12 @@ pub(crate) enum CheckError {
     Configuration(#[from] ConfigurationFileError),
     #[error(transparent)]
     Codeowners(#[from] CodeownersError),
-    #[error("cannot resolve runtime imports")]
-    Resolve(#[source] ResolveError),
+    #[error("Language plugin {plugin:?} cannot resolve runtime imports")]
+    Resolve {
+        plugin: String,
+        #[source]
+        source: ResolveError,
+    },
     #[error("a Language plugin supplies an invalid Reference range")]
     ReferenceRange(#[source] InvalidReferenceRange),
     #[error(transparent)]
@@ -195,6 +199,9 @@ pub(crate) fn filter_model_to_package(model: &mut CodeModel, selected: &Selected
     model
         .files
         .retain(|file| selected.matches(workspace.package_of(&file.path)));
+    if model.files.is_empty() {
+        model.languages.clear();
+    }
     model
         .skipped
         .retain(|file| selected.matches(workspace.package_of(&file.path)));
@@ -399,12 +406,29 @@ impl WorkspaceContext {
     }
 
     pub(crate) fn measure_working_tree_model(&self) -> Result<CodeModel, CheckError> {
+        self.measure_working_tree_model_for_package(None)
+    }
+
+    pub(crate) fn measure_working_tree_model_for_package(
+        &self,
+        package: Option<&str>,
+    ) -> Result<CodeModel, CheckError> {
         let plugins = self.plugins.as_named();
         let tree = self.repository.working_tree()?;
-        let languages = measure_with(&tree, &plugins, &self.configuration)?;
-        Ok(CodeModel::merge(
-            languages.into_iter().map(|language| language.model),
-        ))
+        let mut languages = measure_with(&tree, &plugins, &self.configuration)?;
+        let workspace = if let Some(requested) = package {
+            let workspace = workspace_of_languages(&languages);
+            let selected = select_workspace_package(&workspace, requested)?;
+            filter_languages_to_package(&mut languages, &selected);
+            Some(workspace)
+        } else {
+            None
+        };
+        let mut model = CodeModel::merge(languages.into_iter().map(|language| language.model));
+        if let Some(workspace) = workspace {
+            model.workspace = workspace;
+        }
+        Ok(model)
     }
 }
 
@@ -491,6 +515,9 @@ pub(crate) fn compute_orphan_files(
 ) -> (Option<OrphanFiles>, BTreeMap<String, OrphanFiles>) {
     let mut by_language = BTreeMap::new();
     for language in &snapshot.languages {
+        if !language.has_imports {
+            continue;
+        }
         let entry_points = snapshot
             .entry_points_by_language
             .get(&language.plugin)
@@ -516,6 +543,9 @@ pub(crate) fn compute_dependency_hygiene(
     let ignored = dependencies.ignored();
     let mut by_language = BTreeMap::new();
     for language in &snapshot.languages {
+        if !language.has_imports {
+            continue;
+        }
         let measured = DependencyHygiene::measure_filtered(&language.model, ignored, |root| {
             selected.is_none_or(|pkg| {
                 package_root_matches_selected(&language.model.workspace, pkg, root)
@@ -615,7 +645,7 @@ fn measure(
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
-    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides)?;
+    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides, config_file)?;
     let models = collect_plugin_models(plugins.len(), workspace, outcomes);
     resolve_measured_snapshot(
         tree,
@@ -628,37 +658,52 @@ fn measure(
     )
 }
 
+fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
+    plugins
+        .iter()
+        .map(|named| {
+            if named.plugin.has_hazard_rules() {
+                named.plugin.hazard_rules().into_iter().collect()
+            } else {
+                HashSet::new()
+            }
+        })
+        .collect()
+}
+
 fn lower_covered_files(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
     overrides: &SourceSetOverrides,
+    config_file: ConfigFileKind,
 ) -> Result<Vec<(usize, LoweredFile)>, CheckError> {
+    let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
+    let lower_file = |bytes: Vec<u8>, path: &RepoPath, index: usize| {
+        let lowered = lower_bytes(
+            bytes,
+            path,
+            &plugins[index],
+            &listed_hazard_rules[index],
+            overrides,
+            config_file,
+        )?;
+        Ok((index, lowered))
+    };
     if let Some(reader) = tree.working_tree_reader() {
         return covered_files
             .par_iter()
-            .map(|&(path, index)| {
-                let bytes = reader.read(path)?;
-                Ok((
-                    index,
-                    lower_bytes(bytes, path, plugins[index].plugin, overrides),
-                ))
-            })
+            .map(|&(path, index)| lower_file(reader.read(path)?, path, index))
             .collect();
     }
     let loaded = covered_files
         .iter()
         .map(|&(path, index)| Ok((path, index, tree.read(path)?)))
         .collect::<Result<Vec<_>, CheckError>>()?;
-    Ok(loaded
+    loaded
         .into_par_iter()
-        .map(|(path, index, bytes)| {
-            (
-                index,
-                lower_bytes(bytes, path, plugins[index].plugin, overrides),
-            )
-        })
-        .collect())
+        .map(|(path, index, bytes)| lower_file(bytes, path, index))
+        .collect()
 }
 
 fn collect_plugin_models(
@@ -701,12 +746,19 @@ fn resolve_measured_snapshot(
         .zip(manifests_by_plugin)
         .zip(plugin_members)
     {
-        let manifest_entries = named
-            .plugin
-            .entry_points(tree.files(), manifests.clone())
-            .map_err(|error| CheckError::language_plugin(config_file, error))?;
-        let combined_entries =
-            combine_entry_points(manifest_entries, &model.files, configured_entry_points);
+        let manifest_entries = if named.plugin.has_imports() {
+            named
+                .plugin
+                .entry_points(tree.files(), manifests.clone())
+                .map_err(|error| CheckError::language_plugin(config_file, error))?
+        } else {
+            Vec::new()
+        };
+        let combined_entries = if named.plugin.has_imports() {
+            combine_entry_points(manifest_entries, &model.files, configured_entry_points)
+        } else {
+            Vec::new()
+        };
         let retained_manifests = if named.name == "typescript-javascript" {
             manifests.clone()
         } else {
@@ -731,11 +783,12 @@ fn combine_entry_points(
     configured: &EntryPoints,
 ) -> Vec<RepoPath> {
     let mut entries: BTreeSet<RepoPath> = manifest_entries.into_iter().collect();
-    if !configured.is_empty() {
-        for file in files {
-            if configured.matches(&file.path) {
-                entries.insert(file.path.clone());
-            }
+    for file in files {
+        let marked_production =
+            file.model.program_start && file.model.source_set == SourceSet::Production;
+        let configured_match = !configured.is_empty() && configured.matches(&file.path);
+        if marked_production || configured_match {
+            entries.insert(file.path.clone());
         }
     }
     entries.into_iter().collect()
@@ -749,31 +802,50 @@ fn finalize_language_model(
     repository_paths: &[RepoPath],
     config_file: ConfigFileKind,
 ) -> Result<MeasuredLanguage, CheckError> {
-    let importers: Vec<&SourceFile> = model.files.iter().collect();
     let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
-    let declared_dependencies = named
-        .plugin
-        .declared_dependencies(manifests.clone())
-        .map_err(|error| CheckError::language_plugin(config_file, error))?;
-    model.dependency_manifests = collect_dependency_manifests(
-        &manifests,
-        plugin_members,
-        &declared_dependencies,
-        &model.files,
-    );
-    model.manifest_used_dependencies = crate::package_scripts::extract_manifest_used_dependencies(
-        &manifests,
-        plugin_members,
-        &declared_dependencies,
-    );
-    model.declared_dependencies = declared_dependencies;
-    model.runtime_imports =
-        resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
-            .map_err(CheckError::Resolve)?;
+    let has_imports = named.plugin.has_imports();
+    if has_imports {
+        let importers: Vec<&SourceFile> = model.files.iter().collect();
+        let declared_dependencies = named
+            .plugin
+            .declared_dependencies(manifests.clone())
+            .map_err(|error| CheckError::language_plugin(config_file, error))?;
+        model.dependency_manifests = collect_dependency_manifests(
+            &manifests,
+            plugin_members,
+            &declared_dependencies,
+            &model.files,
+        );
+        model.manifest_used_dependencies =
+            crate::package_scripts::extract_manifest_used_dependencies(
+                &manifests,
+                plugin_members,
+                &declared_dependencies,
+            );
+        model.declared_dependencies = declared_dependencies;
+        model.runtime_imports =
+            resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
+                .map_err(|source| match source {
+                    ResolveError::Plugin(error) => CheckError::language_plugin(config_file, error),
+                    other => CheckError::Resolve {
+                        plugin: named.name.to_owned(),
+                        source: other,
+                    },
+                })?;
+    }
+    if !model.files.is_empty() {
+        model.languages = vec![LanguageFacts {
+            language: named.name.to_owned(),
+            has_coverage: false,
+            has_hazard_rules: named.plugin.has_hazard_rules(),
+            has_imports,
+        }];
+    }
     Ok(MeasuredLanguage {
         plugin: named.name.to_owned(),
         model,
         reference_ranges,
+        has_imports,
     })
 }
 
@@ -1022,8 +1094,14 @@ pub(crate) fn read_manifests(
     plugins
         .iter()
         .map(|named| {
+            if !named.plugin.has_imports() {
+                return Ok(Vec::new());
+            }
             choose_manifests(named.plugin, tree.files())
-                .map_err(CheckError::Resolve)?
+                .map_err(|source| CheckError::Resolve {
+                    plugin: named.name.to_owned(),
+                    source,
+                })?
                 .into_iter()
                 .map(|path| {
                     Ok(Manifest {
@@ -1053,7 +1131,12 @@ fn find_plugin_workspaces(
     plugins
         .iter()
         .zip(manifests_by_plugin)
-        .map(|(named, manifests)| Ok(named.plugin.workspace_packages(manifests.clone())?))
+        .map(|(named, manifests)| {
+            if !named.plugin.has_imports() {
+                return Ok(Vec::new());
+            }
+            Ok(named.plugin.workspace_packages(manifests.clone())?)
+        })
         .collect()
 }
 
@@ -1063,31 +1146,82 @@ enum LoweredFile {
     Skipped(SkippedFile),
 }
 
+fn validate_hazard_rule_names(
+    plugin_name: &str,
+    path: &RepoPath,
+    hazard_lines: &[HazardLine],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    for hazard in hazard_lines {
+        if !listed_rules.contains(&hazard.rule) {
+            return Err(LanguagePluginError::UnlistedHazardRule {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                rule: hazard.rule.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn lower_bytes(
     bytes: Vec<u8>,
     path: &RepoPath,
-    plugin: &dyn LanguagePlugin,
+    named: &NamedLanguagePlugin<'_>,
+    listed_hazard_rules: &HashSet<String>,
     overrides: &SourceSetOverrides,
-) -> LoweredFile {
+    config_file: ConfigFileKind,
+) -> Result<LoweredFile, CheckError> {
     let text = match String::from_utf8(bytes) {
         Ok(text) => text,
-        Err(error) => return LoweredFile::Skipped(not_utf8(path.clone(), &error)),
+        Err(error) => return Ok(LoweredFile::Skipped(not_utf8(path.clone(), &error))),
     };
-    match plugin.lower(path, &text) {
+    match named.plugin.lower(path, &text) {
         Ok(mut file) => {
+            validate_hazard_line_bounds(named.name, path, &text, &file.hazard_lines)
+                .map_err(|error| CheckError::language_plugin(config_file, error))?;
+            validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
+                .map_err(|error| CheckError::language_plugin(config_file, error))?;
+            for function in &mut file.functions {
+                function.coverage = None;
+            }
+            if !named.plugin.has_imports() {
+                file.program_start = false;
+            }
             file.source_set =
                 overrides.source_set(path, settle_source_set(path, &text, file.source_set));
-            LoweredFile::Measured(SourceFile {
+            Ok(LoweredFile::Measured(SourceFile {
                 path: path.clone(),
                 model: file,
-            })
+            }))
         }
-        Err(LowerError::DeclarationOnly) => LoweredFile::DeclarationOnly(path.clone()),
-        Err(reason) => LoweredFile::Skipped(SkippedFile {
+        Err(LowerError::DeclarationOnly) => Ok(LoweredFile::DeclarationOnly(path.clone())),
+        Err(reason) => Ok(LoweredFile::Skipped(SkippedFile {
             path: path.clone(),
             reason: reason.to_string(),
-        }),
+        })),
     }
+}
+
+fn validate_hazard_line_bounds(
+    plugin_name: &str,
+    path: &RepoPath,
+    text: &str,
+    hazard_lines: &[HazardLine],
+) -> Result<(), LanguagePluginError> {
+    let line_count = text.lines().count();
+    for hazard in hazard_lines {
+        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
+        if line_number < 1 || line_number > line_count {
+            return Err(LanguagePluginError::HazardLineOutOfRange {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                line: hazard.line,
+                line_count,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {

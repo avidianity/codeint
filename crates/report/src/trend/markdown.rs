@@ -4,7 +4,7 @@ use super::{TrendReport, TrendRow};
 use crate::markdown::{code, table};
 
 const TITLE: &str = "# codeint trend";
-const BASE_COLUMNS: [&str; 8] = [
+const BASE_COLUMNS: [&str; 7] = [
     "Commit",
     "Committed on",
     "Files",
@@ -12,7 +12,6 @@ const BASE_COLUMNS: [&str; 8] = [
     "Cognitive complexity",
     "Duplication",
     "Verbosity",
-    "Import cycles",
 ];
 
 pub(super) fn render(report: &TrendReport) -> String {
@@ -24,13 +23,17 @@ pub(super) fn render(report: &TrendReport) -> String {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
+        let show_import_cycles = rows.iter().any(|row| row.import_cycles.is_some());
         let mut columns: Vec<&str> = BASE_COLUMNS.to_vec();
+        if show_import_cycles {
+            columns.push("Import cycles");
+        }
         columns.extend(external_keys.iter().map(String::as_str));
         blocks.push(format!("## {name}"));
         blocks.push(table(
             &columns,
             rows.iter()
-                .map(|row| row_cells(row, &external_keys))
+                .map(|row| row_cells(row, show_import_cycles, &external_keys))
                 .collect(),
         ));
     }
@@ -42,7 +45,7 @@ fn measured_sentence(commits: usize) -> String {
     format!("codeint measured {commits} {noun} of the main line of HEAD, oldest first.")
 }
 
-fn row_cells(row: &TrendRow, external_keys: &[String]) -> Vec<String> {
+fn row_cells(row: &TrendRow, show_import_cycles: bool, external_keys: &[String]) -> Vec<String> {
     let mut cells = vec![
         code(&row.commit),
         row.committed_on.clone(),
@@ -51,8 +54,14 @@ fn row_cells(row: &TrendRow, external_keys: &[String]) -> Vec<String> {
         row.cognitive_complexity.0.to_string(),
         row.duplication.0.to_string(),
         row.verbosity.0.to_string(),
-        row.import_cycles.0.to_string(),
     ];
+    if show_import_cycles {
+        let value = row
+            .import_cycles
+            .as_ref()
+            .map_or_else(|| "-".to_owned(), |decimal| decimal.0.to_string());
+        cells.push(value);
+    }
     for key in external_keys {
         let value = row
             .external_metrics

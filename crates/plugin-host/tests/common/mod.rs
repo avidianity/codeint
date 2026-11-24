@@ -6,6 +6,7 @@ use codeint_config::{PluginDeclaration, PluginKind, PluginSource, Sha256Digest};
 use codeint_plugin_host::{sha256, sha256_hex};
 
 static SAMPLE_WASM: OnceLock<PathBuf> = OnceLock::new();
+static SANDBOX_PROBES_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 pub(crate) fn build_fixture_workspace(
     manifest_relative: &str,
@@ -51,6 +52,18 @@ pub(crate) fn sample_plugin_wasm() -> &'static Path {
         )
         .join("sample_mini_plugin.wasm")
     })
+}
+
+pub(crate) fn sandbox_probe_wasm(file_name: &str) -> PathBuf {
+    SANDBOX_PROBES_DIR
+        .get_or_init(|| {
+            build_fixture_workspace(
+                "tests/fixtures/sandbox-probes/Cargo.toml",
+                "wasm-fixtures",
+                true,
+            )
+        })
+        .join(file_name)
 }
 
 pub(crate) fn declaration_for(name: &str, path: &Path) -> PluginDeclaration {

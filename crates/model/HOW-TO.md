@@ -40,7 +40,9 @@ impl Guest for Plain {
             functions: Vec::new(),
             tokens,
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         })
     }
 
@@ -82,10 +84,22 @@ impl Guest for Plain {
             source: "Plain text panel of 40 repositories, Table 3".to_owned(),
         }]
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports() -> bool {
+        true
+    }
 }
 ```
 
-- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.2.0`.
+- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.3.0`.
 - `codeint_model::language` holds the Rust types that wit-bindgen generates from that file.
   Never write a second Rust copy of a WIT type.
 - A built-in Language plugin implements the generated `Guest` trait, so it compiles against the same interface as an external WebAssembly Plugin.
@@ -113,8 +127,15 @@ impl Guest for Plain {
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
+- `has_hazard_rules` states whether this Language plugin defines Hazard line rules, and `hazard_rules` returns their stable names (empty when `has_hazard_rules` is `false`).
+  The five built-in Language plugins return `false` and an empty list.
+- `has_imports` states whether the language has runtime imports, manifests, and entry points.
+  When `has_imports` returns `false`, codeint never calls `manifest_paths`, `workspace_packages`, `resolve_imports`, `declared_dependencies`, or `entry_points`.
+  The five built-in Language plugins return `true`.
 - Each `Function` has `line` and `end-line`, the lines where it starts and ends, counted from 1; `end-line` equals `line` for a function on one line.
   The core reads the tokens from `line` to `end-line` as the content of the function's Finding identity.
+  Each `Function` also carries `coverage: Option<FunctionCoverage>` with `listed_lines` and `executed_lines`.
+  A Language plugin always sets `coverage` to `None`; codeint fills coverage facts from Coverage reports before Metrics run.
 - `tokens` lists every token of the file in source order, each with its kind, the hash of its text, and the 1-based line on which it starts.
   Leave out whitespace and comments; the core finds Clone groups from this stream.
 - `kind` says whether a token is an identifier, a literal, another token, or a token of an import or export declaration.
@@ -127,12 +148,18 @@ impl Guest for Plain {
 - `flagged_lines` lists each Flagged line as `FlaggedLine { line, rule }`, with `line` counted from 1 and `rule` the stable identifier of the Flagged-line rule, such as `else-after-return`.
   A line that matches two rules appears once per rule.
   The Flagged-line rules live in the Language plugin; the core never inspects code to find them.
+- `hazard_lines` lists each Hazard line as `HazardLine { line, rule }`, with `line` counted from 1 and `rule` a stable rule name listed by `hazard_rules`.
+  A `HazardLine` never holds source text.
+  A line that matches two rules appears once per rule.
+  Return an empty list when `has_hazard_rules` returns `false`; the five built-in Language plugins always return an empty list.
 - `runtime_imports` lists the specifier of each import that runs when the file runs, in source order; leave out type-only imports.
+- `program_start` is `false` unless the source text marks the file as a program start, such as a Go `package main` file.
+  The five built-in Language plugins always set `program_start` to `false`.
 - `manifest_paths` receives every file path of the repository snapshot and returns the paths of the files that finding workspace packages and resolving imports need to read, such as each `package.json` and `tsconfig.json` file.
   Name only paths from `repository_paths`; which files matter is a rule of the Language plugin, never of the core.
   It is the one way a Language plugin asks the host for files, so the host reads each file once.
 - `resolve_imports` receives every file path of the repository snapshot and each file that `manifest_paths` chose as a `Manifest` with its text, because a Plugin cannot read the file system.
-  Return one `Resolution` per request, in request order: `Resolved` with a path from `repository_paths`, `External` with the canonical third-party package name, `Builtin` for a standard-library or runtime built-in module, or `Unresolved` with the reason.
+  Return one `Resolution` per request, in request order: `Resolved` with a non-empty list of paths from `repository_paths`, `External` with the canonical third-party package name, `Builtin` for a standard-library or runtime built-in module, or `Unresolved` with the reason.
 - `declared_dependencies` extracts external dependencies declared in `manifests`, each with its `package-root`, normalized `name`, and `kind` (`Runtime`, `Dev`, or `Optional`).
 - `entry_points` discovers standard entry-point source files from `repository_paths` and `manifests`, naming only paths from `repository_paths`.
 
@@ -153,7 +180,7 @@ assert_eq!(model.source_lines, 2);
 - Before lowering, call `choose_manifests(plugin, repository_paths)` once per Language plugin and read each path it returns, once, as `Manifest { path, text }`.
   Pass those manifests to `workspace_packages`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers)` with the files the plugin lowered.
   `choose_manifests` fails with `ResolveError::UnknownManifest` when the plugin names a path outside the snapshot.
-  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests or names a file outside the snapshot.
+  `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests, returns an empty `Resolved` target list, or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.
 - A `LowerError` never stops the run.
   Push a `LowerError::DeclarationOnly` file onto `CodeModel::declaration_only`, and every other failure onto `CodeModel::skipped` as a `SkippedFile` whose `reason` is the error's message.
@@ -227,7 +254,7 @@ for (source_set, files) in source_sets.iter() {
 - `into_source_sets` moves each file into the `CodeModel` of its Source set.
 - It moves each `RuntimeImport` into the `CodeModel` of its importer's Source set, so an import of a file in another Source set adds no edge there.
 - Every Source set gets a `CodeModel`, empty when no file belongs to it.
-- Every Source set's `CodeModel` keeps the whole `workspace`, so each Source set splits into the same workspace packages.
+- Every Source set's `CodeModel` keeps the whole `workspace` and `languages`, so each Source set splits into the same workspace packages and carries the same per-language facts.
 - `iter` yields the Source sets in the order Production, Test, Generated, Vendored.
 - A skipped or declaration-only file belongs to no Source set.
   Read `skipped` and `declaration_only` before the split; the split leaves them out.
@@ -260,6 +287,6 @@ use codeint_model::CodeModel;
 let total = CodeModel::merge([typescript_model, python_model]);
 ```
 
-- `merge` joins the files, skipped files, declaration-only files, runtime imports, declared dependencies, dependency manifests, manifest-used dependencies, and workspace packages of every model.
+- `merge` joins the files, skipped files, declaration-only files, runtime imports, declared dependencies, dependency manifests, manifest-used dependencies, workspace packages, and per-language facts (`languages`) of every model.
 - Give each Language plugin's `CodeModel` the whole `workspace` that every plugin found, so each per-language section lists the same workspace packages as the total.
-- It orders files, skipped files, and declaration-only files by path, so the total does not depend on the order of the plugins.
+- It orders files, skipped files, declaration-only files, and `languages` deterministically by path or language name, so the total does not depend on the order of the plugins.

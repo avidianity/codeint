@@ -145,3 +145,222 @@ pub unsafe extern "C" fn memset(dest: *mut u8, value: i32, count: usize) -> *mut
     }
     dest
 }
+
+pub fn fnv1a_64(text: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
+
+pub fn ratio(numerator: f64, denominator: f64) -> f64 {
+    if denominator == 0.0 {
+        0.0
+    } else {
+        numerator / denominator
+    }
+}
+
+pub fn count_non_empty_lines(text: &str) -> u32 {
+    text.lines().filter(|line| !line.trim().is_empty()).count() as u32
+}
+
+pub fn parse_fn_name(rest: &str) -> Option<alloc::string::String> {
+    rest.split(|ch: char| ch == '(' || ch.is_whitespace())
+        .next()
+        .filter(|name| !name.is_empty())
+        .map(alloc::string::ToString::to_string)
+}
+
+pub fn extract_manifest_entries(
+    repository_paths: &[alloc::string::String],
+    manifest_texts: &[&str],
+) -> alloc::vec::Vec<alloc::string::String> {
+    let mut entries = alloc::vec::Vec::new();
+    for text in manifest_texts {
+        for line in text.lines() {
+            if let Some(entry) = line.trim().strip_prefix("entry:") {
+                let candidate = entry.trim();
+                if repository_paths.iter().any(|path| path == candidate) {
+                    entries.push(alloc::string::ToString::to_string(candidate));
+                }
+            }
+        }
+    }
+    entries
+}
+
+#[macro_export]
+macro_rules! empty_language_metadata_stubs {
+    () => {
+        fn manifest_paths(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn workspace_packages(
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::core::result::Result<::alloc::vec::Vec<::alloc::string::String>, WorkspaceError> {
+            ::core::result::Result::Ok(::alloc::vec::Vec::new())
+        }
+
+        fn resolve_imports(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+            _requests: ::alloc::vec::Vec<ImportRequest>,
+        ) -> ::alloc::vec::Vec<Resolution> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn declared_dependencies(
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<DeclaredDep> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn entry_points(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn reference_ranges() -> ::alloc::vec::Vec<ReferenceRange> {
+            ::alloc::vec::Vec::new()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! panic_no_imports_stubs {
+    () => {
+        fn manifest_paths(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            panic!("manifest-paths must not be called when has-imports is false");
+        }
+
+        fn workspace_packages(
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::core::result::Result<::alloc::vec::Vec<::alloc::string::String>, WorkspaceError> {
+            panic!("workspace-packages must not be called when has-imports is false");
+        }
+
+        fn resolve_imports(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+            _requests: ::alloc::vec::Vec<ImportRequest>,
+        ) -> ::alloc::vec::Vec<Resolution> {
+            panic!("resolve-imports must not be called when has-imports is false");
+        }
+
+        fn declared_dependencies(
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<DeclaredDep> {
+            panic!("declared-dependencies must not be called when has-imports is false");
+        }
+
+        fn entry_points(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            panic!("entry-points must not be called when has-imports is false");
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! language_fact_findings {
+    ($languages:expr, $prefix:expr, $flag_name:expr, $on_label:expr, $off_label:expr, $extract:expr) => {{
+        let mut enabled: usize = 0;
+        let mut findings = ::alloc::vec::Vec::new();
+        for facts in $languages {
+            let active = ($extract)(facts);
+            let status = if active {
+                enabled += 1;
+                $on_label
+            } else {
+                $off_label
+            };
+            findings.push(Finding {
+                id: ::alloc::format!("{}:{}:{status}", $prefix, facts.language),
+                path: ::alloc::format!("languages/{}", facts.language),
+                line: 1,
+                end_line: None,
+                message: ::alloc::format!("language={} {}={active}", facts.language, $flag_name),
+            });
+        }
+        (enabled, findings)
+    }};
+}
+
+#[macro_export]
+macro_rules! blank_file_model {
+    ($source_set:expr, $source_lines:expr $(, $field:ident : $val:expr)* $(,)?) => {{
+        let mut model = FileModel {
+            source_set: $source_set,
+            source_lines: $source_lines,
+            functions: ::alloc::vec::Vec::new(),
+            tokens: ::alloc::vec::Vec::new(),
+            flagged_lines: ::alloc::vec::Vec::new(),
+            hazard_lines: ::alloc::vec::Vec::new(),
+            runtime_imports: ::alloc::vec::Vec::new(),
+            program_start: false,
+        };
+        $(model.$field = $val;)*
+        model
+    }};
+}
+
+#[macro_export]
+macro_rules! fixture_erosion_ranges {
+    ($source:expr, $has_imports:expr) => {
+        fn reference_ranges() -> ::alloc::vec::Vec<ReferenceRange> {
+            ::alloc::vec![ReferenceRange {
+                metric: ::alloc::string::ToString::to_string("erosion"),
+                low: 0.0,
+                high: 0.2,
+                source: ::alloc::string::ToString::to_string($source),
+            }]
+        }
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn has_imports() -> bool {
+            $has_imports
+        }
+    };
+}
+
+pub fn parse_workspace_manifest_lines(
+    manifests: &[(&str, &str)],
+    skip_prefix: &str,
+) -> Result<alloc::vec::Vec<alloc::string::String>, (alloc::string::String, alloc::string::String)>
+{
+    let mut packages = alloc::vec::Vec::new();
+    for &(path, text) in manifests {
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with(skip_prefix) {
+                continue;
+            }
+            if let Some(problem) = trimmed.strip_prefix("INVALID:") {
+                return Err((
+                    alloc::string::ToString::to_string(path),
+                    alloc::string::ToString::to_string(problem.trim()),
+                ));
+            }
+            packages.push(alloc::string::ToString::to_string(trimmed));
+        }
+    }
+    Ok(packages)
+}

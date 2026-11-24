@@ -95,10 +95,24 @@ impl Guest for Python {
         Ok(FileModel {
             functions: functions::extract(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
             flagged_lines: rules::evaluate(&lexed.tokens, &lexed.logical_lines, &lexed.code_lines),
+            hazard_lines: Vec::new(),
             source_set: source_set::classify(&path, &lexed.header_comments),
             runtime_imports,
             tokens,
             source_lines,
+            program_start: false,
         })
+    }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports() -> bool {
+        true
     }
 }

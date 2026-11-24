@@ -57,7 +57,7 @@ pub use measurement::CommitMeasurement;
 pub use ownership::OwnershipOptions;
 pub use saved::{SavedReport, SavedReportError};
 pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, SchemaReport};
-pub use trace::TraceReport;
+pub use trace::{TraceMultiFileImport, TraceReport};
 pub use trend::{TrendPoint, TrendReport};
 
 use dependencies::{ImportedDependencyRow, UnusedDependencyRow};
@@ -69,6 +69,7 @@ const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for 
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
 const NOT_SHOWN_FOR_NEAR_CLONES: &str = "not shown, because near-clone detection is enabled (Reference ranges are calibrated for exact Clone groups)";
+const NO_IMPORTS_METRIC_NOTE: &str = "This language has no imports, so Import cycles, Orphan files, Import boundaries, and Dependency hygiene are not measured.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReportError {
@@ -109,12 +110,15 @@ pub struct MeasuredLanguage {
     pub plugin: String,
     pub model: CodeModel,
     pub reference_ranges: ReferenceRanges,
+    pub has_imports: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MeasuredSection {
     files: usize,
     source_lines: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    import_metrics_note: Option<String>,
     source_sets: SourceSetSections,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependenciesSection>,
@@ -252,7 +256,8 @@ struct SourceSetSection {
     cognitive_complexity: MetricSection<CognitiveComplexityTotals, CognitiveComplexityFinding>,
     duplication: DuplicationSection,
     verbosity: MetricSection<VerbosityTotals, FlaggedLineRow>,
-    import_cycles: ImportCyclesSection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    import_cycles: Option<ImportCyclesSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<BoundariesSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -365,7 +370,8 @@ struct PackageSection {
     cognitive_complexity: PackageCognitiveComplexity,
     duplication: PackageDuplication,
     verbosity: PackageVerbosity,
-    import_cycles: PackageImportCycles,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    import_cycles: Option<PackageImportCycles>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1067,28 +1073,37 @@ struct SectionOptions<'a> {
     duplication: DuplicationConfig,
     orphan_files: Option<&'a OrphanFiles>,
     ownership: OwnershipOptions<'a>,
+    has_imports: bool,
 }
 
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
+        import_source_sets: Option<&SourceSets>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
+                let import_model = import_source_sets
+                    .map(|sets| sets.get(source_set))
+                    .filter(|imports| !imports.files.is_empty());
                 let source_set_options = SectionOptions {
-                    boundaries: options
-                        .boundaries
-                        .filter(|config| config.applies_to_source_set(source_set)),
+                    boundaries: options.boundaries.filter(|config| {
+                        import_model.is_some() && config.applies_to_source_set(source_set)
+                    }),
                     orphan_files: options
                         .orphan_files
-                        .filter(|_| source_set == SourceSet::Production),
+                        .filter(|_| import_model.is_some() && source_set == SourceSet::Production),
                     ..options
                 };
-                *sections.slot(source_set) =
-                    Some(SourceSetSection::new(model, ranges, source_set_options)?);
+                *sections.slot(source_set) = Some(SourceSetSection::new(
+                    model,
+                    import_model,
+                    ranges,
+                    source_set_options,
+                )?);
             }
         }
         Ok(sections)
@@ -1119,13 +1134,15 @@ impl SourceSetSections {
                         Metric::Verbosity.key(),
                         section.verbosity.header.ratio.0,
                     ),
+                ]
+                .into_iter()
+                .chain(section.import_cycles.iter().map(move |import_cycles| {
                     (
                         source_set,
                         Metric::ImportCycles.key(),
-                        section.import_cycles.header.ratio.0,
-                    ),
-                ]
-                .into_iter()
+                        import_cycles.header.ratio.0,
+                    )
+                }))
                 .chain(
                     section
                         .boundaries
@@ -1149,8 +1166,9 @@ impl SourceSetSections {
 }
 
 impl SourceSetSection {
-    fn new(
-        model: &CodeModel,
+    fn new<'a>(
+        model: &'a CodeModel,
+        import_model: Option<&'a CodeModel>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSection, MetricPluginError> {
@@ -1158,13 +1176,25 @@ impl SourceSetSection {
             shown: options.findings,
             ownership: options.ownership,
         };
-        let measured = Measured::new(model, options.boundaries, options.duplication);
+        let effective_import_model = import_model.filter(|_| options.has_imports);
+        let boundaries_config = effective_import_model
+            .is_some()
+            .then_some(options.boundaries)
+            .flatten();
+        let measured = Measured::new(
+            model,
+            effective_import_model,
+            boundaries_config,
+            options.duplication,
+        );
         let boundaries = measured
             .boundaries
             .as_ref()
             .map(|evaluated| BoundariesSection::new(evaluated, view));
-        let orphan_files = options
-            .orphan_files
+        let orphan_files = effective_import_model
+            .is_some()
+            .then_some(options.orphan_files)
+            .flatten()
             .map(|measured| OrphanFilesSection::new(measured, view));
         let mut external_metrics = BTreeMap::new();
         for plugin in options.metric_plugins {
@@ -1244,27 +1274,20 @@ impl SourceSetSection {
                 },
                 findings: view.map(measured.verbosity.flagged_lines()),
             },
-            import_cycles: ImportCyclesSection {
-                header: MetricHeader::new(
-                    measured.import_cycles.ratio(),
-                    ranges,
-                    Metric::ImportCycles.key(),
-                ),
-                modules_in_import_cycles: measured.import_cycles.modules_in_import_cycles(),
-                modules: measured.import_cycles.modules(),
-                findings: view.select(
-                    measured
-                        .import_cycles
-                        .cycles()
-                        .iter()
-                        .map(ImportCycleFinding::new),
-                ),
-                unresolved_imports: UnresolvedImportsSection::new(&measured.import_cycles, view),
-            },
+            import_cycles: measured
+                .import_cycles
+                .as_ref()
+                .map(|cycles| ImportCyclesSection {
+                    header: MetricHeader::new(cycles.ratio(), ranges, Metric::ImportCycles.key()),
+                    modules_in_import_cycles: cycles.modules_in_import_cycles(),
+                    modules: cycles.modules(),
+                    findings: view.select(cycles.cycles().iter().map(ImportCycleFinding::new)),
+                    unresolved_imports: UnresolvedImportsSection::new(cycles, view),
+                }),
             boundaries,
             orphan_files,
             external_metrics,
-            packages: package_sections(model, &measured),
+            packages: package_sections(model, effective_import_model, &measured),
         })
     }
 }
@@ -1479,13 +1502,14 @@ struct Measured {
     cognitive_complexity: CognitiveComplexity,
     duplication: Duplication,
     verbosity: Verbosity,
-    import_cycles: ImportCycles,
+    import_cycles: Option<ImportCycles>,
     boundaries: Option<Boundaries>,
 }
 
 impl Measured {
     fn new(
         model: &CodeModel,
+        import_model: Option<&CodeModel>,
         boundaries: Option<&BoundariesConfig>,
         duplication_config: DuplicationConfig,
     ) -> Measured {
@@ -1499,24 +1523,30 @@ impl Measured {
             MinimumDistinctTokens::DEFAULT,
             near_clones,
         );
-        let boundaries =
-            boundaries.map(|config| Boundaries::measure(model, &ConfigBoundaryPolicy(config)));
+        let import_cycles = import_model.map(ImportCycles::measure);
+        let boundaries = import_model.and_then(|imports| {
+            boundaries.map(|config| Boundaries::measure(imports, &ConfigBoundaryPolicy(config)))
+        });
         Measured {
             erosion: Erosion::measure(model),
             cognitive_complexity: CognitiveComplexity::measure(model),
             verbosity: Verbosity::measure(model, &duplication.exact_clone_lines),
             duplication,
-            import_cycles: ImportCycles::measure(model),
+            import_cycles,
             boundaries,
         }
     }
 }
 
-fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSection> {
+fn package_sections<'a>(
+    model: &'a CodeModel,
+    import_model: Option<&'a CodeModel>,
+    measured: &Measured,
+) -> Vec<PackageSection> {
     if !model.workspace.has_members() {
         return Vec::new();
     }
-    let mut files: BTreeMap<Package<'_>, usize> = BTreeMap::new();
+    let mut files: BTreeMap<Package<'a>, usize> = BTreeMap::new();
     for file in &model.files {
         *files
             .entry(model.workspace.package_of(&file.path))
@@ -1525,19 +1555,28 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
     let mut cognitive = measured.cognitive_complexity.by_package(model);
     let mut duplication = measured.duplication.by_package(model);
     let mut verbosity = measured.verbosity.by_package(model);
-    let mut import_cycles = measured.import_cycles.by_package(model);
+    let mut import_cycles = import_model
+        .zip(measured.import_cycles.as_ref())
+        .map(|(imports, cycles)| cycles.by_package(imports));
     measured
         .erosion
         .by_package(model)
         .into_iter()
         .map(|(package, masses)| {
+            let package_files = files.get(&package).copied().unwrap_or_default();
             let cognitive_totals = cognitive.remove(&package).unwrap_or_default();
             let clone_lines = duplication.remove(&package).unwrap_or_default();
             let verbose_lines = verbosity.remove(&package).unwrap_or_default();
-            let modules = import_cycles.remove(&package).unwrap_or_default();
+            let package_import_cycles = import_cycles.as_mut().and_then(|by_package| {
+                let modules = by_package.remove(&package).unwrap_or_default();
+                (modules.modules > 0 || package_files == 0).then(|| PackageImportCycles {
+                    ratio: Decimal::rounded(modules.ratio()),
+                    modules_in_import_cycles: modules.modules_in_import_cycles,
+                })
+            });
             PackageSection {
                 path: package.to_string(),
-                files: files.get(&package).copied().unwrap_or_default(),
+                files: package_files,
                 source_lines: clone_lines.source_lines,
                 erosion: PackageErosion {
                     ratio: Decimal::rounded(masses.ratio()),
@@ -1557,10 +1596,7 @@ fn package_sections(model: &CodeModel, measured: &Measured) -> Vec<PackageSectio
                     ratio: Decimal::rounded(verbose_lines.ratio()),
                     verbose_lines: verbose_lines.lines,
                 },
-                import_cycles: PackageImportCycles {
-                    ratio: Decimal::rounded(modules.ratio()),
-                    modules_in_import_cycles: modules.modules_in_import_cycles,
-                },
+                import_cycles: package_import_cycles,
             }
         })
         .collect()
@@ -1583,6 +1619,7 @@ pub struct ReportOptions<'a> {
 impl MeasuredSection {
     fn new(
         model: CodeModel,
+        import_model: Option<CodeModel>,
         hygiene: &DependencyHygiene,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
@@ -1593,11 +1630,33 @@ impl MeasuredSection {
             shown: options.findings,
             ownership: options.ownership,
         };
-        let dependencies = DependenciesSection::from_hygiene(hygiene, view);
-        let source_sets = SourceSetSections::new(&model.into_source_sets(), ranges, options)?;
+        let dependencies = options
+            .has_imports
+            .then(|| DependenciesSection::from_hygiene(hygiene, view))
+            .flatten();
+        let import_metrics_note = (!options.has_imports).then(|| NO_IMPORTS_METRIC_NOTE.to_owned());
+        let section_options = if options.has_imports {
+            options
+        } else {
+            SectionOptions {
+                boundaries: None,
+                orphan_files: None,
+                ..options
+            }
+        };
+        let source_sets = model.into_source_sets();
+        let separate_import_source_sets = import_model.map(CodeModel::into_source_sets);
+        let import_source_sets = if options.has_imports {
+            Some(separate_import_source_sets.as_ref().unwrap_or(&source_sets))
+        } else {
+            None
+        };
+        let source_sets =
+            SourceSetSections::new(&source_sets, import_source_sets, ranges, section_options)?;
         Ok(MeasuredSection {
             files,
             source_lines: lines,
+            import_metrics_note,
             source_sets,
             dependencies,
         })
@@ -1738,14 +1797,15 @@ impl Report {
         let total_hygiene = match options.dependency_hygiene {
             Some(precomputed) => precomputed,
             None => {
-                measured_total_hygiene = DependencyHygiene::merge(
-                    languages
-                        .iter()
-                        .map(|language| DependencyHygiene::measure(&language.model, ignored)),
-                );
+                measured_total_hygiene = measure_combined_hygiene(&languages, ignored);
                 &measured_total_hygiene
             }
         };
+        let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
+            .into_iter()
+            .partition(|language| !language.model.files.is_empty());
+        let top_has_imports =
+            measured.is_empty() || measured.iter().any(|language| language.has_imports);
         let section_options = SectionOptions {
             findings: options.findings,
             metric_plugins: options.metric_plugins,
@@ -1753,53 +1813,11 @@ impl Report {
             duplication: options.duplication,
             orphan_files: options.orphan_files,
             ownership: options.ownership,
+            has_imports: top_has_imports,
         };
-        let (measured, unmeasured): (Vec<MeasuredLanguage>, Vec<MeasuredLanguage>) = languages
-            .into_iter()
-            .partition(|language| !language.model.files.is_empty());
-        let (total_ranges, sections_per_language) = match measured.as_slice() {
-            [] => (
-                ReferenceRangeScope::OneLanguage(ReferenceRanges::default()),
-                BTreeMap::new(),
-            ),
-            [only] => (
-                ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
-                BTreeMap::new(),
-            ),
-            _ => {
-                let mut per_language = BTreeMap::new();
-                for language in &measured {
-                    let measured_language_hygiene;
-                    let language_hygiene = match options
-                        .dependency_hygiene_by_language
-                        .and_then(|map| map.get(&language.plugin))
-                    {
-                        Some(precomputed) => precomputed,
-                        None => {
-                            measured_language_hygiene =
-                                DependencyHygiene::measure(&language.model, ignored);
-                            &measured_language_hygiene
-                        }
-                    };
-                    let language_orphans = options
-                        .orphan_files_by_language
-                        .and_then(|map| map.get(&language.plugin));
-                    per_language.insert(
-                        language.plugin.clone(),
-                        MeasuredSection::new(
-                            language.model.clone(),
-                            language_hygiene,
-                            &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
-                            SectionOptions {
-                                orphan_files: language_orphans,
-                                ..section_options
-                            },
-                        )?,
-                    );
-                }
-                (ReferenceRangeScope::SeveralLanguages, per_language)
-            }
-        };
+        let (total_ranges, sections_per_language) =
+            build_per_language_sections(&measured, &options, ignored, section_options)?;
+        let import_bearing_model = collect_import_bearing_model(&measured, top_has_imports);
         let model = CodeModel::merge(
             measured
                 .into_iter()
@@ -1812,7 +1830,13 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(model, total_hygiene, &total_ranges, section_options)?;
+        let measured = MeasuredSection::new(
+            model,
+            import_bearing_model,
+            total_hygiene,
+            &total_ranges,
+            section_options,
+        )?;
         let mut failures = measured.source_sets.over_budget(options.budgets);
         if let Some(dependencies) = &measured.dependencies {
             failures.extend(dependencies.over_budget(options.budgets));
@@ -1847,6 +1871,103 @@ impl Report {
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
     }
+}
+
+fn measure_combined_hygiene(
+    languages: &[MeasuredLanguage],
+    ignored: &std::collections::BTreeSet<String>,
+) -> DependencyHygiene {
+    DependencyHygiene::merge(
+        languages
+            .iter()
+            .filter(|language| language.has_imports)
+            .map(|language| DependencyHygiene::measure(&language.model, ignored)),
+    )
+}
+
+fn collect_import_bearing_model(
+    measured: &[MeasuredLanguage],
+    top_has_imports: bool,
+) -> Option<CodeModel> {
+    let all_measured_have_imports = measured.iter().all(|language| language.has_imports);
+    (top_has_imports && !all_measured_have_imports).then(|| {
+        CodeModel::merge(
+            measured
+                .iter()
+                .filter(|language| language.has_imports)
+                .map(|language| language.model.clone()),
+        )
+    })
+}
+
+fn build_per_language_sections(
+    measured: &[MeasuredLanguage],
+    options: &ReportOptions<'_>,
+    ignored: &std::collections::BTreeSet<String>,
+    section_options: SectionOptions<'_>,
+) -> Result<(ReferenceRangeScope, BTreeMap<String, MeasuredSection>), MetricPluginError> {
+    match measured {
+        [] => Ok((
+            ReferenceRangeScope::OneLanguage(ReferenceRanges::default()),
+            BTreeMap::new(),
+        )),
+        [only] => Ok((
+            ReferenceRangeScope::OneLanguage(only.reference_ranges.clone()),
+            BTreeMap::new(),
+        )),
+        _ => {
+            let mut per_language = BTreeMap::new();
+            for language in measured {
+                let section =
+                    build_single_language_section(language, options, ignored, section_options)?;
+                per_language.insert(language.plugin.clone(), section);
+            }
+            Ok((ReferenceRangeScope::SeveralLanguages, per_language))
+        }
+    }
+}
+
+fn build_single_language_section(
+    language: &MeasuredLanguage,
+    options: &ReportOptions<'_>,
+    ignored: &std::collections::BTreeSet<String>,
+    section_options: SectionOptions<'_>,
+) -> Result<MeasuredSection, MetricPluginError> {
+    let measured_language_hygiene;
+    let language_hygiene = if language.has_imports {
+        match options
+            .dependency_hygiene_by_language
+            .and_then(|map| map.get(&language.plugin))
+        {
+            Some(precomputed) => precomputed,
+            None => {
+                measured_language_hygiene = DependencyHygiene::measure(&language.model, ignored);
+                &measured_language_hygiene
+            }
+        }
+    } else {
+        measured_language_hygiene = DependencyHygiene::default();
+        &measured_language_hygiene
+    };
+    let language_orphans = language
+        .has_imports
+        .then(|| {
+            options
+                .orphan_files_by_language
+                .and_then(|map| map.get(&language.plugin))
+        })
+        .flatten();
+    MeasuredSection::new(
+        language.model.clone(),
+        None,
+        language_hygiene,
+        &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
+        SectionOptions {
+            orphan_files: language_orphans,
+            has_imports: language.has_imports,
+            ..section_options
+        },
+    )
 }
 
 pub(crate) enum TextReportFormat {

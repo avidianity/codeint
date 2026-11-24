@@ -9,12 +9,30 @@ use wasmtime::Store;
 
 use crate::PluginHostError;
 use crate::limits::{LimitTrap, PluginStoreState, arm_call_deadline, classify_trap};
-use crate::wasm::{ContractSpec, InstancePool, instantiate_sandboxed_component, map_host_trap};
+use crate::wasm::{
+    ContractSpec, InstancePool, instantiate_sandboxed_component, map_host_trap,
+    prepare_sandboxed_component,
+};
 
 const METRIC_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/metric@",
-    expected_interface: "codeint:plugin/metric@0.2.0",
+    expected_interface: "codeint:plugin/metric@0.3.0",
 };
+
+pub(crate) fn verify_metric_component(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), PluginHostError> {
+    prepare_sandboxed_component(
+        name,
+        path,
+        bytes,
+        METRIC_CONTRACT,
+        bindings::MetricPluginPre::new,
+    )?;
+    Ok(())
+}
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -215,9 +233,9 @@ fn to_guest_code_model(model: &CodeModel) -> guest_metric::CodeModel {
                 importer: import.importer.as_str().to_owned(),
                 specifier: import.specifier.clone(),
                 resolution: match &import.resolution {
-                    ImportResolution::Resolved(path) => {
-                        guest_language::Resolution::Resolved(path.as_str().to_owned())
-                    }
+                    ImportResolution::Resolved(paths) => guest_language::Resolution::Resolved(
+                        paths.iter().map(|path| path.as_str().to_owned()).collect(),
+                    ),
                     ImportResolution::External(package) => {
                         guest_language::Resolution::External(package.clone())
                     }
@@ -232,6 +250,16 @@ fn to_guest_code_model(model: &CodeModel) -> guest_metric::CodeModel {
             .workspace
             .member_roots()
             .map(|root| root.as_str().to_owned())
+            .collect(),
+        languages: model
+            .languages
+            .iter()
+            .map(|facts| guest_metric::LanguageFacts {
+                language: facts.language.clone(),
+                has_coverage: facts.has_coverage,
+                has_hazard_rules: facts.has_hazard_rules,
+                has_imports: facts.has_imports,
+            })
             .collect(),
     }
 }
@@ -255,6 +283,12 @@ fn to_guest_file_model(model: &FileModel) -> guest_language::FileModel {
                 source_lines: function.source_lines,
                 name: function.name.clone(),
                 cognitive_complexity: function.cognitive_complexity,
+                coverage: function.coverage.as_ref().map(|coverage| {
+                    guest_language::FunctionCoverage {
+                        listed_lines: coverage.listed_lines,
+                        executed_lines: coverage.executed_lines,
+                    }
+                }),
             })
             .collect(),
         tokens: model
@@ -279,7 +313,16 @@ fn to_guest_file_model(model: &FileModel) -> guest_language::FileModel {
                 rule: flagged.rule.clone(),
             })
             .collect(),
+        hazard_lines: model
+            .hazard_lines
+            .iter()
+            .map(|hazard| guest_language::HazardLine {
+                line: hazard.line,
+                rule: hazard.rule.clone(),
+            })
+            .collect(),
         runtime_imports: model.runtime_imports.clone(),
+        program_start: model.program_start,
     }
 }
 

@@ -3,9 +3,10 @@ use super::language::{
     Resolution, SourceSet, WorkspaceError,
 };
 use super::{
-    CodeModel, ImportResolution, InvalidReferenceRange, LanguagePlugin, LanguagePluginError,
-    ManifestUsedDep, Package, ReferenceRanges, RepoPath, RuntimeImport, SourceFile, Workspace,
-    token_text_hash, validate_declared_dependencies, validate_entry_points,
+    CodeModel, FunctionCoverage, ImportResolution, InvalidReferenceRange, LanguageFacts,
+    LanguagePlugin, LanguagePluginError, ManifestUsedDep, Package, ReferenceRanges, RepoPath,
+    RuntimeImport, SourceFile, Workspace, token_text_hash, validate_declared_dependencies,
+    validate_entry_points,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -61,7 +62,9 @@ impl Guest for MeasuredLanguage {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         })
     }
 
@@ -95,6 +98,18 @@ impl Guest for MeasuredLanguage {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         vec![range("erosion", 0.12, 0.56, "Measured panel, Table 1")]
+    }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports() -> bool {
+        true
     }
 }
 
@@ -201,7 +216,9 @@ fn file_in(path: &str, source_set: SourceSet) -> SourceFile {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }
@@ -210,7 +227,7 @@ fn import_of(importer: &str, target: &str) -> RuntimeImport {
     RuntimeImport {
         importer: RepoPath::new(importer).expect("a valid path"),
         specifier: format!("./{target}"),
-        resolution: ImportResolution::Resolved(RepoPath::new(target).expect("a valid path")),
+        resolution: ImportResolution::Resolved(vec![RepoPath::new(target).expect("a valid path")]),
     }
 }
 
@@ -372,5 +389,187 @@ fn code_model_merge_sorts_and_deduplicates_manifest_used_dependencies() {
                 name: "vite".to_owned(),
             },
         ]
+    );
+}
+
+#[test]
+fn function_coverage_distinguishes_absent_from_zero_executed_lines() {
+    let absent = super::language::Function {
+        line: 1,
+        end_line: 5,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("uncovered".to_owned()),
+        cognitive_complexity: 1,
+        coverage: None,
+    };
+    let zero_executed = super::language::Function {
+        line: 1,
+        end_line: 5,
+        decision_points: 1,
+        source_lines: 5,
+        name: Some("uncovered".to_owned()),
+        cognitive_complexity: 1,
+        coverage: Some(FunctionCoverage {
+            listed_lines: 5,
+            executed_lines: 0,
+        }),
+    };
+
+    assert_ne!(absent, zero_executed);
+    assert_eq!(absent.coverage, None);
+    assert_eq!(
+        zero_executed.coverage,
+        Some(FunctionCoverage {
+            listed_lines: 5,
+            executed_lines: 0,
+        })
+    );
+}
+
+#[test]
+fn code_model_merge_sorts_languages_and_combines_language_facts() {
+    let first = CodeModel {
+        languages: vec![
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: true,
+                has_hazard_rules: false,
+                has_imports: true,
+            },
+            LanguageFacts {
+                language: "rust".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: true,
+                has_imports: false,
+            },
+        ],
+        ..CodeModel::default()
+    };
+    let second = CodeModel {
+        languages: vec![
+            LanguageFacts {
+                language: "python".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: false,
+                has_imports: false,
+            },
+            LanguageFacts {
+                language: "rust".to_owned(),
+                has_coverage: true,
+                has_hazard_rules: false,
+                has_imports: true,
+            },
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: true,
+                has_imports: false,
+            },
+        ],
+        ..CodeModel::default()
+    };
+
+    let merged = CodeModel::merge([first, second]);
+
+    assert_eq!(
+        merged.languages,
+        vec![
+            LanguageFacts {
+                language: "python".to_owned(),
+                has_coverage: false,
+                has_hazard_rules: false,
+                has_imports: false,
+            },
+            LanguageFacts {
+                language: "rust".to_owned(),
+                has_coverage: true,
+                has_hazard_rules: true,
+                has_imports: true,
+            },
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: true,
+                has_hazard_rules: true,
+                has_imports: true,
+            },
+        ]
+    );
+}
+
+#[test]
+fn into_source_sets_preserves_language_facts_in_every_source_set() {
+    let expected = vec![
+        LanguageFacts {
+            language: "rust".to_owned(),
+            has_coverage: true,
+            has_hazard_rules: false,
+            has_imports: true,
+        },
+        LanguageFacts {
+            language: "sql".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: true,
+            has_imports: false,
+        },
+    ];
+    let model = CodeModel {
+        files: vec![file_in("src/main.rs", SourceSet::Production)],
+        languages: expected.clone(),
+        ..CodeModel::default()
+    };
+
+    let source_sets = model.into_source_sets();
+
+    for source_set in [
+        SourceSet::Production,
+        SourceSet::Test,
+        SourceSet::Generated,
+        SourceSet::Vendored,
+    ] {
+        assert_eq!(source_sets.get(source_set).languages, expected);
+    }
+}
+
+#[test]
+fn language_plugin_trait_forwards_hazard_rules_and_has_imports_exports() {
+    let plugin: &dyn LanguagePlugin = &MeasuredLanguage;
+
+    assert!(!plugin.has_hazard_rules());
+    assert!(plugin.hazard_rules().is_empty());
+    assert!(plugin.has_imports());
+}
+
+#[test]
+fn hazard_line_out_of_range_error_names_plugin_file_and_line() {
+    let error = LanguagePluginError::HazardLineOutOfRange {
+        plugin: "hazard-lang".to_owned(),
+        path: path("queries/bad.haz"),
+        line: 5,
+        line_count: 3,
+    };
+    let message = error.to_string();
+
+    assert!(message.contains("hazard-lang"), "message: {message}");
+    assert!(message.contains("queries/bad.haz"), "message: {message}");
+    assert!(message.contains("line 5"), "message: {message}");
+    assert!(message.contains("3 lines"), "message: {message}");
+}
+
+#[test]
+fn unlisted_hazard_rule_error_names_plugin_file_and_rule() {
+    let error = LanguagePluginError::UnlistedHazardRule {
+        plugin: "custom-sql".to_owned(),
+        path: path("queries/users.sql"),
+        rule: "unlisted-rule".to_owned(),
+    };
+
+    let message = error.to_string();
+
+    assert!(
+        message.contains("custom-sql")
+            && message.contains("queries/users.sql")
+            && message.contains("unlisted-rule"),
+        "unexpected error message: {message}"
     );
 }

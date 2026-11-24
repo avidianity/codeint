@@ -20,6 +20,8 @@ pub use sha256::{format_hex as sha256_hex, sha256};
 pub use wasm::WasmLanguagePlugin;
 pub use wasm_metric::WasmMetricPlugin;
 
+pub const PLUGIN_INTERFACE_VERSION: &str = "0.3.0";
+
 #[derive(Debug, thiserror::Error)]
 pub enum PluginHostError {
     #[error("cannot read Plugin {name:?} at {}", path.display())]
@@ -107,6 +109,18 @@ pub enum PluginHostError {
         expected: String,
         actual: String,
     },
+}
+
+pub fn verify_plugin_component(
+    name: &str,
+    path: &Path,
+    kind: PluginKind,
+    bytes: &[u8],
+) -> Result<(), PluginHostError> {
+    match kind {
+        PluginKind::Language => wasm::verify_language_component(name, path, bytes),
+        PluginKind::Metric => wasm_metric::verify_metric_component(name, path, bytes),
+    }
 }
 
 pub fn load_language_plugin(
@@ -274,7 +288,7 @@ impl LanguagePlugin for WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution> {
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         self.resolve_imports_impl(repository_paths, manifests, requests)
     }
 
@@ -295,6 +309,18 @@ impl LanguagePlugin for WasmLanguagePlugin {
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         self.reference_ranges_impl()
+    }
+
+    fn has_hazard_rules(&self) -> bool {
+        self.has_hazard_rules_impl()
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        self.hazard_rules_impl()
+    }
+
+    fn has_imports(&self) -> bool {
+        self.has_imports_impl()
     }
 }
 

@@ -105,7 +105,8 @@ struct SourceSetChanges {
     cognitive_complexity: MetricChanges<CognitiveComplexityFinding>,
     duplication: DuplicationChanges,
     verbosity: MetricChanges<FlaggedLineRow>,
-    import_cycles: MetricChanges<ImportCycleFinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    import_cycles: Option<MetricChanges<ImportCycleFinding>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     boundaries: Option<MetricChanges<BoundaryFindingRow>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -298,7 +299,10 @@ impl DiffReport {
                                 families.unlisted_clone_family_group_ids.as_slice()
                             }),
                         flagged_lines: &changes.verbosity.new.listed,
-                        import_cycles: &changes.import_cycles.new.listed,
+                        import_cycles: changes
+                            .import_cycles
+                            .as_ref()
+                            .map_or(&[], |cycles| cycles.new.listed.as_slice()),
                         boundaries: changes
                             .boundaries
                             .as_ref()
@@ -536,13 +540,13 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                     Metric::Verbosity.key(),
                     changes.verbosity.head_ratio.0,
                 ),
-                (
-                    source_set,
-                    Metric::ImportCycles.key(),
-                    changes.import_cycles.head_ratio.0,
-                ),
             ]
             .into_iter()
+            .chain(
+                changes.import_cycles.iter().map(move |cycles| {
+                    (source_set, Metric::ImportCycles.key(), cycles.head_ratio.0)
+                }),
+            )
             .chain(
                 changes
                     .boundaries
@@ -586,12 +590,13 @@ impl SourceSetChanges {
                 .regressions(source_set, Metric::Duplication.key(), limits),
             self.verbosity
                 .regressions(source_set, Metric::Verbosity.key(), limits),
-            self.import_cycles
-                .regressions(source_set, Metric::ImportCycles.key(), limits),
         ]
         .into_iter()
         .flatten()
         .collect();
+        if let Some(import_cycles) = &self.import_cycles {
+            found.extend(import_cycles.regressions(source_set, Metric::ImportCycles.key(), limits));
+        }
         if let Some(boundaries) = &self.boundaries {
             found.extend(boundaries.regressions(source_set, "boundaries", limits));
         }
@@ -903,6 +908,15 @@ fn source_set_changes(
             },
         );
     }
+    let import_cycles = match (base.import_cycles, head.import_cycles) {
+        (None, None) => None,
+        (base_cycles, head_cycles) => Some(classify(
+            base_cycles.unwrap_or_default(),
+            head_cycles.unwrap_or_default(),
+            shown,
+            ownership,
+        )),
+    };
     let boundaries = match (base.boundaries, head.boundaries) {
         (None, None) => None,
         (base_boundaries, head_boundaries) => Some(classify(
@@ -957,7 +971,7 @@ fn source_set_changes(
             clone_families,
         },
         verbosity: classify(base.verbosity, head.verbosity, shown, ownership),
-        import_cycles: classify(base.import_cycles, head.import_cycles, shown, ownership),
+        import_cycles,
         boundaries,
         orphan_files,
         external_metrics,

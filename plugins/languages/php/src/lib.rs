@@ -92,7 +92,9 @@ impl Guest for Php {
             functions: functions::functions(&lexed.tokens, &lexed.code_lines),
             tokens: build_tokens(&lexed.tokens, &extracted.import_token_indices),
             flagged_lines: rules::flag(&lexed.tokens, &lexed.code_lines),
+            hazard_lines: Vec::new(),
             runtime_imports: extracted.specifiers,
+            program_start: false,
         })
     }
 
@@ -110,5 +112,17 @@ impl Guest for Php {
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
         extract_entry_points(&repository_paths, &manifests)
+    }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports() -> bool {
+        true
     }
 }

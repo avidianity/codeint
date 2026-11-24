@@ -1,4 +1,4 @@
-package codeint:plugin@0.2.0;
+package codeint:plugin@0.3.0;
 
 /// The interface a Metric plugin exports: metadata for one Metric and a function that measures a Code model.
 interface metric {
@@ -22,6 +22,18 @@ interface metric {
         resolution: resolution,
     }
 
+    /// Per-language facts attached to a Code model for Metric plugins.
+    record language-facts {
+        /// The Language plugin name, such as `typescript-javascript` or `rust`.
+        language: string,
+        /// Whether at least one Coverage report covers at least one file of this language.
+        has-coverage: bool,
+        /// Whether this Language plugin defines Hazard line rules.
+        has-hazard-rules: bool,
+        /// Whether this language has runtime imports, manifests, and entry points.
+        has-imports: bool,
+    }
+
     /// The language-neutral Code model of one Source set that a Metric plugin reads.
     record code-model {
         /// Every measured source file in this Source set, sorted by path.
@@ -30,6 +42,8 @@ interface metric {
         runtime-imports: list<runtime-import>,
         /// The workspace package roots of the repository, relative to the repository root.
         workspace-packages: list<string>,
+        /// Per-language facts for every language represented in this Code model, sorted by language name.
+        languages: list<language-facts>,
     }
 
     /// One located piece of evidence behind a Metric value.

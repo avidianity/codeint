@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use serde_json::{Value, json};
@@ -1452,13 +1452,7 @@ fn legacy_cached_measurement_without_clone_families_misses_and_recomputes() {
     assert_eq!(initial_families["unchanged"], 1);
     assert_eq!(initial_families["new"].as_array().map(Vec::len), Some(0));
 
-    let entries: Vec<_> = fs::read_dir(fixture.result_cache.path())
-        .expect("list result cache")
-        .map(|entry| entry.expect("cache entry").path())
-        .collect();
-    assert_eq!(entries.len(), 1);
-    let mut cached: Value =
-        serde_json::from_slice(&fs::read(&entries[0]).expect("read cache")).expect("parse cache");
+    let (cache_path, mut cached) = read_single_result_cache_entry(fixture.result_cache.path());
     for source_set in ["production", "test", "generated", "vendored"] {
         cached["result"][source_set]
             .as_object_mut()
@@ -1466,7 +1460,7 @@ fn legacy_cached_measurement_without_clone_families_misses_and_recomputes() {
             .remove("clone_families");
     }
     fs::write(
-        &entries[0],
+        &cache_path,
         serde_json::to_vec(&cached).expect("encode legacy cache"),
     )
     .expect("overwrite legacy cache");
@@ -1476,4 +1470,104 @@ fn legacy_cached_measurement_without_clone_families_misses_and_recomputes() {
         &recomputed["source_sets"]["production"]["duplication"]["clone_families"];
     assert_eq!(recomputed_families["unchanged"], 1);
     assert_eq!(recomputed_families["new"].as_array().map(Vec::len), Some(0));
+}
+
+fn read_single_result_cache_entry(cache_folder: &Path) -> (PathBuf, Value) {
+    let entries: Vec<_> = fs::read_dir(cache_folder)
+        .expect("list result cache")
+        .map(|entry| entry.expect("cache entry").path())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let stored: Value =
+        serde_json::from_slice(&fs::read(&entries[0]).expect("read cache")).expect("parse cache");
+    let keys: BTreeSet<&str> = stored
+        .as_object()
+        .expect("cache entry is a JSON object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, BTreeSet::from(["commit", "result", "settings"]));
+    (entries.into_iter().next().expect("one cache entry"), stored)
+}
+
+fn read_cached_settings_and_result(cache_folder: &Path) -> (Value, Value) {
+    let (_, stored) = read_single_result_cache_entry(cache_folder);
+    let settings: Value = serde_json::from_str(
+        stored["settings"]
+            .as_str()
+            .expect("cache entry settings is a JSON string"),
+    )
+    .expect("parse cache entry settings");
+    (settings, stored["result"].clone())
+}
+
+#[test]
+fn a_result_cached_under_plugin_interface_0_2_0_is_not_reused_and_recomputes() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    let _initial = fixture.diff_json("main");
+    let (current_settings, mut stale_result) =
+        read_cached_settings_and_result(fixture.result_cache.path());
+    stale_result["production"]["erosion"]["findings_worst_first"][0]["path"] =
+        json!("src/stale-from-0-2-0.ts");
+
+    let mut pre_step_v0_2_0_settings = current_settings.clone();
+    let pre_step_map = pre_step_v0_2_0_settings
+        .as_object_mut()
+        .expect("settings is a JSON object");
+    pre_step_map.insert("cache_version".to_owned(), json!(5));
+    pre_step_map.remove("plugin_interface_version");
+
+    let mut explicit_v0_2_0_settings = current_settings.clone();
+    let explicit_map = explicit_v0_2_0_settings
+        .as_object_mut()
+        .expect("settings is a JSON object");
+    explicit_map.insert("plugin_interface_version".to_owned(), json!("0.2.0"));
+
+    let repository = codeint_git::Repository::discover(fixture.root()).expect("open fixture repo");
+    let commit = repository.resolve("main").expect("resolve main commit");
+
+    for legacy_settings in [pre_step_v0_2_0_settings, explicit_v0_2_0_settings] {
+        let seeded_cache = tempfile::tempdir().expect("create seeded result cache folder");
+        codeint_git::ResultCache::in_folder(seeded_cache.path().to_path_buf())
+            .write(commit, &legacy_settings, &stale_result)
+            .expect("seed 0.2.0 cache entry");
+
+        let output = fixture
+            .codeint_diff_with_result_cache(seeded_cache.path(), &["main", "--format", "json"]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "codeint diff failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).expect("the report is JSON");
+        assert_eq!(
+            paths_of(&report["source_sets"]["production"]["erosion"]["resolved"]),
+            ["src/removed.ts"]
+        );
+        let entries = fs::read_dir(seeded_cache.path())
+            .expect("list seeded result cache folder")
+            .count();
+        assert_eq!(entries, 2);
+    }
+
+    assert_eq!(current_settings["plugin_interface_version"], json!("0.3.0"));
+    assert_eq!(current_settings["cache_version"], json!(6));
+}
+
+#[test]
+fn a_result_cached_under_plugin_interface_0_3_0_is_reused_on_subsequent_runs() {
+    let fixture = Fixture::with_an_eroded_file_removed_since_main();
+    let first = fixture.diff_json("main");
+    let (settings, _) = read_cached_settings_and_result(fixture.result_cache.path());
+    assert_eq!(settings["plugin_interface_version"], json!("0.3.0"));
+
+    fixture.forget_committed_file("main:src/removed.ts");
+    let second = fixture.diff_json("main");
+
+    assert_eq!(second, first);
+    let entries = fs::read_dir(fixture.result_cache.path())
+        .expect("list result cache folder")
+        .count();
+    assert_eq!(entries, 1);
 }

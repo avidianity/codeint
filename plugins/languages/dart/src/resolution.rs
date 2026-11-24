@@ -101,7 +101,7 @@ fn resolve_package_uri(
         if candidate == importer {
             Resolution::Builtin
         } else {
-            Resolution::Resolved(candidate)
+            Resolution::Resolved(vec![candidate])
         }
     } else {
         Resolution::Unresolved(format!(

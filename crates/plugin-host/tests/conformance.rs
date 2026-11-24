@@ -9,10 +9,22 @@ use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
-use codeint_model::{LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError};
+use codeint_model::{
+    HazardLine, LanguagePlugin, LowerError, Manifest, RepoPath, SourceSet, WorkspaceError,
+};
 use codeint_plugin_host::load_language_plugin;
 
-use common::{declaration_for, sample_plugin_wasm};
+use common::{declaration_for, sample_plugin_wasm, sandbox_probe_wasm};
+
+struct ImportConformanceFixture<'a> {
+    repository_paths: &'a [&'a str],
+    expected_manifest_path: &'a str,
+    valid_manifests: &'a [(&'a str, &'a str)],
+    expected_workspace_package: &'a str,
+    invalid_manifest_text: &'a str,
+    import_requests: &'a [(&'a str, &'a str)],
+    expected_resolved_targets: &'a [&'a str],
+}
 
 struct ConformanceFixture<'a> {
     name: &'a str,
@@ -26,149 +38,62 @@ struct ConformanceFixture<'a> {
     unparsable_path: &'a str,
     unparsable_source: &'a str,
     unsupported_path: &'a str,
-    repository_paths: &'a [&'a str],
-    expected_manifest_path: &'a str,
-    valid_manifests: &'a [(&'a str, &'a str)],
-    expected_workspace_package: &'a str,
-    invalid_manifest_text: &'a str,
-    import_requests: &'a [(&'a str, &'a str)],
-    expected_resolved_target: &'a str,
+    imports: Option<ImportConformanceFixture<'a>>,
 }
 
-fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceFixture<'_>) {
-    let label = fixture.name;
-
-    let extensions = plugin.extensions();
-    assert!(
-        !extensions.is_empty(),
-        "{label}: extensions must not be empty"
-    );
-    for extension in &extensions {
+fn assert_valid_hazard_lines(
+    label: &str,
+    file_kind: &str,
+    source: &str,
+    hazard_lines: &[HazardLine],
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) {
+    if !has_hazard_rules {
         assert!(
-            !extension.is_empty() && !extension.starts_with('.'),
-            "{label}: invalid extension {extension:?}"
+            hazard_lines.is_empty(),
+            "{label}: {file_kind} returned hazard_lines when has_hazard_rules is false: {hazard_lines:?}"
         );
     }
-
-    let unsupported = plugin.lower(
-        &RepoPath::new(fixture.unsupported_path).unwrap(),
-        "plain text\n",
-    );
-    assert!(
-        matches!(unsupported, Err(LowerError::UnsupportedFile { .. })),
-        "{label}: expected UnsupportedFile, got {unsupported:?}"
-    );
-
-    let empty = plugin
-        .lower(&RepoPath::new(fixture.empty_path).unwrap(), "")
-        .unwrap_or_else(|error| panic!("{label}: empty file failed to lower: {error}"));
-    assert_eq!(empty.source_lines, 0, "{label}: empty source_lines");
-    assert!(empty.functions.is_empty(), "{label}: empty functions");
-    assert!(empty.tokens.is_empty(), "{label}: empty tokens");
-    assert!(
-        empty.flagged_lines.is_empty(),
-        "{label}: empty flagged_lines"
-    );
-    assert!(
-        empty.runtime_imports.is_empty(),
-        "{label}: empty runtime_imports"
-    );
-
-    if let Some((decl_path, decl_source)) = fixture.declaration_only {
-        let decl = plugin.lower(&RepoPath::new(decl_path).unwrap(), decl_source);
+    let source_line_count = source.lines().count();
+    for hazard in hazard_lines {
         assert!(
-            matches!(decl, Err(LowerError::DeclarationOnly)),
-            "{label}: expected DeclarationOnly, got {decl:?}"
+            hazard.line >= 1 && (hazard.line as usize) <= source_line_count,
+            "{label}: {file_kind} hazard line {} is outside 1..={source_line_count}",
+            hazard.line
+        );
+        assert!(
+            hazard_rules.iter().any(|rule| rule == &hazard.rule),
+            "{label}: {file_kind} hazard rule {:?} is not listed in hazard_rules ({hazard_rules:?})",
+            hazard.rule
         );
     }
+}
 
-    let unparsable = plugin.lower(
-        &RepoPath::new(fixture.unparsable_path).unwrap(),
-        fixture.unparsable_source,
-    );
-    assert!(
-        matches!(&unparsable, Err(LowerError::Unparsable { message }) if !message.is_empty()),
-        "{label}: expected Unparsable with message, got {unparsable:?}"
-    );
-
-    let prod_path = RepoPath::new(fixture.production_path).unwrap();
-    let prod = plugin
-        .lower(&prod_path, fixture.production_source)
-        .unwrap_or_else(|error| panic!("{label}: production file failed to lower: {error}"));
-    assert_eq!(
-        prod.source_set,
-        SourceSet::Production,
-        "{label}: production source_set"
-    );
-    assert!(prod.source_lines > 0, "{label}: production source_lines");
-    assert!(!prod.functions.is_empty(), "{label}: production functions");
-    assert!(!prod.tokens.is_empty(), "{label}: production tokens");
-    assert!(
-        !prod.runtime_imports.is_empty(),
-        "{label}: production runtime_imports"
-    );
-    for pair in prod.functions.windows(2) {
-        assert!(
-            pair[0].line <= pair[1].line,
-            "{label}: functions out of order"
-        );
-    }
-    for function in &prod.functions {
-        assert!(
-            function.line >= 1 && function.line <= function.end_line,
-            "{label}: invalid function span {function:?}"
-        );
-    }
-    for pair in prod.tokens.windows(2) {
-        assert!(pair[0].line <= pair[1].line, "{label}: tokens out of order");
-    }
-    for flagged in &prod.flagged_lines {
-        assert!(
-            flagged.line >= 1 && !flagged.rule.is_empty(),
-            "{label}: invalid flagged line"
-        );
-    }
-
-    let crlf = plugin
-        .lower(&prod_path, fixture.production_source_crlf)
-        .unwrap_or_else(|error| panic!("{label}: CRLF file failed to lower: {error}"));
-    assert_eq!(
-        crlf.source_lines, prod.source_lines,
-        "{label}: CRLF source_lines"
-    );
-    assert_eq!(crlf.functions, prod.functions, "{label}: CRLF functions");
-
-    let test_model = plugin
-        .lower(
-            &RepoPath::new(fixture.test_path).unwrap(),
-            fixture.test_source,
-        )
-        .unwrap_or_else(|error| panic!("{label}: test file failed to lower: {error}"));
-    assert_eq!(
-        test_model.source_set,
-        SourceSet::Test,
-        "{label}: test source_set"
-    );
-
-    let repo_paths: Vec<RepoPath> = fixture
+fn assert_import_conformance(
+    plugin: &dyn LanguagePlugin,
+    label: &str,
+    imports: &ImportConformanceFixture<'_>,
+) {
+    let repo_paths: Vec<RepoPath> = imports
         .repository_paths
         .iter()
         .map(|path| RepoPath::new(*path).unwrap())
         .collect();
     let manifest_paths = plugin.manifest_paths(&repo_paths);
     assert!(
-        manifest_paths.contains(&fixture.expected_manifest_path.to_owned()),
+        manifest_paths.contains(&imports.expected_manifest_path.to_owned()),
         "{label}: expected manifest {} in {manifest_paths:?}",
-        fixture.expected_manifest_path
+        imports.expected_manifest_path
     );
     for chosen in &manifest_paths {
         assert!(
-            fixture.repository_paths.contains(&chosen.as_str()),
+            imports.repository_paths.contains(&chosen.as_str()),
             "{label}: manifest_paths returned {chosen:?} outside repository_paths"
         );
     }
 
-    let valid_manifest: Vec<Manifest> = fixture
+    let valid_manifest: Vec<Manifest> = imports
         .valid_manifests
         .iter()
         .map(|(path, text)| Manifest {
@@ -181,13 +106,13 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         .unwrap_or_else(|error| panic!("{label}: workspace_packages failed: {error}"));
     assert_eq!(
         packages,
-        vec![RepoPath::new(fixture.expected_workspace_package).unwrap()],
+        vec![RepoPath::new(imports.expected_workspace_package).unwrap()],
         "{label}: workspace_packages"
     );
 
     let invalid_manifest = vec![Manifest {
-        path: fixture.expected_manifest_path.to_owned(),
-        text: fixture.invalid_manifest_text.to_owned(),
+        path: imports.expected_manifest_path.to_owned(),
+        text: imports.invalid_manifest_text.to_owned(),
     }];
     let bad_workspace = plugin.workspace_packages(invalid_manifest);
     assert!(
@@ -195,7 +120,7 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         "{label}: expected WorkspaceError::Manifest, got {bad_workspace:?}"
     );
 
-    let requests: Vec<ImportRequest> = fixture
+    let requests: Vec<ImportRequest> = imports
         .import_requests
         .iter()
         .map(|(importer, specifier)| ImportRequest {
@@ -203,15 +128,37 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             specifier: (*specifier).to_owned(),
         })
         .collect();
-    let resolutions = plugin.resolve_imports(&repo_paths, valid_manifest.clone(), requests);
+    let resolutions = plugin
+        .resolve_imports(&repo_paths, valid_manifest.clone(), requests)
+        .unwrap_or_else(|error| panic!("{label}: resolve_imports failed: {error}"));
     assert_eq!(
         resolutions.len(),
-        fixture.import_requests.len(),
+        imports.import_requests.len(),
         "{label}: resolve_imports length must match requests"
     );
+    for resolution in &resolutions {
+        if let Resolution::Resolved(targets) = resolution {
+            assert!(
+                !targets.is_empty(),
+                "{label}: Resolution::Resolved must contain at least one repository file"
+            );
+            for target in targets {
+                assert!(
+                    imports.repository_paths.contains(&target.as_str()),
+                    "{label}: resolve_imports returned {target:?} outside repository_paths"
+                );
+            }
+        }
+    }
     assert_eq!(
         resolutions[0],
-        Resolution::Resolved(fixture.expected_resolved_target.to_owned()),
+        Resolution::Resolved(
+            imports
+                .expected_resolved_targets
+                .iter()
+                .map(|target| (*target).to_owned())
+                .collect()
+        ),
         "{label}: first import resolves"
     );
     assert!(
@@ -236,11 +183,270 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         .unwrap_or_else(|error| panic!("{label}: entry_points failed: {error}"));
     for entry in &entry_points {
         assert!(
-            fixture.repository_paths.contains(&entry.as_str()),
+            imports.repository_paths.contains(&entry.as_str()),
             "{label}: entry_points returned {entry:?} outside repository_paths"
         );
     }
+}
 
+fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceFixture<'_>) {
+    let label = fixture.name;
+    let has_imports = plugin.has_imports();
+    assert_eq!(
+        fixture.imports.is_some(),
+        has_imports,
+        "{label}: fixture.imports presence must match plugin.has_imports() ({has_imports})"
+    );
+    assert_extensions_and_hazard_rules(plugin, label);
+    let has_hazard_rules = plugin.has_hazard_rules();
+    let hazard_rules = plugin.hazard_rules();
+    assert_edge_case_lowers(plugin, fixture, has_hazard_rules, &hazard_rules);
+    let prod = assert_production_and_crlf_lower(
+        plugin,
+        fixture,
+        has_imports,
+        has_hazard_rules,
+        &hazard_rules,
+    );
+    assert_test_lower(
+        plugin,
+        fixture,
+        has_imports,
+        has_hazard_rules,
+        &hazard_rules,
+    );
+    if let Some(imports) = &fixture.imports {
+        assert_import_conformance(plugin, label, imports);
+    }
+    assert_reference_ranges_and_concurrency(plugin, fixture, &prod);
+}
+
+fn assert_extensions_and_hazard_rules(plugin: &dyn LanguagePlugin, label: &str) {
+    let extensions = plugin.extensions();
+    assert!(
+        !extensions.is_empty(),
+        "{label}: extensions must not be empty"
+    );
+    for extension in &extensions {
+        assert!(
+            !extension.is_empty() && !extension.starts_with('.'),
+            "{label}: invalid extension {extension:?}"
+        );
+    }
+    let has_hazard_rules = plugin.has_hazard_rules();
+    let hazard_rules = plugin.hazard_rules();
+    if has_hazard_rules {
+        assert!(
+            !hazard_rules.is_empty(),
+            "{label}: has_hazard_rules is true, so hazard_rules must not be empty"
+        );
+    } else {
+        assert!(
+            hazard_rules.is_empty(),
+            "{label}: has_hazard_rules is false, so hazard_rules must be empty"
+        );
+    }
+    for rule in &hazard_rules {
+        assert!(
+            !rule.is_empty(),
+            "{label}: hazard_rules must not contain empty rule names"
+        );
+    }
+}
+
+fn assert_edge_case_lowers(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) {
+    let label = fixture.name;
+    let unsupported = plugin.lower(
+        &RepoPath::new(fixture.unsupported_path).unwrap(),
+        "plain text\n",
+    );
+    assert!(
+        matches!(unsupported, Err(LowerError::UnsupportedFile { .. })),
+        "{label}: expected UnsupportedFile, got {unsupported:?}"
+    );
+    let empty = plugin
+        .lower(&RepoPath::new(fixture.empty_path).unwrap(), "")
+        .unwrap_or_else(|error| panic!("{label}: empty file failed to lower: {error}"));
+    assert_eq!(empty.source_lines, 0, "{label}: empty source_lines");
+    assert!(empty.functions.is_empty(), "{label}: empty functions");
+    assert!(empty.tokens.is_empty(), "{label}: empty tokens");
+    assert!(
+        empty.flagged_lines.is_empty(),
+        "{label}: empty flagged_lines"
+    );
+    assert!(empty.hazard_lines.is_empty(), "{label}: empty hazard_lines");
+    assert!(
+        empty.runtime_imports.is_empty(),
+        "{label}: empty runtime_imports"
+    );
+    assert_valid_hazard_lines(
+        label,
+        "empty",
+        "",
+        &empty.hazard_lines,
+        has_hazard_rules,
+        hazard_rules,
+    );
+    if let Some((decl_path, decl_source)) = fixture.declaration_only {
+        let decl = plugin.lower(&RepoPath::new(decl_path).unwrap(), decl_source);
+        assert!(
+            matches!(decl, Err(LowerError::DeclarationOnly)),
+            "{label}: expected DeclarationOnly, got {decl:?}"
+        );
+    }
+    let unparsable = plugin.lower(
+        &RepoPath::new(fixture.unparsable_path).unwrap(),
+        fixture.unparsable_source,
+    );
+    assert!(
+        matches!(&unparsable, Err(LowerError::Unparsable { message }) if !message.is_empty()),
+        "{label}: expected Unparsable with message, got {unparsable:?}"
+    );
+}
+
+fn assert_production_and_crlf_lower(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    has_imports: bool,
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) -> codeint_model::FileModel {
+    let label = fixture.name;
+    let prod_path = RepoPath::new(fixture.production_path).unwrap();
+    let prod = plugin
+        .lower(&prod_path, fixture.production_source)
+        .unwrap_or_else(|error| panic!("{label}: production file failed to lower: {error}"));
+    assert_eq!(
+        prod.source_set,
+        SourceSet::Production,
+        "{label}: production source_set"
+    );
+    assert!(prod.source_lines > 0, "{label}: production source_lines");
+    assert!(!prod.functions.is_empty(), "{label}: production functions");
+    assert!(!prod.tokens.is_empty(), "{label}: production tokens");
+    if has_imports {
+        assert!(
+            !prod.runtime_imports.is_empty(),
+            "{label}: production runtime_imports"
+        );
+    } else {
+        assert!(
+            prod.runtime_imports.is_empty(),
+            "{label}: production runtime_imports must be empty when has_imports is false"
+        );
+    }
+    assert_file_model_ordering_and_spans(label, &prod);
+    assert_valid_hazard_lines(
+        label,
+        "production",
+        fixture.production_source,
+        &prod.hazard_lines,
+        has_hazard_rules,
+        hazard_rules,
+    );
+    let crlf = plugin
+        .lower(&prod_path, fixture.production_source_crlf)
+        .unwrap_or_else(|error| panic!("{label}: CRLF file failed to lower: {error}"));
+    assert_eq!(
+        crlf.source_lines, prod.source_lines,
+        "{label}: CRLF source_lines"
+    );
+    assert_eq!(crlf.functions, prod.functions, "{label}: CRLF functions");
+    assert_eq!(
+        crlf.hazard_lines, prod.hazard_lines,
+        "{label}: CRLF hazard_lines"
+    );
+    assert_valid_hazard_lines(
+        label,
+        "production CRLF",
+        fixture.production_source_crlf,
+        &crlf.hazard_lines,
+        has_hazard_rules,
+        hazard_rules,
+    );
+    prod
+}
+
+fn assert_file_model_ordering_and_spans(label: &str, prod: &codeint_model::FileModel) {
+    for pair in prod.functions.windows(2) {
+        assert!(
+            pair[0].line <= pair[1].line,
+            "{label}: functions out of order"
+        );
+    }
+    for function in &prod.functions {
+        assert!(
+            function.line >= 1 && function.line <= function.end_line,
+            "{label}: invalid function span {function:?}"
+        );
+        assert_eq!(
+            function.coverage, None,
+            "{label}: Language plugin must leave function coverage absent"
+        );
+    }
+    for pair in prod.tokens.windows(2) {
+        assert!(pair[0].line <= pair[1].line, "{label}: tokens out of order");
+    }
+    for flagged in &prod.flagged_lines {
+        assert!(
+            flagged.line >= 1 && !flagged.rule.is_empty(),
+            "{label}: invalid flagged line"
+        );
+    }
+}
+
+fn assert_test_lower(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    has_imports: bool,
+    has_hazard_rules: bool,
+    hazard_rules: &[String],
+) {
+    let label = fixture.name;
+    let test_model = plugin
+        .lower(
+            &RepoPath::new(fixture.test_path).unwrap(),
+            fixture.test_source,
+        )
+        .unwrap_or_else(|error| panic!("{label}: test file failed to lower: {error}"));
+    assert_eq!(
+        test_model.source_set,
+        SourceSet::Test,
+        "{label}: test source_set"
+    );
+    for function in &test_model.functions {
+        assert_eq!(
+            function.coverage, None,
+            "{label}: Language plugin must leave test function coverage absent"
+        );
+    }
+    assert_valid_hazard_lines(
+        label,
+        "test",
+        fixture.test_source,
+        &test_model.hazard_lines,
+        has_hazard_rules,
+        hazard_rules,
+    );
+    if !has_imports {
+        assert!(
+            test_model.runtime_imports.is_empty(),
+            "{label}: test runtime_imports must be empty when has_imports is false"
+        );
+    }
+}
+
+fn assert_reference_ranges_and_concurrency(
+    plugin: &dyn LanguagePlugin,
+    fixture: &ConformanceFixture<'_>,
+    prod: &codeint_model::FileModel,
+) {
+    let label = fixture.name;
     let ranges = plugin
         .reference_ranges()
         .unwrap_or_else(|error| panic!("{label}: reference_ranges failed: {error}"));
@@ -248,7 +454,7 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         ranges.for_metric("erosion").is_some(),
         "{label}: expected erosion reference range"
     );
-
+    let prod_path = RepoPath::new(fixture.production_path).unwrap();
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
             .map(|_| {
@@ -261,7 +467,7 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
             .collect();
         for handle in handles {
             assert_eq!(
-                handle.join().unwrap(),
+                &handle.join().unwrap(),
                 prod,
                 "{label}: concurrent lower mismatch"
             );
@@ -286,25 +492,27 @@ fn built_in_typescript_javascript_plugin_passes_seam_2_conformance() {
         unparsable_path: "packages/app/src/broken.ts",
         unparsable_source: "export const = ;\n",
         unsupported_path: "scripts/tool.unknown",
-        repository_paths: &[
-            "package.json",
-            "packages/app/package.json",
-            "packages/app/src/main.ts",
-            "packages/app/src/helper.ts",
-        ],
-        expected_manifest_path: "package.json",
-        valid_manifests: &[
-            ("package.json", r#"{"workspaces": ["packages/app"]}"#),
-            ("packages/app/package.json", r#"{"name": "@sample/app"}"#),
-        ],
-        expected_workspace_package: "packages/app",
-        invalid_manifest_text: "{not json",
-        import_requests: &[
-            ("packages/app/src/main.ts", "./helper"),
-            ("packages/app/src/main.ts", "node:path"),
-            ("packages/app/src/main.ts", "./missing"),
-        ],
-        expected_resolved_target: "packages/app/src/helper.ts",
+        imports: Some(ImportConformanceFixture {
+            repository_paths: &[
+                "package.json",
+                "packages/app/package.json",
+                "packages/app/src/main.ts",
+                "packages/app/src/helper.ts",
+            ],
+            expected_manifest_path: "package.json",
+            valid_manifests: &[
+                ("package.json", r#"{"workspaces": ["packages/app"]}"#),
+                ("packages/app/package.json", r#"{"name": "@sample/app"}"#),
+            ],
+            expected_workspace_package: "packages/app",
+            invalid_manifest_text: "{not json",
+            import_requests: &[
+                ("packages/app/src/main.ts", "./helper"),
+                ("packages/app/src/main.ts", "node:path"),
+                ("packages/app/src/main.ts", "./missing"),
+            ],
+            expected_resolved_targets: &["packages/app/src/helper.ts"],
+        }),
     };
 
     assert_seam_2_conformance(&TypeScriptAndJavaScript, &fixture);
@@ -329,21 +537,23 @@ fn sample_external_wasm_plugin_passes_seam_2_conformance() {
         unparsable_path: "packages/app/src/broken.mini",
         unparsable_source: "SYNTAX_ERROR\n",
         unsupported_path: "scripts/tool.unknown",
-        repository_paths: &[
-            "mini.workspace",
-            "packages/app/src/main.mini",
-            "packages/app/src/helper.mini",
-        ],
-        expected_manifest_path: "mini.workspace",
-        valid_manifests: &[("mini.workspace", "packages/app\n")],
-        expected_workspace_package: "packages/app",
-        invalid_manifest_text: "INVALID: bad workspace entry\n",
-        import_requests: &[
-            ("packages/app/src/main.mini", "./helper"),
-            ("packages/app/src/main.mini", "external-lib"),
-            ("packages/app/src/main.mini", "./missing"),
-        ],
-        expected_resolved_target: "packages/app/src/helper.mini",
+        imports: Some(ImportConformanceFixture {
+            repository_paths: &[
+                "mini.workspace",
+                "packages/app/src/main.mini",
+                "packages/app/src/helper.mini",
+            ],
+            expected_manifest_path: "mini.workspace",
+            valid_manifests: &[("mini.workspace", "packages/app\n")],
+            expected_workspace_package: "packages/app",
+            invalid_manifest_text: "INVALID: bad workspace entry\n",
+            import_requests: &[
+                ("packages/app/src/main.mini", "./helper"),
+                ("packages/app/src/main.mini", "external-lib"),
+                ("packages/app/src/main.mini", "./missing"),
+            ],
+            expected_resolved_targets: &["packages/app/src/helper.mini"],
+        }),
     };
 
     assert_seam_2_conformance(&plugin, &fixture);
@@ -427,13 +637,15 @@ fn run_simple_conformance(
             unparsable_path: files.5,
             unparsable_source: files.6,
             unsupported_path: "scripts/tool.unknown",
-            repository_paths: workspace.3,
-            expected_manifest_path: workspace.0,
-            valid_manifests: workspace.4,
-            expected_workspace_package: workspace.1,
-            invalid_manifest_text: workspace.2,
-            import_requests: workspace.5,
-            expected_resolved_target: files.1,
+            imports: Some(ImportConformanceFixture {
+                repository_paths: workspace.3,
+                expected_manifest_path: workspace.0,
+                valid_manifests: workspace.4,
+                expected_workspace_package: workspace.1,
+                invalid_manifest_text: workspace.2,
+                import_requests: workspace.5,
+                expected_resolved_targets: &[files.1],
+            }),
         },
     );
 }
@@ -475,13 +687,15 @@ fn built_in_php_plugin_passes_seam_2_conformance() {
         unparsable_path: "packages/app/src/Broken.php",
         unparsable_source: "<?php\nfunction broken() { $x = 'unclosed; }\n",
         unsupported_path: "scripts/tool.unknown",
-        repository_paths: &REPO,
-        expected_manifest_path: REPO[0],
-        valid_manifests: &MANIFESTS,
-        expected_workspace_package: "packages/app",
-        invalid_manifest_text: "{not json",
-        import_requests: &REQUESTS,
-        expected_resolved_target: REPO[3],
+        imports: Some(ImportConformanceFixture {
+            repository_paths: &REPO,
+            expected_manifest_path: REPO[0],
+            valid_manifests: &MANIFESTS,
+            expected_workspace_package: "packages/app",
+            invalid_manifest_text: "{not json",
+            import_requests: &REQUESTS,
+            expected_resolved_targets: &[REPO[3]],
+        }),
     };
     assert_seam_2_conformance(&Php, &fixture);
 }
@@ -519,13 +733,15 @@ fn built_in_dart_plugin_passes_seam_2_conformance() {
             unparsable_path: "packages/app/lib/broken.dart",
             unparsable_source: "void broken() { final s = 'unclosed; }\n",
             unsupported_path: "scripts/tool.unknown",
-            repository_paths: &paths,
-            expected_manifest_path: paths[0],
-            valid_manifests: &manifests,
-            expected_workspace_package: "packages/app",
-            invalid_manifest_text: "workspace: [\n",
-            import_requests: &requests,
-            expected_resolved_target: paths[3],
+            imports: Some(ImportConformanceFixture {
+                repository_paths: &paths,
+                expected_manifest_path: paths[0],
+                valid_manifests: &manifests,
+                expected_workspace_package: "packages/app",
+                invalid_manifest_text: "workspace: [\n",
+                import_requests: &requests,
+                expected_resolved_targets: &[paths[3]],
+            }),
         },
     );
 }
@@ -535,28 +751,30 @@ fn built_in_python_plugin_passes_seam_2_conformance() {
     let prod = "from app.helper import value\n\n# comment\ndef run(flag):\n    if flag:\n        return value()\n    else:\n        return 0\n";
     let prod_crlf = prod.replace('\n', "\r\n");
     let fixture = ConformanceFixture {
-        expected_resolved_target: "packages/app/src/app/helper.py",
-        import_requests: &[
-            ("packages/app/src/app/main.py", "app.helper"),
-            ("packages/app/src/app/main.py", "os"),
-            ("packages/app/src/app/main.py", ".missing"),
-        ],
-        invalid_manifest_text: "[tool.uv.workspace\n",
-        expected_workspace_package: "packages/app",
-        valid_manifests: &[
-            (
+        imports: Some(ImportConformanceFixture {
+            expected_resolved_targets: &["packages/app/src/app/helper.py"],
+            import_requests: &[
+                ("packages/app/src/app/main.py", "app.helper"),
+                ("packages/app/src/app/main.py", "os"),
+                ("packages/app/src/app/main.py", ".missing"),
+            ],
+            invalid_manifest_text: "[tool.uv.workspace\n",
+            expected_workspace_package: "packages/app",
+            valid_manifests: &[
+                (
+                    "pyproject.toml",
+                    "[tool.uv.workspace]\nmembers = [\"packages/*\"]\n",
+                ),
+                ("packages/app/pyproject.toml", "[project]\nname = \"app\"\n"),
+            ],
+            expected_manifest_path: "pyproject.toml",
+            repository_paths: &[
                 "pyproject.toml",
-                "[tool.uv.workspace]\nmembers = [\"packages/*\"]\n",
-            ),
-            ("packages/app/pyproject.toml", "[project]\nname = \"app\"\n"),
-        ],
-        expected_manifest_path: "pyproject.toml",
-        repository_paths: &[
-            "pyproject.toml",
-            "packages/app/pyproject.toml",
-            "packages/app/src/app/main.py",
-            "packages/app/src/app/helper.py",
-        ],
+                "packages/app/pyproject.toml",
+                "packages/app/src/app/main.py",
+                "packages/app/src/app/helper.py",
+            ],
+        }),
         unsupported_path: "scripts/tool.unknown",
         unparsable_source: "def broken():\n    s = 'unclosed\n",
         unparsable_path: "packages/app/src/app/broken.py",
@@ -570,4 +788,87 @@ fn built_in_python_plugin_passes_seam_2_conformance() {
         name: "python",
     };
     assert_seam_2_conformance(&Python, &fixture);
+}
+
+fn load_external_plugin(name: &str, wasm_path: &Path) -> codeint_plugin_host::WasmLanguagePlugin {
+    let declaration = declaration_for(name, wasm_path);
+    load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .unwrap_or_else(|error| panic!("{name} external wasm plugin failed to load: {error}"))
+}
+
+fn assert_sandbox_probe_conformance(
+    name: &str,
+    wasm_file: &str,
+    prefix: &str,
+    extension: &str,
+    production_source: &str,
+    imports: Option<ImportConformanceFixture<'_>>,
+) {
+    let wasm_path = sandbox_probe_wasm(wasm_file);
+    let plugin = load_external_plugin(name, &wasm_path);
+    let production_source_crlf = production_source.replace('\n', "\r\n");
+    let production_path = format!("{prefix}/main.{extension}");
+    let test_path = format!("{prefix}/main_test.{extension}");
+    let empty_path = format!("{prefix}/empty.{extension}");
+    let unparsable_path = format!("{prefix}/broken.{extension}");
+    assert_seam_2_conformance(
+        &plugin,
+        &ConformanceFixture {
+            name,
+            production_path: &production_path,
+            production_source,
+            production_source_crlf: &production_source_crlf,
+            test_path: &test_path,
+            test_source: "fn check()\n",
+            empty_path: &empty_path,
+            declaration_only: None,
+            unparsable_path: &unparsable_path,
+            unparsable_source: "SYNTAX_ERROR\n",
+            unsupported_path: "scripts/tool.unknown",
+            imports,
+        },
+    );
+}
+
+#[test]
+fn folder_import_external_wasm_plugin_passes_seam_2_conformance() {
+    let alpha = "packages/app/util/alpha.fld";
+    let beta = "packages/app/util/beta.fld";
+    let repo_paths = ["fld.workspace", "packages/app/main.fld", alpha, beta];
+    let resolved_targets = [alpha, beta];
+    assert_sandbox_probe_conformance(
+        "folder-import",
+        "folder_import_language_plugin.wasm",
+        "packages/app",
+        "fld",
+        "use packages/app/util\n\n# comment\nfn run()\n",
+        Some(ImportConformanceFixture {
+            repository_paths: &repo_paths,
+            expected_manifest_path: "fld.workspace",
+            valid_manifests: &[(
+                "fld.workspace",
+                "packages/app\nentry:packages/app/main.fld\n",
+            )],
+            expected_workspace_package: "packages/app",
+            invalid_manifest_text: "INVALID: bad workspace entry\n",
+            import_requests: &[
+                ("packages/app/main.fld", "packages/app/util"),
+                ("packages/app/main.fld", "ext:external-lib"),
+                ("packages/app/main.fld", "packages/app/missing"),
+            ],
+            expected_resolved_targets: &resolved_targets,
+        }),
+    );
+}
+
+#[test]
+fn no_imports_external_wasm_plugin_passes_seam_2_conformance() {
+    assert_sandbox_probe_conformance(
+        "no-imports",
+        "no_imports_language_plugin.wasm",
+        "queries",
+        "noimp",
+        "# comment\nfn run()\nselect_rows\n",
+        None,
+    );
 }

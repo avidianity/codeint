@@ -26,7 +26,7 @@ pub(crate) const ERODED_FUNCTION_COLUMNS: [&str; 4] = [
 ];
 pub(crate) const COMPLEX_FUNCTION_COLUMNS: [&str; 3] =
     ["Function", "Cognitive complexity", "Source lines"];
-const PACKAGE_COLUMNS: [&str; 9] = [
+const PACKAGE_COLUMNS: [&str; 8] = [
     "Source set",
     "Package",
     "Files",
@@ -35,7 +35,6 @@ const PACKAGE_COLUMNS: [&str; 9] = [
     "Cognitive complexity",
     "Duplication",
     "Verbosity",
-    "Import cycles",
 ];
 pub(crate) const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
 pub(crate) const EXTERNAL_FINDING_COLUMNS: [&str; 2] = ["Location", "Message"];
@@ -139,6 +138,9 @@ impl Noun {
 pub(crate) fn render(report: &Report) -> String {
     let sections = report.measured.source_sets.named();
     let mut blocks = vec![TITLE.to_string(), measured_summary(&report.measured)];
+    if let Some(note) = &report.measured.import_metrics_note {
+        blocks.push(prose(note));
+    }
     blocks.extend(metric_table(&sections));
     push_dependencies_summary(&mut blocks, report.measured.dependencies.as_ref());
     if !report.over_budget.is_empty() {
@@ -175,6 +177,9 @@ fn push_language_sections(
         let language_sections = language.source_sets.named();
         blocks.push(format!("## Language plugin {}", code(plugin)));
         blocks.push(measured_summary(language));
+        if let Some(note) = &language.import_metrics_note {
+            blocks.push(prose(note));
+        }
         blocks.extend(metric_table(&language_sections));
         if let Some(dependencies) = &language.dependencies {
             blocks.push(dependencies_summary_table(dependencies));
@@ -217,19 +222,29 @@ fn metric_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
 }
 
 fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
+    let show_import_cycles = sections.iter().any(|(_, section)| {
+        section
+            .packages
+            .iter()
+            .any(|package| package.import_cycles.is_some())
+    });
     let package_rows: Vec<Vec<String>> = sections
         .iter()
         .flat_map(|(name, section)| {
             section
                 .packages
                 .iter()
-                .map(|package| package_row(name, package))
+                .map(|package| package_row(name, package, show_import_cycles))
         })
         .collect();
     if package_rows.is_empty() {
         return None;
     }
-    Some(table(&PACKAGE_COLUMNS, package_rows))
+    let mut columns: Vec<&str> = PACKAGE_COLUMNS.to_vec();
+    if show_import_cycles {
+        columns.push("Import cycles");
+    }
+    Some(table(&columns, package_rows))
 }
 
 pub(crate) fn sentence_item(failure: &impl std::fmt::Display) -> String {
@@ -242,8 +257,12 @@ pub(crate) fn sentence_item(failure: &impl std::fmt::Display) -> String {
     format!("{}.", prose(&capitalized))
 }
 
-fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
-    vec![
+fn package_row(
+    source_set: &str,
+    package: &PackageSection,
+    show_import_cycles: bool,
+) -> Vec<String> {
+    let mut cells = vec![
         source_set.to_string(),
         code(&package.path),
         package.files.to_string(),
@@ -252,8 +271,14 @@ fn package_row(source_set: &str, package: &PackageSection) -> Vec<String> {
         package.cognitive_complexity.ratio.0.to_string(),
         package.duplication.ratio.0.to_string(),
         package.verbosity.ratio.0.to_string(),
-        package.import_cycles.ratio.0.to_string(),
-    ]
+    ];
+    if show_import_cycles {
+        cells.push(package.import_cycles.as_ref().map_or_else(
+            || "not measured".to_string(),
+            |cycles| cycles.ratio.0.to_string(),
+        ));
+    }
+    cells
 }
 
 fn measured_summary(measured: &MeasuredSection) -> String {
@@ -309,7 +334,6 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         ),
     };
     let verbosity = &section.verbosity;
-    let import_cycles = &section.import_cycles;
     let mut rows = vec![
         row(
             "Erosion",
@@ -340,12 +364,14 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
                 CLONE_LINE.counted(verbosity.totals.clone_lines)
             ),
         ),
-        row(
+    ];
+    if let Some(import_cycles) = &section.import_cycles {
+        rows.push(row(
             "Import cycles",
             &import_cycles.header,
             import_cycles_behind_the_value(import_cycles),
-        ),
-    ];
+        ));
+    }
     if let Some(boundaries) = &section.boundaries {
         let total_findings = boundaries
             .findings
@@ -451,20 +477,22 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
         &FLAGGED_LINE,
         |listed| findings_table(&FLAGGED_LINE_COLUMNS, listed, flagged_line_row),
     );
-    push_findings(
-        &mut blocks,
-        "Import cycles",
-        &section.import_cycles.findings,
-        &IMPORT_CYCLE,
-        |listed| list(listed.iter().map(import_cycle_item)),
-    );
-    push_findings(
-        &mut blocks,
-        "Unresolved imports",
-        &section.import_cycles.unresolved_imports.imports,
-        &UNRESOLVED_IMPORT,
-        |listed| findings_table(&UNRESOLVED_IMPORT_COLUMNS, listed, unresolved_import_row),
-    );
+    if let Some(import_cycles) = &section.import_cycles {
+        push_findings(
+            &mut blocks,
+            "Import cycles",
+            &import_cycles.findings,
+            &IMPORT_CYCLE,
+            |listed| list(listed.iter().map(import_cycle_item)),
+        );
+        push_findings(
+            &mut blocks,
+            "Unresolved imports",
+            &import_cycles.unresolved_imports.imports,
+            &UNRESOLVED_IMPORT,
+            |listed| findings_table(&UNRESOLVED_IMPORT_COLUMNS, listed, unresolved_import_row),
+        );
+    }
     if let Some(boundaries) = &section.boundaries {
         push_findings(
             &mut blocks,

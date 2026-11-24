@@ -77,14 +77,10 @@ impl Guest for MemoryHogLanguagePlugin {
             buf.resize(2 * 1024 * 1024, 1u8);
             core::hint::black_box(&buf);
         }
-        Ok(FileModel {
-            source_set: SourceSet::Production,
-            source_lines: text.lines().count() as u32,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-        })
+        Ok(probe_runtime::blank_file_model!(
+            SourceSet::Production,
+            text.lines().count() as u32,
+        ))
     }
 
     fn manifest_paths(_paths: Vec<String>) -> Vec<String> {
@@ -152,5 +148,17 @@ impl Guest for MemoryHogLanguagePlugin {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         vec![]
+    }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        vec![]
+    }
+
+    fn has_imports() -> bool {
+        true
     }
 }

@@ -76,7 +76,7 @@ A directional rule or public-file constraint governing which architectural zones
 _Avoid_: layer rule, module fence
 
 **Orphan file**:
-A Production source file unreachable through runtime imports from any manifest-declared or configured entry point, classified as unreferenced or test-only.
+A Production source file unreachable through runtime imports from any manifest-declared, program-start, or configured entry point, classified as unreferenced or test-only.
 _Avoid_: dead file, unused file
 
 **Dependency hygiene**:

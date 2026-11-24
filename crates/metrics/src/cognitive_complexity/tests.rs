@@ -12,7 +12,9 @@ fn file(path: &str, functions: Vec<Function>, tokens: Vec<Token>) -> SourceFile 
             functions,
             tokens,
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }
@@ -38,6 +40,7 @@ fn flags_only_functions_over_15_and_sorts_worst_first() {
                     source_lines: 10,
                     name: Some("flatAtThreshold".to_owned()),
                     cognitive_complexity: 15,
+                    coverage: None,
                 },
                 Function {
                     line: 12,
@@ -46,6 +49,7 @@ fn flags_only_functions_over_15_and_sorts_worst_first() {
                     source_lines: 12,
                     name: Some("nestedModerate".to_owned()),
                     cognitive_complexity: 16,
+                    coverage: None,
                 },
                 Function {
                     line: 27,
@@ -54,6 +58,7 @@ fn flags_only_functions_over_15_and_sorts_worst_first() {
                     source_lines: 14,
                     name: None,
                     cognitive_complexity: 24,
+                    coverage: None,
                 },
             ],
             vec![token(1, 10), token(12, 20), token(27, 30)],
@@ -93,6 +98,7 @@ fn finding_id_stays_stable_when_function_moves_lines_and_by_package_sums_to_tota
                     source_lines: 10,
                     name: Some("deep".to_owned()),
                     cognitive_complexity: 20,
+                    coverage: None,
                 }],
                 vec![token(2, 111), token(3, 222)],
             ),
@@ -105,6 +111,7 @@ fn finding_id_stays_stable_when_function_moves_lines_and_by_package_sums_to_tota
                     source_lines: 5,
                     name: Some("simple".to_owned()),
                     cognitive_complexity: 5,
+                    coverage: None,
                 }],
                 vec![token(1, 333)],
             ),
@@ -122,6 +129,7 @@ fn finding_id_stays_stable_when_function_moves_lines_and_by_package_sums_to_tota
                 source_lines: 10,
                 name: Some("deep".to_owned()),
                 cognitive_complexity: 20,
+                coverage: None,
             }],
             vec![token(21, 111), token(22, 222)],
         )],

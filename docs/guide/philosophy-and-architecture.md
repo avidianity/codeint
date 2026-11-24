@@ -30,7 +30,7 @@ Four core Metrics are calibrated against pre-2023 human-written repositories:
 Additional independent Metrics and structural checks run alongside them:
 
 - **Cognitive complexity**: the share of total nesting-weighted cognitive complexity held by functions scoring over 15.
-- **Orphan files**: Production files unreachable through runtime imports from manifest-declared and configured `entry_points`, classified as `unreferenced` or `test-only`.
+- **Orphan files**: Production files unreachable through runtime imports from manifest-declared, program-start, and configured `entry_points`, classified as `unreferenced` or `test-only`.
 - **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing package manifests against imported external packages while excluding standard-library built-ins.
 - **Import boundaries**: directional `allow`/`deny` rules and `public_files` encapsulation across named architectural zones, paired with pre-edit `codeint guard <path>` checks.
 
@@ -47,6 +47,7 @@ For each built-in language, codeint measures a panel of 20 public repositories p
 ### 4. Budgets and Regressions
 
 - A **Budget** (`codeint check` and `codeint diff`) sets a hard ceiling for a Metric in a Source set (or for a top-level Dependency hygiene Metric).
+  For Import cycles, Orphan files, Import boundaries, and Dependency hygiene, repository totals and Budgets count only languages with imports, and stay absent when no measured language has imports.
 - A **Regression** (`codeint diff <base>`) compares the working tree against the Git merge-base and fails when a change introduces new Findings or raises a ratio past its limit.
   Together, Budgets cap absolute entropy while Regressions act as a ratchet on every pull request.
 
@@ -75,5 +76,5 @@ CLI + MCP + Rust SDK (crates/cli)  &  JS/TS SDK (npm/codeint)
 - **Git-native measurement (`crates/git`)**: reads tracked working-tree files and historical commits directly from Git objects via `gix`, never modifying the working tree during `diff`, `trend`, `churn`, or `coupling`, with a content-addressed result cache for fast repeated runs.
 - **Language plugins (`plugins/languages/*`)**: own every language-specific rule (parsing, named functions, decision points, cognitive complexity, tokens, Flagged lines, imports, workspaces, entry points, declared dependencies, Source-set defaults) and lower files into the language-neutral **Code model** (`crates/model`).
   TypeScript/JavaScript (including `.vue` and `.svelte` `<script>` blocks) uses `oxc_parser`; Rust uses `syn` and `proc-macro2`; PHP, Dart, and Python use pure-Rust zero-FFI lexers sharing common helpers in `crates/model/src/scan.rs`.
-- **WebAssembly plugin host (`crates/plugin-host`)**: loads third-party Language and Metric plugins as WebAssembly components implementing `codeint:plugin@0.2.0` ([ADR 0002](../adr/0002-plugins-as-wasm-components.md)) with mandatory SHA-256 verification, zero host capabilities (no filesystem, network, env, or clock access), and configurable memory and timeout caps.
+- **WebAssembly plugin host (`crates/plugin-host`)**: loads third-party Language and Metric plugins as WebAssembly components implementing `codeint:plugin@0.3.0` ([ADR 0002](../adr/0002-plugins-as-wasm-components.md)) with mandatory SHA-256 verification, zero host capabilities (no filesystem, network, env, or clock access), and configurable memory and timeout caps.
 - **Zero-duplication programmatic surfaces**: `crates/cli/src/lib.rs` exposes the Rust library API directly, and `npm/codeint` wraps the bundled native binary with zero-dependency ESM, CommonJS, and TypeScript declarations.

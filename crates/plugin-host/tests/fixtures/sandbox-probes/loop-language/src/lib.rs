@@ -45,14 +45,10 @@ impl Guest for LoopLanguagePlugin {
                 core::hint::spin_loop();
             }
         }
-        Ok(FileModel {
-            source_set: SourceSet::Production,
-            source_lines: text.lines().count() as u32,
-            functions: Vec::new(),
-            tokens: Vec::new(),
-            flagged_lines: Vec::new(),
-            runtime_imports: Vec::new(),
-        })
+        Ok(probe_runtime::blank_file_model!(
+            SourceSet::Production,
+            text.lines().count() as u32,
+        ))
     }
 
     fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
@@ -87,5 +83,17 @@ impl Guest for LoopLanguagePlugin {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
+    }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports() -> bool {
+        true
     }
 }

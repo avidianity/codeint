@@ -110,13 +110,14 @@ fn copy_metric_plugin_into(repo_root: &Path, relative: &str) -> String {
     copy_wasm_into(built_sample_metric_plugin(), repo_root, relative)
 }
 
-fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
+fn run_check_with_sandbox_probe(plugin_name: &str, kind: Option<&str>, wasm_file: &str) -> Output {
     let repo = init_repo();
     let hash = copy_wasm_into(
         &built_sandbox_probe(wasm_file),
         repo.path(),
         &format!("plugins/{wasm_file}"),
     );
+    let kind_line = kind.map_or_else(String::new, |kind| format!(r#""kind": "{kind}","#));
     write_file(
         repo.path(),
         "codeint.json",
@@ -125,6 +126,7 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
               "plugins": [
                 {{
                   "name": "{plugin_name}",
+                  {kind_line}
                   "path": "plugins/{wasm_file}",
                   "sha256": "{hash}"
                 }}
@@ -135,7 +137,6 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
     write_file(repo.path(), "src/app.ts", "export const ok = 1;\n");
 
     let output = run_codeint(repo.path(), &["check"]);
-
     assert_eq!(
         output.status.code(),
         Some(2),
@@ -143,6 +144,11 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
         output.status.code(),
         String::from_utf8_lossy(&output.stderr)
     );
+    output
+}
+
+fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
+    let output = run_check_with_sandbox_probe(plugin_name, None, wasm_file);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("cannot instantiate Plugin")
@@ -153,6 +159,48 @@ fn assert_sandbox_probe_exits_2(plugin_name: &str, wasm_file: &str, denied_inter
     );
 }
 
+fn assert_check_exits_2(dir: &Path, expected_substrings: &[&str]) {
+    let output = run_codeint(dir, &["check"]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit 2, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in expected_substrings {
+        assert!(
+            stderr.contains(expected),
+            "expected {expected:?} in stderr, got: {stderr}"
+        );
+    }
+}
+
+fn assert_skipped_reason(report: &Value, expected_path: &str, expected_substrings: &[&str]) {
+    assert_eq!(report["skipped"][0]["path"], expected_path);
+    let reason = report["skipped"][0]["reason"]
+        .as_str()
+        .expect("skipped reason string");
+    for expected in expected_substrings {
+        assert!(
+            reason.contains(expected),
+            "expected {expected:?} in skipped reason, got: {reason}"
+        );
+    }
+}
+
+fn run_check_json_with_env(dir: &Path, envs: &[(&str, &Path)]) -> Value {
+    let output = run_codeint_with_env(dir, &["check", "--format", "json"], envs);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("valid JSON report")
+}
+
 #[test]
 fn missing_sha256_hash_is_a_configuration_error_and_exits_2() {
     let repo = init_repo();
@@ -161,15 +209,7 @@ fn missing_sha256_hash_is_a_configuration_error_and_exits_2() {
         "codeint.json",
         r#"{ "plugins": [{ "name": "sample-mini", "path": "plugins/sample.wasm" }] }"#,
     );
-
-    let output = run_codeint(repo.path(), &["check"]);
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("plugins[0]") && stderr.contains("sha256"),
-        "expected missing sha256 error, got: {stderr}"
-    );
+    assert_check_exits_2(repo.path(), &["plugins[0]", "sha256"]);
 }
 
 #[test]
@@ -180,45 +220,25 @@ fn invalid_sha256_hash_is_a_configuration_error_and_exits_2() {
         "codeint.json",
         r#"{ "plugins": [{ "name": "sample-mini", "path": "plugins/sample.wasm", "sha256": "not-a-hash" }] }"#,
     );
-
-    let output = run_codeint(repo.path(), &["check"]);
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("plugins[0].sha256") && stderr.contains("64-character"),
-        "expected invalid sha256 error, got: {stderr}"
-    );
+    assert_check_exits_2(repo.path(), &["plugins[0].sha256", "64-character"]);
 }
 
 #[test]
 fn hash_mismatch_refuses_to_load_the_plugin_and_exits_2() {
     let repo = init_repo();
     let _actual = copy_plugin_into(repo.path(), "plugins/sample.wasm");
-    write_file(
+    write_plugin_config(
         repo.path(),
-        "codeint.json",
-        r#"{
-          "plugins": [
-            {
-              "name": "sample-mini",
-              "path": "plugins/sample.wasm",
-              "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
-            }
-          ]
-        }"#,
+        "sample-mini",
+        None,
+        "plugins/sample.wasm",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "",
     );
     write_file(repo.path(), "src/app.mini", "fn main() {\n  return 1\n}\n");
-
-    let output = run_codeint(repo.path(), &["check"]);
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("SHA-256 hash mismatch")
-            && stderr.contains("sample-mini")
-            && stderr.contains("sample.wasm"),
-        "expected hash mismatch naming plugin and path, got: {stderr}"
+    assert_check_exits_2(
+        repo.path(),
+        &["SHA-256 hash mismatch", "sample-mini", "sample.wasm"],
     );
 }
 
@@ -226,20 +246,13 @@ fn hash_mismatch_refuses_to_load_the_plugin_and_exits_2() {
 fn sample_external_plugin_measures_its_fixture_language_end_to_end_through_codeint_check() {
     let repo = init_repo();
     let hash = copy_plugin_into(repo.path(), "plugins/sample.wasm");
-    write_file(
+    write_plugin_config(
         repo.path(),
-        "codeint.json",
-        &format!(
-            r#"{{
-              "plugins": [
-                {{
-                  "name": "sample-mini",
-                  "path": "plugins/sample.wasm",
-                  "sha256": "{hash}"
-                }}
-              ]
-            }}"#
-        ),
+        "sample-mini",
+        None,
+        "plugins/sample.wasm",
+        &hash,
+        "",
     );
     write_file(
         repo.path(),
@@ -254,16 +267,7 @@ fn sample_external_plugin_measures_its_fixture_language_end_to_end_through_codei
     write_file(repo.path(), "src/types.d.mini", "fn extern_decl() {}\n");
     write_file(repo.path(), "src/broken.mini", "SYNTAX_ERROR\n");
 
-    let output = run_codeint(&repo.path().join("src"), &["check", "--format", "json"]);
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: Value =
-        serde_json::from_slice(&output.stdout).expect("codeint check prints valid JSON");
+    let report = run_check_json_report(&repo.path().join("src"));
     assert_eq!(report["files"], 2);
     assert_eq!(report["source_lines"], 8);
     assert_eq!(
@@ -418,17 +422,15 @@ fn two_external_plugins_claiming_one_extension_in_overlapping_languages_folders_
         "fn main() {\n  return 1\n}\n",
     );
 
-    let output = run_codeint(repo.path(), &["check"]);
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("alpha-mini")
-            && stderr.contains("zeta-mini")
-            && stderr.contains(".mini")
-            && stderr.contains("src/sub/app.mini")
-            && stderr.contains("languages"),
-        "expected extension conflict error, got: {stderr}"
+    assert_check_exits_2(
+        repo.path(),
+        &[
+            "alpha-mini",
+            "zeta-mini",
+            ".mini",
+            "src/sub/app.mini",
+            "languages",
+        ],
     );
 }
 
@@ -471,16 +473,7 @@ fn assigning_separate_directories_in_languages_resolves_external_plugin_extensio
         "fn zeta() {\n  pass;\n  return 2\n}\n",
     );
 
-    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: Value =
-        serde_json::from_slice(&output.stdout).expect("codeint check prints valid JSON");
+    let report = run_check_json_report(repo.path());
     assert_eq!(report["files"], 2, "unexpected report: {report}");
     assert_eq!(
         report["languages"]["alpha-mini"]["files"], 1,
@@ -513,7 +506,15 @@ fn short_ts_function(name: &str) -> String {
     format!("export function {name}(x: number): number {{\n  return x + 1;\n}}\n")
 }
 
-fn write_metric_plugin_config(repo_root: &Path, hash: &str, extra_fields: &str) {
+fn write_plugin_config(
+    repo_root: &Path,
+    name: &str,
+    kind: Option<&str>,
+    path: &str,
+    hash: &str,
+    extra_fields: &str,
+) {
+    let kind_line = kind.map_or_else(String::new, |kind| format!(r#""kind": "{kind}","#));
     let trailing = if extra_fields.is_empty() {
         String::new()
     } else {
@@ -526,14 +527,25 @@ fn write_metric_plugin_config(repo_root: &Path, hash: &str, extra_fields: &str) 
             r#"{{
               "plugins": [
                 {{
-                  "name": "long-functions",
-                  "kind": "metric",
-                  "path": "plugins/long_functions.wasm",
+                  "name": "{name}",
+                  {kind_line}
+                  "path": "{path}",
                   "sha256": "{hash}"
                 }}
               ]{trailing}
             }}"#
         ),
+    );
+}
+
+fn write_metric_plugin_config(repo_root: &Path, hash: &str, extra_fields: &str) {
+    write_plugin_config(
+        repo_root,
+        "long-functions",
+        Some("metric"),
+        "plugins/long_functions.wasm",
+        hash,
+        extra_fields,
     );
 }
 
@@ -552,15 +564,7 @@ fn sample_external_metric_plugin_appears_next_to_builtin_metrics_in_check_report
         ),
     );
 
-    let json_output = run_codeint(repo.path(), &["check", "--format", "json"]);
-    assert_eq!(
-        json_output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&json_output.stderr)
-    );
-    let report: Value =
-        serde_json::from_slice(&json_output.stdout).expect("codeint check prints valid JSON");
+    let report = run_check_json_report(repo.path());
     let prod = &report["source_sets"]["production"];
     assert!(prod.get("erosion").is_some());
     assert!(prod.get("duplication").is_some());
@@ -638,13 +642,7 @@ fn external_metric_plugin_works_with_budgets_in_check() {
         r#""budgets": { "production": { "long_functions": 0.5 } }"#,
     );
 
-    let passing_output = run_codeint(repo.path(), &["check", "--format", "json"]);
-    assert_eq!(
-        passing_output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&passing_output.stderr)
-    );
+    let _ = run_check_json_report(repo.path());
 }
 
 #[test]
@@ -880,14 +878,7 @@ fn https_url_plugin_downloads_once_caches_by_sha256_and_runs_offline_after_serve
         ("CODEINT_CACHE_DIR", cache_dir.path()),
         ("CODEINT_TEST_CA_CERT", server.cert_path()),
     ];
-    let first = run_codeint_with_env(repo.path(), &["check", "--format", "json"], &envs);
-    assert_eq!(
-        first.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&first.stderr)
-    );
-    let report: Value = serde_json::from_slice(&first.stdout).expect("valid JSON report");
+    let report = run_check_json_with_env(repo.path(), &envs);
     assert_eq!(report["files"], 1);
     assert_eq!(
         report["source_sets"]["production"]["verbosity"]["flagged_lines"],
@@ -906,19 +897,8 @@ fn https_url_plugin_downloads_once_caches_by_sha256_and_runs_offline_after_serve
 
     server.stop();
 
-    let second = run_codeint_with_env(
-        repo.path(),
-        &["check", "--format", "json"],
-        &[("CODEINT_CACHE_DIR", cache_dir.path())],
-    );
-    assert_eq!(
-        second.status.code(),
-        Some(0),
-        "expected cache hit after server stopped, stderr: {}",
-        String::from_utf8_lossy(&second.stderr)
-    );
-    let second_report: Value =
-        serde_json::from_slice(&second.stdout).expect("valid JSON report from cache");
+    let second_report =
+        run_check_json_with_env(repo.path(), &[("CODEINT_CACHE_DIR", cache_dir.path())]);
     assert_eq!(second_report["files"], 1);
     assert_eq!(
         second_report["source_sets"]["production"]["verbosity"]["flagged_lines"],
@@ -980,14 +960,7 @@ fn plain_http_and_non_https_plugin_urls_are_refused_with_exit_2() {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         );
 
-        let output = run_codeint(repo.path(), &["check"]);
-
-        assert_eq!(output.status.code(), Some(2), "url {bad_url}");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("insecure-mini") && stderr.contains("HTTPS"),
-            "expected HTTPS-required error naming plugin for {bad_url}, got: {stderr}"
-        );
+        assert_check_exits_2(repo.path(), &["insecure-mini", "HTTPS"]);
     }
 }
 
@@ -1006,15 +979,7 @@ fn plugin_entry_must_specify_either_path_or_url_not_neither_or_both() {
           ]
         }"#,
     );
-    let neither = run_codeint(neither_repo.path(), &["check"]);
-    assert_eq!(neither.status.code(), Some(2));
-    let neither_stderr = String::from_utf8_lossy(&neither.stderr);
-    assert!(
-        neither_stderr.contains("missing-source")
-            && neither_stderr.contains("path")
-            && neither_stderr.contains("url"),
-        "expected missing source error, got: {neither_stderr}"
-    );
+    assert_check_exits_2(neither_repo.path(), &["missing-source", "path", "url"]);
 
     let both_repo = init_repo();
     write_file(
@@ -1031,185 +996,93 @@ fn plugin_entry_must_specify_either_path_or_url_not_neither_or_both() {
           ]
         }"#,
     );
-    let both = run_codeint(both_repo.path(), &["check"]);
-    assert_eq!(both.status.code(), Some(2));
-    let both_stderr = String::from_utf8_lossy(&both.stderr);
-    assert!(
-        both_stderr.contains("both-sources") && both_stderr.contains("not both"),
-        "expected ambiguous source error, got: {both_stderr}"
+    assert_check_exits_2(both_repo.path(), &["both-sources", "not both"]);
+}
+
+fn init_single_probe_repo(
+    plugin_name: &str,
+    kind: Option<&str>,
+    wasm_file: &str,
+    extra_config: &str,
+) -> (TempDir, String) {
+    let repo = init_repo();
+    let plugin_rel = format!("plugins/{wasm_file}");
+    let hash = copy_wasm_into(&built_sandbox_probe(wasm_file), repo.path(), &plugin_rel);
+    write_plugin_config(
+        repo.path(),
+        plugin_name,
+        kind,
+        &plugin_rel,
+        &hash,
+        extra_config,
     );
+    (repo, hash)
 }
 
 #[test]
 fn language_plugin_that_loops_forever_skips_the_file_and_finishes_the_run() {
-    let repo = init_repo();
-    let hash = copy_wasm_into(
-        &built_sandbox_probe("loop_language_plugin.wasm"),
-        repo.path(),
-        "plugins/loop_lang.wasm",
-    );
-    write_file(
-        repo.path(),
-        "codeint.json",
-        &format!(
-            r#"{{
-              "plugins": [
-                {{
-                  "name": "loop-lang",
-                  "path": "plugins/loop_lang.wasm",
-                  "sha256": "{hash}"
-                }}
-              ],
-              "plugin_limits": {{
-                "timeout_ms": 50
-              }}
-            }}"#
-        ),
+    let (repo, _hash) = init_single_probe_repo(
+        "loop-lang",
+        None,
+        "loop_language_plugin.wasm",
+        r#""plugin_limits": { "timeout_ms": 50 }"#,
     );
     write_file(repo.path(), "src/hang.loop", "LOOP_FOREVER\n");
     write_file(repo.path(), "src/healthy.loop", "ok line 1\nok line 2\n");
 
-    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: Value =
-        serde_json::from_slice(&output.stdout).expect("codeint check prints valid JSON");
+    let report = run_check_json_report(repo.path());
     assert_eq!(report["files"], 1);
     assert_eq!(report["source_lines"], 2);
-    assert_eq!(report["skipped"][0]["path"], "src/hang.loop");
-    let reason = report["skipped"][0]["reason"]
-        .as_str()
-        .expect("skipped reason string");
-    assert!(
-        reason.contains("loop-lang") && reason.contains("time limit") && reason.contains("50 ms"),
-        "unexpected skipped reason: {reason}"
+    assert_skipped_reason(
+        &report,
+        "src/hang.loop",
+        &["loop-lang", "time limit", "50 ms"],
     );
 }
 
 #[test]
 fn language_plugin_that_grows_memory_past_cap_skips_the_file_and_raised_limit_takes_effect() {
-    let repo = init_repo();
-    let hash = copy_wasm_into(
-        &built_sandbox_probe("memory_hog_language_plugin.wasm"),
-        repo.path(),
-        "plugins/hog_lang.wasm",
-    );
-    write_file(
-        repo.path(),
-        "codeint.json",
-        &format!(
-            r#"{{
-              "plugins": [
-                {{
-                  "name": "hog-lang",
-                  "path": "plugins/hog_lang.wasm",
-                  "sha256": "{hash}"
-                }}
-              ],
-              "plugin_limits": {{
-                "memory_mb": 2
-              }}
-            }}"#
-        ),
+    let (repo, hash) = init_single_probe_repo(
+        "hog-lang",
+        None,
+        "memory_hog_language_plugin.wasm",
+        r#""plugin_limits": { "memory_mb": 2 }"#,
     );
     write_file(repo.path(), "src/heavy.hog", "ALLOC_2MB\n");
     write_file(repo.path(), "src/light.hog", "ok\n");
 
-    let tight_output = run_codeint(repo.path(), &["check", "--format", "json"]);
-    assert_eq!(
-        tight_output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&tight_output.stderr)
-    );
-    let tight_report: Value =
-        serde_json::from_slice(&tight_output.stdout).expect("codeint check prints valid JSON");
+    let tight_report = run_check_json_report(repo.path());
     assert_eq!(tight_report["files"], 1);
-    assert_eq!(tight_report["skipped"][0]["path"], "src/heavy.hog");
-    let reason = tight_report["skipped"][0]["reason"]
-        .as_str()
-        .expect("skipped reason string");
-    assert!(
-        reason.contains("hog-lang") && reason.contains("memory cap") && reason.contains("2 MiB"),
-        "unexpected skipped reason: {reason}"
+    assert_skipped_reason(
+        &tight_report,
+        "src/heavy.hog",
+        &["hog-lang", "memory cap", "2 MiB"],
     );
 
-    write_file(
+    write_plugin_config(
         repo.path(),
-        "codeint.json",
-        &format!(
-            r#"{{
-              "plugins": [
-                {{
-                  "name": "hog-lang",
-                  "path": "plugins/hog_lang.wasm",
-                  "sha256": "{hash}"
-                }}
-              ],
-              "plugin_limits": {{
-                "memory_mb": 8
-              }}
-            }}"#
-        ),
+        "hog-lang",
+        None,
+        "plugins/memory_hog_language_plugin.wasm",
+        &hash,
+        r#""plugin_limits": { "memory_mb": 8 }"#,
     );
 
-    let raised_output = run_codeint(repo.path(), &["check", "--format", "json"]);
-    assert_eq!(
-        raised_output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&raised_output.stderr)
-    );
-    let raised_report: Value =
-        serde_json::from_slice(&raised_output.stdout).expect("codeint check prints valid JSON");
+    let raised_report = run_check_json_report(repo.path());
     assert_eq!(raised_report["files"], 2);
     assert!(raised_report.get("skipped").is_none());
 }
 
 #[test]
 fn metric_plugin_that_loops_forever_stops_the_run_with_exit_2_and_names_the_plugin() {
-    let repo = init_repo();
-    let hash = copy_wasm_into(
-        &built_sandbox_probe("loop_metric_plugin.wasm"),
-        repo.path(),
-        "plugins/loop_metric.wasm",
-    );
-    write_file(
-        repo.path(),
-        "codeint.json",
-        &format!(
-            r#"{{
-              "plugins": [
-                {{
-                  "name": "runaway-metric",
-                  "kind": "metric",
-                  "path": "plugins/loop_metric.wasm",
-                  "sha256": "{hash}"
-                }}
-              ],
-              "plugin_limits": {{
-                "timeout_ms": 50
-              }}
-            }}"#
-        ),
+    let (repo, _hash) = init_single_probe_repo(
+        "runaway-metric",
+        Some("metric"),
+        "loop_metric_plugin.wasm",
+        r#""plugin_limits": { "timeout_ms": 50 }"#,
     );
     write_file(repo.path(), "src/app.ts", "export const ok = 1;\n");
-
-    let output = run_codeint(repo.path(), &["check"]);
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("runaway-metric")
-            && stderr.contains("time limit")
-            && stderr.contains("50 ms"),
-        "expected time limit error naming runaway-metric, got: {stderr}"
-    );
+    assert_check_exits_2(repo.path(), &["runaway-metric", "time limit", "50 ms"]);
 }
 
 #[test]
@@ -1248,4 +1121,688 @@ fn invalid_plugin_limits_print_the_offending_key_and_exit_2() {
             "expected stderr to name {expected_key} for {config_json}, got: {stderr}"
         );
     }
+}
+
+fn assert_legacy_v0_2_0_plugin_stops_check(
+    plugin_name: &str,
+    kind: &str,
+    wasm_file: &str,
+    found_interface: &str,
+    expected_interface: &str,
+) {
+    let output = run_check_with_sandbox_probe(plugin_name, Some(kind), wasm_file);
+    assert!(
+        output.stdout.is_empty(),
+        "expected empty stdout before any report is written, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(
+        lines.len() >= 2,
+        "expected error line and rebuild remedy line, got: {stderr}"
+    );
+    assert!(
+        lines[0].contains(plugin_name)
+            && lines[0].contains(found_interface)
+            && lines[0].contains("0.2.0")
+            && lines[0].contains(expected_interface)
+            && lines[0].contains("0.3.0"),
+        "expected stderr line 1 to name plugin and both versions, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[1].to_ascii_lowercase().contains("rebuild") && lines[1].contains("0.3.0"),
+        "expected stderr line 2 to instruct rebuilding against 0.3.0, got: {}",
+        lines[1]
+    );
+}
+
+#[test]
+fn v0_2_0_language_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
+    assert_legacy_v0_2_0_plugin_stops_check(
+        "legacy-v02-lang",
+        "language",
+        "legacy_v0_2_0_language_plugin.wasm",
+        "codeint:plugin/language@0.2.0",
+        "codeint:plugin/language@0.3.0",
+    );
+}
+
+#[test]
+fn v0_2_0_metric_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
+    assert_legacy_v0_2_0_plugin_stops_check(
+        "legacy-v02-metric",
+        "metric",
+        "legacy_v0_2_0_metric_plugin.wasm",
+        "codeint:plugin/metric@0.2.0",
+        "codeint:plugin/metric@0.3.0",
+    );
+}
+
+fn assert_exact_language_findings(findings: &[Value], expected: &[(&str, &str)]) {
+    let language_findings: Vec<&Value> = findings
+        .iter()
+        .filter(|finding| {
+            finding["path"]
+                .as_str()
+                .is_some_and(|path| path.starts_with("languages/"))
+        })
+        .collect();
+    assert_eq!(
+        language_findings.len(),
+        expected.len(),
+        "expected only measured languages in model.languages, got: {language_findings:?}"
+    );
+    for (path, message) in expected {
+        assert!(
+            language_findings
+                .iter()
+                .any(|finding| finding["path"] == *path && finding["message"] == *message),
+            "expected ({path}, {message}) in {language_findings:?}"
+        );
+    }
+}
+
+#[test]
+fn coverage_reader_metric_plugin_receives_per_language_coverage_statement_from_check() {
+    let (repo, _hash) = init_single_probe_repo(
+        "coverage-reader",
+        Some("metric"),
+        "coverage_reader_metric_plugin.wasm",
+        "",
+    );
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export function greet(name: string): string { return name; }\n",
+    );
+
+    let report = run_check_json_report(repo.path());
+    let findings = report["source_sets"]["production"]["coverage_reader"]["findings"]
+        .as_array()
+        .expect("coverage_reader findings list");
+    assert_exact_language_findings(
+        findings,
+        &[(
+            "languages/typescript-javascript",
+            "language=typescript-javascript has_coverage=false",
+        )],
+    );
+}
+
+fn init_program_start_repo() -> (TempDir, String) {
+    let (repo, hash) = init_single_probe_repo(
+        "program-start",
+        None,
+        "program_start_language_plugin.wasm",
+        "",
+    );
+    write_file(
+        repo.path(),
+        "cmd/app/main.prog",
+        "program main\nuse internal/util/live.prog\n",
+    );
+    write_file(repo.path(), "internal/util/live.prog", "library live\n");
+    (repo, hash)
+}
+
+fn run_trace(dir: &Path, from: &str, to: &str, format: &str) -> String {
+    let output = run_codeint(dir, &["trace", from, to, "--format", format]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("utf8")
+}
+
+#[test]
+fn marked_production_file_is_an_entry_point_for_orphan_files_alongside_globs_while_marked_tests_stay_out()
+ {
+    let (repo, hash) = init_program_start_repo();
+    write_file(repo.path(), "internal/util/orphan.prog", "library orphan\n");
+    write_file(
+        repo.path(),
+        "internal/util/test_only.prog",
+        "library test_only\n",
+    );
+    write_file(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "program main\nuse internal/util/test_only.prog\n",
+    );
+    write_file(repo.path(), "cmd/app/extra_test.prog", "program main\n");
+    write_file(repo.path(), "dist/gen.prog", "program main\n");
+    write_file(repo.path(), "vendor/third.prog", "program main\n");
+
+    let report = run_check_json_report(repo.path());
+    let orphan = &report["source_sets"]["production"]["orphan_files"];
+    assert_eq!(orphan["entry_points"], 1, "report: {report}");
+    assert_eq!(orphan["evaluated_files"], 4, "report: {report}");
+    assert_eq!(orphan["orphan_files"], 2, "report: {report}");
+    assert_eq!(orphan["unreferenced"], 1, "report: {report}");
+    assert_eq!(orphan["test_only"], 1, "report: {report}");
+    let findings = orphan["findings"].as_array().expect("orphan findings");
+    assert_eq!(findings.len(), 2);
+    assert_eq!(findings[0]["path"], "internal/util/orphan.prog");
+    assert_eq!(findings[0]["kind"], "unreferenced");
+    assert_eq!(findings[1]["path"], "internal/util/test_only.prog");
+    assert_eq!(findings[1]["kind"], "test-only");
+    assert_eq!(
+        findings[1]["test_importers"],
+        serde_json::json!(["cmd/app/main.test.prog"])
+    );
+
+    write_file(
+        repo.path(),
+        "internal/util/extra_entry.prog",
+        "library extra_entry\nuse ./via_glob.prog\n",
+    );
+    write_file(
+        repo.path(),
+        "internal/util/via_glob.prog",
+        "library via_glob\n",
+    );
+    write_plugin_config(
+        repo.path(),
+        "program-start",
+        None,
+        "plugins/program_start_language_plugin.wasm",
+        &hash,
+        r#""entry_points": ["internal/util/extra_entry.prog"]"#,
+    );
+
+    let glob_report = run_check_json_report(repo.path());
+    let glob_orphan = &glob_report["source_sets"]["production"]["orphan_files"];
+    assert_eq!(glob_orphan["entry_points"], 2, "report: {glob_report}");
+    assert_eq!(glob_orphan["evaluated_files"], 6, "report: {glob_report}");
+    assert_eq!(glob_orphan["orphan_files"], 2, "report: {glob_report}");
+    let glob_paths: Vec<&str> = glob_orphan["findings"]
+        .as_array()
+        .expect("orphan findings")
+        .iter()
+        .map(|item| item["path"].as_str().expect("path"))
+        .collect();
+    assert_eq!(
+        glob_paths,
+        vec!["internal/util/orphan.prog", "internal/util/test_only.prog"]
+    );
+}
+
+#[test]
+fn trace_names_program_start_mark_for_marked_production_file_and_omits_it_for_test_files() {
+    let (repo, _hash) = init_program_start_repo();
+    write_file(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "program main\nuse internal/util/live.prog\n",
+    );
+
+    let traced: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "cmd/app/main.prog",
+        "internal/util/live.prog",
+        "json",
+    ))
+    .expect("valid trace JSON");
+    assert_eq!(traced["from"], "cmd/app/main.prog");
+    assert_eq!(traced["to"], "internal/util/live.prog");
+    assert_eq!(traced["from_entry_point"], "program-start mark");
+    assert!(traced.get("to_entry_point").is_none());
+    assert_eq!(traced["connected"], true);
+    assert_eq!(
+        traced["paths"],
+        serde_json::json!([["cmd/app/main.prog", "internal/util/live.prog"]])
+    );
+
+    let text = run_trace(
+        repo.path(),
+        "cmd/app/main.prog",
+        "internal/util/live.prog",
+        "text",
+    );
+    assert_eq!(
+        text.trim(),
+        "Entry point: cmd/app/main.prog (program-start mark)\ncmd/app/main.prog -> internal/util/live.prog"
+    );
+
+    let toon = run_trace(
+        repo.path(),
+        "cmd/app/main.prog",
+        "internal/util/live.prog",
+        "toon",
+    );
+    assert!(
+        toon.contains("from_entry_point: program-start mark"),
+        "toon: {toon}"
+    );
+    assert!(!toon.contains("to_entry_point:"), "toon: {toon}");
+
+    let reverse: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "internal/util/live.prog",
+        "cmd/app/main.prog",
+        "json",
+    ))
+    .expect("valid reverse trace JSON");
+    assert!(reverse.get("from_entry_point").is_none());
+    assert_eq!(reverse["to_entry_point"], "program-start mark");
+    assert_eq!(reverse["connected"], false);
+
+    let reverse_text = run_trace(
+        repo.path(),
+        "internal/util/live.prog",
+        "cmd/app/main.prog",
+        "text",
+    );
+    assert_eq!(
+        reverse_text.trim(),
+        "Entry point: cmd/app/main.prog (program-start mark)\nNo runtime import path from internal/util/live.prog to cmd/app/main.prog"
+    );
+
+    let test_file_trace: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "internal/util/live.prog",
+        "json",
+    ))
+    .expect("valid test trace JSON");
+    assert!(test_file_trace.get("from_entry_point").is_none());
+    assert!(test_file_trace.get("to_entry_point").is_none());
+
+    let test_file_text = run_trace(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "internal/util/live.prog",
+        "text",
+    );
+    assert_eq!(
+        test_file_text.trim(),
+        "cmd/app/main.test.prog -> internal/util/live.prog"
+    );
+
+    write_file(
+        repo.path(),
+        "scripts/main.prog",
+        "program main\nuse internal/util/live.prog\n",
+    );
+    let tooling_trace: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "scripts/main.prog",
+        "internal/util/live.prog",
+        "json",
+    ))
+    .expect("valid tooling trace JSON");
+    assert!(tooling_trace.get("from_entry_point").is_none());
+    assert!(tooling_trace.get("to_entry_point").is_none());
+
+    let (pkg_repo, _hash) = init_single_probe_repo(
+        "folder-import-lang",
+        None,
+        "folder_import_language_plugin.wasm",
+        "",
+    );
+    write_file(pkg_repo.path(), "fld.workspace", "packages/app\n");
+    write_file(
+        pkg_repo.path(),
+        "packages/app/src/main.fld",
+        "program main\nfn main()\n",
+    );
+    write_file(
+        pkg_repo.path(),
+        "packages/app/scripts/tool.fld",
+        "program main\nfn tool()\n",
+    );
+    let pkg_trace_out = run_codeint(
+        pkg_repo.path(),
+        &[
+            "trace",
+            "--package",
+            "packages/app",
+            "packages/app/scripts/tool.fld",
+            "packages/app/scripts/tool.fld",
+            "--format",
+            "json",
+        ],
+    );
+    assert_eq!(
+        pkg_trace_out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&pkg_trace_out.stderr)
+    );
+    let pkg_trace: Value = serde_json::from_slice(&pkg_trace_out.stdout).expect("pkg trace json");
+    assert!(pkg_trace.get("from_entry_point").is_none());
+    assert!(pkg_trace.get("to_entry_point").is_none());
+}
+
+fn init_paired_language_and_metric_repo(
+    language_name: &str,
+    language_wasm: &str,
+    metric_name: &str,
+    metric_wasm: &str,
+) -> TempDir {
+    let repo = init_repo();
+    let lang_rel = format!("plugins/{language_wasm}");
+    let metric_rel = format!("plugins/{metric_wasm}");
+    let lang_hash = copy_wasm_into(&built_sandbox_probe(language_wasm), repo.path(), &lang_rel);
+    let metric_hash = copy_wasm_into(&built_sandbox_probe(metric_wasm), repo.path(), &metric_rel);
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "{language_name}",
+                  "kind": "language",
+                  "path": "{lang_rel}",
+                  "sha256": "{lang_hash}"
+                }},
+                {{
+                  "name": "{metric_name}",
+                  "kind": "metric",
+                  "path": "{metric_rel}",
+                  "sha256": "{metric_hash}"
+                }}
+              ]
+            }}"#
+        ),
+    );
+    repo
+}
+
+fn init_hazard_rules_repo_with_metric() -> TempDir {
+    init_paired_language_and_metric_repo(
+        "hazard-lang",
+        "hazard_rules_language_plugin.wasm",
+        "hazard-facts",
+        "hazard_facts_metric_plugin.wasm",
+    )
+}
+
+fn run_check_json_report(repo: &Path) -> Value {
+    let output = run_codeint(repo, &["check", "--format", "json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("parse json report")
+}
+
+fn run_paired_language_and_metric_probe_check(
+    language_name: &str,
+    language_wasm: &str,
+    metric_name: &str,
+    metric_wasm: &str,
+    extra_file: (&str, &str),
+) -> Value {
+    let repo = init_paired_language_and_metric_repo(
+        language_name,
+        language_wasm,
+        metric_name,
+        metric_wasm,
+    );
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export function greet(name: string): string { return name; }\n",
+    );
+    write_file(repo.path(), extra_file.0, extra_file.1);
+    run_check_json_report(repo.path())
+}
+
+fn run_check_hazard_facts_findings(repo: &Path) -> Vec<Value> {
+    let report = run_check_json_report(repo);
+    report["source_sets"]["production"]["hazard_facts"]["findings"]
+        .as_array()
+        .expect("hazard_facts findings list")
+        .clone()
+}
+
+fn assert_exit_2_without_stdout(repo: &Path, args: &[&str], expected_substrings: &[&str]) {
+    let output = run_codeint(repo, args);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "args {args:?}: expected exit 2, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "args {args:?}: expected no report on stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in expected_substrings {
+        assert!(
+            stderr.contains(expected),
+            "args {args:?}: expected {expected:?} in stderr, got: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
+    let repo = init_hazard_rules_repo_with_metric();
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export function greet(name: string): string { return name; }\n",
+    );
+    write_file(repo.path(), "queries/clean.haz", "SELECT id FROM users;\n");
+
+    let findings = run_check_hazard_facts_findings(repo.path());
+    assert_exact_language_findings(
+        &findings,
+        &[
+            (
+                "languages/hazard-lang",
+                "language=hazard-lang has_hazard_rules=true",
+            ),
+            (
+                "languages/typescript-javascript",
+                "language=typescript-javascript has_hazard_rules=false",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn empty_resolved_import_list_stops_check_with_exit_2_naming_plugin() {
+    let (repo, _hash) = init_single_probe_repo(
+        "folder-import-lang",
+        None,
+        "folder_import_language_plugin.wasm",
+        "",
+    );
+    write_file(repo.path(), "src/app.fld", "use empty\nfn main()\n");
+    assert_exit_2_without_stdout(
+        repo.path(),
+        &["check", "--format", "json"],
+        &["folder-import-lang", "empty list"],
+    );
+}
+
+#[test]
+fn hazard_line_beyond_end_of_file_stops_check_with_exit_2_naming_plugin_file_and_line() {
+    let (repo, _hash) = init_single_probe_repo(
+        "hazard-lang",
+        Some("language"),
+        "hazard_rules_language_plugin.wasm",
+        "",
+    );
+    write_file(
+        repo.path(),
+        "queries/beyond.haz",
+        "SELECT 1;\nHAZARD_BEYOND_EOF\nSELECT 2;\n",
+    );
+    commit_all(repo.path(), "commit file with out-of-range hazard line");
+
+    for args in [&["check", "--format", "json"][..], &["diff", "HEAD"][..]] {
+        assert_exit_2_without_stdout(
+            repo.path(),
+            args,
+            &["hazard-lang", "queries/beyond.haz", "line 4"],
+        );
+    }
+
+    write_file(
+        repo.path(),
+        "queries/beyond.haz",
+        "SELECT 1;\nHAZARD_LINE_ZERO\n",
+    );
+    assert_exit_2_without_stdout(
+        repo.path(),
+        &["check", "--format", "json"],
+        &["hazard-lang", "queries/beyond.haz", "line 0"],
+    );
+}
+
+#[test]
+fn hazard_line_on_last_line_of_file_is_accepted_with_and_without_trailing_newline() {
+    let repo = init_hazard_rules_repo_with_metric();
+    write_file(
+        repo.path(),
+        "queries/with_newline.haz",
+        "SELECT id FROM users;\nDELETE FROM sessions;\n",
+    );
+    write_file(
+        repo.path(),
+        "queries/without_newline.haz",
+        "SELECT id FROM users;\nDELETE FROM sessions;",
+    );
+
+    let findings = run_check_hazard_facts_findings(repo.path());
+    for expected_path in ["queries/with_newline.haz", "queries/without_newline.haz"] {
+        let expected_id = format!("hazard:{expected_path}:2:delete-without-where");
+        assert!(
+            findings.iter().any(|finding| {
+                finding["path"] == expected_path
+                    && finding["line"] == 2
+                    && finding["id"] == expected_id
+            }),
+            "expected last-line hazard for {expected_path}, got: {findings:?}"
+        );
+    }
+}
+
+fn init_unlisted_hazard_probe_repo(source: &str) -> TempDir {
+    let (repo, _hash) = init_single_probe_repo(
+        "unlisted-hazard-lang",
+        None,
+        "unlisted_hazard_rule_language_plugin.wasm",
+        "",
+    );
+    write_file(repo.path(), "src/query.uhr", source);
+    repo
+}
+
+#[test]
+fn unlisted_hazard_line_rule_stops_check_with_exit_2_naming_plugin_file_and_rule() {
+    let repo = init_unlisted_hazard_probe_repo("SELECT 1;\nUNLISTED_HAZARD\n");
+    assert_exit_2_without_stdout(
+        repo.path(),
+        &["check", "--format", "json"],
+        &[
+            "unlisted-hazard-lang",
+            "src/query.uhr",
+            "unlisted-secret-rule",
+        ],
+    );
+}
+
+#[test]
+fn listed_hazard_line_rule_is_accepted_by_check() {
+    let repo = init_unlisted_hazard_probe_repo("SELECT 1;\nALLOWED_HAZARD\n");
+    let report = run_check_json_report(repo.path());
+    assert_eq!(report["files"], 1);
+}
+
+#[test]
+fn no_imports_language_plugin_check_skips_import_calls_and_metric_reads_has_imports() {
+    let report = run_paired_language_and_metric_probe_check(
+        "no-imports-lang",
+        "no_imports_language_plugin.wasm",
+        "import-capability",
+        "import_capability_metric_plugin.wasm",
+        ("queries/users.noimp", "fn select_users()\n"),
+    );
+    let findings = report["source_sets"]["production"]["import_capability"]["findings"]
+        .as_array()
+        .expect("import_capability findings list");
+    assert_exact_language_findings(
+        findings,
+        &[
+            (
+                "languages/no-imports-lang",
+                "language=no-imports-lang has_imports=false",
+            ),
+            (
+                "languages/typescript-javascript",
+                "language=typescript-javascript has_imports=true",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn no_imports_only_repo_omits_import_cycles_and_dependencies_across_check_diff_and_trend() {
+    let (repo, _hash) = init_single_probe_repo(
+        "no-imports-lang",
+        None,
+        "no_imports_language_plugin.wasm",
+        r#""budgets": { "unused_dependencies": 0.0 }"#,
+    );
+    write_file(
+        repo.path(),
+        "package.json",
+        r#"{"name":"docs-site","dependencies":{"left-pad":"^1.0.0"}}"#,
+    );
+    write_file(repo.path(), "queries/users.noimp", "fn select_users()\n");
+    commit_all(repo.path(), "initial no-imports commit");
+    write_file(repo.path(), "queries/orders.noimp", "fn select_orders()\n");
+
+    let check = run_check_json_report(repo.path());
+    assert!(
+        check["source_sets"]["production"]
+            .get("import_cycles")
+            .is_none()
+    );
+    assert!(check.get("dependencies").is_none());
+
+    let diff_out = run_codeint(repo.path(), &["diff", "HEAD", "--format", "json"]);
+    assert_eq!(
+        diff_out.status.code(),
+        Some(0),
+        "diff stderr: {}",
+        String::from_utf8_lossy(&diff_out.stderr)
+    );
+    let diff: Value = serde_json::from_slice(&diff_out.stdout).expect("parse diff json");
+    assert!(
+        diff["source_sets"]["production"]
+            .get("import_cycles")
+            .is_none()
+    );
+    assert!(diff.get("dependencies").is_none());
+
+    let trend_out = run_codeint(repo.path(), &["trend", "--format", "json"]);
+    assert_eq!(
+        trend_out.status.code(),
+        Some(0),
+        "trend stderr: {}",
+        String::from_utf8_lossy(&trend_out.stderr)
+    );
+    let trend: Value = serde_json::from_slice(&trend_out.stdout).expect("parse trend json");
+    assert!(
+        trend["source_sets"]["production"][0]
+            .get("import_cycles")
+            .is_none()
+    );
 }

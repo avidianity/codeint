@@ -1,9 +1,17 @@
 /// The Plugin interface of codeint.
 /// A change that breaks a Plugin built against this version needs a new version.
-package codeint:plugin@0.2.0;
+package codeint:plugin@0.3.0;
 
 /// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
 interface language {
+    /// Coverage counts for one function from Coverage reports.
+    record function-coverage {
+        /// The count of the function's lines listed by a Coverage report.
+        listed-lines: u32,
+        /// The count of those listed lines executed by tests.
+        executed-lines: u32,
+    }
+
     /// One function of a source file.
     /// A nested function is a function of its own and adds no decision points to the function around it.
     record function {
@@ -19,6 +27,9 @@ interface language {
         name: option<string>,
         /// The nesting-weighted cognitive complexity of the function, not counting nested functions.
         cognitive-complexity: u32,
+        /// Coverage counts for the function from Coverage reports; `none` when no Coverage report covers the function.
+        /// A Language plugin always returns `none`; codeint fills this in before Metrics run.
+        coverage: option<function-coverage>,
     }
 
     /// What a token is to clone detection, by the rules of the Language plugin.
@@ -69,6 +80,15 @@ interface language {
         rule: string,
     }
 
+    /// A source line that matches a Hazard-line rule of the Language plugin.
+    /// Never holds source text.
+    record hazard-line {
+        /// The line number, counted from 1.
+        line: u32,
+        /// The stable identifier of the rule the line matched, listed in `hazard-rules`.
+        rule: string,
+    }
+
     /// The Code model of one source file.
     record file-model {
         /// The Source set of the file, chosen by the rules of the Language plugin.
@@ -81,9 +101,15 @@ interface language {
         tokens: list<token>,
         /// Each Flagged line with the rule it matched; a line that matches two rules appears once per rule.
         flagged-lines: list<flagged-line>,
+        /// Each Hazard line with the rule it matched; a line that matches two rules appears once per rule.
+        /// Empty when `has-hazard-rules` returns false.
+        hazard-lines: list<hazard-line>,
         /// The module specifiers of the imports that run when the file runs, in source order, such as `./greet`.
         /// Type-only imports are left out.
         runtime-imports: list<string>,
+        /// Whether the file starts a program as shown by its source text, such as a Go `package main` file.
+        /// False unless the Language plugin sets it.
+        program-start: bool,
     }
 
     /// One runtime import to resolve: the file that imports, and the specifier it names.
@@ -96,8 +122,9 @@ interface language {
 
     /// Where a runtime import leads.
     variant resolution {
-        /// The import names this file of the repository, relative to the root, with forward slashes.
-        resolved(string),
+        /// The import names one or more files of the repository, relative to the root, with forward slashes.
+        /// An empty list is a Plugin error.
+        resolved(list<string>),
         /// The import names a third-party package outside the repository; the payload is the canonical package name.
         external(string),
         /// The import names a standard-library or runtime built-in module.
@@ -205,6 +232,19 @@ interface language {
     /// A Metric without an entry has no published Reference range for this language.
     /// codeint shows a range only next to values that this Language plugin measured.
     reference-ranges: func() -> list<reference-range>;
+
+    /// Whether this Language plugin defines Hazard line rules.
+    /// When false, the Hazards Metric is absent for this language rather than 0.
+    has-hazard-rules: func() -> bool;
+
+    /// The stable names of the Hazard line rules this Language plugin may emit.
+    /// Empty when `has-hazard-rules` returns false.
+    hazard-rules: func() -> list<string>;
+
+    /// Whether this language has runtime imports, manifests, and entry points.
+    /// When false, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`,
+    /// `declared-dependencies`, or `entry-points`, and import Metrics are absent for this language.
+    has-imports: func() -> bool;
 }
 
 /// A Language plugin exports `language` and imports nothing.

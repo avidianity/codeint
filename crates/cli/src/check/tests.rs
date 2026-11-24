@@ -3,16 +3,19 @@ use std::process::Command;
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use codeint_config::{FindingsShown, ReportFormat};
+use codeint_config::{Configuration, FindingsShown, ReportFormat};
+use codeint_git::Repository;
 use codeint_model::language::{
     DeclaredDep, FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest,
     ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
-use codeint_model::{InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath};
+use codeint_model::{
+    InvalidReferenceRange, LanguageFacts, LanguagePlugin, ReferenceRanges, RepoPath,
+};
 use serde_json::Value;
 use tempfile::TempDir;
 
-use super::{CheckError, NamedLanguagePlugin, check_with};
+use super::{CheckError, NamedLanguagePlugin, check_with, measure_snapshot};
 
 struct Alpha;
 
@@ -74,12 +77,29 @@ fn lines_in(source_set: SourceSet, text: &str) -> Result<FileModel, LowerError> 
         functions: Vec::new(),
         tokens: Vec::new(),
         flagged_lines: Vec::new(),
+        hazard_lines: Vec::new(),
         runtime_imports: Vec::new(),
+        program_start: false,
     })
 }
 
 macro_rules! every_import_is_external {
     () => {
+        every_import_is_external!(imports_only);
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> Vec<String> {
+            Vec::new()
+        }
+
+        fn has_imports() -> bool {
+            true
+        }
+    };
+    (imports_only) => {
         fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
             Vec::new()
         }
@@ -122,95 +142,79 @@ macro_rules! without_workspaces {
     };
 }
 
-impl Guest for Alpha {
-    fn extensions() -> Vec<String> {
-        vec!["alpha".to_owned()]
-    }
+macro_rules! panic_on_import_calls {
+    () => {
+        fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
+            panic!("manifest_paths must not be called when has_imports is false");
+        }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
+        fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+            panic!("workspace_packages must not be called when has_imports is false");
+        }
 
-    without_workspaces!();
+        fn resolve_imports(
+            _repository_paths: Vec<String>,
+            _manifests: Vec<Manifest>,
+            _requests: Vec<ImportRequest>,
+        ) -> Vec<Resolution> {
+            panic!("resolve_imports must not be called when has_imports is false");
+        }
 
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
-    }
+        fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+            panic!("declared_dependencies must not be called when has_imports is false");
+        }
 
-    every_import_is_external!();
+        fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+            panic!("entry_points must not be called when has_imports is false");
+        }
+    };
 }
 
-impl Guest for AlphaTwo {
-    fn extensions() -> Vec<String> {
-        vec!["alpha".to_owned()]
-    }
-
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
-
-    without_workspaces!();
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
-    every_import_is_external!();
+fn measure_test_snapshot(
+    files: &[(&str, &str)],
+    plugins: &[NamedLanguagePlugin<'_>],
+) -> Result<super::MeasuredSnapshot, CheckError> {
+    let folder = repository(files);
+    let repo = Repository::discover(folder.path()).expect("open repository");
+    let tree = repo.working_tree().expect("read working tree");
+    measure_snapshot(&tree, plugins, &Configuration::default())
 }
 
-impl Guest for DuplicateExtension {
-    fn extensions() -> Vec<String> {
-        vec!["dup".to_owned(), "dup".to_owned()]
-    }
+macro_rules! stub_language_plugin {
+    ($name:ident, [$($ext:expr),+ $(,)?], $ranges:expr) => {
+        impl Guest for $name {
+            fn extensions() -> Vec<String> {
+                vec![$($ext.to_owned()),+]
+            }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
+            fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+                lines_of(&text)
+            }
 
-    without_workspaces!();
+            without_workspaces!();
 
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
+            fn reference_ranges() -> Vec<ReferenceRange> {
+                $ranges
+            }
 
-    every_import_is_external!();
+            every_import_is_external!();
+        }
+    };
 }
 
-impl Guest for Beta {
-    fn extensions() -> Vec<String> {
-        vec!["beta".to_owned()]
-    }
-
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
-
-    without_workspaces!();
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
-    every_import_is_external!();
-}
-
-impl Guest for Malformed {
-    fn extensions() -> Vec<String> {
-        vec!["malformed".to_owned()]
-    }
-
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
-        lines_of(&text)
-    }
-
-    without_workspaces!();
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        erosion_range(0.7, 0.2, "Reversed")
-    }
-
-    every_import_is_external!();
-}
+stub_language_plugin!(
+    Alpha,
+    ["alpha"],
+    erosion_range(0.12, 0.56, "Alpha panel of 40 repositories, Table 3")
+);
+stub_language_plugin!(AlphaTwo, ["alpha"], Vec::new());
+stub_language_plugin!(DuplicateExtension, ["dup", "dup"], Vec::new());
+stub_language_plugin!(Beta, ["beta"], Vec::new());
+stub_language_plugin!(
+    Malformed,
+    ["malformed"],
+    erosion_range(0.7, 0.2, "Reversed")
+);
 
 impl Guest for FlagsEveryLineInOnePackage {
     fn extensions() -> Vec<String> {
@@ -787,11 +791,11 @@ impl LanguagePlugin for ParallelProofPlugin {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        requests
+    ) -> Result<Vec<Resolution>, codeint_model::LanguagePluginError> {
+        Ok(requests
             .iter()
             .map(|_| Resolution::External(String::new()))
-            .collect()
+            .collect())
     }
 
     fn declared_dependencies(
@@ -816,6 +820,18 @@ impl LanguagePlugin for ParallelProofPlugin {
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         Ok(ReferenceRanges::default())
+    }
+
+    fn has_hazard_rules(&self) -> bool {
+        false
+    }
+
+    fn hazard_rules(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports(&self) -> bool {
+        true
     }
 }
 
@@ -1080,6 +1096,89 @@ fn extension_conflict_error_and_remedy_name_codeint_jsonc_when_active() {
     );
 }
 
+#[test]
+fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements() {
+    struct WithHazardRules;
+
+    impl Guest for WithHazardRules {
+        fn extensions() -> Vec<String> {
+            vec!["haz".to_owned()]
+        }
+
+        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+            lines_of(&text)
+        }
+
+        without_workspaces!();
+
+        fn reference_ranges() -> Vec<ReferenceRange> {
+            Vec::new()
+        }
+
+        every_import_is_external!(imports_only);
+
+        fn has_hazard_rules() -> bool {
+            true
+        }
+
+        fn hazard_rules() -> Vec<String> {
+            vec![
+                "delete-without-where".to_owned(),
+                "leading-wildcard-like".to_owned(),
+            ]
+        }
+
+        fn has_imports() -> bool {
+            true
+        }
+    }
+
+    const WITH_HAZARD_RULES: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+        name: "hazard-lang",
+        plugin: &WithHazardRules,
+    };
+
+    let snapshot = measure_test_snapshot(
+        &[("main.alpha", "one\n"), ("query.haz", "two\n")],
+        &[ALPHA, WITH_HAZARD_RULES],
+    )
+    .expect("measure snapshot succeeds");
+
+    let facts_by_plugin: Vec<(&str, &[LanguageFacts])> = snapshot
+        .languages
+        .iter()
+        .map(|language| {
+            (
+                language.plugin.as_str(),
+                language.model.languages.as_slice(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        facts_by_plugin,
+        vec![
+            (
+                "alpha",
+                &[LanguageFacts {
+                    language: "alpha".to_owned(),
+                    has_coverage: false,
+                    has_hazard_rules: false,
+                    has_imports: true,
+                }][..]
+            ),
+            (
+                "hazard-lang",
+                &[LanguageFacts {
+                    language: "hazard-lang".to_owned(),
+                    has_coverage: false,
+                    has_hazard_rules: true,
+                    has_imports: true,
+                }][..]
+            ),
+        ]
+    );
+}
+
 const TS_JS_RANGE: &str =
     "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
 const VUE2_RANGE: &str = "codeint panel of 20 Vue 2 repositories, ADR 0014, codeint 0.4.0";
@@ -1229,6 +1328,74 @@ fn react_reference_ranges_select_adr_0020_and_preserve_vue_and_hybrid_precedence
 }
 
 #[test]
+fn no_imports_language_plugin_never_has_import_manifest_or_entry_point_functions_called() {
+    struct NoImports;
+
+    impl Guest for NoImports {
+        fn extensions() -> Vec<String> {
+            vec!["noimp".to_owned()]
+        }
+
+        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+            let mut model = lines_of(&text)?;
+            model.runtime_imports.push("./never-resolved".to_owned());
+            model.program_start = true;
+            Ok(model)
+        }
+
+        panic_on_import_calls!();
+
+        fn reference_ranges() -> Vec<ReferenceRange> {
+            Vec::new()
+        }
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> Vec<String> {
+            Vec::new()
+        }
+
+        fn has_imports() -> bool {
+            false
+        }
+    }
+
+    const NO_IMPORTS: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+        name: "no-imports",
+        plugin: &NoImports,
+    };
+
+    let snapshot = measure_test_snapshot(
+        &[("main.alpha", "one\n"), ("query.noimp", "two\n")],
+        &[ALPHA, NO_IMPORTS],
+    )
+    .expect("measure snapshot skips import, manifest, and entry point calls");
+
+    let no_imports_lang = snapshot
+        .languages
+        .iter()
+        .find(|language| language.plugin == "no-imports")
+        .expect("no-imports language measured");
+    assert_eq!(no_imports_lang.model.files.len(), 1);
+    assert!(!no_imports_lang.model.files[0].model.program_start);
+    assert!(no_imports_lang.model.runtime_imports.is_empty());
+    assert!(no_imports_lang.model.declared_dependencies.is_empty());
+    assert!(no_imports_lang.model.dependency_manifests.is_empty());
+    assert!(no_imports_lang.model.manifest_used_dependencies.is_empty());
+    assert_eq!(
+        no_imports_lang.model.languages,
+        vec![LanguageFacts {
+            language: "no-imports".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+            has_imports: false,
+        }]
+    );
+}
+
+#[test]
 fn package_scoped_reference_ranges_prefer_member_manifests_over_root() {
     let vue_script = "<script setup>\nconst x = 1;\n</script>\n";
     let tsx_main = "export const App = () => <main />;\n";
@@ -1290,4 +1457,73 @@ fn package_scoped_reference_ranges_prefer_member_manifests_over_root() {
             ("packages/plain-api", TS_JS_RANGE),
         ],
     );
+}
+
+#[test]
+fn lowering_clears_language_plugin_coverage_and_unmeasured_plugins_emit_no_language_facts() {
+    struct SpoofingCoveragePlugin;
+
+    impl Guest for SpoofingCoveragePlugin {
+        every_import_is_external!();
+        without_workspaces!();
+
+        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+            let functions = vec![codeint_model::language::Function {
+                line: 1,
+                end_line: 1,
+                decision_points: 1,
+                source_lines: 1,
+                name: Some("spoofed".to_owned()),
+                cognitive_complexity: 0,
+                coverage: Some(codeint_model::language::FunctionCoverage {
+                    listed_lines: 10,
+                    executed_lines: 10,
+                }),
+            }];
+            Ok(FileModel {
+                functions,
+                ..lines_of(&text)?
+            })
+        }
+
+        fn extensions() -> Vec<String> {
+            vec![String::from("cov")]
+        }
+
+        fn reference_ranges() -> Vec<ReferenceRange> {
+            Vec::new()
+        }
+    }
+
+    const SPOOF: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+        name: "spoof-cov",
+        plugin: &SpoofingCoveragePlugin,
+    };
+
+    let snapshot = measure_test_snapshot(&[("src/main.cov", "fn spoofed() {}\n")], &[ALPHA, SPOOF])
+        .expect("measure snapshot");
+
+    let alpha = snapshot
+        .languages
+        .iter()
+        .find(|language| language.plugin == "alpha")
+        .expect("alpha entry");
+    assert!(alpha.model.files.is_empty());
+    assert!(alpha.model.languages.is_empty());
+
+    let spoof = snapshot
+        .languages
+        .iter()
+        .find(|language| language.plugin == "spoof-cov")
+        .expect("spoof-cov entry");
+    assert_eq!(spoof.model.languages.len(), 1);
+    assert_eq!(spoof.model.files[0].model.functions[0].coverage, None);
+
+    let mut filtered = spoof.model.clone();
+    super::filter_model_to_package(
+        &mut filtered,
+        &super::SelectedPackage::Member(RepoPath::new("packages/other").expect("path")),
+    );
+    assert!(filtered.files.is_empty());
+    assert!(filtered.languages.is_empty());
 }

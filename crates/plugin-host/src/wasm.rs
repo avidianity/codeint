@@ -33,17 +33,17 @@ pub(crate) struct ContractSpec {
 
 const LANGUAGE_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/language@",
-    expected_interface: "codeint:plugin/language@0.2.0",
+    expected_interface: "codeint:plugin/language@0.3.0",
 };
 
 pub(crate) fn check_contract_version(
     name: &str,
     path: &Path,
     engine: &Engine,
-    instance_pre: &wasmtime::component::InstancePre<PluginStoreState>,
+    component: &Component,
     spec: ContractSpec,
 ) -> Result<(), PluginHostError> {
-    let component_type = instance_pre.component().component_type();
+    let component_type = component.component_type();
     let mut incompatible: Option<String> = None;
     for (export_name, _) in component_type.exports(engine) {
         if export_name == spec.expected_interface {
@@ -141,15 +141,18 @@ impl<Pre, Bindings> InstancePool<Pre, Bindings> {
 pub struct WasmLanguagePlugin {
     name: String,
     extensions: Vec<String>,
+    has_hazard_rules: bool,
+    hazard_rules: Vec<String>,
+    has_imports: bool,
     instances:
         InstancePool<bindings::LanguagePluginPre<PluginStoreState>, bindings::LanguagePlugin>,
 }
 
-pub(crate) fn compile_sandboxed_component(
+fn compile_component(
     name: &str,
     path: &Path,
     bytes: &[u8],
-) -> Result<(Engine, wasmtime::component::InstancePre<PluginStoreState>), PluginHostError> {
+) -> Result<(Engine, Component), PluginHostError> {
     let mut config = Config::new();
     config.wasm_component_model(true);
     config.epoch_interruption(true);
@@ -164,6 +167,20 @@ pub(crate) fn compile_sandboxed_component(
             path: path.to_path_buf(),
             reason: error.to_string(),
         })?;
+    Ok((engine, component))
+}
+
+pub(crate) fn prepare_sandboxed_component<Pre>(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+    spec: ContractSpec,
+    bind: impl FnOnce(
+        wasmtime::component::InstancePre<PluginStoreState>,
+    ) -> Result<Pre, wasmtime::Error>,
+) -> Result<(Engine, Pre), PluginHostError> {
+    let (engine, component) = compile_component(name, path, bytes)?;
+    check_contract_version(name, path, &engine, &component, spec)?;
     let linker: Linker<PluginStoreState> = Linker::new(&engine);
     let instance_pre =
         linker
@@ -173,7 +190,27 @@ pub(crate) fn compile_sandboxed_component(
                 path: path.to_path_buf(),
                 reason: error.to_string(),
             })?;
-    Ok((engine, instance_pre))
+    let pre = bind(instance_pre).map_err(|error| PluginHostError::Instantiate {
+        name: name.to_owned(),
+        path: path.to_path_buf(),
+        reason: error.to_string(),
+    })?;
+    Ok((engine, pre))
+}
+
+pub(crate) fn verify_language_component(
+    name: &str,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), PluginHostError> {
+    prepare_sandboxed_component(
+        name,
+        path,
+        bytes,
+        LANGUAGE_CONTRACT,
+        bindings::LanguagePluginPre::new,
+    )?;
+    Ok(())
 }
 
 pub(crate) struct InstantiatedComponent<Pre, Bindings> {
@@ -195,14 +232,8 @@ pub(crate) fn instantiate_sandboxed_component<Pre, Bindings>(
     ) -> Result<Pre, wasmtime::Error>,
     instantiate: impl FnOnce(&Pre, &mut Store<PluginStoreState>) -> Result<Bindings, wasmtime::Error>,
 ) -> Result<InstantiatedComponent<Pre, Bindings>, PluginHostError> {
-    let (engine, instance_pre) = compile_sandboxed_component(name, path, bytes)?;
-    check_contract_version(name, path, &engine, &instance_pre, spec)?;
+    let (engine, pre) = prepare_sandboxed_component(name, path, bytes, spec, bind)?;
     let ticker = EpochTicker::start(engine.clone());
-    let pre = bind(instance_pre).map_err(|error| PluginHostError::Instantiate {
-        name: name.to_owned(),
-        path: path.to_path_buf(),
-        reason: error.to_string(),
-    })?;
     let mut store = new_limited_store(&engine, limits);
     let bindings = instantiate(&pre, &mut store)
         .map_err(|error| map_host_trap(name, path, None, limits, &store, error))?;
@@ -248,9 +279,59 @@ impl WasmLanguagePlugin {
             })?;
         let (ext_count, ext_bytes) = extensions.lifted_budget();
         enforce_lifted_budget(&name, limits, ext_count, ext_bytes)?;
+        arm_call_deadline(&mut component.store, limits);
+        let has_hazard_rules = component
+            .bindings
+            .codeint_plugin_language()
+            .call_has_hazard_rules(&mut component.store)
+            .map_err(|error| {
+                map_host_trap(
+                    &name,
+                    path,
+                    Some("has-hazard-rules"),
+                    limits,
+                    &component.store,
+                    error,
+                )
+            })?;
+        arm_call_deadline(&mut component.store, limits);
+        let hazard_rules = component
+            .bindings
+            .codeint_plugin_language()
+            .call_hazard_rules(&mut component.store)
+            .map_err(|error| {
+                map_host_trap(
+                    &name,
+                    path,
+                    Some("hazard-rules"),
+                    limits,
+                    &component.store,
+                    error,
+                )
+            })?;
+        let (rule_count, rule_bytes) = hazard_rules.lifted_budget();
+        enforce_lifted_budget(&name, limits, rule_count, rule_bytes)?;
+        arm_call_deadline(&mut component.store, limits);
+        let has_imports = component
+            .bindings
+            .codeint_plugin_language()
+            .call_has_imports(&mut component.store)
+            .map_err(|error| {
+                map_host_trap(
+                    &name,
+                    path,
+                    Some("has-imports"),
+                    limits,
+                    &component.store,
+                    error,
+                )
+            })?;
         Ok(WasmLanguagePlugin {
             name,
             extensions,
+            has_hazard_rules,
+            hazard_rules,
+            has_imports,
             instances: InstancePool::from_component(component, limits),
         })
     }
@@ -297,6 +378,18 @@ impl WasmLanguagePlugin {
 
     pub(crate) fn extensions_impl(&self) -> Vec<String> {
         self.extensions.clone()
+    }
+
+    pub(crate) fn has_hazard_rules_impl(&self) -> bool {
+        self.has_hazard_rules
+    }
+
+    pub(crate) fn hazard_rules_impl(&self) -> Vec<String> {
+        self.hazard_rules.clone()
+    }
+
+    pub(crate) fn has_imports_impl(&self) -> bool {
+        self.has_imports
     }
 
     pub(crate) fn lower_impl(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
@@ -360,7 +453,7 @@ impl WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution> {
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         let paths = owned_paths(repository_paths);
         let host_manifests = to_guest_manifests(manifests);
         let host_requests: Vec<guest::ImportRequest> = requests
@@ -370,11 +463,12 @@ impl WasmLanguagePlugin {
                 specifier: request.specifier,
             })
             .collect();
-        self.with_checked_instance("resolve-imports", |api, store| {
-            api.call_resolve_imports(store, &paths, &host_manifests, &host_requests)
-        })
-        .map(|resolutions| resolutions.into_iter().map(convert_resolution).collect())
-        .unwrap_or_default()
+        let resolutions = self
+            .with_checked_instance("resolve-imports", |api, store| {
+                api.call_resolve_imports(store, &paths, &host_manifests, &host_requests)
+            })
+            .map_err(map_language_plugin_error)?;
+        Ok(resolutions.into_iter().map(convert_resolution).collect())
     }
 
     pub(crate) fn declared_dependencies_impl(
@@ -451,12 +545,21 @@ impl LiftedSize for Vec<guest::DeclaredDep> {
 
 impl LiftedSize for Vec<guest::Resolution> {
     fn lifted_budget(&self) -> (usize, usize) {
-        slice_budget(self, |resolution| match resolution {
-            guest::Resolution::Resolved(text)
-            | guest::Resolution::External(text)
-            | guest::Resolution::Unresolved(text) => text.len(),
-            guest::Resolution::Builtin => 0,
-        })
+        let base_bytes = self.len().saturating_mul(size_of::<guest::Resolution>());
+        self.iter()
+            .fold((self.len(), base_bytes), |(count, bytes), resolution| {
+                let (extra_count, extra_bytes) = match resolution {
+                    guest::Resolution::Resolved(targets) => targets.lifted_budget(),
+                    guest::Resolution::External(text) | guest::Resolution::Unresolved(text) => {
+                        (0, text.len())
+                    }
+                    guest::Resolution::Builtin => (0, 0),
+                };
+                (
+                    count.saturating_add(extra_count),
+                    bytes.saturating_add(extra_bytes),
+                )
+            })
     }
 }
 
@@ -487,15 +590,19 @@ impl LiftedSize for Result<guest::FileModel, guest::LowerError> {
                 let (token_count, token_bytes) = slice_budget(&model.tokens, |_| 0);
                 let (flag_count, flag_bytes) =
                     slice_budget(&model.flagged_lines, |flagged| flagged.rule.len());
+                let (hazard_count, hazard_bytes) =
+                    slice_budget(&model.hazard_lines, |hazard| hazard.rule.len());
                 let (import_count, import_bytes) = model.runtime_imports.lifted_budget();
                 (
                     fn_count
                         .saturating_add(token_count)
                         .saturating_add(flag_count)
+                        .saturating_add(hazard_count)
                         .saturating_add(import_count),
                     fn_bytes
                         .saturating_add(token_bytes)
                         .saturating_add(flag_bytes)
+                        .saturating_add(hazard_bytes)
                         .saturating_add(import_bytes),
                 )
             }
@@ -566,6 +673,12 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
                 source_lines: function.source_lines,
                 name: function.name,
                 cognitive_complexity: function.cognitive_complexity,
+                coverage: function
+                    .coverage
+                    .map(|coverage| language::FunctionCoverage {
+                        listed_lines: coverage.listed_lines,
+                        executed_lines: coverage.executed_lines,
+                    }),
             })
             .collect(),
         tokens: model
@@ -585,7 +698,16 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
                 rule: flagged.rule,
             })
             .collect(),
+        hazard_lines: model
+            .hazard_lines
+            .into_iter()
+            .map(|hazard| language::HazardLine {
+                line: hazard.line,
+                rule: hazard.rule,
+            })
+            .collect(),
         runtime_imports: model.runtime_imports,
+        program_start: model.program_start,
     }
 }
 
@@ -618,7 +740,7 @@ fn convert_lower_error(error: guest::LowerError) -> LowerError {
 
 fn convert_resolution(resolution: guest::Resolution) -> language::Resolution {
     match resolution {
-        guest::Resolution::Resolved(path) => language::Resolution::Resolved(path),
+        guest::Resolution::Resolved(paths) => language::Resolution::Resolved(paths),
         guest::Resolution::External(package) => language::Resolution::External(package),
         guest::Resolution::Builtin => language::Resolution::Builtin,
         guest::Resolution::Unresolved(reason) => language::Resolution::Unresolved(reason),
