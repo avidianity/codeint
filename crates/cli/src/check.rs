@@ -13,7 +13,7 @@ use codeint_lang_dart::Dart;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
-use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
+use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
@@ -482,6 +482,7 @@ fn check_with(
 pub(crate) struct MeasuredSnapshot {
     pub(crate) languages: Vec<MeasuredLanguage>,
     pub(crate) entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
+    pub(crate) manifests_by_language: BTreeMap<String, Vec<Manifest>>,
 }
 
 pub(crate) fn compute_orphan_files(
@@ -539,16 +540,23 @@ fn check_loaded(
     let mut snapshot = measure_snapshot(&tree, plugins, configuration)?;
     let selected = if let Some(requested) = package {
         let workspace = workspace_of_languages(&snapshot.languages);
-        Some(select_workspace_package(&workspace, requested)?)
+        Some((select_workspace_package(&workspace, requested)?, workspace))
     } else {
         None
     };
-    let (orphan_files, orphan_files_by_language) =
-        compute_orphan_files(&snapshot, selected.as_ref());
+    let selected_ref = selected.as_ref().map(|(pkg, _)| pkg);
+    let (orphan_files, orphan_files_by_language) = compute_orphan_files(&snapshot, selected_ref);
     let (dependency_hygiene, dependency_hygiene_by_language) =
-        compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected.as_ref());
-    if let Some(selected) = &selected {
-        filter_languages_to_package(&mut snapshot.languages, selected);
+        compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected_ref);
+    if let Some((selected_pkg, workspace)) = &selected {
+        filter_languages_to_package(&mut snapshot.languages, selected_pkg);
+        refresh_reference_ranges_for_package(
+            &mut snapshot.languages,
+            plugins,
+            &snapshot.manifests_by_language,
+            workspace,
+            selected_pkg,
+        )?;
     }
     Report::summarize_with_options(
         snapshot.languages,
@@ -686,6 +694,7 @@ fn resolve_measured_snapshot(
 ) -> Result<MeasuredSnapshot, CheckError> {
     let mut languages = Vec::with_capacity(plugins.len());
     let mut entry_points_by_language = BTreeMap::new();
+    let mut manifests_by_language = BTreeMap::new();
     for (((named, model), manifests), members) in plugins
         .iter()
         .zip(models)
@@ -698,14 +707,21 @@ fn resolve_measured_snapshot(
             .map_err(|error| CheckError::language_plugin(config_file, error))?;
         let combined_entries =
             combine_entry_points(manifest_entries, &model.files, configured_entry_points);
+        let retained_manifests = if named.name == "typescript-javascript" {
+            manifests.clone()
+        } else {
+            Vec::new()
+        };
         let measured =
             finalize_language_model(named, model, manifests, members, tree.files(), config_file)?;
         entry_points_by_language.insert(named.name.to_owned(), combined_entries);
+        manifests_by_language.insert(named.name.to_owned(), retained_manifests);
         languages.push(measured);
     }
     Ok(MeasuredSnapshot {
         languages,
         entry_points_by_language,
+        manifests_by_language,
     })
 }
 
@@ -843,19 +859,80 @@ fn manifest_root(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
+fn scoped_manifests_for_package(
+    manifests: &[Manifest],
+    workspace: &Workspace,
+    selected: &SelectedPackage,
+) -> Vec<Manifest> {
+    let own: Vec<Manifest> = manifests
+        .iter()
+        .filter(|manifest| {
+            package_root_matches_selected(workspace, selected, manifest_root(&manifest.path))
+        })
+        .cloned()
+        .collect();
+    if matches!(selected, SelectedPackage::Root)
+        || vue_reference_ranges(&own).is_some()
+        || react_reference_ranges(&own).is_some()
+    {
+        return own;
+    }
+    manifests
+        .iter()
+        .filter(|manifest| manifest_root(&manifest.path).is_empty())
+        .cloned()
+        .collect()
+}
+
+fn refresh_reference_ranges_for_package(
+    languages: &mut [MeasuredLanguage],
+    plugins: &[NamedLanguagePlugin<'_>],
+    manifests_by_language: &BTreeMap<String, Vec<Manifest>>,
+    workspace: &Workspace,
+    selected: &SelectedPackage,
+) -> Result<(), CheckError> {
+    for language in languages {
+        if language.plugin != "typescript-javascript" {
+            continue;
+        }
+        let Some(named) = plugins.iter().find(|plugin| plugin.name == language.plugin) else {
+            continue;
+        };
+        let scoped = manifests_by_language
+            .get(&language.plugin)
+            .map(|manifests| scoped_manifests_for_package(manifests, workspace, selected))
+            .unwrap_or_default();
+        language.reference_ranges = select_reference_ranges(named, &language.model, &scoped)?;
+    }
+    Ok(())
+}
+
 fn select_reference_ranges(
     named: &NamedLanguagePlugin<'_>,
     model: &CodeModel,
     manifests: &[Manifest],
 ) -> Result<ReferenceRanges, CheckError> {
-    if named.name == "typescript-javascript"
-        && model
+    if named.name == "typescript-javascript" {
+        let has_vue = model
             .files
             .iter()
-            .any(|f| f.path.as_str().ends_with(".vue"))
-        && let Some(ranges) = vue_reference_ranges(manifests)
-    {
-        return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
+            .any(|f| f.path.as_str().ends_with(".vue"));
+        let has_jsx_or_tsx = model
+            .files
+            .iter()
+            .any(|f| f.path.as_str().ends_with(".tsx") || f.path.as_str().ends_with(".jsx"));
+        let react_ranges = has_jsx_or_tsx
+            .then(|| react_reference_ranges(manifests))
+            .flatten();
+        if has_vue {
+            if react_ranges.is_none()
+                && let Some(ranges) = vue_reference_ranges(manifests)
+            {
+                return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
+            }
+        } else if let Some(ranges) = react_ranges {
+            return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
+        }
     }
     named
         .plugin

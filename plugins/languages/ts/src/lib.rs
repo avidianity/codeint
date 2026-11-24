@@ -32,7 +32,7 @@ use crate::source_set::source_set;
 use crate::tokens::tokens;
 
 pub use rules::flagged_line_rules;
-pub use sfc::vue_reference_ranges;
+pub use sfc::{react_reference_ranges, vue_reference_ranges};
 
 pub(crate) const EXTENSIONS: [&str; 10] = [
     "ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs", "vue", "svelte",

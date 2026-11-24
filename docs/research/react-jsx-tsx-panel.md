@@ -12,8 +12,8 @@ All 20 public React repositories in this panel (10 TypeScript `.tsx` repositorie
 - Wall-clock time: `0.03s` to `1.86s` per repository (`7.07s` combined across all 20 repositories).
 - Skipped files: 11 across 26,077 Production files (zero real JSX or TSX parser errors).
   All 11 skipped files are non-JavaScript generator templates (`<%= ... %>` scaffolds in `carbon-design-system/carbon` and `reactjs/react-rails`) or intentional invalid-syntax test fixtures (`badSyntax.js` and a Babel config fixture in `meta/docusaurus`).
-- Reference range fit: the panel medians (Erosion `46.6%`, Duplication `8.1%`, Verbosity `8.1%`, Import cycles `0.8%`) sit closely within the existing TypeScript and JavaScript Reference ranges in [ADR 0008](../adr/0008-typescript-reference-ranges.md), which already includes seven React repositories.
-  React repositories therefore continue using the ADR 0008 Reference ranges with no separate override required.
+- Reference ranges: calibrated pre-2023 human-written React (`.jsx` and `.tsx`) Reference ranges live in [ADR 0020](../adr/0020-react-reference-ranges.md) (`10.6%` to `54.4%` Erosion, `4.6%` to `36.8%` Duplication, `4.7%` to `36.8%` Verbosity, `0.0%` to `14.4%` Import cycles).
+  This research note measures modern 2026 HEAD snapshots across 20 repositories to verify current React 18/19 JSX and TSX parser coverage and runtime performance.
 
 ## Summary statistics (Production Source set)
 
