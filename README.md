@@ -100,7 +100,7 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 | Dart | 4.7% to 41.9% | 7.3% to 25.6% | 8.0% to 25.9% | 7.3% to 52.4% |
 | Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% |
 | Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% |
-| SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | absent |
+| SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | N/A |
 
 See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings.
 
