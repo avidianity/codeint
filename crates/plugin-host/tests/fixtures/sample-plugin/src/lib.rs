@@ -465,6 +465,7 @@ impl Guest for SampleMiniPlugin {
             functions,
             tokens,
             flagged_lines,
+            hazard_lines: Vec::new(),
             runtime_imports,
             program_start: false,
         })

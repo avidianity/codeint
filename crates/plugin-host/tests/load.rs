@@ -10,9 +10,9 @@ use codeint_model::language::{
     DeclaredDep, DepKind, Function, FunctionCoverage, ImportRequest, Resolution,
 };
 use codeint_model::{
-    CodeModel, FileModel, LanguageFacts, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
-    MetricPlugin, MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind,
-    token_text_hash,
+    CodeModel, FileModel, HazardLine, LanguageFacts, LanguagePlugin, LanguagePluginError,
+    LowerError, Manifest, MetricPlugin, MetricPluginError, RepoPath, SourceFile, SourceSet, Token,
+    TokenKind, token_text_hash,
 };
 use codeint_plugin_host::{
     PLUGIN_INTERFACE_VERSION, PluginHostError, WasmLanguagePlugin, load_language_plugin,
@@ -236,6 +236,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                     line: 6,
                 }],
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
             },
@@ -484,6 +485,7 @@ fn metric_plugin_that_loops_forever_or_exceeds_memory_cap_returns_limit_error() 
                 functions: Vec::new(),
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
             },
@@ -601,6 +603,7 @@ fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
     assert_eq!(lowered.functions[1].name, None);
     assert_eq!(lowered.functions[1].cognitive_complexity, 0);
     assert_eq!(lowered.functions[1].coverage, None);
+    assert!(lowered.hazard_lines.is_empty());
     assert!(!lowered.program_start);
 
     let repo_paths = vec![
@@ -1043,6 +1046,7 @@ fn coverage_model_with(functions: Vec<Function>) -> CodeModel {
                 functions,
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
             },
@@ -1259,6 +1263,10 @@ fn built_in_language_plugins_never_set_program_start() {
             !model.program_start,
             "{name} built-in Language plugin must leave program_start false"
         );
+        assert!(
+            model.hazard_lines.is_empty(),
+            "{name} built-in Language plugin must report no hazard lines"
+        );
     }
 }
 
@@ -1325,6 +1333,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
                 functions: Vec::new(),
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
             },
@@ -1471,4 +1480,100 @@ fn metric_plugin_reads_per_language_hazard_rules_statement() {
             ),
         ]
     );
+}
+
+#[test]
+fn language_plugin_reports_hazard_lines_and_metric_plugin_reads_them() {
+    let language_wasm = sandbox_probe_wasm("hazard_rules_language_plugin.wasm");
+    let language_decl = declaration_for("hazard-rules-language", &language_wasm);
+    let language =
+        load_language_plugin(Path::new("."), &language_decl, &PluginHostConfig::default())
+            .expect("hazard-rules Language plugin loads");
+
+    let metric_wasm = sandbox_probe_wasm("hazard_facts_metric_plugin.wasm");
+    let metric_decl = declaration_with_kind("hazard-facts", PluginKind::Metric, &metric_wasm);
+    let metric = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
+        .expect("hazard-facts Metric plugin loads");
+
+    let unsafe_path = RepoPath::new("queries/unsafe.haz").expect("valid repo path");
+    let clean_path = RepoPath::new("queries/clean.haz").expect("valid repo path");
+    let unsafe_source = "SELECT id FROM users;\nDELETE FROM sessions;\nSELECT name FROM users WHERE name LIKE '%admin';\nDELETE FROM audit_logs WHERE id = 1;\n";
+    let clean_source = "SELECT id FROM users WHERE id = 1;\n";
+
+    let unsafe_model = language
+        .lower(&unsafe_path, unsafe_source)
+        .expect("lowers file with hazard lines");
+    let clean_model = language
+        .lower(&clean_path, clean_source)
+        .expect("lowers clean file");
+
+    assert_eq!(
+        unsafe_model.hazard_lines,
+        vec![
+            HazardLine {
+                line: 2,
+                rule: "delete-without-where".to_owned(),
+            },
+            HazardLine {
+                line: 3,
+                rule: "leading-wildcard-like".to_owned(),
+            },
+        ]
+    );
+    let HazardLine { line, rule } = &unsafe_model.hazard_lines[0];
+    assert_eq!(*line, 2);
+    assert_eq!(rule, "delete-without-where");
+    assert!(clean_model.hazard_lines.is_empty());
+
+    let listed_rules = language.hazard_rules();
+    let line_count = unsafe_source.lines().count();
+    for hazard in &unsafe_model.hazard_lines {
+        assert!(hazard.line >= 1 && (hazard.line as usize) <= line_count);
+        assert!(listed_rules.contains(&hazard.rule));
+    }
+
+    let code_model = CodeModel {
+        files: vec![
+            SourceFile {
+                path: clean_path,
+                model: clean_model,
+            },
+            SourceFile {
+                path: unsafe_path.clone(),
+                model: unsafe_model,
+            },
+        ],
+        languages: vec![LanguageFacts {
+            language: "hazard-lang".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: true,
+        }],
+        ..CodeModel::default()
+    };
+
+    let measured = metric
+        .measure(&code_model)
+        .expect("Metric plugin reads hazard_lines from Code model");
+
+    assert_eq!(
+        summarize_findings(&measured),
+        vec![
+            (
+                "hazard-rules:hazard-lang:enabled",
+                "language=hazard-lang has_hazard_rules=true",
+            ),
+            (
+                "hazard:queries/unsafe.haz:2:delete-without-where",
+                "hazard rule=delete-without-where",
+            ),
+            (
+                "hazard:queries/unsafe.haz:3:leading-wildcard-like",
+                "hazard rule=leading-wildcard-like",
+            ),
+        ]
+    );
+    assert_eq!(measured.findings[1].path, unsafe_path);
+    assert_eq!(measured.findings[1].line, 2);
+    assert_eq!(measured.findings[2].path, unsafe_path);
+    assert_eq!(measured.findings[2].line, 3);
 }

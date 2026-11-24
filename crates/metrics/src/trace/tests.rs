@@ -19,6 +19,7 @@ fn model_with_edges(files: &[&str], edges: &[(&str, &str)]) -> CodeModel {
                 functions: Vec::new(),
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
             },

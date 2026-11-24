@@ -274,6 +274,7 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
                 functions: Vec::new(),
                 tokens,
                 flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
                 runtime_imports: Vec::new(),
                 program_start: false,
             },

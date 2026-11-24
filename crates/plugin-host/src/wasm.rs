@@ -559,15 +559,19 @@ impl LiftedSize for Result<guest::FileModel, guest::LowerError> {
                 let (token_count, token_bytes) = slice_budget(&model.tokens, |_| 0);
                 let (flag_count, flag_bytes) =
                     slice_budget(&model.flagged_lines, |flagged| flagged.rule.len());
+                let (hazard_count, hazard_bytes) =
+                    slice_budget(&model.hazard_lines, |hazard| hazard.rule.len());
                 let (import_count, import_bytes) = model.runtime_imports.lifted_budget();
                 (
                     fn_count
                         .saturating_add(token_count)
                         .saturating_add(flag_count)
+                        .saturating_add(hazard_count)
                         .saturating_add(import_count),
                     fn_bytes
                         .saturating_add(token_bytes)
                         .saturating_add(flag_bytes)
+                        .saturating_add(hazard_bytes)
                         .saturating_add(import_bytes),
                 )
             }
@@ -661,6 +665,14 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
             .map(|flagged| language::FlaggedLine {
                 line: flagged.line,
                 rule: flagged.rule,
+            })
+            .collect(),
+        hazard_lines: model
+            .hazard_lines
+            .into_iter()
+            .map(|hazard| language::HazardLine {
+                line: hazard.line,
+                rule: hazard.rule,
             })
             .collect(),
         runtime_imports: model.runtime_imports,

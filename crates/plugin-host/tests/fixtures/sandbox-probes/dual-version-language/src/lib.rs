@@ -163,12 +163,18 @@ wit_bindgen::generate!({
                     rule: string,
                 }
 
+                record hazard-line {
+                    line: u32,
+                    rule: string,
+                }
+
                 record file-model {
                     source-set: source-set,
                     source-lines: u32,
                     functions: list<function>,
                     tokens: list<token>,
                     flagged-lines: list<flagged-line>,
+                    hazard-lines: list<hazard-line>,
                     runtime-imports: list<string>,
                     program-start: bool,
                 }
@@ -241,7 +247,7 @@ struct DualVersionLanguagePlugin;
 export!(DualVersionLanguagePlugin);
 
 macro_rules! impl_common_guest {
-    ($pkg:ident $(, program_start: $program_start:expr)?) => {
+    ($pkg:ident $(, hazard_lines: $hazard_lines:expr, program_start: $program_start:expr)?) => {
         fn extensions() -> Vec<String> {
             vec!["dual".to_string()]
         }
@@ -259,6 +265,7 @@ macro_rules! impl_common_guest {
                 functions: vec![],
                 tokens: vec![],
                 flagged_lines: vec![],
+                $(hazard_lines: $hazard_lines,)?
                 runtime_imports: vec![],
                 $(program_start: $program_start,)?
             })
@@ -310,7 +317,7 @@ impl exports::codeint::plugin0_2_0::language::Guest for DualVersionLanguagePlugi
 }
 
 impl exports::codeint::plugin0_3_0::language::Guest for DualVersionLanguagePlugin {
-    impl_common_guest!(plugin0_3_0, program_start: false);
+    impl_common_guest!(plugin0_3_0, hazard_lines: vec![], program_start: false);
 
     fn has_hazard_rules() -> bool {
         false

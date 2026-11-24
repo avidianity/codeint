@@ -30,6 +30,7 @@ fn tiny_positive_min_similarity_preserves_nonzero_json_toon_and_markdown_display
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
         },

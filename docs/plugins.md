@@ -86,7 +86,7 @@ Implement all ten functions on `Guest`:
 | Function | Responsibility |
 | -------- | -------------- |
 | `extensions() -> list<string>` | Return file extensions without a leading dot, such as `["mini"]`. |
-| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
+| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `hazard-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
 | `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. |
 | `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
 | `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(string)`, `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
@@ -102,8 +102,10 @@ Follow these invariants in `lower`:
 - Always set `coverage` to `none` on every `function` that `lower` returns.
   codeint fills in `coverage` from Coverage reports after Language plugins run and before Metrics run.
 - Keep `tokens` sorted by 1-based `line`, with 64-bit FNV-1a `text-hash` values of each token's UTF-8 text.
-- Produce identical `source-lines` and `functions` for LF and CRLF line endings.
+- Produce identical `source-lines`, `functions`, and `hazard-lines` for LF and CRLF line endings.
 - Do not count nested functions' decision points, cognitive complexity, or source lines in their enclosing function.
+- Report every Hazard line in `hazard-lines` with a 1-based `line` inside the file and a `rule` name listed by `hazard-rules`, and never include source text.
+  Leave `hazard-lines` empty when `has-hazard-rules` returns `false`.
 - Set `program-start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
   codeint counts every marked Production file as an entry point for Orphan files and names the mark in `codeint trace`; marked files in other Source sets stay out of entry points.
 
@@ -191,18 +193,25 @@ Rules for `code-model.languages` and `has-coverage`:
 - `has-coverage` is `false` until codeint fills coverage facts from Coverage reports after Language plugins run and before Metrics run.
 - A Metric plugin can check `has-coverage` to stay absent for a language that no Coverage report covers, rather than reporting 0.
 
-### Hazard line rules
+### Hazard line rules and per-file Hazard lines
 
-A Language plugin exports `has-hazard-rules() -> bool` and `hazard-rules() -> list<string>`.
-`code-model.languages` exposes each language's `has-hazard-rules` value to Metric plugins.
+A Language plugin exports `has-hazard-rules() -> bool` and `hazard-rules() -> list<string>`, and reports per-file matches in `file-model.hazard-lines: list<hazard-line>`.
+Each `hazard-line` record holds two fields and never holds source text:
 
-Rules for `has-hazard-rules`, `hazard-rules`, and `language-facts.has-hazard-rules`:
+- `line`: the 1-based line number inside the file.
+- `rule`: the stable identifier of the Hazard line rule the line matched, listed in `hazard-rules`.
 
-- Return `false` from `has-hazard-rules` and an empty list from `hazard-rules` when the Language plugin defines no Hazard line rules.
+`code-model.languages` exposes each language's `has-hazard-rules` value to Metric plugins, and each `source-file.model` exposes `hazard-lines`.
+
+Rules for `has-hazard-rules`, `hazard-rules`, `hazard-lines`, and `language-facts.has-hazard-rules`:
+
+- Return `false` from `has-hazard-rules`, an empty list from `hazard-rules`, and an empty `hazard-lines` list on every file when the Language plugin defines no Hazard line rules.
 - Return `true` from `has-hazard-rules` and a non-empty list of stable, non-empty rule names from `hazard-rules` when the Language plugin defines Hazard line rules.
-- The five built-in Language plugins return `false` and an empty list.
+- A line that matches two Hazard line rules appears once per rule in `hazard-lines`.
+- Every `hazard-line.line` must be between `1` and the line count of the file, and every `hazard-line.rule` must appear in the Language plugin's `hazard-rules` list.
+- The five built-in Language plugins return `false`, an empty `hazard-rules` list, and an empty `hazard-lines` list on every file.
 - When `has-hazard-rules` is `false`, the Hazards Metric is absent for that language rather than `0`.
-- A Metric plugin reads `has-hazard-rules` on each `language-facts` entry in `code-model.languages`.
+- A Metric plugin reads `has-hazard-rules` on each `language-facts` entry in `code-model.languages` and `hazard-lines` on each `source-file.model`.
 
 ### Program-start mark
 
@@ -322,7 +331,7 @@ The suite verifies:
 - `resolve-imports` returning one `Resolved`, `External`, `Builtin`, or `Unresolved` result per request in request order.
 - `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
 - `reference-ranges` returning valid ranges.
-- `has-hazard-rules` and `hazard-rules` staying consistent (empty list when `false`, non-empty list of non-empty rule names when `true`).
+- `has-hazard-rules`, `hazard-rules`, and `hazard-lines` staying consistent (empty `hazard-rules` and empty `hazard-lines` when `false`, non-empty list of non-empty rule names when `true`, every `hazard-line.line` within `1..=line_count`, and every `hazard-line.rule` listed in `hazard-rules`).
 - Safe concurrent `lower` calls across threads.
 
 Run the conformance suite and the host sandbox tests:

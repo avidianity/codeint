@@ -16,6 +16,7 @@ fn source_file(path: &str, source_set: SourceSet) -> SourceFile {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
         },
