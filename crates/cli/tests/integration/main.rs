@@ -10,6 +10,7 @@ mod coupling;
 mod dependencies;
 mod diff;
 mod doctor;
+mod go;
 mod guard;
 mod impact;
 mod init;

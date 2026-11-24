@@ -86,6 +86,7 @@ If your config file pins an official `$schema` tag newer than the running binary
     { "plugin": "php", "include": ["app", "src"], "exclude": [] },
     { "plugin": "dart", "include": ["lib"], "exclude": [] },
     { "plugin": "python", "include": ["services"], "exclude": [] },
+    { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] },
   ],
 }
 ```

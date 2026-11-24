@@ -10,6 +10,7 @@ use codeint_config::{
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_lang_dart::Dart;
+use codeint_lang_go::Go;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
@@ -307,7 +308,7 @@ pub(crate) struct NamedLanguagePlugin<'plugin> {
     pub(crate) plugin: &'plugin dyn LanguagePlugin,
 }
 
-pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 5] = [
+pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 6] = [
     NamedLanguagePlugin {
         name: "typescript-javascript",
         plugin: &TypeScriptAndJavaScript,
@@ -327,6 +328,10 @@ pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 5] = 
     NamedLanguagePlugin {
         name: "python",
         plugin: &Python,
+    },
+    NamedLanguagePlugin {
+        name: "go",
+        plugin: &Go,
     },
 ];
 

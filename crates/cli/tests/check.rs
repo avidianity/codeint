@@ -2873,7 +2873,7 @@ fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
     assert_operational_error(
         &output,
         "codeint: codeint.jsonc names an unknown Language plugin cobol at languages[0].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python\n\
+         the Language plugins are typescript-javascript, rust, php, dart, python, go\n\
          Name one of the Language plugins listed, or remove the entry from languages.\n",
     );
 }
@@ -3045,7 +3045,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "cobol", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin cobol at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python",
+         the Language plugins are typescript-javascript, rust, php, dart, python, go",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -5861,5 +5861,34 @@ fn no_imports_only_repo_shows_absent_import_totals_and_budgets_do_not_trip() {
         assert_eq!(section.get("import_cycles"), None);
         assert_eq!(section.get("orphan_files"), None);
         assert_eq!(section.get("boundaries"), None);
+    }
+}
+
+#[test]
+fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
+    let repository = Repository::new();
+    repository.write("go.mod", "module example.com/demo\n\ngo 1.24\n");
+    repository.write(
+        "main.go",
+        "package main\n\nfunc classify(x int) int {\n\tif x > 0 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n",
+    );
+    repository.commit_all();
+
+    let report = check_json_with_exit(&repository, &["check", "--format", "json"], 0);
+    let prod = &report["source_sets"]["production"];
+    let expected_source = "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0";
+    for (metric, low, high) in [
+        ("erosion", 0.379, 0.692),
+        ("verbosity", 0.045, 0.183),
+        ("duplication", 0.044, 0.181),
+        ("import_cycles", 0.0, 0.0),
+    ] {
+        let rr = &prod[metric]["reference_range"];
+        assert_eq!(rr["low"], low, "{metric} reference_range.low");
+        assert_eq!(rr["high"], high, "{metric} reference_range.high");
+        assert_eq!(
+            rr["source"], expected_source,
+            "{metric} reference_range.source"
+        );
     }
 }

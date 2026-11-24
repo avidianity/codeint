@@ -2,7 +2,7 @@
 
 codeint measures the Software entropy of a codebase, in any language that has a Language plugin: Erosion, Cognitive complexity, Test gap, Duplication, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene.
 It is for developers whose code is increasingly written by coding agents, so they see Software entropy grow before it compounds.
-Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, and Python.
+Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, and Go.
 
 ## Language
 
@@ -76,7 +76,7 @@ A directional rule or public-file constraint governing which architectural zones
 _Avoid_: layer rule, module fence
 
 **Orphan file**:
-A Production source file unreachable through runtime imports from any manifest-declared, program-start, or configured entry point, classified as unreferenced or test-only.
+A Production source file unreachable through runtime imports from any entry point, classified as unreferenced or test-only.
 _Avoid_: dead file, unused file
 
 **Dependency hygiene**:
@@ -88,7 +88,7 @@ A runtime import that the Language plugin could not match to a repository file o
 _Avoid_: broken import, missing import
 
 **Workspace package**:
-A package declared by a repository workspace, measured on its own alongside the repository total.
+A package declared by a repository workspace or by a module manifest such as `go.mod`, measured on its own alongside the repository total.
 _Avoid_: subpackage, member package, workspace member
 
 **Finding**:

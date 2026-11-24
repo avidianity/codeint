@@ -31,7 +31,7 @@ Each pull request can pass tests and linters while quietly adding copied blocks,
 Over dozens of changes, that structural drag compounds until both humans and agents slow down.
 
 codeint measures **Software entropy** directly from the shape of your source code so you see it grow before it compounds.
-It ships with five built-in Language plugins covering TypeScript/JavaScript (including React `.jsx`/`.tsx`, Vue, and Svelte `<script>` blocks), Rust, PHP, Dart, and Python, plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
+It ships with six built-in Language plugins covering TypeScript/JavaScript (including React `.jsx`/`.tsx`, Vue, and Svelte `<script>` blocks), Rust, PHP, Dart, Python, and Go, plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
 
 ## How it works
 
@@ -52,7 +52,7 @@ Additional independent Metrics and structural checks run in the same pass:
 - **Cognitive complexity**: share of total nesting-weighted cognitive complexity held by functions scoring over 15.
 - **Test gap**: share of total Production Function mass not executed by tests, read from user-named LCOV or Cobertura XML Coverage reports without running your test suite, listing the heaviest untested functions first ([Test gap guide](./docs/guide/test-gap.md), [ADR 0017](./docs/adr/0017-test-gap-from-coverage-reports.md)).
 - **Orphan files**: Production files unreachable from manifest-declared, program-start, and configured `entry_points`, classified as `unreferenced` or `test-only`.
-- **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml` against imported external packages while excluding standard-library built-ins.
+- **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pubspec.yaml`, and `go.mod` against imported external packages while excluding standard-library built-ins.
 - **Architectural import boundaries**: named zones, built-in `layered` and `hexagonal` presets, `public_files` encapsulation, directional `allow`/`deny` rules, and pre-edit `codeint guard <path>` checks before a file even exists on disk.
 
 Every file belongs to one **Source set** (`production`, `test`, `generated`, or `vendored`), so fixtures and generated code never distort Production ratios.
@@ -86,7 +86,7 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 
 ## Calibrated Reference ranges
 
-10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework ([ADR 0008](./docs/adr/0008-typescript-reference-ranges.md), [ADR 0010](./docs/adr/0010-rust-reference-ranges.md), [ADR 0011](./docs/adr/0011-php-reference-ranges.md), [ADR 0012](./docs/adr/0012-dart-reference-ranges.md), [ADR 0013](./docs/adr/0013-python-reference-ranges.md), [ADR 0014](./docs/adr/0014-vue2-reference-ranges.md), [ADR 0015](./docs/adr/0015-vue3-reference-ranges.md), [ADR 0020](./docs/adr/0020-react-reference-ranges.md)):
+10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework ([ADR 0008](./docs/adr/0008-typescript-reference-ranges.md), [ADR 0010](./docs/adr/0010-rust-reference-ranges.md), [ADR 0011](./docs/adr/0011-php-reference-ranges.md), [ADR 0012](./docs/adr/0012-dart-reference-ranges.md), [ADR 0013](./docs/adr/0013-python-reference-ranges.md), [ADR 0014](./docs/adr/0014-vue2-reference-ranges.md), [ADR 0015](./docs/adr/0015-vue3-reference-ranges.md), [ADR 0020](./docs/adr/0020-react-reference-ranges.md), [ADR 0021](./docs/adr/0021-go-reference-ranges.md)):
 
 | Language | Erosion | Duplication | Verbosity | Import cycles |
 | -------- | ------- | ----------- | --------- | ------------- |
@@ -98,6 +98,7 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 | PHP | 5.5% to 67.7% | 4.1% to 29.0% | 4.2% to 29.2% | 0.0% to 10.7% |
 | Dart | 4.7% to 41.9% | 7.3% to 25.6% | 8.0% to 25.9% | 7.3% to 52.4% |
 | Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% |
+| Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% |
 
 See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings.
 
@@ -154,7 +155,7 @@ let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 
 ## Documentation
 
-- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Test gap](./docs/guide/test-gap.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
+- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Test gap](./docs/guide/test-gap.md), [Built-in Languages](./docs/guide/languages.md), [Go](./docs/guide/go.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
 - [Plugins](./docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
