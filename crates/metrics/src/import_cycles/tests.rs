@@ -18,6 +18,7 @@ fn module(name: &str) -> SourceFile {
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }

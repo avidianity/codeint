@@ -95,6 +95,9 @@ interface language {
         /// The module specifiers of the imports that run when the file runs, in source order, such as `./greet`.
         /// Type-only imports are left out.
         runtime-imports: list<string>,
+        /// Whether the file starts a program as shown by its source text, such as a Go `package main` file.
+        /// False unless the Language plugin sets it.
+        program-start: bool,
     }
 
     /// One runtime import to resolve: the file that imports, and the specifier it names.

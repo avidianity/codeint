@@ -99,6 +99,7 @@ impl Guest for Python {
             runtime_imports,
             tokens,
             source_lines,
+            program_start: false,
         })
     }
 }

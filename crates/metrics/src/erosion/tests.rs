@@ -19,6 +19,7 @@ fn model_with(functions: Vec<Function>) -> CodeModel {
                 }],
                 flagged_lines: Vec::new(),
                 runtime_imports: Vec::new(),
+                program_start: false,
             },
         }],
         workspace: Workspace::default(),

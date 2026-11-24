@@ -19,6 +19,7 @@ fn source_file(name: &str, source_set: SourceSet) -> SourceFile {
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }

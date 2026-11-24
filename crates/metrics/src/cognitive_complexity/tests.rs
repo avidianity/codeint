@@ -13,6 +13,7 @@ fn file(path: &str, functions: Vec<Function>, tokens: Vec<Token>) -> SourceFile 
             tokens,
             flagged_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }

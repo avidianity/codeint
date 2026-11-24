@@ -620,6 +620,7 @@ fn convert_file_model(model: guest::FileModel) -> FileModel {
             })
             .collect(),
         runtime_imports: model.runtime_imports,
+        program_start: model.program_start,
     }
 }
 

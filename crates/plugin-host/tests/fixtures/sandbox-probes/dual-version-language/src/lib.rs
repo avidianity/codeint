@@ -170,6 +170,7 @@ wit_bindgen::generate!({
                     tokens: list<token>,
                     flagged-lines: list<flagged-line>,
                     runtime-imports: list<string>,
+                    program-start: bool,
                 }
 
                 record import-request {
@@ -238,7 +239,7 @@ struct DualVersionLanguagePlugin;
 export!(DualVersionLanguagePlugin);
 
 macro_rules! impl_common_guest {
-    ($pkg:ident) => {
+    ($pkg:ident $(, program_start: $program_start:expr)?) => {
         fn extensions() -> Vec<String> {
             vec!["dual".to_string()]
         }
@@ -257,6 +258,7 @@ macro_rules! impl_common_guest {
                 tokens: vec![],
                 flagged_lines: vec![],
                 runtime_imports: vec![],
+                $(program_start: $program_start,)?
             })
         }
 
@@ -306,5 +308,5 @@ impl exports::codeint::plugin0_2_0::language::Guest for DualVersionLanguagePlugi
 }
 
 impl exports::codeint::plugin0_3_0::language::Guest for DualVersionLanguagePlugin {
-    impl_common_guest!(plugin0_3_0);
+    impl_common_guest!(plugin0_3_0, program_start: false);
 }

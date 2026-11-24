@@ -236,6 +236,7 @@ fn loads_sample_external_metric_plugin_with_zero_capabilities_and_measures_code_
                 }],
                 flagged_lines: Vec::new(),
                 runtime_imports: Vec::new(),
+                program_start: false,
             },
         }],
         ..CodeModel::default()
@@ -483,6 +484,7 @@ fn metric_plugin_that_loops_forever_or_exceeds_memory_cap_returns_limit_error() 
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
                 runtime_imports: Vec::new(),
+                program_start: false,
             },
         }],
         ..CodeModel::default()
@@ -598,6 +600,7 @@ fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
     assert_eq!(lowered.functions[1].name, None);
     assert_eq!(lowered.functions[1].cognitive_complexity, 0);
     assert_eq!(lowered.functions[1].coverage, None);
+    assert!(!lowered.program_start);
 
     let repo_paths = vec![
         RepoPath::new("mini.workspace").expect("valid repo path"),
@@ -1040,6 +1043,7 @@ fn coverage_model_with(functions: Vec<Function>) -> CodeModel {
                 tokens: Vec::new(),
                 flagged_lines: Vec::new(),
                 runtime_imports: Vec::new(),
+                program_start: false,
             },
         }],
         ..CodeModel::default()
@@ -1149,4 +1153,110 @@ fn metric_plugin_reads_per_function_coverage_and_distinguishes_absent_from_zero_
             ("covered:partial", "listed=5 executed=3"),
         ]
     );
+}
+
+#[test]
+fn language_plugin_sets_program_start_mark_and_metric_plugin_reads_it() {
+    let language_wasm = sandbox_probe_wasm("program_start_language_plugin.wasm");
+    let language_decl = declaration_for("program-start-language", &language_wasm);
+    let language =
+        load_language_plugin(Path::new("."), &language_decl, &PluginHostConfig::default())
+            .expect("program-start Language plugin loads");
+
+    let metric_wasm = sandbox_probe_wasm("program_start_metric_plugin.wasm");
+    let metric_decl =
+        declaration_with_kind("program-start-metric", PluginKind::Metric, &metric_wasm);
+    let metric = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
+        .expect("program-start Metric plugin loads");
+
+    let main_path = RepoPath::new("cmd/app/main.prog").expect("valid repo path");
+    let lib_path = RepoPath::new("internal/util/helper.prog").expect("valid repo path");
+
+    let main_model = language
+        .lower(&main_path, "program main\nrun()\n")
+        .expect("lowers program-start file");
+    let lib_model = language
+        .lower(&lib_path, "library util\nhelper()\n")
+        .expect("lowers library file");
+
+    assert!(main_model.program_start);
+    assert!(!lib_model.program_start);
+
+    let code_model = CodeModel {
+        files: vec![
+            SourceFile {
+                path: main_path.clone(),
+                model: main_model,
+            },
+            SourceFile {
+                path: lib_path,
+                model: lib_model,
+            },
+        ],
+        ..CodeModel::default()
+    };
+
+    let measured = metric
+        .measure(&code_model)
+        .expect("Metric plugin reads program_start from Code model");
+    assert_eq!(metric.key(), "program_starts");
+    assert!((measured.ratio - 0.5).abs() < 1e-9);
+    assert!((measured.numerator - 1.0).abs() < 1e-9);
+    assert!((measured.denominator - 2.0).abs() < 1e-9);
+    assert_eq!(measured.findings.len(), 1);
+    assert_eq!(measured.findings[0].id, "program-start:cmd/app/main.prog");
+    assert_eq!(measured.findings[0].path, main_path);
+    assert_eq!(measured.findings[0].message, "program start");
+}
+
+#[test]
+fn built_in_language_plugins_never_set_program_start() {
+    use codeint_lang_dart::Dart;
+    use codeint_lang_php::Php;
+    use codeint_lang_python::Python;
+    use codeint_lang_rust::Rust;
+    use codeint_lang_ts::TypeScriptAndJavaScript;
+
+    let cases: [(&str, &dyn LanguagePlugin, &str, &str); 5] = [
+        (
+            "typescript-javascript",
+            &TypeScriptAndJavaScript,
+            "src/main.ts",
+            "export function main(): void {\n  console.log('hi');\n}\nmain();\n",
+        ),
+        (
+            "rust",
+            &Rust,
+            "src/main.rs",
+            "fn main() {\n    println!(\"hi\");\n}\n",
+        ),
+        (
+            "php",
+            &Php,
+            "public/index.php",
+            "<?php\nfunction main(): int {\n    return 0;\n}\nmain();\n",
+        ),
+        (
+            "dart",
+            &Dart,
+            "bin/main.dart",
+            "void main() {\n  print('hi');\n}\n",
+        ),
+        (
+            "python",
+            &Python,
+            "src/__main__.py",
+            "def main():\n    return 0\n\nif __name__ == '__main__':\n    main()\n",
+        ),
+    ];
+
+    for (name, plugin, path, source) in cases {
+        let model = plugin
+            .lower(&RepoPath::new(path).expect("valid repo path"), source)
+            .unwrap_or_else(|error| panic!("{name}: lower failed: {error}"));
+        assert!(
+            !model.program_start,
+            "{name} built-in Language plugin must leave program_start false"
+        );
+    }
 }

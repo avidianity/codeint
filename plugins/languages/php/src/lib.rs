@@ -93,6 +93,7 @@ impl Guest for Php {
             tokens: build_tokens(&lexed.tokens, &extracted.import_token_indices),
             flagged_lines: rules::flag(&lexed.tokens, &lexed.code_lines),
             runtime_imports: extracted.specifiers,
+            program_start: false,
         })
     }
 

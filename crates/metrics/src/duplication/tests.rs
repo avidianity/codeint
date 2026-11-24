@@ -30,6 +30,7 @@ fn file(path: &str, lines: &[&str]) -> SourceFile {
             tokens,
             flagged_lines: Vec::new(),
             runtime_imports: Vec::new(),
+            program_start: false,
         },
     }
 }

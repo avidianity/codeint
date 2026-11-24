@@ -466,6 +466,7 @@ impl Guest for SampleMiniPlugin {
             tokens,
             flagged_lines,
             runtime_imports,
+            program_start: false,
         })
     }
 

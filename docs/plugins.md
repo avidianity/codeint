@@ -86,7 +86,7 @@ Implement all eight functions on `Guest`:
 | Function | Responsibility |
 | -------- | -------------- |
 | `extensions() -> list<string>` | Return file extensions without a leading dot, such as `["mini"]`. |
-| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, and `runtime-imports`. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
+| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
 | `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. |
 | `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
 | `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(string)`, `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. |
@@ -102,6 +102,7 @@ Follow these invariants in `lower`:
 - Keep `tokens` sorted by 1-based `line`, with 64-bit FNV-1a `text-hash` values of each token's UTF-8 text.
 - Produce identical `source-lines` and `functions` for LF and CRLF line endings.
 - Do not count nested functions' decision points, cognitive complexity, or source lines in their enclosing function.
+- Set `program-start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
 
 ### Compile the sample Language plugin
 
@@ -174,6 +175,16 @@ Rules for `function.coverage`:
 - `none` means no Coverage report covers the function.
 - `some({ listed-lines, executed-lines: 0 })` means a Coverage report covers the function and tests executed 0 of its listed lines.
   A Metric plugin can distinguish absent coverage (`none`) from 0 executed lines (`some` with `executed-lines == 0`).
+
+### Program-start mark
+
+Each `file-model` carries `program-start: bool`, which lets a Language plugin mark a file as a program start when only its source text shows it (such as a Go file declaring `package main`).
+
+Rules for `file-model.program-start`:
+
+- `program-start` is `false` unless the Language plugin sets it to `true` in `lower`.
+- The five built-in Language plugins always set `program-start` to `false`.
+- A Metric plugin reads `program-start` on each `source-file.model` passed to `measure`.
 
 ### Compile the sample Metric plugin
 

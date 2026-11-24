@@ -304,6 +304,7 @@ fn to_guest_file_model(model: &FileModel) -> guest_language::FileModel {
             })
             .collect(),
         runtime_imports: model.runtime_imports.clone(),
+        program_start: model.program_start,
     }
 }
 

@@ -73,6 +73,7 @@ fn importer(name: &str, specifiers: &[&str]) -> SourceFile {
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
             runtime_imports: specifiers.iter().map(|text| (*text).to_owned()).collect(),
+            program_start: false,
         },
     }
 }

@@ -71,6 +71,7 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
         functions,
         source_lines,
         source_set,
+        program_start: false,
     })
 }
 
