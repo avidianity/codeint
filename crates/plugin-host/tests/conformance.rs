@@ -828,7 +828,7 @@ fn built_in_go_plugin_passes_seam_2_conformance() {
         ],
     };
     let fixture = ConformanceFixture {
-        expect_erosion_reference_range: false,
+        expect_erosion_reference_range: true,
         name: "go",
         imports: Some(imports),
         unsupported_path: "scripts/tool.unknown",
