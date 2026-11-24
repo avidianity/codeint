@@ -1590,8 +1590,7 @@ fn trace_names_program_start_mark_for_marked_production_file_and_omits_it_for_te
     );
 }
 
-#[test]
-fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
+fn init_hazard_rules_repo_with_metric() -> TempDir {
     let repo = init_repo();
     let lang_hash = copy_wasm_into(
         &built_sandbox_probe("hazard_rules_language_plugin.wasm"),
@@ -1625,14 +1624,11 @@ fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
             }}"#
         ),
     );
-    write_file(
-        repo.path(),
-        "src/app.ts",
-        "export function greet(name: string): string { return name; }\n",
-    );
-    write_file(repo.path(), "queries/clean.haz", "SELECT id FROM users;\n");
+    repo
+}
 
-    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+fn run_check_hazard_facts_findings(repo: &Path) -> Vec<Value> {
+    let output = run_codeint(repo, &["check", "--format", "json"]);
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -1641,9 +1637,46 @@ fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report: Value = serde_json::from_slice(&output.stdout).expect("parse json report");
-    let findings = report["source_sets"]["production"]["hazard_facts"]["findings"]
+    report["source_sets"]["production"]["hazard_facts"]["findings"]
         .as_array()
-        .expect("hazard_facts findings list");
+        .expect("hazard_facts findings list")
+        .clone()
+}
+
+fn assert_exit_2_without_stdout(repo: &Path, args: &[&str], expected_substrings: &[&str]) {
+    let output = run_codeint(repo, args);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "args {args:?}: expected exit 2, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "args {args:?}: expected no report on stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in expected_substrings {
+        assert!(
+            stderr.contains(expected),
+            "args {args:?}: expected {expected:?} in stderr, got: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
+    let repo = init_hazard_rules_repo_with_metric();
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export function greet(name: string): string { return name; }\n",
+    );
+    write_file(repo.path(), "queries/clean.haz", "SELECT id FROM users;\n");
+
+    let findings = run_check_hazard_facts_findings(repo.path());
     assert!(
         findings.iter().any(|finding| {
             finding["path"] == "languages/hazard-lang"
@@ -1697,4 +1730,75 @@ fn empty_resolved_import_list_stops_check_with_exit_2_naming_plugin() {
         stderr.contains("folder-import-lang") && stderr.contains("empty list"),
         "expected error naming folder-import-lang and empty list, got: {stderr}"
     );
+}
+
+#[test]
+fn hazard_line_beyond_end_of_file_stops_check_with_exit_2_naming_plugin_file_and_line() {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("hazard_rules_language_plugin.wasm"),
+        repo.path(),
+        "plugins/hazard_rules_language_plugin.wasm",
+    );
+    write_plugin_config(
+        repo.path(),
+        "hazard-lang",
+        Some("language"),
+        "plugins/hazard_rules_language_plugin.wasm",
+        &hash,
+        "",
+    );
+    write_file(
+        repo.path(),
+        "queries/beyond.haz",
+        "SELECT 1;\nHAZARD_BEYOND_EOF\nSELECT 2;\n",
+    );
+    commit_all(repo.path(), "commit file with out-of-range hazard line");
+
+    for args in [&["check", "--format", "json"][..], &["diff", "HEAD"][..]] {
+        assert_exit_2_without_stdout(
+            repo.path(),
+            args,
+            &["hazard-lang", "queries/beyond.haz", "line 4"],
+        );
+    }
+
+    write_file(
+        repo.path(),
+        "queries/beyond.haz",
+        "SELECT 1;\nHAZARD_LINE_ZERO\n",
+    );
+    assert_exit_2_without_stdout(
+        repo.path(),
+        &["check", "--format", "json"],
+        &["hazard-lang", "queries/beyond.haz", "line 0"],
+    );
+}
+
+#[test]
+fn hazard_line_on_last_line_of_file_is_accepted_with_and_without_trailing_newline() {
+    let repo = init_hazard_rules_repo_with_metric();
+    write_file(
+        repo.path(),
+        "queries/with_newline.haz",
+        "SELECT id FROM users;\nDELETE FROM sessions;\n",
+    );
+    write_file(
+        repo.path(),
+        "queries/without_newline.haz",
+        "SELECT id FROM users;\nDELETE FROM sessions;",
+    );
+
+    let findings = run_check_hazard_facts_findings(repo.path());
+    for expected_path in ["queries/with_newline.haz", "queries/without_newline.haz"] {
+        let expected_id = format!("hazard:{expected_path}:2:delete-without-where");
+        assert!(
+            findings.iter().any(|finding| {
+                finding["path"] == expected_path
+                    && finding["line"] == 2
+                    && finding["id"] == expected_id
+            }),
+            "expected last-line hazard for {expected_path}, got: {findings:?}"
+        );
+    }
 }
