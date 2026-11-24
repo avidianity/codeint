@@ -74,6 +74,10 @@ impl ImportCycles {
                 }
             }
         }
+        for edges in &mut imports {
+            edges.sort_unstable();
+            edges.dedup();
+        }
         let mut cycle_modules: Vec<Vec<RepoPath>> = strongly_connected_components(&imports)
             .into_iter()
             .filter(|component| match component.as_slice() {

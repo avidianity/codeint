@@ -5543,3 +5543,101 @@ fn plugin_host_error_remedies_name_codeint_jsonc_when_active() {
         "unexpected codeint.json in stderr: {stderr}"
     );
 }
+
+fn folder_import_language_bytes() -> &'static [u8] {
+    static WASM: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    WASM.get_or_init(|| {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let target_dir = root.join("target/wasm-fixtures");
+        let manifest = root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
+        let status = Command::new("cargo")
+            .args([
+                "build",
+                "--workspace",
+                "--locked",
+                "--offline",
+                "--target",
+                "wasm32-wasip2",
+            ])
+            .arg("--manifest-path")
+            .arg(&manifest)
+            .arg("--target-dir")
+            .arg(&target_dir)
+            .status()
+            .expect("build sandbox-probes wasm fixtures");
+        assert!(
+            status.success(),
+            "sandbox-probes build exited with {status}"
+        );
+        fs::read(target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm"))
+            .expect("read folder_import_language_plugin.wasm")
+    })
+}
+
+fn folder_import_cycles_report(files: &[(&str, &str)]) -> serde_json::Value {
+    let repository = Repository::new();
+    let wasm = folder_import_language_bytes();
+    repository.write_bytes("folder_import.wasm", wasm);
+    let digest = codeint_plugin_host::sha256_hex(&codeint_plugin_host::sha256(wasm));
+    let config = serde_json::json!({
+        "plugins": [
+            {
+                "name": "folder-import",
+                "path": "folder_import.wasm",
+                "sha256": digest,
+            }
+        ]
+    });
+    repository.write("codeint.json", &config.to_string());
+    for &(path, contents) in files {
+        repository.write(path, contents);
+    }
+    repository.commit_all();
+    json_report(&repository)["source_sets"]["production"]["import_cycles"].clone()
+}
+
+#[test]
+fn folder_import_cycle_reports_only_participating_files_and_no_sibling_links() {
+    let import_cycles = folder_import_cycles_report(&[
+        ("pkg/alpha/a1.fld", "use pkg/beta\nfn a1()\n"),
+        ("pkg/alpha/a2.fld", "fn a2()\n"),
+        ("pkg/beta/b1.fld", "use pkg/leaf\nfn b1()\n"),
+        ("pkg/beta/b2.fld", "use pkg/alpha\nfn b2()\n"),
+        ("pkg/leaf/l1.fld", "fn l1()\n"),
+        ("pkg/leaf/l2.fld", "fn l2()\n"),
+    ]);
+    let findings = import_cycles["findings"]
+        .as_array()
+        .expect("import_cycles.findings array");
+
+    assert_eq!(import_cycles["modules"], 6);
+    assert_eq!(import_cycles["modules_in_import_cycles"], 2);
+    assert_eq!(import_cycles["unresolved_imports"]["count"], 0);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(
+        findings[0]["modules"],
+        serde_json::json!(["pkg/alpha/a1.fld", "pkg/beta/b2.fld"])
+    );
+}
+
+#[test]
+fn acyclic_multi_file_folder_imports_report_no_import_cycles() {
+    let import_cycles = folder_import_cycles_report(&[
+        (
+            "pkg/app/main.fld",
+            "use pkg/left\nuse pkg/right\nfn main()\n",
+        ),
+        ("pkg/left/l1.fld", "use pkg/shared\nfn l1()\n"),
+        ("pkg/left/l2.fld", "fn l2()\n"),
+        ("pkg/right/r1.fld", "fn r1()\n"),
+        ("pkg/right/r2.fld", "use pkg/shared\nfn r2()\n"),
+        ("pkg/shared/s1.fld", "fn s1()\n"),
+        ("pkg/shared/s2.fld", "fn s2()\n"),
+    ]);
+
+    assert_eq!(import_cycles["modules"], 7);
+    assert_eq!(import_cycles["modules_in_import_cycles"], 0);
+    assert_eq!(import_cycles["ratio"], 0.0);
+    assert_eq!(import_cycles["findings"], serde_json::json!([]));
+    assert_eq!(import_cycles["unresolved_imports"]["count"], 0);
+}
