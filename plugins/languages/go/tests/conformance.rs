@@ -825,6 +825,72 @@ func ArrayOfPtrFunc(a, b, c, d bool) [1]*func() int {
 	}
 }
 
+func ChainedArrayOfPtrFunc(a, b, c, d bool) [2][1]*func() func() int {
+	return [2][1]*func() func() int{
+		{ptr(func() func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return nil
+						}
+					}
+				}
+			}
+			return nil
+		})},
+	}
+}
+
+func SliceOfArrayOfPtrFunc(a, b, c, d bool) [][1]*func() int {
+	return [][1]*func() int{
+		{ptr(func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return 1
+						}
+					}
+				}
+			}
+			return 0
+		})},
+	}
+}
+
+func MapOfArrayOfPtrFunc(a, b, c, d bool) map[string][1]*func() int {
+	return map[string][1]*func() int{
+		\"k\": {ptr(func() int {
+			if a {
+				if b {
+					if c {
+						if d {
+							return 1
+						}
+					}
+				}
+			}
+			return 0
+		})},
+	}
+}
+
+func ChainedIndexMulFuncLit(arr [][]int, a, b, c, d bool) int {
+	return arr[0][1] * func() int {
+		if a {
+			if b {
+				if c {
+					if d {
+						return 1
+					}
+				}
+			}
+		}
+		return 0
+	}()
+}
+
 func IndexMulFuncLit(arr []int, a, b, c, d bool) int {
 	return arr[0] * func() int {
 		if a {
@@ -868,6 +934,10 @@ func NumMulFuncLit(a, b, c, d bool) int {
             Some("MapOfReturningFunc"),
             Some("MapOfPtrFunc"),
             Some("ArrayOfPtrFunc"),
+            Some("ChainedArrayOfPtrFunc"),
+            Some("SliceOfArrayOfPtrFunc"),
+            Some("MapOfArrayOfPtrFunc"),
+            Some("ChainedIndexMulFuncLit"),
             Some("IndexMulFuncLit"),
             Some("NumMulFuncLit"),
         ]
@@ -880,6 +950,10 @@ func NumMulFuncLit(a, b, c, d bool) int {
             func.name
         );
     }
+    assert_rule_hit(
+        "else-after-return",
+        "package p\nfunc Rows(x bool) [2][1]*func() int {\n\treturn [2][1]*func() int{\n\t\t{ptr(func() int { return 0 })},\n\t\t{ptr(func() int {\n\t\t\tif x {\n\t\t\t\treturn 1\n\t\t\t} else {\n\t\t\t\treturn 2\n\t\t\t}\n\t\t})},\n\t}\n}\n",
+    );
 
     let manifests = vec![Manifest {
         path: "go.mod".into(),

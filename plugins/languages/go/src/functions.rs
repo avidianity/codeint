@@ -192,24 +192,31 @@ pub(crate) fn is_composite_func_type(tokens: &[GoToken], func_idx: usize) -> boo
     is_bracket_type_prefix(tokens, prev - 1)
 }
 
-fn is_bracket_type_prefix(tokens: &[GoToken], close_bracket: usize) -> bool {
-    let Some(open_bracket) = find_opening_bracket(tokens, close_bracket) else {
-        return false;
-    };
-    if open_bracket + 1 == close_bracket {
-        return true;
+fn is_bracket_type_prefix(tokens: &[GoToken], mut close_bracket: usize) -> bool {
+    loop {
+        let Some(open_bracket) = find_opening_bracket(tokens, close_bracket) else {
+            return false;
+        };
+        if open_bracket + 1 == close_bracket {
+            return true;
+        }
+        let Some(before_idx) = open_bracket.checked_sub(1) else {
+            return true;
+        };
+        let before = &tokens[before_idx];
+        if before.is_kw("map") {
+            return true;
+        }
+        if before.text == "]" {
+            close_bracket = before_idx;
+            continue;
+        }
+        let is_expr_end = matches!(
+            before.kind,
+            GoKind::Ident | GoKind::NumberLit | GoKind::StringLit | GoKind::RuneLit
+        ) || matches!(before.text.as_str(), ")" | "}");
+        return !is_expr_end;
     }
-    let Some(before) = open_bracket.checked_sub(1).map(|i| &tokens[i]) else {
-        return true;
-    };
-    if before.is_kw("map") {
-        return true;
-    }
-    let is_expr_end = matches!(
-        before.kind,
-        GoKind::Ident | GoKind::NumberLit | GoKind::StringLit | GoKind::RuneLit
-    ) || matches!(before.text.as_str(), ")" | "]" | "}");
-    !is_expr_end
 }
 
 fn find_opening_bracket(tokens: &[GoToken], close_bracket: usize) -> Option<usize> {
