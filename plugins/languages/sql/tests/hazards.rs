@@ -774,3 +774,81 @@ fn function_on_filter_column_recognizes_full_having_aggregate_list() {
         ],
     );
 }
+
+#[test]
+fn large_union_and_operator_chains_do_not_overflow_two_mib_worker_stack() {
+    let handle = std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(|| {
+            let cases = [
+                (
+                    "u_small.sql",
+                    "",
+                    "SELECT 1",
+                    "\nUNION ALL\n",
+                    ";\n",
+                    1_500,
+                    1,
+                    0,
+                ),
+                (
+                    "u_huge.sql",
+                    "",
+                    "SELECT 1",
+                    "\nUNION ALL\n",
+                    ";\n",
+                    13_000,
+                    0,
+                    1,
+                ),
+                (
+                    "add_mid.sql",
+                    "SELECT\n",
+                    "1",
+                    "\n+ ",
+                    "\nFROM t;\n",
+                    5_900,
+                    1,
+                    0,
+                ),
+                (
+                    "add_bad.sql",
+                    "SELECT\n",
+                    "1",
+                    "\n+ ",
+                    "\nFROM ;\n",
+                    25_000,
+                    0,
+                    1,
+                ),
+                (
+                    "add_big.sql",
+                    "SELECT\n",
+                    "1",
+                    "\n+ ",
+                    "\nFROM t;\n",
+                    100_000,
+                    0,
+                    1,
+                ),
+            ];
+            for (name, prefix, item, sep, suffix, count, expected_parsed, expected_rejected) in
+                cases
+            {
+                let joined = std::iter::repeat_n(item, count)
+                    .collect::<Vec<_>>()
+                    .join(sep);
+                let sql = format!("{prefix}{joined}{suffix}");
+                let out = Sql::new()
+                    .lower_with_details(&RepoPath::new(name).unwrap(), &sql)
+                    .unwrap();
+                assert_eq!(out.parsed_statements.len(), expected_parsed, "{name}");
+                assert_eq!(out.rejected_statements.len(), expected_rejected, "{name}");
+                assert_eq!(out.file_model.functions.len(), 1, "{name}");
+            }
+        })
+        .expect("spawn 2 MiB worker thread");
+    handle
+        .join()
+        .expect("2 MiB worker thread completed cleanly");
+}

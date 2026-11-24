@@ -208,18 +208,21 @@ impl StatementChecker<'_> {
     }
 
     fn visit_set_expr(&mut self, set_expr: &SetExpr) {
-        match set_expr {
-            SetExpr::Select(select) => self.visit_select(select),
-            SetExpr::Query(query) => self.visit_query(query),
-            SetExpr::SetOperation { left, right, .. } => {
-                self.visit_set_expr(left);
-                self.visit_set_expr(right);
+        let mut stack = vec![set_expr];
+        while let Some(current) = stack.pop() {
+            match current {
+                SetExpr::Select(select) => self.visit_select(select),
+                SetExpr::Query(query) => self.visit_query(query),
+                SetExpr::SetOperation { left, right, .. } => {
+                    stack.push(right);
+                    stack.push(left);
+                }
+                SetExpr::Insert(stmt)
+                | SetExpr::Update(stmt)
+                | SetExpr::Delete(stmt)
+                | SetExpr::Merge(stmt) => self.visit_statement(stmt),
+                _ => {}
             }
-            SetExpr::Insert(stmt)
-            | SetExpr::Update(stmt)
-            | SetExpr::Delete(stmt)
-            | SetExpr::Merge(stmt) => self.visit_statement(stmt),
-            _ => {}
         }
     }
 

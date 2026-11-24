@@ -96,24 +96,38 @@ fn query_refers_to_outer(query: &Query, outer_scopes: &[BTreeSet<String>]) -> bo
         .any(|o| expr_refers_to_outer(&o.expr, &body_bindings, outer_scopes))
 }
 
-fn set_expr_bindings(body: &SetExpr) -> BTreeSet<String> {
+fn set_expr_bindings(mut body: &SetExpr) -> BTreeSet<String> {
+    while let SetExpr::Query(q) = body {
+        body = &q.body;
+    }
     match body {
         SetExpr::Select(sel) => collect_select_bindings(sel),
-        SetExpr::Query(q) => set_expr_bindings(&q.body),
         _ => BTreeSet::new(),
     }
 }
 
 fn set_expr_refers_to_outer(body: &SetExpr, outer_scopes: &[BTreeSet<String>]) -> bool {
-    match body {
-        SetExpr::Select(select) => select_refers_to_outer(select, outer_scopes),
-        SetExpr::Query(inner) => query_refers_to_outer(inner, outer_scopes),
-        SetExpr::SetOperation { left, right, .. } => {
-            set_expr_refers_to_outer(left, outer_scopes)
-                || set_expr_refers_to_outer(right, outer_scopes)
+    let mut stack = vec![body];
+    while let Some(current) = stack.pop() {
+        match current {
+            SetExpr::Select(select) => {
+                if select_refers_to_outer(select, outer_scopes) {
+                    return true;
+                }
+            }
+            SetExpr::Query(inner) => {
+                if query_refers_to_outer(inner, outer_scopes) {
+                    return true;
+                }
+            }
+            SetExpr::SetOperation { left, right, .. } => {
+                stack.push(right);
+                stack.push(left);
+            }
+            _ => {}
         }
-        _ => false,
     }
+    false
 }
 
 fn select_refers_to_outer(select: &Select, outer_scopes: &[BTreeSet<String>]) -> bool {

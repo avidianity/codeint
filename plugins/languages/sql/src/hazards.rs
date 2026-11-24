@@ -314,34 +314,45 @@ impl<'a, 'b> StatementWalker<'a, 'b> {
     }
 
     fn visit_set_expr(&mut self, set_expr: &SetExpr) {
-        match set_expr {
-            SetExpr::Select(select) => self.visit_select(select),
-            SetExpr::Query(inner) => self.visit_query(inner),
-            SetExpr::SetOperation {
-                left,
-                op,
-                set_quantifier,
-                right,
-            } => {
-                query_shape::check_union_without_all(self.ctx, *op, *set_quantifier, right);
-                let prev_allow = self.allow_where_true;
-                self.allow_where_true = false;
-                self.visit_set_expr(left);
-                self.allow_where_true = prev_allow;
-                self.visit_set_expr(right);
-                self.allow_where_true = false;
-            }
-            SetExpr::Values(values) => {
-                for row in &values.rows {
-                    for expr in row.iter() {
-                        self.visit_expr(expr);
+        let mut stack = vec![(set_expr, self.allow_where_true)];
+        self.allow_where_true = false;
+        while let Some((current, allow_where_true)) = stack.pop() {
+            match current {
+                SetExpr::Select(select) => {
+                    self.allow_where_true = allow_where_true;
+                    self.visit_select(select);
+                    self.allow_where_true = false;
+                }
+                SetExpr::Query(inner) => {
+                    self.allow_where_true = allow_where_true;
+                    self.visit_query(inner);
+                    self.allow_where_true = false;
+                }
+                SetExpr::SetOperation {
+                    left,
+                    op,
+                    set_quantifier,
+                    right,
+                } => {
+                    query_shape::check_union_without_all(self.ctx, *op, *set_quantifier, right);
+                    stack.push((right, allow_where_true));
+                    stack.push((left, false));
+                }
+                SetExpr::Values(values) => {
+                    for row in &values.rows {
+                        for expr in row.iter() {
+                            self.visit_expr(expr);
+                        }
                     }
                 }
+                SetExpr::Insert(s)
+                | SetExpr::Update(s)
+                | SetExpr::Delete(s)
+                | SetExpr::Merge(s) => {
+                    self.visit_statement(s);
+                }
+                SetExpr::Table(_) => {}
             }
-            SetExpr::Insert(s) | SetExpr::Update(s) | SetExpr::Delete(s) | SetExpr::Merge(s) => {
-                self.visit_statement(s);
-            }
-            SetExpr::Table(_) => {}
         }
     }
 

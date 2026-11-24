@@ -276,23 +276,26 @@ impl<'a> SchemaRuleChecker<'a> {
         cte_names: BTreeSet<String>,
         parent: Option<&QueryScope<'_>>,
     ) {
-        match set_expr {
-            SetExpr::Select(select) => {
-                self.visit_select(select, order_by, cte_names, parent);
+        let mut stack = vec![(set_expr, order_by)];
+        while let Some((current, current_order_by)) = stack.pop() {
+            match current {
+                SetExpr::Select(select) => {
+                    self.visit_select(select, current_order_by, cte_names.clone(), parent);
+                }
+                SetExpr::Query(inner) => match parent {
+                    Some(p) => self.visit_query_in_parent(inner, p),
+                    None => self.visit_query(inner, cte_names.clone()),
+                },
+                SetExpr::SetOperation { left, right, .. } => {
+                    stack.push((right, None));
+                    stack.push((left, None));
+                }
+                SetExpr::Insert(stmt)
+                | SetExpr::Update(stmt)
+                | SetExpr::Delete(stmt)
+                | SetExpr::Merge(stmt) => self.visit_statement(stmt),
+                _ => {}
             }
-            SetExpr::Query(inner) => match parent {
-                Some(p) => self.visit_query_in_parent(inner, p),
-                None => self.visit_query(inner, cte_names),
-            },
-            SetExpr::SetOperation { left, right, .. } => {
-                self.visit_set_expr(left, None, cte_names.clone(), parent);
-                self.visit_set_expr(right, None, cte_names, parent);
-            }
-            SetExpr::Insert(stmt)
-            | SetExpr::Update(stmt)
-            | SetExpr::Delete(stmt)
-            | SetExpr::Merge(stmt) => self.visit_statement(stmt),
-            _ => {}
         }
     }
 
