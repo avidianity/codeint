@@ -10,11 +10,13 @@ use crate::config_error::{
     JsonType, JsoncError, KeyPath, KeySegment, compile_glob, glob_set,
 };
 use crate::dependencies::{DependenciesConfig, DependenciesFile};
+use crate::hazards::{HazardsConfig, HazardsConfigFile};
 use crate::regression_limits::{RegressionLimitSetting, ResolvedRegressionLimit};
 use crate::resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
     SourceSetOverride, resolve_with_provenance,
 };
+use crate::sql::{SqlConfig, SqlConfigFile};
 use globset::GlobSet;
 use jsonc_parser::errors::ParseError;
 use jsonc_parser::{
@@ -31,6 +33,7 @@ pub const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
 ];
 
 pub const TEST_GAP_METRIC_KEY: &str = "test_gap";
+pub const HAZARDS_METRIC_KEY: &str = "hazards";
 
 mod shape;
 mod starter;
@@ -116,6 +119,8 @@ pub struct Configuration {
     pub duplication: DuplicationConfig,
     pub entry_points: EntryPoints,
     pub coverage_reports: Vec<String>,
+    pub sql: SqlConfig,
+    pub hazards: HazardsConfig,
     config_file: ConfigFileKind,
     effective: ConfigurationFile,
 }
@@ -320,10 +325,17 @@ fn allowed_budget_metric_keys(source_set: SourceSet, external_metric_keys: &[&st
     allowed
 }
 
+const EXTRA_BUILT_IN_METRIC_KEYS: [&str; 4] = [
+    "cognitive_complexity",
+    "boundaries",
+    "orphan_files",
+    HAZARDS_METRIC_KEY,
+];
+
 fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
     Metric::BUILT_IN_KEYS
         .iter()
-        .chain(["cognitive_complexity", "boundaries", "orphan_files"].iter())
+        .chain(EXTRA_BUILT_IN_METRIC_KEYS.iter())
         .chain(external_metric_keys.iter())
         .map(|key| (*key).to_owned())
         .collect()
@@ -331,9 +343,7 @@ fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
 
 fn is_known_metric(key: &str, external_metric_keys: &[&str]) -> bool {
     Metric::BUILT_IN_KEYS.contains(&key)
-        || key == "cognitive_complexity"
-        || key == "boundaries"
-        || key == "orphan_files"
+        || EXTRA_BUILT_IN_METRIC_KEYS.contains(&key)
         || external_metric_keys.contains(&key)
 }
 
@@ -566,6 +576,14 @@ struct ConfigurationFile {
         description = "Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap."
     )]
     coverage_reports: Vec<String>,
+    #[serde(default, skip_serializing_if = "SqlConfigFile::is_unset")]
+    #[schemars(description = "SQL settings, including Dialect mappings for folders or files.")]
+    sql: SqlConfigFile,
+    #[serde(default, skip_serializing_if = "crate::hazards::is_hazards_unset")]
+    #[schemars(
+        description = "Hazards Metric settings, including Hazard line rules turned off across the repository."
+    )]
+    hazards: HazardsConfigFile,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -677,6 +695,9 @@ struct RegressionLimitsFile {
     #[schemars(description = "The Regression limit of Orphan files in every Source set.")]
     orphan_files: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Hazards in every Source set.")]
+    hazards: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of unused declared dependencies.")]
     unused_dependencies: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
@@ -724,6 +745,9 @@ struct MetricRegressionLimits {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Orphan files in this Source set.")]
     orphan_files: RegressionLimitSetting,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(description = "The Regression limit of Hazards in this Source set.")]
+    hazards: RegressionLimitSetting,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, RegressionLimitSetting>,
 }
@@ -738,6 +762,7 @@ impl MetricRegressionLimits {
             &self.import_cycles,
             &self.boundaries,
             &self.orphan_files,
+            &self.hazards,
         ]
         .into_iter()
         .chain(self.external.values())
@@ -753,6 +778,7 @@ impl MetricRegressionLimits {
             import_cycles,
             boundaries,
             orphan_files,
+            hazards,
             external,
         } = self;
         built_in_metric_pairs([
@@ -763,13 +789,14 @@ impl MetricRegressionLimits {
             import_cycles,
             boundaries,
             orphan_files,
+            hazards,
         ])
         .chain(external)
         .filter(|(_, setting)| !setting.is_unset())
     }
 }
 
-fn built_in_metric_pairs<T>(values: [T; 7]) -> impl Iterator<Item = (String, T)> {
+fn built_in_metric_pairs<T>(values: [T; 8]) -> impl Iterator<Item = (String, T)> {
     [
         Metric::Erosion.key(),
         "cognitive_complexity",
@@ -778,6 +805,7 @@ fn built_in_metric_pairs<T>(values: [T; 7]) -> impl Iterator<Item = (String, T)>
         Metric::ImportCycles.key(),
         "boundaries",
         "orphan_files",
+        HAZARDS_METRIC_KEY,
     ]
     .into_iter()
     .zip(values)
@@ -896,6 +924,13 @@ struct SharedMetricBudgets {
         description = "The highest Orphan files ratio, from 0 to 1."
     )]
     orphan_files: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Hazards ratio, from 0 to 1."
+    )]
+    hazards: Option<Budget>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -1367,6 +1402,8 @@ fn parse_value_with_overrides(
         &effective.coverage_reports,
         &mut settings,
     )?;
+    let (sql, hazards) =
+        parse_sql_and_hazards(raw.as_ref(), file.sql, file.hazards, &mut settings)?;
     let configuration = Configuration {
         config_file: config_file_kind,
         effective,
@@ -1381,6 +1418,8 @@ fn parse_value_with_overrides(
         duplication: features.duplication,
         entry_points: features.entry_points,
         coverage_reports: features.coverage_reports,
+        sql,
+        hazards,
     };
     Ok(ResolvedConfiguration {
         config_file,
@@ -1388,6 +1427,36 @@ fn parse_value_with_overrides(
         configuration,
         settings,
     })
+}
+
+fn parse_sql_and_hazards(
+    raw: Option<&Value>,
+    sql_file: SqlConfigFile,
+    hazards_file: HazardsConfigFile,
+    settings: &mut Vec<ResolvedSetting>,
+) -> Result<(SqlConfig, HazardsConfig), ConfigurationFileError> {
+    let dialects_json = serde_json::to_value(&sql_file.dialects).unwrap_or_else(|_| json!([]));
+    let sql = SqlConfig::from_file(sql_file)?;
+    let sql_source = if has_json_path(raw, &["sql", "dialects"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(settings, "sql.dialects", dialects_json, sql_source);
+
+    let hazards = HazardsConfig::from_file(hazards_file)?;
+    let hazards_source = if has_json_path(raw, &["hazards", "disabled_rules"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "hazards.disabled_rules",
+        json!(hazards.disabled_rules),
+        hazards_source,
+    );
+    Ok((sql, hazards))
 }
 
 fn append_dependencies_settings(
@@ -1687,11 +1756,7 @@ fn append_regression_limit_settings(
     limits: &RegressionLimits,
     settings: &mut Vec<ResolvedSetting>,
 ) {
-    let mut metric_keys: Vec<String> = Metric::BUILT_IN_KEYS
-        .iter()
-        .chain(["cognitive_complexity", "boundaries", "orphan_files"].iter())
-        .map(|key| (*key).to_owned())
-        .collect();
+    let mut metric_keys = allowed_metric_keys(&[]);
     metric_keys.extend(limits.extra_metric_keys());
     for source_set in ORDERED_SOURCE_SETS {
         for metric_key in &metric_keys {
@@ -1881,31 +1946,25 @@ impl SharedMetricBudgets {
             "import_cycles" => self.import_cycles = Some(budget),
             "boundaries" => self.boundaries = Some(budget),
             "orphan_files" => self.orphan_files = Some(budget),
+            "hazards" => self.hazards = Some(budget),
             _ => return false,
         }
         true
     }
 
     fn into_pairs(self) -> impl Iterator<Item = (String, Budget)> {
-        let SharedMetricBudgets {
-            erosion,
-            cognitive_complexity,
-            duplication,
-            verbosity,
-            import_cycles,
-            boundaries,
-            orphan_files,
-        } = self;
-        built_in_metric_pairs([
-            erosion,
-            cognitive_complexity,
-            duplication,
-            verbosity,
-            import_cycles,
-            boundaries,
-            orphan_files,
-        ])
-        .filter_map(|(metric, ratio)| Some((metric, ratio?)))
+        [
+            (Metric::Erosion.key(), self.erosion),
+            ("cognitive_complexity", self.cognitive_complexity),
+            (Metric::Duplication.key(), self.duplication),
+            (Metric::Verbosity.key(), self.verbosity),
+            (Metric::ImportCycles.key(), self.import_cycles),
+            ("boundaries", self.boundaries),
+            ("orphan_files", self.orphan_files),
+            (HAZARDS_METRIC_KEY, self.hazards),
+        ]
+        .into_iter()
+        .filter_map(|(metric, ratio)| Some((metric.to_owned(), ratio?)))
     }
 }
 
@@ -2024,6 +2083,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         import_cycles,
         boundaries,
         orphan_files,
+        hazards,
         unused_dependencies,
         unlisted_dependencies,
         dev_in_production_dependencies,
@@ -2051,6 +2111,7 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         import_cycles,
         boundaries,
         orphan_files,
+        hazards,
         external,
     }
     .by_metric()

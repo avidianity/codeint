@@ -44,7 +44,7 @@ mod bindings {
 use bindings::codeint::plugin::language as guest_language;
 use bindings::exports::codeint::plugin::metric as guest_metric;
 
-const RESERVED_KEYS: [&str; 10] = [
+const RESERVED_KEYS: [&str; 11] = [
     "files",
     "source_lines",
     "packages",
@@ -55,6 +55,7 @@ const RESERVED_KEYS: [&str; 10] = [
     "unlisted_dependencies",
     "dev_in_production_dependencies",
     "test_gap",
+    "hazards",
 ];
 
 #[cfg(test)]

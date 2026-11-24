@@ -1873,3 +1873,65 @@ fn no_imports_only_repo_omits_import_cycles_and_dependencies_across_check_diff_a
             .is_none()
     );
 }
+
+fn assert_prod_hazards(report: &Value, hazard_lines: u64, ratio: f64, expected_rules: &[&str]) {
+    let section = &report["source_sets"]["production"]["hazards"];
+    assert_eq!(section["hazard_lines"], hazard_lines, "report: {report}");
+    assert_eq!(section["source_lines"], 4, "report: {report}");
+    assert_eq!(section["ratio"], ratio, "report: {report}");
+    let actual: Vec<&str> = section["findings"]
+        .as_array()
+        .expect("hazard findings")
+        .iter()
+        .filter_map(|item| item["rule"].as_str())
+        .collect();
+    assert_eq!(actual, expected_rules, "report: {report}");
+}
+
+#[test]
+fn external_wasm_language_plugin_with_hazard_rules_populates_hazards_metric() {
+    let (repo, hash) = init_single_probe_repo(
+        "hazard-lang",
+        Some("language"),
+        "hazard_rules_language_plugin.wasm",
+        "",
+    );
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export const a = 1;\nexport const b = 2;\nexport const c = 3;\nexport const d = 4;\n",
+    );
+    write_file(
+        repo.path(),
+        "queries/ops.haz",
+        "SELECT id FROM users WHERE id = 1;\nDELETE FROM sessions;\nSELECT name FROM users WHERE name LIKE '%foo';\nSELECT 1;\n",
+    );
+
+    let report = run_check_json_report(repo.path());
+    assert_prod_hazards(
+        &report,
+        2,
+        0.5,
+        &["delete-without-where", "leading-wildcard-like"],
+    );
+    assert!(
+        report["languages"]["typescript-javascript"]["source_sets"]["production"]
+            .get("hazards")
+            .is_none()
+    );
+    assert_eq!(
+        report["languages"]["hazard-lang"]["source_sets"]["production"]["hazards"]["ratio"],
+        0.5
+    );
+
+    write_plugin_config(
+        repo.path(),
+        "hazard-lang",
+        Some("language"),
+        "plugins/hazard_rules_language_plugin.wasm",
+        &hash,
+        r#""hazards": { "disabled_rules": ["delete-without-where"] }"#,
+    );
+    let filtered = run_check_json_report(repo.path());
+    assert_prod_hazards(&filtered, 1, 0.25, &["leading-wildcard-like"]);
+}

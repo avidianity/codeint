@@ -92,6 +92,8 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
         duplication: Default::default(),
         entry_points: Vec::new(),
         coverage_reports: Vec::new(),
+        sql: Default::default(),
+        hazards: Default::default(),
         languages: (!languages.is_empty()).then(|| {
             languages
                 .iter()
@@ -112,10 +114,16 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
     if let Some(root) = json.as_object_mut() {
         root.insert("coverage_reports".to_owned(), serde_json::json!([]));
     }
-    let rendered = format!("{json:#}\n");
-    rendered.replacen(
+    let rendered = format!("{json:#}\n").replacen(
         "  \"budgets\": {\n    \"production\": {},",
         "  \"budgets\": {\n    \"production\": {\n      // \"test_gap\": 0.2\n    },",
         1,
-    )
+    );
+    let has_sql = languages.iter().any(|language| language.plugin == "sql");
+    if has_sql && let Some(prefix) = rendered.strip_suffix("}\n") {
+        return format!(
+            "{prefix}  // Optional: map SQL folders to a Dialect with sql.dialects (postgresql, mysql, sqlite, or duckdb).\n  // \"sql\": {{ \"dialects\": [] }}\n}}\n"
+        );
+    }
+    rendered
 }

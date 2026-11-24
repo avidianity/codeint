@@ -160,7 +160,7 @@ Implement all four functions on `Guest`:
 The Plugin host enforces these rules at load and measurement time:
 
 - `key` must be non-empty, start with a lowercase ASCII letter, and contain only lowercase ASCII letters, digits, `_`, or `-`.
-- `key` must not collide with built-in Metric keys (`erosion`, `duplication`, `verbosity`, `import_cycles`), reserved report keys (`files`, `source_lines`, `packages`), or another external Metric plugin's key.
+- `key` must not collide with built-in Metric keys (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, `test_gap`, `hazards`), reserved report keys (`files`, `source_lines`, `packages`), or another external Metric plugin's key.
 - `ratio` must be finite and between `0.0` and `1.0`.
 - `numerator` and `denominator` must be finite and `>= 0.0`.
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
@@ -211,7 +211,7 @@ Rules for `has-hazard-rules`, `hazard-rules`, `hazard-lines`, and `language-fact
 - Return `true` from `has-hazard-rules` and a non-empty list of stable, non-empty rule names from `hazard-rules` when the Language plugin defines Hazard line rules.
 - A line that matches two Hazard line rules appears once per rule in `hazard-lines`.
 - Every `hazard-line.line` must be between `1` and the line count of the file, and every `hazard-line.rule` must appear in the Language plugin's `hazard-rules` list.
-- The six built-in Language plugins return `false`, an empty `hazard-rules` list, and an empty `hazard-lines` list on every file.
+- The built-in `sql` Language plugin returns `true` and lists 32 Hazard line rules; the other six built-in Language plugins return `false`, an empty `hazard-rules` list, and an empty `hazard-lines` list on every file.
 - When `has-hazard-rules` is `false`, the Hazards Metric is absent for that language rather than `0`.
 - A Metric plugin reads `has-hazard-rules` on each `language-facts` entry in `code-model.languages` and `hazard-lines` on each `source-file.model`.
 
@@ -223,7 +223,7 @@ A Language plugin exports `has-imports() -> bool` to state whether its language 
 Rules for `has-imports` and `language-facts.has-imports`:
 
 - Return `true` when the language has runtime imports, manifests, or entry points.
-  The six built-in Language plugins (`typescript-javascript`, `rust`, `php`, `dart`, `python`, and `go`) all return `true`.
+  The six built-in Language plugins with imports (`typescript-javascript`, `rust`, `php`, `dart`, `python`, and `go`) return `true`; the built-in `sql` Language plugin returns `false`.
 - Return `false` when the language has no imports, such as SQL or a configuration language.
 - When `has-imports` returns `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points` on that Language plugin.
 - When `has-imports` returns `false`, TOON, JSON, Markdown, and SARIF reports omit Import cycles, Orphan files, Import boundaries, and Dependency hygiene for that language, and TOON, JSON, and Markdown reports include a one-line `import_metrics_note`.
@@ -248,7 +248,7 @@ Rules for `resolution.resolved`:
 - The list must contain at least one file.
   Returning `resolved([])` stops the run with exit code 2 and an error naming the Plugin.
 - Each file in the list becomes one directed import link from the importing file for Import cycles, Orphan files, Import boundaries, `codeint trace`, and Metric plugins.
-- The built-in `go` Language plugin returns every non-test `.go` file of the imported Go package; the other five built-in Language plugins return a single-element list per resolved import.
+- The built-in `go` Language plugin returns every non-test `.go` file of the imported Go package; the other five built-in Language plugins with imports return a single-element list per resolved import, and `sql` returns `has-imports` as `false`.
 
 ### Program-start mark
 
@@ -257,7 +257,7 @@ Each `file-model` carries `program-start: bool`, which lets a Language plugin ma
 Rules for `file-model.program-start`:
 
 - `program-start` is `false` unless the Language plugin sets it to `true` in `lower`.
-- The built-in `go` Language plugin sets `program-start` to `true` on files declaring `package main`; the other five built-in Language plugins always set `program-start` to `false`.
+- The built-in `go` Language plugin sets `program-start` to `true` on files declaring `package main`; the other six built-in Language plugins always set `program-start` to `false`.
 - A Metric plugin reads `program-start` on each `source-file.model` passed to `measure`.
 
 ### Compile the sample Metric plugin

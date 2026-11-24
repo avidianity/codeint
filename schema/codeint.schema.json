@@ -81,6 +81,14 @@
         "type": "string"
       },
       "description": "Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap."
+    },
+    "sql": {
+      "$ref": "#/$defs/SqlConfigFile",
+      "description": "SQL settings, including Dialect mappings for folders or files."
+    },
+    "hazards": {
+      "$ref": "#/$defs/HazardsConfigFile",
+      "description": "Hazards Metric settings, including Hazard line rules turned off across the repository."
     }
   },
   "title": "codeint.json",
@@ -224,6 +232,13 @@
           "minimum": 0,
           "maximum": 1
         },
+        "hazards": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Hazards ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
         "test_gap": {
           "type": "number",
           "format": "double",
@@ -293,6 +308,13 @@
           "description": "The highest Orphan files ratio, from 0 to 1.",
           "minimum": 0,
           "maximum": 1
+        },
+        "hazards": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Hazards ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": {
@@ -329,6 +351,10 @@
         "orphan_files": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Orphan files in every Source set."
+        },
+        "hazards": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Hazards in every Source set."
         },
         "unused_dependencies": {
           "$ref": "#/$defs/RegressionLimitSetting",
@@ -418,6 +444,10 @@
         "orphan_files": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Orphan files in this Source set."
+        },
+        "hazards": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Hazards in this Source set."
         }
       },
       "additionalProperties": {
@@ -650,6 +680,62 @@
           "description": "Minimum Jaccard shingle similarity in (0, 1] required for two blocks to match as a near-clone; 0.85 by default.",
           "maximum": 1,
           "exclusiveMinimum": 0
+        }
+      }
+    },
+    "SqlConfigFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dialects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SqlDialectEntryFile"
+          },
+          "description": "Folder or file patterns mapped to a SQL Dialect (postgresql, mysql, sqlite, or duckdb). Files covered by no entry use generic SQL."
+        }
+      }
+    },
+    "SqlDialectEntryFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dialect": {
+          "$ref": "#/$defs/ConfiguredSqlDialect",
+          "description": "SQL Dialect for matching files: postgresql, mysql (including MariaDB), sqlite, or duckdb."
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Globs of repository-relative folders or files that use this SQL Dialect; a folder covers every file below it."
+        }
+      },
+      "required": [
+        "dialect",
+        "include"
+      ]
+    },
+    "ConfiguredSqlDialect": {
+      "type": "string",
+      "enum": [
+        "postgresql",
+        "mysql",
+        "sqlite",
+        "duckdb"
+      ]
+    },
+    "HazardsConfigFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "disabled_rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Names of Hazard line rules turned off across the repository. A turned-off rule adds no Hazard line and no Finding."
         }
       }
     }

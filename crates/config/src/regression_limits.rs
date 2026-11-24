@@ -164,6 +164,7 @@ impl RegressionLimits {
                 && key != "cognitive_complexity"
                 && key != "boundaries"
                 && key != "orphan_files"
+                && key != crate::HAZARDS_METRIC_KEY
                 && !crate::DEPENDENCY_METRIC_KEYS.contains(&key)
             {
                 keys.insert(key.to_owned());

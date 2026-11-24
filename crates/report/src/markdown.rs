@@ -2,9 +2,10 @@ use crate::ownership::OwnedFinding;
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding,
-    Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow,
-    MeasuredSection, MetricHeader, OrphanFileRow, PackageSection, ReferenceRangeEntry, Report,
-    SourceSetSection, TestGapFindingRow, UnresolvedImportRow, UnusedDependencyRow,
+    Findings, FlaggedLineRow, HazardLineRow, HazardsSection, ImportCycleFinding,
+    ImportCyclesSection, ImportedDependencyRow, MeasuredSection, MetricHeader, OrphanFileRow,
+    PackageSection, ReferenceRangeEntry, RejectedStatementEntry, Report, SourceSetSection,
+    SqlSchemaSummary, TestGapFindingRow, UnresolvedImportRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -37,6 +38,8 @@ const PACKAGE_COLUMNS: [&str; 8] = [
     "Verbosity",
 ];
 pub(crate) const FLAGGED_LINE_COLUMNS: [&str; 2] = ["Flagged line", "Rule"];
+pub(crate) const HAZARD_LINE_COLUMNS: [&str; 3] = ["Path", "Line", "Rule"];
+const SQL_SCHEMA_COLUMNS: [&str; 3] = ["Scope", "Dialect", "Tables"];
 pub(crate) const EXTERNAL_FINDING_COLUMNS: [&str; 2] = ["Location", "Message"];
 pub(crate) const BOUNDARY_FINDING_COLUMNS: [&str; 6] = [
     "Importer",
@@ -79,6 +82,10 @@ const VERBOSE_LINE: Noun = Noun {
 pub(crate) const FLAGGED_LINE: Noun = Noun {
     one: "Flagged line",
     many: "Flagged lines",
+};
+pub(crate) const HAZARD_LINE: Noun = Noun {
+    one: "Hazard line",
+    many: "Hazard lines",
 };
 const MODULE: Noun = Noun {
     one: "module",
@@ -167,14 +174,49 @@ pub(crate) fn render(report: &Report) -> String {
         blocks.push(packages);
     }
     push_language_sections(&mut blocks, &report.languages);
+    push_sql_schemas(&mut blocks, &report.sql_schemas);
     push_source_set_findings(&mut blocks, &sections);
     push_dependency_findings(&mut blocks, report.measured.dependencies.as_ref());
+    push_rejected_statements(&mut blocks, &report.rejected_statements);
     let not_measured = files_not_measured(report);
     if !not_measured.is_empty() {
         blocks.push("## Files not measured".to_string());
         blocks.push(not_measured.join("\n"));
     }
     blocks.join("\n\n")
+}
+
+fn push_sql_schemas(blocks: &mut Vec<String>, schemas: &[SqlSchemaSummary]) {
+    if schemas.is_empty() {
+        return;
+    }
+    blocks.push("## SQL schemas".to_string());
+    blocks.push(table(
+        &SQL_SCHEMA_COLUMNS,
+        schemas.iter().map(sql_schema_row).collect(),
+    ));
+}
+
+fn sql_schema_row(schema: &SqlSchemaSummary) -> Vec<String> {
+    let scope = match schema.package.as_deref() {
+        Some(package) => code(package),
+        None => "root".to_string(),
+    };
+    vec![scope, code(&schema.dialect), schema.tables.to_string()]
+}
+
+fn push_rejected_statements(blocks: &mut Vec<String>, rejected: &[RejectedStatementEntry]) {
+    if rejected.is_empty() {
+        return;
+    }
+    blocks.push("## Rejected statements".to_string());
+    blocks.push(list(rejected.iter().map(|entry| {
+        format!(
+            "{}: dialect {}",
+            code(&format!("{}:{}", entry.path, entry.line)),
+            code(&entry.dialect)
+        )
+    })));
 }
 
 fn push_dependencies_summary(blocks: &mut Vec<String>, dependencies: Option<&DependenciesSection>) {
@@ -239,37 +281,54 @@ fn metric_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
     ))
 }
 
+struct OptionalPackageColumns {
+    import_cycles: bool,
+    test_gap: bool,
+    hazards: bool,
+}
+
 fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
-    let show_import_cycles = sections.iter().any(|(_, section)| {
-        section
-            .packages
-            .iter()
-            .any(|package| package.import_cycles.is_some())
-    });
-    let show_test_gap = sections.iter().any(|(_, section)| {
-        section
-            .packages
-            .iter()
-            .any(|package| package.test_gap.is_some())
-    });
+    let optional = OptionalPackageColumns {
+        import_cycles: sections.iter().any(|(_, section)| {
+            section
+                .packages
+                .iter()
+                .any(|package| package.import_cycles.is_some())
+        }),
+        test_gap: sections.iter().any(|(_, section)| {
+            section
+                .packages
+                .iter()
+                .any(|package| package.test_gap.is_some())
+        }),
+        hazards: sections.iter().any(|(_, section)| {
+            section
+                .packages
+                .iter()
+                .any(|package| package.hazards.is_some())
+        }),
+    };
     let package_rows: Vec<Vec<String>> = sections
         .iter()
         .flat_map(|(name, section)| {
             section
                 .packages
                 .iter()
-                .map(|package| package_row(name, package, show_import_cycles, show_test_gap))
+                .map(|package| package_row(name, package, &optional))
         })
         .collect();
     if package_rows.is_empty() {
         return None;
     }
     let mut columns: Vec<&str> = PACKAGE_COLUMNS.to_vec();
-    if show_import_cycles {
+    if optional.import_cycles {
         columns.push("Import cycles");
     }
-    if show_test_gap {
+    if optional.test_gap {
         columns.push("Test gap");
+    }
+    if optional.hazards {
+        columns.push("Hazards");
     }
     Some(table(&columns, package_rows))
 }
@@ -287,8 +346,7 @@ pub(crate) fn sentence_item(failure: &impl std::fmt::Display) -> String {
 fn package_row(
     source_set: &str,
     package: &PackageSection,
-    show_import_cycles: bool,
-    show_test_gap: bool,
+    optional: &OptionalPackageColumns,
 ) -> Vec<String> {
     let mut cells = vec![
         source_set.to_string(),
@@ -300,19 +358,25 @@ fn package_row(
         package.duplication.ratio.0.to_string(),
         package.verbosity.ratio.0.to_string(),
     ];
-    if show_import_cycles {
+    if optional.import_cycles {
         cells.push(package.import_cycles.as_ref().map_or_else(
             || "not measured".to_string(),
             |cycles| cycles.ratio.0.to_string(),
         ));
     }
-    if show_test_gap {
+    if optional.test_gap {
         cells.push(
             package
                 .test_gap
                 .as_ref()
                 .map_or_else(|| "not measured".to_string(), |gap| gap.ratio.0.to_string()),
         );
+    }
+    if optional.hazards {
+        cells.push(package.hazards.as_ref().map_or_else(
+            || "not measured".to_string(),
+            |hazards| hazards.ratio.0.to_string(),
+        ));
     }
     cells
 }
@@ -455,6 +519,9 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
             "no published Reference range".to_string(),
         ]);
     }
+    if let Some(hazards) = &section.hazards {
+        rows.push(hazards_metric_row(source_set, hazards));
+    }
     for external in section.external_metrics.values() {
         rows.push(row(
             &external.name,
@@ -463,6 +530,19 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         ));
     }
     rows
+}
+
+fn hazards_metric_row(source_set: &str, hazards: &HazardsSection) -> Vec<String> {
+    vec![
+        source_set.to_string(),
+        "Hazards".to_string(),
+        hazards.ratio.0.to_string(),
+        format!(
+            "{} of {} Hazard lines",
+            hazards.hazard_lines, hazards.source_lines
+        ),
+        "not applicable".to_string(),
+    ]
 }
 
 fn import_cycles_behind_the_value(section: &ImportCyclesSection) -> String {
@@ -568,6 +648,15 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             &test_gap.findings,
             &UNTESTED_FUNCTION,
             |listed| findings_table(&TEST_GAP_COLUMNS, listed, test_gap_row),
+        );
+    }
+    if let Some(hazards) = &section.hazards {
+        push_findings(
+            &mut blocks,
+            "Hazards",
+            &hazards.findings,
+            &HAZARD_LINE,
+            |listed| findings_table(&HAZARD_LINE_COLUMNS, listed, hazard_line_row),
         );
     }
     for external in section.external_metrics.values() {
@@ -726,6 +815,10 @@ pub(crate) fn flagged_line_row(row: &FlaggedLineRow) -> Vec<String> {
         code(&format!("{}:{}", row.path, row.line)),
         prose(&row.rule),
     ]
+}
+
+pub(crate) fn hazard_line_row(row: &HazardLineRow) -> Vec<String> {
+    vec![code(&row.path), row.line.to_string(), prose(&row.rule)]
 }
 
 pub(crate) fn external_finding_row(finding: &ExternalMetricFinding) -> Vec<String> {

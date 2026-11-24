@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use codeint_config::{
     AgentFormat, Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, Budgets,
@@ -11,9 +11,10 @@ use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneFamily, CloneGroup,
     CognitiveComplexity, ComplexFunction, DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
     DependencyHygiene, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
-    ImportCycle, ImportCycles, MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig,
-    OrphanFileFinding, OrphanFiles, TEST_GAP_METRIC_KEY, TestGap, TestGapFinding,
-    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY, UnresolvedImport, Verbosity,
+    HAZARDS_METRIC_KEY, HazardLineFinding, Hazards, ImportCycle, ImportCycles, MinimumCloneTokens,
+    MinimumDistinctTokens, NearCloneConfig, OrphanFileFinding, OrphanFiles, TEST_GAP_METRIC_KEY,
+    TestGap, TestGapFinding, UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
+    UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -30,6 +31,8 @@ mod dependencies;
 mod diff;
 mod doctor;
 mod guard;
+#[cfg(test)]
+mod hazards_tests;
 mod impact;
 mod markdown;
 mod measurement;
@@ -54,7 +57,7 @@ pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
 pub use impact::{ChangedBase, ImpactReport};
-pub use measurement::CommitMeasurement;
+pub use measurement::{CommitMeasurement, CommitMeasurementOptions};
 pub use ownership::OwnershipOptions;
 pub use report_schema::report_schema;
 pub use saved::{SavedReport, SavedReportError};
@@ -102,11 +105,40 @@ pub struct Report {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    rejected_statements: Vec<RejectedStatementEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sql_schemas: Vec<SqlSchemaSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     declaration_only: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     submodules: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     over_budget: Vec<BudgetFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RejectedStatementEntry {
+    pub path: String,
+    pub line: u32,
+    pub dialect: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqlSchemaSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+    pub dialect: String,
+    pub tables: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HazardLineRow {
+    pub id: String,
+    pub path: String,
+    pub line: u32,
+    pub rule: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owners: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -278,10 +310,21 @@ struct SourceSetSection {
     orphan_files: Option<OrphanFilesSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     test_gap: Option<TestGapSection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hazards: Option<HazardsSection>,
     #[serde(default, flatten)]
     external_metrics: BTreeMap<String, ExternalMetricSection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     packages: Vec<PackageSection>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct HazardsSection {
+    ratio: Decimal,
+    hazard_lines: u64,
+    source_lines: u64,
+    #[serde(flatten)]
+    findings: Findings<HazardLineRow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -414,6 +457,15 @@ struct PackageSection {
     import_cycles: Option<PackageImportCycles>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     test_gap: Option<PackageTestGap>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hazards: Option<PackageHazards>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PackageHazards {
+    ratio: Decimal,
+    hazard_lines: u64,
+    source_lines: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -874,6 +926,7 @@ impl_single_path_owner!(ExternalMetricFinding, path);
 impl_single_path_owner!(BoundaryFindingRow, importer);
 impl_single_path_owner!(OrphanFileRow, path);
 impl_single_path_owner!(TestGapFindingRow, path);
+impl_single_path_owner!(HazardLineRow, path);
 
 impl OwnedFinding for CloneGroupFinding {
     fn assign_owners(&mut self, codeowners: &Codeowners) {
@@ -924,6 +977,10 @@ impl FindingKind for OrphanFileRow {
 }
 
 impl FindingKind for TestGapFindingRow {
+    const LIST_KEY: &'static str = "findings";
+}
+
+impl FindingKind for HazardLineRow {
     const LIST_KEY: &'static str = "findings";
 }
 
@@ -1148,6 +1205,36 @@ impl From<&TestGapFinding> for TestGapFindingRow {
     }
 }
 
+macro_rules! impl_line_rule_row {
+    ($from:ty, $to:ident) => {
+        impl From<&$from> for $to {
+            fn from(finding: &$from) -> $to {
+                $to {
+                    id: finding.id.to_string(),
+                    path: finding.path.to_string(),
+                    line: finding.line,
+                    rule: finding.rule.clone(),
+                    owners: Vec::new(),
+                }
+            }
+        }
+    };
+}
+
+impl_line_rule_row!(FlaggedLineFinding, FlaggedLineRow);
+impl_line_rule_row!(HazardLineFinding, HazardLineRow);
+
+impl HazardsSection {
+    fn new(hazards: &Hazards, view: FindingsView<'_>) -> HazardsSection {
+        HazardsSection {
+            ratio: Decimal::rounded(hazards.ratio()),
+            hazard_lines: hazards.hazard_lines(),
+            source_lines: hazards.source_lines(),
+            findings: view.map(hazards.findings()),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct SectionOptions<'a> {
     findings: FindingsShown,
@@ -1157,8 +1244,18 @@ struct SectionOptions<'a> {
     orphan_files: Option<&'a OrphanFiles>,
     ownership: OwnershipOptions<'a>,
     has_imports: bool,
+    has_hazard_rules: bool,
+    disabled_hazard_rules: &'a BTreeSet<String>,
     coverage_reports_named: bool,
     per_language_section: bool,
+}
+
+#[derive(Clone, Copy)]
+struct SectionModels<'a> {
+    model: &'a CodeModel,
+    import_model: Option<&'a CodeModel>,
+    coverage_model: Option<&'a CodeModel>,
+    hazards_model: Option<&'a CodeModel>,
 }
 
 impl SourceSetSections {
@@ -1166,26 +1263,16 @@ impl SourceSetSections {
         source_sets: &SourceSets,
         import_source_sets: Option<&SourceSets>,
         coverage_source_sets: Option<&SourceSets>,
+        hazards_source_sets: Option<&SourceSets>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
-                let import_model = import_source_sets
-                    .map(|sets| sets.get(source_set))
-                    .filter(|imports| !imports.files.is_empty());
-                let coverage_model = if source_set == SourceSet::Production {
-                    match coverage_source_sets {
-                        Some(sets) => {
-                            let prod = sets.get(SourceSet::Production);
-                            (!prod.files.is_empty()).then_some(prod)
-                        }
-                        None => Some(model),
-                    }
-                } else {
-                    None
-                };
+                let import_model = select_non_empty(import_source_sets, source_set);
+                let coverage_model = select_coverage_model(source_set, model, coverage_source_sets);
+                let hazards_model = select_non_empty(hazards_source_sets, source_set);
                 let source_set_options = SectionOptions {
                     boundaries: options.boundaries.filter(|config| {
                         import_model.is_some() && config.applies_to_source_set(source_set)
@@ -1196,9 +1283,12 @@ impl SourceSetSections {
                     ..options
                 };
                 *sections.slot(source_set) = Some(SourceSetSection::new(
-                    model,
-                    import_model,
-                    coverage_model,
+                    SectionModels {
+                        model,
+                        import_model,
+                        coverage_model,
+                        hazards_model,
+                    },
                     ranges,
                     source_set_options,
                 )?);
@@ -1260,6 +1350,12 @@ impl SourceSetSections {
                         .map(move |test_gap| (source_set, TEST_GAP_METRIC_KEY, test_gap.ratio.0)),
                 )
                 .chain(
+                    section
+                        .hazards
+                        .iter()
+                        .map(move |hazards| (source_set, HAZARDS_METRIC_KEY, hazards.ratio.0)),
+                )
+                .chain(
                     section.external_metrics.iter().map(move |(key, metric)| {
                         (source_set, key.as_str(), metric.header.ratio.0)
                     }),
@@ -1269,29 +1365,53 @@ impl SourceSetSections {
     }
 }
 
+fn select_non_empty(source_sets: Option<&SourceSets>, source_set: SourceSet) -> Option<&CodeModel> {
+    source_sets
+        .map(|sets| sets.get(source_set))
+        .filter(|model| !model.files.is_empty())
+}
+
+fn select_coverage_model<'a>(
+    source_set: SourceSet,
+    model: &'a CodeModel,
+    coverage_source_sets: Option<&'a SourceSets>,
+) -> Option<&'a CodeModel> {
+    if source_set != SourceSet::Production {
+        return None;
+    }
+    match coverage_source_sets {
+        Some(sets) => select_non_empty(Some(sets), SourceSet::Production),
+        None => Some(model),
+    }
+}
+
 impl SourceSetSection {
-    fn new<'a>(
-        model: &'a CodeModel,
-        import_model: Option<&'a CodeModel>,
-        coverage_model: Option<&'a CodeModel>,
+    fn new(
+        models: SectionModels<'_>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSection, MetricPluginError> {
+        let model = models.model;
         let view = FindingsView {
             shown: options.findings,
             ownership: options.ownership,
         };
-        let effective_import_model = import_model.filter(|_| options.has_imports);
+        let effective_import_model = models.import_model.filter(|_| options.has_imports);
+        let effective_hazards_model = models.hazards_model.filter(|_| options.has_hazard_rules);
         let boundaries_config = effective_import_model
             .is_some()
             .then_some(options.boundaries)
             .flatten();
         let measured = Measured::new(
-            model,
-            effective_import_model,
-            coverage_model,
+            SectionModels {
+                model,
+                import_model: effective_import_model,
+                coverage_model: models.coverage_model,
+                hazards_model: effective_hazards_model,
+            },
             boundaries_config,
             options.duplication,
+            options.disabled_hazard_rules,
         );
         let boundaries = measured
             .boundaries
@@ -1306,6 +1426,10 @@ impl SourceSetSection {
             .test_gap
             .as_ref()
             .map(|evaluated| TestGapSection::new(evaluated, view));
+        let hazards = measured
+            .hazards
+            .as_ref()
+            .map(|evaluated| HazardsSection::new(evaluated, view));
         let mut external_metrics = BTreeMap::new();
         for plugin in options.metric_plugins {
             let result = plugin.measure(model)?;
@@ -1397,8 +1521,17 @@ impl SourceSetSection {
             boundaries,
             orphan_files,
             test_gap,
+            hazards,
             external_metrics,
-            packages: package_sections(model, effective_import_model, coverage_model, &measured),
+            packages: package_sections(
+                SectionModels {
+                    model,
+                    import_model: effective_import_model,
+                    coverage_model: models.coverage_model,
+                    hazards_model: effective_hazards_model,
+                },
+                &measured,
+            ),
         })
     }
 }
@@ -1556,18 +1689,6 @@ impl CloneLocation {
     }
 }
 
-impl From<&FlaggedLineFinding> for FlaggedLineRow {
-    fn from(finding: &FlaggedLineFinding) -> FlaggedLineRow {
-        FlaggedLineRow {
-            id: finding.id.to_string(),
-            path: finding.path.to_string(),
-            line: finding.line,
-            rule: finding.rule.clone(),
-            owners: Vec::new(),
-        }
-    }
-}
-
 impl ImportCycleFinding {
     fn new(cycle: &ImportCycle) -> ImportCycleFinding {
         ImportCycleFinding {
@@ -1616,16 +1737,17 @@ struct Measured {
     import_cycles: Option<ImportCycles>,
     boundaries: Option<Boundaries>,
     test_gap: Option<TestGap>,
+    hazards: Option<Hazards>,
 }
 
 impl Measured {
     fn new(
-        model: &CodeModel,
-        import_model: Option<&CodeModel>,
-        coverage_model: Option<&CodeModel>,
+        models: SectionModels<'_>,
         boundaries: Option<&BoundariesConfig>,
         duplication_config: DuplicationConfig,
+        disabled_hazard_rules: &BTreeSet<String>,
     ) -> Measured {
+        let model = models.model;
         let near_clones = duplication_config.near_clones.then(|| {
             NearCloneConfig::new(duplication_config.min_similarity.ratio())
                 .expect("validated min_similarity is in (0, 1]")
@@ -1636,11 +1758,14 @@ impl Measured {
             MinimumDistinctTokens::DEFAULT,
             near_clones,
         );
-        let import_cycles = import_model.map(ImportCycles::measure);
-        let boundaries = import_model.and_then(|imports| {
+        let import_cycles = models.import_model.map(ImportCycles::measure);
+        let boundaries = models.import_model.and_then(|imports| {
             boundaries.map(|config| Boundaries::measure(imports, &ConfigBoundaryPolicy(config)))
         });
-        let test_gap = coverage_model.and_then(TestGap::measure);
+        let test_gap = models.coverage_model.and_then(TestGap::measure);
+        let hazards = models
+            .hazards_model
+            .and_then(|hazards_model| Hazards::measure(hazards_model, disabled_hazard_rules));
         Measured {
             erosion: Erosion::measure(model),
             cognitive_complexity: CognitiveComplexity::measure(model),
@@ -1649,16 +1774,13 @@ impl Measured {
             import_cycles,
             boundaries,
             test_gap,
+            hazards,
         }
     }
 }
 
-fn package_sections<'a>(
-    model: &'a CodeModel,
-    import_model: Option<&'a CodeModel>,
-    coverage_model: Option<&'a CodeModel>,
-    measured: &Measured,
-) -> Vec<PackageSection> {
+fn package_sections<'a>(models: SectionModels<'a>, measured: &Measured) -> Vec<PackageSection> {
+    let model = models.model;
     if !model.workspace.has_members() {
         return Vec::new();
     }
@@ -1671,12 +1793,18 @@ fn package_sections<'a>(
     let mut cognitive = measured.cognitive_complexity.by_package(model);
     let mut duplication = measured.duplication.by_package(model);
     let mut verbosity = measured.verbosity.by_package(model);
-    let mut import_cycles = import_model
+    let mut import_cycles = models
+        .import_model
         .zip(measured.import_cycles.as_ref())
         .map(|(imports, cycles)| cycles.by_package(imports));
-    let mut test_gap = coverage_model
+    let mut test_gap = models
+        .coverage_model
         .zip(measured.test_gap.as_ref())
         .map(|(coverage, gap)| gap.by_package(coverage));
+    let mut hazards = models
+        .hazards_model
+        .zip(measured.hazards.as_ref())
+        .map(|(hazards_model, hazards)| hazards.by_package(hazards_model));
     measured
         .erosion
         .by_package(model)
@@ -1699,6 +1827,13 @@ fn package_sections<'a>(
                     ratio: Decimal::rounded(gap.ratio()),
                     untested_function_mass: Decimal::rounded(gap.untested),
                     total_function_mass: Decimal::rounded(gap.total),
+                })
+            });
+            let package_hazards = hazards.as_mut().and_then(|by_package| {
+                by_package.remove(&package).map(|lines| PackageHazards {
+                    ratio: Decimal::rounded(lines.ratio()),
+                    hazard_lines: lines.hazard_lines,
+                    source_lines: lines.source_lines,
                 })
             });
             PackageSection {
@@ -1725,6 +1860,7 @@ fn package_sections<'a>(
                 },
                 import_cycles: package_import_cycles,
                 test_gap: package_test_gap,
+                hazards: package_hazards,
             }
         })
         .collect()
@@ -1746,17 +1882,49 @@ pub struct ReportOptions<'a> {
     pub unmatched_coverage_paths: &'a [String],
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReportExtras {
+    pub disabled_hazard_rules: BTreeSet<String>,
+    pub rejected_statements: Vec<RejectedStatementEntry>,
+    pub sql_schemas: Vec<SqlSchemaSummary>,
+}
+
+impl ReportExtras {
+    pub fn with_disabled_hazard_rules(mut self, rules: BTreeSet<String>) -> ReportExtras {
+        self.disabled_hazard_rules = rules;
+        self
+    }
+
+    pub fn with_rejected_statements(
+        mut self,
+        rejected_statements: Vec<RejectedStatementEntry>,
+    ) -> ReportExtras {
+        self.rejected_statements = rejected_statements;
+        self
+    }
+
+    pub fn with_sql_schemas(mut self, sql_schemas: Vec<SqlSchemaSummary>) -> ReportExtras {
+        self.sql_schemas = sql_schemas;
+        self
+    }
+}
+
+struct MeasuredSectionModels {
+    model: CodeModel,
+    import_model: Option<CodeModel>,
+    coverage_model: Option<CodeModel>,
+    hazards_model: Option<CodeModel>,
+}
+
 impl MeasuredSection {
     fn new(
-        model: CodeModel,
-        import_model: Option<CodeModel>,
-        coverage_model: Option<CodeModel>,
+        models: MeasuredSectionModels,
         hygiene: &DependencyHygiene,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<MeasuredSection, MetricPluginError> {
-        let files = model.files.len();
-        let lines = source_lines(&model);
+        let files = models.model.files.len();
+        let lines = source_lines(&models.model);
         let view = FindingsView {
             shown: options.findings,
             ownership: options.ownership,
@@ -1775,18 +1943,29 @@ impl MeasuredSection {
                 ..options
             }
         };
-        let source_sets = model.into_source_sets();
-        let separate_import_source_sets = import_model.map(CodeModel::into_source_sets);
+        let source_sets = models.model.into_source_sets();
+        let separate_import_source_sets = models.import_model.map(CodeModel::into_source_sets);
         let import_source_sets = if options.has_imports {
             Some(separate_import_source_sets.as_ref().unwrap_or(&source_sets))
         } else {
             None
         };
-        let separate_coverage_source_sets = coverage_model.map(CodeModel::into_source_sets);
+        let separate_coverage_source_sets = models.coverage_model.map(CodeModel::into_source_sets);
+        let separate_hazards_source_sets = models.hazards_model.map(CodeModel::into_source_sets);
+        let hazards_source_sets = if options.has_hazard_rules {
+            Some(
+                separate_hazards_source_sets
+                    .as_ref()
+                    .unwrap_or(&source_sets),
+            )
+        } else {
+            None
+        };
         let source_sets = SourceSetSections::new(
             &source_sets,
             import_source_sets,
             separate_coverage_source_sets.as_ref(),
+            hazards_source_sets,
             ranges,
             section_options,
         )?;
@@ -1942,6 +2121,15 @@ impl Report {
         submodules: Vec<RepoPath>,
         options: ReportOptions<'_>,
     ) -> Result<Report, MetricPluginError> {
+        Report::summarize_with_extras(languages, submodules, options, ReportExtras::default())
+    }
+
+    pub fn summarize_with_extras(
+        languages: Vec<MeasuredLanguage>,
+        submodules: Vec<RepoPath>,
+        options: ReportOptions<'_>,
+        extras: ReportExtras,
+    ) -> Result<Report, MetricPluginError> {
         let ignored = options.dependencies.ignored();
         let measured_total_hygiene;
         let total_hygiene = match options.dependency_hygiene {
@@ -1956,6 +2144,9 @@ impl Report {
             .partition(|language| !language.model.files.is_empty());
         let top_has_imports =
             measured.is_empty() || measured.iter().any(|language| language.has_imports);
+        let top_has_hazard_rules = measured
+            .iter()
+            .any(|language| model_has_hazard_rules(&language.model));
         let section_options = SectionOptions {
             findings: options.findings,
             metric_plugins: options.metric_plugins,
@@ -1964,6 +2155,8 @@ impl Report {
             orphan_files: options.orphan_files,
             ownership: options.ownership,
             has_imports: top_has_imports,
+            has_hazard_rules: top_has_hazard_rules,
+            disabled_hazard_rules: &extras.disabled_hazard_rules,
             coverage_reports_named: options.coverage_reports_named,
             per_language_section: false,
         };
@@ -1971,6 +2164,7 @@ impl Report {
             build_per_language_sections(&measured, &options, ignored, section_options)?;
         let import_bearing_model = collect_import_bearing_model(&measured, top_has_imports);
         let coverage_bearing_model = collect_coverage_bearing_model(&measured);
+        let hazards_bearing_model = collect_hazards_bearing_model(&measured, top_has_hazard_rules);
         let model = CodeModel::merge(
             measured
                 .into_iter()
@@ -1984,9 +2178,12 @@ impl Report {
             .map(RepoPath::to_string)
             .collect();
         let measured = MeasuredSection::new(
-            model,
-            import_bearing_model,
-            coverage_bearing_model,
+            MeasuredSectionModels {
+                model,
+                import_model: import_bearing_model,
+                coverage_model: coverage_bearing_model,
+                hazards_model: hazards_bearing_model,
+            },
             total_hygiene,
             &total_ranges,
             section_options,
@@ -1998,6 +2195,8 @@ impl Report {
         Ok(Report {
             over_budget: failures,
             skipped,
+            rejected_statements: extras.rejected_statements,
+            sql_schemas: extras.sql_schemas,
             declaration_only,
             submodules: submodules.iter().map(RepoPath::to_string).collect(),
             measured,
@@ -2083,6 +2282,27 @@ fn format_unmatched_coverage_note(paths: &[String]) -> Option<String> {
     }
 }
 
+pub(crate) fn model_has_hazard_rules(model: &CodeModel) -> bool {
+    model.languages.iter().any(|facts| facts.has_hazard_rules)
+}
+
+fn collect_hazards_bearing_model(
+    measured: &[MeasuredLanguage],
+    any_has_hazard_rules: bool,
+) -> Option<CodeModel> {
+    let all_measured_have_hazard_rules = measured
+        .iter()
+        .all(|language| model_has_hazard_rules(&language.model));
+    (any_has_hazard_rules && !all_measured_have_hazard_rules).then(|| {
+        CodeModel::merge(
+            measured
+                .iter()
+                .filter(|language| model_has_hazard_rules(&language.model))
+                .map(|language| language.model.clone()),
+        )
+    })
+}
+
 fn collect_import_bearing_model(
     measured: &[MeasuredLanguage],
     top_has_imports: bool,
@@ -2155,15 +2375,20 @@ fn build_single_language_section(
                 .and_then(|map| map.get(&language.plugin))
         })
         .flatten();
+    let language_has_hazard_rules = model_has_hazard_rules(&language.model);
     MeasuredSection::new(
-        language.model.clone(),
-        None,
-        None,
+        MeasuredSectionModels {
+            model: language.model.clone(),
+            import_model: None,
+            coverage_model: None,
+            hazards_model: None,
+        },
         language_hygiene,
         &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
         SectionOptions {
             orphan_files: language_orphans,
             has_imports: language.has_imports,
+            has_hazard_rules: language_has_hazard_rules,
             per_language_section: true,
             ..section_options
         },

@@ -183,6 +183,7 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
             "import_cycles",
             "cognitive_complexity",
             "orphan_files",
+            "hazards",
             "unused_dependencies",
             "unlisted_dependencies",
             "dev_in_production_dependencies",
@@ -197,6 +198,25 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
         .collect();
     assert!(config_keys.contains("coverage_reports"));
     assert!(config_keys.contains("budgets"));
+    assert!(config_keys.contains("sql"));
+    assert!(config_keys.contains("hazards"));
+    let sql_lang = manifest["languages"]
+        .as_array()
+        .expect("languages array")
+        .iter()
+        .find(|entry| entry["name"].as_str() == Some("sql"))
+        .expect("sql language in schema");
+    assert_eq!(sql_lang["extensions"], json!(["sql"]));
+    let sql_rules = sql_lang["hazard_rules"]
+        .as_array()
+        .expect("sql hazard_rules array");
+    assert_eq!(sql_rules.len(), 32);
+    assert!(sql_rules.iter().any(|r| r.as_str() == Some("select-star")));
+    assert!(
+        sql_rules
+            .iter()
+            .any(|r| r.as_str() == Some("filter-on-unindexed-column"))
+    );
     for metric in manifest["metrics"].as_array().expect("metrics array") {
         assert!(!metric["name"].as_str().unwrap_or_default().is_empty());
         assert!(

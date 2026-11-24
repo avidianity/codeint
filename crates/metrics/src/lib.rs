@@ -7,6 +7,7 @@ mod dependencies;
 mod duplication;
 mod erosion;
 mod finding_id;
+mod hazards;
 mod impact;
 mod import_cycles;
 mod line_share;
@@ -39,6 +40,7 @@ pub use duplication::{
 };
 pub use erosion::{ErodedFunction, Erosion, FunctionMasses};
 pub use finding_id::FindingId;
+pub use hazards::{HAZARDS_METRIC_KEY, HazardLineFinding, HazardLines, Hazards};
 pub use impact::{ImpactAnalysis, ImpactDependent, ImpactError, ImpactSummary, ImpactTarget};
 pub use import_cycles::{ImportCycle, ImportCycles, ModuleShare, UnresolvedImport};
 pub use line_share::LineShare;

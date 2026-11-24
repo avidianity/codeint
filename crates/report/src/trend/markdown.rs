@@ -27,16 +27,20 @@ pub(super) fn render(report: &TrendReport) -> String {
             .into_iter()
             .collect();
         let show_import_cycles = rows.iter().any(|row| row.import_cycles.is_some());
+        let show_hazards = rows.iter().any(|row| row.hazards.is_some());
         let mut columns: Vec<&str> = BASE_COLUMNS.to_vec();
         if show_import_cycles {
             columns.push("Import cycles");
+        }
+        if show_hazards {
+            columns.push("Hazards");
         }
         columns.extend(external_keys.iter().map(String::as_str));
         blocks.push(format!("## {name}"));
         blocks.push(table(
             &columns,
             rows.iter()
-                .map(|row| row_cells(row, show_import_cycles, &external_keys))
+                .map(|row| row_cells(row, show_import_cycles, show_hazards, &external_keys))
                 .collect(),
         ));
     }
@@ -48,7 +52,12 @@ fn measured_sentence(commits: usize) -> String {
     format!("codeint measured {commits} {noun} of the main line of HEAD, oldest first.")
 }
 
-fn row_cells(row: &TrendRow, show_import_cycles: bool, external_keys: &[String]) -> Vec<String> {
+fn row_cells(
+    row: &TrendRow,
+    show_import_cycles: bool,
+    show_hazards: bool,
+    external_keys: &[String],
+) -> Vec<String> {
     let mut cells = vec![
         code(&row.commit),
         row.committed_on.clone(),
@@ -61,6 +70,13 @@ fn row_cells(row: &TrendRow, show_import_cycles: bool, external_keys: &[String])
     if show_import_cycles {
         let value = row
             .import_cycles
+            .as_ref()
+            .map_or_else(|| "-".to_owned(), |decimal| decimal.0.to_string());
+        cells.push(value);
+    }
+    if show_hazards {
+        let value = row
+            .hazards
             .as_ref()
             .map_or_else(|| "-".to_owned(), |decimal| decimal.0.to_string());
         cells.push(value);

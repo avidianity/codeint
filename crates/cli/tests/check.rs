@@ -2729,7 +2729,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -2873,7 +2873,7 @@ fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
     assert_operational_error(
         &output,
         "codeint: codeint.jsonc names an unknown Language plugin cobol at languages[0].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go\n\
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql\n\
          Name one of the Language plugins listed, or remove the entry from languages.\n",
     );
 }
@@ -3045,7 +3045,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "cobol", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin cobol at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go",
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -4121,7 +4121,7 @@ fn a_budget_for_an_unknown_metric_names_the_metrics_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budgets": { "production": { "complexity": 0.1 } } }"#,
         "codeint.json has an unknown key budgets.production.complexity; \
-         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries, orphan_files, test_gap",
+         the keys allowed there are erosion, duplication, verbosity, import_cycles, cognitive_complexity, boundaries, orphan_files, hazards, test_gap",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -5593,11 +5593,15 @@ fn sandbox_probe_repo(
         "sha256": digest,
     }]);
     repository.write("codeint.json", &config.to_string());
+    write_and_commit(&repository, files);
+    repository
+}
+
+fn write_and_commit(repository: &Repository, files: &[(&str, &str)]) {
     for &(path, contents) in files {
         repository.write(path, contents);
     }
     repository.commit_all();
-    repository
 }
 
 fn check_json_with_exit(
@@ -5864,25 +5868,17 @@ fn no_imports_only_repo_shows_absent_import_totals_and_budgets_do_not_trip() {
     }
 }
 
-#[test]
-fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
+fn check_calibrated_reference_ranges(
+    files: &[(&str, &str)],
+    expected_source: &str,
+    expected: &[(&str, f64, f64)],
+) -> serde_json::Value {
     let repository = Repository::new();
-    repository.write("go.mod", "module example.com/demo\n\ngo 1.24\n");
-    repository.write(
-        "main.go",
-        "package main\n\nfunc classify(x int) int {\n\tif x > 0 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n",
-    );
-    repository.commit_all();
+    write_and_commit(&repository, files);
 
     let report = check_json_with_exit(&repository, &["check", "--format", "json"], 0);
     let prod = &report["source_sets"]["production"];
-    let expected_source = "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0";
-    for (metric, low, high) in [
-        ("erosion", 0.379, 0.692),
-        ("verbosity", 0.045, 0.183),
-        ("duplication", 0.044, 0.181),
-        ("import_cycles", 0.0, 0.0),
-    ] {
+    for &(metric, low, high) in expected {
         let rr = &prod[metric]["reference_range"];
         assert_eq!(rr["low"], low, "{metric} reference_range.low");
         assert_eq!(rr["high"], high, "{metric} reference_range.high");
@@ -5891,4 +5887,45 @@ fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
             "{metric} reference_range.source"
         );
     }
+    report
+}
+
+#[test]
+fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
+    check_calibrated_reference_ranges(
+        &[
+            ("go.mod", "module example.com/demo\n\ngo 1.24\n"),
+            (
+                "main.go",
+                "package main\n\nfunc classify(x int) int {\n\tif x > 0 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n",
+            ),
+        ],
+        "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0",
+        &[
+            ("erosion", 0.379, 0.692),
+            ("verbosity", 0.045, 0.183),
+            ("duplication", 0.044, 0.181),
+            ("import_cycles", 0.0, 0.0),
+        ],
+    );
+}
+
+#[test]
+fn sql_check_displays_calibrated_reference_ranges_next_to_sql_values() {
+    let report = check_calibrated_reference_ranges(
+        &[(
+            "queries/orders.sql",
+            "CREATE VIEW active_orders AS\nSELECT id, total\nFROM orders\nWHERE status = 'open' AND total > 0;\n",
+        )],
+        "codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0",
+        &[
+            ("erosion", 0.094, 0.976),
+            ("verbosity", 0.042, 0.921),
+            ("duplication", 0.042, 0.921),
+        ],
+    );
+    assert_eq!(
+        report["source_sets"]["production"].get("import_cycles"),
+        None
+    );
 }

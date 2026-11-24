@@ -1552,7 +1552,7 @@ fn a_result_cached_under_plugin_interface_0_2_0_is_not_reused_and_recomputes() {
     }
 
     assert_eq!(current_settings["plugin_interface_version"], json!("0.3.0"));
-    assert_eq!(current_settings["cache_version"], json!(6));
+    assert_eq!(current_settings["cache_version"], json!(7));
 }
 
 #[test]

@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding,
-    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, ImportCycleFinding,
-    ImportedDependencyRow, Measured, OrphanFileRow, UnusedDependencyRow,
+    ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, HazardLineRow,
+    ImportCycleFinding, ImportedDependencyRow, Measured, OrphanFileRow, SectionModels,
+    UnusedDependencyRow, model_has_hazard_rules,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,8 +44,21 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) boundaries: Option<MetricMeasurement<BoundaryFindingRow>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) orphan_files: Option<MetricMeasurement<OrphanFileRow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) hazards: Option<MetricMeasurement<HazardLineRow>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) external_metrics: BTreeMap<String, ExternalMetricCommitMeasurement>,
+}
+
+#[derive(Clone, Copy)]
+pub struct CommitMeasurementOptions<'a> {
+    pub metric_plugins: &'a [&'a dyn MetricPlugin],
+    pub boundaries: Option<&'a BoundariesConfig>,
+    pub dependencies: &'a DependenciesConfig,
+    pub duplication: DuplicationConfig,
+    pub orphan_files: Option<&'a OrphanFiles>,
+    pub dependency_hygiene: Option<&'a DependencyHygiene>,
+    pub disabled_hazard_rules: &'a BTreeSet<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -133,9 +147,28 @@ impl CommitMeasurement {
         orphan_files: Option<&OrphanFiles>,
         dependency_hygiene: Option<&DependencyHygiene>,
     ) -> Result<CommitMeasurement, MetricPluginError> {
-        let ignored = dependencies_config.ignored();
+        let disabled_hazard_rules = BTreeSet::new();
+        CommitMeasurement::of_languages_with_full_options(
+            languages,
+            CommitMeasurementOptions {
+                metric_plugins,
+                boundaries,
+                dependencies: dependencies_config,
+                duplication,
+                orphan_files,
+                dependency_hygiene,
+                disabled_hazard_rules: &disabled_hazard_rules,
+            },
+        )
+    }
+
+    pub fn of_languages_with_full_options(
+        languages: Vec<CodeModel>,
+        options: CommitMeasurementOptions<'_>,
+    ) -> Result<CommitMeasurement, MetricPluginError> {
+        let ignored = options.dependencies.ignored();
         let measured_hygiene;
-        let hygiene = match dependency_hygiene {
+        let hygiene = match options.dependency_hygiene {
             Some(precomputed) => precomputed,
             None => {
                 measured_hygiene = measure_commit_hygiene(&languages, ignored);
@@ -149,31 +182,46 @@ impl CommitMeasurement {
         let any_has_imports =
             measured.is_empty() || measured.iter().copied().any(model_has_imports);
         let all_have_imports = measured.iter().copied().all(model_has_imports);
-        let separate_import_source_sets =
-            (any_has_imports && !all_have_imports).then(|| build_import_source_sets(&languages));
+        let separate_import_source_sets = (any_has_imports && !all_have_imports)
+            .then(|| build_filtered_source_sets(&languages, model_has_imports));
+        let any_has_hazard_rules = measured.iter().copied().any(model_has_hazard_rules);
+        let all_have_hazard_rules =
+            !measured.is_empty() && measured.iter().copied().all(model_has_hazard_rules);
+        let separate_hazards_source_sets = (any_has_hazard_rules && !all_have_hazard_rules)
+            .then(|| build_filtered_source_sets(&languages, model_has_hazard_rules));
         let dependencies = any_has_imports
             .then(|| DependenciesMeasurement::from_hygiene(hygiene))
             .flatten();
         let source_sets = CodeModel::merge(languages).into_source_sets();
         let measure = |source_set: SourceSet, set_orphans: Option<&OrphanFiles>| {
-            let import_model = select_import_model(
+            let import_model = select_subset_model(
                 source_set,
                 any_has_imports,
                 &source_sets,
                 separate_import_source_sets.as_ref(),
+                false,
+            );
+            let hazards_model = select_subset_model(
+                source_set,
+                any_has_hazard_rules,
+                &source_sets,
+                separate_hazards_source_sets.as_ref(),
+                true,
             );
             measure_source_set(
                 source_set,
-                source_sets.get(source_set),
-                import_model,
-                metric_plugins,
-                boundaries,
-                duplication,
+                SectionModels {
+                    model: source_sets.get(source_set),
+                    import_model,
+                    coverage_model: None,
+                    hazards_model,
+                },
+                options,
                 set_orphans,
             )
         };
         Ok(CommitMeasurement {
-            production: measure(SourceSet::Production, orphan_files)?,
+            production: measure(SourceSet::Production, options.orphan_files)?,
             test: measure(SourceSet::Test, None)?,
             generated: measure(SourceSet::Generated, None)?,
             vendored: measure(SourceSet::Vendored, None)?,
@@ -242,22 +290,34 @@ fn model_has_imports(model: &CodeModel) -> bool {
 
 impl SourceSetMeasurement {
     fn of(
-        model: &CodeModel,
-        import_model: Option<&CodeModel>,
-        metric_plugins: &[&dyn MetricPlugin],
+        models: SectionModels<'_>,
         boundaries: Option<&BoundariesConfig>,
-        duplication_config: DuplicationConfig,
+        options: CommitMeasurementOptions<'_>,
         orphan_files: Option<&OrphanFiles>,
     ) -> Result<SourceSetMeasurement, MetricPluginError> {
-        let measured = Measured::new(model, import_model, None, boundaries, duplication_config);
+        let model = models.model;
+        let measured = Measured::new(
+            models,
+            boundaries,
+            options.duplication,
+            options.disabled_hazard_rules,
+        );
         let boundaries = measured
             .boundaries
             .as_ref()
             .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
         let orphan_files = orphan_files
             .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
+        let hazards = measured.hazards.as_ref().map(|evaluated| {
+            MetricMeasurement::from_items(
+                evaluated.ratio(),
+                evaluated.hazard_lines() as f64,
+                evaluated.findings(),
+                HazardLineRow::from,
+            )
+        });
         let mut external_metrics = BTreeMap::new();
-        for plugin in metric_plugins {
+        for plugin in options.metric_plugins {
             let result = plugin.measure(model)?;
             external_metrics.insert(
                 plugin.key().to_owned(),
@@ -318,6 +378,7 @@ impl SourceSetMeasurement {
             }),
             boundaries,
             orphan_files,
+            hazards,
             external_metrics,
         })
     }
@@ -358,27 +419,34 @@ fn measure_commit_hygiene(
     DependencyHygiene::merge(measured)
 }
 
-fn build_import_source_sets(languages: &[CodeModel]) -> SourceSets {
+fn build_filtered_source_sets(
+    languages: &[CodeModel],
+    predicate: fn(&CodeModel) -> bool,
+) -> SourceSets {
     let mut models = Vec::new();
     for model in languages {
-        if !model.files.is_empty() && model_has_imports(model) {
+        if !model.files.is_empty() && predicate(model) {
             models.push(model.clone());
         }
     }
     CodeModel::merge(models).into_source_sets()
 }
 
-fn select_import_model<'a>(
+fn select_subset_model<'a>(
     source_set: SourceSet,
-    any_has_imports: bool,
+    enabled: bool,
     source_sets: &'a SourceSets,
-    separate_import_source_sets: Option<&'a SourceSets>,
+    separate_source_sets: Option<&'a SourceSets>,
+    require_non_empty_shared: bool,
 ) -> Option<&'a CodeModel> {
-    if !any_has_imports {
+    if !enabled {
         return None;
     }
-    match separate_import_source_sets {
-        None => Some(source_sets.get(source_set)),
+    match separate_source_sets {
+        None => {
+            let candidate = source_sets.get(source_set);
+            (!require_non_empty_shared || !candidate.files.is_empty()).then_some(candidate)
+        }
         Some(sets) => {
             let candidate = sets.get(source_set);
             (!candidate.files.is_empty()).then_some(candidate)
@@ -388,22 +456,13 @@ fn select_import_model<'a>(
 
 fn measure_source_set(
     source_set: SourceSet,
-    model: &CodeModel,
-    import_model: Option<&CodeModel>,
-    metric_plugins: &[&dyn MetricPlugin],
-    boundaries: Option<&BoundariesConfig>,
-    duplication: DuplicationConfig,
+    models: SectionModels<'_>,
+    options: CommitMeasurementOptions<'_>,
     orphan_files: Option<&OrphanFiles>,
 ) -> Result<SourceSetMeasurement, MetricPluginError> {
-    let applicable_boundaries = boundaries
-        .filter(|config| import_model.is_some() && config.applies_to_source_set(source_set));
-    let applicable_orphans = orphan_files.filter(|_| import_model.is_some());
-    SourceSetMeasurement::of(
-        model,
-        import_model,
-        metric_plugins,
-        applicable_boundaries,
-        duplication,
-        applicable_orphans,
-    )
+    let applicable_boundaries = options
+        .boundaries
+        .filter(|config| models.import_model.is_some() && config.applies_to_source_set(source_set));
+    let applicable_orphans = orphan_files.filter(|_| models.import_model.is_some());
+    SourceSetMeasurement::of(models, applicable_boundaries, options, applicable_orphans)
 }

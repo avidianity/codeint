@@ -113,6 +113,7 @@ It sets every key to its default, and lists under `languages` each top-level fol
 ```
 
 When no file belongs to a Language plugin, the file leaves `languages` out, so every Language plugin measures the whole repository.
+When `sql` files are detected, `codeint init` adds a commented `sql.dialects` hint to the starter file.
 `codeint init` never replaces an existing `codeint.jsonc` or `codeint.json`.
 With this `codeint.json` in place:
 
@@ -436,7 +437,7 @@ A Regression is a Metric that got worse from the merge-base to the head side by 
 - A ratio rise over 0.01 is a Regression.
   codeint compares the ratios as the report shows them, rounded to four decimal places, so a rise of exactly 0.01 passes.
 - A numerator rise that adds new Findings is a Regression.
-  The numerator is `eroded_function_mass`, `complex_cognitive_complexity`, `clone_lines`, `verbose_lines`, or `modules_in_import_cycles`.
+  The numerator is `eroded_function_mass`, `complex_cognitive_complexity`, `clone_lines`, `verbose_lines`, `modules_in_import_cycles`, or `hazard_lines`.
   A Finding that only moves, so the numerator stays the same, is not a Regression.
 
 [`regression_limits`](#regression-limits) in `codeint.json` changes these limits.
@@ -626,8 +627,9 @@ codeint 0.6.0 is already up to date (v0.6.0)
 | `-h, --help` | Print the help of `codeint mcp` |
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
-It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
+It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy and Hazards, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
 The `check` MCP tool uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
+When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `sql_schemas`, and `rejected_statements`.
 When standard input closes, the server exits with code 0:
 
 ```sh exit=0
@@ -856,6 +858,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
 | `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
 | `budgets.{source_set}.orphan_files` | number from 0 to 1 | The highest Orphan files ratio in this Source set |
+| `budgets.{source_set}.hazards` | number from 0 to 1 | The highest Hazards ratio in this Source set; passes when Hazards is absent; see [Hazards](#hazards) |
 | `budgets.production.test_gap` | number from 0 to 1 | The highest Test gap ratio in the Production Source set; setting `test_gap` under any other Source set stops the run with exit code 2 |
 | `budgets.{dependency_metric}` | number from 0 to 1 | The highest ratio of this Dependency hygiene Metric across workspace packages |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
@@ -868,6 +871,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.orphan_files` | object | The Regression limit of Orphan files in every Source set |
 | `regression_limits.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
 | `regression_limits.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.hazards` | object | The Regression limit of Hazards in every Source set; see [Hazards](#hazards) |
+| `regression_limits.hazards.ratio_rise` | number from 0 to 1 | The highest Hazards ratio rise that passes; `0.01` by default |
+| `regression_limits.hazards.new_findings` | string | When new Hazards Findings are a Regression: `numerator_rise_with_new_findings` (default), `any_new_finding`, or `never` |
 | `regression_limits.{dependency_metric}` | object | The Regression limit of this Dependency hygiene Metric |
 | `regression_limits.{dependency_metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
 | `regression_limits.{dependency_metric}.new_findings` | string | When new Dependency hygiene Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
@@ -881,6 +887,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.{source_set}.orphan_files` | object | The Regression limit of Orphan files in this Source set |
 | `regression_limits.{source_set}.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
 | `regression_limits.{source_set}.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{source_set}.hazards` | object | The Regression limit of Hazards in this Source set; see [Hazards](#hazards) |
+| `regression_limits.{source_set}.hazards.ratio_rise` | number from 0 to 1 | The highest Hazards ratio rise that passes in this Source set |
+| `regression_limits.{source_set}.hazards.new_findings` | string | When new Hazards Findings are a Regression in this Source set: `numerator_rise_with_new_findings`, `any_new_finding`, or `never` |
 | `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
@@ -911,6 +920,12 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `duplication.min_similarity` | number in (0, 1] | Minimum Jaccard shingle similarity required for two blocks to match as a near-clone; `0.85` by default |
 | `entry_points` | list of strings | Globs of repository-relative paths treated as additional Production entry points for Orphan files detection; empty by default |
 | `coverage_reports` | list of strings | Paths relative to the repository root of LCOV or Cobertura XML Coverage reports used to measure Test gap; empty by default; see [Test gap](#test-gap) |
+| `sql` | object | SQL settings, including Dialect mappings for folders or files; see [SQL](#sql) |
+| `sql.dialects` | list of objects | Folder or file patterns mapped to a SQL Dialect; files covered by no entry use generic SQL |
+| `sql.dialects[].dialect` | string | SQL Dialect for matching files: `postgresql`, `mysql` (covers MariaDB), `sqlite`, or `duckdb` |
+| `sql.dialects[].include` | list of strings | Globs of repository-relative folders or files that use this SQL Dialect; a folder covers every file below it |
+| `hazards` | object | Hazards Metric settings; see [Hazards](#hazards) |
+| `hazards.disabled_rules` | list of strings | Names of Hazard line rules turned off across the repository; empty by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -926,7 +941,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -944,6 +959,7 @@ The Language plugin and the core rules settle the Source set of each file.
 - `python` puts a file in `test` when any folder in its path is named `test` or `tests`, when its name starts with `test_`, ends with `_test.py`, or is `conftest.py`, and puts files ending in `_pb2.py` or `_pb2_grpc.py` into `generated`.
 - `go` puts a file in `test` when its name ends in `_test.go` or when any folder in its path is named `testdata`, puts a file in `generated` when a line comment before any code matches `// Code generated ... DO NOT EDIT.`, and puts files under `vendor/` in `vendored`.
   `go` evaluates no build conditions, so platform-specific files are measured like any other file.
+- `sql` puts a file in `generated` when its first 20 lines contain a database dump header (`-- PostgreSQL database dump`, `-- Dumped by pg_dump`, `-- MySQL dump` followed by a space, `-- MariaDB database dump`, or `-- MariaDB dump` followed by a space) or `-- Code generated` with `DO NOT EDIT.` (case-insensitive), when any line starts with a migration tool marker (`--> statement-breakpoint`, `-- atlas:txmode`, or `-- atlas:nolint`), or when its path lies under `prisma/migrations/` or `drizzle/`; puts a file in `test` when any folder in its path is named `test`, `tests`, `fixtures`, or `testdata`, or when its file name ends with `.test.sql` or starts with `test_` (and ends with `.sql`); and puts every other `.sql` file (including hand-written migrations) in `production`.
 - Core rules put files under `vendor/` or `third_party/` into `vendored`, and files with generated-file markers (such as `@generated` or `GENERATED CODE`) into `generated`.
 
 Globs under `source_sets` win over every rule.
@@ -973,6 +989,7 @@ A Budget applies only to its own Source set, and a Metric without a Budget never
 A Budget applies to the total of every language, never to the section of one Language plugin under `languages`.
 For Import cycles, Orphan files, Import boundaries, and Dependency hygiene, repository totals and Budgets count only languages with imports.
 When no measured language has imports, those repository totals are absent and Budgets on them do not fail.
+For Hazards, repository totals and Budgets count only languages whose Language plugin defines Hazard line rules; when Hazards is absent, a Hazards Budget passes.
 `budgets.production.test_gap` applies to the Production Source set only; setting `test_gap` under `budgets.test`, `budgets.generated`, or `budgets.vendored` stops the run with exit code 2 and names the key.
 When `budgets.production.test_gap` is set and Test gap is absent (no Coverage report applies), codeint stops the run with exit code 2 and reports that the Budget needs a Coverage report; with no Test gap Budget, an absent Test gap changes no exit code.
 codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
@@ -1049,7 +1066,7 @@ Each entry of `languages` names a Language plugin, the globs of the folders or f
 Several entries may name one Language plugin; it measures what any of them includes.
 Without `languages`, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include.
 When two Language plugins claim the same file extension for the same folder, codeint stops with exit code 2 until `languages` assigns separate folders to each plugin.
-codeint ships six built-in Language plugins:
+codeint ships seven built-in Language plugins:
 
 | Plugin name | Extensions | Workspace manifest |
 | ----------- | ---------- | ------------------ |
@@ -1059,12 +1076,17 @@ codeint ships six built-in Language plugins:
 | `dart` | `.dart` | `pubspec.yaml` |
 | `python` | `.py` | `pyproject.toml` |
 | `go` | `.go` | `go.mod` |
+| `sql` | `.sql` | none (no imports; belongs to enclosing Workspace package) |
 
 For Go (`go`), each folder with a `go.mod` file below the repository root is one Workspace package (`go.work` is not read), an import of a repository Go package leads to every non-test `.go` file in that folder, standard library and cgo (`"C"`) imports count as built in, every named function and method (`ReceiverType.MethodName`) with a body is one function, function literals inside a function count toward the enclosing function one nesting level deeper (package-level function literals are not separate functions), and decision points are `if`, `for`, `case` except `default`, `&&`, and `||`.
 Go Verbosity applies five Flagged line rules (never flagging idiomatic `if err != nil` checks):
 `else-after-return` (an `else` after a branch chain that always returns, silent when an `if` short variable is used in `else`), `if-else-returns-boolean` (an `if`/`else` or `if` followed by `return` returning `true` and `false`), `conditional-yields-boolean` (an `if`/`else` assigning `true` and `false` to the same variable), `trailing-bare-return` (a bare `return` as the last statement of a function with no results), and `redundant-break` (an unlabeled `break` as the last statement of a `switch` or `select` `case`).
 Calibrated Go Reference ranges come from a panel of 20 pre-2023 public Go repositories ([ADR 0021](./adr/0021-go-reference-ranges.md), source `codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0`): Erosion `37.9% to 69.2%`, Duplication `4.4% to 18.1%`, Verbosity `4.5% to 18.3%`, and Import cycles `0.0% to 0.0%`.
 See [docs/guide/go.md](./guide/go.md) for the full Go guide.
+
+For SQL (`sql`), codeint reads every `.sql` file in two layers with `sqlparser` ([ADR 0018](./adr/0018-sql-through-sqlparser-in-two-layers.md)), supports generic SQL by default plus `postgresql`, `mysql` (covering MariaDB), `sqlite`, and `duckdb` Dialects, defines 2 Flagged line rules and 32 Hazard line rules (27 statement rules and 5 schema-backed rules), builds schemas automatically from repository SQL files, and leaves import Metrics absent because SQL has no imports.
+Calibrated SQL Reference ranges come from a panel of 20 pre-2023 public SQL repositories ([ADR 0022](./adr/0022-sql-reference-ranges.md), source `codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0`): Erosion `9.4% to 97.6%`, Duplication `4.2% to 92.1%`, and Verbosity `4.2% to 92.1%` (Import cycles is absent because SQL has no imports).
+See [SQL](#sql) below and [docs/guide/sql.md](./guide/sql.md) for details.
 
 ```json codeint.json
 {
@@ -1088,7 +1110,8 @@ In a multi-language repository, list each built-in Language plugin with its own 
     { "plugin": "php", "include": ["app", "src"], "exclude": [] },
     { "plugin": "dart", "include": ["lib"], "exclude": [] },
     { "plugin": "python", "include": ["services"], "exclude": [] },
-    { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] }
+    { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] },
+    { "plugin": "sql", "include": ["db", "analytics"], "exclude": [] }
   ]
 }
 ```
@@ -1362,6 +1385,133 @@ Pass reports on the command line to override `coverage_reports` for a single run
 codeint check --coverage-report coverage/lcov.info --coverage-report api/coverage.xml
 ```
 
+### SQL
+
+The built-in `sql` Language plugin measures `.sql` files in two layers with `sqlparser` ([ADR 0018](./adr/0018-sql-through-sqlparser-in-two-layers.md)): a tokenizer layer for source lines, functions, decision points, Cognitive complexity, and Duplication, and a per-statement parser layer for Flagged line rules, Hazard line rules, and SQL schemas.
+See [docs/guide/sql.md](./guide/sql.md) for a walkthrough and monorepo examples.
+
+- **Statements and names**: each top-level statement is one function spanning its first and last line.
+  A `CREATE` statement for a `TABLE`, `VIEW`, `INDEX`, `FUNCTION`, `PROCEDURE`, `TRIGGER`, `TYPE`, or `MACRO` takes the object's name, keeping schema prefixes; other statements have no name.
+- **Decision points and Cognitive complexity**: each `WHEN` arm of a `CASE`, each `AND` and `OR` in a condition (excluding `BETWEEN ... AND`, transaction `AND CHAIN`, and `CREATE OR REPLACE`), each `JOIN` (including `STRAIGHT_JOIN`), each subquery (`(SELECT ...)` or `(WITH ...)`), and each set operation (`UNION`, `INTERSECT`, or `EXCEPT`, excluding wildcard `EXCEPT`) adds `1`; window functions and `GROUP BY` add `0`.
+  Inside a stored routine (function, procedure, or trigger, including PostgreSQL dollar-quoted SQL/PLpgSQL bodies, MySQL `DELIMITER`-delimited routines, and SQLite triggers), each `IF`, `ELSIF`/`ELSEIF`, loop (`WHILE`, `FOR`, `REPEAT`, `LOOP`), and error handler (`EXCEPTION`, `HANDLER`) adds `1` and deepens block nesting.
+  Cognitive complexity uses subquery depth plus routine block depth.
+- **Dialects (`sql.dialects`)**: map repository-relative folder or file globs to `postgresql`, `mysql` (covers MariaDB), `sqlite`, or `duckdb`.
+  Files covered by no entry use generic SQL (`generic`); ClickHouse, SQL Server, Oracle, BigQuery, and Snowflake stay generic SQL.
+  An unknown Dialect name, an empty `include` list, or one file matched by entries with different Dialects stops the run with exit code 2.
+  PostgreSQL `psql` backslash commands and DuckDB CLI dot-commands count as source lines and are not parsed as statements.
+- **Templated SQL and rejected statements**: files containing `{{`, `{%`, `%}`, `<%`, or `%>` outside SQL strings and comments are skipped under `skipped` with reason `templated SQL`.
+  A single statement that the parser rejects still counts in every token-layer Metric, receives no Flagged line or Hazard line rules, and is listed under `rejected_statements` with `path`, `line`, and `dialect`.
+- **SQL Schema (`sql_schemas`)**: built automatically in repository-relative path order from `CREATE TABLE` (excluding `CREATE TEMP` / `CREATE TEMPORARY TABLE`), `CREATE INDEX`, `ALTER TABLE`, `DROP TABLE`, and `DROP INDEX` across Production, Test, and Generated SQL (never Vendored, and skipping rollback down-migration files named `down.sql` or ending in `.down.sql`), scoped per Workspace package and Dialect (plus root per Dialect; generic SQL is its own Dialect).
+  Reports list each scope's table count under `sql_schemas`.
+  The 5 schema-backed Hazard line rules stay silent when a table is unknown or an unqualified column is ambiguous.
+- **Flagged line rules (Verbosity)**:
+  - `or-chain-collapses-to-in`: three or more `OR` equality comparisons of the same column against constant literals.
+  - `having-without-aggregate`: a `HAVING` condition that contains no aggregate function.
+- **Reference ranges**: calibrated across 20 pre-2023 public SQL repositories ([ADR 0022](./adr/0022-sql-reference-ranges.md), source `codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0`): Erosion `9.4% to 97.6%`, Duplication `4.2% to 92.1%`, and Verbosity `4.2% to 92.1%` (Import cycles is absent).
+
+All 32 built-in SQL Hazard line rules (27 statement rules and 5 schema-backed rules):
+
+| Rule | Kind | Matches |
+| ---- | ---- | ------- |
+| `select-star` | statement | `SELECT *` or `SELECT t.*` (outside direct `EXISTS` subqueries) |
+| `leading-wildcard-like` | statement | `LIKE` or `ILIKE` string literal starting with `%` or `_` |
+| `large-offset` | statement | `OFFSET` constant above `1,000` |
+| `tables-without-join-condition` | statement | Non-lateral `CROSS JOIN`, a join without a constraint, or multiple non-lateral `FROM` tables with no linking condition |
+| `distinct-with-order-by` | statement | `SELECT DISTINCT` paired with `ORDER BY` |
+| `subquery-in-select-list` | statement | A subquery inside a `SELECT` projection expression |
+| `function-on-filter-column` | statement | A function call (or `TRIM`/`SUBSTRING`/`EXTRACT`/`CEIL`/`FLOOR`/`POSITION`/`OVERLAY`) applied to a column in a filter (excluding aggregates in `HAVING`) |
+| `not-in-subquery` | statement | `NOT IN` with a subquery |
+| `union-without-all` | statement | `UNION` without `ALL` |
+| `select-without-filter-or-limit` | statement | `SELECT` from a table with no `WHERE`/`PREWHERE` and no `LIMIT`/`FETCH`/`TOP` (outside `CREATE VIEW`) |
+| `count-without-filter` | statement | `COUNT(*)` from a table with no `WHERE`/`PREWHERE` and no `FILTER` clause (outside `CREATE VIEW`) |
+| `order-by-random` | statement | `ORDER BY` calling `RANDOM()`, `RAND()`, `NEWID()`, or `GEN_RANDOM_UUID()` |
+| `distinct-over-join` | statement | `DISTINCT` over two or more joined tables (excluding `DISTINCT ON`) |
+| `table-read-twice` | statement | The same non-CTE table read more than once in one statement |
+| `subquery-refers-to-outer-table` | statement | A correlated subquery referencing a table or alias from an outer scope |
+| `long-in-list` | statement | An `IN` list with more than `100` items |
+| `deep-subquery-nesting` | statement | Subqueries nested three levels or more |
+| `join-without-aliases` | statement | A join of two or more tables where at least one table lacks an alias |
+| `column-position` | statement | An integer column position in `ORDER BY` or `GROUP BY` |
+| `update-without-filter` | statement | `UPDATE` with no `WHERE` clause and no filtering `INNER JOIN` |
+| `delete-without-filter` | statement | `DELETE` with no `WHERE` clause and no filtering `INNER JOIN` |
+| `truncate` | statement | `TRUNCATE` statement |
+| `drop` | statement | `DROP` statement for any object |
+| `grant-or-revoke` | statement | `GRANT` or `REVOKE` statement |
+| `always-true-condition` | statement | A tautological filter condition such as `OR 1 = 1`, `TRUE`, or `NOT FALSE` (excluding `LEFT [OUTER] JOIN ... ON TRUE` and `INSERT ... SELECT ... WHERE TRUE ON CONFLICT`) |
+| `sql-built-at-run-time` | statement | Dynamic SQL execution such as `EXECUTE IMMEDIATE`, `EXECUTE '...'`, or `sp_executesql` |
+| `plain-text-secret` | statement | A non-empty string literal in a password/secret clause, or written to a column whose name contains `password`, `passwd`, `pwd`, `secret`, `token`, `api_key`, `apikey`, `private_key`, or `access_key` |
+| `filter-on-unindexed-column` | schema | A filter condition on a known table's column not covered by its primary key, index prefix, or a leading indexed column in the same `AND` chain |
+| `order-by-unindexed-column` | schema | An `ORDER BY` on a known table's column not covered by its primary key or composite index prefix (excluding aggregates and `CASE` in grouped queries) |
+| `join-on-unindexed-column` | schema | A join condition (`ON` or `USING`) on a known table's column not covered by its primary key, index prefix, or a leading indexed column in the same `AND` chain |
+| `unknown-column` | schema | A reference or assignment to a column not present on a known table in the built schema |
+| `text-compared-to-number` | schema | A text-typed column in a known table compared to a bare numeric literal |
+
+```json codeint.json
+{
+  "sql": {
+    "dialects": [
+      {
+        "dialect": "postgresql",
+        "include": ["db/postgres"]
+      },
+      {
+        "dialect": "duckdb",
+        "include": ["analytics"]
+      }
+    ]
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+### Hazards
+
+**Hazards** (`hazards`, a reserved built-in Metric key) is the share of source lines that are Hazard lines (`hazard_lines / source_lines`), sitting next to Software entropy ([ADR 0016](./adr/0016-hazards-next-to-software-entropy.md)).
+See [docs/guide/hazards.md](./guide/hazards.md) for the full guide.
+
+- **Absent when no rules exist**: for languages whose Language plugin defines no Hazard line rules (`typescript-javascript`, `rust`, `php`, `dart`, `python`, and `go`), Hazards is absent (never `0`).
+  Repository totals count only files of languages with Hazard line rules on both numerator and denominator.
+- **Equal weight and AST-only**: every Hazard line carries equal weight with no severity levels, and every rule matches parsed statements rather than raw text.
+  A line matching several rules counts as one Hazard line and produces one Finding per rule.
+- **Strict non-leakage**: a Hazard line Finding holds only `id`, `path`, `line`, `rule`, and optional `owners`; no report format, log line, or error message prints the matched source text.
+- **Disabling rules (`hazards.disabled_rules`)**: list rule names to turn off across the repository.
+  A turned-off rule adds no Hazard line and no Finding on either side of `codeint diff`; an unknown rule name stops the run with exit code 2 and names it.
+- **Budgets and Regression limits**: `budgets.{source_set}.hazards` accepts a number from `0` to `1` and passes when Hazards is absent.
+  `regression_limits.hazards` and `regression_limits.{source_set}.hazards` accept `ratio_rise` (default `0.01`) and `new_findings` (default `numerator_rise_with_new_findings`, where the numerator is `hazard_lines`).
+- **No Reference range**: Hazards has no published Reference range.
+
+```json codeint.json
+{
+  "hazards": {
+    "disabled_rules": ["select-star"]
+  },
+  "budgets": {
+    "production": {
+      "hazards": 0.05
+    }
+  },
+  "regression_limits": {
+    "hazards": {
+      "ratio_rise": 0.01,
+      "new_findings": "numerator_rise_with_new_findings"
+    },
+    "production": {
+      "hazards": {
+        "ratio_rise": 0,
+        "new_findings": "any_new_finding"
+      }
+    }
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
 ## Result cache
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
@@ -1531,20 +1681,22 @@ The top-level object has these fields:
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
 | `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
 | `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note`, `test_gap_note`, and `dependencies` for that plugin's files |
-| `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` |
+| `skipped` | array, optional | Files that codeint could not measure, each with its `path` and the `reason` (such as `templated SQL`) |
+| `rejected_statements` | array, optional | Statements that a Language plugin's parser could not parse (still counted in token Metrics, no statement rules applied), each with `path`, `line`, and `dialect` |
+| `sql_schemas` | array, optional | Table counts of each SQL schema built per Workspace package (optional `package`, omitted for root) and `dialect`, with `tables` count |
 | `declaration_only` | array of strings, optional | Paths of files that hold only type declarations and add no source lines |
 | `over_budget` | array, optional | Metrics over their Budget, each with its `source_set`, `metric`, the `ratio` as the report shows it, and the `budget` |
 
-A Source set section has `files` and `source_lines` for that Source set, and one object per measured Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, (in `production` when covered by a Coverage report) `test_gap`, and (for languages with imports) `import_cycles`, `boundaries`, and `orphan_files`.
+A Source set section has `files` and `source_lines` for that Source set, and one object per measured Metric: `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, (in `production` when covered by a Coverage report) `test_gap`, (when at least one measured language defines Hazard line rules) `hazards`, and (for languages with imports) `import_cycles`, `boundaries`, and `orphan_files`.
 Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
 - `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
   The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
-  `test_gap` has no published Reference range.
+  `test_gap` and `hazards` have no published Reference range.
 - The counts behind the ratio:
-  `eroded_function_mass` and `total_function_mass` for Erosion, `complex_cognitive_complexity` and `total_cognitive_complexity` for Cognitive complexity, `untested_function_mass` and `total_function_mass` for Test gap, `clone_lines` for Duplication, `verbose_lines` for Verbosity, and `modules_in_import_cycles` and `modules` for Import cycles.
-  Duplication and Verbosity divide by the `source_lines` of the Source set.
+  `eroded_function_mass` and `total_function_mass` for Erosion, `complex_cognitive_complexity` and `total_cognitive_complexity` for Cognitive complexity, `untested_function_mass` and `total_function_mass` for Test gap, `clone_lines` for Duplication, `verbose_lines` for Verbosity, `hazard_lines` and `source_lines` for Hazards, and `modules_in_import_cycles` and `modules` for Import cycles.
+  Duplication and Verbosity divide by the `source_lines` of the Source set; Hazards divides by the `source_lines` of languages with Hazard line rules in that Source set.
   Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
@@ -1570,6 +1722,7 @@ Each Finding is an object with an `id`, followed by fields that depend on its ki
 - A Clone group has `tokens`, optional `similarity` (present on near-clone Findings as a ratio in `(0, 1]`), and `locations`; each location has `path`, `start_line`, and `end_line`.
 - A Clone family has `duplicated_lines` (unique source lines across the family without double-counting overlaps), `clone_group_ids`, and canonical `locations` ordered by `path` then `start_line`.
 - A Flagged line has `path`, `line`, and `rule`.
+- A Hazard line has `path`, `line`, `rule`, and optional `owners`, and never includes source text.
 - An Import cycle has `modules`, the paths of the modules in the cycle.
 
 The `id` of a Finding is a string of 16 lowercase hexadecimal digits.
@@ -1581,13 +1734,13 @@ The content behind the `id` of each kind:
 - An eroded, complex, or untested (Test gap) function: every token from its first line to its last line, so a change to the function's code gives it a new `id`; whitespace and comments do not count.
 - A Clone group: the token sequence that its copies share, with every name and every literal value treated alike, and the path of each copy.
 - A Clone family: the sorted normalized token sequences of its constituent Clone groups and the canonical path of each member location.
-- A Flagged line: the rule and the tokens of the line.
+- A Flagged line or Hazard line: the rule and the tokens of the line.
 - An Import cycle: the paths of its modules.
 
 Every `path` is relative to the root of the Git repository and uses `/` as the separator.
 Line numbers start at 1.
 
-An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `declaration_only`, or `over_budget` list, import Metrics for a language with no imports, and `findings_left_out` when no Finding is left out.
+An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `rejected_statements`, `sql_schemas`, `declaration_only`, or `over_budget` list, `hazards` when no measured language defines Hazard line rules, import Metrics for a language with no imports, and `findings_left_out` when no Finding is left out.
 
 #### Compatibility rule
 
@@ -1769,6 +1922,7 @@ The tool lists one rule per Metric, and each result names its Metric in `ruleId`
 | `test_gap` | An untested or partly tested Production function | The line where the function starts; the message names the Function mass and the untested share (omitted when Test gap is absent) |
 | `duplication` | A Clone group or Clone family | The first fragment or canonical location, from its start line to its end line; the other fragments or locations are related locations |
 | `verbosity` | A Flagged line | The line; the message names the Flagged-line rule |
+| `<hazard-rule>` | A Hazard line | The line; one SARIF rule per matched Hazard line rule name; the message is `Hazard line: rule <rule>.` and never prints source text |
 | `import_cycles` | An Import cycle | Line 1 of the first module; the other modules are related locations |
 
 Each result has the level `note`, and its `properties.sourceSet` names its Source set: `production`, `test`, `generated`, or `vendored`.
@@ -1785,6 +1939,7 @@ Next come each Metric over its Budget and a table of the ratios of each workspac
 When files of two or more Language plugins were measured, a section per Language plugin follows, with that plugin's Metric table and workspace package table.
 For a language with no imports, the report omits the six import Metrics and prints the one-line reason.
 For Test gap, the report shows Production totals (repository, per language, and per Workspace package), lists Test gap Findings heaviest untested Function mass first under `Production Findings`, or prints the one-line absent reason when no Coverage report applies.
+When SQL files or Hazard line rules are measured, the report also includes `Hazards` rows and Findings tables (showing `Path`, `Line`, and `Rule`, never source text), `## SQL schemas` with per-scope table counts, and `## Rejected statements` before `## Files not measured`.
 Then it lists the Findings of each Source set, worst first, and last the files that codeint did not measure.
 It lists at most 20 Findings per Metric, so the comment stays short; `--all` lists every Finding.
 

@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
+
 use codeint_config::{
     CliCommandSchema, CliSchema, NewFindingsRule, OutputFormatSchema, RegressionLimits,
     SchemaFormat, configuration_schema,
 };
 use codeint_metrics::{
-    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, TEST_GAP_METRIC_KEY,
+    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, HAZARDS_METRIC_KEY, TEST_GAP_METRIC_KEY,
     UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
 };
 use codeint_model::{Metric, SourceSet};
@@ -109,6 +111,13 @@ pub(crate) const TEST_GAP_DESCRIPTOR: BuiltInMetricDescriptor = BuiltInMetricDes
     help: "Add tests that execute the uncovered lines of this function, starting with the heaviest untested functions first.",
 };
 
+pub(crate) const HAZARDS_DESCRIPTOR: BuiltInMetricDescriptor = BuiltInMetricDescriptor {
+    name: "Hazards",
+    short_description: "A Hazard line: a parsed pattern likely to cause wrong results, slow execution, or a security exposure",
+    full_description: "Hazards is the share of source lines that are Hazard lines in languages that have Hazard line rules. Each Hazard line Finding names its path, line, and rule, and never the source text.",
+    help: "Rewrite the statement to remove the hazard named by the rule, or turn off the rule in hazards.disabled_rules in codeint.json.",
+};
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SchemaReport {
     name: String,
@@ -118,10 +127,18 @@ pub struct SchemaReport {
     metrics: Vec<MetricSchema>,
     configuration_keys: Vec<String>,
     source_sets: Vec<&'static str>,
-    languages: Vec<LanguageSchema>,
+    languages: Vec<LanguageSchemaEntry>,
     output_formats: Vec<OutputFormatSchema>,
     mcp_tools: Vec<McpToolSchema>,
     exit_codes: Vec<ExitCodeSchema>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct LanguageSchemaEntry {
+    name: String,
+    extensions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hazard_rules: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -177,6 +194,7 @@ impl SchemaReport {
         for (key, descriptor) in [
             (COGNITIVE_COMPLEXITY_KEY, COGNITIVE_COMPLEXITY_DESCRIPTOR),
             ("orphan_files", ORPHAN_FILES_DESCRIPTOR),
+            (HAZARDS_METRIC_KEY, HAZARDS_DESCRIPTOR),
         ] {
             let limit = default_limits.limit_for_key(SourceSet::Production, key);
             metrics.push(metric_schema(key, descriptor, limit));
@@ -203,6 +221,14 @@ impl SchemaReport {
             TEST_GAP_DESCRIPTOR,
         ));
         let source_sets = SOURCE_SETS.into_iter().map(SourceSet::key).collect();
+        let languages = languages
+            .into_iter()
+            .map(|language| LanguageSchemaEntry {
+                name: language.name,
+                extensions: language.extensions,
+                hazard_rules: Vec::new(),
+            })
+            .collect();
         SchemaReport {
             name: cli.name,
             version: cli.version,
@@ -216,6 +242,18 @@ impl SchemaReport {
             mcp_tools,
             exit_codes,
         }
+    }
+
+    pub fn with_language_hazard_rules(
+        mut self,
+        mut rules_by_language: BTreeMap<String, Vec<String>>,
+    ) -> SchemaReport {
+        for language in &mut self.languages {
+            if let Some(rules) = rules_by_language.remove(&language.name) {
+                language.hazard_rules = rules;
+            }
+        }
+        self
     }
 
     pub fn render(&self, format: SchemaFormat) -> Result<String, ReportError> {

@@ -35,11 +35,30 @@ fn the_starter_configuration_passes_the_shape_check_of_the_published_schema_with
         let text = starter_configuration_text(languages);
         assert!(text.contains("\"coverage_reports\": []"), "{text}");
         assert!(text.contains("// \"test_gap\": 0.2"), "{text}");
+        assert!(!text.contains("sql.dialects"), "{text}");
         let starter: Value = parse_jsonc(&text).expect("the starter configuration is valid JSONC");
 
         shape::check_shape(&starter, &schema).expect("the starter configuration fits the schema");
         let parsed = parse(&text).expect("the starter configuration parses cleanly");
         assert!(parsed.budgets.production_test_gap().is_none());
         assert!(parsed.coverage_reports.is_empty());
+        assert!(parsed.sql.is_empty());
     }
+}
+
+#[test]
+fn the_starter_configuration_mentions_optional_sql_dialects_only_when_sql_is_detected() {
+    let schema = published_schema();
+    let detected = [DetectedLanguage {
+        plugin: "sql".to_owned(),
+        include: vec![path("db")],
+    }];
+
+    let text = starter_configuration_text(&detected);
+    assert!(text.contains("sql.dialects"), "{text}");
+    assert!(text.contains("// \"sql\": { \"dialects\": [] }"), "{text}");
+    let starter: Value = parse_jsonc(&text).expect("the starter configuration is valid JSONC");
+    shape::check_shape(&starter, &schema).expect("the starter configuration fits the schema");
+    let parsed = parse(&text).expect("the starter configuration parses cleanly");
+    assert!(parsed.sql.is_empty());
 }
