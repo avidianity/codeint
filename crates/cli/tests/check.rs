@@ -5544,9 +5544,9 @@ fn plugin_host_error_remedies_name_codeint_jsonc_when_active() {
     );
 }
 
-fn folder_import_language_bytes() -> &'static [u8] {
-    static WASM: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
-    WASM.get_or_init(|| {
+fn build_sandbox_probes_wasm_dir() -> &'static std::path::PathBuf {
+    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let target_dir = root.join("target/wasm-fixtures");
         let manifest = root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
@@ -5569,30 +5569,81 @@ fn folder_import_language_bytes() -> &'static [u8] {
             status.success(),
             "sandbox-probes build exited with {status}"
         );
-        fs::read(target_dir.join("wasm32-wasip2/debug/folder_import_language_plugin.wasm"))
-            .expect("read folder_import_language_plugin.wasm")
+        target_dir.join("wasm32-wasip2/debug")
     })
 }
 
-fn folder_import_cycles_report(files: &[(&str, &str)]) -> serde_json::Value {
+fn sandbox_probe_repo(
+    plugin_name: &str,
+    wasm_file: &str,
+    target_name: &str,
+    mut config: serde_json::Value,
+    files: &[(&str, &str)],
+) -> Repository {
     let repository = Repository::new();
-    let wasm = folder_import_language_bytes();
-    repository.write_bytes("folder_import.wasm", wasm);
-    let digest = codeint_plugin_host::sha256_hex(&codeint_plugin_host::sha256(wasm));
-    let config = serde_json::json!({
-        "plugins": [
-            {
-                "name": "folder-import",
-                "path": "folder_import.wasm",
-                "sha256": digest,
-            }
-        ]
-    });
+    let wasm = fs::read(build_sandbox_probes_wasm_dir().join(wasm_file))
+        .unwrap_or_else(|error| panic!("read {wasm_file}: {error}"));
+    repository.write_bytes(target_name, &wasm);
+    let digest = codeint_plugin_host::sha256_hex(&codeint_plugin_host::sha256(&wasm));
+    config["plugins"] = serde_json::json!([{
+        "name": plugin_name,
+        "path": target_name,
+        "sha256": digest,
+    }]);
     repository.write("codeint.json", &config.to_string());
     for &(path, contents) in files {
         repository.write(path, contents);
     }
     repository.commit_all();
+    repository
+}
+
+fn check_json_with_exit(
+    repository: &Repository,
+    args: &[&str],
+    expected_exit: i32,
+) -> serde_json::Value {
+    let output = repository.codeint(args);
+    let actual_exit = output.status.code();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(actual_exit, Some(expected_exit), "{args:?}: {stderr}");
+    serde_json::from_slice(&output.stdout).expect("parse json report")
+}
+
+fn no_imports_repo(
+    zones: serde_json::Value,
+    budgets: serde_json::Value,
+    entry_points: &[&str],
+    files: &[(&str, &str)],
+) -> Repository {
+    let mut config = serde_json::json!({
+        "boundaries": {
+            "strict_zones": true,
+            "zones": zones,
+            "rules": []
+        },
+        "budgets": budgets
+    });
+    if !entry_points.is_empty() {
+        config["entry_points"] = serde_json::json!(entry_points);
+    }
+    sandbox_probe_repo(
+        "no-imports-lang",
+        "no_imports_language_plugin.wasm",
+        "no_imports.wasm",
+        config,
+        files,
+    )
+}
+
+fn folder_import_cycles_report(files: &[(&str, &str)]) -> serde_json::Value {
+    let repository = sandbox_probe_repo(
+        "folder-import",
+        "folder_import_language_plugin.wasm",
+        "folder_import.wasm",
+        serde_json::json!({}),
+        files,
+    );
     json_report(&repository)["source_sets"]["production"]["import_cycles"].clone()
 }
 
@@ -5640,4 +5691,173 @@ fn acyclic_multi_file_folder_imports_report_no_import_cycles() {
     assert_eq!(import_cycles["ratio"], 0.0);
     assert_eq!(import_cycles["findings"], serde_json::json!([]));
     assert_eq!(import_cycles["unresolved_imports"]["count"], 0);
+}
+
+#[test]
+fn mixed_repo_import_totals_and_budgets_count_only_languages_with_imports() {
+    let noimp_files: Vec<(String, String)> = (1..=8)
+        .map(|index| {
+            (
+                format!("packages/app/queries/q{index}.noimp"),
+                format!("fn query_{index}()\n"),
+            )
+        })
+        .collect();
+    let root_manifest = serde_json::json!({
+        "name": "totals-root",
+        "private": true,
+        "workspaces": ["packages/*"],
+    })
+    .to_string();
+    let app_manifest = serde_json::json!({
+        "name": "totals-app",
+        "main": "src/a.ts",
+        "dependencies": { "unused-dep": "^1.0.0" },
+    })
+    .to_string();
+    let mut files: Vec<(&str, &str)> = vec![
+        ("package.json", &root_manifest),
+        ("packages/app/package.json", &app_manifest),
+        (
+            "packages/app/src/a.ts",
+            "import { b } from './b';\nexport const a = (): number => b();\n",
+        ),
+        (
+            "packages/app/src/b.ts",
+            "import { a } from './a';\nexport const b = (): number => a();\n",
+        ),
+        (
+            "packages/app/src/orphan.ts",
+            "export const orphan = (): number => 1;\n",
+        ),
+        ("packages/app/queries/q1_test.noimp", "fn test_query_1()\n"),
+    ];
+    files.extend(
+        noimp_files
+            .iter()
+            .map(|(path, content)| (path.as_str(), content.as_str())),
+    );
+    let repository = no_imports_repo(
+        serde_json::json!({ "app": { "patterns": ["packages/app/src/**"] } }),
+        serde_json::json!({
+            "production": {
+                "import_cycles": 0.5,
+                "orphan_files": 0.25,
+                "boundaries": 0.0
+            },
+            "unused_dependencies": 0.5
+        }),
+        &[],
+        &files,
+    );
+
+    let report = check_json_with_exit(&repository, &["check", "--format", "json"], 1);
+    assert_eq!(report["files"], 12);
+    assert_eq!(report.get("import_metrics_note"), None);
+
+    let prod = &report["source_sets"]["production"];
+    assert_eq!(prod["files"], 11);
+    assert_eq!(prod["import_cycles"]["modules"], 3);
+    assert_eq!(prod["import_cycles"]["modules_in_import_cycles"], 2);
+    assert_eq!(prod["import_cycles"]["ratio"], 0.6667);
+
+    let ts_prod = &report["languages"]["typescript-javascript"]["source_sets"]["production"];
+    assert_eq!(
+        prod["import_cycles"]["modules"],
+        ts_prod["import_cycles"]["modules"]
+    );
+    assert_eq!(
+        prod["import_cycles"]["ratio"],
+        ts_prod["import_cycles"]["ratio"]
+    );
+
+    let packages = prod["packages"].as_array().expect("production packages");
+    let app_package = packages
+        .iter()
+        .find(|package| package["path"] == "packages/app")
+        .expect("packages/app entry");
+    assert_eq!(app_package["files"], 11);
+    assert_eq!(app_package["import_cycles"]["modules_in_import_cycles"], 2);
+    assert_eq!(app_package["import_cycles"]["ratio"], 0.6667);
+
+    assert_eq!(prod["orphan_files"]["evaluated_files"], 3);
+    assert_eq!(prod["orphan_files"]["orphan_files"], 1);
+    assert_eq!(prod["orphan_files"]["ratio"], 0.3333);
+    assert_eq!(
+        prod["orphan_files"]["ratio"],
+        ts_prod["orphan_files"]["ratio"]
+    );
+
+    assert_eq!(prod["boundaries"]["ratio"], 0.0);
+    assert_eq!(prod["boundaries"]["findings"], serde_json::json!([]));
+
+    assert_eq!(report["dependencies"]["unused_dependencies"]["declared"], 1);
+    assert_eq!(report["dependencies"]["unused_dependencies"]["unused"], 1);
+    assert_eq!(report["dependencies"]["unused_dependencies"]["ratio"], 1.0);
+
+    let test_set = &report["source_sets"]["test"];
+    assert_eq!(test_set["files"], 1);
+    assert_eq!(test_set.get("import_cycles"), None);
+    assert_eq!(test_set.get("boundaries"), None);
+    assert_eq!(test_set.get("orphan_files"), None);
+
+    let over_budget = report["over_budget"].as_array().expect("over_budget array");
+    let failed_metrics: Vec<&str> = over_budget
+        .iter()
+        .map(|entry| entry["metric"].as_str().expect("metric key"))
+        .collect();
+    assert_eq!(
+        failed_metrics,
+        vec!["import_cycles", "orphan_files", "unused_dependencies"]
+    );
+
+    let diff_report = check_json_with_exit(&repository, &["diff", "HEAD", "--format", "json"], 1);
+    assert_eq!(
+        diff_report["source_sets"]["production"]["import_cycles"]["head_ratio"],
+        0.6667
+    );
+    assert_eq!(
+        diff_report["source_sets"]["production"]["boundaries"]["head_ratio"],
+        0.0
+    );
+}
+
+#[test]
+fn no_imports_only_repo_shows_absent_import_totals_and_budgets_do_not_trip() {
+    let repository = no_imports_repo(
+        serde_json::json!({}),
+        serde_json::json!({
+            "production": {
+                "import_cycles": 0.0,
+                "orphan_files": 0.0,
+                "boundaries": 0.0
+            },
+            "unused_dependencies": 0.0,
+            "unlisted_dependencies": 0.0,
+            "dev_in_production_dependencies": 0.0
+        }),
+        &["queries/a.noimp"],
+        &[
+            ("queries/a.noimp", "fn query_a()\n"),
+            ("queries/b.noimp", "fn query_b()\n"),
+            ("queries/a_test.noimp", "fn test_query_a()\n"),
+        ],
+    );
+
+    let report = check_json_with_exit(&repository, &["check", "--format", "json"], 0);
+    assert_eq!(report["files"], 3);
+    assert!(
+        report["import_metrics_note"]
+            .as_str()
+            .is_some_and(|note| note.contains("has no imports")),
+        "expected import_metrics_note in report: {report}"
+    );
+    assert_eq!(report.get("dependencies"), None);
+    assert_eq!(report.get("over_budget"), None);
+    for source_set in ["production", "test"] {
+        let section = &report["source_sets"][source_set];
+        assert_eq!(section.get("import_cycles"), None);
+        assert_eq!(section.get("orphan_files"), None);
+        assert_eq!(section.get("boundaries"), None);
+    }
 }

@@ -47,6 +47,7 @@ For each built-in language, codeint measures a panel of 20 public repositories p
 ### 4. Budgets and Regressions
 
 - A **Budget** (`codeint check` and `codeint diff`) sets a hard ceiling for a Metric in a Source set (or for a top-level Dependency hygiene Metric).
+  For Import cycles, Orphan files, Import boundaries, and Dependency hygiene, repository totals and Budgets count only languages with imports, and stay absent when no measured language has imports.
 - A **Regression** (`codeint diff <base>`) compares the working tree against the Git merge-base and fails when a change introduces new Findings or raises a ratio past its limit.
   Together, Budgets cap absolute entropy while Regressions act as a ratchet on every pull request.
 

@@ -1074,29 +1074,36 @@ struct SectionOptions<'a> {
     orphan_files: Option<&'a OrphanFiles>,
     ownership: OwnershipOptions<'a>,
     has_imports: bool,
-    no_imports_paths: Option<&'a HashSet<RepoPath>>,
 }
 
 impl SourceSetSections {
     fn new(
         source_sets: &SourceSets,
+        import_source_sets: Option<&SourceSets>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSections, MetricPluginError> {
         let mut sections = SourceSetSections::default();
         for (source_set, model) in source_sets.iter() {
             if !model.files.is_empty() {
+                let import_model = import_source_sets
+                    .map(|sets| sets.get(source_set))
+                    .filter(|imports| !imports.files.is_empty());
                 let source_set_options = SectionOptions {
                     boundaries: options.boundaries.filter(|config| {
-                        options.has_imports && config.applies_to_source_set(source_set)
+                        import_model.is_some() && config.applies_to_source_set(source_set)
                     }),
                     orphan_files: options
                         .orphan_files
-                        .filter(|_| options.has_imports && source_set == SourceSet::Production),
+                        .filter(|_| import_model.is_some() && source_set == SourceSet::Production),
                     ..options
                 };
-                *sections.slot(source_set) =
-                    Some(SourceSetSection::new(model, ranges, source_set_options)?);
+                *sections.slot(source_set) = Some(SourceSetSection::new(
+                    model,
+                    import_model,
+                    ranges,
+                    source_set_options,
+                )?);
             }
         }
         Ok(sections)
@@ -1159,8 +1166,9 @@ impl SourceSetSections {
 }
 
 impl SourceSetSection {
-    fn new(
-        model: &CodeModel,
+    fn new<'a>(
+        model: &'a CodeModel,
+        import_model: Option<&'a CodeModel>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSection, MetricPluginError> {
@@ -1168,19 +1176,23 @@ impl SourceSetSection {
             shown: options.findings,
             ownership: options.ownership,
         };
-        let boundaries_config = options.has_imports.then_some(options.boundaries).flatten();
+        let effective_import_model = import_model.filter(|_| options.has_imports);
+        let boundaries_config = effective_import_model
+            .is_some()
+            .then_some(options.boundaries)
+            .flatten();
         let measured = Measured::new(
             model,
+            effective_import_model,
             boundaries_config,
             options.duplication,
-            options.no_imports_paths,
         );
         let boundaries = measured
             .boundaries
             .as_ref()
             .map(|evaluated| BoundariesSection::new(evaluated, view));
-        let orphan_files = options
-            .has_imports
+        let orphan_files = effective_import_model
+            .is_some()
             .then_some(options.orphan_files)
             .flatten()
             .map(|measured| OrphanFilesSection::new(measured, view));
@@ -1262,27 +1274,20 @@ impl SourceSetSection {
                 },
                 findings: view.map(measured.verbosity.flagged_lines()),
             },
-            import_cycles: options.has_imports.then(|| ImportCyclesSection {
-                header: MetricHeader::new(
-                    measured.import_cycles.ratio(),
-                    ranges,
-                    Metric::ImportCycles.key(),
-                ),
-                modules_in_import_cycles: measured.import_cycles.modules_in_import_cycles(),
-                modules: measured.import_cycles.modules(),
-                findings: view.select(
-                    measured
-                        .import_cycles
-                        .cycles()
-                        .iter()
-                        .map(ImportCycleFinding::new),
-                ),
-                unresolved_imports: UnresolvedImportsSection::new(&measured.import_cycles, view),
-            }),
+            import_cycles: measured
+                .import_cycles
+                .as_ref()
+                .map(|cycles| ImportCyclesSection {
+                    header: MetricHeader::new(cycles.ratio(), ranges, Metric::ImportCycles.key()),
+                    modules_in_import_cycles: cycles.modules_in_import_cycles(),
+                    modules: cycles.modules(),
+                    findings: view.select(cycles.cycles().iter().map(ImportCycleFinding::new)),
+                    unresolved_imports: UnresolvedImportsSection::new(cycles, view),
+                }),
             boundaries,
             orphan_files,
             external_metrics,
-            packages: package_sections(model, &measured, options.has_imports),
+            packages: package_sections(model, effective_import_model, &measured),
         })
     }
 }
@@ -1497,16 +1502,16 @@ struct Measured {
     cognitive_complexity: CognitiveComplexity,
     duplication: Duplication,
     verbosity: Verbosity,
-    import_cycles: ImportCycles,
+    import_cycles: Option<ImportCycles>,
     boundaries: Option<Boundaries>,
 }
 
 impl Measured {
     fn new(
         model: &CodeModel,
+        import_model: Option<&CodeModel>,
         boundaries: Option<&BoundariesConfig>,
         duplication_config: DuplicationConfig,
-        no_imports_paths: Option<&HashSet<RepoPath>>,
     ) -> Measured {
         let near_clones = duplication_config.near_clones.then(|| {
             NearCloneConfig::new(duplication_config.min_similarity.ratio())
@@ -1518,51 +1523,30 @@ impl Measured {
             MinimumDistinctTokens::DEFAULT,
             near_clones,
         );
-        let boundaries = boundaries.map(|config| match no_imports_paths {
-            Some(excluded) if !excluded.is_empty() => {
-                let filtered = model_without_paths(model, excluded);
-                Boundaries::measure(&filtered, &ConfigBoundaryPolicy(config))
-            }
-            _ => Boundaries::measure(model, &ConfigBoundaryPolicy(config)),
+        let import_cycles = import_model.map(ImportCycles::measure);
+        let boundaries = import_model.and_then(|imports| {
+            boundaries.map(|config| Boundaries::measure(imports, &ConfigBoundaryPolicy(config)))
         });
         Measured {
             erosion: Erosion::measure(model),
             cognitive_complexity: CognitiveComplexity::measure(model),
             verbosity: Verbosity::measure(model, &duplication.exact_clone_lines),
             duplication,
-            import_cycles: ImportCycles::measure(model),
+            import_cycles,
             boundaries,
         }
     }
 }
 
-fn model_without_paths(model: &CodeModel, excluded: &HashSet<RepoPath>) -> CodeModel {
-    CodeModel {
-        files: model
-            .files
-            .iter()
-            .filter(|file| !excluded.contains(&file.path))
-            .cloned()
-            .collect(),
-        runtime_imports: model
-            .runtime_imports
-            .iter()
-            .filter(|import| !excluded.contains(&import.importer))
-            .cloned()
-            .collect(),
-        ..CodeModel::default()
-    }
-}
-
-fn package_sections(
-    model: &CodeModel,
+fn package_sections<'a>(
+    model: &'a CodeModel,
+    import_model: Option<&'a CodeModel>,
     measured: &Measured,
-    has_imports: bool,
 ) -> Vec<PackageSection> {
     if !model.workspace.has_members() {
         return Vec::new();
     }
-    let mut files: BTreeMap<Package<'_>, usize> = BTreeMap::new();
+    let mut files: BTreeMap<Package<'a>, usize> = BTreeMap::new();
     for file in &model.files {
         *files
             .entry(model.workspace.package_of(&file.path))
@@ -1571,19 +1555,28 @@ fn package_sections(
     let mut cognitive = measured.cognitive_complexity.by_package(model);
     let mut duplication = measured.duplication.by_package(model);
     let mut verbosity = measured.verbosity.by_package(model);
-    let mut import_cycles = measured.import_cycles.by_package(model);
+    let mut import_cycles = import_model
+        .zip(measured.import_cycles.as_ref())
+        .map(|(imports, cycles)| cycles.by_package(imports));
     measured
         .erosion
         .by_package(model)
         .into_iter()
         .map(|(package, masses)| {
+            let package_files = files.get(&package).copied().unwrap_or_default();
             let cognitive_totals = cognitive.remove(&package).unwrap_or_default();
             let clone_lines = duplication.remove(&package).unwrap_or_default();
             let verbose_lines = verbosity.remove(&package).unwrap_or_default();
-            let modules = import_cycles.remove(&package).unwrap_or_default();
+            let package_import_cycles = import_cycles.as_mut().and_then(|by_package| {
+                let modules = by_package.remove(&package).unwrap_or_default();
+                (modules.modules > 0 || package_files == 0).then(|| PackageImportCycles {
+                    ratio: Decimal::rounded(modules.ratio()),
+                    modules_in_import_cycles: modules.modules_in_import_cycles,
+                })
+            });
             PackageSection {
                 path: package.to_string(),
-                files: files.get(&package).copied().unwrap_or_default(),
+                files: package_files,
                 source_lines: clone_lines.source_lines,
                 erosion: PackageErosion {
                     ratio: Decimal::rounded(masses.ratio()),
@@ -1603,10 +1596,7 @@ fn package_sections(
                     ratio: Decimal::rounded(verbose_lines.ratio()),
                     verbose_lines: verbose_lines.lines,
                 },
-                import_cycles: has_imports.then(|| PackageImportCycles {
-                    ratio: Decimal::rounded(modules.ratio()),
-                    modules_in_import_cycles: modules.modules_in_import_cycles,
-                }),
+                import_cycles: package_import_cycles,
             }
         })
         .collect()
@@ -1629,6 +1619,7 @@ pub struct ReportOptions<'a> {
 impl MeasuredSection {
     fn new(
         model: CodeModel,
+        import_model: Option<CodeModel>,
         hygiene: &DependencyHygiene,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
@@ -1653,8 +1644,15 @@ impl MeasuredSection {
                 ..options
             }
         };
+        let source_sets = model.into_source_sets();
+        let separate_import_source_sets = import_model.map(CodeModel::into_source_sets);
+        let import_source_sets = if options.has_imports {
+            Some(separate_import_source_sets.as_ref().unwrap_or(&source_sets))
+        } else {
+            None
+        };
         let source_sets =
-            SourceSetSections::new(&model.into_source_sets(), ranges, section_options)?;
+            SourceSetSections::new(&source_sets, import_source_sets, ranges, section_options)?;
         Ok(MeasuredSection {
             files,
             source_lines: lines,
@@ -1813,11 +1811,6 @@ impl Report {
             .partition(|language| !language.model.files.is_empty());
         let top_has_imports =
             measured.is_empty() || measured.iter().any(|language| language.has_imports);
-        let no_imports_paths: HashSet<RepoPath> = measured
-            .iter()
-            .filter(|language| !language.has_imports)
-            .flat_map(|language| language.model.files.iter().map(|file| file.path.clone()))
-            .collect();
         let section_options = SectionOptions {
             findings: options.findings,
             metric_plugins: options.metric_plugins,
@@ -1826,7 +1819,6 @@ impl Report {
             orphan_files: options.orphan_files,
             ownership: options.ownership,
             has_imports: top_has_imports,
-            no_imports_paths: Some(&no_imports_paths),
         };
         let (total_ranges, sections_per_language) = match measured.as_slice() {
             [] => (
@@ -1869,12 +1861,12 @@ impl Report {
                         language.plugin.clone(),
                         MeasuredSection::new(
                             language.model.clone(),
+                            None,
                             language_hygiene,
                             &ReferenceRangeScope::OneLanguage(language.reference_ranges.clone()),
                             SectionOptions {
                                 orphan_files: language_orphans,
                                 has_imports: language.has_imports,
-                                no_imports_paths: None,
                                 ..section_options
                             },
                         )?,
@@ -1883,6 +1875,15 @@ impl Report {
                 (ReferenceRangeScope::SeveralLanguages, per_language)
             }
         };
+        let all_measured_have_imports = measured.iter().all(|language| language.has_imports);
+        let import_bearing_model = (top_has_imports && !all_measured_have_imports).then(|| {
+            CodeModel::merge(
+                measured
+                    .iter()
+                    .filter(|language| language.has_imports)
+                    .map(|language| language.model.clone()),
+            )
+        });
         let model = CodeModel::merge(
             measured
                 .into_iter()
@@ -1895,7 +1896,13 @@ impl Report {
             .iter()
             .map(RepoPath::to_string)
             .collect();
-        let measured = MeasuredSection::new(model, total_hygiene, &total_ranges, section_options)?;
+        let measured = MeasuredSection::new(
+            model,
+            import_bearing_model,
+            total_hygiene,
+            &total_ranges,
+            section_options,
+        )?;
         let mut failures = measured.source_sets.over_budget(options.budgets);
         if let Some(dependencies) = &measured.dependencies {
             failures.extend(dependencies.over_budget(options.budgets));
