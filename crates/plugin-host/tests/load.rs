@@ -10,8 +10,9 @@ use codeint_model::language::{
     DeclaredDep, DepKind, Function, FunctionCoverage, ImportRequest, Resolution,
 };
 use codeint_model::{
-    CodeModel, FileModel, LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin,
-    MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
+    CodeModel, FileModel, LanguageFacts, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
+    MetricPlugin, MetricPluginError, RepoPath, SourceFile, SourceSet, Token, TokenKind,
+    token_text_hash,
 };
 use codeint_plugin_host::{
     PLUGIN_INTERFACE_VERSION, PluginHostError, WasmLanguagePlugin, load_language_plugin,
@@ -1259,4 +1260,94 @@ fn built_in_language_plugins_never_set_program_start() {
             "{name} built-in Language plugin must leave program_start false"
         );
     }
+}
+
+#[test]
+fn metric_plugin_reads_per_language_coverage_statement() {
+    let wasm_path = sandbox_probe_wasm("coverage_reader_metric_plugin.wasm");
+    let declaration = declaration_with_kind("coverage-reader", PluginKind::Metric, &wasm_path);
+    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("coverage reader Metric plugin loads");
+
+    let absent_language = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: false,
+        }],
+        ..coverage_model_with(Vec::new())
+    };
+    let covered_language = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: true,
+        }],
+        ..coverage_model_with(Vec::new())
+    };
+
+    let absent_measured = plugin
+        .measure(&absent_language)
+        .expect("measure language without coverage");
+    let covered_measured = plugin
+        .measure(&covered_language)
+        .expect("measure language with coverage");
+
+    fn summarize(measurement: &codeint_model::ExternalMetricMeasurement) -> Vec<(&str, &str)> {
+        measurement
+            .findings
+            .iter()
+            .map(|finding| (finding.id.as_str(), finding.message.as_str()))
+            .collect()
+    }
+
+    assert_eq!(
+        summarize(&absent_measured),
+        vec![(
+            "language:typescript-javascript:absent",
+            "language=typescript-javascript has_coverage=false",
+        )]
+    );
+    assert_eq!(
+        summarize(&covered_measured),
+        vec![(
+            "language:typescript-javascript:covered",
+            "language=typescript-javascript has_coverage=true",
+        )]
+    );
+
+    let rust_covered = CodeModel {
+        files: vec![SourceFile {
+            path: RepoPath::new("src/lib.rs").expect("valid repo path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 10,
+                functions: Vec::new(),
+                tokens: Vec::new(),
+                flagged_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+                program_start: false,
+            },
+        }],
+        languages: vec![LanguageFacts {
+            language: "rust".to_owned(),
+            has_coverage: true,
+        }],
+        ..CodeModel::default()
+    };
+    let merged = CodeModel::merge([absent_language, rust_covered]);
+    let source_sets = merged.into_source_sets();
+
+    let multi_measured = plugin
+        .measure(source_sets.get(SourceSet::Production))
+        .expect("measure merged multi-language model");
+
+    assert_eq!(
+        summarize(&multi_measured),
+        vec![
+            ("language:rust:covered", "language=rust has_coverage=true"),
+            (
+                "language:typescript-javascript:absent",
+                "language=typescript-javascript has_coverage=false",
+            ),
+        ]
+    );
 }

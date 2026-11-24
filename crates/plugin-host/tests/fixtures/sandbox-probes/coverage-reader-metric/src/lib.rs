@@ -28,7 +28,7 @@ impl Guest for CoverageReaderMetricPlugin {
     }
 
     fn description() -> String {
-        "Test Metric plugin that reads per-function coverage facts".to_string()
+        "Test Metric plugin that reads per-function and per-language coverage facts".to_string()
     }
 
     fn measure(model: CodeModel) -> Measurement {
@@ -69,6 +69,24 @@ impl Guest for CoverageReaderMetricPlugin {
                     message,
                 });
             }
+        }
+
+        for facts in &model.languages {
+            let status = if facts.has_coverage {
+                "covered"
+            } else {
+                "absent"
+            };
+            findings.push(Finding {
+                id: format!("language:{}:{status}", facts.language),
+                path: format!("languages/{}", facts.language),
+                line: 1,
+                end_line: None,
+                message: format!(
+                    "language={} has_coverage={}",
+                    facts.language, facts.has_coverage
+                ),
+            });
         }
 
         let ratio = if total_listed == 0 {

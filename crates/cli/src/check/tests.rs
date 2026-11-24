@@ -3,16 +3,19 @@ use std::process::Command;
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use codeint_config::{FindingsShown, ReportFormat};
+use codeint_config::{Configuration, FindingsShown, ReportFormat};
+use codeint_git::Repository;
 use codeint_model::language::{
     DeclaredDep, FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest,
     ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
-use codeint_model::{InvalidReferenceRange, LanguagePlugin, ReferenceRanges, RepoPath};
+use codeint_model::{
+    InvalidReferenceRange, LanguageFacts, LanguagePlugin, ReferenceRanges, RepoPath,
+};
 use serde_json::Value;
 use tempfile::TempDir;
 
-use super::{CheckError, NamedLanguagePlugin, check_with};
+use super::{CheckError, NamedLanguagePlugin, check_with, measure_snapshot};
 
 struct Alpha;
 
@@ -1078,5 +1081,45 @@ fn extension_conflict_error_and_remedy_name_codeint_jsonc_when_active() {
         remedy.contains("codeint.jsonc")
             && !remedy.replace("codeint.jsonc", "").contains("codeint.json"),
         "expected codeint.jsonc in remedy, got: {remedy}"
+    );
+}
+
+#[test]
+fn measure_snapshot_populates_per_language_coverage_statement_as_false() {
+    let folder = repository(&[("main.alpha", "one\n"), ("main.beta", "two\n")]);
+    let repo = Repository::discover(folder.path()).expect("open repository");
+    let tree = repo.working_tree().expect("read working tree");
+
+    let snapshot = measure_snapshot(&tree, &[ALPHA, BETA], &Configuration::default())
+        .expect("measure snapshot succeeds");
+
+    let facts_by_plugin: Vec<(&str, &[LanguageFacts])> = snapshot
+        .languages
+        .iter()
+        .map(|language| {
+            (
+                language.plugin.as_str(),
+                language.model.languages.as_slice(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        facts_by_plugin,
+        vec![
+            (
+                "alpha",
+                &[LanguageFacts {
+                    language: "alpha".to_owned(),
+                    has_coverage: false,
+                }][..]
+            ),
+            (
+                "beta",
+                &[LanguageFacts {
+                    language: "beta".to_owned(),
+                    has_coverage: false,
+                }][..]
+            ),
+        ]
     );
 }

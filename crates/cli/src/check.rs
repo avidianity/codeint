@@ -16,10 +16,10 @@ use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
-    CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguagePlugin,
-    LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError, Package,
-    ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace, WorkspaceError,
-    choose_manifests, resolve_runtime_imports, settle_source_set,
+    CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguageFacts,
+    LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
+    Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, Workspace,
+    WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
     PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
@@ -754,6 +754,10 @@ fn finalize_language_model(
     model.runtime_imports =
         resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
             .map_err(CheckError::Resolve)?;
+    model.languages = vec![LanguageFacts {
+        language: named.name.to_owned(),
+        has_coverage: false,
+    }];
     Ok(MeasuredLanguage {
         plugin: named.name.to_owned(),
         model,

@@ -147,6 +147,12 @@ pub struct ManifestUsedDep {
     pub name: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LanguageFacts {
+    pub language: String,
+    pub has_coverage: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CodeModel {
     pub files: Vec<SourceFile>,
@@ -157,6 +163,7 @@ pub struct CodeModel {
     pub declared_dependencies: Vec<DeclaredDep>,
     pub dependency_manifests: Vec<DependencyManifest>,
     pub manifest_used_dependencies: Vec<ManifestUsedDep>,
+    pub languages: Vec<LanguageFacts>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -170,6 +177,7 @@ pub struct SourceSets {
 impl CodeModel {
     pub fn merge(models: impl IntoIterator<Item = CodeModel>) -> CodeModel {
         let mut merged = CodeModel::default();
+        let mut languages: BTreeMap<String, bool> = BTreeMap::new();
         for model in models {
             merged.files.extend(model.files);
             merged.skipped.extend(model.skipped);
@@ -185,6 +193,12 @@ impl CodeModel {
             merged
                 .manifest_used_dependencies
                 .extend(model.manifest_used_dependencies);
+            for facts in model.languages {
+                languages
+                    .entry(facts.language)
+                    .and_modify(|has_coverage| *has_coverage |= facts.has_coverage)
+                    .or_insert(facts.has_coverage);
+            }
         }
         merged
             .files
@@ -197,6 +211,13 @@ impl CodeModel {
         merged.dependency_manifests.dedup();
         merged.manifest_used_dependencies.sort();
         merged.manifest_used_dependencies.dedup();
+        merged.languages = languages
+            .into_iter()
+            .map(|(language, has_coverage)| LanguageFacts {
+                language,
+                has_coverage,
+            })
+            .collect();
         merged
     }
 
@@ -214,6 +235,7 @@ impl CodeModel {
             &mut source_sets.vendored,
         ] {
             source_set.workspace = self.workspace.clone();
+            source_set.languages = self.languages.clone();
         }
         for file in self.files {
             source_sets.get_mut(file.model.source_set).files.push(file);
