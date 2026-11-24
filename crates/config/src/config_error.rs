@@ -248,6 +248,31 @@ pub enum ConfigurationFileError {
     },
     #[error("{file}: {key} must not be empty")]
     EmptyDependencyIgnore { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} must not be empty")]
+    EmptyCoverageReportPath { file: ConfigFileKind, key: KeyPath },
+    #[error(
+        "{file}: {key} must be a path relative to the repository root, not an absolute path ({path:?})"
+    )]
+    AbsoluteCoverageReportPath {
+        file: ConfigFileKind,
+        key: KeyPath,
+        path: String,
+    },
+    #[error("{file}: {key} must stay inside the repository and must not contain \"..\" ({path:?})")]
+    ParentTraversalCoverageReportPath {
+        file: ConfigFileKind,
+        key: KeyPath,
+        path: String,
+    },
+    #[error("{file}: {key} is not supported; Test gap covers only the Production Source set")]
+    TestGapBudgetOutsideProduction { file: ConfigFileKind, key: KeyPath },
+    #[error(
+        "--budget {}.test_gap is not supported; Test gap covers only the Production Source set",
+        source_set.key()
+    )]
+    CliTestGapBudgetOutsideProduction { source_set: SourceSet },
+    #[error("{file}: {key} is not supported; Test gap has no Regression check")]
+    TestGapRegressionLimit { file: ConfigFileKind, key: KeyPath },
 }
 
 impl ConfigurationFileError {
@@ -278,8 +303,16 @@ impl ConfigurationFileError {
             | ConflictingBoundaryRule { file, .. }
             | MissingBoundaryRuleDirective { file, .. }
             | ConflictingBoundaryDirectives { file, .. }
-            | EmptyDependencyIgnore { file, .. } => *file = file_kind,
-            AmbiguousConfigFiles | UnknownCliBudgetMetric { .. } | InvalidCliGlob { .. } => {}
+            | EmptyDependencyIgnore { file, .. }
+            | EmptyCoverageReportPath { file, .. }
+            | AbsoluteCoverageReportPath { file, .. }
+            | ParentTraversalCoverageReportPath { file, .. }
+            | TestGapBudgetOutsideProduction { file, .. }
+            | TestGapRegressionLimit { file, .. } => *file = file_kind,
+            AmbiguousConfigFiles
+            | UnknownCliBudgetMetric { .. }
+            | CliTestGapBudgetOutsideProduction { .. }
+            | InvalidCliGlob { .. } => {}
         }
         self
     }

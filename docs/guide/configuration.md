@@ -30,6 +30,7 @@ If your config file pins an official `$schema` tag newer than the running binary
       "import_cycles": 0.05,
       "boundaries": 0,
       "orphan_files": 0,
+      "test_gap": 0.25,
     },
     "unused_dependencies": 0,
     "unlisted_dependencies": 0,
@@ -51,6 +52,8 @@ If your config file pins an official `$schema` tag newer than the running binary
   },
   // Additional Production entry points for Orphan files detection
   "entry_points": ["src/cli.ts", "src/workers/*.ts"],
+  // LCOV or Cobertura XML Coverage reports for Test gap
+  "coverage_reports": ["coverage/lcov.info"],
   // External package names excluded from Dependency hygiene Findings
   "dependencies": {
     "ignore": ["tailwindcss"],
@@ -91,11 +94,15 @@ If your config file pins an official `$schema` tag newer than the running binary
 ## Key sections
 
 - **`source_sets`**: globs that override built-in classification into `production`, `test`, `generated`, or `vendored`.
-- **`budgets`**: hard maximum ratios (`0` to `1`) per Source set (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, plus external Metric keys) and top-level Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`).
+- **`budgets`**: hard maximum ratios (`0` to `1`) per Source set (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, plus `test_gap` under `production` only and external Metric keys) and top-level Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`).
   `codeint check` and `codeint diff` exit `1` when any Budget is exceeded.
+  Setting `budgets.production.test_gap` without a matching Coverage report stops the run with exit code `2`; setting `test_gap` under another Source set also stops with exit code `2`.
 - **`regression_limits`**: per-Metric or per-Source-set tolerances for `codeint diff`.
   `ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise_with_new_findings`, or `never`.
   By default, `import_cycles`, `boundaries`, `orphan_files`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding`.
+  Setting `test_gap` under `regression_limits` stops the run with exit code `2`, because `codeint diff` leaves Test gap out.
+- **`coverage_reports`**: repository-relative paths to LCOV or Cobertura XML Coverage reports used to compute **Test gap**; overridden when `--coverage-report` is passed on `codeint check`.
+  See [Test gap](./test-gap.md).
 - **`boundaries`**: architectural import zones, optional `preset` (`layered` or `hexagonal`), `public_files` encapsulation, directional `allow` or `deny` rules with optional `reason`, `strict_zones`, and `source_sets` (default `["production"]`).
 - **`duplication`**: set `near_clones: true` to enable shingle-based near-duplicate detection alongside exact Clone groups, and tune `min_similarity` in `(0, 1]` (default `0.85`).
 - **`entry_points`**: repository-relative globs treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points.

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::{TrendReport, TrendRow};
-use crate::markdown::{code, table};
+use crate::markdown::{code, prose, table};
 
 const TITLE: &str = "# codeint trend";
 const BASE_COLUMNS: [&str; 7] = [
@@ -16,6 +16,9 @@ const BASE_COLUMNS: [&str; 7] = [
 
 pub(super) fn render(report: &TrendReport) -> String {
     let mut blocks = vec![TITLE.to_owned(), measured_sentence(report.commits)];
+    if let Some(note) = &report.test_gap_note {
+        blocks.push(prose(note));
+    }
     for (name, rows) in report.source_sets.named() {
         let external_keys: Vec<String> = rows
             .iter()

@@ -4,7 +4,7 @@ use crate::{
     CognitiveComplexityFinding, DependenciesSection, ErodedFunctionFinding, ExternalMetricFinding,
     Findings, FlaggedLineRow, ImportCycleFinding, ImportCyclesSection, ImportedDependencyRow,
     MeasuredSection, MetricHeader, OrphanFileRow, PackageSection, ReferenceRangeEntry, Report,
-    SourceSetSection, UnresolvedImportRow, UnusedDependencyRow,
+    SourceSetSection, TestGapFindingRow, UnresolvedImportRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -52,6 +52,7 @@ pub(crate) const UNUSED_DEPENDENCY_COLUMNS: [&str; 4] =
 pub(crate) const IMPORTED_DEPENDENCY_COLUMNS: [&str; 4] =
     ["Package", "Manifest", "Dependency", "Importers"];
 pub(crate) const ORPHAN_FILE_COLUMNS: [&str; 3] = ["File", "Kind", "Details"];
+const TEST_GAP_COLUMNS: [&str; 3] = ["Function", "Function mass", "Untested share"];
 const UNRESOLVED_IMPORT_COLUMNS: [&str; 3] = ["Importer", "Specifier", "Reason"];
 
 pub(crate) struct Noun {
@@ -123,6 +124,14 @@ const UNRESOLVED_IMPORT: Noun = Noun {
     one: "unresolved import",
     many: "unresolved imports",
 };
+const MEASURED_FUNCTION: Noun = Noun {
+    one: "measured function",
+    many: "measured functions",
+};
+const UNTESTED_FUNCTION: Noun = Noun {
+    one: "untested function",
+    many: "untested functions",
+};
 
 impl Noun {
     fn counted(&self, count: impl Into<u64>) -> String {
@@ -139,6 +148,12 @@ pub(crate) fn render(report: &Report) -> String {
     let sections = report.measured.source_sets.named();
     let mut blocks = vec![TITLE.to_string(), measured_summary(&report.measured)];
     if let Some(note) = &report.measured.import_metrics_note {
+        blocks.push(prose(note));
+    }
+    if let Some(note) = &report.measured.test_gap_note {
+        blocks.push(prose(note));
+    }
+    if let Some(note) = &report.coverage_unmatched_note {
         blocks.push(prose(note));
     }
     blocks.extend(metric_table(&sections));
@@ -178,6 +193,9 @@ fn push_language_sections(
         blocks.push(format!("## Language plugin {}", code(plugin)));
         blocks.push(measured_summary(language));
         if let Some(note) = &language.import_metrics_note {
+            blocks.push(prose(note));
+        }
+        if let Some(note) = &language.test_gap_note {
             blocks.push(prose(note));
         }
         blocks.extend(metric_table(&language_sections));
@@ -228,13 +246,19 @@ fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
             .iter()
             .any(|package| package.import_cycles.is_some())
     });
+    let show_test_gap = sections.iter().any(|(_, section)| {
+        section
+            .packages
+            .iter()
+            .any(|package| package.test_gap.is_some())
+    });
     let package_rows: Vec<Vec<String>> = sections
         .iter()
         .flat_map(|(name, section)| {
             section
                 .packages
                 .iter()
-                .map(|package| package_row(name, package, show_import_cycles))
+                .map(|package| package_row(name, package, show_import_cycles, show_test_gap))
         })
         .collect();
     if package_rows.is_empty() {
@@ -243,6 +267,9 @@ fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
     let mut columns: Vec<&str> = PACKAGE_COLUMNS.to_vec();
     if show_import_cycles {
         columns.push("Import cycles");
+    }
+    if show_test_gap {
+        columns.push("Test gap");
     }
     Some(table(&columns, package_rows))
 }
@@ -261,6 +288,7 @@ fn package_row(
     source_set: &str,
     package: &PackageSection,
     show_import_cycles: bool,
+    show_test_gap: bool,
 ) -> Vec<String> {
     let mut cells = vec![
         source_set.to_string(),
@@ -277,6 +305,14 @@ fn package_row(
             || "not measured".to_string(),
             |cycles| cycles.ratio.0.to_string(),
         ));
+    }
+    if show_test_gap {
+        cells.push(
+            package
+                .test_gap
+                .as_ref()
+                .map_or_else(|| "not measured".to_string(), |gap| gap.ratio.0.to_string()),
+        );
     }
     cells
 }
@@ -405,6 +441,20 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
             "not applicable".to_string(),
         ]);
     }
+    if let Some(test_gap) = &section.test_gap {
+        rows.push(vec![
+            source_set.to_string(),
+            "Test gap".to_string(),
+            test_gap.ratio.0.to_string(),
+            format!(
+                "{} of {} Function mass untested across {}",
+                test_gap.untested_function_mass.0,
+                test_gap.total_function_mass.0,
+                MEASURED_FUNCTION.counted(test_gap.measured_functions as u64)
+            ),
+            "no published Reference range".to_string(),
+        ]);
+    }
     for external in section.external_metrics.values() {
         rows.push(row(
             &external.name,
@@ -509,6 +559,15 @@ fn findings_blocks(section: &SourceSetSection) -> Vec<String> {
             &orphan_files.findings,
             &ORPHAN_FILE,
             |listed| findings_table(&ORPHAN_FILE_COLUMNS, listed, orphan_file_row),
+        );
+    }
+    if let Some(test_gap) = &section.test_gap {
+        push_findings(
+            &mut blocks,
+            "Test gap",
+            &test_gap.findings,
+            &UNTESTED_FUNCTION,
+            |listed| findings_table(&TEST_GAP_COLUMNS, listed, test_gap_row),
         );
     }
     for external in section.external_metrics.values() {
@@ -804,6 +863,14 @@ pub(crate) fn orphan_file_row(row: &OrphanFileRow) -> Vec<String> {
         format!("only imported by tests: {}", importers.join(", "))
     };
     vec![code(&row.path), prose(&row.kind), details]
+}
+
+fn test_gap_row(row: &TestGapFindingRow) -> Vec<String> {
+    vec![
+        function_label(row.name.as_deref(), &row.path, row.line),
+        row.function_mass.0.to_string(),
+        row.untested_share.0.to_string(),
+    ]
 }
 
 fn files_not_measured(report: &Report) -> Vec<String> {

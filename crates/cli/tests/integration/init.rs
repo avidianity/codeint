@@ -74,7 +74,9 @@ const DEFAULT_SOURCE_SETS_BUDGETS_AND_REGRESSION_LIMITS: &str = r#"  "source_set
     "vendored": []
   },
   "budgets": {
-    "production": {},
+    "production": {
+      // "test_gap": 0.2
+    },
     "test": {},
     "generated": {},
     "vendored": {}
@@ -117,7 +119,8 @@ fn init_from_a_subfolder_writes_codeint_jsonc_at_the_root_with_the_schema_link_d
       ],
       "exclude": []
     }
-  ]
+  ],
+  "coverage_reports": []
 }
 "#
         )
@@ -179,7 +182,7 @@ fn init_in_a_repository_without_files_a_language_plugin_claims_leaves_languages_
     assert_eq!(
         repository.configuration(),
         format!(
-            "{{\n{}{DEFAULT_SOURCE_SETS_BUDGETS_AND_REGRESSION_LIMITS}\n}}\n",
+            "{{\n{}{DEFAULT_SOURCE_SETS_BUDGETS_AND_REGRESSION_LIMITS},\n  \"coverage_reports\": []\n}}\n",
             schema_line()
         )
     );
