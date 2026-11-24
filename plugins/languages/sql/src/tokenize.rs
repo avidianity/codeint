@@ -53,7 +53,7 @@ pub(crate) fn tokenize_source(
 fn normalize_source(source: &str) -> String {
     let stripped = source.strip_prefix('\u{feff}').unwrap_or(source);
     if stripped.contains('\r') {
-        stripped.replace("\r\n", "\n").replace('\r', "\n")
+        stripped.replace("\r\n", "\n").replace('\r', " ")
     } else {
         stripped.to_owned()
     }

@@ -673,3 +673,33 @@ FROM sales SELECT id, amount;
     assert!(out.rejected_statements.is_empty());
     assert_eq!(out.file_model.source_lines, 11);
 }
+
+#[test]
+fn bare_cr_bytes_preserve_line_bounds_matching_str_lines() {
+    let src = "CREATE TABLE t (\r\rid INT\r\n);\r\r\nSELECT * FROM t;\r\nDROP TABLE t;\r\n";
+    let line_count = u32::try_from(src.lines().count()).expect("line count fits u32");
+    let out = lower_dialect(SqlDialect::Postgresql, "mixed/bare_cr.sql", src);
+    assert_eq!(line_count, 4);
+    assert!(
+        out.file_model
+            .hazard_lines
+            .iter()
+            .any(|h| h.rule == "select-star" && h.line == 3)
+    );
+    assert!(
+        out.file_model
+            .hazard_lines
+            .iter()
+            .any(|h| h.rule == "drop" && h.line == 4)
+    );
+    for hazard in &out.file_model.hazard_lines {
+        assert!(
+            hazard.line >= 1 && hazard.line <= line_count,
+            "hazard line {} outside 1..={line_count}",
+            hazard.line
+        );
+    }
+    for func in &out.file_model.functions {
+        assert!(func.line >= 1 && func.end_line <= line_count);
+    }
+}
