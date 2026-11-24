@@ -50,7 +50,7 @@ Four core Metrics are calibrated against pre-2023 human-written repositories:
 Additional independent Metrics and structural checks run in the same pass:
 
 - **Cognitive complexity**: share of total nesting-weighted cognitive complexity held by functions scoring over 15.
-- **Orphan files**: Production files unreachable from manifest-declared and configured `entry_points`, classified as `unreferenced` or `test-only`.
+- **Orphan files**: Production files unreachable from manifest-declared, program-start, and configured `entry_points`, classified as `unreferenced` or `test-only`.
 - **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, and `pubspec.yaml` against imported external packages while excluding standard-library built-ins.
 - **Architectural import boundaries**: named zones, built-in `layered` and `hexagonal` presets, `public_files` encapsulation, directional `allow`/`deny` rules, and pre-edit `codeint guard <path>` checks before a file even exists on disk.
 

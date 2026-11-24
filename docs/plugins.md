@@ -103,6 +103,7 @@ Follow these invariants in `lower`:
 - Produce identical `source-lines` and `functions` for LF and CRLF line endings.
 - Do not count nested functions' decision points, cognitive complexity, or source lines in their enclosing function.
 - Set `program-start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
+  codeint counts every marked Production file as an entry point for Orphan files and names the mark in `codeint trace`; marked files in other Source sets stay out of entry points.
 
 ### Compile the sample Language plugin
 

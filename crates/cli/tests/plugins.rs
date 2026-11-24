@@ -519,7 +519,15 @@ fn short_ts_function(name: &str) -> String {
     format!("export function {name}(x: number): number {{\n  return x + 1;\n}}\n")
 }
 
-fn write_metric_plugin_config(repo_root: &Path, hash: &str, extra_fields: &str) {
+fn write_plugin_config(
+    repo_root: &Path,
+    name: &str,
+    kind: Option<&str>,
+    path: &str,
+    hash: &str,
+    extra_fields: &str,
+) {
+    let kind_line = kind.map_or_else(String::new, |kind| format!(r#""kind": "{kind}","#));
     let trailing = if extra_fields.is_empty() {
         String::new()
     } else {
@@ -532,14 +540,25 @@ fn write_metric_plugin_config(repo_root: &Path, hash: &str, extra_fields: &str) 
             r#"{{
               "plugins": [
                 {{
-                  "name": "long-functions",
-                  "kind": "metric",
-                  "path": "plugins/long_functions.wasm",
+                  "name": "{name}",
+                  {kind_line}
+                  "path": "{path}",
                   "sha256": "{hash}"
                 }}
               ]{trailing}
             }}"#
         ),
+    );
+}
+
+fn write_metric_plugin_config(repo_root: &Path, hash: &str, extra_fields: &str) {
+    write_plugin_config(
+        repo_root,
+        "long-functions",
+        Some("metric"),
+        "plugins/long_functions.wasm",
+        hash,
+        extra_fields,
     );
 }
 
@@ -1321,21 +1340,13 @@ fn coverage_reader_metric_plugin_receives_per_language_coverage_statement_from_c
         repo.path(),
         "plugins/coverage_reader_metric_plugin.wasm",
     );
-    write_file(
+    write_plugin_config(
         repo.path(),
-        "codeint.json",
-        &format!(
-            r#"{{
-              "plugins": [
-                {{
-                  "name": "coverage-reader",
-                  "kind": "metric",
-                  "path": "plugins/coverage_reader_metric_plugin.wasm",
-                  "sha256": "{hash}"
-                }}
-              ]
-            }}"#
-        ),
+        "coverage-reader",
+        Some("metric"),
+        "plugins/coverage_reader_metric_plugin.wasm",
+        &hash,
+        "",
     );
     write_file(
         repo.path(),
@@ -1361,5 +1372,220 @@ fn coverage_reader_metric_plugin_receives_per_language_coverage_statement_from_c
                 && finding["message"] == "language=typescript-javascript has_coverage=false"
         }),
         "expected typescript-javascript has_coverage=false finding, got: {findings:?}"
+    );
+}
+
+fn init_program_start_repo() -> (TempDir, String) {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("program_start_language_plugin.wasm"),
+        repo.path(),
+        "plugins/program_start.wasm",
+    );
+    write_plugin_config(
+        repo.path(),
+        "program-start",
+        None,
+        "plugins/program_start.wasm",
+        &hash,
+        "",
+    );
+    write_file(
+        repo.path(),
+        "cmd/app/main.prog",
+        "program main\nuse internal/util/live.prog\n",
+    );
+    write_file(repo.path(), "internal/util/live.prog", "library live\n");
+    (repo, hash)
+}
+
+fn run_trace(dir: &Path, from: &str, to: &str, format: &str) -> String {
+    let output = run_codeint(dir, &["trace", from, to, "--format", format]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("utf8")
+}
+
+#[test]
+fn marked_production_file_is_an_entry_point_for_orphan_files_alongside_globs_while_marked_tests_stay_out()
+ {
+    let (repo, hash) = init_program_start_repo();
+    write_file(repo.path(), "internal/util/orphan.prog", "library orphan\n");
+    write_file(
+        repo.path(),
+        "internal/util/test_only.prog",
+        "library test_only\n",
+    );
+    write_file(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "program main\nuse internal/util/test_only.prog\n",
+    );
+    write_file(repo.path(), "cmd/app/extra_test.prog", "program main\n");
+    write_file(repo.path(), "dist/gen.prog", "program main\n");
+    write_file(repo.path(), "vendor/third.prog", "program main\n");
+
+    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("valid JSON report");
+    let orphan = &report["source_sets"]["production"]["orphan_files"];
+    assert_eq!(orphan["entry_points"], 1, "report: {report}");
+    assert_eq!(orphan["evaluated_files"], 4, "report: {report}");
+    assert_eq!(orphan["orphan_files"], 2, "report: {report}");
+    assert_eq!(orphan["unreferenced"], 1, "report: {report}");
+    assert_eq!(orphan["test_only"], 1, "report: {report}");
+    let findings = orphan["findings"].as_array().expect("orphan findings");
+    assert_eq!(findings.len(), 2);
+    assert_eq!(findings[0]["path"], "internal/util/orphan.prog");
+    assert_eq!(findings[0]["kind"], "unreferenced");
+    assert_eq!(findings[1]["path"], "internal/util/test_only.prog");
+    assert_eq!(findings[1]["kind"], "test-only");
+    assert_eq!(
+        findings[1]["test_importers"],
+        serde_json::json!(["cmd/app/main.test.prog"])
+    );
+
+    write_file(
+        repo.path(),
+        "internal/util/extra_entry.prog",
+        "library extra_entry\nuse ./via_glob.prog\n",
+    );
+    write_file(
+        repo.path(),
+        "internal/util/via_glob.prog",
+        "library via_glob\n",
+    );
+    write_plugin_config(
+        repo.path(),
+        "program-start",
+        None,
+        "plugins/program_start.wasm",
+        &hash,
+        r#""entry_points": ["internal/util/extra_entry.prog"]"#,
+    );
+
+    let with_glob = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        with_glob.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&with_glob.stderr)
+    );
+    let glob_report: Value = serde_json::from_slice(&with_glob.stdout).expect("valid JSON report");
+    let glob_orphan = &glob_report["source_sets"]["production"]["orphan_files"];
+    assert_eq!(glob_orphan["entry_points"], 2, "report: {glob_report}");
+    assert_eq!(glob_orphan["evaluated_files"], 6, "report: {glob_report}");
+    assert_eq!(glob_orphan["orphan_files"], 2, "report: {glob_report}");
+    let glob_paths: Vec<&str> = glob_orphan["findings"]
+        .as_array()
+        .expect("orphan findings")
+        .iter()
+        .map(|item| item["path"].as_str().expect("path"))
+        .collect();
+    assert_eq!(
+        glob_paths,
+        vec!["internal/util/orphan.prog", "internal/util/test_only.prog"]
+    );
+}
+
+#[test]
+fn trace_names_program_start_mark_for_marked_production_file_and_omits_it_for_test_files() {
+    let (repo, _hash) = init_program_start_repo();
+    write_file(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "program main\nuse internal/util/live.prog\n",
+    );
+
+    let traced: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "cmd/app/main.prog",
+        "internal/util/live.prog",
+        "json",
+    ))
+    .expect("valid trace JSON");
+    assert_eq!(traced["from"], "cmd/app/main.prog");
+    assert_eq!(traced["to"], "internal/util/live.prog");
+    assert_eq!(traced["from_entry_point"], "program-start mark");
+    assert!(traced.get("to_entry_point").is_none());
+    assert_eq!(traced["connected"], true);
+    assert_eq!(
+        traced["paths"],
+        serde_json::json!([["cmd/app/main.prog", "internal/util/live.prog"]])
+    );
+
+    let text = run_trace(
+        repo.path(),
+        "cmd/app/main.prog",
+        "internal/util/live.prog",
+        "text",
+    );
+    assert_eq!(
+        text.trim(),
+        "Entry point: cmd/app/main.prog (program-start mark)\ncmd/app/main.prog -> internal/util/live.prog"
+    );
+
+    let toon = run_trace(
+        repo.path(),
+        "cmd/app/main.prog",
+        "internal/util/live.prog",
+        "toon",
+    );
+    assert!(
+        toon.contains("from_entry_point: program-start mark"),
+        "toon: {toon}"
+    );
+    assert!(!toon.contains("to_entry_point:"), "toon: {toon}");
+
+    let reverse: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "internal/util/live.prog",
+        "cmd/app/main.prog",
+        "json",
+    ))
+    .expect("valid reverse trace JSON");
+    assert!(reverse.get("from_entry_point").is_none());
+    assert_eq!(reverse["to_entry_point"], "program-start mark");
+    assert_eq!(reverse["connected"], false);
+
+    let reverse_text = run_trace(
+        repo.path(),
+        "internal/util/live.prog",
+        "cmd/app/main.prog",
+        "text",
+    );
+    assert_eq!(
+        reverse_text.trim(),
+        "Entry point: cmd/app/main.prog (program-start mark)\nNo runtime import path from internal/util/live.prog to cmd/app/main.prog"
+    );
+
+    let test_file_trace: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "internal/util/live.prog",
+        "json",
+    ))
+    .expect("valid test trace JSON");
+    assert!(test_file_trace.get("from_entry_point").is_none());
+    assert!(test_file_trace.get("to_entry_point").is_none());
+
+    let test_file_text = run_trace(
+        repo.path(),
+        "cmd/app/main.test.prog",
+        "internal/util/live.prog",
+        "text",
+    );
+    assert_eq!(
+        test_file_text.trim(),
+        "cmd/app/main.test.prog -> internal/util/live.prog"
     );
 }
