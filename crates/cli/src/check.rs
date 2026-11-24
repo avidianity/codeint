@@ -199,6 +199,9 @@ pub(crate) fn filter_model_to_package(model: &mut CodeModel, selected: &Selected
     model
         .files
         .retain(|file| selected.matches(workspace.package_of(&file.path)));
+    if model.files.is_empty() {
+        model.languages.clear();
+    }
     model
         .skipped
         .retain(|file| selected.matches(workspace.package_of(&file.path)));
@@ -403,9 +406,21 @@ impl WorkspaceContext {
     }
 
     pub(crate) fn measure_working_tree_model(&self) -> Result<CodeModel, CheckError> {
+        self.measure_working_tree_model_for_package(None)
+    }
+
+    pub(crate) fn measure_working_tree_model_for_package(
+        &self,
+        package: Option<&str>,
+    ) -> Result<CodeModel, CheckError> {
         let plugins = self.plugins.as_named();
         let tree = self.repository.working_tree()?;
-        let languages = measure_with(&tree, &plugins, &self.configuration)?;
+        let mut languages = measure_with(&tree, &plugins, &self.configuration)?;
+        if let Some(requested) = package {
+            let workspace = workspace_of_languages(&languages);
+            let selected = select_workspace_package(&workspace, requested)?;
+            filter_languages_to_package(&mut languages, &selected);
+        }
         Ok(CodeModel::merge(
             languages.into_iter().map(|language| language.model),
         ))
@@ -734,8 +749,11 @@ fn resolve_measured_snapshot(
         } else {
             Vec::new()
         };
-        let combined_entries =
-            combine_entry_points(manifest_entries, &model.files, configured_entry_points);
+        let combined_entries = if named.plugin.has_imports() {
+            combine_entry_points(manifest_entries, &model.files, configured_entry_points)
+        } else {
+            Vec::new()
+        };
         let retained_manifests = if named.name == "typescript-javascript" {
             manifests.clone()
         } else {
@@ -802,17 +820,22 @@ fn finalize_language_model(
         model.declared_dependencies = declared_dependencies;
         model.runtime_imports =
             resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
-                .map_err(|source| CheckError::Resolve {
-                    plugin: named.name.to_owned(),
-                    source,
+                .map_err(|source| match source {
+                    ResolveError::Plugin(error) => CheckError::language_plugin(config_file, error),
+                    other => CheckError::Resolve {
+                        plugin: named.name.to_owned(),
+                        source: other,
+                    },
                 })?;
     }
-    model.languages = vec![LanguageFacts {
-        language: named.name.to_owned(),
-        has_coverage: false,
-        has_hazard_rules: named.plugin.has_hazard_rules(),
-        has_imports,
-    }];
+    if !model.files.is_empty() {
+        model.languages = vec![LanguageFacts {
+            language: named.name.to_owned(),
+            has_coverage: false,
+            has_hazard_rules: named.plugin.has_hazard_rules(),
+            has_imports,
+        }];
+    }
     Ok(MeasuredLanguage {
         plugin: named.name.to_owned(),
         model,
@@ -1154,6 +1177,9 @@ fn lower_bytes(
                 .map_err(|error| CheckError::language_plugin(config_file, error))?;
             validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
                 .map_err(|error| CheckError::language_plugin(config_file, error))?;
+            for function in &mut file.functions {
+                function.coverage = None;
+            }
             file.source_set =
                 overrides.source_set(path, settle_source_set(path, &text, file.source_set));
             Ok(LoweredFile::Measured(SourceFile {

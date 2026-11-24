@@ -450,7 +450,7 @@ pub trait LanguagePlugin: Sync {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution>;
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError>;
 
     fn declared_dependencies(
         &self,
@@ -500,8 +500,12 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution> {
-        Plugin::resolve_imports(owned_paths(repository_paths), manifests, requests)
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
+        Ok(Plugin::resolve_imports(
+            owned_paths(repository_paths),
+            manifests,
+            requests,
+        ))
     }
 
     fn declared_dependencies(

@@ -45,3 +45,140 @@ fn new_findings_saturates_when_left_out_is_usize_max() {
 
     assert_eq!(changes.new_findings(), usize::MAX);
 }
+
+fn single_file_model(
+    path: &str,
+    language: &str,
+    has_imports: bool,
+    program_start: bool,
+) -> (codeint_model::RepoPath, codeint_model::CodeModel) {
+    use codeint_model::{CodeModel, FileModel, LanguageFacts, RepoPath, SourceFile, SourceSet};
+
+    let repo_path = RepoPath::new(path).expect("path");
+    let model = CodeModel {
+        files: vec![SourceFile {
+            path: repo_path.clone(),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 2,
+                functions: Vec::new(),
+                tokens: Vec::new(),
+                flagged_lines: Vec::new(),
+                hazard_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+                program_start,
+            },
+        }],
+        languages: vec![LanguageFacts {
+            language: language.to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+            has_imports,
+        }],
+        ..CodeModel::default()
+    };
+    (repo_path, model)
+}
+
+#[test]
+fn no_imports_only_models_omit_import_cycles_and_dependencies_in_diff_and_trend() {
+    use codeint_config::{
+        Budgets, CalendarDay, DependenciesConfig, DuplicationConfig, FindingsShown,
+        RegressionLimits, ReportFormat, TrendFormat,
+    };
+    use codeint_model::{CodeModel, DeclaredDep, DepKind, DependencyManifest, RepoPath};
+
+    use crate::{
+        BaseCommit, CommitMeasurement, DiffReport, Head, TraceReport, TrendPoint, TrendReport,
+    };
+
+    let (sql_path, no_imports_model) = single_file_model("queries/users.sql", "sql", false, true);
+    let unmeasured_js_with_manifest = CodeModel {
+        dependency_manifests: vec![DependencyManifest {
+            package_root: String::new(),
+            path: RepoPath::new("package.json").expect("manifest path"),
+        }],
+        declared_dependencies: vec![DeclaredDep {
+            package_root: String::new(),
+            name: "lodash".to_owned(),
+            kind: DepKind::Runtime,
+        }],
+        ..CodeModel::default()
+    };
+
+    let measurement = |models: Vec<CodeModel>| {
+        CommitMeasurement::of_languages_with_options(
+            models,
+            &[],
+            None,
+            &DependenciesConfig::default(),
+            DuplicationConfig::default(),
+            None,
+            None,
+        )
+        .expect("commit measurement")
+    };
+    let base_m = measurement(vec![
+        no_imports_model.clone(),
+        unmeasured_js_with_manifest.clone(),
+    ]);
+    let head_m = measurement(vec![
+        no_imports_model.clone(),
+        unmeasured_js_with_manifest.clone(),
+    ]);
+    let budgets = Budgets::default();
+    let diff = DiffReport::compare(
+        BaseCommit {
+            git_ref: "main".to_owned(),
+            merge_base: "abc".to_owned(),
+        },
+        Head::WorkingTree,
+        base_m,
+        head_m,
+        FindingsShown::default(),
+        &budgets,
+        &RegressionLimits::default(),
+    );
+    assert!(diff.failure_messages().is_empty());
+    let diff_json: serde_json::Value =
+        serde_json::from_str(&diff.render(ReportFormat::Json).expect("diff json")).expect("json");
+    assert!(diff_json.get("dependencies").is_none());
+    assert!(
+        diff_json["source_sets"]["production"]
+            .get("import_cycles")
+            .is_none()
+    );
+    let diff_md = diff.render(ReportFormat::Markdown).expect("diff markdown");
+    assert!(!diff_md.contains("Import cycles"));
+
+    let trend = TrendReport::of(vec![TrendPoint {
+        commit: "abc1234".to_owned(),
+        committed_on: CalendarDay::containing(1_700_000_000),
+        measurement: measurement(vec![no_imports_model.clone(), unmeasured_js_with_manifest]),
+    }]);
+    let trend_json: serde_json::Value =
+        serde_json::from_str(&trend.render(TrendFormat::Json).expect("trend json")).expect("json");
+    assert!(
+        trend_json["source_sets"]["production"][0]
+            .get("import_cycles")
+            .is_none()
+    );
+    let trend_md = trend.render(TrendFormat::Markdown).expect("trend markdown");
+    assert!(!trend_md.contains("Import cycles"));
+
+    let traced = TraceReport::trace(&no_imports_model, &sql_path, &sql_path, false, 5)
+        .expect("trace no-imports");
+    assert!(traced.from_entry_point.is_none());
+    assert!(traced.to_entry_point.is_none());
+}
+
+#[test]
+fn trace_omits_program_start_mark_for_non_runtime_tooling_paths() {
+    use crate::TraceReport;
+
+    let (script, model) = single_file_model("scripts/main.prog", "program-start", true, true);
+
+    let traced = TraceReport::trace(&model, &script, &script, false, 5).expect("trace");
+    assert!(traced.from_entry_point.is_none());
+    assert!(traced.to_entry_point.is_none());
+}

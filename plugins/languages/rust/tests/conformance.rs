@@ -249,7 +249,9 @@ fn resolves_intra_crate_mod_and_use_imports_and_marks_external_crates() {
         },
     ];
 
-    let resolutions = plugin().resolve_imports(&paths, manifests, requests);
+    let resolutions = plugin()
+        .resolve_imports(&paths, manifests, requests)
+        .expect("resolve imports");
     assert_eq!(
         resolutions,
         vec![
@@ -440,7 +442,9 @@ fn rust_builtins_external_crate_normalization_and_workspace_imports() {
     .collect();
 
     assert_eq!(
-        plugin().resolve_imports(&paths, manifests, requests),
+        plugin()
+            .resolve_imports(&paths, manifests, requests)
+            .expect("resolve imports"),
         vec![
             Resolution::Builtin,
             Resolution::Builtin,
@@ -624,7 +628,9 @@ fn value_namespace_items_do_not_suppress_external_use_imports() {
         })
         .collect();
     assert_eq!(
-        plugin().resolve_imports(&paths, manifests, requests),
+        plugin()
+            .resolve_imports(&paths, manifests, requests)
+            .expect("resolve imports"),
         vec![
             Resolution::External("anyhow".to_owned()),
             Resolution::External("regex".to_owned()),
@@ -749,7 +755,9 @@ fn assert_rust_resolutions(
         expected.push(outcome.clone());
     }
     assert_eq!(
-        plugin().resolve_imports(&repo, manifest_list, requests),
+        plugin()
+            .resolve_imports(&repo, manifest_list, requests)
+            .expect("resolve imports"),
         expected
     );
 }

@@ -104,14 +104,16 @@ fn dart_directives_and_resolution() {
         specifier: s.into(),
     })
     .collect();
-    let res = Dart.resolve_imports(
-        &files,
-        vec![Manifest {
-            path: "pubspec.yaml".into(),
-            text: "name: demo\n".into(),
-        }],
-        reqs,
-    );
+    let res = Dart
+        .resolve_imports(
+            &files,
+            vec![Manifest {
+                path: "pubspec.yaml".into(),
+                text: "name: demo\n".into(),
+            }],
+            reqs,
+        )
+        .expect("resolve imports");
     assert_eq!(res[0], Resolution::Resolved(vec!["lib/u.dart".into()]));
     assert_eq!(res[1], Resolution::Resolved(vec!["lib/h.dart".into()]));
     assert_eq!(res[2], Resolution::Builtin);
@@ -248,7 +250,9 @@ int run() => coreValue();
             specifier: specifier.clone(),
         });
     }
-    let resolutions = Dart.resolve_imports(&files, pubspecs.clone(), requests);
+    let resolutions = Dart
+        .resolve_imports(&files, pubspecs.clone(), requests)
+        .expect("resolve imports");
     assert_eq!(
         resolutions,
         [

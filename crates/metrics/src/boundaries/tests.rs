@@ -199,3 +199,27 @@ fn multi_file_import_to_multiple_forbidden_targets_emits_distinct_stable_finding
     assert_eq!(findings[1].target, Some(path("secret/b.fld")));
     assert_ne!(findings[0].id, findings[1].id);
 }
+
+#[test]
+fn duplicate_targets_in_a_single_resolved_import_are_counted_once() {
+    let policy = StubPolicy::new(&[("ui/page.fld", "ui"), ("secret/a.fld", "secret")])
+        .with_decision(
+            "ui",
+            "secret",
+            BoundaryEdgeCheck::DeniedByDenyRule {
+                reason: Some("no direct secret import".to_owned()),
+            },
+        );
+    let model = model_with_multi_target_import(
+        &["ui/page.fld", "secret/a.fld"],
+        "ui/page.fld",
+        "secret",
+        &["secret/a.fld", "secret/a.fld"],
+    );
+
+    let measured = Boundaries::measure(&model, &policy);
+
+    assert_eq!(measured.resolved_imports(), 1);
+    assert_eq!(measured.findings().len(), 1);
+    assert_eq!(measured.findings()[0].target, Some(path("secret/a.fld")));
+}

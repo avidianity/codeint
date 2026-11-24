@@ -226,7 +226,7 @@ Rules for `has-imports` and `language-facts.has-imports`:
   The five built-in Language plugins (`typescript-javascript`, `rust`, `php`, `dart`, and `python`) all return `true`.
 - Return `false` when the language has no imports, such as SQL or a configuration language.
 - When `has-imports` returns `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points` on that Language plugin.
-- When `has-imports` returns `false`, TOON and JSON reports omit Import cycles, Orphan files, Import boundaries, and Dependency hygiene for that language and include a one-line `import_metrics_note`.
+- When `has-imports` returns `false`, TOON, JSON, Markdown, and SARIF reports omit Import cycles, Orphan files, Import boundaries, and Dependency hygiene for that language, and TOON, JSON, and Markdown reports include a one-line `import_metrics_note`.
 - A Metric plugin reads `has-imports` on each `language-facts` entry in `code-model.languages` to tell whether a language has imports rather than treating empty `runtime-imports` as zero import issues.
 
 ### Multi-file resolved imports

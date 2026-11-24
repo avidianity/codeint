@@ -37,7 +37,8 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
     pub(crate) clone_families: Vec<CloneFamilyFinding>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
-    pub(crate) import_cycles: MetricMeasurement<ImportCycleFinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) import_cycles: Option<MetricMeasurement<ImportCycleFinding>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) boundaries: Option<MetricMeasurement<BoundaryFindingRow>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -141,8 +142,13 @@ impl CommitMeasurement {
                 &measured_hygiene
             }
         };
-        let any_has_imports = languages.is_empty() || languages.iter().any(model_has_imports);
-        let all_have_imports = languages.iter().all(model_has_imports);
+        let measured: Vec<&CodeModel> = languages
+            .iter()
+            .filter(|model| !model.files.is_empty())
+            .collect();
+        let any_has_imports =
+            measured.is_empty() || measured.iter().copied().any(model_has_imports);
+        let all_have_imports = measured.iter().copied().all(model_has_imports);
         let separate_import_source_sets =
             (any_has_imports && !all_have_imports).then(|| build_import_source_sets(&languages));
         let dependencies = any_has_imports
@@ -302,17 +308,14 @@ impl SourceSetMeasurement {
                 measured.verbosity.flagged_lines(),
                 FlaggedLineRow::from,
             ),
-            import_cycles: measured.import_cycles.as_ref().map_or_else(
-                MetricMeasurement::default,
-                |cycles| {
-                    MetricMeasurement::from_items(
-                        cycles.ratio(),
-                        cycles.modules_in_import_cycles() as f64,
-                        cycles.cycles(),
-                        ImportCycleFinding::new,
-                    )
-                },
-            ),
+            import_cycles: measured.import_cycles.as_ref().map(|cycles| {
+                MetricMeasurement::from_items(
+                    cycles.ratio(),
+                    cycles.modules_in_import_cycles() as f64,
+                    cycles.cycles(),
+                    ImportCycleFinding::new,
+                )
+            }),
             boundaries,
             orphan_files,
             external_metrics,
@@ -358,7 +361,7 @@ fn measure_commit_hygiene(
 fn build_import_source_sets(languages: &[CodeModel]) -> SourceSets {
     let mut models = Vec::new();
     for model in languages {
-        if model_has_imports(model) {
+        if !model.files.is_empty() && model_has_imports(model) {
             models.push(model.clone());
         }
     }
@@ -374,9 +377,13 @@ fn select_import_model<'a>(
     if !any_has_imports {
         return None;
     }
-    let candidate = separate_import_source_sets
-        .map_or_else(|| source_sets.get(source_set), |sets| sets.get(source_set));
-    (!candidate.files.is_empty()).then_some(candidate)
+    match separate_import_source_sets {
+        None => Some(source_sets.get(source_set)),
+        Some(sets) => {
+            let candidate = sets.get(source_set);
+            (!candidate.files.is_empty()).then_some(candidate)
+        }
+    }
 }
 
 fn measure_source_set(

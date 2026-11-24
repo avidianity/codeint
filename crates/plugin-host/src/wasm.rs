@@ -453,7 +453,7 @@ impl WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution> {
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         let paths = owned_paths(repository_paths);
         let host_manifests = to_guest_manifests(manifests);
         let host_requests: Vec<guest::ImportRequest> = requests
@@ -463,11 +463,12 @@ impl WasmLanguagePlugin {
                 specifier: request.specifier,
             })
             .collect();
-        self.with_checked_instance("resolve-imports", |api, store| {
-            api.call_resolve_imports(store, &paths, &host_manifests, &host_requests)
-        })
-        .map(|resolutions| resolutions.into_iter().map(convert_resolution).collect())
-        .unwrap_or_default()
+        let resolutions = self
+            .with_checked_instance("resolve-imports", |api, store| {
+                api.call_resolve_imports(store, &paths, &host_manifests, &host_requests)
+            })
+            .map_err(map_language_plugin_error)?;
+        Ok(resolutions.into_iter().map(convert_resolution).collect())
     }
 
     pub(crate) fn declared_dependencies_impl(

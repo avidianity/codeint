@@ -191,6 +191,7 @@ fn resolve_single_manifest_php(
         })
         .collect();
     Php.resolve_imports(&repo, manifests, requests)
+        .expect("resolve imports")
 }
 
 #[test]
@@ -348,18 +349,20 @@ final class InvoiceService {
     .into_iter()
     .map(|p| RepoPath::new(p).unwrap())
     .collect();
-    let resolved = Php.resolve_imports(
-        &repo,
-        manifests.clone(),
-        lowered
-            .runtime_imports
-            .iter()
-            .map(|specifier| ImportRequest {
-                importer: importer.to_owned(),
-                specifier: specifier.clone(),
-            })
-            .collect(),
-    );
+    let resolved = Php
+        .resolve_imports(
+            &repo,
+            manifests.clone(),
+            lowered
+                .runtime_imports
+                .iter()
+                .map(|specifier| ImportRequest {
+                    importer: importer.to_owned(),
+                    specifier: specifier.clone(),
+                })
+                .collect(),
+        )
+        .expect("resolve imports");
     let by_spec: std::collections::BTreeMap<&str, Resolution> = lowered
         .runtime_imports
         .iter()

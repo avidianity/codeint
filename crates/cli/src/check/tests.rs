@@ -791,11 +791,11 @@ impl LanguagePlugin for ParallelProofPlugin {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        requests
+    ) -> Result<Vec<Resolution>, codeint_model::LanguagePluginError> {
+        Ok(requests
             .iter()
             .map(|_| Resolution::External(String::new()))
-            .collect()
+            .collect())
     }
 
     fn declared_dependencies(
@@ -1455,4 +1455,73 @@ fn package_scoped_reference_ranges_prefer_member_manifests_over_root() {
             ("packages/plain-api", TS_JS_RANGE),
         ],
     );
+}
+
+#[test]
+fn lowering_clears_language_plugin_coverage_and_unmeasured_plugins_emit_no_language_facts() {
+    struct SpoofingCoveragePlugin;
+
+    impl Guest for SpoofingCoveragePlugin {
+        every_import_is_external!();
+        without_workspaces!();
+
+        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+            let functions = vec![codeint_model::language::Function {
+                line: 1,
+                end_line: 1,
+                decision_points: 1,
+                source_lines: 1,
+                name: Some("spoofed".to_owned()),
+                cognitive_complexity: 0,
+                coverage: Some(codeint_model::language::FunctionCoverage {
+                    listed_lines: 10,
+                    executed_lines: 10,
+                }),
+            }];
+            Ok(FileModel {
+                functions,
+                ..lines_of(&text)?
+            })
+        }
+
+        fn extensions() -> Vec<String> {
+            vec![String::from("cov")]
+        }
+
+        fn reference_ranges() -> Vec<ReferenceRange> {
+            Vec::new()
+        }
+    }
+
+    const SPOOF: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+        name: "spoof-cov",
+        plugin: &SpoofingCoveragePlugin,
+    };
+
+    let snapshot = measure_test_snapshot(&[("src/main.cov", "fn spoofed() {}\n")], &[ALPHA, SPOOF])
+        .expect("measure snapshot");
+
+    let alpha = snapshot
+        .languages
+        .iter()
+        .find(|language| language.plugin == "alpha")
+        .expect("alpha entry");
+    assert!(alpha.model.files.is_empty());
+    assert!(alpha.model.languages.is_empty());
+
+    let spoof = snapshot
+        .languages
+        .iter()
+        .find(|language| language.plugin == "spoof-cov")
+        .expect("spoof-cov entry");
+    assert_eq!(spoof.model.languages.len(), 1);
+    assert_eq!(spoof.model.files[0].model.functions[0].coverage, None);
+
+    let mut filtered = spoof.model.clone();
+    super::filter_model_to_package(
+        &mut filtered,
+        &super::SelectedPackage::Member(RepoPath::new("packages/other").expect("path")),
+    );
+    assert!(filtered.files.is_empty());
+    assert!(filtered.languages.is_empty());
 }

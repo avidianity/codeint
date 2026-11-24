@@ -288,7 +288,7 @@ impl LanguagePlugin for WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
-    ) -> Vec<language::Resolution> {
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         self.resolve_imports_impl(repository_paths, manifests, requests)
     }
 

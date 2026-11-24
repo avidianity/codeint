@@ -93,8 +93,10 @@ fn metric_rows(source_set: &str, changes: &SourceSetChanges) -> Vec<Vec<String>>
         ),
         metric_row(source_set, "Duplication", &changes.duplication.groups),
         metric_row(source_set, "Verbosity", &changes.verbosity),
-        metric_row(source_set, "Import cycles", &changes.import_cycles),
     ];
+    if let Some(import_cycles) = &changes.import_cycles {
+        rows.push(metric_row(source_set, "Import cycles", import_cycles));
+    }
     if let Some(boundaries) = &changes.boundaries {
         rows.push(metric_row(source_set, "Boundaries", boundaries));
     }
@@ -169,13 +171,15 @@ fn findings_blocks(changes: &SourceSetChanges) -> Vec<String> {
         &FLAGGED_LINE,
         |listed| findings_table(&FLAGGED_LINE_COLUMNS, listed, flagged_line_row),
     );
-    push_changes(
-        &mut blocks,
-        "Import cycles",
-        &changes.import_cycles,
-        &IMPORT_CYCLE,
-        |listed| list(listed.iter().map(import_cycle_item)),
-    );
+    if let Some(import_cycles) = &changes.import_cycles {
+        push_changes(
+            &mut blocks,
+            "Import cycles",
+            import_cycles,
+            &IMPORT_CYCLE,
+            |listed| list(listed.iter().map(import_cycle_item)),
+        );
+    }
     if let Some(boundaries) = &changes.boundaries {
         push_changes(&mut blocks, "Boundaries", boundaries, &FINDING, |listed| {
             findings_table(&BOUNDARY_FINDING_COLUMNS, listed, boundary_finding_row)

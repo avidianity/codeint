@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use codeint_model::{CodeModel, ImportResolution, RepoPath, token_text_hash};
 
 use crate::FindingId;
@@ -114,7 +116,11 @@ fn evaluate_imports(
         let ImportResolution::Resolved(targets) = &runtime_import.resolution else {
             continue;
         };
+        let mut seen_targets = HashSet::with_capacity(targets.len());
         for target in targets {
+            if !seen_targets.insert(target) {
+                continue;
+            }
             resolved_imports += 1;
             if let Some(finding) = check_import_edge(
                 &runtime_import.importer,

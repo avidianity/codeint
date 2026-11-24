@@ -42,7 +42,8 @@ struct TrendRow {
     cognitive_complexity: Decimal,
     duplication: Decimal,
     verbosity: Decimal,
-    import_cycles: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    import_cycles: Option<Decimal>,
     #[serde(flatten)]
     external_metrics: BTreeMap<String, Decimal>,
 }
@@ -123,7 +124,10 @@ impl TrendRow {
             cognitive_complexity: Decimal::rounded(measured.cognitive_complexity.ratio),
             duplication: Decimal::rounded(measured.duplication.ratio),
             verbosity: Decimal::rounded(measured.verbosity.ratio),
-            import_cycles: Decimal::rounded(measured.import_cycles.ratio),
+            import_cycles: measured
+                .import_cycles
+                .as_ref()
+                .map(|cycles| Decimal::rounded(cycles.ratio)),
             external_metrics: measured
                 .external_metrics
                 .iter()

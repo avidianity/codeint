@@ -128,7 +128,9 @@ fn assert_import_conformance(
             specifier: (*specifier).to_owned(),
         })
         .collect();
-    let resolutions = plugin.resolve_imports(&repo_paths, valid_manifest.clone(), requests);
+    let resolutions = plugin
+        .resolve_imports(&repo_paths, valid_manifest.clone(), requests)
+        .unwrap_or_else(|error| panic!("{label}: resolve_imports failed: {error}"));
     assert_eq!(
         resolutions.len(),
         imports.import_requests.len(),

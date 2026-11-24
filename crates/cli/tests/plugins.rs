@@ -1180,6 +1180,30 @@ fn v0_2_0_metric_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
     );
 }
 
+fn assert_exact_language_findings(findings: &[Value], expected: &[(&str, &str)]) {
+    let language_findings: Vec<&Value> = findings
+        .iter()
+        .filter(|finding| {
+            finding["path"]
+                .as_str()
+                .is_some_and(|path| path.starts_with("languages/"))
+        })
+        .collect();
+    assert_eq!(
+        language_findings.len(),
+        expected.len(),
+        "expected only measured languages in model.languages, got: {language_findings:?}"
+    );
+    for (path, message) in expected {
+        assert!(
+            language_findings
+                .iter()
+                .any(|finding| finding["path"] == *path && finding["message"] == *message),
+            "expected ({path}, {message}) in {language_findings:?}"
+        );
+    }
+}
+
 #[test]
 fn coverage_reader_metric_plugin_receives_per_language_coverage_statement_from_check() {
     let (repo, _hash) = init_single_probe_repo(
@@ -1198,12 +1222,12 @@ fn coverage_reader_metric_plugin_receives_per_language_coverage_statement_from_c
     let findings = report["source_sets"]["production"]["coverage_reader"]["findings"]
         .as_array()
         .expect("coverage_reader findings list");
-    assert!(
-        findings.iter().any(|finding| {
-            finding["path"] == "languages/typescript-javascript"
-                && finding["message"] == "language=typescript-javascript has_coverage=false"
-        }),
-        "expected typescript-javascript has_coverage=false finding, got: {findings:?}"
+    assert_exact_language_findings(
+        findings,
+        &[(
+            "languages/typescript-javascript",
+            "language=typescript-javascript has_coverage=false",
+        )],
     );
 }
 
@@ -1398,6 +1422,21 @@ fn trace_names_program_start_mark_for_marked_production_file_and_omits_it_for_te
         test_file_text.trim(),
         "cmd/app/main.test.prog -> internal/util/live.prog"
     );
+
+    write_file(
+        repo.path(),
+        "scripts/main.prog",
+        "program main\nuse internal/util/live.prog\n",
+    );
+    let tooling_trace: Value = serde_json::from_str(&run_trace(
+        repo.path(),
+        "scripts/main.prog",
+        "internal/util/live.prog",
+        "json",
+    ))
+    .expect("valid tooling trace JSON");
+    assert!(tooling_trace.get("from_entry_point").is_none());
+    assert!(tooling_trace.get("to_entry_point").is_none());
 }
 
 fn init_paired_language_and_metric_repo(
@@ -1521,19 +1560,18 @@ fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
     write_file(repo.path(), "queries/clean.haz", "SELECT id FROM users;\n");
 
     let findings = run_check_hazard_facts_findings(repo.path());
-    assert!(
-        findings.iter().any(|finding| {
-            finding["path"] == "languages/hazard-lang"
-                && finding["message"] == "language=hazard-lang has_hazard_rules=true"
-        }),
-        "expected hazard-lang has_hazard_rules=true finding, got: {findings:?}"
-    );
-    assert!(
-        findings.iter().any(|finding| {
-            finding["path"] == "languages/typescript-javascript"
-                && finding["message"] == "language=typescript-javascript has_hazard_rules=false"
-        }),
-        "expected typescript-javascript has_hazard_rules=false finding, got: {findings:?}"
+    assert_exact_language_findings(
+        &findings,
+        &[
+            (
+                "languages/hazard-lang",
+                "language=hazard-lang has_hazard_rules=true",
+            ),
+            (
+                "languages/typescript-javascript",
+                "language=typescript-javascript has_hazard_rules=false",
+            ),
+        ],
     );
 }
 
@@ -1660,18 +1698,72 @@ fn no_imports_language_plugin_check_skips_import_calls_and_metric_reads_has_impo
     let findings = report["source_sets"]["production"]["import_capability"]["findings"]
         .as_array()
         .expect("import_capability findings list");
-    assert!(
-        findings.iter().any(|finding| {
-            finding["path"] == "languages/no-imports-lang"
-                && finding["message"] == "language=no-imports-lang has_imports=false"
-        }),
-        "expected no-imports-lang has_imports=false finding, got: {findings:?}"
+    assert_exact_language_findings(
+        findings,
+        &[
+            (
+                "languages/no-imports-lang",
+                "language=no-imports-lang has_imports=false",
+            ),
+            (
+                "languages/typescript-javascript",
+                "language=typescript-javascript has_imports=true",
+            ),
+        ],
     );
+}
+
+#[test]
+fn no_imports_only_repo_omits_import_cycles_and_dependencies_across_check_diff_and_trend() {
+    let (repo, _hash) = init_single_probe_repo(
+        "no-imports-lang",
+        None,
+        "no_imports_language_plugin.wasm",
+        r#""budgets": { "unused_dependencies": 0.0 }"#,
+    );
+    write_file(
+        repo.path(),
+        "package.json",
+        r#"{"name":"docs-site","dependencies":{"left-pad":"^1.0.0"}}"#,
+    );
+    write_file(repo.path(), "queries/users.noimp", "fn select_users()\n");
+    commit_all(repo.path(), "initial no-imports commit");
+    write_file(repo.path(), "queries/orders.noimp", "fn select_orders()\n");
+
+    let check = run_check_json_report(repo.path());
     assert!(
-        findings.iter().any(|finding| {
-            finding["path"] == "languages/typescript-javascript"
-                && finding["message"] == "language=typescript-javascript has_imports=true"
-        }),
-        "expected typescript-javascript has_imports=true finding, got: {findings:?}"
+        check["source_sets"]["production"]
+            .get("import_cycles")
+            .is_none()
+    );
+    assert!(check.get("dependencies").is_none());
+
+    let diff_out = run_codeint(repo.path(), &["diff", "HEAD", "--format", "json"]);
+    assert_eq!(
+        diff_out.status.code(),
+        Some(0),
+        "diff stderr: {}",
+        String::from_utf8_lossy(&diff_out.stderr)
+    );
+    let diff: Value = serde_json::from_slice(&diff_out.stdout).expect("parse diff json");
+    assert!(
+        diff["source_sets"]["production"]
+            .get("import_cycles")
+            .is_none()
+    );
+    assert!(diff.get("dependencies").is_none());
+
+    let trend_out = run_codeint(repo.path(), &["trend", "--format", "json"]);
+    assert_eq!(
+        trend_out.status.code(),
+        Some(0),
+        "trend stderr: {}",
+        String::from_utf8_lossy(&trend_out.stderr)
+    );
+    let trend: Value = serde_json::from_slice(&trend_out.stdout).expect("parse trend json");
+    assert!(
+        trend["source_sets"]["production"][0]
+            .get("import_cycles")
+            .is_none()
     );
 }

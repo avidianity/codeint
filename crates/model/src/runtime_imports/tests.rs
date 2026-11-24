@@ -8,7 +8,18 @@ use super::{
     ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,
 };
 
-struct Answering(Vec<Resolution>);
+enum StubAnswer {
+    Resolutions(Vec<Resolution>),
+    MemoryLimit { plugin: String, memory_mb: u64 },
+}
+
+struct Answering(StubAnswer);
+
+impl Answering {
+    fn of(resolutions: Vec<Resolution>) -> Answering {
+        Answering(StubAnswer::Resolutions(resolutions))
+    }
+}
 
 impl LanguagePlugin for Answering {
     fn declared_dependencies(
@@ -50,8 +61,16 @@ impl LanguagePlugin for Answering {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        self.0.clone()
+    ) -> Result<Vec<Resolution>, LanguagePluginError> {
+        match &self.0 {
+            StubAnswer::Resolutions(resolutions) => Ok(resolutions.clone()),
+            StubAnswer::MemoryLimit { plugin, memory_mb } => {
+                Err(LanguagePluginError::MemoryLimitExceeded {
+                    plugin: plugin.clone(),
+                    memory_mb: *memory_mb,
+                })
+            }
+        }
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
@@ -93,7 +112,7 @@ fn importer(name: &str, specifiers: &[&str]) -> SourceFile {
 
 #[test]
 fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
-    let plugin = Answering(vec![
+    let plugin = Answering::of(vec![
         Resolution::Resolved(vec!["b.ts".to_owned(), "c.ts".to_owned()]),
         Resolution::External("react".to_owned()),
         Resolution::Builtin,
@@ -141,7 +160,7 @@ fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
 
 #[test]
 fn a_plugin_that_answers_the_wrong_number_of_requests_is_an_error() {
-    let plugin = Answering(vec![Resolution::External("react".to_owned())]);
+    let plugin = Answering::of(vec![Resolution::External("react".to_owned())]);
     let a = importer("a.ts", &["react", "vue"]);
 
     let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);
@@ -160,7 +179,7 @@ fn a_plugin_that_answers_the_wrong_number_of_requests_is_an_error() {
 
 #[test]
 fn a_plugin_that_resolves_to_an_empty_list_is_an_error() {
-    let plugin = Answering(vec![Resolution::Resolved(Vec::new())]);
+    let plugin = Answering::of(vec![Resolution::Resolved(Vec::new())]);
     let a = importer("a.ts", &["./empty"]);
 
     let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);
@@ -177,7 +196,7 @@ fn a_plugin_that_resolves_to_an_empty_list_is_an_error() {
 
 #[test]
 fn a_plugin_that_resolves_to_a_file_outside_the_snapshot_is_an_error() {
-    let plugin = Answering(vec![Resolution::Resolved(vec![
+    let plugin = Answering::of(vec![Resolution::Resolved(vec![
         "a.ts".to_owned(),
         "../etc/passwd".to_owned(),
     ])]);
@@ -193,7 +212,7 @@ fn a_plugin_that_resolves_to_a_file_outside_the_snapshot_is_an_error() {
 
 #[test]
 fn the_manifests_a_plugin_chooses_must_be_files_of_the_snapshot() {
-    let plugin = Answering(Vec::new());
+    let plugin = Answering::of(Vec::new());
 
     let chosen = choose_manifests(&plugin, &[path("a.ts"), path("package.json")]);
     let missing = choose_manifests(&plugin, &[path("a.ts")]);
@@ -237,7 +256,7 @@ fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
             _repository_paths: &[RepoPath],
             _manifests: Vec<Manifest>,
             _requests: Vec<ImportRequest>,
-        ) -> Vec<Resolution> {
+        ) -> Result<Vec<Resolution>, LanguagePluginError> {
             panic!("resolve_imports must not be called when has_imports is false");
         }
 
@@ -283,4 +302,50 @@ fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
     let resolved = resolve_runtime_imports(&plugin, &[path("a.noimp")], Vec::new(), &[&file])
         .expect("resolve_runtime_imports skips no-imports");
     assert!(resolved.is_empty());
+}
+
+#[test]
+fn resolve_runtime_imports_deduplicates_targets_preserving_first_seen_order() {
+    let plugin = Answering::of(vec![Resolution::Resolved(vec![
+        "src/b.fld".to_owned(),
+        "src/b.fld".to_owned(),
+        "src/a.fld".to_owned(),
+        "src/b.fld".to_owned(),
+    ])]);
+    let repo = [path("src/main.fld"), path("src/a.fld"), path("src/b.fld")];
+    let file = importer("src/main.fld", &["pkg"]);
+
+    let resolved = resolve_runtime_imports(&plugin, &repo, Vec::new(), &[&file])
+        .expect("deduplicated multi-file resolution");
+
+    assert_eq!(
+        resolved,
+        vec![RuntimeImport {
+            importer: path("src/main.fld"),
+            specifier: "pkg".to_owned(),
+            resolution: ImportResolution::Resolved(vec![path("src/b.fld"), path("src/a.fld")]),
+        }]
+    );
+}
+
+#[test]
+fn resolve_runtime_imports_propagates_plugin_memory_limit_errors() {
+    let plugin = Answering(StubAnswer::MemoryLimit {
+        plugin: "folder-import-lang".to_owned(),
+        memory_mb: 1,
+    });
+    let file = importer("src/main.fld", &["pkg"]);
+    let error = resolve_runtime_imports(&plugin, &[path("src/main.fld")], Vec::new(), &[&file])
+        .expect_err("memory limit error must propagate instead of becoming WrongCount");
+
+    assert!(
+        matches!(
+            error,
+            ResolveError::Plugin(LanguagePluginError::MemoryLimitExceeded {
+                ref plugin,
+                memory_mb: 1,
+            }) if plugin == "folder-import-lang"
+        ),
+        "unexpected error: {error:?}"
+    );
 }

@@ -111,24 +111,26 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
         .expect("workspace packages");
     assert_eq!(packages, vec![RepoPath::new("packages/core").unwrap()]);
 
-    let resolutions = plugin.resolve_imports(
-        &repo_paths,
-        Vec::new(),
-        vec![
-            ImportRequest {
-                importer: "src/app.mini".to_owned(),
-                specifier: "./util".to_owned(),
-            },
-            ImportRequest {
-                importer: "src/app.mini".to_owned(),
-                specifier: "external-pkg".to_owned(),
-            },
-            ImportRequest {
-                importer: "src/app.mini".to_owned(),
-                specifier: "std:io".to_owned(),
-            },
-        ],
-    );
+    let resolutions = plugin
+        .resolve_imports(
+            &repo_paths,
+            Vec::new(),
+            vec![
+                ImportRequest {
+                    importer: "src/app.mini".to_owned(),
+                    specifier: "./util".to_owned(),
+                },
+                ImportRequest {
+                    importer: "src/app.mini".to_owned(),
+                    specifier: "external-pkg".to_owned(),
+                },
+                ImportRequest {
+                    importer: "src/app.mini".to_owned(),
+                    specifier: "std:io".to_owned(),
+                },
+            ],
+        )
+        .expect("resolve imports");
     assert_eq!(
         resolutions,
         vec![
@@ -636,28 +638,30 @@ fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
         vec![RepoPath::new("src/main.mini").expect("valid repo path")]
     );
     assert_eq!(
-        plugin.resolve_imports(
-            &repo_paths,
-            manifests,
-            vec![
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "./util".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "serde".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "std:fs".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/main.mini".to_owned(),
-                    specifier: "./missing".to_owned(),
-                },
-            ],
-        ),
+        plugin
+            .resolve_imports(
+                &repo_paths,
+                manifests,
+                vec![
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "./util".to_owned(),
+                    },
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "serde".to_owned(),
+                    },
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "std:fs".to_owned(),
+                    },
+                    ImportRequest {
+                        importer: "src/main.mini".to_owned(),
+                        specifier: "./missing".to_owned(),
+                    },
+                ],
+            )
+            .expect("resolve imports"),
         vec![
             Resolution::Resolved(vec!["src/util.mini".to_owned()]),
             Resolution::External("serde".to_owned()),
