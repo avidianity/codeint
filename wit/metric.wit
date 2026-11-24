@@ -28,6 +28,8 @@ interface metric {
         language: string,
         /// Whether at least one Coverage report covers at least one file of this language.
         has-coverage: bool,
+        /// Whether this Language plugin defines Hazard line rules.
+        has-hazard-rules: bool,
     }
 
     /// The language-neutral Code model of one Source set that a Metric plugin reads.

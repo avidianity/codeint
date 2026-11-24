@@ -89,4 +89,12 @@ impl Guest for LoopLanguagePlugin {
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
 }

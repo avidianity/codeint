@@ -119,4 +119,12 @@ impl Guest for Dart {
             ],
         )
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
 }

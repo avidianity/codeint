@@ -102,6 +102,14 @@ impl Guest for TypeScriptAndJavaScript {
         })
         .collect()
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
 }
 
 fn source_type(path: &str) -> Result<SourceType, LowerError> {

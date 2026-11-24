@@ -83,6 +83,14 @@ impl Guest for Plain {
             source: "Plain text panel of 40 repositories, Table 3".to_owned(),
         }]
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
 }
 ```
 
@@ -114,6 +122,8 @@ impl Guest for Plain {
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
+- `has_hazard_rules` states whether this Language plugin defines Hazard line rules, and `hazard_rules` returns their stable names (empty when `has_hazard_rules` is `false`).
+  The five built-in Language plugins return `false` and an empty list.
 - Each `Function` has `line` and `end-line`, the lines where it starts and ends, counted from 1; `end-line` equals `line` for a function on one line.
   The core reads the tokens from `line` to `end-line` as the content of the function's Finding identity.
   Each `Function` also carries `coverage: Option<FunctionCoverage>` with `listed_lines` and `executed_lines`.

@@ -1589,3 +1589,73 @@ fn trace_names_program_start_mark_for_marked_production_file_and_omits_it_for_te
         "cmd/app/main.test.prog -> internal/util/live.prog"
     );
 }
+
+#[test]
+fn hazard_facts_metric_plugin_reads_per_language_hazard_rules_from_check() {
+    let repo = init_repo();
+    let lang_hash = copy_wasm_into(
+        &built_sandbox_probe("hazard_rules_language_plugin.wasm"),
+        repo.path(),
+        "plugins/hazard_rules_language_plugin.wasm",
+    );
+    let metric_hash = copy_wasm_into(
+        &built_sandbox_probe("hazard_facts_metric_plugin.wasm"),
+        repo.path(),
+        "plugins/hazard_facts_metric_plugin.wasm",
+    );
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "hazard-lang",
+                  "kind": "language",
+                  "path": "plugins/hazard_rules_language_plugin.wasm",
+                  "sha256": "{lang_hash}"
+                }},
+                {{
+                  "name": "hazard-facts",
+                  "kind": "metric",
+                  "path": "plugins/hazard_facts_metric_plugin.wasm",
+                  "sha256": "{metric_hash}"
+                }}
+              ]
+            }}"#
+        ),
+    );
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export function greet(name: string): string { return name; }\n",
+    );
+    write_file(repo.path(), "queries/clean.haz", "SELECT id FROM users;\n");
+
+    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse json report");
+    let findings = report["source_sets"]["production"]["hazard_facts"]["findings"]
+        .as_array()
+        .expect("hazard_facts findings list");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["path"] == "languages/hazard-lang"
+                && finding["message"] == "language=hazard-lang has_hazard_rules=true"
+        }),
+        "expected hazard-lang has_hazard_rules=true finding, got: {findings:?}"
+    );
+    assert!(
+        findings.iter().any(|finding| {
+            finding["path"] == "languages/typescript-javascript"
+                && finding["message"] == "language=typescript-javascript has_hazard_rules=false"
+        }),
+        "expected typescript-javascript has_hazard_rules=false finding, got: {findings:?}"
+    );
+}

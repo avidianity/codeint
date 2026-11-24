@@ -598,4 +598,12 @@ impl Guest for SampleMiniPlugin {
             source: "sample mini language fixture".to_string(),
         }]
     }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
 }

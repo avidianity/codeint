@@ -219,6 +219,14 @@ interface language {
     /// A Metric without an entry has no published Reference range for this language.
     /// codeint shows a range only next to values that this Language plugin measured.
     reference-ranges: func() -> list<reference-range>;
+
+    /// Whether this Language plugin defines Hazard line rules.
+    /// When false, the Hazards Metric is absent for this language rather than 0.
+    has-hazard-rules: func() -> bool;
+
+    /// The stable names of the Hazard line rules this Language plugin may emit.
+    /// Empty when `has-hazard-rules` returns false.
+    hazard-rules: func() -> list<string>;
 }
 
 /// A Language plugin exports `language` and imports nothing.

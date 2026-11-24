@@ -758,6 +758,7 @@ fn finalize_language_model(
     model.languages = vec![LanguageFacts {
         language: named.name.to_owned(),
         has_coverage: false,
+        has_hazard_rules: named.plugin.has_hazard_rules(),
     }];
     Ok(MeasuredLanguage {
         plugin: named.name.to_owned(),

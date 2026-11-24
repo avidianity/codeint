@@ -259,6 +259,26 @@ fn assert_seam_2_conformance(plugin: &dyn LanguagePlugin, fixture: &ConformanceF
         "{label}: expected erosion reference range"
     );
 
+    let has_hazard_rules = plugin.has_hazard_rules();
+    let hazard_rules = plugin.hazard_rules();
+    if has_hazard_rules {
+        assert!(
+            !hazard_rules.is_empty(),
+            "{label}: has_hazard_rules is true, so hazard_rules must not be empty"
+        );
+    } else {
+        assert!(
+            hazard_rules.is_empty(),
+            "{label}: has_hazard_rules is false, so hazard_rules must be empty"
+        );
+    }
+    for rule in &hazard_rules {
+        assert!(
+            !rule.is_empty(),
+            "{label}: hazard_rules must not contain empty rule names"
+        );
+    }
+
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
             .map(|_| {
