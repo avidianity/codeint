@@ -513,6 +513,9 @@ fn language_plugin_remedy(error: &LanguagePluginError, file: ConfigFileKind) -> 
             "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Language plugin needs more resources, or fix the defect in the plugin.",
             "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.jsonc if the Language plugin needs more resources, or fix the defect in the plugin.",
         ),
+        LanguagePluginError::UnlistedHazardRule { .. } => {
+            "List every Hazard line rule name in the Language plugin's hazard-rules export, or report the defect to the plugin's author."
+        }
         _ => "Fix the defect in the Language plugin, or report it to the plugin's author.",
     }
 }

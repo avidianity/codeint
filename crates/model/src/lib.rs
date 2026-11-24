@@ -378,6 +378,14 @@ pub enum LanguagePluginError {
         call: &'static str,
         reason: String,
     },
+    #[error(
+        "Language plugin {plugin:?} returned a Hazard line with unlisted rule {rule:?} in {path}"
+    )]
+    UnlistedHazardRule {
+        plugin: String,
+        path: RepoPath,
+        rule: String,
+    },
 }
 
 pub fn validate_declared_dependencies(

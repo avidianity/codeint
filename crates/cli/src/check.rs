@@ -16,7 +16,7 @@ use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
-    CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguageFacts,
+    CodeModel, DeclaredDep, DependencyManifest, HazardLine, InvalidReferenceRange, LanguageFacts,
     LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
     Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, SourceSet,
     Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
@@ -611,7 +611,7 @@ fn measure(
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
-    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides)?;
+    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides, config_file)?;
     let models = collect_plugin_models(plugins.len(), workspace, outcomes);
     resolve_measured_snapshot(
         tree,
@@ -624,37 +624,52 @@ fn measure(
     )
 }
 
+fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
+    plugins
+        .iter()
+        .map(|named| {
+            if named.plugin.has_hazard_rules() {
+                named.plugin.hazard_rules().into_iter().collect()
+            } else {
+                HashSet::new()
+            }
+        })
+        .collect()
+}
+
 fn lower_covered_files(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
     overrides: &SourceSetOverrides,
+    config_file: ConfigFileKind,
 ) -> Result<Vec<(usize, LoweredFile)>, CheckError> {
+    let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
+    let lower_file = |bytes: Vec<u8>, path: &RepoPath, index: usize| {
+        let lowered = lower_bytes(
+            bytes,
+            path,
+            &plugins[index],
+            &listed_hazard_rules[index],
+            overrides,
+            config_file,
+        )?;
+        Ok((index, lowered))
+    };
     if let Some(reader) = tree.working_tree_reader() {
         return covered_files
             .par_iter()
-            .map(|&(path, index)| {
-                let bytes = reader.read(path)?;
-                Ok((
-                    index,
-                    lower_bytes(bytes, path, plugins[index].plugin, overrides),
-                ))
-            })
+            .map(|&(path, index)| lower_file(reader.read(path)?, path, index))
             .collect();
     }
     let loaded = covered_files
         .iter()
         .map(|&(path, index)| Ok((path, index, tree.read(path)?)))
         .collect::<Result<Vec<_>, CheckError>>()?;
-    Ok(loaded
+    loaded
         .into_par_iter()
-        .map(|(path, index, bytes)| {
-            (
-                index,
-                lower_bytes(bytes, path, plugins[index].plugin, overrides),
-            )
-        })
-        .collect())
+        .map(|(path, index, bytes)| lower_file(bytes, path, index))
+        .collect()
 }
 
 fn collect_plugin_models(
@@ -1003,30 +1018,52 @@ enum LoweredFile {
     Skipped(SkippedFile),
 }
 
+fn validate_hazard_rule_names(
+    plugin_name: &str,
+    path: &RepoPath,
+    hazard_lines: &[HazardLine],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    for hazard in hazard_lines {
+        if !listed_rules.contains(&hazard.rule) {
+            return Err(LanguagePluginError::UnlistedHazardRule {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                rule: hazard.rule.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn lower_bytes(
     bytes: Vec<u8>,
     path: &RepoPath,
-    plugin: &dyn LanguagePlugin,
+    named: &NamedLanguagePlugin<'_>,
+    listed_hazard_rules: &HashSet<String>,
     overrides: &SourceSetOverrides,
-) -> LoweredFile {
+    config_file: ConfigFileKind,
+) -> Result<LoweredFile, CheckError> {
     let text = match String::from_utf8(bytes) {
         Ok(text) => text,
-        Err(error) => return LoweredFile::Skipped(not_utf8(path.clone(), &error)),
+        Err(error) => return Ok(LoweredFile::Skipped(not_utf8(path.clone(), &error))),
     };
-    match plugin.lower(path, &text) {
+    match named.plugin.lower(path, &text) {
         Ok(mut file) => {
+            validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
+                .map_err(|error| CheckError::language_plugin(config_file, error))?;
             file.source_set =
                 overrides.source_set(path, settle_source_set(path, &text, file.source_set));
-            LoweredFile::Measured(SourceFile {
+            Ok(LoweredFile::Measured(SourceFile {
                 path: path.clone(),
                 model: file,
-            })
+            }))
         }
-        Err(LowerError::DeclarationOnly) => LoweredFile::DeclarationOnly(path.clone()),
-        Err(reason) => LoweredFile::Skipped(SkippedFile {
+        Err(LowerError::DeclarationOnly) => Ok(LoweredFile::DeclarationOnly(path.clone())),
+        Err(reason) => Ok(LoweredFile::Skipped(SkippedFile {
             path: path.clone(),
             reason: reason.to_string(),
-        }),
+        })),
     }
 }
 
