@@ -40,6 +40,7 @@ fn tiny_positive_min_similarity_preserves_nonzero_json_toon_and_markdown_display
             plugin: "typescript-javascript".to_owned(),
             model,
             reference_ranges: ReferenceRanges::default(),
+            has_imports: true,
         }],
         Vec::new(),
         FindingsShown::default(),

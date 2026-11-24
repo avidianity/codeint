@@ -11,6 +11,7 @@ let report = Report::summarize(
         plugin: "typescript-javascript".to_owned(),
         model,
         reference_ranges,
+        has_imports: true,
     }],
     submodules,
     FindingsShown::default(),
@@ -28,6 +29,7 @@ if !report.over_budget().is_empty() {
 - `Report::summarize` splits the merged `CodeModel` by Source set, computes all Metrics per Source set, evaluates Dependency hygiene per Language plugin when manifests are present, and checks every `Budget`.
 - Use `Report::summarize_with_options` and `CommitMeasurement::of_languages_with_options` to pass `DependenciesConfig` (including `dependencies.ignore`), `Boundaries`, external Metric plugins, `OwnershipOptions`, and optional precomputed `orphan_files`, `dependency_hygiene`, and `dependency_hygiene_by_language` (used when `--package` evaluates cross-package reachability and workspace hoisting before filtering).
 - When two or more Language plugins measure files, the report adds a `languages` section per plugin and omits Reference ranges on the combined totals.
+- When `MeasuredLanguage::has_imports` is `false`, TOON and JSON reports omit `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` for that language and emit a one-line `import_metrics_note`.
 - `render` formats the report as `Toon`, `Json`, `Sarif`, or `Markdown`.
 - SARIF output emits one result per listed Finding and stores each Finding id in `partialFingerprints.codeintFindingId`.
   When overlapping or transitively related Clone groups form a Clone family across three or more locations, `duplication.clone_families` lists the Clone families worst-first by `duplicated_lines` in JSON, TOON, Markdown, and MCP, and SARIF emits one consolidated result per Clone family instead of duplicate results for its member Clone groups.
