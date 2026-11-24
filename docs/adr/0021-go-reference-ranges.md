@@ -1,10 +1,10 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Go Reference ranges come from a panel of 20 public repositories
 
-This record proposes calibrated Go Reference ranges for Spec #228 (Tickets #425 to #428) using the pre-2023 human-written selection rule established in [ADR 0008](./0008-typescript-reference-ranges.md).
+This record establishes calibrated Go Reference ranges for Spec #228 (Tickets #425 to #428) using the pre-2023 human-written selection rule established in [ADR 0008](./0008-typescript-reference-ranges.md).
 
 ## Context
 
