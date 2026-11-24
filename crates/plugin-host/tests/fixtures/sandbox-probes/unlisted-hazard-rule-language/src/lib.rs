@@ -94,4 +94,8 @@ impl Guest for UnlistedHazardRuleLanguagePlugin {
     fn hazard_rules() -> Vec<String> {
         vec!["allowed-rule".to_string()]
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }

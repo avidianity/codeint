@@ -45,6 +45,9 @@ pub fn choose_manifests(
     plugin: &dyn LanguagePlugin,
     repository_paths: &[RepoPath],
 ) -> Result<Vec<RepoPath>, ResolveError> {
+    if !plugin.has_imports() {
+        return Ok(Vec::new());
+    }
     let known_paths: HashSet<&str> = repository_paths.iter().map(RepoPath::as_str).collect();
     plugin
         .manifest_paths(repository_paths)
@@ -65,6 +68,9 @@ pub fn resolve_runtime_imports(
     manifests: Vec<Manifest>,
     importers: &[&SourceFile],
 ) -> Result<Vec<RuntimeImport>, ResolveError> {
+    if !plugin.has_imports() {
+        return Ok(Vec::new());
+    }
     let pending: Vec<(&RepoPath, &String)> = importers
         .iter()
         .flat_map(|file| {

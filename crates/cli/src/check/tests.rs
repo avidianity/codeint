@@ -94,6 +94,10 @@ macro_rules! every_import_is_external {
         fn hazard_rules() -> Vec<String> {
             Vec::new()
         }
+
+        fn has_imports() -> bool {
+            true
+        }
     };
     (imports_only) => {
         fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
@@ -841,6 +845,10 @@ impl LanguagePlugin for ParallelProofPlugin {
     fn hazard_rules(&self) -> Vec<String> {
         Vec::new()
     }
+
+    fn has_imports(&self) -> bool {
+        true
+    }
 }
 
 #[test]
@@ -1135,6 +1143,10 @@ fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements()
                 "leading-wildcard-like".to_owned(),
             ]
         }
+
+        fn has_imports() -> bool {
+            true
+        }
     }
 
     const WITH_HAZARD_RULES: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
@@ -1172,6 +1184,7 @@ fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements()
                     language: "alpha".to_owned(),
                     has_coverage: false,
                     has_hazard_rules: false,
+                    has_imports: true,
                 }][..]
             ),
             (
@@ -1180,8 +1193,98 @@ fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements()
                     language: "hazard-lang".to_owned(),
                     has_coverage: false,
                     has_hazard_rules: true,
+                    has_imports: true,
                 }][..]
             ),
         ]
+    );
+}
+
+#[test]
+fn no_imports_language_plugin_never_has_import_manifest_or_entry_point_functions_called() {
+    struct NoImports;
+
+    impl Guest for NoImports {
+        fn extensions() -> Vec<String> {
+            vec!["noimp".to_owned()]
+        }
+
+        fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+            let mut model = lines_of(&text)?;
+            model.runtime_imports.push("./never-resolved".to_owned());
+            Ok(model)
+        }
+
+        fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
+            panic!("manifest_paths must not be called when has_imports is false");
+        }
+
+        fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+            panic!("workspace_packages must not be called when has_imports is false");
+        }
+
+        fn resolve_imports(
+            _repository_paths: Vec<String>,
+            _manifests: Vec<Manifest>,
+            _requests: Vec<ImportRequest>,
+        ) -> Vec<Resolution> {
+            panic!("resolve_imports must not be called when has_imports is false");
+        }
+
+        fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+            panic!("declared_dependencies must not be called when has_imports is false");
+        }
+
+        fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
+            panic!("entry_points must not be called when has_imports is false");
+        }
+
+        fn reference_ranges() -> Vec<ReferenceRange> {
+            Vec::new()
+        }
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> Vec<String> {
+            Vec::new()
+        }
+
+        fn has_imports() -> bool {
+            false
+        }
+    }
+
+    const NO_IMPORTS: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+        name: "no-imports",
+        plugin: &NoImports,
+    };
+
+    let folder = repository(&[("main.alpha", "one\n"), ("query.noimp", "two\n")]);
+    let repo = Repository::discover(folder.path()).expect("open repository");
+    let tree = repo.working_tree().expect("read working tree");
+
+    let snapshot = measure_snapshot(&tree, &[ALPHA, NO_IMPORTS], &Configuration::default())
+        .expect("measure snapshot skips import, manifest, and entry point calls");
+
+    let no_imports_lang = snapshot
+        .languages
+        .iter()
+        .find(|language| language.plugin == "no-imports")
+        .expect("no-imports language measured");
+    assert_eq!(no_imports_lang.model.files.len(), 1);
+    assert!(no_imports_lang.model.runtime_imports.is_empty());
+    assert!(no_imports_lang.model.declared_dependencies.is_empty());
+    assert!(no_imports_lang.model.dependency_manifests.is_empty());
+    assert!(no_imports_lang.model.manifest_used_dependencies.is_empty());
+    assert_eq!(
+        no_imports_lang.model.languages,
+        vec![LanguageFacts {
+            language: "no-imports".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+            has_imports: false,
+        }]
     );
 }

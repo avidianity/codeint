@@ -711,10 +711,14 @@ fn resolve_measured_snapshot(
         .zip(manifests_by_plugin)
         .zip(plugin_members)
     {
-        let manifest_entries = named
-            .plugin
-            .entry_points(tree.files(), manifests.clone())
-            .map_err(|error| CheckError::language_plugin(config_file, error))?;
+        let manifest_entries = if named.plugin.has_imports() {
+            named
+                .plugin
+                .entry_points(tree.files(), manifests.clone())
+                .map_err(|error| CheckError::language_plugin(config_file, error))?
+        } else {
+            Vec::new()
+        };
         let combined_entries =
             combine_entry_points(manifest_entries, &model.files, configured_entry_points);
         let measured =
@@ -753,35 +757,39 @@ fn finalize_language_model(
     repository_paths: &[RepoPath],
     config_file: ConfigFileKind,
 ) -> Result<MeasuredLanguage, CheckError> {
-    let importers: Vec<&SourceFile> = model.files.iter().collect();
     let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
-    let declared_dependencies = named
-        .plugin
-        .declared_dependencies(manifests.clone())
-        .map_err(|error| CheckError::language_plugin(config_file, error))?;
-    model.dependency_manifests = collect_dependency_manifests(
-        &manifests,
-        plugin_members,
-        &declared_dependencies,
-        &model.files,
-    );
-    model.manifest_used_dependencies = crate::package_scripts::extract_manifest_used_dependencies(
-        &manifests,
-        plugin_members,
-        &declared_dependencies,
-    );
-    model.declared_dependencies = declared_dependencies;
-    model.runtime_imports =
-        resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers).map_err(
-            |source| CheckError::Resolve {
-                plugin: named.name.to_owned(),
-                source,
-            },
-        )?;
+    let has_imports = named.plugin.has_imports();
+    if has_imports {
+        let importers: Vec<&SourceFile> = model.files.iter().collect();
+        let declared_dependencies = named
+            .plugin
+            .declared_dependencies(manifests.clone())
+            .map_err(|error| CheckError::language_plugin(config_file, error))?;
+        model.dependency_manifests = collect_dependency_manifests(
+            &manifests,
+            plugin_members,
+            &declared_dependencies,
+            &model.files,
+        );
+        model.manifest_used_dependencies =
+            crate::package_scripts::extract_manifest_used_dependencies(
+                &manifests,
+                plugin_members,
+                &declared_dependencies,
+            );
+        model.declared_dependencies = declared_dependencies;
+        model.runtime_imports =
+            resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
+                .map_err(|source| CheckError::Resolve {
+                    plugin: named.name.to_owned(),
+                    source,
+                })?;
+    }
     model.languages = vec![LanguageFacts {
         language: named.name.to_owned(),
         has_coverage: false,
         has_hazard_rules: named.plugin.has_hazard_rules(),
+        has_imports,
     }];
     Ok(MeasuredLanguage {
         plugin: named.name.to_owned(),
@@ -974,6 +982,9 @@ pub(crate) fn read_manifests(
     plugins
         .iter()
         .map(|named| {
+            if !named.plugin.has_imports() {
+                return Ok(Vec::new());
+            }
             choose_manifests(named.plugin, tree.files())
                 .map_err(|source| CheckError::Resolve {
                     plugin: named.name.to_owned(),
@@ -1008,7 +1019,12 @@ fn find_plugin_workspaces(
     plugins
         .iter()
         .zip(manifests_by_plugin)
-        .map(|(named, manifests)| Ok(named.plugin.workspace_packages(manifests.clone())?))
+        .map(|(named, manifests)| {
+            if !named.plugin.has_imports() {
+                return Ok(Vec::new());
+            }
+            Ok(named.plugin.workspace_packages(manifests.clone())?)
+        })
         .collect()
 }
 

@@ -92,6 +92,10 @@ impl Guest for Plain {
     fn hazard_rules() -> Vec<String> {
         Vec::new()
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }
 ```
 
@@ -125,6 +129,9 @@ impl Guest for Plain {
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
 - `has_hazard_rules` states whether this Language plugin defines Hazard line rules, and `hazard_rules` returns their stable names (empty when `has_hazard_rules` is `false`).
   The five built-in Language plugins return `false` and an empty list.
+- `has_imports` states whether the language has runtime imports, manifests, and entry points.
+  When `has_imports` returns `false`, codeint never calls `manifest_paths`, `workspace_packages`, `resolve_imports`, `declared_dependencies`, or `entry_points`.
+  The five built-in Language plugins return `true`.
 - Each `Function` has `line` and `end-line`, the lines where it starts and ends, counted from 1; `end-line` equals `line` for a function on one line.
   The core reads the tokens from `line` to `end-line` as the content of the function's Finding identity.
   Each `Function` also carries `coverage: Option<FunctionCoverage>` with `listed_lines` and `executed_lines`.

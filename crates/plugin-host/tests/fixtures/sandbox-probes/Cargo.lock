@@ -104,6 +104,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
+name = "import-capability-metric-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "imports-reader-metric-plugin"
 version = "0.1.0"
 dependencies = [
@@ -197,6 +205,14 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memory-hog-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "no-imports-language-plugin"
 version = "0.1.0"
 dependencies = [
  "probe-runtime",

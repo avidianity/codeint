@@ -1281,6 +1281,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
             language: "typescript-javascript".to_owned(),
             has_coverage: false,
             has_hazard_rules: false,
+            has_imports: true,
         }],
         ..coverage_model_with(Vec::new())
     };
@@ -1289,6 +1290,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
             language: "typescript-javascript".to_owned(),
             has_coverage: true,
             has_hazard_rules: false,
+            has_imports: true,
         }],
         ..coverage_model_with(Vec::new())
     };
@@ -1333,6 +1335,7 @@ fn metric_plugin_reads_per_language_coverage_statement() {
             language: "rust".to_owned(),
             has_coverage: true,
             has_hazard_rules: false,
+            has_imports: true,
         }],
         ..CodeModel::default()
     };
@@ -1414,6 +1417,7 @@ fn metric_plugin_reads_per_language_hazard_rules_statement() {
             language: "typescript-javascript".to_owned(),
             has_coverage: false,
             has_hazard_rules: false,
+            has_imports: true,
         }],
         ..coverage_model_with(Vec::new())
     };
@@ -1422,6 +1426,7 @@ fn metric_plugin_reads_per_language_hazard_rules_statement() {
             language: "sql".to_owned(),
             has_coverage: false,
             has_hazard_rules: true,
+            has_imports: false,
         }],
         ..CodeModel::default()
     };
@@ -1627,6 +1632,7 @@ fn language_plugin_reports_hazard_lines_and_metric_plugin_reads_them() {
             language: "hazard-lang".to_owned(),
             has_coverage: false,
             has_hazard_rules: true,
+            has_imports: true,
         }],
         ..CodeModel::default()
     };
@@ -1656,4 +1662,123 @@ fn language_plugin_reports_hazard_lines_and_metric_plugin_reads_them() {
     assert_eq!(measured.findings[1].line, 2);
     assert_eq!(measured.findings[2].path, unsafe_path);
     assert_eq!(measured.findings[2].line, 3);
+}
+
+#[test]
+fn built_in_language_plugins_state_they_have_imports() {
+    use codeint_lang_dart::Dart;
+    use codeint_lang_php::Php;
+    use codeint_lang_python::Python;
+    use codeint_lang_rust::Rust;
+    use codeint_lang_ts::TypeScriptAndJavaScript;
+
+    let plugins: [(&str, &dyn LanguagePlugin); 5] = [
+        ("typescript-javascript", &TypeScriptAndJavaScript),
+        ("rust", &Rust),
+        ("php", &Php),
+        ("dart", &Dart),
+        ("python", &Python),
+    ];
+
+    for (name, plugin) in plugins {
+        assert!(
+            plugin.has_imports(),
+            "{name} built-in Language plugin must report has_imports = true"
+        );
+    }
+}
+
+#[test]
+fn language_plugin_exports_has_imports_false_across_wasm_boundary() {
+    let wasm_path = sandbox_probe_wasm("no_imports_language_plugin.wasm");
+    let declaration = declaration_for("no-imports-language", &wasm_path);
+    let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("no-imports Language plugin loads");
+
+    assert_eq!(plugin.extensions(), vec!["noimp"]);
+    assert!(!plugin.has_imports());
+    let lowered = plugin
+        .lower(
+            &RepoPath::new("queries/select.noimp").expect("valid repo path"),
+            "fn select_users()\n",
+        )
+        .expect("no-imports Language plugin lowers .noimp file");
+    assert_eq!(lowered.source_lines, 1);
+    assert_eq!(lowered.functions.len(), 1);
+    assert!(lowered.runtime_imports.is_empty());
+}
+
+#[test]
+fn metric_plugin_reads_per_language_has_imports_statement() {
+    let wasm_path = sandbox_probe_wasm("import_capability_metric_plugin.wasm");
+    let declaration = declaration_with_kind("import-capability", PluginKind::Metric, &wasm_path);
+    let plugin = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .expect("import-capability Metric plugin loads");
+
+    assert_eq!(plugin.key(), "import_capability");
+
+    let with_imports = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+            has_imports: true,
+        }],
+        ..coverage_model_with(Vec::new())
+    };
+    let without_imports = CodeModel {
+        languages: vec![LanguageFacts {
+            language: "no-imports-lang".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+            has_imports: false,
+        }],
+        ..CodeModel::default()
+    };
+
+    let with_measured = plugin
+        .measure(&with_imports)
+        .expect("measure language with imports");
+    let without_measured = plugin
+        .measure(&without_imports)
+        .expect("measure language without imports");
+
+    assert!((with_measured.ratio - 1.0).abs() < 1e-9);
+    assert_eq!(
+        summarize_findings(&with_measured),
+        vec![(
+            "imports:typescript-javascript:imports",
+            "language=typescript-javascript has_imports=true",
+        )]
+    );
+
+    assert!((without_measured.ratio - 0.0).abs() < 1e-9);
+    assert_eq!(
+        summarize_findings(&without_measured),
+        vec![(
+            "imports:no-imports-lang:no-imports",
+            "language=no-imports-lang has_imports=false",
+        )]
+    );
+
+    let merged = CodeModel::merge([with_imports, without_imports]);
+    let source_sets = merged.into_source_sets();
+    let multi_measured = plugin
+        .measure(source_sets.get(SourceSet::Production))
+        .expect("measure merged multi-language model");
+
+    assert!((multi_measured.ratio - 0.5).abs() < 1e-9);
+    assert_eq!(
+        summarize_findings(&multi_measured),
+        vec![
+            (
+                "imports:no-imports-lang:no-imports",
+                "language=no-imports-lang has_imports=false",
+            ),
+            (
+                "imports:typescript-javascript:imports",
+                "language=typescript-javascript has_imports=true",
+            ),
+        ]
+    );
 }

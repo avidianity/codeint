@@ -1590,18 +1590,17 @@ fn trace_names_program_start_mark_for_marked_production_file_and_omits_it_for_te
     );
 }
 
-fn init_hazard_rules_repo_with_metric() -> TempDir {
+fn init_paired_language_and_metric_repo(
+    language_name: &str,
+    language_wasm: &str,
+    metric_name: &str,
+    metric_wasm: &str,
+) -> TempDir {
     let repo = init_repo();
-    let lang_hash = copy_wasm_into(
-        &built_sandbox_probe("hazard_rules_language_plugin.wasm"),
-        repo.path(),
-        "plugins/hazard_rules_language_plugin.wasm",
-    );
-    let metric_hash = copy_wasm_into(
-        &built_sandbox_probe("hazard_facts_metric_plugin.wasm"),
-        repo.path(),
-        "plugins/hazard_facts_metric_plugin.wasm",
-    );
+    let lang_rel = format!("plugins/{language_wasm}");
+    let metric_rel = format!("plugins/{metric_wasm}");
+    let lang_hash = copy_wasm_into(&built_sandbox_probe(language_wasm), repo.path(), &lang_rel);
+    let metric_hash = copy_wasm_into(&built_sandbox_probe(metric_wasm), repo.path(), &metric_rel);
     write_file(
         repo.path(),
         "codeint.json",
@@ -1609,15 +1608,15 @@ fn init_hazard_rules_repo_with_metric() -> TempDir {
             r#"{{
               "plugins": [
                 {{
-                  "name": "hazard-lang",
+                  "name": "{language_name}",
                   "kind": "language",
-                  "path": "plugins/hazard_rules_language_plugin.wasm",
+                  "path": "{lang_rel}",
                   "sha256": "{lang_hash}"
                 }},
                 {{
-                  "name": "hazard-facts",
+                  "name": "{metric_name}",
                   "kind": "metric",
-                  "path": "plugins/hazard_facts_metric_plugin.wasm",
+                  "path": "{metric_rel}",
                   "sha256": "{metric_hash}"
                 }}
               ]
@@ -1627,7 +1626,16 @@ fn init_hazard_rules_repo_with_metric() -> TempDir {
     repo
 }
 
-fn run_check_hazard_facts_findings(repo: &Path) -> Vec<Value> {
+fn init_hazard_rules_repo_with_metric() -> TempDir {
+    init_paired_language_and_metric_repo(
+        "hazard-lang",
+        "hazard_rules_language_plugin.wasm",
+        "hazard-facts",
+        "hazard_facts_metric_plugin.wasm",
+    )
+}
+
+fn run_check_json_report(repo: &Path) -> Value {
     let output = run_codeint(repo, &["check", "--format", "json"]);
     assert_eq!(
         output.status.code(),
@@ -1636,7 +1644,33 @@ fn run_check_hazard_facts_findings(repo: &Path) -> Vec<Value> {
         output.status.code(),
         String::from_utf8_lossy(&output.stderr)
     );
-    let report: Value = serde_json::from_slice(&output.stdout).expect("parse json report");
+    serde_json::from_slice(&output.stdout).expect("parse json report")
+}
+
+fn run_paired_language_and_metric_probe_check(
+    language_name: &str,
+    language_wasm: &str,
+    metric_name: &str,
+    metric_wasm: &str,
+    extra_file: (&str, &str),
+) -> Value {
+    let repo = init_paired_language_and_metric_repo(
+        language_name,
+        language_wasm,
+        metric_name,
+        metric_wasm,
+    );
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export function greet(name: string): string { return name; }\n",
+    );
+    write_file(repo.path(), extra_file.0, extra_file.1);
+    run_check_json_report(repo.path())
+}
+
+fn run_check_hazard_facts_findings(repo: &Path) -> Vec<Value> {
+    let report = run_check_json_report(repo);
     report["source_sets"]["production"]["hazard_facts"]["findings"]
         .as_array()
         .expect("hazard_facts findings list")
@@ -1860,4 +1894,32 @@ fn listed_hazard_line_rule_is_accepted_by_check() {
     );
     let report: Value = serde_json::from_slice(&output.stdout).expect("parse json report");
     assert_eq!(report["files"], 1);
+}
+
+#[test]
+fn no_imports_language_plugin_check_skips_import_calls_and_metric_reads_has_imports() {
+    let report = run_paired_language_and_metric_probe_check(
+        "no-imports-lang",
+        "no_imports_language_plugin.wasm",
+        "import-capability",
+        "import_capability_metric_plugin.wasm",
+        ("queries/users.noimp", "fn select_users()\n"),
+    );
+    let findings = report["source_sets"]["production"]["import_capability"]["findings"]
+        .as_array()
+        .expect("import_capability findings list");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["path"] == "languages/no-imports-lang"
+                && finding["message"] == "language=no-imports-lang has_imports=false"
+        }),
+        "expected no-imports-lang has_imports=false finding, got: {findings:?}"
+    );
+    assert!(
+        findings.iter().any(|finding| {
+            finding["path"] == "languages/typescript-javascript"
+                && finding["message"] == "language=typescript-javascript has_imports=true"
+        }),
+        "expected typescript-javascript has_imports=true finding, got: {findings:?}"
+    );
 }

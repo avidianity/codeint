@@ -152,6 +152,7 @@ pub struct LanguageFacts {
     pub language: String,
     pub has_coverage: bool,
     pub has_hazard_rules: bool,
+    pub has_imports: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -200,6 +201,7 @@ impl CodeModel {
                     .and_modify(|existing| {
                         existing.has_coverage |= facts.has_coverage;
                         existing.has_hazard_rules |= facts.has_hazard_rules;
+                        existing.has_imports |= facts.has_imports;
                     })
                     .or_insert(facts);
             }
@@ -466,6 +468,8 @@ pub trait LanguagePlugin: Sync {
     fn has_hazard_rules(&self) -> bool;
 
     fn hazard_rules(&self) -> Vec<String>;
+
+    fn has_imports(&self) -> bool;
 }
 
 impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
@@ -528,6 +532,10 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
 
     fn hazard_rules(&self) -> Vec<String> {
         Plugin::hazard_rules()
+    }
+
+    fn has_imports(&self) -> bool {
+        Plugin::has_imports()
     }
 }
 

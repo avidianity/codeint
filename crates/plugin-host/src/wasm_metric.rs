@@ -258,6 +258,7 @@ fn to_guest_code_model(model: &CodeModel) -> guest_metric::CodeModel {
                 language: facts.language.clone(),
                 has_coverage: facts.has_coverage,
                 has_hazard_rules: facts.has_hazard_rules,
+                has_imports: facts.has_imports,
             })
             .collect(),
     }

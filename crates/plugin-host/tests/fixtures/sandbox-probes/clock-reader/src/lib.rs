@@ -84,4 +84,8 @@ impl Guest for ClockReaderPlugin {
     fn hazard_rules() -> Vec<String> {
         Vec::new()
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }

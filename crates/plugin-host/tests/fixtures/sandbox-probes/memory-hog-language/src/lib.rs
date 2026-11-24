@@ -163,4 +163,8 @@ impl Guest for MemoryHogLanguagePlugin {
     fn hazard_rules() -> Vec<String> {
         vec![]
     }
+
+    fn has_imports() -> bool {
+        true
+    }
 }

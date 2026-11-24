@@ -240,6 +240,11 @@ interface language {
     /// The stable names of the Hazard line rules this Language plugin may emit.
     /// Empty when `has-hazard-rules` returns false.
     hazard-rules: func() -> list<string>;
+
+    /// Whether this language has runtime imports, manifests, and entry points.
+    /// When false, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`,
+    /// `declared-dependencies`, or `entry-points`, and import Metrics are absent for this language.
+    has-imports: func() -> bool;
 }
 
 /// A Language plugin exports `language` and imports nothing.

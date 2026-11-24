@@ -143,6 +143,7 @@ pub struct WasmLanguagePlugin {
     extensions: Vec<String>,
     has_hazard_rules: bool,
     hazard_rules: Vec<String>,
+    has_imports: bool,
     instances:
         InstancePool<bindings::LanguagePluginPre<PluginStoreState>, bindings::LanguagePlugin>,
 }
@@ -310,11 +311,27 @@ impl WasmLanguagePlugin {
             })?;
         let (rule_count, rule_bytes) = hazard_rules.lifted_budget();
         enforce_lifted_budget(&name, limits, rule_count, rule_bytes)?;
+        arm_call_deadline(&mut component.store, limits);
+        let has_imports = component
+            .bindings
+            .codeint_plugin_language()
+            .call_has_imports(&mut component.store)
+            .map_err(|error| {
+                map_host_trap(
+                    &name,
+                    path,
+                    Some("has-imports"),
+                    limits,
+                    &component.store,
+                    error,
+                )
+            })?;
         Ok(WasmLanguagePlugin {
             name,
             extensions,
             has_hazard_rules,
             hazard_rules,
+            has_imports,
             instances: InstancePool::from_component(component, limits),
         })
     }
@@ -369,6 +386,10 @@ impl WasmLanguagePlugin {
 
     pub(crate) fn hazard_rules_impl(&self) -> Vec<String> {
         self.hazard_rules.clone()
+    }
+
+    pub(crate) fn has_imports_impl(&self) -> bool {
+        self.has_imports
     }
 
     pub(crate) fn lower_impl(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {

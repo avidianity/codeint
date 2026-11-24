@@ -21,6 +21,8 @@ members = [
     "folder-import-language",
     "imports-reader-metric",
     "unlisted-hazard-rule-language",
+    "no-imports-language",
+    "import-capability-metric",
 ]
 
 [workspace.package]
