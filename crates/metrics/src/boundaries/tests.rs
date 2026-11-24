@@ -19,6 +19,7 @@ fn production_file(name: &str) -> SourceFile {
             functions: Vec::new(),
             tokens: Vec::new(),
             flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
             runtime_imports: Vec::new(),
             program_start: false,
         },
