@@ -378,6 +378,15 @@ pub enum LanguagePluginError {
         call: &'static str,
         reason: String,
     },
+    #[error(
+        "Language plugin {plugin:?} returned Hazard line {line} in {path}, which is outside the file's {line_count} lines"
+    )]
+    HazardLineOutOfRange {
+        plugin: String,
+        path: RepoPath,
+        line: u32,
+        line_count: usize,
+    },
 }
 
 pub fn validate_declared_dependencies(

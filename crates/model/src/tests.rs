@@ -524,3 +524,19 @@ fn language_plugin_trait_forwards_hazard_rules_exports() {
     assert!(!plugin.has_hazard_rules());
     assert!(plugin.hazard_rules().is_empty());
 }
+
+#[test]
+fn hazard_line_out_of_range_error_names_plugin_file_and_line() {
+    let error = LanguagePluginError::HazardLineOutOfRange {
+        plugin: "hazard-lang".to_owned(),
+        path: path("queries/bad.haz"),
+        line: 5,
+        line_count: 3,
+    };
+    let message = error.to_string();
+
+    assert!(message.contains("hazard-lang"), "message: {message}");
+    assert!(message.contains("queries/bad.haz"), "message: {message}");
+    assert!(message.contains("line 5"), "message: {message}");
+    assert!(message.contains("3 lines"), "message: {message}");
+}

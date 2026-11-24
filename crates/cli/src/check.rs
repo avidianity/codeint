@@ -16,7 +16,7 @@ use codeint_lang_rust::Rust;
 use codeint_lang_ts::{TypeScriptAndJavaScript, vue_reference_ranges};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
-    CodeModel, DeclaredDep, DependencyManifest, InvalidReferenceRange, LanguageFacts,
+    CodeModel, DeclaredDep, DependencyManifest, HazardLine, InvalidReferenceRange, LanguageFacts,
     LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
     Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, SourceSet,
     Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
@@ -611,7 +611,7 @@ fn measure(
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
-    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides)?;
+    let outcomes = lower_covered_files(tree, plugins, &covered_files, overrides, config_file)?;
     let models = collect_plugin_models(plugins.len(), workspace, outcomes);
     resolve_measured_snapshot(
         tree,
@@ -629,16 +629,15 @@ fn lower_covered_files(
     plugins: &[NamedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
     overrides: &SourceSetOverrides,
+    config_file: ConfigFileKind,
 ) -> Result<Vec<(usize, LoweredFile)>, CheckError> {
     if let Some(reader) = tree.working_tree_reader() {
         return covered_files
             .par_iter()
             .map(|&(path, index)| {
                 let bytes = reader.read(path)?;
-                Ok((
-                    index,
-                    lower_bytes(bytes, path, plugins[index].plugin, overrides),
-                ))
+                let lowered = lower_bytes(bytes, path, &plugins[index], overrides, config_file)?;
+                Ok((index, lowered))
             })
             .collect();
     }
@@ -646,15 +645,13 @@ fn lower_covered_files(
         .iter()
         .map(|&(path, index)| Ok((path, index, tree.read(path)?)))
         .collect::<Result<Vec<_>, CheckError>>()?;
-    Ok(loaded
+    loaded
         .into_par_iter()
         .map(|(path, index, bytes)| {
-            (
-                index,
-                lower_bytes(bytes, path, plugins[index].plugin, overrides),
-            )
+            let lowered = lower_bytes(bytes, path, &plugins[index], overrides, config_file)?;
+            Ok((index, lowered))
         })
-        .collect())
+        .collect()
 }
 
 fn collect_plugin_models(
@@ -1006,28 +1003,52 @@ enum LoweredFile {
 fn lower_bytes(
     bytes: Vec<u8>,
     path: &RepoPath,
-    plugin: &dyn LanguagePlugin,
+    named: &NamedLanguagePlugin<'_>,
     overrides: &SourceSetOverrides,
-) -> LoweredFile {
+    config_file: ConfigFileKind,
+) -> Result<LoweredFile, CheckError> {
     let text = match String::from_utf8(bytes) {
         Ok(text) => text,
-        Err(error) => return LoweredFile::Skipped(not_utf8(path.clone(), &error)),
+        Err(error) => return Ok(LoweredFile::Skipped(not_utf8(path.clone(), &error))),
     };
-    match plugin.lower(path, &text) {
+    match named.plugin.lower(path, &text) {
         Ok(mut file) => {
+            validate_hazard_line_bounds(named.name, path, &text, &file.hazard_lines)
+                .map_err(|error| CheckError::language_plugin(config_file, error))?;
             file.source_set =
                 overrides.source_set(path, settle_source_set(path, &text, file.source_set));
-            LoweredFile::Measured(SourceFile {
+            Ok(LoweredFile::Measured(SourceFile {
                 path: path.clone(),
                 model: file,
-            })
+            }))
         }
-        Err(LowerError::DeclarationOnly) => LoweredFile::DeclarationOnly(path.clone()),
-        Err(reason) => LoweredFile::Skipped(SkippedFile {
+        Err(LowerError::DeclarationOnly) => Ok(LoweredFile::DeclarationOnly(path.clone())),
+        Err(reason) => Ok(LoweredFile::Skipped(SkippedFile {
             path: path.clone(),
             reason: reason.to_string(),
-        }),
+        })),
     }
+}
+
+fn validate_hazard_line_bounds(
+    plugin_name: &str,
+    path: &RepoPath,
+    text: &str,
+    hazard_lines: &[HazardLine],
+) -> Result<(), LanguagePluginError> {
+    let line_count = text.lines().count();
+    for hazard in hazard_lines {
+        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
+        if line_number < 1 || line_number > line_count {
+            return Err(LanguagePluginError::HazardLineOutOfRange {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                line: hazard.line,
+                line_count,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {

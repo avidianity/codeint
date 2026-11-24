@@ -30,6 +30,7 @@ impl Guest for HazardRulesLanguagePlugin {
         if !path.ends_with(".haz") {
             return Err(LowerError::UnsupportedFile("unsupported".to_string()));
         }
+        let line_count = text.lines().count() as u32;
         let source_lines = text.lines().filter(|line| !line.trim().is_empty()).count() as u32;
         let mut hazard_lines = Vec::new();
         for (index, line) in text.lines().enumerate() {
@@ -44,6 +45,18 @@ impl Guest for HazardRulesLanguagePlugin {
                 hazard_lines.push(HazardLine {
                     line: line_number,
                     rule: "leading-wildcard-like".to_string(),
+                });
+            }
+            if line.contains("HAZARD_BEYOND_EOF") {
+                hazard_lines.push(HazardLine {
+                    line: line_count + 1,
+                    rule: "delete-without-where".to_string(),
+                });
+            }
+            if line.contains("HAZARD_LINE_ZERO") {
+                hazard_lines.push(HazardLine {
+                    line: 0,
+                    rule: "delete-without-where".to_string(),
                 });
             }
         }
