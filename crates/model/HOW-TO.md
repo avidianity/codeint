@@ -229,7 +229,7 @@ for (source_set, files) in source_sets.iter() {
 - `into_source_sets` moves each file into the `CodeModel` of its Source set.
 - It moves each `RuntimeImport` into the `CodeModel` of its importer's Source set, so an import of a file in another Source set adds no edge there.
 - Every Source set gets a `CodeModel`, empty when no file belongs to it.
-- Every Source set's `CodeModel` keeps the whole `workspace`, so each Source set splits into the same workspace packages.
+- Every Source set's `CodeModel` keeps the whole `workspace` and `languages`, so each Source set splits into the same workspace packages and carries the same per-language facts.
 - `iter` yields the Source sets in the order Production, Test, Generated, Vendored.
 - A skipped or declaration-only file belongs to no Source set.
   Read `skipped` and `declaration_only` before the split; the split leaves them out.
@@ -262,6 +262,6 @@ use codeint_model::CodeModel;
 let total = CodeModel::merge([typescript_model, python_model]);
 ```
 
-- `merge` joins the files, skipped files, declaration-only files, runtime imports, declared dependencies, dependency manifests, manifest-used dependencies, and workspace packages of every model.
+- `merge` joins the files, skipped files, declaration-only files, runtime imports, declared dependencies, dependency manifests, manifest-used dependencies, workspace packages, and per-language facts (`languages`) of every model.
 - Give each Language plugin's `CodeModel` the whole `workspace` that every plugin found, so each per-language section lists the same workspace packages as the total.
-- It orders files, skipped files, and declaration-only files by path, so the total does not depend on the order of the plugins.
+- It orders files, skipped files, declaration-only files, and `languages` deterministically by path or language name, so the total does not depend on the order of the plugins.

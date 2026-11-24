@@ -160,7 +160,7 @@ The Plugin host enforces these rules at load and measurement time:
 - Compute each Finding `id` from file path and content (never from line numbers) so `codeint diff` tracks moved Findings as unchanged.
 - Order `findings` worst first.
 
-### Per-function coverage facts
+### Coverage facts in the Code model
 
 Each `function` in `file-model` carries `coverage: option<function-coverage>`, where `function-coverage` holds two counts from Coverage reports:
 
@@ -174,6 +174,17 @@ Rules for `function.coverage`:
 - `none` means no Coverage report covers the function.
 - `some({ listed-lines, executed-lines: 0 })` means a Coverage report covers the function and tests executed 0 of its listed lines.
   A Metric plugin can distinguish absent coverage (`none`) from 0 executed lines (`some` with `executed-lines == 0`).
+
+`code-model` also carries `languages: list<language-facts>`, sorted by `language` name, where each `language-facts` record holds:
+
+- `language`: the Language plugin name, such as `typescript-javascript` or `rust`.
+- `has-coverage`: whether at least one Coverage report covers at least one file of that language.
+
+Rules for `code-model.languages` and `has-coverage`:
+
+- codeint attaches one `language-facts` entry per language in the Code model and preserves `languages` on every Source set.
+- `has-coverage` is `false` until codeint fills coverage facts from Coverage reports after Language plugins run and before Metrics run.
+- A Metric plugin can check `has-coverage` to stay absent for a language that no Coverage report covers, rather than reporting 0.
 
 ### Compile the sample Metric plugin
 

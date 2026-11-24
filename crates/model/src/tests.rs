@@ -3,9 +3,10 @@ use super::language::{
     Resolution, SourceSet, WorkspaceError,
 };
 use super::{
-    CodeModel, FunctionCoverage, ImportResolution, InvalidReferenceRange, LanguagePlugin,
-    LanguagePluginError, ManifestUsedDep, Package, ReferenceRanges, RepoPath, RuntimeImport,
-    SourceFile, Workspace, token_text_hash, validate_declared_dependencies, validate_entry_points,
+    CodeModel, FunctionCoverage, ImportResolution, InvalidReferenceRange, LanguageFacts,
+    LanguagePlugin, LanguagePluginError, ManifestUsedDep, Package, ReferenceRanges, RepoPath,
+    RuntimeImport, SourceFile, Workspace, token_text_hash, validate_declared_dependencies,
+    validate_entry_points,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -408,4 +409,88 @@ fn function_coverage_distinguishes_absent_from_zero_executed_lines() {
             executed_lines: 0,
         })
     );
+}
+
+#[test]
+fn code_model_merge_sorts_languages_and_combines_coverage_facts() {
+    let first = CodeModel {
+        languages: vec![
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: true,
+            },
+            LanguageFacts {
+                language: "rust".to_owned(),
+                has_coverage: false,
+            },
+        ],
+        ..CodeModel::default()
+    };
+    let second = CodeModel {
+        languages: vec![
+            LanguageFacts {
+                language: "python".to_owned(),
+                has_coverage: false,
+            },
+            LanguageFacts {
+                language: "rust".to_owned(),
+                has_coverage: true,
+            },
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: false,
+            },
+        ],
+        ..CodeModel::default()
+    };
+
+    let merged = CodeModel::merge([first, second]);
+
+    assert_eq!(
+        merged.languages,
+        vec![
+            LanguageFacts {
+                language: "python".to_owned(),
+                has_coverage: false,
+            },
+            LanguageFacts {
+                language: "rust".to_owned(),
+                has_coverage: true,
+            },
+            LanguageFacts {
+                language: "typescript-javascript".to_owned(),
+                has_coverage: true,
+            },
+        ]
+    );
+}
+
+#[test]
+fn into_source_sets_preserves_language_facts_in_every_source_set() {
+    let expected = vec![
+        LanguageFacts {
+            language: "rust".to_owned(),
+            has_coverage: true,
+        },
+        LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: false,
+        },
+    ];
+    let model = CodeModel {
+        files: vec![file_in("src/main.rs", SourceSet::Production)],
+        languages: expected.clone(),
+        ..CodeModel::default()
+    };
+
+    let source_sets = model.into_source_sets();
+
+    for source_set in [
+        SourceSet::Production,
+        SourceSet::Test,
+        SourceSet::Generated,
+        SourceSet::Vendored,
+    ] {
+        assert_eq!(source_sets.get(source_set).languages, expected);
+    }
 }

@@ -1312,3 +1312,54 @@ fn v0_2_0_metric_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
         "codeint:plugin/metric@0.3.0",
     );
 }
+
+#[test]
+fn coverage_reader_metric_plugin_receives_per_language_coverage_statement_from_check() {
+    let repo = init_repo();
+    let hash = copy_wasm_into(
+        &built_sandbox_probe("coverage_reader_metric_plugin.wasm"),
+        repo.path(),
+        "plugins/coverage_reader_metric_plugin.wasm",
+    );
+    write_file(
+        repo.path(),
+        "codeint.json",
+        &format!(
+            r#"{{
+              "plugins": [
+                {{
+                  "name": "coverage-reader",
+                  "kind": "metric",
+                  "path": "plugins/coverage_reader_metric_plugin.wasm",
+                  "sha256": "{hash}"
+                }}
+              ]
+            }}"#
+        ),
+    );
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        "export function greet(name: string): string { return name; }\n",
+    );
+
+    let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse json report");
+    let findings = report["source_sets"]["production"]["coverage_reader"]["findings"]
+        .as_array()
+        .expect("coverage_reader findings list");
+    assert!(
+        findings.iter().any(|finding| {
+            finding["path"] == "languages/typescript-javascript"
+                && finding["message"] == "language=typescript-javascript has_coverage=false"
+        }),
+        "expected typescript-javascript has_coverage=false finding, got: {findings:?}"
+    );
+}

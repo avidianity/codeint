@@ -251,6 +251,14 @@ fn to_guest_code_model(model: &CodeModel) -> guest_metric::CodeModel {
             .member_roots()
             .map(|root| root.as_str().to_owned())
             .collect(),
+        languages: model
+            .languages
+            .iter()
+            .map(|facts| guest_metric::LanguageFacts {
+                language: facts.language.clone(),
+                has_coverage: facts.has_coverage,
+            })
+            .collect(),
     }
 }
 
