@@ -2,6 +2,7 @@
 
 mod flagged;
 mod parser;
+pub mod schema;
 mod source_set;
 mod statements;
 mod tokenize;
