@@ -97,6 +97,9 @@ fn end_to_end(
 ) -> Result<ConformanceCheck, PluginTestError> {
     let bytes = std::fs::read(path).map_err(PluginTestError::Scratch)?;
     let plugin_path = std::path::absolute(path).map_err(PluginTestError::Scratch)?;
+    let digest = sha256_hex(&sha256(&bytes));
+    let folder = tempfile::tempdir().map_err(PluginTestError::Scratch)?;
+    write_probe_repository(folder.path(), probe)?;
     let mut runs: Vec<(String, Option<&str>)> =
         vec![("with no Framework profile configuration".to_owned(), None)];
     runs.extend(probe.framework_profiles.iter().map(|profile| {
@@ -105,54 +108,54 @@ fn end_to_end(
             Some(profile.as_str()),
         )
     }));
-    let folder = tempfile::tempdir().map_err(PluginTestError::Scratch)?;
-    for file in &probe.files {
-        let full = folder.path().join(&file.path);
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent).map_err(PluginTestError::Scratch)?;
-        }
-        std::fs::write(&full, &file.text).map_err(PluginTestError::Scratch)?;
-    }
-    Repository::init(folder.path())?;
-    let mut checked = 0;
     for (label, profile) in &runs {
-        let configuration = probe_configuration(
-            &plugin_path,
-            &sha256_hex(&sha256(&bytes)),
-            kind,
-            limits,
-            *profile,
-        );
+        let configuration = probe_configuration(&plugin_path, &digest, kind, limits, *profile);
         std::fs::write(
             folder.path().join("codeint.json"),
             configuration.to_string(),
         )
         .map_err(PluginTestError::Scratch)?;
         if let Err(error) = measure_probe(folder.path()) {
-            return Ok(ConformanceCheck {
-                id: END_TO_END_CHECK,
-                status: ConformanceStatus::Fail,
-                message: format!(
-                    "codeint check stops with exit code 2 on the probe repository {label}: {}",
-                    error_chain(&error)
-                ),
-                hint: Some(
-                    "codeint check runs the whole measurement pipeline on a repository, so fix the Plugin until it accepts the probe repository that plugin test writes: the probe files and manifests for every claimed extension, in the root package and in packages/probe, with and without each Framework profile configured"
-                        .to_owned(),
-                ),
-            });
+            return Ok(end_to_end_failure(label, &error));
         }
-        checked += 1;
     }
     Ok(ConformanceCheck {
         id: END_TO_END_CHECK,
         status: ConformanceStatus::Pass,
         message: format!(
-            "codeint check measures the probe repository in {checked} configuration{}",
-            if checked == 1 { "" } else { "s" }
+            "codeint check measures the probe repository in {} configuration{}",
+            runs.len(),
+            if runs.len() == 1 { "" } else { "s" }
         ),
         hint: None,
     })
+}
+
+fn write_probe_repository(folder: &Path, probe: &EndToEndProbe) -> Result<(), PluginTestError> {
+    for file in &probe.files {
+        let full = folder.join(&file.path);
+        if let Some(parent) = full.parent() {
+            std::fs::create_dir_all(parent).map_err(PluginTestError::Scratch)?;
+        }
+        std::fs::write(&full, &file.text).map_err(PluginTestError::Scratch)?;
+    }
+    Repository::init(folder)?;
+    Ok(())
+}
+
+fn end_to_end_failure(label: &str, error: &dyn std::error::Error) -> ConformanceCheck {
+    ConformanceCheck {
+        id: END_TO_END_CHECK,
+        status: ConformanceStatus::Fail,
+        message: format!(
+            "codeint check stops with exit code 2 on the probe repository {label}: {}",
+            error_chain(error)
+        ),
+        hint: Some(
+            "codeint check runs the whole measurement pipeline on a repository, so fix the Plugin until it accepts the probe repository that plugin test writes: the probe files and manifests for every claimed extension, in the root package and in packages/probe, with and without each Framework profile configured"
+                .to_owned(),
+        ),
+    }
 }
 
 fn probe_configuration(

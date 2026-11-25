@@ -619,6 +619,87 @@ impl ProfileCall<'_> {
     }
 }
 
+fn profile_selections(profiles: &[String]) -> Vec<(String, FrameworkProfileSelection)> {
+    let mut selections = vec![
+        ("disabled".to_owned(), FrameworkProfileSelection::Disabled),
+        ("auto".to_owned(), FrameworkProfileSelection::Auto),
+        (
+            "exclude".to_owned(),
+            FrameworkProfileSelection::Exclude(profiles.to_vec()),
+        ),
+        (
+            "only".to_owned(),
+            FrameworkProfileSelection::Only(profiles.to_vec()),
+        ),
+    ];
+    for profile in profiles {
+        selections.push((
+            format!("exclude {profile} alone"),
+            FrameworkProfileSelection::Exclude(vec![profile.clone()]),
+        ));
+        selections.push((
+            format!("only {profile} alone"),
+            FrameworkProfileSelection::Only(vec![profile.clone()]),
+        ));
+    }
+    if profiles.len() >= 3 {
+        let subset: Vec<String> = profiles.iter().take(2).cloned().collect();
+        selections.push((
+            "exclude the first two".to_owned(),
+            FrameworkProfileSelection::Exclude(subset.clone()),
+        ));
+        selections.push((
+            "only the first two".to_owned(),
+            FrameworkProfileSelection::Only(subset),
+        ));
+    }
+    selections
+}
+
+fn profile_scopes(
+    plugin: &WasmLanguagePlugin,
+    chosen: &[RepoPath],
+) -> Vec<(Workspace, Vec<String>)> {
+    let reported = reported_workspace(plugin, chosen);
+    let reported_roots = package_keys(&reported);
+    let mut scopes = vec![(reported.clone(), reported_roots)];
+    let probe = probe_workspace();
+    if probe != reported {
+        scopes.push((probe, vec![String::new(), PROBE_PACKAGE.to_owned()]));
+    }
+    scopes
+}
+
+fn first_profile_failure(
+    plugin: &WasmLanguagePlugin,
+    inputs: &FrameworkProbeInputs<'_>,
+    scopes: &[(Workspace, Vec<String>)],
+    selections: &[(String, FrameworkProfileSelection)],
+    watch: &mut LimitWatch,
+) -> Option<(String, &'static str)> {
+    for (workspace, package_roots) in scopes {
+        for package_root in package_roots {
+            for (manifest_label, files, manifests) in
+                package_inputs(inputs, workspace, package_root)
+            {
+                let call = ProfileCall {
+                    plugin,
+                    package_root,
+                    files: &files,
+                    manifests: &manifests,
+                    manifest_label,
+                };
+                for (label, selection) in selections {
+                    if let Some(failure) = call.failure(label, selection, watch) {
+                        return Some(failure);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn check_framework_profiles(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
@@ -641,67 +722,13 @@ fn check_framework_profiles(
         );
         return;
     }
-    let mut selections = vec![
-        ("disabled".to_owned(), FrameworkProfileSelection::Disabled),
-        ("auto".to_owned(), FrameworkProfileSelection::Auto),
-        (
-            "exclude".to_owned(),
-            FrameworkProfileSelection::Exclude(profiles.clone()),
-        ),
-        (
-            "only".to_owned(),
-            FrameworkProfileSelection::Only(profiles.clone()),
-        ),
-    ];
-    for profile in &profiles {
-        selections.push((
-            format!("exclude {profile} alone"),
-            FrameworkProfileSelection::Exclude(vec![profile.clone()]),
-        ));
-        selections.push((
-            format!("only {profile} alone"),
-            FrameworkProfileSelection::Only(vec![profile.clone()]),
-        ));
-    }
-    if profiles.len() >= 3 {
-        let subset: Vec<String> = profiles.iter().take(2).cloned().collect();
-        selections.push((
-            "exclude the first two".to_owned(),
-            FrameworkProfileSelection::Exclude(subset.clone()),
-        ));
-        selections.push((
-            "only the first two".to_owned(),
-            FrameworkProfileSelection::Only(subset),
-        ));
-    }
-    let mut scopes: Vec<(Workspace, Vec<String>)> = Vec::new();
-    let reported = reported_workspace(plugin, inputs.chosen);
-    let reported_roots = package_keys(&reported);
-    scopes.push((reported.clone(), reported_roots));
-    let probe = probe_workspace();
-    if probe != reported {
-        scopes.push((probe, vec![String::new(), PROBE_PACKAGE.to_owned()]));
-    }
-    for (workspace, package_roots) in &scopes {
-        for package_root in package_roots {
-            for (manifest_label, files, manifests) in
-                package_inputs(&inputs, workspace, package_root)
-            {
-                let call = ProfileCall {
-                    plugin,
-                    package_root,
-                    files: &files,
-                    manifests: &manifests,
-                    manifest_label,
-                };
-                for (label, selection) in &selections {
-                    if let Some((message, hint)) = call.failure(label, selection, watch) {
-                        report.fail("framework-profiles", message, hint);
-                        return;
-                    }
-                }
-            }
-        }
+    let selections = profile_selections(&profiles);
+    let scopes = profile_scopes(plugin, inputs.chosen);
+    if let Some((message, hint)) =
+        first_profile_failure(plugin, &inputs, &scopes, &selections, watch)
+    {
+        report.fail("framework-profiles", message, hint);
+        return;
     }
     report.pass(
         "framework-profiles",
