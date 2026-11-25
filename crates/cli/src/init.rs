@@ -258,8 +258,8 @@ fn discover_workspace_roots(
         Err(CheckError::Git(error)) => return Err(error),
         Err(_) => return Ok(Vec::new()),
     };
-    let workspace = match find_workspace(plugins, &manifests) {
-        Ok(workspace) => workspace,
+    let workspace = match find_workspace(plugins, manifests) {
+        Ok((workspace, _)) => workspace,
         Err(CheckError::Git(error)) => return Err(error),
         Err(_) => return Ok(Vec::new()),
     };

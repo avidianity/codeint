@@ -51,11 +51,15 @@ impl Guest for LoopLanguagePlugin {
         ))
     }
 
-    fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-        Vec::new()
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        repository_paths
+            .into_iter()
+            .filter(|path| path == "trapper" || path.ends_with(".loopmanifest"))
+            .collect()
     }
 
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        trigger_loop_or_trap(&manifests);
         Ok(Vec::new())
     }
 

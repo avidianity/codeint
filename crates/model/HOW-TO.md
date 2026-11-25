@@ -231,7 +231,8 @@ let package = model.workspace.package_of(&RepoPath::new("packages/app/src/main.t
 - The host reads each file that `choose_manifests` names for a Language plugin and passes them to that plugin; the plugin reads no files itself.
   The same manifests go to `workspace_packages` and to `resolve_runtime_imports`, so the host reads each file once.
 - The host decodes a manifest that is not valid UTF-8 lossily, so its folder can still be a package.
-- A `WorkspaceError` stops the run with exit code 2, because the package of every file depends on it.
+- A `WorkspaceError::Manifest` that names one passed manifest makes the host skip that manifest with a warning and call `workspace_packages` again without it.
+  Any other `WorkspaceError`, including a plugin trap, stops the run with exit code 2, because the package of every file depends on it.
 - `Workspace::packages` yields `Package::Root` first, then each member package by root folder.
   `Package::Root` holds every file outside all member packages, and displays as `.`.
 - `Workspace::package_of` gives the deepest member package whose root folder holds the file, or `Package::Root`.

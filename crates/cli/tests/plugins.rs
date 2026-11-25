@@ -2111,3 +2111,38 @@ fn external_metric_plugin_records_metric_version_in_reports_and_commit_cache_key
     );
     assert_eq!(fs::read_dir(seeded_cache.path()).expect("list").count(), 2);
 }
+
+fn trap_workspace_repo(plugin_name: &str) -> TempDir {
+    let (repo, _hash) = init_single_probe_repo(plugin_name, None, "loop_language_plugin.wasm", "");
+    write_file(repo.path(), "trapper", "PANIC_TRAP\n");
+    write_file(repo.path(), "src/one.loop", "alpha\n");
+    commit_all(repo.path(), "trap workspace");
+    repo
+}
+
+#[test]
+fn plugin_trap_in_workspace_packages_stays_fatal_for_every_plugin_name() {
+    for plugin_name in ["trapper", "other"] {
+        let repo = trap_workspace_repo(plugin_name);
+
+        let output = run_codeint(repo.path(), &["check", "--format", "json"]);
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{plugin_name}: {stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "Plugin \"{plugin_name}\" failed during workspace-packages"
+            )),
+            "{plugin_name}: {stderr}"
+        );
+        assert!(
+            !stderr.contains("Skipped the invalid") && output.stdout.is_empty(),
+            "{plugin_name}: {stderr}"
+        );
+        assert!(
+            stderr.contains("report it to the Plugin's author")
+                && !stderr.contains("Fix the manifest"),
+            "{plugin_name}: {stderr}"
+        );
+    }
+}

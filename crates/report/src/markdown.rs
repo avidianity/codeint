@@ -194,6 +194,9 @@ fn push_header_notes(blocks: &mut Vec<String>, report: &Report) {
     {
         blocks.push(prose(note));
     }
+    for warning in &report.manifest_warnings {
+        blocks.push(prose(warning));
+    }
     if let Some(baseline) = &report.baseline {
         blocks.push(prose(&baseline.sentence()));
     }

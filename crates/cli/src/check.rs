@@ -20,6 +20,7 @@ use codeint_report::{
     ReportExtras, ReportOptions, SqlSchemaSummary,
 };
 
+mod control_characters;
 mod coverage;
 mod errors;
 mod frameworks;
@@ -275,6 +276,7 @@ pub(crate) struct MeasuredSnapshot {
     pub(crate) file_line_counts: BTreeMap<RepoPath, usize>,
     pub(crate) rejected_statements: Vec<RejectedStatementEntry>,
     pub(crate) sql_schemas: Vec<SqlSchemaSummary>,
+    pub(crate) manifest_warnings: Vec<String>,
 }
 
 pub(crate) fn compute_orphan_files(
@@ -482,7 +484,8 @@ fn measure_check_report(
         ReportExtras::default()
             .with_disabled_hazard_rules(configuration.hazards.disabled_rules_set())
             .with_rejected_statements(snapshot.rejected_statements)
-            .with_sql_schemas(snapshot.sql_schemas),
+            .with_sql_schemas(snapshot.sql_schemas)
+            .with_manifest_warnings(snapshot.manifest_warnings),
     )
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }
@@ -550,9 +553,11 @@ fn measure(
     let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let sql_dialects =
         sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
-    let manifests_by_plugin = read_manifests(tree, plugins)?;
-    let plugin_members = manifests::find_plugin_workspaces(plugins, &manifests_by_plugin)?;
-    let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
+    let discovery = manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins)?)?;
+    let workspace = discovery.workspace();
+    let manifest_warnings = discovery.warnings();
+    let plugin_members = discovery.members_by_plugin;
+    let manifests_by_plugin = discovery.manifests_by_plugin;
     let outcomes =
         lowering::lower_covered_files(tree, plugins, &covered_files, &sql_dialects, config_file)?;
     let mut collected = lowering::collect_plugin_models(plugins.len(), workspace.clone(), outcomes);
@@ -588,6 +593,7 @@ fn measure(
     snapshot.file_line_counts = collected.file_line_counts;
     snapshot.rejected_statements = collected.rejected_statements;
     snapshot.sql_schemas = sql_schemas;
+    snapshot.manifest_warnings = manifest_warnings;
     Ok(snapshot)
 }
 
@@ -661,6 +667,7 @@ fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnaps
         file_line_counts: BTreeMap::new(),
         rejected_statements: Vec::new(),
         sql_schemas: Vec::new(),
+        manifest_warnings: Vec::new(),
     })
 }
 

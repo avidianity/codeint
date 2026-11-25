@@ -1794,6 +1794,28 @@ Paths escaping the repository (absolute paths, `..` traversal, or escaping symli
 codeint ratchet update
 ```
 
+## Invalid manifests
+
+When a Language plugin reports that one manifest is invalid, such as an empty `go.mod` or a `pyproject.toml` that is not valid TOML, `codeint check`, `codeint diff`, `codeint trend`, the MCP `check` and `diff` tools, and the other measuring commands skip that manifest and measure the rest.
+codeint asks the plugin again for the Workspace packages without the invalid manifest, and repeats this for each further invalid manifest.
+Files under a skipped manifest count toward the surrounding Workspace package, as if the manifest did not exist.
+A skipped manifest is also left out of dependency, import, and entry-point resolution.
+
+Each skipped manifest adds one entry to `manifest_warnings` in JSON and TOON reports of `codeint check`, and one line in Markdown reports.
+`codeint diff` keeps the two sides apart: `manifest_warnings.base` lists the manifests skipped in the base commit, and `manifest_warnings.head` lists those skipped in the head, so a manifest that you fixed in the head still shows as a base warning.
+The Markdown report of `codeint diff` prefixes each line with `Base commit:` or `Head commit:`.
+`codeint trend` lists the warnings of each commit that skipped a manifest under `manifest_warnings`, as entries with the `commit` and its `warnings`, and prefixes each Markdown line with `Commit {id}:`.
+codeint writes each warning on one line and escapes control characters in it, such as ESC, as `\u{1b}`:
+
+```text illustration
+Skipped the invalid go manifest internal/warpc/genwebp/go.mod: missing module directive. Files under it count toward the surrounding Workspace package.
+```
+
+A warning never changes the exit code by itself.
+`codeint check --package {folder}` names the skipped manifest and the plugin's reason when `{folder}` holds a skipped manifest, because the manifest never made that folder a Workspace package.
+`codeint doctor` reports the `workspace` check as `warn` and lists each skipped manifest.
+A plugin trap, an error that names a path codeint did not pass, and an error that is not about a manifest still stop the run with exit code 2.
+
 ## Result cache
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
@@ -1964,6 +1986,7 @@ The top-level object has these fields:
 | `import_metrics_note` | string, optional | One line explaining why import Metrics are absent when the measured language has no imports |
 | `test_gap_note` | string, optional | One line explaining why Test gap is absent when no Coverage report covers the measured code |
 | `coverage_unmatched_note` | string, optional | One note naming every Coverage report path that matched no repository file or matched several files equally well |
+| `manifest_warnings` | array of strings, optional | One warning for each invalid manifest that codeint skipped, naming the manifest path and the Language plugin's reason |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
 | `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
 | `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note`, `test_gap_note`, and `dependencies` for that plugin's files |

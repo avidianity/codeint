@@ -181,7 +181,7 @@ Only `extensions` and `lower` are required; the other eleven methods have safe d
 | `lower(path, text) -> Result<FileModel, LowerError>` | Required | Lower one file into its `source_set`, `source_lines`, `functions`, `tokens`, `flagged_lines`, `hazard_lines`, `runtime_imports`, and `program_start` mark. Return `DeclarationOnly`, `Unparsable`, `UnsupportedFile`, or `TooLarge` on error. |
 | `has_imports() -> bool` | `false` | State whether this language has runtime imports, manifests, and entry points; when `false`, codeint never calls the five import/manifest methods below. |
 | `manifest_paths(repository_paths) -> Vec<String>` | `Vec::new()` | Select manifest paths from `repository_paths` that the host reads once on the Plugin's behalf. |
-| `workspace_packages(manifests) -> Result<Vec<String>, WorkspaceError>` | `Ok(Vec::new())` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
+| `workspace_packages(manifests) -> Result<Vec<String>, WorkspaceError>` | `Ok(Vec::new())` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. Return `WorkspaceError` with the `path` of the one invalid manifest; the host then skips that manifest with a warning and calls again without it. |
 | `resolve_imports(repository_paths, manifests, requests, active_profiles) -> Vec<Resolution>` | `Vec::new()` | Return one `Resolved(Vec<String>)` (non-empty paths from `repository_paths`), `External(String)`, `Builtin`, or `Unresolved(String)` entry per request in request order. |
 | `declared_dependencies(manifests) -> Vec<DeclaredDep>` | `Vec::new()` | Extract manifest-declared external dependencies (`package_root`, normalized `name`, and `kind` of `Runtime`, `Dev`, or `Optional`). |
 | `entry_points(repository_paths, manifests) -> Vec<String>` | `Vec::new()` | Discover standard entry-point source files from `repository_paths` and `manifests`, returning only paths from `repository_paths`. |
@@ -203,6 +203,17 @@ Follow these invariants in `lower`:
   Leave `hazard_lines` empty when `has_hazard_rules` returns `false`.
 - Set `program_start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
   codeint counts every marked Production file as an entry point for Orphan files and names the mark in `codeint trace`; marked files in other Source sets stay out of entry points.
+
+### Invalid manifests
+
+Return `WorkspaceError::Manifest` from `workspace_packages` when one manifest is invalid, and set `path` to that manifest's exact path from the `manifests` argument.
+The host does not stop on this error.
+It removes the named manifest, records one warning with the path and your `message`, and calls `workspace_packages` again with the remaining manifests.
+It repeats this for each further invalid manifest, then passes only the remaining manifests to `resolve_imports`, `declared_dependencies`, and `entry_points`.
+Files under a skipped manifest count toward the surrounding Workspace package.
+Report one invalid manifest per call, because the host removes only the one `path` names.
+
+The error stays fatal, with exit code 2, in three cases: the plugin traps, the `path` names a manifest that the host did not pass, and the error is not a manifest error, such as an invalid Workspace package root.
 
 ### Compile the sample Language plugin
 

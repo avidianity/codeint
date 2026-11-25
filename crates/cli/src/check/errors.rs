@@ -65,10 +65,11 @@ pub(crate) enum CheckError {
         extension: String,
         path: Option<RepoPath>,
     },
-    #[error("{}", format_unknown_workspace_package(requested, available))]
+    #[error("{}", format_unknown_workspace_package(requested, available, skipped_manifest.as_deref()))]
     UnknownWorkspacePackage {
         requested: String,
         available: Vec<String>,
+        skipped_manifest: Option<String>,
     },
     #[error("Coverage report {path:?} does not exist")]
     MissingCoverageReport { path: String },
@@ -149,14 +150,19 @@ impl CheckError {
     }
 }
 
-fn format_unknown_workspace_package(requested: &str, available: &[String]) -> String {
+fn format_unknown_workspace_package(
+    requested: &str,
+    available: &[String],
+    skipped_manifest: Option<&str>,
+) -> String {
+    let reason = skipped_manifest.map_or_else(String::new, |skipped| format!("; {skipped}"));
     if available.is_empty() {
         format!(
-            "Workspace package {requested:?} was not found; no Workspace packages were discovered in this repository"
+            "Workspace package {requested:?} was not found{reason}; no Workspace packages were discovered in this repository"
         )
     } else {
         format!(
-            "Workspace package {requested:?} was not found; discovered Workspace packages: {}",
+            "Workspace package {requested:?} was not found{reason}; discovered Workspace packages: {}",
             available.join(", ")
         )
     }
