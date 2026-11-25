@@ -2113,10 +2113,9 @@ fn external_metric_plugin_records_metric_version_in_reports_and_commit_cache_key
 }
 
 fn trap_workspace_repo(plugin_name: &str) -> TempDir {
-    let (repo, _hash) =
-        init_single_probe_repo(plugin_name, None, "trap_workspace_language_plugin.wasm", "");
-    write_file(repo.path(), "trapper", "manifest\n");
-    write_file(repo.path(), "src/one.trap", "alpha\n");
+    let (repo, _hash) = init_single_probe_repo(plugin_name, None, "loop_language_plugin.wasm", "");
+    write_file(repo.path(), "trapper", "PANIC_TRAP\n");
+    write_file(repo.path(), "src/one.loop", "alpha\n");
     commit_all(repo.path(), "trap workspace");
     repo
 }
