@@ -2139,5 +2139,10 @@ fn plugin_trap_in_workspace_packages_stays_fatal_for_every_plugin_name() {
             !stderr.contains("Skipped the invalid") && output.stdout.is_empty(),
             "{plugin_name}: {stderr}"
         );
+        assert!(
+            stderr.contains("report it to the Plugin's author")
+                && !stderr.contains("Fix the manifest"),
+            "{plugin_name}: {stderr}"
+        );
     }
 }

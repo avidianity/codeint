@@ -384,10 +384,10 @@ pub(crate) fn git_remedy(error: &GitError) -> &'static str {
 
 fn workspace_remedy(error: &WorkspaceError) -> &'static str {
     match error {
-        WorkspaceError::Manifest { .. } | WorkspaceError::PluginFailed { .. } => {
+        WorkspaceError::Manifest { .. } => {
             "Fix the manifest that the message names so that your package manager accepts it, then run codeint again."
         }
-        WorkspaceError::InvalidPackageRoot(_) => {
+        WorkspaceError::PluginFailed { .. } | WorkspaceError::InvalidPackageRoot(_) => {
             "This is a defect in the Language plugin; report it to the Plugin's author."
         }
     }

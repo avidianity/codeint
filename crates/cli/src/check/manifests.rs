@@ -65,7 +65,7 @@ fn skipped_manifest_warning(skipped: &SkippedManifest) -> String {
     ))
 }
 
-fn escape_control_characters(text: &str) -> String {
+pub(super) fn escape_control_characters(text: &str) -> String {
     text.chars()
         .flat_map(|character| {
             if character.is_control() {

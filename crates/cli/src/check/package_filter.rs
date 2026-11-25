@@ -4,6 +4,7 @@ use codeint_model::{CodeModel, Package, RepoPath, Workspace};
 use codeint_report::MeasuredLanguage;
 
 use super::errors::CheckError;
+use super::manifests::escape_control_characters;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SelectedPackage {
@@ -47,10 +48,10 @@ pub(crate) fn select_workspace_package(
         requested: requested.to_owned(),
         available: workspace.member_roots().map(ToString::to_string).collect(),
         skipped_manifest: workspace.skipped_manifest_in(&normalized).map(|skipped| {
-            format!(
+            escape_control_characters(&format!(
                 "its {} manifest {} is invalid and was skipped: {}",
                 skipped.plugin, skipped.path, skipped.reason
-            )
+            ))
         }),
     })
 }
