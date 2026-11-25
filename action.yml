@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ""
   path:
-    description: Directory to measure inside the repository.
+    description: Folder inside the Git repository to run codeint from; codeint measures that whole repository.
     required: false
     default: "."
   version:

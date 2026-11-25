@@ -1,10 +1,13 @@
-use codeint_model::RepoPath;
+use std::collections::BTreeSet;
+
+use codeint_model::{Metric, RepoPath, SourceSet};
 use serde_json::Value;
 
 use super::{
     DetectedLanguage, StarterKind, ZeroBudgetKeys, starter_configuration_text,
-    starter_configuration_text_with_boundaries,
+    starter_configuration_text_with_boundaries, zero_budget_keys,
 };
+use crate::baseline::MeasuredBaselineMetric;
 use crate::codeint_json::{configuration_schema, parse, parse_jsonc, shape};
 
 fn path(text: &str) -> RepoPath {
@@ -259,6 +262,7 @@ fn the_adoption_starter_writes_zero_budgets_for_recorded_metrics_and_keeps_test_
     let schema = published_schema();
     let zero_budgets = ZeroBudgetKeys {
         production: vec!["erosion", "hazards"],
+        test: vec!["erosion"],
         dependencies: vec!["unused_dependencies"],
     };
 
@@ -271,6 +275,10 @@ fn the_adoption_starter_writes_zero_budgets_for_recorded_metrics_and_keeps_test_
         serde_json::json!({ "erosion": 0, "hazards": 0 })
     );
     assert_eq!(
+        starter["budgets"]["test"],
+        serde_json::json!({ "erosion": 0 })
+    );
+    assert_eq!(
         starter["budgets"]["unused_dependencies"],
         serde_json::json!(0)
     );
@@ -278,4 +286,61 @@ fn the_adoption_starter_writes_zero_budgets_for_recorded_metrics_and_keeps_test_
     shape::check_shape(&starter, &schema).expect("the adoption starter fits the schema");
     let activated = text.replace("// \"test_gap\": 0.2,", "\"test_gap\": 0.2,");
     parse(&activated).expect("uncommenting test_gap keeps the file valid");
+}
+
+#[test]
+fn zero_budget_keys_cover_every_recorded_metric_of_the_registry_except_test_gap() {
+    let recorded: Vec<MeasuredBaselineMetric> = Metric::ALL
+        .into_iter()
+        .flat_map(|metric| {
+            [
+                Some(SourceSet::Production),
+                Some(SourceSet::Test),
+                Some(SourceSet::Generated),
+                None,
+            ]
+            .map(|source_set| MeasuredBaselineMetric {
+                source_set,
+                metric: metric.key().to_owned(),
+                metric_version: metric.version(),
+                findings: BTreeSet::new(),
+            })
+        })
+        .collect();
+
+    let keys = zero_budget_keys(&recorded);
+
+    assert_eq!(
+        keys.production,
+        vec![
+            "erosion",
+            "cognitive_complexity",
+            "duplication",
+            "verbosity",
+            "import_cycles",
+            "boundaries",
+            "orphan_files",
+            "hazards"
+        ]
+    );
+    assert_eq!(
+        keys.test,
+        vec![
+            "erosion",
+            "cognitive_complexity",
+            "duplication",
+            "verbosity",
+            "import_cycles",
+            "boundaries",
+            "hazards"
+        ]
+    );
+    assert_eq!(
+        keys.dependencies,
+        vec![
+            "unused_dependencies",
+            "unlisted_dependencies",
+            "dev_in_production_dependencies"
+        ]
+    );
 }

@@ -63,7 +63,7 @@ fn run_action_diff(path_input: &str, upload_sarif: bool, edit: impl FnOnce(&Path
 }
 
 #[test]
-fn action_diff_runs_the_real_cli_from_the_path_input_folder_and_reports_a_pass() {
+fn action_diff_runs_the_real_cli_from_the_path_input_folder_of_the_repository_and_reports_a_pass() {
     let run = run_action_diff("pkg", true, |root| {
         write_repo_files(root, &[("pkg/src/other.ts", "export const other = 2;\n")]);
     });

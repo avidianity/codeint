@@ -203,7 +203,7 @@ pub(crate) fn render_adoption(adopted: &AdoptedFiles) -> String {
          \n\
          Next steps:\n\
          1. Commit codeint.jsonc and the .codeint folder.\n\
-         2. Run codeint check locally and in your coding agent loop; the Baseline hides the existing Findings, and the zero Budgets in codeint.jsonc fail on any new Finding of a Metric the Baseline records; the Ratchet separately caps each whole-repository ratio.\n\
+         2. Run codeint check locally and in your coding agent loop; the Baseline hides the existing Findings, and the zero Budgets in codeint.jsonc (production, test, and dependency Metrics) fail on any new Finding of a Metric the Baseline records; the Ratchet separately caps each whole-repository ratio.\n\
          3. Save this as .github/workflows/codeint.yml to gate every pull request:\n\
          \n\
          {workflow}\n\

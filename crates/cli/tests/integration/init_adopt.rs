@@ -27,6 +27,17 @@ fn refused_adoption(existing: &[(&str, &str)]) -> (tempfile::TempDir, String) {
     (repo, stderr)
 }
 
+fn resolved_setting(root: &Path, key: &str) -> Value {
+    let (stdout, _) = run_codeint_text(root, &["config", "--resolved", "--format", "json"], 0);
+    let payload: Value = serde_json::from_str(&stdout).expect("resolved config is JSON");
+    payload["settings"]
+        .as_array()
+        .expect("settings array")
+        .iter()
+        .find(|item| item["key"] == key)
+        .map_or(Value::Null, |item| item["value"].clone())
+}
+
 fn stored_json(root: &Path, relative: &str) -> Value {
     let text = fs::read_to_string(root.join(relative)).expect("read the stored file");
     serde_json::from_str(&text).expect("the stored file is JSON")
@@ -93,9 +104,9 @@ fn adopt_writes_zero_budgets_for_recorded_metrics_so_a_new_finding_fails_check_e
     let repo = legacy_repository();
     run_codeint_text(repo.path(), &["init", "--adopt"], 0);
     let config = fs::read_to_string(repo.path().join("codeint.jsonc")).expect("read config");
-    assert!(
-        config.contains("\"erosion\": 0"),
-        "expected a zero erosion Budget, got:\n{config}"
+    assert_eq!(
+        resolved_setting(repo.path(), "budgets.production.erosion").as_f64(),
+        Some(0.0)
     );
     assert!(
         !config
@@ -120,6 +131,35 @@ fn adopt_writes_zero_budgets_for_recorded_metrics_so_a_new_finding_fails_check_e
         "expected an Erosion Budget failure, got: {stderr}"
     );
     assert!(!stderr.contains("Ratchet"), "got: {stderr}");
+}
+
+#[test]
+fn adopt_writes_zero_test_budgets_so_swapping_eroded_test_files_fails_check() {
+    let repo = init_git_repo(&[
+        ("src/legacy.ts", &eroded_ts("legacy", 12)),
+        ("src/legacy.test.ts", &eroded_ts("legacyCase", 12)),
+        ("src/clean.ts", &tidy_ts("clean")),
+    ]);
+    run_codeint_text(repo.path(), &["init", "--adopt"], 0);
+    assert_eq!(
+        resolved_setting(repo.path(), "budgets.test.erosion").as_f64(),
+        Some(0.0)
+    );
+    run_codeint_text(repo.path(), &["check"], 0);
+
+    write_repo_files(
+        repo.path(),
+        &[
+            ("src/legacy.test.ts", &tidy_ts("legacyCase")),
+            ("src/other.test.ts", &eroded_ts("otherCase", 12)),
+        ],
+    );
+    let (_, stderr) = run_codeint_text(repo.path(), &["check"], 1);
+
+    assert!(
+        stderr.contains("the test erosion ratio") && stderr.contains("is over its Budget 0"),
+        "expected a Test erosion Budget failure, got: {stderr}"
+    );
 }
 
 #[test]

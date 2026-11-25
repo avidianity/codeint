@@ -11,7 +11,7 @@ It uses four pieces:
 | ----- | ----------- | ------------ |
 | Ratchet | `.codeint/ratchet.json` | Caps each whole-repository Metric ratio at its current value |
 | Baseline | `.codeint/baseline.json` | Hides existing Findings from `codeint check`, so only new Findings count |
-| Zero Budgets | `budgets.production` in `codeint.jsonc` | Fail `codeint check` on any new Finding, because the Baseline hides the legacy Findings from them |
+| Zero Budgets | `budgets.production` and `budgets.test` in `codeint.jsonc` | Fail `codeint check` on any new Finding, because the Baseline hides the legacy Findings from them |
 | New-file Budgets | `new_file_budgets` in `codeint.jsonc` | Holds every file that a pull request adds to a strict bar |
 | Per-file check | `regression_limits.per_file` in `codeint.jsonc` | Fails a pull request when any modified file gets worse |
 
@@ -28,7 +28,7 @@ The command does five things:
 1. It writes a starter `codeint.jsonc` with `"regression_limits": { "per_file": true }` and a commented-out `new_file_budgets` block.
 2. It measures the whole repository once.
 3. It writes `.codeint/ratchet.json` and `.codeint/baseline.json` from that measurement.
-4. It adds a zero Budget under `budgets.production` for each Metric that the Baseline records, such as `"erosion": 0`, and a zero Budget for each Dependency hygiene Metric.
+4. It adds a zero Budget under `budgets.production` and `budgets.test` for each Metric that the Baseline records, such as `"erosion": 0`, and a zero Budget for each Dependency hygiene Metric.
    It adds no Test gap Budget, because Test gap needs a Coverage report that you name.
 5. It prints the next steps, including a pull-request workflow for GitHub Actions.
 
@@ -164,7 +164,7 @@ See [Regression limits](../reference.md#regression-limits).
 ## Daily workflow
 
 1. Write code.
-   Run `codeint check` in your editor loop or coding agent loop; the zero Budgets fail it on any new Finding of a recorded Metric.
+   Run `codeint check` in your editor loop or coding agent loop; the zero Budgets (production, test, and dependency Metrics) fail it on any new Finding of a recorded Metric.
 2. Open a pull request.
    The workflow runs `codeint diff` and blocks Regressions, new-file Budget failures, and per-file Regressions.
 3. When you fix legacy code, run `codeint ratchet update` and `codeint baseline update`, and commit both files in the same pull request.

@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use codeint_model::{Metric, RepoPath, SourceSet};
+use codeint_model::{Metric, MetricScope, RepoPath, SourceSet};
 
 use super::schema::{ConfigurationFile, LanguageGlobs};
 use crate::baseline::MeasuredBaselineMetric;
@@ -152,25 +152,9 @@ pub fn write_adoption_zero_budgets(
     Ok(path)
 }
 
-const PRODUCTION_BUDGET_METRICS: [Metric; 8] = [
-    Metric::Erosion,
-    Metric::CognitiveComplexity,
-    Metric::Duplication,
-    Metric::Verbosity,
-    Metric::ImportCycles,
-    Metric::Boundaries,
-    Metric::OrphanFiles,
-    Metric::Hazards,
-];
-
-const DEPENDENCY_BUDGET_METRICS: [Metric; 3] = [
-    Metric::UnusedDependencies,
-    Metric::UnlistedDependencies,
-    Metric::DevInProductionDependencies,
-];
-
 struct ZeroBudgetKeys {
     production: Vec<&'static str>,
+    test: Vec<&'static str>,
     dependencies: Vec<&'static str>,
 }
 
@@ -178,36 +162,53 @@ impl ZeroBudgetKeys {
     fn none() -> ZeroBudgetKeys {
         ZeroBudgetKeys {
             production: Vec::new(),
+            test: Vec::new(),
             dependencies: Vec::new(),
         }
     }
 
     fn insert_into(&self, json: &mut serde_json::Value) {
-        let Some(budgets) = json
-            .get_mut("budgets")
-            .and_then(serde_json::Value::as_object_mut)
-        else {
-            return;
-        };
+        let root = json
+            .as_object_mut()
+            .expect("the starter configuration serializes to a JSON object");
+        let budgets = object_entry(root, "budgets");
         for key in &self.dependencies {
             budgets.insert((*key).to_owned(), serde_json::json!(0));
         }
-        if let Some(production) = budgets
-            .get_mut("production")
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            for key in &self.production {
-                production.insert((*key).to_owned(), serde_json::json!(0));
+        for (source_set, keys) in [("production", &self.production), ("test", &self.test)] {
+            let section = object_entry(budgets, source_set);
+            for key in keys {
+                section.insert((*key).to_owned(), serde_json::json!(0));
             }
         }
     }
 }
 
+fn object_entry<'a>(
+    parent: &'a mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> &'a mut serde_json::Map<String, serde_json::Value> {
+    let entry = parent
+        .entry(key.to_owned())
+        .or_insert_with(|| serde_json::json!({}));
+    if !entry.is_object() {
+        *entry = serde_json::json!({});
+    }
+    entry
+        .as_object_mut()
+        .expect("the entry was just made a JSON object")
+}
+
 fn zero_budget_keys(recorded: &[MeasuredBaselineMetric]) -> ZeroBudgetKeys {
-    let keys_in = |source_set: Option<SourceSet>, metrics: &[Metric]| -> Vec<&'static str> {
-        metrics
-            .iter()
-            .map(|metric| metric.key())
+    let keys_in = |source_set: Option<SourceSet>| -> Vec<&'static str> {
+        Metric::ALL
+            .into_iter()
+            .filter(|metric| *metric != Metric::TestGap)
+            .filter(|metric| match source_set {
+                Some(source_set) => metric.scope().applies_to_source_set(source_set),
+                None => metric.scope() == MetricScope::RepositoryWide,
+            })
+            .map(Metric::key)
             .filter(|key| {
                 recorded
                     .iter()
@@ -216,8 +217,9 @@ fn zero_budget_keys(recorded: &[MeasuredBaselineMetric]) -> ZeroBudgetKeys {
             .collect()
     };
     ZeroBudgetKeys {
-        production: keys_in(Some(SourceSet::Production), &PRODUCTION_BUDGET_METRICS),
-        dependencies: keys_in(None, &DEPENDENCY_BUDGET_METRICS),
+        production: keys_in(Some(SourceSet::Production)),
+        test: keys_in(Some(SourceSet::Test)),
+        dependencies: keys_in(None),
     }
 }
 
