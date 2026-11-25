@@ -1,4 +1,4 @@
-use crate::lexer::{ShellToken, ShellTokenKind};
+use crate::lexer::{ShellToken, ShellTokenKind, is_assignment_word};
 
 #[derive(Clone, Debug)]
 pub(crate) struct SimpleCommand {
@@ -49,26 +49,6 @@ pub(crate) fn parse_commands(tokens: &[ShellToken]) -> ParsedCommands {
         pipelines: parser.pipelines,
         double_bracket_indices: parser.double_bracket_indices,
     }
-}
-
-pub(crate) fn is_assignment_word(text: &str) -> bool {
-    let Some((lhs, _)) = text.split_once('=') else {
-        return false;
-    };
-    let lhs = lhs.strip_suffix('+').unwrap_or(lhs);
-    let lhs = lhs.split_once('[').map_or(lhs, |(name, _)| name);
-    is_shell_ident(lhs)
-}
-
-pub(crate) fn is_shell_ident(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    let Some(first) = bytes.next() else {
-        return false;
-    };
-    if !(first.is_ascii_alphabetic() || first == b'_') {
-        return false;
-    }
-    bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 impl<'a> CmdParser<'a> {

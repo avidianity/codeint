@@ -1,6 +1,8 @@
 mod heredoc;
 mod word;
 
+pub(crate) use word::is_assignment_word;
+
 use std::collections::BTreeSet;
 
 use codeint_model::language::LowerError;

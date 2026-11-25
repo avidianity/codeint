@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
-use crate::commands::{is_assignment_word, parse_commands};
-use crate::lexer::{ShellToken, ShellTokenKind};
+use crate::commands::parse_commands;
+use crate::lexer::{ShellToken, ShellTokenKind, is_assignment_word};
 
 use super::emit_line;
 

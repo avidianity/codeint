@@ -1,7 +1,6 @@
 use codeint_model::language::LowerError;
 
 use super::{Scanner, ShellToken, ShellTokenKind, is_operator_start};
-use crate::commands::is_assignment_word;
 use crate::dialect::ShellDialect;
 
 struct WordAcc {
@@ -91,6 +90,26 @@ pub(super) fn scan_word(scanner: &mut Scanner<'_>) -> Result<ShellToken, LowerEr
     let end_line = scanner.line;
     let text = scanner.src[acc.start_pos..scanner.pos].to_owned();
     Ok(acc.finish(text, end_line))
+}
+
+pub(crate) fn is_assignment_word(text: &str) -> bool {
+    let Some((lhs, _)) = text.split_once('=') else {
+        return false;
+    };
+    let lhs = lhs.strip_suffix('+').unwrap_or(lhs);
+    let lhs = lhs.split_once('[').map_or(lhs, |(name, _)| name);
+    is_shell_ident(lhs)
+}
+
+fn is_shell_ident(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == b'_') {
+        return false;
+    }
+    bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 fn is_assignment_prefix(text: &str) -> bool {

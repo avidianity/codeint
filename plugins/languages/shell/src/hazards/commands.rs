@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use codeint_model::path_file_name;
 
-use crate::commands::{SimpleCommand, is_assignment_word, parse_commands};
-use crate::lexer::ShellToken;
+use crate::commands::{SimpleCommand, parse_commands};
+use crate::lexer::{ShellToken, is_assignment_word};
 
 use super::emit_line;
 
