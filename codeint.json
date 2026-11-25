@@ -1,3 +1,354 @@
 {
-  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.5.0/schema/codeint.schema.json"
+  "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.6.0/schema/codeint.schema.json",
+  "budgets": {
+    "production": {
+      "boundaries": 0,
+      "import_cycles": 0
+    },
+    "unused_dependencies": 0,
+    "unlisted_dependencies": 0,
+    "dev_in_production_dependencies": 0
+  },
+  "dependencies": {
+    "ignore": [
+      "jscpd",
+      "lefthook",
+      "markdownlint-cli2",
+      "skills"
+    ]
+  },
+  "boundaries": {
+    "zones": {
+      "model": {
+        "patterns": ["crates/model/**"]
+      },
+      "config": {
+        "patterns": ["crates/config/**"]
+      },
+      "git": {
+        "patterns": ["crates/git/**"]
+      },
+      "metrics": {
+        "patterns": ["crates/metrics/**"]
+      },
+      "report": {
+        "patterns": ["crates/report/**"]
+      },
+      "plugin_host": {
+        "patterns": ["crates/plugin-host/**"]
+      },
+      "cli": {
+        "patterns": ["crates/cli/**"]
+      },
+      "xtask": {
+        "patterns": ["xtask/**"]
+      },
+      "lang_dart": {
+        "patterns": ["plugins/languages/dart/**"]
+      },
+      "lang_go": {
+        "patterns": ["plugins/languages/go/**"]
+      },
+      "lang_php": {
+        "patterns": ["plugins/languages/php/**"]
+      },
+      "lang_python": {
+        "patterns": ["plugins/languages/python/**"]
+      },
+      "lang_rust": {
+        "patterns": ["plugins/languages/rust/**"]
+      },
+      "lang_sql": {
+        "patterns": ["plugins/languages/sql/**"]
+      },
+      "lang_ts": {
+        "patterns": ["plugins/languages/ts/**"]
+      },
+      "ts_framework_angular": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/angular.rs",
+          "plugins/languages/ts/src/frameworks/angular/**"
+        ]
+      },
+      "ts_framework_nestjs": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/nestjs.rs",
+          "plugins/languages/ts/src/frameworks/nestjs/**"
+        ]
+      },
+      "ts_framework_nextjs": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/nextjs.rs",
+          "plugins/languages/ts/src/frameworks/nextjs/**"
+        ]
+      },
+      "ts_framework_nuxt": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/nuxt.rs",
+          "plugins/languages/ts/src/frameworks/nuxt/**"
+        ]
+      },
+      "ts_framework_react": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/react.rs",
+          "plugins/languages/ts/src/frameworks/react/**"
+        ]
+      },
+      "ts_framework_svelte": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/svelte.rs",
+          "plugins/languages/ts/src/frameworks/svelte/**"
+        ]
+      },
+      "ts_framework_sveltekit": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/sveltekit.rs",
+          "plugins/languages/ts/src/frameworks/sveltekit/**"
+        ]
+      },
+      "ts_framework_vue2": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/vue2.rs",
+          "plugins/languages/ts/src/frameworks/vue2/**"
+        ]
+      },
+      "ts_framework_vue3": {
+        "patterns": [
+          "plugins/languages/ts/src/frameworks/vue3.rs",
+          "plugins/languages/ts/src/frameworks/vue3/**"
+        ]
+      },
+      "php_framework_cakephp": {
+        "patterns": [
+          "plugins/languages/php/src/frameworks/cakephp.rs",
+          "plugins/languages/php/src/frameworks/cakephp/**"
+        ]
+      },
+      "php_framework_codeigniter": {
+        "patterns": [
+          "plugins/languages/php/src/frameworks/codeigniter.rs",
+          "plugins/languages/php/src/frameworks/codeigniter/**"
+        ]
+      },
+      "php_framework_laravel": {
+        "patterns": [
+          "plugins/languages/php/src/frameworks/laravel.rs",
+          "plugins/languages/php/src/frameworks/laravel/**"
+        ]
+      },
+      "php_framework_symfony": {
+        "patterns": [
+          "plugins/languages/php/src/frameworks/symfony.rs",
+          "plugins/languages/php/src/frameworks/symfony/**"
+        ]
+      },
+      "python_framework_django": {
+        "patterns": [
+          "plugins/languages/python/src/frameworks/django.rs",
+          "plugins/languages/python/src/frameworks/django/**"
+        ]
+      },
+      "python_framework_fastapi": {
+        "patterns": [
+          "plugins/languages/python/src/frameworks/fastapi.rs",
+          "plugins/languages/python/src/frameworks/fastapi/**"
+        ]
+      },
+      "python_framework_flask": {
+        "patterns": [
+          "plugins/languages/python/src/frameworks/flask.rs",
+          "plugins/languages/python/src/frameworks/flask/**"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "from": "model",
+        "allow": [],
+        "reason": "codeint-model is the foundational domain crate and imports no other workspace crate."
+      },
+      {
+        "from": "config",
+        "allow": ["model"],
+        "reason": "codeint-config depends only on codeint-model."
+      },
+      {
+        "from": "git",
+        "allow": ["model"],
+        "reason": "codeint-git depends only on codeint-model."
+      },
+      {
+        "from": "metrics",
+        "allow": ["model"],
+        "reason": "codeint-metrics depends only on codeint-model."
+      },
+      {
+        "from": "report",
+        "allow": ["model", "config", "metrics"],
+        "reason": "codeint-report depends only on codeint-model, codeint-config, and codeint-metrics."
+      },
+      {
+        "from": "plugin_host",
+        "allow": [
+          "model",
+          "config",
+          "lang_dart",
+          "lang_go",
+          "lang_php",
+          "lang_python",
+          "lang_rust",
+          "lang_sql",
+          "lang_ts"
+        ],
+        "reason": "codeint-plugin-host is the sole host boundary for built-in Language plugins and depends only on codeint-model, codeint-config, and built-in Language plugins."
+      },
+      {
+        "from": "cli",
+        "allow": ["model", "config", "git", "metrics", "report", "plugin_host"],
+        "reason": "codeint-cli routes Language plugins through codeint-plugin-host and never directly imports any built-in Language plugin."
+      },
+      {
+        "from": "xtask",
+        "allow": [],
+        "reason": "xtask is standalone repository tooling and imports no codeint library crates."
+      },
+      {
+        "from": "lang_dart",
+        "allow": ["model"],
+        "reason": "Built-in Language plugins depend only on codeint-model."
+      },
+      {
+        "from": "lang_go",
+        "allow": ["model"],
+        "reason": "Built-in Language plugins depend only on codeint-model."
+      },
+      {
+        "from": "lang_rust",
+        "allow": ["model"],
+        "reason": "Built-in Language plugins depend only on codeint-model."
+      },
+      {
+        "from": "lang_sql",
+        "allow": ["model"],
+        "reason": "Built-in Language plugins depend only on codeint-model."
+      },
+      {
+        "from": "lang_ts",
+        "allow": [
+          "model",
+          "ts_framework_angular",
+          "ts_framework_nestjs",
+          "ts_framework_nextjs",
+          "ts_framework_nuxt",
+          "ts_framework_react",
+          "ts_framework_svelte",
+          "ts_framework_sveltekit",
+          "ts_framework_vue2",
+          "ts_framework_vue3"
+        ],
+        "reason": "codeint-lang-ts depends only on codeint-model and registers its own Framework profiles."
+      },
+      {
+        "from": "ts_framework_angular",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_nestjs",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_nextjs",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_nuxt",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_react",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_svelte",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_sveltekit",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_vue2",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "ts_framework_vue3",
+        "allow": ["model", "lang_ts"],
+        "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
+      },
+      {
+        "from": "lang_php",
+        "allow": [
+          "model",
+          "php_framework_cakephp",
+          "php_framework_codeigniter",
+          "php_framework_laravel",
+          "php_framework_symfony"
+        ],
+        "reason": "codeint-lang-php depends only on codeint-model and registers its own Framework profiles."
+      },
+      {
+        "from": "php_framework_cakephp",
+        "allow": ["model", "lang_php"],
+        "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
+      },
+      {
+        "from": "php_framework_codeigniter",
+        "allow": ["model", "lang_php"],
+        "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
+      },
+      {
+        "from": "php_framework_laravel",
+        "allow": ["model", "lang_php"],
+        "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
+      },
+      {
+        "from": "php_framework_symfony",
+        "allow": ["model", "lang_php"],
+        "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
+      },
+      {
+        "from": "lang_python",
+        "allow": [
+          "model",
+          "python_framework_django",
+          "python_framework_fastapi",
+          "python_framework_flask"
+        ],
+        "reason": "codeint-lang-python depends only on codeint-model and registers its own Framework profiles."
+      },
+      {
+        "from": "python_framework_django",
+        "allow": ["model", "lang_python"],
+        "reason": "Python Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_python modules."
+      },
+      {
+        "from": "python_framework_fastapi",
+        "allow": ["model", "lang_python"],
+        "reason": "Python Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_python modules."
+      },
+      {
+        "from": "python_framework_flask",
+        "allow": ["model", "lang_python"],
+        "reason": "Python Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_python modules."
+      }
+    ]
+  }
 }
