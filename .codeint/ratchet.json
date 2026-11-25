@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "source_sets": {
+    "production": {
+      "boundaries": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "cognitive_complexity": {
+        "ceiling": 0.0476,
+        "metric_version": 1
+      },
+      "duplication": {
+        "ceiling": 0.007,
+        "metric_version": 1
+      },
+      "erosion": {
+        "ceiling": 0.0638,
+        "metric_version": 1
+      },
+      "import_cycles": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "orphan_files": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "verbosity": {
+        "ceiling": 0.0004,
+        "metric_version": 2
+      }
+    },
+    "test": {
+      "cognitive_complexity": {
+        "ceiling": 0.0709,
+        "metric_version": 1
+      },
+      "duplication": {
+        "ceiling": 0.0371,
+        "metric_version": 1
+      },
+      "erosion": {
+        "ceiling": 0.0196,
+        "metric_version": 1
+      },
+      "import_cycles": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "verbosity": {
+        "ceiling": 0.0,
+        "metric_version": 2
+      }
+    },
+    "generated": {
+      "cognitive_complexity": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "duplication": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "erosion": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "import_cycles": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "verbosity": {
+        "ceiling": 0.0,
+        "metric_version": 2
+      }
+    }
+  },
+  "dependencies": {
+    "dev_in_production_dependencies": {
+      "ceiling": 0.0,
+      "metric_version": 1
+    },
+    "unlisted_dependencies": {
+      "ceiling": 0.0,
+      "metric_version": 1
+    },
+    "unused_dependencies": {
+      "ceiling": 0.0,
+      "metric_version": 1
+    }
+  }
+}

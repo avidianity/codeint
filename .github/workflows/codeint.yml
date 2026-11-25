@@ -17,26 +17,41 @@ on:
       - 'docs/agents/review-and-merge.md'
       - 'docs/agents/security.md'
 
-permissions:
-  contents: read
-  security-events: write
+permissions: {}
+
+concurrency:
+  group: codeint-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: never
 
 jobs:
   codeint:
-    name: codeint diff
+    name: codeint
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - name: Install codeint
-        run: |
-          curl -fsSL https://github.com/avidianity/codeint/releases/latest/download/install.sh | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
+      - name: Build codeint
+        run: cargo build --locked --bin codeint
+      - name: Check repository
+        run: ./target/debug/codeint check
       - name: Diff against pull request base
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: codeint diff "origin/$BASE_REF" --format sarif --output codeint.sarif
+        run: ./target/debug/codeint diff "origin/$BASE_REF" --format sarif --output codeint.sarif
       - name: Upload SARIF
         if: always() && hashFiles('codeint.sarif') != ''
         uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
