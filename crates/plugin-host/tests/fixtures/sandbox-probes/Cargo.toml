@@ -36,6 +36,8 @@ members = [
     "cargo-only-workspace-language",
     "manifest-paths-trap-language",
     "exclude-trap-language",
+    "manifest-strict-profiles-language",
+    "single-profile-only-language",
     "framework-entry-language",
     "profile-imports-language",
     "backslash-extension-language",

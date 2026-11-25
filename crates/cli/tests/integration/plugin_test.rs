@@ -111,7 +111,8 @@ fn broken_plugins_fail_with_a_fix_hint() {
         } else {
             &[]
         };
-        let (_, report) = json_report(kind, wasm, extra);
+        let (output, report) = json_report(kind, wasm, extra);
+        assert_eq!(output.status.code(), Some(1), "{wasm}: {output:?}");
         assert_eq!(report["passed"], false, "{wasm}");
         let failed = failed_checks(&report);
         let hint = failed
@@ -233,6 +234,27 @@ fn a_trap_on_the_exclude_selection_fails_framework_profiles() {
     assert_fails(
         "language",
         "exclude_trap_language_plugin.wasm",
+        &[],
+        "framework-profiles",
+    );
+}
+
+#[test]
+fn a_plugin_that_rejects_only_manifests_it_did_not_choose_passes() {
+    let (output, report) = json_report(
+        "language",
+        "manifest_strict_profiles_language_plugin.wasm",
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(check_status(&report, "framework-profiles"), "pass");
+}
+
+#[test]
+fn a_single_profile_only_selection_failure_fails_framework_profiles() {
+    assert_fails(
+        "language",
+        "single_profile_only_language_plugin.wasm",
         &[],
         "framework-profiles",
     );

@@ -519,15 +519,8 @@ fn package_inputs(
         .collect();
     let in_package = |path: &&RepoPath| package_key(workspace, path) == package_root;
     let chosen: Vec<RepoPath> = inputs.chosen.iter().filter(in_package).cloned().collect();
-    let probe_manifests: Vec<Manifest> = files.iter().filter_map(probe_manifest).collect();
-    vec![
-        (
-            "the manifests it chose",
-            files.clone(),
-            chosen_manifests(&chosen, true),
-        ),
-        ("every probe manifest", files, probe_manifests),
-    ]
+    let manifests = chosen_manifests(&chosen, true);
+    vec![("the manifests it chose", files, manifests)]
 }
 
 struct ProfileCall<'a> {
@@ -571,7 +564,7 @@ impl ProfileCall<'_> {
                         "{label} selection failed for {place} with {}: {error}",
                         self.manifest_label
                     ),
-                    "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections without an error, and may return only entry points and generated paths that are files it was passed; it is sent the real package files and manifests, as codeint check sends them",
+                    "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections, with every known profile and with each profile alone, without an error, and may return only entry points and generated paths that are files it was passed; it is sent the real package files and only the manifests manifest-paths chose, as codeint check sends them",
                 ))
             }
         }
@@ -600,15 +593,28 @@ fn check_framework_profiles(
         );
         return;
     }
-    let selections = [
-        ("disabled", FrameworkProfileSelection::Disabled),
-        ("auto", FrameworkProfileSelection::Auto),
+    let mut selections = vec![
+        ("disabled".to_owned(), FrameworkProfileSelection::Disabled),
+        ("auto".to_owned(), FrameworkProfileSelection::Auto),
         (
-            "exclude",
+            "exclude".to_owned(),
             FrameworkProfileSelection::Exclude(profiles.clone()),
         ),
-        ("only", FrameworkProfileSelection::Only(profiles.clone())),
+        (
+            "only".to_owned(),
+            FrameworkProfileSelection::Only(profiles.clone()),
+        ),
     ];
+    for profile in &profiles {
+        selections.push((
+            format!("exclude {profile} alone"),
+            FrameworkProfileSelection::Exclude(vec![profile.clone()]),
+        ));
+        selections.push((
+            format!("only {profile} alone"),
+            FrameworkProfileSelection::Only(vec![profile.clone()]),
+        ));
+    }
     let workspace = probe_workspace();
     for package_root in ["", PROBE_PACKAGE] {
         for (manifest_label, files, manifests) in package_inputs(&inputs, &workspace, package_root)
@@ -631,7 +637,7 @@ fn check_framework_profiles(
     report.pass(
         "framework-profiles",
         format!(
-            "{} Framework profiles resolve under disabled, auto, exclude, and only selections",
+            "{} Framework profiles resolve under disabled, auto, exclude, and only selections, with every profile and with each profile alone",
             profiles.len()
         ),
     );
