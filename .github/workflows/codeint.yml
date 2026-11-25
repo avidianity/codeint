@@ -2,6 +2,20 @@ name: codeint
 
 on:
   pull_request:
+    paths:
+      - '**'
+      - '!README.md'
+      - '!CHANGELOG.md'
+      - '!CONTRIBUTING.md'
+      - '!GLOSSARY.md'
+      - '!LICENSE'
+      - '!llms.txt'
+      - '!docs/*.md'
+      - '!docs/**/*.md'
+      - 'docs/reference.md'
+      - 'docs/checks/**'
+      - 'docs/agents/review-and-merge.md'
+      - 'docs/agents/security.md'
 
 permissions:
   contents: read

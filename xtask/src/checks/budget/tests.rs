@@ -1,5 +1,6 @@
 use super::{
-    Verdict, ci_gate_seconds, gating_run_ids, parse_timestamp, pull_request_head_sha, verdict,
+    Verdict, ci_gate_seconds, gating_run_ids, gating_run_ids_excluding, parse_timestamp,
+    pull_request_head_sha, verdict,
 };
 
 #[test]
@@ -114,5 +115,32 @@ fn gating_run_ids_handles_pull_request_with_only_ci_run() {
     assert_eq!(
         gating_run_ids(&primary, Some(&sha_runs), "400"),
         vec!["400".to_string()]
+    );
+}
+
+#[test]
+fn gating_run_ids_excludes_named_non_gating_workflows() {
+    let make_run = |id: u64, workflow_id: u64, name: &str, conclusion: Option<&str>| {
+        serde_json::json!({
+            "id": id,
+            "workflow_id": workflow_id,
+            "name": name,
+            "event": "pull_request",
+            "head_sha": "deadbeef",
+            "conclusion": conclusion,
+        })
+    };
+    let primary = make_run(500, 10, "ci", None);
+    let sha_runs = serde_json::json!({
+        "workflow_runs": [
+            make_run(500, 10, "ci", None),
+            make_run(501, 20, "pull-request", Some("success")),
+            make_run(502, 30, "CodeQL", Some("success")),
+        ]
+    });
+    let excluded = vec!["CodeQL".to_string()];
+    assert_eq!(
+        gating_run_ids_excluding(&primary, Some(&sha_runs), "500", &excluded),
+        vec!["500".to_string(), "501".to_string()]
     );
 }

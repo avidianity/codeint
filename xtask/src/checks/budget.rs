@@ -145,10 +145,11 @@ fn workflow_key(run: &serde_json::Value) -> Option<String> {
         })
 }
 
-pub(crate) fn gating_run_ids(
+pub(crate) fn gating_run_ids_excluding(
     primary_run: &serde_json::Value,
     sha_runs: Option<&serde_json::Value>,
     primary_run_id: &str,
+    excluded_workflows: &[String],
 ) -> Vec<String> {
     let mut run_ids = vec![primary_run_id.to_string()];
     if pull_request_head_sha(primary_run).is_none() {
@@ -167,6 +168,13 @@ pub(crate) fn gating_run_ids(
             continue;
         }
         if run.get("conclusion").and_then(serde_json::Value::as_str) == Some("cancelled") {
+            continue;
+        }
+        if run
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|name| excluded_workflows.iter().any(|excluded| excluded == name))
+        {
             continue;
         }
         let Some(id) = run.get("id").and_then(serde_json::Value::as_u64) else {
@@ -190,6 +198,15 @@ pub(crate) fn gating_run_ids(
     run_ids
 }
 
+#[cfg(test)]
+pub(crate) fn gating_run_ids(
+    primary_run: &serde_json::Value,
+    sha_runs: Option<&serde_json::Value>,
+    primary_run_id: &str,
+) -> Vec<String> {
+    gating_run_ids_excluding(primary_run, sha_runs, primary_run_id, &[])
+}
+
 fn fetch_json(root: &Path, endpoint: &str, description: &str) -> Result<serde_json::Value, String> {
     let output = gh(root, &["api", endpoint])?;
     serde_json::from_str(&output).map_err(|error| format!("cannot parse {description}: {error}"))
@@ -198,6 +215,7 @@ fn fetch_json(root: &Path, endpoint: &str, description: &str) -> Result<serde_js
 pub(crate) fn fetch_ci_gate_jobs(
     root: &Path,
     run_id: &str,
+    excluded_workflows: &[String],
 ) -> Result<Vec<serde_json::Value>, String> {
     let primary_run = fetch_json(
         root,
@@ -214,7 +232,7 @@ pub(crate) fn fetch_ci_gate_jobs(
         )?),
         None => None,
     };
-    gating_run_ids(&primary_run, sha_runs.as_ref(), run_id)
+    gating_run_ids_excluding(&primary_run, sha_runs.as_ref(), run_id, excluded_workflows)
         .iter()
         .map(|id| {
             fetch_json(

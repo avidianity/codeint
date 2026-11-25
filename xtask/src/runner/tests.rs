@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use super::affected_packages;
+use super::{affected_packages, repeated_flag};
 
 fn packages(root: &Path) -> Vec<(String, PathBuf, BTreeSet<String>)> {
     [
@@ -53,4 +53,28 @@ fn documents_affect_nothing_and_the_lockfile_affects_everything() {
         affected_packages(&["Cargo.lock".to_string()], root, &packages(root)),
         names(&["cli", "metrics", "model", "xtask"])
     );
+}
+
+#[test]
+fn repeated_flag_collects_zero_or_more_values_and_rejects_dangling_flag() {
+    let to_args =
+        |items: &[&str]| -> Vec<String> { items.iter().map(|s| (*s).to_string()).collect() };
+    assert_eq!(
+        repeated_flag(&to_args(&["--loop", "ci-gate"]), "--exclude-workflow"),
+        Ok(Vec::new())
+    );
+    assert_eq!(
+        repeated_flag(
+            &to_args(&[
+                "--exclude-workflow",
+                "CodeQL",
+                "--report",
+                "--exclude-workflow",
+                "codeint"
+            ]),
+            "--exclude-workflow"
+        ),
+        Ok(vec!["CodeQL".to_string(), "codeint".to_string()])
+    );
+    assert!(repeated_flag(&to_args(&["--exclude-workflow"]), "--exclude-workflow").is_err());
 }
