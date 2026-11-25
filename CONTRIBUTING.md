@@ -45,6 +45,13 @@ People and coding agents follow the same rules in this repository: read [.rules]
 5. Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`) with no agent attribution or co-author lines.
 6. Open a pull request against `main` and fill in every section of [.github/pull_request_template.md](./.github/pull_request_template.md).
 
+## Running the Evaluation suite
+
+The Evaluation suite measures accuracy, native-parser recall, speed, and memory on the public repositories pinned in [eval/corpus.json](./eval/corpus.json).
+Its runner clones each repository into a temporary folder outside the checkout and deletes it after measuring.
+Read [eval/HOW-TO.md](./eval/HOW-TO.md) for the command, the oracle runtimes, and the report files.
+The planted-defect suite runs with the other tests: `cargo test --locked -p codeint-cli --test integration planted_defects`.
+
 ## Adding a Language or Metric plugin
 
 Read [docs/plugins.md](./docs/plugins.md) to build an external WebAssembly Plugin against `codeint:plugin@0.4.0`, or inspect `plugins/languages/` to see how built-in Language plugins implement the Code model contract.
