@@ -9,7 +9,8 @@ use codeint_plugin_host::{
 };
 use codeint_report::{RejectedStatementEntry, SqlSchemaSummary};
 
-use super::{CheckError, SelectedPackage};
+use super::errors::CheckError;
+use super::package_filter::SelectedPackage;
 
 pub(crate) struct SqlLowerDetails {
     pub(crate) parsed: SqlParsedFile,

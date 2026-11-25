@@ -1,320 +1,42 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fmt;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::string::FromUtf8Error;
 
 use codeint_config::{
-    Codeowners, CodeownersError, ConfigFileKind, Configuration, ConfigurationFileError,
-    DependenciesConfig, EntryPoints, FindingsShown, LanguageCoverage, OwnerFilter,
-    PluginHostConfig, SourceSetOverrides, SqlDialect, SqlDialectConflict, read_configuration,
+    Codeowners, ConfigFileKind, Configuration, DependenciesConfig, EntryPoints, FindingsShown,
+    LanguageCoverage, OwnerFilter, PluginHostConfig, read_configuration,
 };
-use codeint_git::{GitError, Repository, Snapshot};
-use codeint_metrics::{CoverageApplyError, CoverageParseError, DependencyHygiene, OrphanFiles};
+use codeint_git::{Repository, Snapshot};
+use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
-    CodeModel, DeclaredDep, DependencyManifest, HazardLine, InvalidReferenceRange, LanguageFacts,
-    LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
-    Package, ReferenceRanges, RepoPath, ResolveError, SkippedFile, SourceFile, SourceSet,
-    Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
+    CodeModel, LanguagePlugin, Manifest, MetricPlugin, RepoPath, SourceFile, SourceSet, Workspace,
 };
 use codeint_plugin_host::{
-    NamedLanguagePlugin, PluginHostError, SQL_PLUGIN_NAME, SqlParsedFile,
-    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, WasmLanguagePlugin, WasmMetricPlugin,
-    built_in_language_descriptors, built_in_language_names, built_in_language_plugins,
-    load_language_plugins_with_limits, load_metric_plugins_with_limits,
-    manifests_declare_framework_reference_ranges, select_language_reference_ranges,
+    NamedLanguagePlugin, SQL_PLUGIN_NAME, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, WasmLanguagePlugin,
+    WasmMetricPlugin, built_in_language_descriptors, built_in_language_names,
+    built_in_language_plugins, load_language_plugins_with_limits, load_metric_plugins_with_limits,
 };
 use codeint_report::{
     LanguageSchema, MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report,
     ReportExtras, ReportOptions, SqlSchemaSummary,
 };
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-};
 
 mod coverage;
+mod errors;
+mod lowering;
+mod manifests;
+mod package_filter;
 mod sql;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use coverage::{CoverageReportDigest, hash_configured_coverage_reports};
-
-#[derive(Debug)]
-pub(crate) struct ConfigScopedError<E> {
-    pub(crate) config_file: ConfigFileKind,
-    pub(crate) error: E,
-}
-
-impl<E: fmt::Display> fmt::Display for ConfigScopedError<E> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.error.fmt(formatter)
-    }
-}
-
-impl<E: std::error::Error + 'static> std::error::Error for ConfigScopedError<E> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.error.source()
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum CheckError {
-    #[error(transparent)]
-    Git(#[from] GitError),
-    #[error(transparent)]
-    Configuration(#[from] ConfigurationFileError),
-    #[error(transparent)]
-    Codeowners(#[from] CodeownersError),
-    #[error("Language plugin {plugin:?} cannot resolve runtime imports")]
-    Resolve {
-        plugin: String,
-        #[source]
-        source: ResolveError,
-    },
-    #[error("a Language plugin supplies an invalid Reference range")]
-    ReferenceRange(#[source] InvalidReferenceRange),
-    #[error(transparent)]
-    Workspace(#[from] WorkspaceError),
-    #[error(transparent)]
-    PluginHost(ConfigScopedError<PluginHostError>),
-    #[error(transparent)]
-    LanguagePlugin(ConfigScopedError<LanguagePluginError>),
-    #[error(transparent)]
-    MetricPlugin(ConfigScopedError<MetricPluginError>),
-    #[error(
-        "{}",
-        format_extension_conflict(first, second, extension, path.as_ref(), *config_file)
-    )]
-    ExtensionConflict {
-        config_file: ConfigFileKind,
-        first: String,
-        second: String,
-        extension: String,
-        path: Option<RepoPath>,
-    },
-    #[error("{}", format_unknown_workspace_package(requested, available))]
-    UnknownWorkspacePackage {
-        requested: String,
-        available: Vec<String>,
-    },
-    #[error("Coverage report {path:?} does not exist")]
-    MissingCoverageReport { path: String },
-    #[error("Coverage report {path:?} is outside the Git repository")]
-    CoverageReportOutsideRepository { path: String },
-    #[error("cannot read Coverage report {path:?}")]
-    UnreadableCoverageReport {
-        path: String,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("cannot parse Coverage report {path:?}")]
-    InvalidCoverageReport {
-        path: String,
-        #[source]
-        source: CoverageParseError,
-    },
-    #[error(transparent)]
-    CoverageApply(#[from] CoverageApplyError),
-    #[error(
-        "budgets.production.test_gap ({budget}) is set, but Test gap is absent; the Test gap Budget needs a Coverage report"
-    )]
-    TestGapBudgetWithoutCoverage { budget: f64 },
-    #[error("{config_file}: sql.dialects conflict: {conflict}")]
-    SqlDialectConflict {
-        config_file: ConfigFileKind,
-        conflict: SqlDialectConflict,
-    },
-    #[error("{config_file} names an unknown Hazard line rule {rule:?} in hazards.disabled_rules")]
-    UnknownHazardRule {
-        config_file: ConfigFileKind,
-        rule: String,
-    },
-}
-
-impl CheckError {
-    pub(crate) fn plugin_host(config_file: ConfigFileKind, error: PluginHostError) -> CheckError {
-        CheckError::PluginHost(ConfigScopedError { config_file, error })
-    }
-
-    pub(crate) fn language_plugin(
-        config_file: ConfigFileKind,
-        error: LanguagePluginError,
-    ) -> CheckError {
-        CheckError::LanguagePlugin(ConfigScopedError { config_file, error })
-    }
-
-    pub(crate) fn metric_plugin(
-        config_file: ConfigFileKind,
-        error: MetricPluginError,
-    ) -> CheckError {
-        CheckError::MetricPlugin(ConfigScopedError { config_file, error })
-    }
-}
-
-fn format_unknown_workspace_package(requested: &str, available: &[String]) -> String {
-    if available.is_empty() {
-        format!(
-            "Workspace package {requested:?} was not found; no Workspace packages were discovered in this repository"
-        )
-    } else {
-        format!(
-            "Workspace package {requested:?} was not found; discovered Workspace packages: {}",
-            available.join(", ")
-        )
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SelectedPackage {
-    Root,
-    Member(RepoPath),
-}
-
-impl SelectedPackage {
-    pub(crate) fn as_str(&self) -> &str {
-        match self {
-            SelectedPackage::Root => ".",
-            SelectedPackage::Member(root) => root.as_str(),
-        }
-    }
-
-    pub(crate) fn matches(&self, package: Package<'_>) -> bool {
-        match (self, package) {
-            (SelectedPackage::Root, Package::Root) => true,
-            (SelectedPackage::Member(selected), Package::Member(actual)) => selected == actual,
-            _ => false,
-        }
-    }
-}
-
-pub(crate) fn select_workspace_package(
-    workspace: &Workspace,
-    requested: &str,
-) -> Result<SelectedPackage, CheckError> {
-    let available: Vec<String> = workspace.member_roots().map(ToString::to_string).collect();
-    if !workspace.has_members() {
-        return Err(CheckError::UnknownWorkspacePackage {
-            requested: requested.to_owned(),
-            available,
-        });
-    }
-    let normalized = normalize_package_path(requested);
-    if normalized == "." {
-        return Ok(SelectedPackage::Root);
-    }
-    if let Ok(candidate) = RepoPath::new(normalized)
-        && workspace.member_roots().any(|root| root == &candidate)
-    {
-        return Ok(SelectedPackage::Member(candidate));
-    }
-    Err(CheckError::UnknownWorkspacePackage {
-        requested: requested.to_owned(),
-        available,
-    })
-}
-
-fn normalize_package_path(raw: &str) -> String {
-    let replaced = raw.replace('\\', "/");
-    let mut trimmed = replaced.as_str();
-    while let Some(stripped) = trimmed.strip_prefix("./") {
-        trimmed = stripped;
-    }
-    trimmed = trimmed.trim_end_matches('/');
-    if trimmed.is_empty() && !raw.is_empty() && replaced.trim_end_matches('/') == "." {
-        return ".".to_owned();
-    }
-    trimmed.to_owned()
-}
-
-pub(crate) fn workspace_of_languages(languages: &[MeasuredLanguage]) -> Workspace {
-    let mut workspace = Workspace::default();
-    for language in languages {
-        workspace.join(language.model.workspace.clone());
-    }
-    workspace
-}
-
-pub(crate) fn filter_model_to_package(model: &mut CodeModel, selected: &SelectedPackage) {
-    let workspace = std::mem::take(&mut model.workspace);
-    model
-        .files
-        .retain(|file| selected.matches(workspace.package_of(&file.path)));
-    if model.files.is_empty() {
-        model.languages.clear();
-    }
-    model
-        .skipped
-        .retain(|file| selected.matches(workspace.package_of(&file.path)));
-    model
-        .declaration_only
-        .retain(|path| selected.matches(workspace.package_of(path)));
-    model
-        .runtime_imports
-        .retain(|import| selected.matches(workspace.package_of(&import.importer)));
-    model
-        .dependency_manifests
-        .retain(|manifest| selected.matches(workspace.package_of(&manifest.path)));
-    let retained_roots: HashSet<String> = model
-        .dependency_manifests
-        .iter()
-        .map(|manifest| manifest.package_root.clone())
-        .collect();
-    model.declared_dependencies.retain(|dep| {
-        retained_roots.contains(&dep.package_root)
-            || matches_selected_package_root(selected, &dep.package_root)
-    });
-    model.manifest_used_dependencies.retain(|dep| {
-        retained_roots.contains(&dep.package_root)
-            || matches_selected_package_root(selected, &dep.package_root)
-    });
-}
-
-fn matches_selected_package_root(selected: &SelectedPackage, package_root: &str) -> bool {
-    match selected {
-        SelectedPackage::Root => package_root.is_empty(),
-        SelectedPackage::Member(root) => package_root == root.as_str(),
-    }
-}
-
-fn package_root_matches_selected(
-    workspace: &Workspace,
-    selected: &SelectedPackage,
-    package_root: &str,
-) -> bool {
-    let actual = if package_root.is_empty() {
-        Package::Root
-    } else if let Ok(synthetic) = RepoPath::new(format!("{package_root}/manifest")) {
-        workspace.package_of(&synthetic)
-    } else {
-        return matches_selected_package_root(selected, package_root);
-    };
-    selected.matches(actual)
-}
-
-pub(crate) fn filter_languages_to_package(
-    languages: &mut [MeasuredLanguage],
-    selected: &SelectedPackage,
-) {
-    for language in languages {
-        filter_model_to_package(&mut language.model, selected);
-    }
-}
-
-fn format_extension_conflict(
-    first: &str,
-    second: &str,
-    extension: &str,
-    path: Option<&RepoPath>,
-    config_file: ConfigFileKind,
-) -> String {
-    match path {
-        Some(path) => format!(
-            "Language plugins {first} and {second} both claim extension .{extension} for {path}; assign separate directories in the languages setting of {config_file}"
-        ),
-        None => format!(
-            "Language plugins {first} and {second} both claim extension .{extension}; assign separate directories in the languages setting of {config_file}"
-        ),
-    }
-}
+pub(crate) use errors::CheckError;
+pub(crate) use manifests::{find_workspace, read_manifests};
+#[cfg(test)]
+use package_filter::filter_model_to_package;
+pub(crate) use package_filter::{
+    SelectedPackage, filter_languages_to_package, select_workspace_package, workspace_of_languages,
+};
 
 pub(crate) fn built_in_languages() -> Vec<LanguageSchema> {
     built_in_language_descriptors()
@@ -576,7 +298,7 @@ pub(crate) fn compute_dependency_hygiene(
         }
         let measured = DependencyHygiene::measure_filtered(&language.model, ignored, |root| {
             selected.is_none_or(|pkg| {
-                package_root_matches_selected(&language.model.workspace, pkg, root)
+                package_filter::package_root_matches_selected(&language.model.workspace, pkg, root)
             })
         });
         by_language.insert(language.plugin.clone(), measured);
@@ -608,7 +330,7 @@ fn check_loaded(
         &mut snapshot.languages,
         &snapshot.file_line_counts,
     )?;
-    let selected = resolve_package_selection(&snapshot.languages, request.package)?;
+    let selected = package_filter::resolve_package_selection(&snapshot.languages, request.package)?;
     let selected_ref = selected.as_ref().map(|(pkg, _)| pkg);
     let (orphan_files, orphan_files_by_language) = compute_orphan_files(&snapshot, selected_ref);
     let (dependency_hygiene, dependency_hygiene_by_language) =
@@ -642,20 +364,6 @@ fn check_loaded(
     Ok(report)
 }
 
-fn resolve_package_selection(
-    languages: &[MeasuredLanguage],
-    package: Option<&str>,
-) -> Result<Option<(SelectedPackage, Workspace)>, CheckError> {
-    let Some(requested) = package else {
-        return Ok(None);
-    };
-    let workspace = workspace_of_languages(languages);
-    Ok(Some((
-        select_workspace_package(&workspace, requested)?,
-        workspace,
-    )))
-}
-
 fn apply_selected_package(
     snapshot: &mut MeasuredSnapshot,
     plugins: &[NamedLanguagePlugin<'_>],
@@ -671,7 +379,7 @@ fn apply_selected_package(
         workspace,
         selected_pkg,
     );
-    refresh_reference_ranges_for_package(
+    manifests::refresh_reference_ranges_for_package(
         &mut snapshot.languages,
         plugins,
         &snapshot.manifests_by_language,
@@ -717,13 +425,13 @@ fn measure(
     configuration: &Configuration,
 ) -> Result<MeasuredSnapshot, CheckError> {
     let config_file = configuration.config_file();
-    let covered_files = assign_files_to_plugins(tree, plugins, coverage, config_file)?;
+    let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let sql_dialects =
         sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
     let manifests_by_plugin = read_manifests(tree, plugins)?;
-    let plugin_members = find_plugin_workspaces(plugins, &manifests_by_plugin)?;
+    let plugin_members = manifests::find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
-    let outcomes = lower_covered_files(
+    let outcomes = lowering::lower_covered_files(
         tree,
         plugins,
         &covered_files,
@@ -731,7 +439,7 @@ fn measure(
         &configuration.source_set_overrides,
         config_file,
     )?;
-    let mut collected = collect_plugin_models(plugins.len(), workspace, outcomes);
+    let mut collected = lowering::collect_plugin_models(plugins.len(), workspace, outcomes);
     let sql_schemas = plugins
         .iter()
         .position(|named| named.name == SQL_PLUGIN_NAME)
@@ -753,112 +461,6 @@ fn measure(
     snapshot.rejected_statements = collected.rejected_statements;
     snapshot.sql_schemas = sql_schemas;
     Ok(snapshot)
-}
-
-fn listed_hazard_rules_by_plugin(plugins: &[NamedLanguagePlugin<'_>]) -> Vec<HashSet<String>> {
-    plugins
-        .iter()
-        .map(|named| {
-            if named.plugin.has_hazard_rules() {
-                named.plugin.hazard_rules().into_iter().collect()
-            } else {
-                HashSet::new()
-            }
-        })
-        .collect()
-}
-
-fn lower_covered_files(
-    tree: &Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
-    covered_files: &[(&RepoPath, usize)],
-    sql_dialects: &[Option<SqlDialect>],
-    overrides: &SourceSetOverrides,
-    config_file: ConfigFileKind,
-) -> Result<Vec<(usize, LoweredOutcome)>, CheckError> {
-    let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
-    let lower_file =
-        |bytes: Vec<u8>, path: &RepoPath, index: usize, dialect: Option<SqlDialect>| {
-            let lowered = lower_bytes(
-                bytes,
-                path,
-                &plugins[index],
-                dialect,
-                &listed_hazard_rules[index],
-                overrides,
-                config_file,
-            )?;
-            Ok((index, lowered))
-        };
-    if let Some(reader) = tree.working_tree_reader() {
-        return covered_files
-            .par_iter()
-            .zip(sql_dialects.par_iter())
-            .map(|(&(path, index), &dialect)| lower_file(reader.read(path)?, path, index, dialect))
-            .collect();
-    }
-    let loaded = covered_files
-        .iter()
-        .zip(sql_dialects.iter())
-        .map(|(&(path, index), &dialect)| Ok((path, index, dialect, tree.read(path)?)))
-        .collect::<Result<Vec<_>, CheckError>>()?;
-    loaded
-        .into_par_iter()
-        .map(|(path, index, dialect, bytes)| lower_file(bytes, path, index, dialect))
-        .collect()
-}
-
-struct CollectedPluginModels {
-    models: Vec<CodeModel>,
-    file_line_counts: BTreeMap<RepoPath, usize>,
-    sql_parsed: BTreeMap<RepoPath, SqlParsedFile>,
-    rejected_statements: Vec<RejectedStatementEntry>,
-}
-
-fn collect_plugin_models(
-    plugin_count: usize,
-    workspace: Workspace,
-    outcomes: Vec<(usize, LoweredOutcome)>,
-) -> CollectedPluginModels {
-    let mut models: Vec<CodeModel> = (0..plugin_count)
-        .map(|_| CodeModel {
-            workspace: workspace.clone(),
-            ..CodeModel::default()
-        })
-        .collect();
-    let mut file_line_counts = BTreeMap::new();
-    let mut sql_parsed = BTreeMap::new();
-    let mut rejected_statements = Vec::new();
-    for (index, outcome) in outcomes {
-        if let Some((path, lines)) = outcome.line_count {
-            file_line_counts.insert(path, lines);
-        }
-        let model = &mut models[index];
-        match outcome.file {
-            LoweredFile::Measured(file) => {
-                if let Some(details) = outcome.sql {
-                    rejected_statements.extend(details.rejected_statements);
-                    sql_parsed.insert(file.path.clone(), details.parsed);
-                }
-                model.files.push(file);
-            }
-            LoweredFile::DeclarationOnly(path) => model.declaration_only.push(path),
-            LoweredFile::Skipped(skipped) => model.skipped.push(skipped),
-        }
-    }
-    rejected_statements.sort_by(|a, b| {
-        (a.path.as_str(), a.line, a.dialect.as_str()).cmp(&(
-            b.path.as_str(),
-            b.line,
-            b.dialect.as_str(),
-        ))
-    });
-    CollectedPluginModels {
-        models,
-        file_line_counts,
-        sql_parsed,
-        rejected_statements,
-    }
 }
 
 fn resolve_measured_snapshot(
@@ -897,8 +499,14 @@ fn resolve_measured_snapshot(
         } else {
             Vec::new()
         };
-        let measured =
-            finalize_language_model(named, model, manifests, members, tree.files(), config_file)?;
+        let measured = manifests::finalize_language_model(
+            named,
+            model,
+            manifests,
+            members,
+            tree.files(),
+            config_file,
+        )?;
         entry_points_by_language.insert(named.name.to_owned(), combined_entries);
         manifests_by_language.insert(named.name.to_owned(), retained_manifests);
         languages.push(measured);
@@ -928,447 +536,4 @@ fn combine_entry_points(
         }
     }
     entries.into_iter().collect()
-}
-
-fn finalize_language_model(
-    named: &NamedLanguagePlugin<'_>,
-    mut model: CodeModel,
-    manifests: Vec<Manifest>,
-    plugin_members: &[RepoPath],
-    repository_paths: &[RepoPath],
-    config_file: ConfigFileKind,
-) -> Result<MeasuredLanguage, CheckError> {
-    let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
-    let has_imports = named.plugin.has_imports();
-    if has_imports {
-        let importers: Vec<&SourceFile> = model.files.iter().collect();
-        let declared_dependencies = named
-            .plugin
-            .declared_dependencies(manifests.clone())
-            .map_err(|error| CheckError::language_plugin(config_file, error))?;
-        model.dependency_manifests = collect_dependency_manifests(
-            &manifests,
-            plugin_members,
-            &declared_dependencies,
-            &model.files,
-        );
-        model.manifest_used_dependencies =
-            crate::package_scripts::extract_manifest_used_dependencies(
-                &manifests,
-                plugin_members,
-                &declared_dependencies,
-            );
-        model.declared_dependencies = declared_dependencies;
-        model.runtime_imports =
-            resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
-                .map_err(|source| match source {
-                    ResolveError::Plugin(error) => CheckError::language_plugin(config_file, error),
-                    other => CheckError::Resolve {
-                        plugin: named.name.to_owned(),
-                        source: other,
-                    },
-                })?;
-    }
-    if !model.files.is_empty() {
-        model.languages = vec![LanguageFacts {
-            language: named.name.to_owned(),
-            has_coverage: false,
-            has_hazard_rules: named.plugin.has_hazard_rules(),
-            has_imports,
-        }];
-    }
-    Ok(MeasuredLanguage {
-        plugin: named.name.to_owned(),
-        model,
-        reference_ranges,
-        has_imports,
-    })
-}
-
-fn collect_dependency_manifests(
-    manifests: &[Manifest],
-    plugin_members: &[RepoPath],
-    declared: &[DeclaredDep],
-    files: &[SourceFile],
-) -> Vec<DependencyManifest> {
-    let declared_roots: HashSet<&str> = declared
-        .iter()
-        .map(|dep| dep.package_root.as_str())
-        .collect();
-    let member_roots: HashSet<&str> = plugin_members.iter().map(RepoPath::as_str).collect();
-    let mut collected: Vec<DependencyManifest> = manifests
-        .iter()
-        .filter(|manifest| should_include_manifest(manifest, &declared_roots, &member_roots, files))
-        .filter_map(|manifest| {
-            let repo_path = RepoPath::new(&manifest.path).ok()?;
-            Some(DependencyManifest {
-                package_root: manifest_root(&manifest.path).to_owned(),
-                path: repo_path,
-            })
-        })
-        .collect();
-    collected.sort();
-    collected.dedup();
-    collected
-}
-
-fn should_include_manifest(
-    manifest: &Manifest,
-    declared_roots: &HashSet<&str>,
-    member_roots: &HashSet<&str>,
-    files: &[SourceFile],
-) -> bool {
-    if !is_dependency_manifest_path(&manifest.path) || is_virtual_cargo_workspace(manifest) {
-        return false;
-    }
-    let root = manifest_root(&manifest.path);
-    if declared_roots.contains(root) || member_roots.contains(root) {
-        return true;
-    }
-    owns_any_file(root, files)
-}
-
-fn is_virtual_cargo_workspace(manifest: &Manifest) -> bool {
-    let is_cargo = manifest.path == "Cargo.toml" || manifest.path.ends_with("/Cargo.toml");
-    if !is_cargo {
-        return false;
-    }
-    toml::from_str::<toml::Value>(&manifest.text)
-        .ok()
-        .is_some_and(|doc| doc.get("workspace").is_some() && doc.get("package").is_none())
-}
-
-fn owns_any_file(root: &str, files: &[SourceFile]) -> bool {
-    if root.is_empty() {
-        return !files.is_empty();
-    }
-    let prefix = format!("{root}/");
-    files
-        .iter()
-        .any(|file| file.path.as_str().starts_with(&prefix))
-}
-
-fn is_dependency_manifest_path(path: &str) -> bool {
-    let ignored_dir = path.split('/').any(|segment| {
-        matches!(
-            segment,
-            "node_modules" | "target" | "vendor" | ".venv" | "venv" | ".dart_tool"
-        )
-    });
-    if ignored_dir {
-        return false;
-    }
-    let file_name = path.rsplit_once('/').map_or(path, |(_, name)| name);
-    let is_ts_config = file_name.starts_with("tsconfig") && file_name.ends_with(".json");
-    !is_ts_config && file_name != "pnpm-workspace.yaml"
-}
-
-fn manifest_root(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(dir, _)| dir)
-}
-
-fn scoped_manifests_for_package(
-    manifests: &[Manifest],
-    workspace: &Workspace,
-    selected: &SelectedPackage,
-) -> Vec<Manifest> {
-    let own: Vec<Manifest> = manifests
-        .iter()
-        .filter(|manifest| {
-            package_root_matches_selected(workspace, selected, manifest_root(&manifest.path))
-        })
-        .cloned()
-        .collect();
-    if matches!(selected, SelectedPackage::Root)
-        || manifests_declare_framework_reference_ranges(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, &own)
-    {
-        return own;
-    }
-    manifests
-        .iter()
-        .filter(|manifest| manifest_root(&manifest.path).is_empty())
-        .cloned()
-        .collect()
-}
-
-fn refresh_reference_ranges_for_package(
-    languages: &mut [MeasuredLanguage],
-    plugins: &[NamedLanguagePlugin<'_>],
-    manifests_by_language: &BTreeMap<String, Vec<Manifest>>,
-    workspace: &Workspace,
-    selected: &SelectedPackage,
-) -> Result<(), CheckError> {
-    for language in languages {
-        if language.plugin != TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME {
-            continue;
-        }
-        let Some(named) = plugins.iter().find(|plugin| plugin.name == language.plugin) else {
-            continue;
-        };
-        let scoped = manifests_by_language
-            .get(&language.plugin)
-            .map(|manifests| scoped_manifests_for_package(manifests, workspace, selected))
-            .unwrap_or_default();
-        language.reference_ranges = select_reference_ranges(named, &language.model, &scoped)?;
-    }
-    Ok(())
-}
-
-fn select_reference_ranges(
-    named: &NamedLanguagePlugin<'_>,
-    model: &CodeModel,
-    manifests: &[Manifest],
-) -> Result<ReferenceRanges, CheckError> {
-    select_language_reference_ranges(named, model, manifests).map_err(CheckError::ReferenceRange)
-}
-
-fn assign_files_to_plugins<'tree>(
-    tree: &'tree Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
-    coverage: &[LanguageCoverage<'_>],
-    config_file: ConfigFileKind,
-) -> Result<Vec<(&'tree RepoPath, usize)>, CheckError> {
-    let mut plugins_by_extension: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (index, named) in plugins.iter().enumerate() {
-        for extension in named.plugin.extensions() {
-            let claimants = plugins_by_extension.entry(extension).or_default();
-            if !claimants.contains(&index) {
-                claimants.push(index);
-            }
-        }
-    }
-    for (extension, claimants) in &plugins_by_extension {
-        if claimants.len() < 2 {
-            continue;
-        }
-        let unrestricted: Vec<usize> = claimants
-            .iter()
-            .copied()
-            .filter(|&index| coverage[index].covers_all())
-            .collect();
-        if unrestricted.len() >= 2 {
-            let (first, second) = first_two_plugin_names(plugins, &unrestricted);
-            return Err(CheckError::ExtensionConflict {
-                config_file,
-                first,
-                second,
-                extension: extension.clone(),
-                path: None,
-            });
-        }
-    }
-    let mut covered_files = Vec::new();
-    for path in tree.files() {
-        let Some(extension) = path.extension() else {
-            continue;
-        };
-        let Some(claimants) = plugins_by_extension.get(extension) else {
-            continue;
-        };
-        let matching: Vec<usize> = claimants
-            .iter()
-            .copied()
-            .filter(|&index| coverage[index].covers(path))
-            .collect();
-        match matching.as_slice() {
-            [] => {}
-            [index] => covered_files.push((path, *index)),
-            many => {
-                let (first, second) = first_two_plugin_names(plugins, many);
-                return Err(CheckError::ExtensionConflict {
-                    config_file,
-                    first,
-                    second,
-                    extension: extension.to_owned(),
-                    path: Some(path.clone()),
-                });
-            }
-        }
-    }
-    Ok(covered_files)
-}
-
-fn first_two_plugin_names(
-    plugins: &[NamedLanguagePlugin<'_>],
-    indices: &[usize],
-) -> (String, String) {
-    let mut names: Vec<&str> = indices.iter().map(|&index| plugins[index].name).collect();
-    names.sort_unstable();
-    (names[0].to_owned(), names[1].to_owned())
-}
-
-pub(crate) fn read_manifests(
-    tree: &Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
-) -> Result<Vec<Vec<Manifest>>, CheckError> {
-    plugins
-        .iter()
-        .map(|named| {
-            if !named.plugin.has_imports() {
-                return Ok(Vec::new());
-            }
-            choose_manifests(named.plugin, tree.files())
-                .map_err(|source| CheckError::Resolve {
-                    plugin: named.name.to_owned(),
-                    source,
-                })?
-                .into_iter()
-                .map(|path| {
-                    Ok(Manifest {
-                        text: String::from_utf8_lossy(&tree.read(&path)?).into_owned(),
-                        path: path.to_string(),
-                    })
-                })
-                .collect()
-        })
-        .collect()
-}
-
-pub(crate) fn find_workspace(
-    plugins: &[NamedLanguagePlugin<'_>],
-    manifests_by_plugin: &[Vec<Manifest>],
-) -> Result<Workspace, CheckError> {
-    let member_roots = find_plugin_workspaces(plugins, manifests_by_plugin)?
-        .into_iter()
-        .flatten();
-    Ok(Workspace::new(member_roots))
-}
-
-fn find_plugin_workspaces(
-    plugins: &[NamedLanguagePlugin<'_>],
-    manifests_by_plugin: &[Vec<Manifest>],
-) -> Result<Vec<Vec<RepoPath>>, CheckError> {
-    plugins
-        .iter()
-        .zip(manifests_by_plugin)
-        .map(|(named, manifests)| {
-            if !named.plugin.has_imports() {
-                return Ok(Vec::new());
-            }
-            Ok(named.plugin.workspace_packages(manifests.clone())?)
-        })
-        .collect()
-}
-
-struct LoweredOutcome {
-    file: LoweredFile,
-    line_count: Option<(RepoPath, usize)>,
-    sql: Option<sql::SqlLowerDetails>,
-}
-
-enum LoweredFile {
-    Measured(SourceFile),
-    DeclarationOnly(RepoPath),
-    Skipped(SkippedFile),
-}
-
-fn validate_hazard_rule_names(
-    plugin_name: &str,
-    path: &RepoPath,
-    hazard_lines: &[HazardLine],
-    listed_rules: &HashSet<String>,
-) -> Result<(), LanguagePluginError> {
-    for hazard in hazard_lines {
-        if !listed_rules.contains(&hazard.rule) {
-            return Err(LanguagePluginError::UnlistedHazardRule {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                rule: hazard.rule.clone(),
-            });
-        }
-    }
-    Ok(())
-}
-
-fn lower_bytes(
-    bytes: Vec<u8>,
-    path: &RepoPath,
-    named: &NamedLanguagePlugin<'_>,
-    sql_dialect: Option<SqlDialect>,
-    listed_hazard_rules: &HashSet<String>,
-    overrides: &SourceSetOverrides,
-    config_file: ConfigFileKind,
-) -> Result<LoweredOutcome, CheckError> {
-    let text = match String::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(error) => {
-            return Ok(LoweredOutcome {
-                file: LoweredFile::Skipped(not_utf8(path.clone(), &error)),
-                line_count: None,
-                sql: None,
-            });
-        }
-    };
-    let line_count = text.lines().count();
-    let recorded_lines = Some((path.clone(), line_count));
-    let lowered = match sql_dialect {
-        Some(dialect) => {
-            sql::lower_sql_source(path, &text, dialect).map(|(file, details)| (file, Some(details)))
-        }
-        None => named.plugin.lower(path, &text).map(|file| (file, None)),
-    };
-    match lowered {
-        Ok((mut file, sql_details)) => {
-            validate_hazard_line_bounds(named.name, path, line_count, &file.hazard_lines)
-                .map_err(|error| CheckError::language_plugin(config_file, error))?;
-            validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
-                .map_err(|error| CheckError::language_plugin(config_file, error))?;
-            for function in &mut file.functions {
-                function.coverage = None;
-            }
-            if !named.plugin.has_imports() {
-                file.program_start = false;
-            }
-            file.source_set =
-                overrides.source_set(path, settle_source_set(path, &text, file.source_set));
-            Ok(LoweredOutcome {
-                file: LoweredFile::Measured(SourceFile {
-                    path: path.clone(),
-                    model: file,
-                }),
-                line_count: recorded_lines,
-                sql: sql_details,
-            })
-        }
-        Err(LowerError::DeclarationOnly) => Ok(LoweredOutcome {
-            file: LoweredFile::DeclarationOnly(path.clone()),
-            line_count: recorded_lines,
-            sql: None,
-        }),
-        Err(reason) => Ok(LoweredOutcome {
-            file: LoweredFile::Skipped(SkippedFile {
-                path: path.clone(),
-                reason: sql::format_lower_error(sql_dialect.is_some(), reason),
-            }),
-            line_count: recorded_lines,
-            sql: None,
-        }),
-    }
-}
-
-fn validate_hazard_line_bounds(
-    plugin_name: &str,
-    path: &RepoPath,
-    line_count: usize,
-    hazard_lines: &[HazardLine],
-) -> Result<(), LanguagePluginError> {
-    for hazard in hazard_lines {
-        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
-        if line_number < 1 || line_number > line_count {
-            return Err(LanguagePluginError::HazardLineOutOfRange {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                line: hazard.line,
-                line_count,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {
-    SkippedFile {
-        path,
-        reason: format!("not valid UTF-8: {}", error.utf8_error()),
-    }
 }
