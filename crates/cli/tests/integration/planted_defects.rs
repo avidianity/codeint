@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use codeint_model::Metric;
-use codeint_plugin_host::built_in_language_hazard_rules;
+use codeint_plugin_host::{built_in_language_flagged_line_rules, built_in_language_hazard_rules};
 use serde_json::Value;
 
 use crate::common::{init_git_repo, run_codeint_text};
@@ -51,9 +51,8 @@ const fn schema_hazard(rule: &'static str, line: u64) -> Plant {
 }
 
 struct RuleSuite {
-    label: &'static str,
+    plugin: &'static str,
     files: &'static [(&'static str, &'static str)],
-    declared_flagged_rules: &'static [&'static str],
     plants: &'static [Plant],
 }
 
@@ -115,7 +114,7 @@ fn check_all_json(root: &Path, extra: &[&str]) -> Value {
 }
 
 fn run_rule_suite(suite: &RuleSuite) {
-    let label = suite.label;
+    let label = suite.plugin;
     let repo = init_git_repo(suite.files);
     let report = check_all_json(repo.path(), &[]);
     let expected = expected_findings(suite.plants);
@@ -126,9 +125,17 @@ fn run_rule_suite(suite: &RuleSuite) {
         .filter(|plant| plant.metric == "verbosity")
         .map(|plant| plant.rule)
         .collect();
-    let declared: BTreeSet<&str> = suite.declared_flagged_rules.iter().copied().collect();
+    let registered: BTreeSet<String> = built_in_language_flagged_line_rules()
+        .remove(label)
+        .unwrap_or_else(|| panic!("{label} is not a built-in Language plugin"))
+        .into_iter()
+        .collect();
+    let planted_flagged_rules: BTreeSet<String> = planted_flagged_rules
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     assert_eq!(
-        planted_flagged_rules, declared,
+        planted_flagged_rules, registered,
         "{label}: every Flagged line rule has a plant"
     );
 }
@@ -690,87 +697,41 @@ const RUST_MANIFEST: &str =
 
 const RULE_SUITES: [RuleSuite; 7] = [
     RuleSuite {
-        label: "typescript-javascript",
+        plugin: "typescript-javascript",
         files: &[("src/rules.ts", TYPESCRIPT_RULES)],
-        declared_flagged_rules: &[
-            "catch-only-rethrows",
-            "conditional-yields-boolean",
-            "constructor-only-forwards",
-            "else-after-return",
-            "if-else-returns-boolean",
-            "trailing-bare-return",
-        ],
         plants: TYPESCRIPT_PLANTS,
     },
     RuleSuite {
-        label: "rust",
+        plugin: "rust",
         files: &[("Cargo.toml", RUST_MANIFEST), ("src/lib.rs", RUST_RULES)],
-        declared_flagged_rules: &[
-            "else-after-return",
-            "if-else-returns-boolean",
-            "match-only-propagates",
-            "match-yields-boolean",
-            "redundant-closure",
-            "trailing-return",
-        ],
         plants: RUST_PLANTS,
     },
     RuleSuite {
-        label: "php",
+        plugin: "php",
         files: &[("src/Rules.php", PHP_RULES)],
-        declared_flagged_rules: &[
-            "catch-only-rethrows",
-            "constructor-only-forwards",
-            "else-after-return",
-            "if-else-returns-boolean",
-            "ternary-yields-boolean",
-            "trailing-bare-return",
-        ],
         plants: PHP_PLANTS,
     },
     RuleSuite {
-        label: "dart",
+        plugin: "dart",
         files: &[("lib/rules.dart", DART_RULES)],
-        declared_flagged_rules: &[
-            "catch-only-rethrows",
-            "else-after-return",
-            "if-else-returns-boolean",
-            "ternary-yields-boolean",
-            "trailing-bare-return",
-        ],
         plants: DART_PLANTS,
     },
     RuleSuite {
-        label: "python",
+        plugin: "python",
         files: &[("app/rules.py", PYTHON_RULES)],
-        declared_flagged_rules: &[
-            "conditional-yields-boolean",
-            "else-after-return",
-            "except-only-reraises",
-            "if-else-returns-boolean",
-            "trailing-bare-return",
-        ],
         plants: PYTHON_PLANTS,
     },
     RuleSuite {
-        label: "go",
+        plugin: "go",
         files: &[("rules.go", GO_RULES)],
-        declared_flagged_rules: &[
-            "conditional-yields-boolean",
-            "else-after-return",
-            "if-else-returns-boolean",
-            "redundant-break",
-            "trailing-bare-return",
-        ],
         plants: GO_PLANTS,
     },
     RuleSuite {
-        label: "sql",
+        plugin: "sql",
         files: &[
             ("db/statements.sql", SQL_STATEMENTS),
             ("db/schema.sql", SQL_SCHEMA),
         ],
-        declared_flagged_rules: &["having-without-aggregate", "or-chain-collapses-to-in"],
         plants: SQL_PLANTS,
     },
 ];

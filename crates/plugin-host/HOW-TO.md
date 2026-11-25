@@ -4,14 +4,15 @@
 
 ```rust
 use codeint_plugin_host::{
-    built_in_language_descriptors, built_in_language_framework_profiles,
-    built_in_language_hazard_rules, built_in_language_names, built_in_language_plugin,
-    built_in_language_plugins,
+    built_in_language_descriptors, built_in_language_flagged_line_rules,
+    built_in_language_framework_profiles, built_in_language_hazard_rules,
+    built_in_language_names, built_in_language_plugin, built_in_language_plugins,
 };
 
 let plugins = built_in_language_plugins();
 let reserved = built_in_language_names();
 let descriptors = built_in_language_descriptors();
+let flagged_line_rules = built_in_language_flagged_line_rules();
 let hazard_rules = built_in_language_hazard_rules();
 let framework_profiles = built_in_language_framework_profiles();
 let ts_plugin = built_in_language_plugin("typescript-javascript");
@@ -21,6 +22,7 @@ let ts_plugin = built_in_language_plugin("typescript-javascript");
 - `built_in_language_plugin` looks up a single built-in Language plugin by name.
 - `built_in_language_names` returns the reserved built-in plugin names in registration order.
 - `built_in_language_descriptors` returns each built-in Language plugin's name and claimed extensions for schema and discovery reporting.
+- `built_in_language_flagged_line_rules` returns each built-in Language plugin's name mapped to the Flagged line rule names its crate declares; every built-in Language plugin has an entry.
 - `built_in_language_hazard_rules` returns the map of built-in Language plugins that expose Hazard line rules to their declared rule names.
 - `built_in_language_framework_profiles` returns the map of built-in Language plugins that expose Framework profiles to their declared profile names.
 
