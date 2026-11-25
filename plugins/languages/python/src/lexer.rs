@@ -84,6 +84,33 @@ struct Scanner<'a> {
     at_physical_line_start: bool,
     current_line_indent: usize,
     pending_line_start: Option<(usize, u32, usize)>,
+    pending_line_end: u32,
+}
+
+#[derive(Clone, Copy)]
+struct StringPrefix {
+    is_raw: bool,
+    is_interpolated: bool,
+}
+
+#[derive(Clone, Copy)]
+struct InterpContext {
+    open_line: u32,
+    quote: u8,
+    triple: bool,
+    is_raw: bool,
+}
+
+enum InterpStep {
+    Continue,
+    Done,
+    OpenField,
+}
+
+enum FieldStep {
+    Continue,
+    Closed,
+    FormatSpec,
 }
 
 impl<'a> Scanner<'a> {
@@ -102,6 +129,7 @@ impl<'a> Scanner<'a> {
             at_physical_line_start: true,
             current_line_indent: 0,
             pending_line_start: None,
+            pending_line_end: 0,
         }
     }
 
@@ -182,7 +210,13 @@ impl<'a> Scanner<'a> {
 
     fn step_code_token(&mut self, b: u8) -> Result<(), LowerError> {
         if matches!(b, b'\'' | b'"') {
-            return self.consume_string(self.pos);
+            return self.consume_string(
+                self.pos,
+                StringPrefix {
+                    is_raw: false,
+                    is_interpolated: false,
+                },
+            );
         }
         if b.is_ascii_digit()
             || (b == b'.' && self.bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit))
@@ -215,21 +249,25 @@ impl<'a> Scanner<'a> {
 
     fn consume_comment(&mut self) {
         let start = self.pos;
-        while let Some(&b) = self.bytes.get(self.pos) {
-            if b == b'\n' {
-                break;
-            }
-            self.pos += 1;
-        }
+        self.skip_inline_comment();
         if self.tokens.is_empty() {
             self.header_comments
                 .push(self.src[start..self.pos].to_owned());
         }
     }
 
+    fn skip_inline_comment(&mut self) {
+        while let Some(&b) = self.bytes.get(self.pos) {
+            if b == b'\n' {
+                break;
+            }
+            self.pos += 1;
+        }
+    }
+
     fn consume_ident_or_prefixed_string(&mut self) -> Result<(), LowerError> {
-        if let Some(quote_pos) = string_prefix_end(self.bytes, self.pos) {
-            return self.consume_string(quote_pos);
+        if let Some((quote_pos, prefix)) = string_prefix_info(self.bytes, self.pos) {
+            return self.consume_string(quote_pos, prefix);
         }
         let start = self.pos;
         self.pos += 1;
@@ -251,34 +289,43 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
-    fn consume_string(&mut self, quote_pos: usize) -> Result<(), LowerError> {
+    fn consume_string(&mut self, quote_pos: usize, prefix: StringPrefix) -> Result<(), LowerError> {
         let start = self.pos;
         let start_line = self.line;
         let quote = self.bytes[quote_pos];
-        let is_triple = self.bytes.get(quote_pos + 1) == Some(&quote)
-            && self.bytes.get(quote_pos + 2) == Some(&quote);
+        let is_triple = self.has_triple_quote_at(quote_pos, quote);
         self.pos = quote_pos + if is_triple { 3 } else { 1 };
-        if !self.scan_string_body(quote, is_triple) {
-            return Err(LowerError::Unparsable(format!(
-                "unterminated string at line {start_line}"
-            )));
+        if prefix.is_interpolated {
+            let ctx = InterpContext {
+                open_line: start_line,
+                quote,
+                triple: is_triple,
+                is_raw: prefix.is_raw,
+            };
+            let result = self.scan_interpolated_string(start, start_line, ctx);
+            self.at_physical_line_start = false;
+            return result;
         }
+        if !self.scan_string_body(quote, is_triple) {
+            return Err(unterminated_string(start_line));
+        }
+        self.push_string_segment(start, start_line);
+        Ok(())
+    }
+
+    fn push_string_segment(&mut self, start: usize, start_line: u32) {
         for line in start_line..=self.line {
             self.code_lines.insert(line);
         }
         let text = self.src[start..self.pos].to_owned();
-        self.push_token(TokenKind::Literal, false, text, start_line);
-        Ok(())
+        self.push_token_span(TokenKind::Literal, false, text, start_line, self.line);
     }
 
     fn scan_string_body(&mut self, quote: u8, triple: bool) -> bool {
         while self.pos < self.bytes.len() {
             let b = self.bytes[self.pos];
             if b == b'\\' {
-                if self.bytes.get(self.pos + 1) == Some(&b'\n') {
-                    self.line += 1;
-                }
-                self.pos = (self.pos + 2).min(self.bytes.len());
+                self.advance_string_escape();
                 continue;
             }
             if b == b'\n' {
@@ -297,14 +344,240 @@ impl<'a> Scanner<'a> {
         false
     }
 
+    fn scan_interpolated_string(
+        &mut self,
+        mut seg_start: usize,
+        mut seg_start_line: u32,
+        ctx: InterpContext,
+    ) -> Result<(), LowerError> {
+        while self.pos < self.bytes.len() {
+            match self.step_interp_literal(ctx)? {
+                InterpStep::Continue => {}
+                InterpStep::Done => {
+                    self.push_string_segment(seg_start, seg_start_line);
+                    return Ok(());
+                }
+                InterpStep::OpenField => {
+                    self.push_string_segment(seg_start, seg_start_line);
+                    self.scan_interp_field(ctx)?;
+                    seg_start = self.pos;
+                    seg_start_line = self.line;
+                }
+            }
+        }
+        Err(unterminated_string(ctx.open_line))
+    }
+
+    fn step_interp_literal(&mut self, ctx: InterpContext) -> Result<InterpStep, LowerError> {
+        let b = self.bytes[self.pos];
+        if b == b'\\' {
+            self.advance_interp_escape(ctx.is_raw);
+            return Ok(InterpStep::Continue);
+        }
+        if b == b'\n' {
+            self.consume_interp_newline(ctx)?;
+            return Ok(InterpStep::Continue);
+        }
+        if b == ctx.quote && self.try_close_quote(ctx.quote, ctx.triple) {
+            return Ok(InterpStep::Done);
+        }
+        if b == b'{' {
+            return Ok(self.step_interp_open_brace());
+        }
+        if b == b'}' && self.bytes.get(self.pos + 1) == Some(&b'}') {
+            self.pos += 2;
+            return Ok(InterpStep::Continue);
+        }
+        self.pos += 1;
+        Ok(InterpStep::Continue)
+    }
+
+    fn step_interp_open_brace(&mut self) -> InterpStep {
+        if self.bytes.get(self.pos + 1) == Some(&b'{') {
+            self.pos += 2;
+            return InterpStep::Continue;
+        }
+        InterpStep::OpenField
+    }
+
+    fn consume_interp_newline(&mut self, ctx: InterpContext) -> Result<(), LowerError> {
+        if !ctx.triple {
+            return Err(unterminated_string(ctx.open_line));
+        }
+        self.code_lines.insert(self.line);
+        self.line += 1;
+        self.pos += 1;
+        Ok(())
+    }
+
+    fn scan_interp_field(&mut self, ctx: InterpContext) -> Result<(), LowerError> {
+        let field_line = self.line;
+        self.pos += 1;
+        self.delims.push((b'{', field_line));
+        self.push_token(TokenKind::Other, false, "{".to_owned(), field_line);
+        let base_depth = self.delims.len();
+        while self.pos < self.bytes.len() {
+            match self.step_interp_field(base_depth)? {
+                FieldStep::Continue => {}
+                FieldStep::Closed => return Ok(()),
+                FieldStep::FormatSpec => return self.scan_format_spec(ctx),
+            }
+        }
+        Err(unterminated_string(ctx.open_line))
+    }
+
+    fn step_interp_field(&mut self, base_depth: usize) -> Result<FieldStep, LowerError> {
+        let b = self.bytes[self.pos];
+        if self.skip_interp_trivia(b)? {
+            return Ok(FieldStep::Continue);
+        }
+        if self.delims.len() == base_depth
+            && let Some(step) = self.step_interp_field_boundary(b)
+        {
+            return Ok(step);
+        }
+        self.step_code_token(b)?;
+        Ok(FieldStep::Continue)
+    }
+
+    fn step_interp_field_boundary(&mut self, b: u8) -> Option<FieldStep> {
+        let next = self.bytes.get(self.pos + 1).copied();
+        if b == b'}' {
+            self.close_interp_field();
+            return Some(FieldStep::Closed);
+        }
+        if b == b':' && next != Some(b'=') {
+            self.pos += 1;
+            return Some(FieldStep::FormatSpec);
+        }
+        if b == b'!' && next != Some(b'=') {
+            self.skip_conversion_spec();
+            return Some(FieldStep::Continue);
+        }
+        None
+    }
+
+    fn skip_interp_trivia(&mut self, b: u8) -> Result<bool, LowerError> {
+        if matches!(b, b' ' | b'\t' | b'\r' | b'\x0c') {
+            self.pos += 1;
+            return Ok(true);
+        }
+        if b == b'\n' {
+            self.pos += 1;
+            self.line += 1;
+            return Ok(true);
+        }
+        if b == b'\\' {
+            self.consume_line_continuation()?;
+            self.at_physical_line_start = false;
+            return Ok(true);
+        }
+        if b == b'#' {
+            self.skip_inline_comment();
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn skip_conversion_spec(&mut self) {
+        self.pos += 1;
+        if self
+            .bytes
+            .get(self.pos)
+            .is_some_and(u8::is_ascii_alphabetic)
+        {
+            self.pos += 1;
+        }
+    }
+
+    fn close_interp_field(&mut self) {
+        self.pos += 1;
+        self.delims.pop();
+        self.push_token(TokenKind::Other, false, "}".to_owned(), self.line);
+    }
+
+    fn scan_format_spec(&mut self, ctx: InterpContext) -> Result<(), LowerError> {
+        while self.pos < self.bytes.len() {
+            if self.step_format_spec(ctx)? {
+                return Ok(());
+            }
+        }
+        Err(unterminated_string(ctx.open_line))
+    }
+
+    fn step_format_spec(&mut self, ctx: InterpContext) -> Result<bool, LowerError> {
+        let b = self.bytes[self.pos];
+        if b == b'\\' {
+            self.advance_interp_escape(ctx.is_raw);
+            return Ok(false);
+        }
+        if b == b'\n' {
+            self.consume_interp_newline(ctx)?;
+            return Ok(false);
+        }
+        if b == b'{' {
+            self.scan_interp_field(ctx)?;
+            return Ok(false);
+        }
+        if b == b'}' {
+            self.close_interp_field();
+            return Ok(true);
+        }
+        if b == ctx.quote && (!ctx.triple || self.has_triple_quote_at(self.pos, ctx.quote)) {
+            return Err(unterminated_string(ctx.open_line));
+        }
+        self.pos += 1;
+        Ok(false)
+    }
+
+    fn advance_interp_escape(&mut self, is_raw: bool) {
+        if !is_raw
+            && self.bytes.get(self.pos + 1) == Some(&b'N')
+            && self.bytes.get(self.pos + 2) == Some(&b'{')
+        {
+            self.pos += 3;
+            while let Some(&ch) = self.bytes.get(self.pos) {
+                if ch == b'\n' {
+                    break;
+                }
+                self.pos += 1;
+                if ch == b'}' {
+                    break;
+                }
+            }
+            return;
+        }
+        if matches!(self.bytes.get(self.pos + 1), Some(b'{' | b'}')) {
+            self.pos += 1;
+            return;
+        }
+        self.advance_string_escape();
+    }
+
+    fn advance_string_escape(&mut self) {
+        if self.bytes.get(self.pos + 1) == Some(&b'\r')
+            && self.bytes.get(self.pos + 2) == Some(&b'\n')
+        {
+            self.line += 1;
+            self.pos += 3;
+            return;
+        }
+        if self.bytes.get(self.pos + 1) == Some(&b'\n') {
+            self.line += 1;
+        }
+        self.pos = (self.pos + 2).min(self.bytes.len());
+    }
+
+    fn has_triple_quote_at(&self, pos: usize, quote: u8) -> bool {
+        self.bytes.get(pos + 1) == Some(&quote) && self.bytes.get(pos + 2) == Some(&quote)
+    }
+
     fn try_close_quote(&mut self, quote: u8, triple: bool) -> bool {
         if !triple {
             self.pos += 1;
             return true;
         }
-        if self.bytes.get(self.pos + 1) == Some(&quote)
-            && self.bytes.get(self.pos + 2) == Some(&quote)
-        {
+        if self.has_triple_quote_at(self.pos, quote) {
             self.pos += 3;
             return true;
         }
@@ -314,8 +587,14 @@ impl<'a> Scanner<'a> {
     fn consume_number(&mut self) {
         let start = self.pos;
         let line = self.line;
+        let has_radix_prefix = self.bytes.get(start) == Some(&b'0')
+            && matches!(
+                self.bytes.get(start + 1),
+                Some(b'x' | b'X' | b'b' | b'B' | b'o' | b'O')
+            );
         while let Some(&b) = self.bytes.get(self.pos) {
-            let is_exp_sign = matches!(b, b'+' | b'-')
+            let is_exp_sign = !has_radix_prefix
+                && matches!(b, b'+' | b'-')
                 && self.pos > start
                 && matches!(self.bytes[self.pos - 1], b'e' | b'E');
             if b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || is_exp_sign {
@@ -351,12 +630,27 @@ impl<'a> Scanner<'a> {
     }
 
     fn push_token(&mut self, token_kind: TokenKind, is_kw: bool, text: String, line: u32) {
+        self.push_token_span(token_kind, is_kw, text, line, line);
+    }
+
+    fn push_token_span(
+        &mut self,
+        token_kind: TokenKind,
+        is_kw: bool,
+        text: String,
+        start_line: u32,
+        end_line: u32,
+    ) {
         if self.pending_line_start.is_none() {
-            self.pending_line_start = Some((self.current_line_indent, line, self.tokens.len()));
+            self.pending_line_start =
+                Some((self.current_line_indent, start_line, self.tokens.len()));
+            self.pending_line_end = end_line;
+        } else {
+            self.pending_line_end = self.pending_line_end.max(end_line);
         }
-        self.code_lines.insert(line);
+        self.code_lines.insert(start_line);
         self.tokens.push(PyToken {
-            line,
+            line: start_line,
             text,
             token_kind,
             is_kw,
@@ -368,7 +662,7 @@ impl<'a> Scanner<'a> {
             return;
         };
         if start_idx < self.tokens.len() {
-            let end_line = self.tokens[self.tokens.len() - 1].line;
+            let end_line = self.pending_line_end.max(start_line);
             self.logical_lines.push(LogicalLine {
                 indent,
                 start_line,
@@ -376,7 +670,12 @@ impl<'a> Scanner<'a> {
                 tokens: start_idx..self.tokens.len(),
             });
         }
+        self.pending_line_end = 0;
     }
+}
+
+fn unterminated_string(start_line: u32) -> LowerError {
+    LowerError::Unparsable(format!("unterminated string at line {start_line}"))
 }
 
 fn match_operator(rest: &str) -> &str {
@@ -394,23 +693,48 @@ fn match_operator(rest: &str) -> &str {
     &rest[..ch]
 }
 
-fn string_prefix_end(bytes: &[u8], pos: usize) -> Option<usize> {
-    let b0 = *bytes.get(pos)?;
-    if !is_string_prefix_char(b0) {
-        return None;
-    }
+fn string_prefix_info(bytes: &[u8], pos: usize) -> Option<(usize, StringPrefix)> {
+    let b0 = bytes.get(pos)?.to_ascii_lowercase();
     let b1 = *bytes.get(pos + 1)?;
     if b1 == b'\'' || b1 == b'"' {
-        return Some(pos + 1);
+        return single_char_prefix(b0).map(|prefix| (pos + 1, prefix));
     }
-    if is_string_prefix_char(b1) && matches!(bytes.get(pos + 2), Some(b'\'' | b'"')) {
-        return Some(pos + 2);
+    if matches!(bytes.get(pos + 2), Some(b'\'' | b'"')) {
+        return two_char_prefix(b0, b1.to_ascii_lowercase()).map(|prefix| (pos + 2, prefix));
     }
     None
 }
 
-fn is_string_prefix_char(b: u8) -> bool {
-    matches!(b, b'r' | b'R' | b'u' | b'U' | b'b' | b'B' | b'f' | b'F')
+fn single_char_prefix(b: u8) -> Option<StringPrefix> {
+    match b {
+        b'r' => Some(StringPrefix {
+            is_raw: true,
+            is_interpolated: false,
+        }),
+        b'u' | b'b' => Some(StringPrefix {
+            is_raw: false,
+            is_interpolated: false,
+        }),
+        b'f' | b't' => Some(StringPrefix {
+            is_raw: false,
+            is_interpolated: true,
+        }),
+        _ => None,
+    }
+}
+
+fn two_char_prefix(first: u8, second: u8) -> Option<StringPrefix> {
+    match (first, second) {
+        (b'r', b'b') | (b'b', b'r') => Some(StringPrefix {
+            is_raw: true,
+            is_interpolated: false,
+        }),
+        (b'r', b'f') | (b'f', b'r') | (b'r', b't') | (b't', b'r') => Some(StringPrefix {
+            is_raw: true,
+            is_interpolated: true,
+        }),
+        _ => None,
+    }
 }
 
 fn is_ident_start(b: u8) -> bool {

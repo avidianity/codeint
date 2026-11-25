@@ -33,7 +33,8 @@ pub(crate) fn extract(
     code_lines: &BTreeSet<u32>,
 ) -> Vec<Function> {
     let mut spans = Vec::new();
-    let case_indices = collect_decision_case_indices(tokens, logical_lines);
+    let case_lines = collect_case_lines(tokens, logical_lines);
+    let case_indices = collect_decision_case_indices(tokens, logical_lines, &case_lines);
     for (line_idx, line) in logical_lines.iter().enumerate() {
         if let Some(span) = extract_def_span(tokens, logical_lines, line_idx) {
             spans.push(span);
@@ -49,7 +50,13 @@ pub(crate) fn extract(
             decision_points: count_decisions(tokens, &spans, owner, &case_indices),
             source_lines: code_lines.range(span.start_line..=span.end_line).count() as u32,
             name: span.name.clone(),
-            cognitive_complexity: compute_cognitive(tokens, logical_lines, &spans, owner),
+            cognitive_complexity: compute_cognitive(
+                tokens,
+                logical_lines,
+                &spans,
+                owner,
+                &case_lines,
+            ),
             coverage: None,
         })
         .collect();
@@ -124,9 +131,10 @@ fn find_header_colon(tokens: &[PyToken], start: usize, end: usize) -> Option<usi
 
 pub(crate) fn block_end_line(logical_lines: &[LogicalLine], header_idx: usize) -> usize {
     let base_indent = logical_lines[header_idx].indent;
+    let header_end_line = logical_lines[header_idx].end_line;
     let mut end = header_idx;
     while let Some(next) = logical_lines.get(end + 1) {
-        if next.indent > base_indent {
+        if next.indent > base_indent || next.start_line == header_end_line {
             end += 1;
         } else {
             break;
@@ -178,26 +186,74 @@ fn find_lambda_colon(tokens: &[PyToken], start: usize, end: usize) -> Option<usi
 
 fn find_lambda_body_end(tokens: &[PyToken], start: usize, end: usize) -> usize {
     let mut depth = 0usize;
+    let mut nested_lambdas = 0usize;
     for (idx, tok) in tokens.iter().enumerate().take(end).skip(start) {
+        if depth == 0 && tok.is_kw("lambda") {
+            nested_lambdas += 1;
+            continue;
+        }
+        if depth == 0 && is_lambda_terminator(tokens, idx, &mut nested_lambdas) {
+            return idx.saturating_sub(1);
+        }
         match tok.text.as_str() {
             "(" | "[" | "{" => depth += 1,
-            ")" | "]" | "}" if depth == 0 => return idx.saturating_sub(1),
-            ")" | "]" | "}" => depth -= 1,
-            "," | ";" if depth == 0 => return idx.saturating_sub(1),
+            ")" | "]" | "}" => depth = depth.saturating_sub(1),
             _ => {}
         }
     }
     end.saturating_sub(1)
 }
 
+fn is_lambda_terminator(tokens: &[PyToken], idx: usize, nested_lambdas: &mut usize) -> bool {
+    let tok = &tokens[idx];
+    if matches!(tok.text.as_str(), ")" | "]" | "}" | "," | ";") {
+        return true;
+    }
+    if tok.text == ":" {
+        if *nested_lambdas > 0 {
+            *nested_lambdas -= 1;
+            return false;
+        }
+        return true;
+    }
+    tok.is_kw("for")
+        || (tok.is_kw("async") && tokens.get(idx + 1).is_some_and(|next| next.is_kw("for")))
+}
+
+fn collect_case_lines(tokens: &[PyToken], logical_lines: &[LogicalLine]) -> BTreeSet<usize> {
+    let mut out = BTreeSet::new();
+    let mut match_stack: Vec<(usize, Option<usize>)> = Vec::new();
+    for (line_idx, line) in logical_lines.iter().enumerate() {
+        while match_stack
+            .last()
+            .is_some_and(|&(match_indent, _)| line.indent <= match_indent)
+        {
+            match_stack.pop();
+        }
+        let slice = &tokens[line.tokens.clone()];
+        if let Some((_, case_indent)) = match_stack.last_mut() {
+            let expected = *case_indent.get_or_insert(line.indent);
+            if line.indent == expected && is_case_header(slice) {
+                out.insert(line_idx);
+            }
+        }
+        if is_match_header(tokens, logical_lines, line_idx) {
+            match_stack.push((line.indent, None));
+        }
+    }
+    out
+}
+
 fn collect_decision_case_indices(
     tokens: &[PyToken],
     logical_lines: &[LogicalLine],
+    case_lines: &BTreeSet<usize>,
 ) -> BTreeSet<usize> {
     let mut out = BTreeSet::new();
-    for line in logical_lines {
+    for &line_idx in case_lines {
+        let line = &logical_lines[line_idx];
         let slice = &tokens[line.tokens.clone()];
-        if is_case_header(slice) && !is_wildcard_case(slice) {
+        if !is_wildcard_case(slice) {
             out.insert(line.tokens.start);
         }
     }
@@ -208,11 +264,11 @@ fn is_case_header(slice: &[PyToken]) -> bool {
     slice
         .first()
         .is_some_and(|t| t.is_ident() && t.text == "case")
-        && find_top_level_colon(slice).is_some()
+        && find_top_level_colon(slice).is_some_and(|col| col >= 2)
 }
 
 fn is_wildcard_case(slice: &[PyToken]) -> bool {
-    slice.len() == 3 && slice[1].is_ident() && slice[1].text == "_"
+    find_top_level_colon(slice) == Some(2) && slice[1].is_ident() && slice[1].text == "_"
 }
 
 fn count_decisions(
@@ -263,6 +319,7 @@ fn compute_cognitive(
     logical_lines: &[LogicalLine],
     spans: &[PyFunctionSpan],
     owner: usize,
+    case_lines: &BTreeSet<usize>,
 ) -> u32 {
     let span = &spans[owner];
     let mut scorer = PyCognitiveScorer {
@@ -270,6 +327,7 @@ fn compute_cognitive(
         spans,
         owner,
         fn_name: span.name.as_deref(),
+        case_lines,
         total: 0,
         counted_recursion: false,
     };
@@ -318,7 +376,7 @@ fn nested_def_end_line(spans: &[PyFunctionSpan], owner: usize, line_idx: usize) 
         .max()
 }
 
-fn find_top_level_colon(slice: &[PyToken]) -> Option<usize> {
+pub(crate) fn find_top_level_colon(slice: &[PyToken]) -> Option<usize> {
     let mut depth = 0usize;
     for (idx, tok) in slice.iter().enumerate() {
         match tok.text.as_str() {
@@ -331,7 +389,12 @@ fn find_top_level_colon(slice: &[PyToken]) -> Option<usize> {
     None
 }
 
-fn classify_line(tokens: &[PyToken], logical_lines: &[LogicalLine], line_idx: usize) -> LineClause {
+fn classify_line(
+    tokens: &[PyToken],
+    logical_lines: &[LogicalLine],
+    line_idx: usize,
+    case_lines: &BTreeSet<usize>,
+) -> LineClause {
     let slice = &tokens[logical_lines[line_idx].tokens.clone()];
     let Some(first) = slice.first() else {
         return LineClause::Plain;
@@ -345,7 +408,7 @@ fn classify_line(tokens: &[PyToken], logical_lines: &[LogicalLine], line_idx: us
     if is_match_header(tokens, logical_lines, line_idx) {
         return LineClause::NestedHeader(1);
     }
-    if is_case_header(slice) {
+    if case_lines.contains(&line_idx) {
         return LineClause::CaseHeader;
     }
     LineClause::Plain
@@ -433,6 +496,7 @@ struct PyCognitiveScorer<'a> {
     spans: &'a [PyFunctionSpan],
     owner: usize,
     fn_name: Option<&'a str>,
+    case_lines: &'a BTreeSet<usize>,
     total: u32,
     counted_recursion: bool,
 }
@@ -448,7 +512,7 @@ impl PyCognitiveScorer<'_> {
         let start = line.tokens.start;
         let end = line.tokens.end;
         let colon_offset = find_top_level_colon(&self.tokens[start..end]);
-        match classify_line(self.tokens, logical_lines, line_idx) {
+        match classify_line(self.tokens, logical_lines, line_idx, self.case_lines) {
             LineClause::NestedHeader(kw_len) => {
                 self.total = self.total.saturating_add(nesting.saturating_add(1));
                 self.score_header_and_suite(start + kw_len, start, end, colon_offset, nesting);
