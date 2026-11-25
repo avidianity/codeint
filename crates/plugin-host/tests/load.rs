@@ -1992,3 +1992,90 @@ fn concurrent_plugin_loads_keep_independent_memory_and_time_limits_on_shared_eng
         .expect("metric plugin stays healthy after sibling language plugins hit limits");
     assert_eq!(measurement.denominator, 0.0);
 }
+
+#[test]
+fn sdk_language_and_metric_plugins_reclaim_linear_memory_across_pooled_calls_and_import_nothing() {
+    let lang_path = sample_plugin_wasm();
+    let lang_bytes = std::fs::read(lang_path).expect("read sdk language wasm");
+    assert!(
+        verify_plugin_component("sample-mini", lang_path, PluginKind::Language, &lang_bytes)
+            .is_ok()
+    );
+    assert!(
+        verify_plugin_component("sample-mini", lang_path, PluginKind::Metric, &lang_bytes).is_err()
+    );
+
+    let metric_path = sample_metric_plugin_wasm();
+    let metric_bytes = std::fs::read(metric_path).expect("read sdk metric wasm");
+    assert!(
+        verify_plugin_component(
+            "long-functions",
+            metric_path,
+            PluginKind::Metric,
+            &metric_bytes,
+        )
+        .is_ok()
+    );
+    assert!(
+        verify_plugin_component(
+            "long-functions",
+            metric_path,
+            PluginKind::Language,
+            &metric_bytes,
+        )
+        .is_err()
+    );
+
+    let tight_limits = PluginLimits {
+        memory_mb: 2,
+        timeout_ms: 5_000,
+    };
+    let language = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration_for("sample-mini", lang_path),
+        &PluginHostConfig::default(),
+        tight_limits,
+    )
+    .expect("sdk language plugin loads under 2 MiB cap");
+
+    let mut source = String::new();
+    for index in 0..80 {
+        source.push_str(&format!(
+            "fn work_{index}(x) {{\n  if x {{\n    pass;\n  }}\n  return x\n}}\n"
+        ));
+    }
+    let repo_path = RepoPath::new("src/pooled.mini").expect("valid repo path");
+    for _ in 0..200 {
+        let model = language
+            .lower(&repo_path, &source)
+            .expect("pooled calls reclaim linear memory under 2 MiB cap");
+        assert_eq!(model.functions.len(), 80);
+    }
+
+    let metric = load_metric_plugin_with_limits(
+        Path::new("."),
+        &declaration_with_kind("long-functions", PluginKind::Metric, metric_path),
+        &PluginHostConfig::default(),
+        tight_limits,
+    )
+    .expect("sdk metric plugin loads under 2 MiB cap");
+
+    let sample_model = language
+        .lower(&repo_path, &source)
+        .expect("lower sample model");
+    let code_model = CodeModel {
+        files: (0..20)
+            .map(|index| SourceFile {
+                path: RepoPath::new(format!("src/file_{index}.mini")).expect("valid repo path"),
+                model: sample_model.clone(),
+            })
+            .collect(),
+        ..CodeModel::default()
+    };
+    for _ in 0..100 {
+        let measured = metric
+            .measure(&code_model)
+            .expect("pooled metric calls reclaim linear memory under 2 MiB cap");
+        assert!((measured.denominator - 1_600.0).abs() < 1e-9);
+    }
+}

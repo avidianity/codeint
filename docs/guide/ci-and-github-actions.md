@@ -101,6 +101,7 @@ jobs:
   ```
 
 - Commit `.codeint/ratchet.json` (created and tightened with `codeint ratchet update`) so whole-repository `codeint check` and `codeint diff` runs fail in CI if any Metric rises above its recorded ceiling or if a Metric version upgrade needs re-baselining.
+- Commit `.codeint/baseline.json` (created and shrunk with `codeint baseline update`) so `codeint check` in CI and coding-agent loops hides existing Findings and evaluates Budgets on new Findings only; see [`codeint baseline`](../reference.md#codeint-baseline).
 
 - Set `"regression_limits": { "per_file": true }` in configuration when you want pull-request diffs to fail if any individual modified file worsens, even when another file deletes a larger Finding.
 

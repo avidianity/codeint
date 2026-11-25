@@ -1,0 +1,25 @@
+[package]
+name = "codeint-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["default-allocator", "panic-handler"]
+default-allocator = ["dep:dlmalloc"]
+panic-handler = []
+std = []
+
+[dependencies]
+dlmalloc = { workspace = true, optional = true }
+wit-bindgen = { workspace = true }
+
+[lints.rust]
+unused = { level = "deny", priority = -1 }
+unreachable_pub = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"

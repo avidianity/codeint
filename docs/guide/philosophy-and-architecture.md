@@ -62,7 +62,7 @@ Every built-in Language plugin parses the modern superset of its language family
 
 ## How codeint is implemented
 
-codeint is built in safe Rust (`#![forbid(unsafe_code)]`, [ADR 0004](../adr/0004-forbid-unsafe-code.md)) around two clean seams:
+codeint is built in safe Rust (`#![forbid(unsafe_code)]` across every host, core, CLI, and built-in Plugin crate, [ADR 0004](../adr/0004-forbid-unsafe-code.md); isolated WebAssembly guest runtime shims only in `crates/plugin-sdk`, [ADR 0027](../adr/0027-plugin-sdk-guest-runtime-unsafe.md)) around two clean seams:
 
 ```text
 Source files + Git history (crates/git)
@@ -80,5 +80,5 @@ CLI + MCP + Rust SDK (crates/cli)  &  JS/TS SDK (npm/codeint)
 - **Git-native measurement (`crates/git`)**: reads tracked working-tree files and historical commits directly from Git objects via `gix`, never modifying the working tree during `diff`, `trend`, `churn`, or `coupling`, with a content-addressed result cache for fast repeated runs.
 - **Language plugins (`plugins/languages/*`)**: own every language-specific rule (parsing, named functions, decision points, cognitive complexity, tokens, Flagged lines, Hazard lines, imports, workspaces, entry points, declared dependencies, Source-set defaults) and lower files into the language-neutral **Code model** (`crates/model`).
   TypeScript/JavaScript (including `.vue` and `.svelte` `<script>` blocks) uses `oxc_parser`; Rust uses `syn` and `proc-macro2`; PHP, Dart, Python, and Go use pure-Rust zero-FFI lexers and parsers sharing common helpers in `crates/model/src/scan.rs`; Shell uses a pure-Rust hand-written lexer; SQL uses `sqlparser` in two layers ([ADR 0018](../adr/0018-sql-through-sqlparser-in-two-layers.md)).
-- **WebAssembly plugin host (`crates/plugin-host`)**: loads third-party Language and Metric plugins as WebAssembly components implementing `codeint:plugin@0.4.0` ([ADR 0002](../adr/0002-plugins-as-wasm-components.md)) with mandatory SHA-256 verification, zero host capabilities (no filesystem, network, env, or clock access), and configurable memory and timeout caps.
+- **WebAssembly plugin host (`crates/plugin-host`) and Rust SDK (`crates/plugin-sdk`)**: loads third-party Language and Metric plugins as WebAssembly components implementing `codeint:plugin@0.4.0` ([ADR 0002](../adr/0002-plugins-as-wasm-components.md)) with mandatory SHA-256 verification, zero host capabilities (no filesystem, network, env, or clock access), and configurable memory and timeout caps; `codeint-plugin-sdk` lets authors write safe Rust Plugins for `wasm32-wasip2` (`no_std`) or `wasm32-unknown-unknown` (`std` + `wasm-tools component new`) with zero WASI imports.
 - **Zero-duplication programmatic surfaces**: `crates/cli/src/lib.rs` exposes the Rust library API directly, and `npm/codeint` wraps the bundled native binary with zero-dependency ESM, CommonJS, and TypeScript declarations.

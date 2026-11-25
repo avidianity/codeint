@@ -142,6 +142,7 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
             "--all".to_owned(),
             "--coverage-report".to_owned(),
             "--format".to_owned(),
+            "--ignore-baseline".to_owned(),
             "--output".to_owned(),
             "--owner".to_owned(),
             "--package".to_owned(),

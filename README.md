@@ -58,6 +58,7 @@ Additional independent Metrics and structural checks run in the same pass:
 
 Every file belongs to one **Source set** (`production`, `test`, `generated`, or `vendored`), so fixtures and generated code never distort Production ratios.
 **Budgets** cap absolute ratios, `.codeint/ratchet.json` (**Ratchet**, managed with `codeint ratchet update`) locks in whole-repository ceilings with Metric version tracking, and `codeint diff <base>` checks every pull request against its Git merge-base ([ADR 0026](./docs/adr/0026-regression-and-ratchet.md)).
+`.codeint/baseline.json` (**Baseline**, managed with `codeint baseline update`) freezes existing Findings, so `codeint check` hides them, holds new Findings to every Budget, and shrinks the Baseline as legacy Findings are fixed ([ADR 0030](./docs/adr/0030-finding-baseline.md)).
 
 ### Codebase navigation, Git history, and ownership
 
@@ -72,16 +73,16 @@ Beyond static snapshots, codeint helps humans and coding agents understand how f
 
 ### Built for CI and coding agents
 
-- **JSONC configuration and `.codeint/` state**: configure codeint in `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` (`codeint init` writes a starter `codeint.jsonc`), and lock in monotonic whole-repository ceilings in `.codeint/ratchet.json` via `codeint ratchet update`.
+- **JSONC configuration and `.codeint/` state**: configure codeint in `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` (`codeint init` writes a starter `codeint.jsonc`), lock in monotonic whole-repository ceilings in `.codeint/ratchet.json` via `codeint ratchet update`, and freeze existing Findings in `.codeint/baseline.json` via `codeint baseline update`.
 - **Single-scan multi-format reporting**: save `codeint check --format json` or `codeint diff --format json` once, then re-render losslessly into `text`, `toon`, `json`, `sarif`, or `markdown` with `codeint report`.
 - **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, and verify repository health offline with `codeint doctor`.
 - **First-class MCP integration**: run `codeint agent status` and `codeint agent install` to register the local stdio MCP server (`codeint mcp`) for Claude Code, Cursor, and Codex, exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 
 ### Built for speed and safety
 
-codeint is written in safe Rust (`#![forbid(unsafe_code)]`, [ADR 0004](./docs/adr/0004-forbid-unsafe-code.md)) around two clean seams: Language plugins lower source files into a language-neutral Code model, and Metric plugins compute Metrics and Findings over that model.
+codeint is written in safe Rust (`#![forbid(unsafe_code)]` on every host, core, CLI, and built-in Plugin crate, [ADR 0004](./docs/adr/0004-forbid-unsafe-code.md)) around two clean seams: Language plugins lower source files into a language-neutral Code model, and Metric plugins compute Metrics and Findings over that model.
 It reads tracked files and commit history directly from Git objects without modifying your working tree, scanning `laravel/framework` (132k Production lines) in `0.47s` and `flutter/packages` (434k Production lines) in `3.68s` on Apple Silicon.
-External WebAssembly Plugins implement the versioned `codeint:plugin@0.4.0` WIT contract with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps.
+External WebAssembly Plugins implement the versioned `codeint:plugin@0.4.0` WIT contract with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps, using `codeint-plugin-sdk` for safe Rust builds on `wasm32-wasip2` (`no_std`, zero extra tools) or `wasm32-unknown-unknown` (`std` plus `wasm-tools component new`) with zero WASI imports ([ADR 0027](./docs/adr/0027-plugin-sdk-guest-runtime-unsafe.md)).
 
 Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-architecture.md) for the full architecture diagram and design rationale.
 
@@ -127,6 +128,7 @@ codeint init
 codeint check
 codeint diff main
 codeint ratchet update
+codeint baseline update
 codeint guard src/domain/order.ts
 codeint doctor
 codeint agent install
@@ -136,6 +138,7 @@ codeint agent install
 - `codeint check` measures the working tree and prints each Metric with its Findings.
 - `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget, Ratchet, or Regression failure.
 - `codeint ratchet update` creates or monotonically tightens `.codeint/ratchet.json` ceilings for whole-repository runs.
+- `codeint baseline update` creates `.codeint/baseline.json`, or removes fixed Findings from it, so `codeint check` hides existing Findings and reports only new ones.
 - `codeint guard src/domain/order.ts` checks architectural boundary rules for an existing or planned file path.
 - `codeint doctor` runs offline diagnostics on Git status, config validity, detected languages, workspaces, and Plugins.
 - `codeint agent install` registers `codeint mcp` in detected local coding agents.
@@ -162,7 +165,7 @@ let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 - [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Import boundaries](./docs/guide/import-boundaries.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
-- [Plugins](./docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
+- [Plugins](./docs/plugins.md): build external WebAssembly Language and Metric plugins with `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`), pin SHA-256 digests, and test them.
 - [Glossary](./GLOSSARY.md): canonical definitions of every domain term on this page.
 - [llms.txt](./llms.txt): compact documentation index for coding agents and LLM tools.
 

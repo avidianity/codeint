@@ -77,6 +77,13 @@ pub(crate) fn no_imports_language_plugin_wasm() -> &'static Path {
         .get_or_init(|| crate::wasm_fixtures::wasm_fixture_path("no_imports_language_plugin.wasm"))
 }
 
+pub(crate) fn eroded_ts(name: &str, branches: usize) -> String {
+    let arms: String = (1..=branches)
+        .map(|i| format!("  if (x === {i}) return {i};\n"))
+        .collect();
+    format!("export function {name}(x: number): number {{\n{arms}  return 0;\n}}\n")
+}
+
 pub(crate) fn write_repo_files(root: &Path, files: &[(&str, &str)]) {
     for (relative, content) in files {
         let full = root.join(relative);

@@ -145,6 +145,13 @@ pub enum RatchetFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum BaselineFormat {
+    Text,
+    Toon,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum DoctorFormat {
     Text,
     Json,
@@ -222,6 +229,17 @@ pub enum RatchetCommand {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BaselineCommand {
+    Update {
+        folder: PathBuf,
+        reset: bool,
+        coverage_reports: Vec<PathBuf>,
+        format: BaselineFormat,
+        plugin_host: PluginHostConfig,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrendRange {
     Latest(usize),
@@ -244,6 +262,7 @@ pub enum Command {
         package: Option<String>,
         owner: Option<String>,
         coverage_reports: Vec<PathBuf>,
+        ignore_baseline: bool,
         plugin_host: PluginHostConfig,
     },
     Diff {
@@ -326,6 +345,7 @@ pub enum Command {
     },
     Agent(AgentCommand),
     Ratchet(RatchetCommand),
+    Baseline(BaselineCommand),
     Churn {
         folder: PathBuf,
         window: ChurnWindow,

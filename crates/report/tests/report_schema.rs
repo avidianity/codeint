@@ -196,6 +196,7 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
             ownership: OwnershipOptions::default(),
             coverage_reports_named: true,
             unmatched_coverage_paths: &["missing/file.ts".to_owned()],
+            baseline: None,
         },
         ReportExtras::default()
             .with_rejected_statements(vec![RejectedStatementEntry {
@@ -325,6 +326,7 @@ fn report_schema_validates_external_package_boundary_findings() {
             ownership: OwnershipOptions::default(),
             coverage_reports_named: false,
             unmatched_coverage_paths: &[],
+            baseline: None,
         },
         ReportExtras::default(),
     )

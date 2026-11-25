@@ -390,6 +390,7 @@ fn built_in_language_crate_count() -> usize {
 fn language_wit_matches_model_trait_and_host_implementations() {
     let contract = load_verified_wit_contract("wit/language.wit", "language", "language-plugin");
     let model_source = read_workspace_file("crates/model/src/lib.rs");
+    let sdk_language_source = read_workspace_file("crates/plugin-sdk/src/language.rs");
     let host_source = read_workspace_file("crates/plugin-host/src/lib.rs");
     let sql_source = read_workspace_file("crates/plugin-host/src/sql.rs");
 
@@ -398,6 +399,12 @@ fn language_wit_matches_model_trait_and_host_implementations() {
         &contract.functions,
         &model_source,
         "pub trait LanguagePlugin: Sync",
+    );
+    assert_rust_block_lockstep(
+        "SDK LanguagePlugin trait",
+        &contract.functions,
+        &sdk_language_source,
+        "pub trait LanguagePlugin",
     );
     assert_rust_block_lockstep(
         "LanguagePlugin Guest blanket impl",
@@ -429,12 +436,19 @@ fn language_wit_matches_model_trait_and_host_implementations() {
 fn metric_wit_matches_model_trait_and_host_implementation() {
     let contract = load_verified_wit_contract("wit/metric.wit", "metric", "metric-plugin");
     let model_metric_source = read_workspace_file("crates/model/src/metric.rs");
+    let sdk_metric_source = read_workspace_file("crates/plugin-sdk/src/metric.rs");
     let host_source = read_workspace_file("crates/plugin-host/src/lib.rs");
 
     assert_rust_block_lockstep(
         "MetricPlugin trait",
         &contract.functions,
         &model_metric_source,
+        "pub trait MetricPlugin",
+    );
+    assert_rust_block_lockstep(
+        "SDK MetricPlugin trait",
+        &contract.functions,
+        &sdk_metric_source,
         "pub trait MetricPlugin",
     );
     assert_rust_block_lockstep(
@@ -597,6 +611,82 @@ fn every_built_in_language_reference_range_matches_current_metric_version() {
                 metric.version(),
                 "{label}: stale framework Reference range metric_version for {}",
                 range.metric
+            );
+        }
+    }
+}
+
+fn rust_files_under(dir: &Path, files: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).expect("read Rust source directory") {
+        let path = entry.expect("read directory entry").path();
+        if path.is_dir() {
+            rust_files_under(&path, files);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            files.push(path);
+        }
+    }
+}
+
+fn workspace_crate_roots(root: &Path) -> Vec<PathBuf> {
+    let mut crate_roots = Vec::new();
+    for parent in ["crates", "plugins/languages"] {
+        for entry in fs::read_dir(root.join(parent)).expect("read workspace member directory") {
+            let crate_dir = entry.expect("read directory entry").path();
+            for root_file in ["src/lib.rs", "src/main.rs"] {
+                let candidate = crate_dir.join(root_file);
+                if candidate.is_file() {
+                    crate_roots.push(candidate);
+                }
+            }
+        }
+    }
+    crate_roots.push(root.join("xtask/src/main.rs"));
+    crate_roots.sort();
+    crate_roots
+}
+
+#[test]
+fn every_workspace_crate_except_plugin_sdk_forbids_unsafe_code_at_its_root() {
+    let root = workspace_root();
+    let sdk_root = root.join("crates/plugin-sdk/src/lib.rs");
+    let crate_roots = workspace_crate_roots(&root);
+    assert!(crate_roots.contains(&sdk_root));
+    assert!(crate_roots.len() > built_in_language_crate_count());
+    for crate_root in crate_roots.iter().filter(|path| **path != sdk_root) {
+        let source = fs::read_to_string(crate_root).expect("read crate root");
+        assert!(
+            source.starts_with("#![forbid(unsafe_code)]"),
+            "{} must start with #![forbid(unsafe_code)] per ADR 0004",
+            crate_root.display()
+        );
+    }
+}
+
+#[test]
+fn plugin_sdk_isolates_unsafe_code_strictly_to_guest_runtime_module() {
+    let root = workspace_root();
+    let sdk_src = root.join("crates/plugin-sdk/src");
+    let runtime_module = sdk_src.join("runtime.rs");
+    let crate_root = sdk_src.join("lib.rs");
+    let mut sdk_files = Vec::new();
+    rust_files_under(&sdk_src, &mut sdk_files);
+    assert!(sdk_files.contains(&runtime_module));
+
+    for file in &sdk_files {
+        let source = fs::read_to_string(file).expect("read SDK source");
+        if *file == runtime_module {
+            assert!(source.contains("unsafe"));
+        } else if *file == crate_root {
+            assert!(
+                !source.contains("unsafe"),
+                "{} must contain no unsafe code per ADR 0027",
+                file.display()
+            );
+        } else {
+            assert!(
+                source.starts_with("#![forbid(unsafe_code)]"),
+                "{} must start with #![forbid(unsafe_code)] per ADR 0027",
+                file.display()
             );
         }
     }

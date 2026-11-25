@@ -15,7 +15,7 @@ Each page below focuses on one topic and links to [docs/reference.md](../referen
 8. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
 9. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.
 10. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
-11. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
+11. [Plugins](../plugins.md): build external WebAssembly Language and Metric plugins with `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`), pin SHA-256 digests, and test them.
 
 ## Reference and domain docs
 

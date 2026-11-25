@@ -85,6 +85,7 @@ paths = [
   "install.ps1",
   "npm/**",
   "crates/plugin-host/**",
+  "crates/plugin-sdk/**",
 ]
 
 [feedback_budget]

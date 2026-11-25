@@ -6,9 +6,10 @@ use crate::agent_home;
 use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnSince, ChurnWindow};
 use crate::command::{
-    AgentCommand, Command, ConfigError, ConfigFormat, DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
-    FindingsShown, Invocation, PluginHostConfig, RatchetCommand, ReportDestination, ReportInput,
-    ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange, WORST_FINDINGS_PER_METRIC,
+    AgentCommand, BaselineCommand, Command, ConfigError, ConfigFormat,
+    DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS, FindingsShown, Invocation, PluginHostConfig,
+    RatchetCommand, ReportDestination, ReportInput, ReportRenderFormat, SchemaFormat, TrendFormat,
+    TrendRange, WORST_FINDINGS_PER_METRIC,
 };
 use crate::coupling::{CouplingRatio, CouplingSettings};
 use crate::resolved::ConfigOverrides;
@@ -19,8 +20,9 @@ mod args;
 pub(crate) use args::Arguments;
 
 use args::{
-    AgentSubcommandArguments, CommandArguments, HistoryReportArguments, ImpactArguments,
-    RatchetSubcommandArguments, ReportArguments, TraceArguments,
+    AgentSubcommandArguments, BaselineSubcommandArguments, CommandArguments,
+    HistoryReportArguments, ImpactArguments, RatchetSubcommandArguments, ReportArguments,
+    TraceArguments,
 };
 
 const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
@@ -42,8 +44,17 @@ fn build_command(
         CommandArguments::Check {
             path,
             coverage_reports,
+            ignore_baseline,
             report,
-        } => build_check_command(current_folder, path, coverage_reports, report),
+        } => build_check_command(
+            current_folder,
+            path,
+            CheckSelection {
+                coverage_reports,
+                ignore_baseline,
+            },
+            report,
+        ),
         CommandArguments::Diff {
             base_ref,
             head_ref,
@@ -137,6 +148,7 @@ fn build_tooling_command(
         }),
         CommandArguments::Agent { command } => build_agent_command(current_folder, command),
         CommandArguments::Ratchet { command } => build_ratchet_command(current_folder, command),
+        CommandArguments::Baseline { command } => build_baseline_command(current_folder, command),
         CommandArguments::Check { .. }
         | CommandArguments::Diff { .. }
         | CommandArguments::Trend { .. }
@@ -241,6 +253,26 @@ fn build_ratchet_command(
     }
 }
 
+fn build_baseline_command(
+    current_folder: &Path,
+    arguments: BaselineSubcommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
+        BaselineSubcommandArguments::Update {
+            path,
+            reset,
+            coverage_reports,
+            format,
+        } => Ok(Command::Baseline(BaselineCommand::Update {
+            folder: existing_folder(current_folder, path)?,
+            reset,
+            coverage_reports,
+            format,
+            plugin_host: plugin_host_config_of_this_process(current_folder),
+        })),
+    }
+}
+
 fn agent_home_of_this_process(
     current_folder: &Path,
     explicit: Option<&Path>,
@@ -298,10 +330,15 @@ fn build_coupling_command(
     })
 }
 
+struct CheckSelection {
+    coverage_reports: Vec<PathBuf>,
+    ignore_baseline: bool,
+}
+
 fn build_check_command(
     current_folder: &Path,
     path: Option<PathBuf>,
-    coverage_reports: Vec<PathBuf>,
+    selection: CheckSelection,
     report: ReportArguments,
 ) -> Result<Command, ConfigError> {
     Ok(Command::Check {
@@ -311,7 +348,8 @@ fn build_check_command(
         format: report.format,
         package: report.package,
         owner: report.owner,
-        coverage_reports,
+        coverage_reports: selection.coverage_reports,
+        ignore_baseline: selection.ignore_baseline,
         plugin_host: plugin_host_config_of_this_process(current_folder),
     })
 }

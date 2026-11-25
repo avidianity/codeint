@@ -119,6 +119,7 @@ fn default_report_options<'a>(
         ownership: OwnershipOptions::default(),
         coverage_reports_named: false,
         unmatched_coverage_paths: &[],
+        baseline: None,
     }
 }
 

@@ -46,6 +46,24 @@
       "type": "string",
       "description": "One-line note shown when Ratchet enforcement is skipped, such as on --package runs."
     },
+    "baseline": {
+      "type": "object",
+      "description": "The Baseline in effect; present when .codeint/baseline.json exists and codeint check runs without --ignore-baseline.",
+      "required": [
+        "path",
+        "hidden_findings"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "hidden_findings": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
     "dependencies": {
       "$ref": "#/$defs/DependenciesSection"
     },
@@ -167,6 +185,11 @@
         "metric_version": {
           "type": "integer",
           "minimum": 1
+        },
+        "baselined_findings": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Findings of this Metric hidden by the Baseline."
         }
       }
     },
@@ -349,6 +372,10 @@
         "findings_left_out": {
           "type": "integer",
           "minimum": 1
+        },
+        "baselined_findings": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": false
@@ -447,6 +474,10 @@
           }
         },
         "findings_left_out": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "baselined_findings": {
           "type": "integer",
           "minimum": 1
         }
@@ -613,6 +644,10 @@
         "findings_left_out": {
           "type": "integer",
           "minimum": 1
+        },
+        "baselined_findings": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": false
@@ -736,6 +771,10 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "non_baselined": {
+          "type": "boolean",
+          "description": "True when ratio counts only Findings that the Baseline does not hide."
         }
       },
       "additionalProperties": false

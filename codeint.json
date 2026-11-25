@@ -37,11 +37,17 @@
       "plugin_host": {
         "patterns": ["crates/plugin-host/**"]
       },
+      "plugin_sdk": {
+        "patterns": ["crates/plugin-sdk/**"]
+      },
       "cli": {
         "patterns": ["crates/cli/**"]
       },
       "xtask": {
         "patterns": ["xtask/**"]
+      },
+      "eval": {
+        "patterns": ["eval/**"]
       },
       "lang_dart": {
         "patterns": ["plugins/languages/dart/**"]
@@ -203,6 +209,11 @@
         "reason": "codeint-plugin-host is the sole host boundary for built-in Language plugins and depends only on codeint-model, codeint-config, and built-in Language plugins."
       },
       {
+        "from": "plugin_sdk",
+        "allow": [],
+        "reason": "codeint-plugin-sdk is a standalone guest SDK crate and imports no other workspace crate."
+      },
+      {
         "from": "cli",
         "allow": ["model", "config", "git", "metrics", "report", "plugin_host"],
         "reason": "codeint-cli routes Language plugins through codeint-plugin-host and never directly imports any built-in Language plugin."
@@ -211,6 +222,11 @@
         "from": "xtask",
         "allow": [],
         "reason": "xtask is standalone repository tooling and imports no codeint library crates."
+      },
+      {
+        "from": "eval",
+        "allow": ["model", "plugin_host"],
+        "reason": "codeint-eval is repository tooling that reads Language plugins through codeint-plugin-host and codeint-model only."
       },
       {
         "from": "lang_dart",

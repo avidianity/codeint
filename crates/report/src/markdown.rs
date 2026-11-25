@@ -194,6 +194,9 @@ fn push_header_notes(blocks: &mut Vec<String>, report: &Report) {
     {
         blocks.push(prose(note));
     }
+    if let Some(baseline) = &report.baseline {
+        blocks.push(prose(&baseline.sentence()));
+    }
 }
 
 fn push_sql_schemas(blocks: &mut Vec<String>, schemas: &[SqlSchemaSummary]) {

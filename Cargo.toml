@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "plugins/languages/*", "xtask"]
+members = ["crates/*", "eval", "plugins/languages/*", "xtask"]
 
 [workspace.package]
 version = "0.6.0"
@@ -11,6 +11,7 @@ publish = false
 [workspace.dependencies]
 clap = { version = "=4.6.9", features = ["derive"] }
 codeint-config = { path = "crates/config" }
+codeint-eval = { path = "eval" }
 codeint-git = { path = "crates/git" }
 codeint-lang-dart = { path = "plugins/languages/dart" }
 codeint-lang-go = { path = "plugins/languages/go" }
@@ -24,6 +25,7 @@ codeint-metrics = { path = "crates/metrics" }
 codeint-model = { path = "crates/model" }
 codeint-plugin-host = { path = "crates/plugin-host" }
 codeint-report = { path = "crates/report" }
+dlmalloc = { version = "=0.2.14", features = ["global"] }
 gix = { version = "=0.90.0", default-features = false, features = ["dirwalk", "revision", "sha1"] }
 globset = "=0.4.21"
 jsonc-parser = { version = "=0.34.0", features = ["serde", "serde_json", "preserve_order"] }
@@ -47,6 +49,7 @@ toml = "=1.2.1"
 toon-format = { version = "=0.7.0", default-features = false }
 wasmtime = { version = "=51.0.0", default-features = false, features = ["component-model", "cranelift", "runtime", "std"] }
 wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros"] }
+wit-component = { version = "=0.263.0", default-features = false }
 
 [workspace.lints.rust]
 unused = { level = "deny", priority = -1 }

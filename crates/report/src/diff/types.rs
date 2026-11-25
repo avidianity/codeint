@@ -274,14 +274,8 @@ struct RawDiffFindings<T> {
 impl<T> RawDiffFindings<T> {
     fn into_parts(self) -> (Findings<T>, Findings<T>, usize) {
         (
-            Findings {
-                listed: self.new,
-                left_out: self.new_left_out,
-            },
-            Findings {
-                listed: self.resolved,
-                left_out: self.resolved_left_out,
-            },
+            Findings::listing(self.new, self.new_left_out),
+            Findings::listing(self.resolved, self.resolved_left_out),
             self.unchanged,
         )
     }

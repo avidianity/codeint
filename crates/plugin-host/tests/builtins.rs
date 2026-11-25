@@ -4,9 +4,9 @@ use codeint_config::SqlDialect;
 use codeint_model::{CodeModel, FrameworkProfileSelection, Manifest, RepoPath, SourceFile};
 use codeint_plugin_host::{
     SQL_PLUGIN_NAME, SqlSchemaScopeSummary, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
-    apply_sql_schema_pass, built_in_language_descriptors, built_in_language_framework_profiles,
-    built_in_language_hazard_rules, built_in_language_names, built_in_language_plugin,
-    built_in_language_plugins, lower_sql_source,
+    apply_sql_schema_pass, built_in_language_descriptors, built_in_language_flagged_line_rules,
+    built_in_language_framework_profiles, built_in_language_hazard_rules, built_in_language_names,
+    built_in_language_plugin, built_in_language_plugins, lower_sql_source,
 };
 
 #[test]
@@ -58,6 +58,17 @@ fn built_in_language_plugins_register_all_eight_languages_with_descriptors_and_h
                 && descriptor.extensions == ["sh", "bash", "zsh"])
     );
     assert!(!hazard_rules.contains_key(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME));
+}
+
+#[test]
+fn every_built_in_language_plugin_declares_flagged_line_rules() {
+    let rules = built_in_language_flagged_line_rules();
+    let names: Vec<&str> = rules.keys().map(String::as_str).collect();
+    let mut expected = built_in_language_names();
+    expected.sort_unstable();
+    assert_eq!(names, expected);
+    assert!(rules.values().all(|names| !names.is_empty()));
+    assert!(rules["go"].iter().any(|rule| rule == "redundant-break"));
 }
 
 #[test]

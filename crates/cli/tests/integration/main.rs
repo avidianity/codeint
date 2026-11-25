@@ -4,6 +4,7 @@ mod history_support;
 mod wasm_fixtures;
 
 mod agent;
+mod baseline;
 mod boundaries;
 mod churn;
 mod codeowners;
@@ -12,6 +13,8 @@ mod coupling;
 mod dependencies;
 mod diff;
 mod doctor;
+#[cfg(unix)]
+mod evaluation_runner;
 mod go;
 mod guard;
 mod hazards;
@@ -23,6 +26,7 @@ mod mcp;
 mod npm_packages;
 mod orphan_files;
 mod package_filter;
+mod planted_defects;
 mod ratchet;
 mod report;
 mod schema;

@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{
-    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, DuplicationConfig,
-    FindingsShown,
+    Baseline, Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision,
+    DuplicationConfig, FindingsShown,
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryPolicy, CognitiveComplexity, DependencyHygiene,
@@ -13,6 +13,7 @@ use codeint_model::{
     CodeModel, Metric, MetricPlugin, MetricPluginError, Package, RepoPath, SourceSet, SourceSets,
 };
 
+use crate::baseline::BaselineScope;
 use crate::findings::{
     CloneFamilyFinding, clustered_clone_group_ids, unlisted_clone_family_group_ids,
 };
@@ -95,6 +96,20 @@ pub(crate) struct SectionOptions<'a> {
     pub(crate) framework_profiles: &'a [String],
     pub(crate) framework_profiles_by_package: &'a BTreeMap<String, Vec<String>>,
     pub(crate) reference_range_note: Option<&'a str>,
+    pub(crate) baseline: Option<&'a Baseline>,
+}
+
+impl<'a> SectionOptions<'a> {
+    fn findings_view(&self, source_set: Option<SourceSet>) -> FindingsView<'a> {
+        FindingsView {
+            shown: self.findings,
+            ownership: self.ownership,
+            baseline: self.baseline.map(|baseline| BaselineScope {
+                baseline,
+                source_set,
+            }),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -175,7 +190,7 @@ impl DependenciesSection {
                 header: MetricRatioHeader::new(hygiene.unused_ratio(), Metric::UnusedDependencies),
                 unused: hygiene.unused().len(),
                 declared: hygiene.declared_count(),
-                findings: view.map(hygiene.unused()),
+                findings: view.map_baselined(Metric::UnusedDependencies.key(), hygiene.unused()),
             },
             unlisted_dependencies: UnlistedDependenciesSection {
                 header: MetricRatioHeader::new(
@@ -184,7 +199,8 @@ impl DependenciesSection {
                 ),
                 unlisted: hygiene.unlisted().len(),
                 imported: hygiene.imported_count(),
-                findings: view.map(hygiene.unlisted()),
+                findings: view
+                    .map_baselined(Metric::UnlistedDependencies.key(), hygiene.unlisted()),
             },
             dev_in_production_dependencies: DevInProductionDependenciesSection {
                 header: MetricRatioHeader::new(
@@ -193,7 +209,10 @@ impl DependenciesSection {
                 ),
                 dev_in_production: hygiene.dev_in_production().len(),
                 production_imported: hygiene.production_imported_count(),
-                findings: view.map(hygiene.dev_in_production()),
+                findings: view.map_baselined(
+                    Metric::DevInProductionDependencies.key(),
+                    hygiene.dev_in_production(),
+                ),
             },
         })
     }
@@ -204,7 +223,7 @@ impl BoundariesSection {
         BoundariesSection {
             header: MetricRatioHeader::new(boundaries.ratio(), Metric::Boundaries),
             resolved_imports: boundaries.resolved_imports(),
-            findings: view.map(boundaries.findings()),
+            findings: view.map_baselined(Metric::Boundaries.key(), boundaries.findings()),
         }
     }
 }
@@ -212,7 +231,7 @@ impl BoundariesSection {
 impl OrphanFilesSection {
     fn new(orphan_files: &OrphanFiles, view: FindingsView<'_>) -> OrphanFilesSection {
         let all_findings = orphan_files.findings();
-        let findings = view.map(all_findings);
+        let findings = view.map_baselined(Metric::OrphanFiles.key(), all_findings);
         OrphanFilesSection {
             header: MetricRatioHeader::new(orphan_files.ratio(), Metric::OrphanFiles),
             orphan_files: all_findings.len(),
@@ -228,7 +247,7 @@ impl OrphanFilesSection {
 impl TestGapSection {
     fn new(test_gap: &TestGap, view: FindingsView<'_>) -> TestGapSection {
         let totals = test_gap.totals();
-        let findings = view.map(test_gap.findings());
+        let findings = view.map_baselined(Metric::TestGap.key(), test_gap.findings());
         TestGapSection {
             header: MetricRatioHeader::new(totals.ratio(), Metric::TestGap),
             untested_function_mass: Decimal::rounded(totals.untested),
@@ -245,7 +264,7 @@ impl HazardsSection {
             header: MetricRatioHeader::new(hazards.ratio(), Metric::Hazards),
             hazard_lines: hazards.hazard_lines(),
             source_lines: hazards.source_lines(),
-            findings: view.map(hazards.findings()),
+            findings: view.map_baselined(Metric::Hazards.key(), hazards.findings()),
         }
     }
 }
@@ -275,10 +294,14 @@ impl DuplicationSection {
                 .clone_families
                 .iter()
                 .map(CloneFamilyFinding::from)
+                .filter(|family| {
+                    view.baseline
+                        .is_none_or(|scope| !scope.hides_whole_family(family))
+                })
                 .collect(),
         );
         let all_clustered = clustered_clone_group_ids(&all_clone_families);
-        let clone_groups = view.map(&duplication.clone_groups);
+        let clone_groups = view.map_baselined(Metric::Duplication.key(), &duplication.clone_groups);
         let clone_families = Findings::worst_first(all_clone_families.into_iter(), view.shown);
         let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
             &clone_groups.listed,
@@ -335,6 +358,7 @@ impl SourceSetSections {
                     ..options
                 };
                 *sections.slot(source_set) = Some(SourceSetSection::new(
+                    source_set,
                     SectionModels {
                         model,
                         import_model,
@@ -372,15 +396,13 @@ fn select_coverage_model<'a>(
 
 impl SourceSetSection {
     fn new(
+        source_set: SourceSet,
         models: SectionModels<'_>,
         ranges: &ReferenceRangeScope,
         options: SectionOptions<'_>,
     ) -> Result<SourceSetSection, MetricPluginError> {
         let model = models.model;
-        let view = FindingsView {
-            shown: options.findings,
-            ownership: options.ownership,
-        };
+        let view = options.findings_view(Some(source_set));
         let effective_import_model = models.import_model.filter(|_| options.has_imports);
         let effective_hazards_model = models.hazards_model.filter(|_| options.has_hazard_rules);
         let boundaries_config = effective_import_model
@@ -426,7 +448,7 @@ impl SourceSetSection {
                     header: MetricHeader::new(result.ratio, ranges, plugin.key(), plugin.version()),
                     numerator: Decimal::rounded(result.numerator),
                     denominator: Decimal::rounded(result.denominator),
-                    findings: view.map(&result.findings),
+                    findings: view.map_baselined(plugin.key(), &result.findings),
                 },
             );
         }
@@ -444,7 +466,8 @@ impl SourceSetSection {
                     eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
                     total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
                 },
-                findings: view.map(measured.erosion.eroded_functions()),
+                findings: view
+                    .map_baselined(Metric::Erosion.key(), measured.erosion.eroded_functions()),
             },
             cognitive_complexity: MetricSection {
                 header: MetricHeader::new(
@@ -461,7 +484,10 @@ impl SourceSetSection {
                         .cognitive_complexity
                         .total_cognitive_complexity(),
                 },
-                findings: view.map(measured.cognitive_complexity.complex_functions()),
+                findings: view.map_baselined(
+                    Metric::CognitiveComplexity.key(),
+                    measured.cognitive_complexity.complex_functions(),
+                ),
             },
             duplication: DuplicationSection::new(
                 &measured.duplication,
@@ -480,7 +506,8 @@ impl SourceSetSection {
                     verbose_lines: measured.verbosity.verbose_lines(),
                     flagged_lines: measured.verbosity.flagged_line_count(),
                 },
-                findings: view.map(measured.verbosity.flagged_lines()),
+                findings: view
+                    .map_baselined(Metric::Verbosity.key(), measured.verbosity.flagged_lines()),
             },
             import_cycles: measured
                 .import_cycles
@@ -494,7 +521,7 @@ impl SourceSetSection {
                     ),
                     modules_in_import_cycles: cycles.modules_in_import_cycles(),
                     modules: cycles.modules(),
-                    findings: view.map(cycles.cycles()),
+                    findings: view.map_baselined(Metric::ImportCycles.key(), cycles.cycles()),
                     unresolved_imports: UnresolvedImportsSection::new(cycles, view),
                 }),
             boundaries,
@@ -636,10 +663,7 @@ impl MeasuredSection {
     ) -> Result<MeasuredSection, MetricPluginError> {
         let files = models.model.files.len();
         let lines = source_lines(&models.model);
-        let view = FindingsView {
-            shown: options.findings,
-            ownership: options.ownership,
-        };
+        let view = options.findings_view(None);
         let dependencies = options
             .has_imports
             .then(|| DependenciesSection::from_hygiene(hygiene, view))
