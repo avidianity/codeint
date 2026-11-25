@@ -187,14 +187,14 @@ impl LanguagePlugin for Sql {
         let source = "codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0";
         ReferenceRanges::new(
             [
-                ("erosion", 0.094, 0.976),
-                ("verbosity", 0.042, 0.921),
-                ("duplication", 0.042, 0.921),
+                ("erosion", 1, 0.094, 0.976),
+                ("verbosity", 2, 0.042, 0.921),
+                ("duplication", 1, 0.042, 0.921),
             ]
             .into_iter()
-            .map(|(metric, low, high)| ReferenceRange {
+            .map(|(metric, metric_version, low, high)| ReferenceRange {
                 metric: metric.to_owned(),
-                metric_version: 1,
+                metric_version,
                 low,
                 high,
                 source: source.to_owned(),

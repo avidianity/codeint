@@ -210,14 +210,13 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          clone_groups: []\n    \
          verbosity:\n      \
          ratio: 0\n      \
-         metric_version: 1\n      \
+         metric_version: 2\n      \
          reference_range:\n        \
          low: 0.018\n        \
          high: 0.347\n        \
          source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n      \
          verbose_lines: 0\n      \
          flagged_lines: 0\n      \
-         clone_lines: 0\n      \
          findings: []\n    \
          import_cycles:\n      \
          ratio: 0\n      \
@@ -278,14 +277,13 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
         production_section(&output, "verbosity"),
         "verbosity:\n  \
          ratio: 0.15\n  \
-         metric_version: 1\n  \
+         metric_version: 2\n  \
          reference_range:\n    \
          low: 0.018\n    \
          high: 0.347\n    \
          source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n  \
          verbose_lines: 3\n  \
          flagged_lines: 3\n  \
-         clone_lines: 0\n  \
          findings[3]{id,path,line,rule}:\n    \
          <id>,src/sign.ts,4,else-after-return\n    \
          <id>,src/size.ts,4,else-after-return\n    \
@@ -314,7 +312,7 @@ const SIGN: &str = concat!(
 );
 
 #[test]
-fn verbosity_counts_a_line_that_is_both_flagged_and_a_clone_line_once() {
+fn verbosity_counts_only_flagged_lines_even_when_lines_are_also_duplicated() {
     let repository = Repository::new();
     repository.write("src/label.ts", PLURAL_LABEL);
     repository.write("src/text.ts", &format!("{PLURAL_LABEL}{SIGN}"));
@@ -328,21 +326,47 @@ fn verbosity_counts_a_line_that_is_both_flagged_and_a_clone_line_once() {
         production_section(&output, "verbosity"),
         concat!(
             "verbosity:\n",
-            "  ratio: 0.7143\n",
-            "  metric_version: 1\n",
+            "  ratio: 0.1429\n",
+            "  metric_version: 2\n",
             "  reference_range:\n",
             "    low: 0.018\n",
             "    high: 0.347\n",
             "    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n",
-            "  verbose_lines: 15\n",
+            "  verbose_lines: 3\n",
             "  flagged_lines: 3\n",
-            "  clone_lines: 14\n",
             "  findings[3]{id,path,line,rule}:\n",
             "    <id>,src/label.ts,4,else-after-return\n",
             "    <id>,src/text.ts,4,else-after-return\n",
             "    <id>,src/text.ts,11,else-after-return\n",
         )
     );
+}
+
+#[test]
+fn duplicated_non_flagged_lines_keep_verbosity_at_zero_and_report_metric_version_2() {
+    let repository = Repository::new();
+    repository.write("src/cart.ts", CART_TOTAL);
+    repository.write("src/order.ts", ORDER_TOTAL_RENAMED);
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+
+    assert_success(&output);
+    let report: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid JSON");
+    let prod = &report["source_sets"]["production"];
+    assert!(
+        prod["duplication"]["ratio"]
+            .as_f64()
+            .expect("duplication ratio")
+            > 0.0,
+        "expected positive duplication ratio: {prod}"
+    );
+    assert_eq!(prod["duplication"]["metric_version"], 1);
+    assert_eq!(prod["verbosity"]["ratio"], 0.0);
+    assert_eq!(prod["verbosity"]["metric_version"], 2);
+    assert_eq!(prod["verbosity"]["verbose_lines"], 0);
+    assert_eq!(prod["verbosity"]["flagged_lines"], 0);
+    assert!(prod["verbosity"].get("clone_lines").is_none());
 }
 
 #[test]
@@ -3370,7 +3394,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       },
       "verbosity": {
         "ratio": 0.1429,
-        "metric_version": 1,
+        "metric_version": 2,
         "reference_range": {
           "low": 0.018,
           "high": 0.347,
@@ -3378,7 +3402,6 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         },
         "verbose_lines": 1,
         "flagged_lines": 1,
-        "clone_lines": 0,
         "findings": [
           {
             "id": "2a57800b29941394",
@@ -3842,12 +3865,12 @@ fn each_workspace_package_reports_its_own_clone_lines_and_verbose_lines() {
         PACKAGES_HEADER.to_owned()
             + concat!(
                 "  .,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
-                "  packages/cart,1,9,0,0,9,0,0,3,1,9,1,9,0,0\n",
-                "  packages/invoice,2,18,0,0,14.2915,0,0,5,0.5,9,0.5556,10,0,0\n",
+                "  packages/cart,1,9,0,0,9,0,0,3,1,9,0,0,0,0\n",
+                "  packages/invoice,2,18,0,0,14.2915,0,0,5,0.5,9,0.0556,1,0,0\n",
             )
     );
     assert!(production_section(&output, "duplication").contains("  clone_lines: 18\n"));
-    assert!(production_section(&output, "verbosity").contains("  verbose_lines: 19\n"));
+    assert!(production_section(&output, "verbosity").contains("  verbose_lines: 1\n"));
 }
 
 #[test]
@@ -4416,7 +4439,7 @@ const SARIF_RULES: &str = r#"          "rules": [
                 "text": "A Flagged line: code that can be deleted or collapsed"
               },
               "fullDescription": {
-                "text": "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches."
+                "text": "Verbosity is the share of source lines that are Flagged lines. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches."
               },
               "help": {
                 "text": "Delete or collapse the line as its rule describes; the behavior stays the same."
@@ -5347,8 +5370,9 @@ fn three_plus_copies_cluster_into_worst_first_clone_families_across_formats_with
     let verbosity = &report["source_sets"]["production"]["verbosity"];
     assert_eq!(duplication["clone_lines"], 57);
     assert_eq!(duplication["ratio"], 0.9828);
-    assert_eq!(verbosity["clone_lines"], 57);
-    assert_eq!(verbosity["ratio"], 0.9828);
+    assert!(verbosity.get("clone_lines").is_none());
+    assert_eq!(verbosity["verbose_lines"], 0);
+    assert_eq!(verbosity["ratio"], 0.0);
     assert_eq!(duplication["reference_range"]["low"], 0.017);
     assert_eq!(duplication["reference_range"]["high"], 0.346);
 
@@ -5493,7 +5517,8 @@ fn near_clone_detection_catches_one_line_edit_when_enabled_preserves_verbosity_a
             .is_some_and(|text| text.contains("near-clone"))
     );
     assert_eq!(dup["clone_lines"], 19);
-    assert_eq!(verb["clone_lines"], 0);
+    assert!(verb.get("clone_lines").is_none());
+    assert_eq!(verb["verbose_lines"], 0);
     assert_eq!(verb["reference_range"]["low"], 0.018);
 
     let groups = dup["clone_groups"].as_array().expect("clone_groups");

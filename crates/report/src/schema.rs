@@ -40,7 +40,7 @@ const BUILT_IN_METRIC_DESCRIPTORS: [BuiltInMetricDescriptor; 12] = [
     BuiltInMetricDescriptor {
         name: Metric::Verbosity.display_name(),
         short_description: "A Flagged line: code that can be deleted or collapsed",
-        full_description: "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches.",
+        full_description: "Verbosity is the share of source lines that are Flagged lines. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches.",
         help: "Delete or collapse the line as its rule describes; the behavior stays the same.",
     },
     BuiltInMetricDescriptor {

@@ -116,12 +116,17 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
         1
     );
     assert_eq!(
+        rerendered_check_json["source_sets"]["production"]["verbosity"]["metric_version"],
+        2
+    );
+    assert_eq!(
         rerendered_check_json["source_sets"]["production"]["custom_v4"]["metric_version"],
         4
     );
     let rerendered_check_toon = saved_check
         .render(ReportRenderFormat::Toon)
         .expect("render saved check toon");
+    assert!(rerendered_check_toon.contains("metric_version: 2"));
     assert!(rerendered_check_toon.contains("metric_version: 4"));
 
     let mut legacy_check: serde_json::Value =
@@ -139,9 +144,17 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
             .expect("metric object")
             .remove("metric_version");
     }
+    legacy_check["source_sets"]["production"]["verbosity"]
+        .as_object_mut()
+        .expect("verbosity object")
+        .insert("clone_lines".to_owned(), serde_json::json!(5));
     let (_, legacy_rerendered) = rerender_saved_json(&legacy_check.to_string());
     assert_eq!(
         legacy_rerendered["source_sets"]["production"]["erosion"]["metric_version"],
+        1
+    );
+    assert_eq!(
+        legacy_rerendered["source_sets"]["production"]["verbosity"]["metric_version"],
         1
     );
 

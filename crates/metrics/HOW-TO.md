@@ -89,7 +89,7 @@ let ratio = duplication.ratio();
   Each `CloneFamily` holds its stable `FindingId` (hashed from the `clone_family` key, canonical fragment paths, and sorted normalized group digests), unique `duplicated_lines` without double-counting overlaps, constituent `clone_group_ids`, and canonical `fragments` ordered by path then start line.
   Clone families are ordered worst-first by `duplicated_lines`, then by location count, then by their canonical fragments.
 - `Duplication::measure_with_near_clones` adds opt-in shingle/Jaccard near-clone detection using MinHash/LSH candidate pruning when passed `Some(NearCloneConfig)`.
-  Near-clone `CloneGroup`s set `similarity: Some(ratio)` and contribute to `clone_lines` (and `ratio()`), while `exact_clone_lines` holds only exact Clone group lines so `Verbosity` stays coupled only to exact Clone groups.
+  Near-clone `CloneGroup`s set `similarity: Some(ratio)` and contribute to `clone_lines` (and `ratio()`), while `exact_clone_lines` holds only exact Clone group lines.
 - `MinimumCloneTokens::DEFAULT` is 75 tokens, and `MinimumDistinctTokens::DEFAULT` is 14 distinct normalized tokens, as [ADR 0007](../../docs/adr/0007-default-minimum-clone-size.md) decides.
 - `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its clone lines and its source lines.
   A Clone group that spans two packages adds each copy's lines to the package that holds it.
@@ -97,26 +97,18 @@ let ratio = duplication.ratio();
 ## Measure Verbosity
 
 ```rust
-use codeint_metrics::{Duplication, MinimumCloneTokens, MinimumDistinctTokens, Verbosity};
+use codeint_metrics::Verbosity;
 
-let duplication = Duplication::measure(
-    &model,
-    MinimumCloneTokens::DEFAULT,
-    MinimumDistinctTokens::DEFAULT,
-);
-let verbosity = Verbosity::measure(&model, &duplication.clone_lines);
+let verbosity = Verbosity::measure(&model);
 println!("{} of {}", verbosity.verbose_lines(), verbosity.source_lines());
-println!("{} flagged, {} clone lines", verbosity.flagged_line_count(), verbosity.clone_line_count());
 println!("ratio {}", verbosity.ratio());
 for finding in verbosity.flagged_lines() {
     println!("{}:{} matches {}", finding.path, finding.line, finding.rule);
 }
 ```
 
-- `Verbosity::measure` reads the Flagged lines of the `CodeModel` and the clone lines of the same `CodeModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts lines.
-- Pass the clone lines of the `Duplication` already measured on the same `CodeModel`, so that clone detection runs once per Source set.
-- `verbose_lines` counts each line that is a Flagged line, a clone line, or both once, even when two rules match it.
-- `flagged_line_count` counts the distinct Flagged lines, and `clone_line_count` the clone lines; a line that is both adds to each.
+- `Verbosity::measure` reads only the Flagged lines of the `CodeModel`; the Flagged-line rules live in the Language plugin, and the Metric only counts distinct Flagged lines (independent of Duplication, as [ADR 0024](../../docs/adr/0024-verbosity-decoupling.md) decides).
+- `verbose_lines` and `flagged_line_count` both count each distinct Flagged line once, even when two rules match it.
 - `ratio` is the verbose lines divided by the source lines, and 0 when there are no source lines.
 - `flagged_lines` lists the Findings, one per line and rule, by path, line, and rule.
 - `by_package(&model)` gives a `LineShare` for every package of `model.workspace`: its verbose lines and its source lines.

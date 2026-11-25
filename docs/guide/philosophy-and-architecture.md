@@ -23,7 +23,7 @@ Four core Metrics are calibrated against pre-2023 human-written repositories:
   Weighting by both complexity and size highlights the few large, tangled functions that hurt maintainability most.
 - **Duplication**: the share of source lines inside **Clone groups** (two or more fragments matching at least 75 normalized tokens and 14 distinct normalized tokens, [ADR 0007](../adr/0007-default-minimum-clone-size.md)).
   Normalizing identifiers and literals catches renamed copy-paste while ignoring import blocks and repetitive data tables, clusters three or more overlapping locations into **Clone families**, and supports opt-in shingle-based near-clone detection.
-- **Verbosity**: the share of source lines that are **Flagged lines**, exact clone lines, or both.
+- **Verbosity**: the share of source lines that are **Flagged lines** (independent of Duplication, [ADR 0024](../adr/0024-verbosity-decoupling.md)).
   Each Flagged-line rule targets a zero-false-positive redundant construct (such as `else` after an unconditional `return` or `if (c) return true; else return false;`).
 - **Import cycles**: the share of modules that belong to at least one runtime **Import cycle** (strongly connected component of size 2 or more).
 

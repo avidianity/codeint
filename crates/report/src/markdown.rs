@@ -75,10 +75,6 @@ const CLONE_LINE: Noun = Noun {
     one: "clone line",
     many: "clone lines",
 };
-const VERBOSE_LINE: Noun = Noun {
-    one: "verbose line",
-    many: "verbose lines",
-};
 pub(crate) const FLAGGED_LINE: Noun = Noun {
     one: "Flagged line",
     many: "Flagged lines",
@@ -457,11 +453,9 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
             "Verbosity",
             &verbosity.header,
             format!(
-                "{} of {}: {}, {}",
-                VERBOSE_LINE.counted(verbosity.totals.verbose_lines),
-                SOURCE_LINE.counted(section.source_lines),
+                "{} of {}",
                 FLAGGED_LINE.counted(verbosity.totals.flagged_lines),
-                CLONE_LINE.counted(verbosity.totals.clone_lines)
+                SOURCE_LINE.counted(section.source_lines),
             ),
         ),
     ];

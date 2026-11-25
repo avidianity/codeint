@@ -35,10 +35,10 @@ impl Guest for Python {
         build_reference_ranges(
             "codeint panel of 20 Python repositories, ADR 0013, codeint 0.4.0",
             [
-                ("erosion", 0.144, 0.624),
-                ("verbosity", 0.014, 0.204),
-                ("duplication", 0.012, 0.201),
-                ("import_cycles", 0.000, 0.321),
+                ("erosion", 1, 0.144, 0.624),
+                ("verbosity", 2, 0.014, 0.204),
+                ("duplication", 1, 0.012, 0.201),
+                ("import_cycles", 1, 0.000, 0.321),
             ],
         )
     }

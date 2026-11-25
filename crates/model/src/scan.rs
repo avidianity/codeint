@@ -311,12 +311,15 @@ pub fn resolve_relative_file(
     }
 }
 
-pub fn build_reference_ranges(source: &str, entries: [(&str, f64, f64); 4]) -> Vec<ReferenceRange> {
+pub fn build_reference_ranges(
+    source: &str,
+    entries: [(&str, u32, f64, f64); 4],
+) -> Vec<ReferenceRange> {
     entries
         .into_iter()
-        .map(|(metric, low, high)| ReferenceRange {
+        .map(|(metric, metric_version, low, high)| ReferenceRange {
             metric: metric.to_owned(),
-            metric_version: 1,
+            metric_version,
             low,
             high,
             source: source.to_owned(),

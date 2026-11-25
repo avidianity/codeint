@@ -78,10 +78,10 @@ impl Guest for Rust {
         codeint_model::scan::build_reference_ranges(
             "codeint panel of 20 Rust repositories, ADR 0010, codeint 0.2.1",
             [
-                ("erosion", 0.380, 0.642),
-                ("verbosity", 0.060, 0.329),
-                ("duplication", 0.050, 0.325),
-                ("import_cycles", 0.021, 0.506),
+                ("erosion", 1, 0.380, 0.642),
+                ("verbosity", 2, 0.060, 0.329),
+                ("duplication", 1, 0.050, 0.325),
+                ("import_cycles", 1, 0.021, 0.506),
             ],
         )
     }

@@ -44,7 +44,7 @@ Four core Metrics are calibrated against pre-2023 human-written repositories:
 
 - **Erosion**: share of Function mass (`cyclomatic_complexity * sqrt(source_lines)`) in functions with cyclomatic complexity over 10, reported with function names.
 - **Duplication**: share of source lines in exact Clone groups (at least 75 normalized tokens and 14 distinct normalized tokens, catching renamed copy-paste while ignoring import lists and data tables), grouped into Clone families across three or more locations, with opt-in shingle-based near-clone detection.
-- **Verbosity**: share of source lines in zero-false-positive Flagged lines or exact Clone groups.
+- **Verbosity**: share of source lines in zero-false-positive Flagged lines (independent of Duplication, [ADR 0024](./docs/adr/0024-verbosity-decoupling.md)).
 - **Import cycles**: share of modules in at least one runtime Import cycle.
 
 Additional independent Metrics and structural checks run in the same pass:

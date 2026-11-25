@@ -48,12 +48,13 @@ fn metric_registry_covers_all_twelve_built_in_metrics_in_order() {
 }
 
 #[test]
-fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
+fn every_metric_descriptor_has_expected_version_and_metadata() {
     let expected = [
         (
             Metric::Erosion,
             "erosion",
             "Erosion",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -65,6 +66,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::CognitiveComplexity,
             "cognitive_complexity",
             "Cognitive complexity",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -76,6 +78,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::Duplication,
             "duplication",
             "Duplication",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -87,6 +90,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::Verbosity,
             "verbosity",
             "Verbosity",
+            2,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -98,6 +102,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::ImportCycles,
             "import_cycles",
             "Import cycles",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -109,6 +114,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::Boundaries,
             "boundaries",
             "Import boundaries",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::AllSourceSets,
             true,
@@ -120,6 +126,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::OrphanFiles,
             "orphan_files",
             "Orphan files",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::ProductionOnly,
             true,
@@ -131,6 +138,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::TestGap,
             "test_gap",
             "Test gap",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::ProductionOnly,
             false,
@@ -142,6 +150,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::Hazards,
             "hazards",
             "Hazards",
+            1,
             MetricKind::Hazards,
             MetricScope::AllSourceSets,
             true,
@@ -153,6 +162,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::UnusedDependencies,
             "unused_dependencies",
             "Unused dependencies",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::RepositoryWide,
             true,
@@ -164,6 +174,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::UnlistedDependencies,
             "unlisted_dependencies",
             "Unlisted dependencies",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::RepositoryWide,
             true,
@@ -175,6 +186,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             Metric::DevInProductionDependencies,
             "dev_in_production_dependencies",
             "Dev dependencies in production",
+            1,
             MetricKind::SoftwareEntropy,
             MetricScope::RepositoryWide,
             true,
@@ -191,6 +203,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
             metric,
             key,
             display_name,
+            version,
             kind,
             scope,
             supports_diff_regression,
@@ -204,7 +217,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
         let descriptor = metric.descriptor();
         assert_eq!(descriptor.key, key);
         assert_eq!(descriptor.display_name, display_name);
-        assert_eq!(descriptor.version, 1);
+        assert_eq!(descriptor.version, version);
         assert_eq!(descriptor.kind, kind);
         assert_eq!(descriptor.scope, scope);
         assert_eq!(
@@ -219,7 +232,7 @@ fn every_metric_descriptor_has_initial_version_one_and_expected_metadata() {
         assert_eq!(descriptor.numerator_field, numerator_field);
         assert_eq!(metric.key(), key);
         assert_eq!(metric.display_name(), display_name);
-        assert_eq!(metric.version(), 1);
+        assert_eq!(metric.version(), version);
         assert_eq!(metric.kind(), kind);
         assert_eq!(metric.scope(), scope);
         assert_eq!(metric.supports_diff_regression(), supports_diff_regression);

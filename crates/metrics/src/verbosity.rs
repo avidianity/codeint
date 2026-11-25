@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use codeint_model::{CodeModel, Metric, Package, RepoPath, Token, token_text_hash};
 
+use crate::FindingId;
 use crate::finding_id::FindingIds;
 use crate::line_share::{LineShare, line_shares_by_package};
-use crate::{CloneLines, FindingId};
 
 #[cfg(test)]
 mod tests;
@@ -20,15 +20,13 @@ pub struct FlaggedLineFinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verbosity {
     verbose_lines: u64,
-    flagged_line_count: u64,
-    clone_line_count: u64,
     source_lines: u64,
     flagged_lines: Vec<FlaggedLineFinding>,
     verbose_lines_by_file: BTreeMap<RepoPath, u64>,
 }
 
 impl Verbosity {
-    pub fn measure(model: &CodeModel, clone_lines: &CloneLines) -> Verbosity {
+    pub fn measure(model: &CodeModel) -> Verbosity {
         let flagged_lines: BTreeSet<(&RepoPath, u32, &str)> = model
             .files
             .iter()
@@ -43,20 +41,12 @@ impl Verbosity {
             .iter()
             .map(|&(path, line, _)| (path, line))
             .collect();
-        let mut verbose_lines_by_file: BTreeMap<RepoPath, u64> = clone_lines
-            .count_by_file()
-            .map(|(path, lines)| (path.clone(), lines))
-            .collect();
-        for (path, _) in distinct_flagged_lines
-            .iter()
-            .filter(|(path, line)| !clone_lines.contains(path, *line))
-        {
+        let mut verbose_lines_by_file: BTreeMap<RepoPath, u64> = BTreeMap::new();
+        for (path, _) in &distinct_flagged_lines {
             *verbose_lines_by_file.entry((*path).clone()).or_default() += 1;
         }
         Verbosity {
-            verbose_lines: verbose_lines_by_file.values().sum(),
-            flagged_line_count: distinct_flagged_lines.len() as u64,
-            clone_line_count: clone_lines.count(),
+            verbose_lines: distinct_flagged_lines.len() as u64,
             source_lines: model
                 .files
                 .iter()
@@ -72,11 +62,7 @@ impl Verbosity {
     }
 
     pub fn flagged_line_count(&self) -> u64 {
-        self.flagged_line_count
-    }
-
-    pub fn clone_line_count(&self) -> u64 {
-        self.clone_line_count
+        self.verbose_lines
     }
 
     pub fn source_lines(&self) -> u64 {
