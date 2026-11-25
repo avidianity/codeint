@@ -296,17 +296,37 @@ fn find_matching_brace_group(
     let mut depth = 0usize;
     let mut at_cmd_pos = true;
     for (idx, tok) in tokens.iter().enumerate().skip(open_idx) {
-        if tok.is_word("{") && (at_cmd_pos || follows_function_header(tokens, idx)) {
-            depth += 1;
-        } else if (at_cmd_pos || close_brace_ends_any_command) && tok.is_word("}") {
-            depth -= 1;
-            if depth == 0 {
-                return Some(idx);
-            }
+        match brace_role(tokens, idx, at_cmd_pos, close_brace_ends_any_command) {
+            BraceRole::Open => depth += 1,
+            BraceRole::Close if depth <= 1 => return Some(idx),
+            BraceRole::Close => depth -= 1,
+            BraceRole::Other => {}
         }
         at_cmd_pos = tok.next_is_cmd_pos() || (at_cmd_pos && ends_compound_command(tok));
     }
     None
+}
+
+enum BraceRole {
+    Open,
+    Close,
+    Other,
+}
+
+fn brace_role(
+    tokens: &[ShellToken],
+    idx: usize,
+    at_cmd_pos: bool,
+    close_brace_ends_any_command: bool,
+) -> BraceRole {
+    let tok = &tokens[idx];
+    if tok.is_word("{") && (at_cmd_pos || follows_function_header(tokens, idx)) {
+        BraceRole::Open
+    } else if tok.is_word("}") && (at_cmd_pos || close_brace_ends_any_command) {
+        BraceRole::Close
+    } else {
+        BraceRole::Other
+    }
 }
 
 fn ends_compound_command(tok: &ShellToken) -> bool {
