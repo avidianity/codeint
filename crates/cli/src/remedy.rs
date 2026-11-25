@@ -664,6 +664,9 @@ fn plugin_test_remedy(error: &PluginTestError) -> &'static str {
         PluginTestError::PluginHost(_) => {
             "Check that the path names an existing readable WebAssembly component file."
         }
+        PluginTestError::Scratch(_) | PluginTestError::ScratchGit(_) => {
+            "Check that the system temporary folder is writable and has free space."
+        }
         PluginTestError::Source { .. } => {
             "Check that each --source path names an existing readable UTF-8 text file."
         }

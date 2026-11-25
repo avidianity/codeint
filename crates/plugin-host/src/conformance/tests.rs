@@ -47,6 +47,7 @@ fn extension_check_rejects_empty_dotted_slashed_and_whitespace_extensions() {
         let mut report = ConformanceReport {
             kind: PluginKind::Language,
             checks: Vec::new(),
+            end_to_end: None,
         };
         check_extensions(&mut report, &extensions);
         assert_eq!(
@@ -58,6 +59,7 @@ fn extension_check_rejects_empty_dotted_slashed_and_whitespace_extensions() {
     let mut report = ConformanceReport {
         kind: PluginKind::Language,
         checks: Vec::new(),
+        end_to_end: None,
     };
     check_extensions(&mut report, &["ts".to_owned(), "tsx".to_owned()]);
     assert_eq!(report.checks[0].status, ConformanceStatus::Pass);
@@ -68,6 +70,7 @@ fn duplicate_extensions_pass_and_are_probed_once() {
     let mut report = ConformanceReport {
         kind: PluginKind::Language,
         checks: Vec::new(),
+        end_to_end: None,
     };
     let extensions = ["ts".to_owned(), "ts".to_owned(), "tsx".to_owned()];
     check_extensions(&mut report, &extensions);
@@ -109,6 +112,7 @@ fn extension_check_accepts_a_backslash_extension_like_codeint_check() {
     let mut report = ConformanceReport {
         kind: PluginKind::Language,
         checks: Vec::new(),
+        end_to_end: None,
     };
     check_extensions(&mut report, &["a\\b".to_owned()]);
     assert_eq!(report.checks[0].status, ConformanceStatus::Pass);
@@ -119,6 +123,7 @@ fn finalize_orders_checks_and_adds_the_missing_ones_as_skipped() {
     let mut report = ConformanceReport {
         kind: PluginKind::Metric,
         checks: Vec::new(),
+        end_to_end: None,
     };
     report.pass("limits", "ok");
     report.pass("component", "ok");

@@ -258,12 +258,39 @@ fn a_plugin_with_an_empty_workspace_answer_is_sent_every_manifest_in_one_root_ca
         &[],
     );
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(
-        failed_checks(&report)
-            .iter()
-            .any(|(id, _)| id == "framework-profiles"),
-        "{report}"
-    );
+    let failed: Vec<String> = failed_checks(&report)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(failed, ["framework-profiles", "end-to-end"], "{report}");
+}
+
+#[test]
+fn the_end_to_end_check_runs_codeint_check_on_the_probe_repository_and_cleans_up() {
+    let scratch = tempfile::tempdir().expect("scratch temp folder");
+    for (kind, wasm, expected) in [
+        ("language", "sample_mini_plugin.wasm", "pass"),
+        ("metric", "sample_long_functions_plugin.wasm", "pass"),
+        (
+            "language",
+            "empty_workspace_multi_manifest_language_plugin.wasm",
+            "fail",
+        ),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_codeint"))
+            .args(["plugin", "test"])
+            .arg(fixture(wasm))
+            .args(["--kind", kind, "--format", "json"])
+            .env("TMPDIR", scratch.path())
+            .output()
+            .expect("run codeint plugin test");
+        let report: Value = serde_json::from_str(&stdout(&output)).expect("json report");
+        assert_eq!(check_status(&report, "end-to-end"), expected, "{wasm}");
+        let leftovers: Vec<_> = std::fs::read_dir(scratch.path())
+            .expect("read scratch folder")
+            .collect();
+        assert!(leftovers.is_empty(), "{wasm}: {leftovers:?}");
+    }
 }
 
 #[test]

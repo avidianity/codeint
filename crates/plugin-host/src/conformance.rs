@@ -33,9 +33,22 @@ pub struct ConformanceCheck {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndToEndFile {
+    pub path: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndToEndProbe {
+    pub files: Vec<EndToEndFile>,
+    pub framework_profiles: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConformanceReport {
     pub kind: PluginKind,
     pub checks: Vec<ConformanceCheck>,
+    pub end_to_end: Option<EndToEndProbe>,
 }
 
 impl ConformanceReport {
@@ -166,7 +179,9 @@ pub struct ConformanceSource {
     pub text: String,
 }
 
-pub const LANGUAGE_CHECKS: [&str; 14] = [
+pub const END_TO_END_CHECK: &str = "end-to-end";
+
+pub const LANGUAGE_CHECKS: [&str; 15] = [
     "component",
     "wit-contract",
     "zero-imports",
@@ -180,10 +195,11 @@ pub const LANGUAGE_CHECKS: [&str; 14] = [
     "declared-dependencies",
     "entry-points",
     "reference-ranges",
+    END_TO_END_CHECK,
     "limits",
 ];
 
-pub const METRIC_CHECKS: [&str; 11] = [
+pub const METRIC_CHECKS: [&str; 12] = [
     "component",
     "wit-contract",
     "zero-imports",
@@ -194,6 +210,7 @@ pub const METRIC_CHECKS: [&str; 11] = [
     "finding-ids",
     "finding-lines",
     "finding-paths",
+    END_TO_END_CHECK,
     "limits",
 ];
 
@@ -216,6 +233,7 @@ pub fn run_conformance(
     let mut report = ConformanceReport {
         kind,
         checks: Vec::new(),
+        end_to_end: None,
     };
     match kind {
         PluginKind::Language => {
@@ -389,6 +407,14 @@ fn run_language(
     } else {
         Vec::new()
     };
+    report.end_to_end = Some(EndToEndProbe {
+        files: end_to_end_files(&repository, &chosen, &probe_extensions, sources),
+        framework_profiles: plugin
+            .known_framework_profiles()
+            .into_iter()
+            .filter(|profile| !profile.is_empty())
+            .collect(),
+    });
     check_framework_profiles(
         report,
         &plugin,
@@ -924,6 +950,47 @@ fn probe_repository(extensions: &[String]) -> Vec<RepoPath> {
     repository
 }
 
+const METRIC_PROBE_FILES: [(&str, &str); 3] = [
+    (
+        "src/app.ts",
+        "import { add } from './util';\nexport function main(a: number, b: number): number {\n  if (a > b) {\n    return add(a, b);\n  }\n  return add(b, a);\n}\n",
+    ),
+    (
+        "src/util.ts",
+        "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
+    ),
+    (
+        "tests/app.test.ts",
+        "import { main } from '../src/app';\nexport function testMain(): boolean {\n  return main(2, 1) === 3;\n}\n",
+    ),
+];
+
+fn end_to_end_files(
+    repository: &[RepoPath],
+    chosen: &[RepoPath],
+    extensions: &[String],
+    sources: &[ConformanceSource],
+) -> Vec<EndToEndFile> {
+    let mut files: Vec<EndToEndFile> = repository
+        .iter()
+        .filter(|path| !is_probe_manifest(path) || chosen.contains(path))
+        .map(|path| EndToEndFile {
+            path: path.to_string(),
+            text: probe_file_text(path).to_owned(),
+        })
+        .collect();
+    for source in sources {
+        let path = probe_repo_path(&source.file_name, &extensions[0]).to_string();
+        if !files.iter().any(|file| file.path == path) {
+            files.push(EndToEndFile {
+                path,
+                text: source.text.clone(),
+            });
+        }
+    }
+    files
+}
+
 fn probe_importers(extensions: &[String]) -> Vec<SourceFile> {
     let mut importers = Vec::new();
     for extension in extensions {
@@ -982,6 +1049,11 @@ const PROBE_MANIFESTS: [(&str, &str); 6] = [
 const INVALID_MANIFEST_TEXT: &str = "not a valid manifest \u{0}\n[[[";
 
 const PROBE_SOURCE_TEXT: &str = "function add(a, b) {\n  return a + b;\n}\n";
+
+fn is_probe_manifest(path: &RepoPath) -> bool {
+    let file_name = path.as_str().rsplit('/').next().unwrap_or_default();
+    PROBE_MANIFESTS.iter().any(|(name, _)| *name == file_name)
+}
 
 fn probe_file_text(path: &RepoPath) -> &'static str {
     let file_name = path.as_str().rsplit('/').next().unwrap_or_default();
@@ -1287,6 +1359,16 @@ fn run_metric(
         format!("key {:?} is valid and unique", plugin.key()),
     );
     report.pass("metric-version", format!("version {}", plugin.version()));
+    report.end_to_end = Some(EndToEndProbe {
+        files: METRIC_PROBE_FILES
+            .iter()
+            .map(|(path, text)| EndToEndFile {
+                path: (*path).to_owned(),
+                text: (*text).to_owned(),
+            })
+            .collect(),
+        framework_profiles: Vec::new(),
+    });
     if plugin.declared_name_is_blank() || plugin.description().trim().is_empty() {
         report.fail(
             "metric-description",

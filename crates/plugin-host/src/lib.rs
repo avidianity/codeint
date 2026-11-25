@@ -28,8 +28,8 @@ pub use builtins::{
     built_in_language_plugins,
 };
 pub use conformance::{
-    ConformanceCheck, ConformanceReport, ConformanceSource, ConformanceStatus, LANGUAGE_CHECKS,
-    METRIC_CHECKS, run_conformance,
+    ConformanceCheck, ConformanceReport, ConformanceSource, ConformanceStatus, END_TO_END_CHECK,
+    EndToEndFile, EndToEndProbe, LANGUAGE_CHECKS, METRIC_CHECKS, run_conformance,
 };
 pub use sha256::{format_hex as sha256_hex, sha256};
 pub use sql::{
