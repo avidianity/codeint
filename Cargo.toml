@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "plugins/languages/*", "xtask"]
+members = ["crates/*", "eval", "plugins/languages/*", "xtask"]
 
 [workspace.package]
 version = "0.6.0"
@@ -11,6 +11,7 @@ publish = false
 [workspace.dependencies]
 clap = { version = "=4.6.9", features = ["derive"] }
 codeint-config = { path = "crates/config" }
+codeint-eval = { path = "eval" }
 codeint-git = { path = "crates/git" }
 codeint-lang-dart = { path = "plugins/languages/dart" }
 codeint-lang-go = { path = "plugins/languages/go" }

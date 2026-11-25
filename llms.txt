@@ -25,6 +25,7 @@
 - [Plugins](docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins against `codeint:plugin@0.4.0`.
 - [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint.jsonc` and `codeint.json`.
 - [Glossary](GLOSSARY.md): canonical domain terminology.
+- [Evaluation suite runner](eval/HOW-TO.md): measure the pinned public corpus in `eval/corpus.json` in scratch folders with native-parser recall oracles, 3-run timing, and peak memory.
 
 ## Architecture Decision Records
 
