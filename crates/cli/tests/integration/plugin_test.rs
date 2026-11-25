@@ -194,6 +194,14 @@ fn workspace_packages_failures_fail_the_check() {
 }
 
 #[test]
+fn a_plugin_that_chooses_no_manifests_is_never_sent_a_foreign_manifest() {
+    let (output, report) =
+        json_report("language", "cargo_only_workspace_language_plugin.wasm", &[]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(check_status(&report, "workspace-packages"), "pass");
+}
+
+#[test]
 fn a_workspace_error_on_a_valid_manifest_fails_the_check() {
     assert_fails(
         "language",
@@ -297,6 +305,7 @@ fn every_report_lists_each_check_once_in_order() {
         "invalid_workspace_root_language_plugin.wasm",
         "workspace_trap_language_plugin.wasm",
         "workspace_always_fails_language_plugin.wasm",
+        "cargo_only_workspace_language_plugin.wasm",
         "manifest_paths_trap_language_plugin.wasm",
         "exclude_trap_language_plugin.wasm",
         "no_imports_language_plugin.wasm",

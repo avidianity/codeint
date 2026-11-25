@@ -749,12 +749,8 @@ fn check_repository_queries(
 ) {
     let source = repo_path(&format!("src/main.{extension}"));
     let other = repo_path(&format!("src/lib.{extension}"));
-    let repository = vec![
-        source.clone(),
-        other,
-        repo_path("package.json"),
-        repo_path("Cargo.toml"),
-    ];
+    let mut repository = vec![source.clone(), other];
+    repository.extend(PROBE_MANIFESTS.iter().map(|(name, _)| repo_path(name)));
     if plugin.has_imports() {
         check_import_calls(report, plugin, &repository, &source, watch);
     } else {
@@ -765,22 +761,36 @@ fn check_repository_queries(
     check_reference_ranges(report, plugin);
 }
 
-fn probe_manifests() -> Vec<Manifest> {
-    vec![package_manifest(), cargo_manifest()]
-}
+const PROBE_MANIFESTS: [(&str, &str); 6] = [
+    ("package.json", "{\"name\":\"probe\"}"),
+    (
+        "Cargo.toml",
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n",
+    ),
+    ("go.mod", "module probe\n"),
+    ("pyproject.toml", "[project]\nname = \"probe\"\n"),
+    ("composer.json", "{\"name\":\"probe/probe\"}"),
+    ("pubspec.yaml", "name: probe\n"),
+];
 
-fn package_manifest() -> Manifest {
-    Manifest {
-        path: "package.json".to_owned(),
-        text: "{\"name\":\"probe\"}".to_owned(),
-    }
-}
+const INVALID_MANIFEST_TEXT: &str = "not a valid manifest \u{0}\n[[[";
 
-fn cargo_manifest() -> Manifest {
-    Manifest {
-        path: "Cargo.toml".to_owned(),
-        text: "not a valid manifest \u{0}\n[[[".to_owned(),
-    }
+fn chosen_manifests(chosen: &[RepoPath], valid: bool) -> Vec<Manifest> {
+    chosen
+        .iter()
+        .map(|path| Manifest {
+            path: path.to_string(),
+            text: if valid {
+                PROBE_MANIFESTS
+                    .iter()
+                    .find(|(name, _)| *name == path.as_str())
+                    .map_or(INVALID_MANIFEST_TEXT, |(_, text)| text)
+            } else {
+                INVALID_MANIFEST_TEXT
+            }
+            .to_owned(),
+        })
+        .collect()
 }
 
 fn check_import_calls(
@@ -790,11 +800,22 @@ fn check_import_calls(
     source: &RepoPath,
     watch: &mut LimitWatch,
 ) {
-    check_manifest_paths(report, plugin, repository, watch);
-    check_workspace_packages(report, plugin, watch);
-    check_imports(report, plugin, repository, source, probe_manifests(), watch);
+    let chosen = check_manifest_paths(report, plugin, repository, watch);
+    check_workspace_packages(report, plugin, &chosen, watch);
+    check_imports(
+        report,
+        plugin,
+        repository,
+        source,
+        chosen_manifests(&chosen, true),
+        watch,
+    );
 
-    match plugin.declared_dependencies(probe_manifests()) {
+    let mut dependencies = plugin.declared_dependencies(chosen_manifests(&chosen, true));
+    if dependencies.is_ok() && !chosen.is_empty() {
+        dependencies = plugin.declared_dependencies(chosen_manifests(&chosen, false));
+    }
+    match dependencies {
         Ok(_) => report.pass("declared-dependencies", "dependency declarations are valid"),
         Err(error) if is_call_error(&error) => {
             watch.note_language(&error);
@@ -814,7 +835,7 @@ fn check_import_calls(
         }
     }
 
-    match plugin.entry_points(repository, probe_manifests()) {
+    match plugin.entry_points(repository, chosen_manifests(&chosen, true)) {
         Ok(_) => report.pass("entry-points", "entry points are repository files"),
         Err(error) => {
             watch.note_language(&error);
@@ -832,7 +853,7 @@ fn check_manifest_paths(
     plugin: &WasmLanguagePlugin,
     repository: &[RepoPath],
     watch: &mut LimitWatch,
-) {
+) -> Vec<RepoPath> {
     if let Err(error) = plugin.manifest_paths_checked(repository) {
         watch.note_host(&error);
         report.fail(
@@ -840,29 +861,43 @@ fn check_manifest_paths(
             error.to_string(),
             "manifest-paths must never trap; return an empty list when no manifest is needed",
         );
-        return;
+        return Vec::new();
     }
     match choose_manifests(plugin, repository) {
-        Ok(_) => report.pass("manifest-paths", "asks only for repository files"),
-        Err(error) => report.fail(
-            "manifest-paths",
-            error.to_string(),
-            "return only paths taken from the repository paths the host passes in",
-        ),
+        Ok(chosen) => {
+            report.pass("manifest-paths", "asks only for repository files");
+            chosen
+        }
+        Err(error) => {
+            report.fail(
+                "manifest-paths",
+                error.to_string(),
+                "return only paths taken from the repository paths the host passes in",
+            );
+            Vec::new()
+        }
     }
 }
 
 fn check_workspace_packages(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
+    chosen: &[RepoPath],
     watch: &mut LimitWatch,
 ) {
-    let probes = [
-        ("no manifests", Vec::new(), true),
-        ("a valid package.json", vec![package_manifest()], true),
-        ("an invalid Cargo.toml", vec![cargo_manifest()], false),
-        ("both manifests", probe_manifests(), false),
-    ];
+    let mut probes = vec![("no manifests", Vec::new(), true)];
+    if !chosen.is_empty() {
+        probes.push((
+            "the manifests it chose, with valid content",
+            chosen_manifests(chosen, true),
+            true,
+        ));
+        probes.push((
+            "the manifests it chose, with invalid content",
+            chosen_manifests(chosen, false),
+            false,
+        ));
+    }
     for (label, manifests, must_accept) in probes {
         match plugin.workspace_packages_checked(manifests) {
             Err(error) => {
@@ -878,7 +913,7 @@ fn check_workspace_packages(
                 report.fail(
                     "workspace-packages",
                     format!("{label}: {error}"),
-                    "return a workspace-error only for a manifest it cannot read; codeint check stops on any workspace-error, so never return one for a valid manifest or no manifests",
+                    "return a workspace-error only for a manifest it cannot read; codeint check stops on any workspace-error, so never return one for a chosen manifest with valid content or for no manifests",
                 );
                 return;
             }

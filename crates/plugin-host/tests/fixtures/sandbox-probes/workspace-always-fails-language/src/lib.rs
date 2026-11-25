@@ -24,7 +24,7 @@ export!(Probe);
 impl Guest for Probe {
     probe_runtime::faulty_import_language! {
         extensions: vec!["probe".to_string()],
-        manifest_paths: Vec::new(),
+        manifest_paths: vec!["package.json".to_string()],
         workspace_packages: |manifests| {
             let _ = &manifests;
             Err(WorkspaceError {

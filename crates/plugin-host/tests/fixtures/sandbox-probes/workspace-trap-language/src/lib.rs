@@ -24,7 +24,7 @@ export!(Probe);
 impl Guest for Probe {
     probe_runtime::faulty_import_language! {
         extensions: vec!["probe".to_string()],
-        manifest_paths: Vec::new(),
+        manifest_paths: vec!["Cargo.toml".to_string()],
         workspace_packages: |manifests| {
             if manifests.iter().any(|manifest| manifest.path.ends_with("Cargo.toml")) {
                 panic!("workspace-packages trapped on Cargo.toml");

@@ -5671,6 +5671,18 @@ fn no_imports_repo(
     )
 }
 
+#[test]
+fn a_plugin_that_chooses_no_manifests_checks_a_repository_with_a_package_json() {
+    let repository = sandbox_probe_repo(
+        "cargo-only",
+        "cargo_only_workspace_language_plugin.wasm",
+        "cargo_only.wasm",
+        serde_json::json!({}),
+        &[("package.json", "{\"name\":\"root\"}"), ("a.probe", "x\n")],
+    );
+    check_json_with_exit(&repository, &["check", "--format", "json"], 0);
+}
+
 fn folder_import_cycles_report(files: &[(&str, &str)]) -> serde_json::Value {
     let repository = sandbox_probe_repo(
         "folder-import",
