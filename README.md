@@ -157,7 +157,7 @@ let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 
 ## Documentation
 
-- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [Go](./docs/guide/go.md), [SQL](./docs/guide/sql.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
+- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
 - [Plugins](./docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
