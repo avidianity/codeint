@@ -88,10 +88,18 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-24.04
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install lld
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lld
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
+          prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
           shared-key: "ubuntu-rust-test"
       - run: rustup target add wasm32-wasip2
       - run: cargo fmt --all --check
@@ -99,7 +107,7 @@ jobs:
       - run: cargo test --workspace --locked --no-run
       - name: Test without network access
         run: |
-          sudo --preserve-env=PATH,HOME,CARGO_HOME,RUSTUP_HOME unshare --net -- bash -c '
+          sudo --preserve-env=PATH,HOME,CARGO_HOME,RUSTUP_HOME,CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER,CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS unshare --net -- bash -c '
             ip link set lo up
             setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups cargo test --workspace --locked --offline
           '
@@ -112,6 +120,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
       - run: cargo test --locked --package codeint-cli --test check repository_root
       - run: cargo test --locked --package codeint-cli --test install_windows
 
@@ -123,6 +133,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
       - run: cargo build --release --locked --bin codeint
       - run: cargo xtask perf-check
 
@@ -180,6 +192,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
       - id: tier
         env:
           BASE_REF: ${{ github.base_ref }}
@@ -214,10 +228,16 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BASE: origin/${{ github.base_ref }}
       SAME_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+      - name: Install lld
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lld
       - uses: ./.github/actions/setup
         with:
           rust-cache-key: "ubuntu-rust-test"
