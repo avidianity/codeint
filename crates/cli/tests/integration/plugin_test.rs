@@ -230,13 +230,13 @@ fn a_manifest_paths_trap_fails_the_check() {
 }
 
 #[test]
-fn a_trap_on_the_exclude_selection_fails_framework_profiles() {
-    assert_fails(
-        "language",
+fn a_selection_a_plugin_cannot_answer_fails_framework_profiles() {
+    for wasm in [
         "exclude_trap_language_plugin.wasm",
-        &[],
-        "framework-profiles",
-    );
+        "single_profile_only_language_plugin.wasm",
+    ] {
+        assert_fails("language", wasm, &[], "framework-profiles");
+    }
 }
 
 #[test]
@@ -248,16 +248,6 @@ fn a_plugin_that_rejects_only_manifests_it_did_not_choose_passes() {
     );
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(check_status(&report, "framework-profiles"), "pass");
-}
-
-#[test]
-fn a_single_profile_only_selection_failure_fails_framework_profiles() {
-    assert_fails(
-        "language",
-        "single_profile_only_language_plugin.wasm",
-        &[],
-        "framework-profiles",
-    );
 }
 
 #[test]
