@@ -67,6 +67,12 @@ npx codeint check
    codeint ratchet update
    ```
 
+   On an existing codebase, also freeze today's Findings in `.codeint/baseline.json`, so `codeint check` hides them and fails only on new Findings (`codeint check --ignore-baseline` shows every Finding):
+
+   ```sh
+   codeint baseline update
+   ```
+
 8. Save a JSON report once and re-render it losslessly into Markdown, SARIF, or TOON without re-scanning:
 
    ```sh
@@ -126,6 +132,6 @@ Use codeint before editing or refactoring to understand architectural rules and 
 
 - `0`: succeeded with no Budget, Ratchet, Regression, blocking `codeint doctor` error, or failed `codeint plugin test` check.
 - `1`: succeeded, and at least one Budget, Ratchet, Regression, blocking `codeint doctor` error, or `codeint plugin test` check failed.
-- `2`: operational error (invalid configuration file, more than one configuration file across `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, and `.codeint/config.jsonc`, Ratchet Metric version mismatch, missing folder, unknown option, or not inside a Git repository).
+- `2`: operational error (invalid configuration file, more than one configuration file across `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, and `.codeint/config.jsonc`, Ratchet or Baseline Metric version mismatch, missing folder, unknown option, or not inside a Git repository).
 
 See [docs/reference.md](../reference.md) for every command flag and output format (`toon`, `json`, `sarif`, `markdown`, `text`).

@@ -6,7 +6,7 @@ use std::process::{Command, Output, Stdio};
 use codeint_plugin_host::{sha256, sha256_hex};
 use tempfile::TempDir;
 
-use crate::common::no_imports_language_plugin_wasm;
+use crate::common::{eroded_ts, no_imports_language_plugin_wasm};
 
 const GIT_ENV: [(&str, &str); 6] = [
     ("GIT_CONFIG_GLOBAL", "/dev/null"),
@@ -68,13 +68,6 @@ fn invoke(root: &Path, cache: &Path, args: &[&str], stdin_data: Option<&[u8]>) -
             .expect("write stdin");
     }
     child.wait_with_output().expect("collect output")
-}
-
-fn eroded_ts(name: &str, branches: usize) -> String {
-    let arms: String = (1..=branches)
-        .map(|i| format!("  if (x === {i}) return {i};\n"))
-        .collect();
-    format!("export function {name}(x: number): number {{\n{arms}  return 0;\n}}\n")
 }
 
 fn verbose_ts(name: &str) -> String {

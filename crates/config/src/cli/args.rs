@@ -6,9 +6,9 @@ use crate::PluginKind;
 use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnFormat, ChurnSince};
 use crate::command::{
-    AgentClient, AgentFormat, ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat, GuardFormat,
-    ImpactFormat, PluginTestFormat, RatchetFormat, ReportFormat, ReportRenderFormat, SchemaFormat,
-    TraceFormat, TrendFormat,
+    AgentClient, AgentFormat, BaselineFormat, ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat,
+    GuardFormat, ImpactFormat, PluginTestFormat, RatchetFormat, ReportFormat, ReportRenderFormat,
+    SchemaFormat, TraceFormat, TrendFormat,
 };
 use crate::coupling::{CouplingRatio, DEFAULT_MAX_COMMIT_FILES, DEFAULT_MIN_CO_CHANGES};
 use crate::resolved::{BudgetOverride, SourceSetOverride};
@@ -38,6 +38,11 @@ pub(super) enum CommandArguments {
             help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in codeint.json"
         )]
         coverage_reports: Vec<PathBuf>,
+        #[arg(
+            long = "ignore-baseline",
+            help = "Show every Finding and evaluate Budgets on every Finding, as if .codeint/baseline.json did not exist"
+        )]
+        ignore_baseline: bool,
         #[command(flatten)]
         report: ReportArguments,
     },
@@ -223,6 +228,13 @@ pub(super) enum CommandArguments {
         command: RatchetSubcommandArguments,
     },
     #[command(
+        about = "Manage the repository Baseline of existing Findings in .codeint/baseline.json"
+    )]
+    Baseline {
+        #[command(subcommand)]
+        command: BaselineSubcommandArguments,
+    },
+    #[command(
         about = "Rank eroded and duplicated files alongside their Git commit churn independently per Metric"
     )]
     Churn {
@@ -394,6 +406,37 @@ pub(super) enum RatchetSubcommandArguments {
             help = "The format of the output"
         )]
         format: RatchetFormat,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(super) enum BaselineSubcommandArguments {
+    #[command(
+        about = "Create .codeint/baseline.json, or remove fixed Findings from it, from the current working tree"
+    )]
+    Update {
+        #[arg(
+            help = "A folder inside the Git repository to measure; the current folder by default"
+        )]
+        path: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Replace every Metric's Findings with the current Findings, including new ones"
+        )]
+        reset: bool,
+        #[arg(
+            long = "coverage-report",
+            value_name = "PATH",
+            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in codeint.json"
+        )]
+        coverage_reports: Vec<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = BaselineFormat::Text,
+            help = "The format of the output"
+        )]
+        format: BaselineFormat,
     },
 }
 

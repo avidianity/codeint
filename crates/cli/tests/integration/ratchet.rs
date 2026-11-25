@@ -539,3 +539,30 @@ fn symlinked_ratchet_file_outside_repository_is_rejected() {
         "expected outside-repo error, got: {stderr}"
     );
 }
+
+#[test]
+fn ratchet_update_reset_regenerates_an_invalid_ratchet_file() {
+    for corrupt in ["{", r#"{"schema_version":2}"#] {
+        let repo = init_git_repo(&[("src/app.ts", "export const app = 1;\n")]);
+        write_repo_files(repo.path(), &[(".codeint/ratchet.json", corrupt)]);
+
+        let (_, stderr) = run_codeint_text(repo.path(), &["ratchet", "update"], 2);
+        assert!(
+            stderr.contains("regenerate it with codeint ratchet update --reset"),
+            "expected the advice to name --reset, got: {stderr}"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.path().join(".codeint/ratchet.json")).expect("read"),
+            corrupt
+        );
+
+        let (stdout, _) = run_codeint_text(repo.path(), &["ratchet", "update", "--reset"], 0);
+        assert!(
+            stdout.contains("Replaced invalid .codeint/ratchet.json"),
+            "expected the summary to say the invalid file was replaced, got: {stdout}"
+        );
+        let stored = read_json_file(&repo.path().join(".codeint/ratchet.json"));
+        assert_eq!(stored["schema_version"], 1);
+        run_codeint_text(repo.path(), &["check"], 0);
+    }
+}

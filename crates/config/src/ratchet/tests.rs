@@ -136,7 +136,7 @@ fn ratchet_check_detects_violations_and_version_mismatches() {
 
     let mismatches = ratchet.check(&pair(0.1, 3)).expect_err("version mismatch");
     assert_eq!(mismatches.len(), 1);
-    assert_eq!(mismatches[0].ratchet_version, 2);
+    assert_eq!(mismatches[0].recorded_version, 2);
     assert_eq!(mismatches[0].current_version, 3);
 }
 

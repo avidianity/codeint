@@ -119,6 +119,10 @@ _Avoid_: limit, threshold, quota
 A repository file (`.codeint/ratchet.json` by default) that records each Metric's ceiling ratio alongside its Metric version so whole-repository checks fail if Software entropy or Hazards rise above the recorded ceiling.
 _Avoid_: lockfile, snapshot, baseline file
 
+**Baseline**:
+A committed list of existing Findings in `.codeint/baseline.json` that `codeint check` hides and removes permanently as those Findings are fixed.
+_Avoid_: ignore list, suppression file, debt file
+
 **Regression**:
 An increase in a Metric, from the merge-base of a base Git ref to the code under measurement, that exceeds the allowed limit.
 _Avoid_: degradation, drift
@@ -170,6 +174,7 @@ _Avoid_: analyzer, detector, rule
 - Every **Metric** carries a positive integer **Metric version** that increases whenever its calculation rules change.
 - A **Budget** applies to one **Metric** in one **Source set**.
 - A **Ratchet** stores one ceiling and **Metric version** per measured **Metric** and applies to whole-repository runs only.
+- A **Baseline** stores the **Finding** identifiers and **Metric version** of each measured **Metric**; a **Budget** applies to the **Findings** that the **Baseline** does not hide.
 - Every source file belongs to exactly one **Source set**.
 
 ## Flagged ambiguities

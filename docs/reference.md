@@ -40,6 +40,7 @@ It also holds a `plugins` folder with four Wasm Plugin files built from the test
 | `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
 | `plugin` | Check an external Wasm Plugin against the codeint Plugin contract; see [`codeint plugin`](#codeint-plugin) |
 | `ratchet` | Manage the repository Ratchet ceilings in `.codeint/ratchet.json`; see [`codeint ratchet`](#codeint-ratchet) |
+| `baseline` | Manage the repository Baseline of existing Findings in `.codeint/baseline.json`; see [`codeint baseline`](#codeint-baseline) |
 | `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
 | `coupling` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports; see [`codeint coupling`](#codeint-coupling) |
 | `help` | Print the help of codeint, or of the command that follows it |
@@ -154,6 +155,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
 | `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `--coverage-report <PATH>` | Path to an LCOV or Cobertura XML Coverage report; may repeat; when present, replaces `coverage_reports` from `codeint.json`; see [Test gap](#test-gap) |
+| `--ignore-baseline` | Show every Finding and evaluate Budgets on every Finding, as if `.codeint/baseline.json` did not exist; see [`codeint baseline`](#codeint-baseline) |
 | `-h, --help` | Print the help of `codeint check` |
 
 `codeint check` measures the working tree, including uncommitted and untracked files, and prints the report:
@@ -239,6 +241,7 @@ codeint check src
 codeint check --all
 codeint check --owner @team
 codeint check --coverage-report coverage/lcov.info
+codeint check --ignore-baseline
 codeint check --format markdown --output report.md
 ```
 
@@ -665,7 +668,9 @@ codeint 0.6.0 is already up to date (v0.6.0)
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
 It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy and Hazards, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
-The `check` MCP tool uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
+The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, and `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`).
+Its stale-Baseline error names `ignore_baseline: true` as the way to show every Finding.
+It uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
 When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `sql_schemas`, and `rejected_statements`.
 When standard input closes, the server exits with code 0:
 
@@ -894,6 +899,7 @@ codeint plugin test plugins/missing.wasm
 `codeint ratchet update` measures the whole repository and writes each measured Metric's ceiling ratio (rounded to 4 decimal places) alongside its positive integer Metric version to `.codeint/ratchet.json` (or the configured `ratchet.path`).
 It creates the Ratchet file on the first run, lowers ceilings whenever a Metric improves, keeps equal ceilings unchanged, and automatically refreshes entries whose Metric version changed.
 When any unchanged-version Metric has risen above its stored ceiling, `codeint ratchet update` stops with exit code 2 without modifying the file unless you pass `--reset`.
+When the existing Ratchet file is not valid JSON or fails validation, `codeint ratchet update --reset` replaces it with a regenerated file and says so; without `--reset` it stops with exit code 2.
 `codeint ratchet update` accepts an optional `[PATH]` folder inside the repository, `--reset`, `--coverage-report <PATH>` (repeatable), and `--format <text|toon|json>` (`text` by default).
 
 ```sh exit=0
@@ -902,6 +908,51 @@ codeint ratchet update --format json
 codeint ratchet update --reset --format toon
 codeint ratchet help
 ```
+
+### `codeint baseline`
+
+| Command | Meaning |
+| ------- | ------- |
+| `update` | Create `.codeint/baseline.json`, or remove fixed Findings from it, from the current working tree |
+| `help` | Print the help of `codeint baseline`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint baseline` |
+
+A **Baseline** is a committed list of existing Findings in `.codeint/baseline.json` that `codeint check` hides and removes permanently as those Findings are fixed ([ADR 0030](./adr/0030-finding-baseline.md)).
+It stores the Finding `id` values of each measured Metric per Source set, and of Dependency hygiene, alongside each Metric's positive integer Metric version.
+A repository without `.codeint/baseline.json` reports exactly as before.
+
+`codeint baseline update` measures the whole repository and writes `.codeint/baseline.json`:
+
+- On the first run, it records every current Finding of every measured Metric.
+- When a run measures a Metric that has no entry in the Baseline yet, such as Test gap on the first run with a Coverage report, it records that Metric's current Findings, as the first run would.
+- For a Metric that already has an entry, it removes each Finding that is fixed and never adds a new Finding; it names the count of new Findings it left out.
+- When a Metric's Metric version changed, it replaces that Metric's Findings with the current Findings and records the new Metric version.
+- With `--reset`, it replaces every measured Metric's Findings with the current Findings, so new Findings join the Baseline.
+- It keeps the entries of Metrics that this run does not measure, such as Test gap without a Coverage report.
+
+When the existing Baseline file is not valid JSON or fails validation, `codeint baseline update --reset` replaces it with a regenerated file and says so; without `--reset` it stops with exit code 2.
+The file is committed, so the old content is recoverable from Git.
+`codeint baseline update` accepts an optional `[PATH]` folder inside the repository, `--reset`, `--coverage-report <PATH>` (repeatable), and `--format <text|toon|json>` (`text` by default).
+
+```sh exit=0
+codeint baseline update
+codeint baseline update --format json
+codeint baseline update --reset --format toon
+codeint baseline help
+```
+
+When `.codeint/baseline.json` exists, `codeint check` (including `--package` runs and the MCP `check` tool):
+
+- leaves out every Finding whose `id` the Baseline lists for that Metric and Source set, and counts them in `baselined_findings` on the Metric and in the top-level `baseline` object (`path` and `hidden_findings`);
+- keeps every Metric ratio as measured, so Reference ranges and the Ratchet still see the whole repository;
+- compares each Budget with the non-baselined ratio: the measured ratio scaled by the share of the Metric's Finding weight that the Baseline does not hide, and marks such Budget failures with `non_baselined`;
+- stops with exit code 2 and names `codeint baseline update` when a Metric version in the Baseline differs from the current Metric version.
+
+`codeint check --ignore-baseline` ignores `.codeint/baseline.json`: it shows every Finding, evaluates Budgets on every Finding, and skips the Metric version check.
+`codeint diff` does not read the Baseline.
 
 ### `codeint churn`
 
@@ -957,7 +1008,7 @@ codeint coupling --format markdown
 | --------- | ------- |
 | `0` | The run succeeded, and no Budget, Ratchet, Regression, blocking doctor error, or failed `codeint plugin test` check occurred |
 | `1` | The run succeeded, and at least one Budget, Ratchet, Regression, blocking doctor error, or `codeint plugin test` check failed; codeint still writes the whole report and names each failure on standard error |
-| `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, a Ratchet Metric version mismatch, or an invalid `codeint.json`; codeint names the error on standard error |
+| `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, a Ratchet or Baseline Metric version mismatch, or an invalid `codeint.json`; codeint names the error on standard error |
 
 ## `codeint.json`
 
@@ -1953,6 +2004,7 @@ Each Metric object has these fields:
 - `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in `codeint.json`; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
 - `clone_families`, optional on `duplication`: unified Clone families when overlapping or transitively related Clone groups span three or more locations, ordered worst-first by `duplicated_lines`, with `clone_families_left_out` when truncated without `--all`, and `unlisted_clone_family_group_ids` when listed `clone_groups` belong to unlisted Clone families.
 - `findings_left_out`, optional: how many Findings the list leaves out; `--all` lists every Finding.
+- `baselined_findings`, optional: how many Findings of the Metric the [Baseline](#codeint-baseline) hides.
 
 `import_cycles` also has `unresolved_imports`: the runtime imports that the Language plugin could not resolve, so no Import cycle passes through them.
 It has `count`, the list `imports`, and the optional `imports_left_out`.
@@ -1991,7 +2043,7 @@ The content behind the `id` of each kind:
 Every `path` is relative to the root of the Git repository and uses `/` as the separator.
 Line numbers start at 1.
 
-An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `rejected_statements`, `sql_schemas`, `declaration_only`, or `over_budget` list, `hazards` when no measured language defines Hazard line rules, import Metrics for a language with no imports, and `findings_left_out` when no Finding is left out.
+An optional field is left out when it has no content: a Source set without files, an empty `skipped`, `rejected_statements`, `sql_schemas`, `declaration_only`, or `over_budget` list, `hazards` when no measured language defines Hazard line rules, import Metrics for a language with no imports, `findings_left_out` when no Finding is left out, `baselined_findings` when the Baseline hides no Finding of the Metric, and `baseline` when `.codeint/baseline.json` is absent or `--ignore-baseline` is passed.
 
 #### Compatibility rule
 

@@ -5,7 +5,7 @@ use codeint_config::{
 };
 use codeint_report::{RATCHET_PACKAGE_SKIPPED_NOTE, RatchetUpdateReport};
 
-use crate::check::{CheckError, WorkspaceContext, measure_whole_repo_for_ratchet};
+use crate::check::{CheckError, WorkspaceContext, measure_whole_repo};
 
 pub(crate) fn enforce_if_present<T, FNote, FApply>(
     repository_root: &Path,
@@ -57,15 +57,18 @@ pub(crate) fn update(
     plugin_host: &PluginHostConfig,
 ) -> Result<RatchetUpdateReport, RatchetError> {
     let context = WorkspaceContext::load(folder, plugin_host)?;
-    let report = measure_whole_repo_for_ratchet(&context, folder, coverage_reports)?;
+    let report = measure_whole_repo(&context, folder, coverage_reports)?;
     let measured = report.ratchet_metrics();
     let ratchet_path = &context.configuration.ratchet.path;
-    let existing = Ratchet::load_optional(context.repository.root(), ratchet_path)?;
-    let (updated, summary) = Ratchet::update(existing.as_ref(), &measured, reset, ratchet_path)
-        .map_err(|regressions| RatchetError::LooseningRefused {
-            path: ratchet_path.clone(),
-            regressions,
-        })?;
+    let loaded = Ratchet::load_for_update(context.repository.root(), ratchet_path, reset)?;
+    let (updated, mut summary) =
+        Ratchet::update(loaded.existing.as_ref(), &measured, reset, ratchet_path).map_err(
+            |regressions| RatchetError::LooseningRefused {
+                path: ratchet_path.clone(),
+                regressions,
+            },
+        )?;
+    summary.replaced_invalid = loaded.replaced_invalid;
     updated.write_atomic(context.repository.root(), ratchet_path)?;
     Ok(RatchetUpdateReport::from_summary(summary))
 }

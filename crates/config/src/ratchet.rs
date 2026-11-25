@@ -1,10 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeint_model::{Metric, SourceSet};
+use codeint_model::SourceSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -12,17 +10,11 @@ use crate::config_error::{
     ConfigFileKind, ConfigurationFileError, KeyPath, contains_parent_traversal,
     is_absolute_repo_path,
 };
-
-const RATCHET_DEPENDENCY_KEYS: [&str; 3] = [
-    Metric::UnusedDependencies.key(),
-    Metric::UnlistedDependencies.key(),
-    Metric::DevInProductionDependencies.key(),
-];
-
-fn is_broken_symlink(path: &Path) -> bool {
-    std::fs::symlink_metadata(path)
-        .is_ok_and(|meta| meta.file_type().is_symlink() && std::fs::metadata(path).is_err())
-}
+use crate::repo_state::{
+    DEPENDENCY_METRIC_KEYS, LoadedForUpdate, MetricVersionMismatch, RepoStateFile,
+    SourceSetEntries, StateFileError, metric_label, read_state_file, recover_invalid_for_update,
+    state_file_exists, write_state_file,
+};
 
 #[cfg(test)]
 mod tests;
@@ -108,47 +100,7 @@ pub struct RatchetEntry {
     pub metric_version: u32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RatchetSourceSets {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub production: BTreeMap<String, RatchetEntry>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub test: BTreeMap<String, RatchetEntry>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub generated: BTreeMap<String, RatchetEntry>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub vendored: BTreeMap<String, RatchetEntry>,
-}
-
-impl RatchetSourceSets {
-    pub fn get(&self, source_set: SourceSet) -> &BTreeMap<String, RatchetEntry> {
-        match source_set {
-            SourceSet::Production => &self.production,
-            SourceSet::Test => &self.test,
-            SourceSet::Generated => &self.generated,
-            SourceSet::Vendored => &self.vendored,
-        }
-    }
-
-    pub fn get_mut(&mut self, source_set: SourceSet) -> &mut BTreeMap<String, RatchetEntry> {
-        match source_set {
-            SourceSet::Production => &mut self.production,
-            SourceSet::Test => &mut self.test,
-            SourceSet::Generated => &mut self.generated,
-            SourceSet::Vendored => &mut self.vendored,
-        }
-    }
-
-    pub fn iter(&self) -> [(SourceSet, &BTreeMap<String, RatchetEntry>); 4] {
-        [
-            (SourceSet::Production, &self.production),
-            (SourceSet::Test, &self.test),
-            (SourceSet::Generated, &self.generated),
-            (SourceSet::Vendored, &self.vendored),
-        ]
-    }
-}
+pub type RatchetSourceSets = SourceSetEntries<RatchetEntry>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -188,10 +140,7 @@ pub struct RatchetViolation {
 
 impl RatchetViolation {
     pub fn label(&self) -> String {
-        match self.source_set {
-            Some(source_set) => format!("{}.{}", source_set.key(), self.metric),
-            None => self.metric.clone(),
-        }
+        metric_label(self.source_set, &self.metric)
     }
 }
 
@@ -207,40 +156,15 @@ impl fmt::Display for RatchetViolation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RatchetVersionMismatch {
-    pub source_set: Option<SourceSet>,
-    pub metric: String,
-    pub ratchet_version: u32,
-    pub current_version: u32,
-}
-
-impl RatchetVersionMismatch {
-    pub fn label(&self) -> String {
-        match self.source_set {
-            Some(source_set) => format!("{}.{}", source_set.key(), self.metric),
-            None => self.metric.clone(),
-        }
-    }
-}
-
-impl fmt::Display for RatchetVersionMismatch {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "{} (ratchet Metric version {}, current Metric version {})",
-            self.label(),
-            self.ratchet_version,
-            self.current_version
-        )
-    }
-}
+pub type RatchetVersionMismatch = MetricVersionMismatch;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RatchetUpdateSummary {
     pub path: String,
     pub created: bool,
     pub reset: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub replaced_invalid: bool,
     pub tightened: usize,
     pub loosened: usize,
     pub refreshed: usize,
@@ -250,102 +174,42 @@ pub struct RatchetUpdateSummary {
     pub total_entries: usize,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum RatchetFileError {
-    #[error("Ratchet file {path:?} is outside the Git repository")]
-    OutsideRepository { path: String },
-    #[error("Ratchet file {path:?} is a broken symlink")]
-    BrokenSymlink { path: String },
-    #[error("cannot read Ratchet file {path:?}")]
-    Unreadable {
-        path: String,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Ratchet file {path:?} is not valid JSON")]
-    InvalidJson {
-        path: String,
-        #[source]
-        source: serde_json::Error,
-    },
-    #[error(
-        "Ratchet file {path:?} has unsupported schema_version {found}; expected {RATCHET_SCHEMA_VERSION}"
-    )]
-    UnsupportedSchemaVersion { path: String, found: u32 },
-    #[error(
-        "Ratchet file {path:?} has invalid ceiling {ceiling} for {metric}; ceiling must be between 0 and 1"
-    )]
-    InvalidCeiling {
-        path: String,
-        metric: String,
-        ceiling: f64,
-    },
-    #[error(
-        "Ratchet file {path:?} has invalid metric_version 0 for {metric}; Metric version must be at least 1"
-    )]
-    InvalidMetricVersion { path: String, metric: String },
-    #[error(
-        "Ratchet file {path:?} lists unknown dependency Metric {metric:?}; allowed keys are {}",
-        RATCHET_DEPENDENCY_KEYS.join(", ")
-    )]
-    UnknownDependencyMetric { path: String, metric: String },
-    #[error("cannot write Ratchet file {}", path.display())]
-    Write {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-}
+pub type RatchetFileError = StateFileError;
 
 impl Ratchet {
     pub fn exists(repository_root: &Path, relative_path: &str) -> Result<bool, RatchetFileError> {
-        let full = resolve_ratchet_path(repository_root, relative_path)?;
-        match std::fs::symlink_metadata(&full) {
-            Ok(_) => {
-                if is_broken_symlink(&full) {
-                    return Err(RatchetFileError::BrokenSymlink {
-                        path: relative_path.to_owned(),
-                    });
-                }
-                ensure_canonical_within(repository_root, &full, relative_path)?;
-                Ok(true)
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-                ) =>
-            {
-                Ok(false)
-            }
-            Err(source) => Err(RatchetFileError::Unreadable {
-                path: relative_path.to_owned(),
-                source,
-            }),
-        }
+        state_file_exists(repository_root, relative_path).map_err(|fault| {
+            StateFileError::from_fault(RepoStateFile::Ratchet, relative_path, fault)
+        })
     }
 
     pub fn load_optional(
         repository_root: &Path,
         relative_path: &str,
     ) -> Result<Option<Ratchet>, RatchetFileError> {
-        if !Ratchet::exists(repository_root, relative_path)? {
-            return Ok(None);
-        }
-        let full = resolve_ratchet_path(repository_root, relative_path)?;
-        let canonical = ensure_canonical_within(repository_root, &full, relative_path)?;
-        let text =
-            std::fs::read_to_string(&canonical).map_err(|source| RatchetFileError::Unreadable {
-                path: relative_path.to_owned(),
-                source,
-            })?;
-        let ratchet = Ratchet::parse(&text, relative_path)?;
-        Ok(Some(ratchet))
+        read_state_file(repository_root, relative_path)
+            .map_err(|fault| {
+                StateFileError::from_fault(RepoStateFile::Ratchet, relative_path, fault)
+            })?
+            .map(|text| Ratchet::parse(&text, relative_path))
+            .transpose()
+    }
+
+    pub fn load_for_update(
+        repository_root: &Path,
+        relative_path: &str,
+        reset: bool,
+    ) -> Result<LoadedForUpdate<Ratchet>, RatchetFileError> {
+        recover_invalid_for_update(
+            Ratchet::load_optional(repository_root, relative_path),
+            reset,
+        )
     }
 
     pub fn parse(text: &str, path_label: &str) -> Result<Ratchet, RatchetFileError> {
         let ratchet: Ratchet =
-            serde_json::from_str(text).map_err(|source| RatchetFileError::InvalidJson {
+            serde_json::from_str(text).map_err(|source| StateFileError::InvalidJson {
+                file: RepoStateFile::Ratchet,
                 path: path_label.to_owned(),
                 source,
             })?;
@@ -358,14 +222,9 @@ impl Ratchet {
         repository_root: &Path,
         relative_path: &str,
     ) -> Result<PathBuf, RatchetFileError> {
-        let full = resolve_ratchet_path(repository_root, relative_path)?;
-        let parent = prepare_write_parent(repository_root, &full, relative_path)?;
-        let rendered = format!(
-            "{}\n",
-            serde_json::to_string_pretty(self).expect("Ratchet serializes to JSON")
-        );
-        write_temp_and_rename(parent, &full, rendered.as_bytes())?;
-        Ok(full)
+        write_state_file(repository_root, relative_path, self).map_err(|fault| {
+            StateFileError::from_fault(RepoStateFile::Ratchet, relative_path, fault)
+        })
     }
 
     pub fn entry(&self, source_set: Option<SourceSet>, metric: &str) -> Option<RatchetEntry> {
@@ -395,10 +254,11 @@ impl Ratchet {
                 continue;
             };
             if stored.metric_version != item.metric_version {
-                mismatches.push(RatchetVersionMismatch {
+                mismatches.push(MetricVersionMismatch {
+                    state_file: RepoStateFile::Ratchet,
                     source_set: item.source_set,
                     metric: item.metric.clone(),
-                    ratchet_version: stored.metric_version,
+                    recorded_version: stored.metric_version,
                     current_version: item.metric_version,
                 });
                 continue;
@@ -501,6 +361,7 @@ impl Ratchet {
             path: path_label.to_owned(),
             created: existing.is_none(),
             reset,
+            replaced_invalid: false,
             tightened,
             loosened,
             refreshed,
@@ -525,9 +386,11 @@ impl Ratchet {
 
     fn validate(&self, path_label: &str) -> Result<(), RatchetFileError> {
         if self.schema_version != RATCHET_SCHEMA_VERSION {
-            return Err(RatchetFileError::UnsupportedSchemaVersion {
+            return Err(StateFileError::UnsupportedSchemaVersion {
+                file: RepoStateFile::Ratchet,
                 path: path_label.to_owned(),
                 found: self.schema_version,
+                expected: RATCHET_SCHEMA_VERSION,
             });
         }
         for (source_set, entries) in self.source_sets.iter() {
@@ -540,10 +403,12 @@ impl Ratchet {
             }
         }
         for (metric, entry) in &self.dependencies {
-            if !RATCHET_DEPENDENCY_KEYS.contains(&metric.as_str()) {
-                return Err(RatchetFileError::UnknownDependencyMetric {
+            if !DEPENDENCY_METRIC_KEYS.contains(&metric.as_str()) {
+                return Err(StateFileError::UnknownDependencyMetric {
+                    file: RepoStateFile::Ratchet,
                     path: path_label.to_owned(),
                     metric: metric.clone(),
+                    allowed: DEPENDENCY_METRIC_KEYS.join(", "),
                 });
             }
             validate_entry(path_label, metric, *entry)?;
@@ -558,149 +423,19 @@ fn validate_entry(
     entry: RatchetEntry,
 ) -> Result<(), RatchetFileError> {
     if !entry.ceiling.is_finite() || !(0.0..=1.0).contains(&entry.ceiling) {
-        return Err(RatchetFileError::InvalidCeiling {
+        return Err(StateFileError::InvalidCeiling {
+            file: RepoStateFile::Ratchet,
             path: path_label.to_owned(),
             metric: metric_label.to_owned(),
             ceiling: entry.ceiling,
         });
     }
     if entry.metric_version == 0 {
-        return Err(RatchetFileError::InvalidMetricVersion {
+        return Err(StateFileError::InvalidMetricVersion {
+            file: RepoStateFile::Ratchet,
             path: path_label.to_owned(),
             metric: metric_label.to_owned(),
         });
     }
     Ok(())
-}
-
-fn resolve_ratchet_path(
-    repository_root: &Path,
-    relative_path: &str,
-) -> Result<PathBuf, RatchetFileError> {
-    if relative_path.trim().is_empty()
-        || is_absolute_repo_path(relative_path)
-        || contains_parent_traversal(relative_path)
-    {
-        return Err(RatchetFileError::OutsideRepository {
-            path: relative_path.to_owned(),
-        });
-    }
-    let full = repository_root.join(relative_path);
-    ensure_existing_ancestors_within(repository_root, &full, relative_path)?;
-    Ok(full)
-}
-
-fn ensure_existing_ancestors_within(
-    repository_root: &Path,
-    target: &Path,
-    relative_path: &str,
-) -> Result<(), RatchetFileError> {
-    let canonical_root =
-        std::fs::canonicalize(repository_root).map_err(|source| RatchetFileError::Unreadable {
-            path: relative_path.to_owned(),
-            source,
-        })?;
-    let mut cursor = target.parent();
-    while let Some(ancestor) = cursor {
-        if ancestor == repository_root {
-            return Ok(());
-        }
-        if std::fs::symlink_metadata(ancestor).is_ok() {
-            let canonical_ancestor =
-                std::fs::canonicalize(ancestor).map_err(|source| RatchetFileError::Unreadable {
-                    path: relative_path.to_owned(),
-                    source,
-                })?;
-            if !canonical_ancestor.starts_with(&canonical_root) {
-                return Err(RatchetFileError::OutsideRepository {
-                    path: relative_path.to_owned(),
-                });
-            }
-            return Ok(());
-        }
-        cursor = ancestor.parent();
-    }
-    Ok(())
-}
-
-fn ensure_canonical_within(
-    repository_root: &Path,
-    path: &Path,
-    relative_path: &str,
-) -> Result<PathBuf, RatchetFileError> {
-    let canonical_root =
-        std::fs::canonicalize(repository_root).map_err(|source| RatchetFileError::Unreadable {
-            path: relative_path.to_owned(),
-            source,
-        })?;
-    let canonical_path =
-        std::fs::canonicalize(path).map_err(|source| RatchetFileError::Unreadable {
-            path: relative_path.to_owned(),
-            source,
-        })?;
-    if !canonical_path.starts_with(&canonical_root) {
-        return Err(RatchetFileError::OutsideRepository {
-            path: relative_path.to_owned(),
-        });
-    }
-    Ok(canonical_path)
-}
-
-fn prepare_write_parent<'a>(
-    repository_root: &Path,
-    full: &'a Path,
-    relative_path: &str,
-) -> Result<&'a Path, RatchetFileError> {
-    if std::fs::symlink_metadata(full).is_ok() {
-        if is_broken_symlink(full) {
-            return Err(RatchetFileError::BrokenSymlink {
-                path: relative_path.to_owned(),
-            });
-        }
-        ensure_canonical_within(repository_root, full, relative_path)?;
-    }
-    let parent = full
-        .parent()
-        .ok_or_else(|| RatchetFileError::OutsideRepository {
-            path: relative_path.to_owned(),
-        })?;
-    std::fs::create_dir_all(parent).map_err(|source| RatchetFileError::Write {
-        path: full.to_path_buf(),
-        source,
-    })?;
-    ensure_canonical_within(repository_root, parent, relative_path)?;
-    Ok(parent)
-}
-
-fn write_temp_and_rename(
-    parent: &Path,
-    destination: &Path,
-    bytes: &[u8],
-) -> Result<(), RatchetFileError> {
-    let temp_path = unique_temp_path(parent);
-    let result = (|| -> Result<(), std::io::Error> {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)?;
-        file.write_all(bytes)?;
-        file.flush()?;
-        file.sync_all()?;
-        std::fs::rename(&temp_path, destination)
-    })();
-    if let Err(source) = result {
-        let _ = std::fs::remove_file(&temp_path);
-        return Err(RatchetFileError::Write {
-            path: destination.to_path_buf(),
-            source,
-        });
-    }
-    Ok(())
-}
-
-fn unique_temp_path(parent: &Path) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_nanos());
-    parent.join(format!(".ratchet.{}.{nanos}.tmp", std::process::id()))
 }
