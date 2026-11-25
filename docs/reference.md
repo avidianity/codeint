@@ -893,7 +893,7 @@ The runner checks a Language plugin for the following rules:
   Duplicate extensions are allowed.
 - Its Hazard rule list matches `has-hazard-rules` and holds no empty rule name.
 - Its Framework profile names are not empty, because an empty name can never be selected in config.
-- `lower` is deterministic and stateless on built-in probe sources, which the runner writes once for every extension the Plugin claims, and on every `--source` file, returns lines counted from 1 inside the file, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
+- `lower` is deterministic and stateless on built-in probe sources, which the runner writes once for every extension the Plugin claims, and on every `--source` file, returns lines counted from 1 inside the file for both LF and CRLF line endings, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
 - Its Framework profiles resolve for the disabled, auto, exclude, and only selections.
   When `known-framework-profiles` is empty, codeint never resolves Framework profiles, so the runner reports `framework-profiles` as skipped.
 - When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or for a manifest it chose with valid content, and `plugin test` sends it only manifests that `manifest-paths` chose, because `codeint check` stops on any `workspace-error`.

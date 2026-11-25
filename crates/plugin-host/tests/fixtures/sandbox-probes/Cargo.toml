@@ -38,6 +38,7 @@ members = [
     "exclude-trap-language",
     "backslash-extension-language",
     "second-extension-language",
+    "crlf-miscount-language",
     "duplicate-extension-language",
     "empty-finding-id-metric",
 ]

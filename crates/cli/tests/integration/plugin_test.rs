@@ -313,6 +313,21 @@ fn a_hazard_line_out_of_range_for_a_later_claimed_extension_fails_lower() {
 }
 
 #[test]
+fn a_plugin_that_miscounts_lines_on_crlf_input_fails_lower() {
+    let (output, report) = json_report("language", "crlf_miscount_language_plugin.wasm", &[]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(check_status(&report, "lower"), "fail");
+    let detail = report["checks"]
+        .as_array()
+        .expect("checks array")
+        .iter()
+        .find(|check| check["id"] == "lower")
+        .expect("lower check")["message"]
+        .to_string();
+    assert!(detail.contains("CRLF"), "{detail}");
+}
+
+#[test]
 fn duplicate_extensions_and_hazard_rules_pass() {
     let (output, report) = json_report("language", "duplicate_extension_language_plugin.wasm", &[]);
     assert_eq!(output.status.code(), Some(0), "{output:?}");

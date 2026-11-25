@@ -83,7 +83,7 @@ fn built_in_probes_cover_every_extension_and_sources_once() {
         text: "x\n".to_owned(),
     }];
     let probes = built_in_probes(&extensions, &sources);
-    assert_eq!(probes.len(), 7 * 2 + 1);
+    assert_eq!(probes.len(), 8 * 2 + 1);
     for extension in &extensions {
         assert!(
             probes

@@ -159,6 +159,11 @@ impl LanguagePlugin for SampleMiniPlugin {
     }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+        if !path.ends_with(".mini") {
+            return Err(LowerError::UnsupportedFile(format!(
+                "{path} does not end with .mini"
+            )));
+        }
         let _hash = fnv1a_64(&path);
         Ok(FileModel {
             source_lines: text.lines().filter(|line| !line.trim().is_empty()).count() as u32,
@@ -192,6 +197,8 @@ Only `extensions` and `lower` are required; the other eleven methods have safe d
 | `hazard_rules() -> Vec<String>` | `Vec::new()` | Return the stable names of the Hazard line rules this Language plugin may emit; empty when `has_hazard_rules` returns `false`. |
 
 Follow these invariants in `lower`:
+
+- Return `LowerError::UnsupportedFile` for any path whose extension the Plugin does not claim; `codeint plugin test` fails a `lower` that returns `Ok` for an unclaimed extension.
 
 - Keep `functions` sorted by start `line` (`line >= 1` and `line <= end_line`), with `name` set to `None` for anonymous lambdas or closures.
 - Always set `coverage` to `None` on every `Function` that `lower` returns.
@@ -297,6 +304,8 @@ The Plugin host enforces these rules at load and measurement time:
 - `numerator` and `denominator` must be finite and `>= 0.0`.
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
 - Compute each Finding `id` from file path and content (never from line numbers) using `codeint_plugin_sdk::Fnv1a64` so `codeint diff` tracks moved Findings as unchanged.
+- Return the same `findings` for the same Code model on every run: `codeint plugin test` fails a Metric plugin whose `measure` is non-deterministic.
+  A Finding `id` that differs between runs of unchanged code breaks the Baseline and `codeint diff`, which match Findings by `id` across runs ([ADR 0030](adr/0030-finding-baseline.md)).
 - Order `findings` worst first.
 
 ### Coverage facts in the Code model

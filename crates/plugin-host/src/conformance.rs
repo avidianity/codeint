@@ -558,12 +558,16 @@ fn probe_repo_path(file_name: &str, extension: &str) -> RepoPath {
 }
 
 fn built_in_probes(extensions: &[String], sources: &[ConformanceSource]) -> Vec<LowerProbe> {
-    let samples: [(&str, String); 7] = [
+    let samples: [(&str, String); 8] = [
         ("empty file", String::new()),
         ("blank lines", "\n\n\n".to_owned()),
         (
             "C-like code",
             "function add(a, b) {\n  if (a > b) {\n    return a;\n  }\n  return b;\n}\n".to_owned(),
+        ),
+        (
+            "C-like code with CRLF line endings (CRLF)",
+            "function add(a, b) {\r\n  if (a > b) {\r\n    return a;\r\n  }\r\n  return b;\r\n}\r\n".to_owned(),
         ),
         (
             "Rust-like code",

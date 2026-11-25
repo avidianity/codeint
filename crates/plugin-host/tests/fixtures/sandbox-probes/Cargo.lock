@@ -47,6 +47,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "crlf-miscount-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "dual-version-language-plugin"
 version = "0.1.0"
 dependencies = [
