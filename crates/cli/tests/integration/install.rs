@@ -23,7 +23,7 @@ impl ReleaseArtifacts {
         let folder = tempfile::tempdir().expect("create release artifacts folder");
         let stage = tempfile::tempdir().expect("create staging folder");
         let staged_binary = stage.path().join("codeint");
-        fs::copy(env!("CARGO_BIN_EXE_codeint"), &staged_binary).expect("stage codeint binary");
+        crate::common::stage_codeint_for_packaging(&staged_binary);
 
         let archive_name = format!("codeint-{}.tar.gz", host_target());
         let archive_path = folder.path().join(&archive_name);

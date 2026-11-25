@@ -177,7 +177,7 @@ fn stage_and_pack_all(workspace: &Path) -> (PathBuf, PathBuf, Vec<PathBuf>) {
         .join(host.binary_relative);
     fs::create_dir_all(staged_binary.parent().expect("binary parent folder"))
         .expect("create staged bin folder");
-    fs::copy(env!("CARGO_BIN_EXE_codeint"), &staged_binary).expect("stage codeint binary");
+    crate::common::stage_codeint_for_packaging(&staged_binary);
 
     let tarballs_dir = workspace.join("tarballs");
     fs::create_dir_all(&tarballs_dir).expect("create tarballs folder");
