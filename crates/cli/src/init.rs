@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use codeint_config::{DetectedLanguage, StarterConfigurationError, write_starter_configuration};
 use codeint_git::{GitError, Repository};
 use codeint_model::{InvalidRepoPath, RepoPath};
-
-use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, NamedLanguagePlugin};
+use codeint_plugin_host::{NamedLanguagePlugin, built_in_language_plugins};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InitError {
@@ -18,7 +17,7 @@ pub(crate) enum InitError {
 pub(crate) fn init(folder: &Path) -> Result<PathBuf, InitError> {
     let repository = Repository::discover(folder)?;
     let tree = repository.working_tree()?;
-    let languages = detect_languages(tree.files(), &BUILT_IN_LANGUAGE_PLUGINS)?;
+    let languages = detect_languages(tree.files(), built_in_language_plugins())?;
     Ok(write_starter_configuration(repository.root(), &languages)?)
 }
 

@@ -4,9 +4,8 @@ use codeint_config::{
     ConfigOverrides, Configuration, ConfigurationFileError, PluginKind, read_resolved_configuration,
 };
 use codeint_git::{GitError, Repository};
+use codeint_plugin_host::built_in_language_names;
 use codeint_report::ConfigReport;
-
-use crate::check::BUILT_IN_LANGUAGE_PLUGINS;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ConfigCommandError {
@@ -40,10 +39,7 @@ fn validate_resolved_configuration(
 }
 
 fn known_language_plugin_names(configuration: &Configuration) -> Vec<&str> {
-    let mut names: Vec<&str> = BUILT_IN_LANGUAGE_PLUGINS
-        .iter()
-        .map(|plugin| plugin.name)
-        .collect();
+    let mut names: Vec<&str> = built_in_language_names();
     for plugin in &configuration.plugins {
         if plugin.kind == PluginKind::Language && !names.contains(&plugin.name.as_str()) {
             names.push(plugin.name.as_str());

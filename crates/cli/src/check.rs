@@ -6,16 +6,9 @@ use std::string::FromUtf8Error;
 use codeint_config::{
     Codeowners, CodeownersError, ConfigFileKind, Configuration, ConfigurationFileError,
     DependenciesConfig, EntryPoints, FindingsShown, LanguageCoverage, OwnerFilter,
-    PluginHostConfig, SourceSetOverrides, SqlDialectConflict, read_configuration,
+    PluginHostConfig, SourceSetOverrides, SqlDialect, SqlDialectConflict, read_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
-use codeint_lang_dart::Dart;
-use codeint_lang_go::Go;
-use codeint_lang_php::Php;
-use codeint_lang_python::Python;
-use codeint_lang_rust::Rust;
-use codeint_lang_sql::{ParsedSqlStatement, SqlDialect};
-use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
 use codeint_metrics::{CoverageApplyError, CoverageParseError, DependencyHygiene, OrphanFiles};
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, HazardLine, InvalidReferenceRange, LanguageFacts,
@@ -24,8 +17,11 @@ use codeint_model::{
     Workspace, WorkspaceError, choose_manifests, resolve_runtime_imports, settle_source_set,
 };
 use codeint_plugin_host::{
-    PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, load_language_plugins_with_limits,
-    load_metric_plugins_with_limits,
+    NamedLanguagePlugin, PluginHostError, SQL_PLUGIN_NAME, SqlParsedFile,
+    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, WasmLanguagePlugin, WasmMetricPlugin,
+    built_in_language_descriptors, built_in_language_names, built_in_language_plugins,
+    load_language_plugins_with_limits, load_metric_plugins_with_limits,
+    manifests_declare_framework_reference_ranges, select_language_reference_ranges,
 };
 use codeint_report::{
     LanguageSchema, MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report,
@@ -320,57 +316,13 @@ fn format_extension_conflict(
     }
 }
 
-pub(crate) struct NamedLanguagePlugin<'plugin> {
-    pub(crate) name: &'plugin str,
-    pub(crate) plugin: &'plugin dyn LanguagePlugin,
-}
-
-pub(crate) const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 7] = [
-    NamedLanguagePlugin {
-        name: "typescript-javascript",
-        plugin: &TypeScriptAndJavaScript,
-    },
-    NamedLanguagePlugin {
-        name: "rust",
-        plugin: &Rust,
-    },
-    NamedLanguagePlugin {
-        name: "php",
-        plugin: &Php,
-    },
-    NamedLanguagePlugin {
-        name: "dart",
-        plugin: &Dart,
-    },
-    NamedLanguagePlugin {
-        name: "python",
-        plugin: &Python,
-    },
-    NamedLanguagePlugin {
-        name: "go",
-        plugin: &Go,
-    },
-    NamedLanguagePlugin {
-        name: sql::SQL_PLUGIN_NAME,
-        plugin: &sql::BuiltInSql,
-    },
-];
-
 pub(crate) fn built_in_languages() -> Vec<LanguageSchema> {
-    BUILT_IN_LANGUAGE_PLUGINS
-        .iter()
-        .map(|named| LanguageSchema {
-            name: named.name.to_owned(),
-            extensions: named.plugin.extensions(),
+    built_in_language_descriptors()
+        .into_iter()
+        .map(|descriptor| LanguageSchema {
+            name: descriptor.name,
+            extensions: descriptor.extensions,
         })
-        .collect()
-}
-
-pub(crate) fn built_in_language_hazard_rules() -> BTreeMap<String, Vec<String>> {
-    BUILT_IN_LANGUAGE_PLUGINS
-        .iter()
-        .filter(|named| named.plugin.has_hazard_rules())
-        .map(|named| (named.name.to_owned(), named.plugin.hazard_rules()))
         .collect()
 }
 
@@ -385,10 +337,7 @@ impl LoadedPlugins {
         configuration: &Configuration,
         plugin_host: &PluginHostConfig,
     ) -> Result<LoadedPlugins, CheckError> {
-        let reserved: Vec<&str> = BUILT_IN_LANGUAGE_PLUGINS
-            .iter()
-            .map(|plugin| plugin.name)
-            .collect();
+        let reserved = built_in_language_names();
         let config_file = configuration.config_file();
         let external_languages = load_language_plugins_with_limits(
             repository_root,
@@ -420,12 +369,9 @@ impl LoadedPlugins {
     }
 
     pub(crate) fn as_named(&self) -> Vec<NamedLanguagePlugin<'_>> {
-        BUILT_IN_LANGUAGE_PLUGINS
+        built_in_language_plugins()
             .iter()
-            .map(|named| NamedLanguagePlugin {
-                name: named.name,
-                plugin: named.plugin,
-            })
+            .copied()
             .chain(
                 self.external_languages
                     .iter()
@@ -788,7 +734,7 @@ fn measure(
     let mut collected = collect_plugin_models(plugins.len(), workspace, outcomes);
     let sql_schemas = plugins
         .iter()
-        .position(|named| named.name == sql::SQL_PLUGIN_NAME)
+        .position(|named| named.name == SQL_PLUGIN_NAME)
         .filter(|&index| !collected.models[index].files.is_empty())
         .map(|index| {
             sql::apply_sql_schema_pass(&mut collected.models[index], &collected.sql_parsed)
@@ -865,7 +811,7 @@ fn lower_covered_files(
 struct CollectedPluginModels {
     models: Vec<CodeModel>,
     file_line_counts: BTreeMap<RepoPath, usize>,
-    sql_parsed: BTreeMap<RepoPath, (SqlDialect, Vec<ParsedSqlStatement>)>,
+    sql_parsed: BTreeMap<RepoPath, SqlParsedFile>,
     rejected_statements: Vec<RejectedStatementEntry>,
 }
 
@@ -892,10 +838,7 @@ fn collect_plugin_models(
             LoweredFile::Measured(file) => {
                 if let Some(details) = outcome.sql {
                     rejected_statements.extend(details.rejected_statements);
-                    sql_parsed.insert(
-                        file.path.clone(),
-                        (details.dialect, details.parsed_statements),
-                    );
+                    sql_parsed.insert(file.path.clone(), details.parsed);
                 }
                 model.files.push(file);
             }
@@ -949,7 +892,7 @@ fn resolve_measured_snapshot(
         } else {
             Vec::new()
         };
-        let retained_manifests = if named.name == "typescript-javascript" {
+        let retained_manifests = if named.name == TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME {
             manifests.clone()
         } else {
             Vec::new()
@@ -1137,8 +1080,7 @@ fn scoped_manifests_for_package(
         .cloned()
         .collect();
     if matches!(selected, SelectedPackage::Root)
-        || vue_reference_ranges(&own).is_some()
-        || react_reference_ranges(&own).is_some()
+        || manifests_declare_framework_reference_ranges(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, &own)
     {
         return own;
     }
@@ -1157,7 +1099,7 @@ fn refresh_reference_ranges_for_package(
     selected: &SelectedPackage,
 ) -> Result<(), CheckError> {
     for language in languages {
-        if language.plugin != "typescript-javascript" {
+        if language.plugin != TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME {
             continue;
         }
         let Some(named) = plugins.iter().find(|plugin| plugin.name == language.plugin) else {
@@ -1177,32 +1119,7 @@ fn select_reference_ranges(
     model: &CodeModel,
     manifests: &[Manifest],
 ) -> Result<ReferenceRanges, CheckError> {
-    if named.name == "typescript-javascript" {
-        let has_vue = model
-            .files
-            .iter()
-            .any(|f| f.path.as_str().ends_with(".vue"));
-        let has_jsx_or_tsx = model
-            .files
-            .iter()
-            .any(|f| f.path.as_str().ends_with(".tsx") || f.path.as_str().ends_with(".jsx"));
-        let react_ranges = has_jsx_or_tsx
-            .then(|| react_reference_ranges(manifests))
-            .flatten();
-        if has_vue {
-            if react_ranges.is_none()
-                && let Some(ranges) = vue_reference_ranges(manifests)
-            {
-                return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
-            }
-        } else if let Some(ranges) = react_ranges {
-            return ReferenceRanges::new(ranges).map_err(CheckError::ReferenceRange);
-        }
-    }
-    named
-        .plugin
-        .reference_ranges()
-        .map_err(CheckError::ReferenceRange)
+    select_language_reference_ranges(named, model, manifests).map_err(CheckError::ReferenceRange)
 }
 
 fn assign_files_to_plugins<'tree>(

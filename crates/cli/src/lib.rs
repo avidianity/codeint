@@ -266,7 +266,7 @@ pub fn schema() -> SchemaReport {
         mcp::tool_definitions(),
         exit_codes(),
     )
-    .with_language_hazard_rules(check::built_in_language_hazard_rules())
+    .with_language_hazard_rules(codeint_plugin_host::built_in_language_hazard_rules())
 }
 
 pub fn resolved_config(
