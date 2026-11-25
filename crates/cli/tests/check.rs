@@ -3744,7 +3744,14 @@ fn workspace_packages_of_the_object_form_with_packages_are_reported_like_the_arr
     assert_two_package_report(&output);
 }
 
-fn assert_files_stay_in_the_root_package(repository: &Repository) {
+fn assert_skipped_manifest_leaves_files_in_the_root_package(
+    repository: &Repository,
+    expected_warning: &str,
+) {
+    let output = repository.codeint(&["check"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains(expected_warning), "{text}");
     let output = repository.codeint(&["check", "--format", "json"]);
     assert_success(&output);
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("parse json");
@@ -3763,20 +3770,15 @@ fn a_workspaces_field_of_the_wrong_shape_is_skipped_with_a_warning() {
     repository.write("packages/app/index.ts", "export const app = 1;\n");
     repository.commit_all();
 
-    let output = repository.codeint(&["check"]);
-
-    assert_success(&output);
-    let text = stdout(&output);
-    assert!(
-        text.contains(concat!(
+    assert_skipped_manifest_leaves_files_in_the_root_package(
+        &repository,
+        concat!(
             "Skipped the invalid typescript-javascript manifest package.json: ",
             "the workspaces field must be an array of folder patterns, ",
             "or an object whose packages field is one. ",
             "Files under it count toward the surrounding Workspace package."
-        )),
-        "{text}"
+        ),
     );
-    assert_files_stay_in_the_root_package(&repository);
 }
 
 #[test]
@@ -3811,19 +3813,14 @@ fn a_pnpm_workspace_yaml_that_is_not_yaml_is_skipped_with_a_warning() {
     repository.write("packages/app/index.ts", "export const app = 1;\n");
     repository.commit_all();
 
-    let output = repository.codeint(&["check"]);
-
-    assert_success(&output);
-    let text = stdout(&output);
-    assert!(
-        text.contains(concat!(
+    assert_skipped_manifest_leaves_files_in_the_root_package(
+        &repository,
+        concat!(
             "Skipped the invalid typescript-javascript manifest pnpm-workspace.yaml: ",
             "is not valid YAML: unclosed bracket '[' at line 1, column 11. ",
             "Files under it count toward the surrounding Workspace package."
-        )),
-        "{text}"
+        ),
     );
-    assert_files_stay_in_the_root_package(&repository);
 }
 
 const PACKAGES_HEADER: &str = concat!(

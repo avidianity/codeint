@@ -25,6 +25,20 @@ const METRIC_COLUMNS: [&str; 7] = [
 ];
 const DEPENDENCY_COLUMNS: [&str; 6] = ["Metric", "Base", "Head", "New", "Resolved", "Unchanged"];
 
+fn push_manifest_warnings(blocks: &mut Vec<String>, report: &DiffReport) {
+    let warnings = &report.manifest_warnings;
+    for (side, side_warnings) in [
+        ("Base commit", &warnings.base),
+        ("Head commit", &warnings.head),
+    ] {
+        blocks.extend(
+            side_warnings
+                .iter()
+                .map(|warning| prose(&format!("{side}: {warning}"))),
+        );
+    }
+}
+
 pub(super) fn render(report: &DiffReport) -> String {
     let sections = report.source_sets.named();
     let mut blocks = vec![TITLE.to_string(), comparison_sentence(report)];
@@ -34,14 +48,7 @@ pub(super) fn render(report: &DiffReport) -> String {
     if let Some(note) = &report.ratchet_note {
         blocks.push(prose(note));
     }
-    for (side, warnings) in [
-        ("Base commit", &report.base_manifest_warnings),
-        ("Head commit", &report.head_manifest_warnings),
-    ] {
-        for warning in warnings {
-            blocks.push(prose(&format!("{side}: {warning}")));
-        }
-    }
+    push_manifest_warnings(&mut blocks, report);
     if !sections.is_empty() {
         blocks.push(table(
             &METRIC_COLUMNS,

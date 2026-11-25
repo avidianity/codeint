@@ -48,10 +48,10 @@ fn assert_contains(text: &str, needle: &str) {
     assert!(text.contains(needle), "missing {needle:?} in {text}");
 }
 
-fn assert_one_warning_mentions(report: &Value, key: &str, needle: &str) {
-    let found = warnings_under(report, key);
-    assert_eq!(found.len(), 1, "{report}");
-    assert_contains(&found[0], needle);
+fn assert_one_warning_mentions(warnings: &Value, needle: &str) {
+    let found = warnings.as_array().expect("warnings");
+    assert_eq!(found.len(), 1, "{warnings}");
+    assert_contains(found[0].as_str().expect("text"), needle);
 }
 
 fn json_of(dir: &Path, args: &[&str]) -> Value {
@@ -191,17 +191,19 @@ fn commit_on_feature_branch(repo: &Path, change: impl FnOnce(&Path)) {
 }
 
 fn assert_diff_warns_on_one_side(repo: &Path, side: &str, other_side: &str) {
-    let key = format!("{}_manifest_warnings", side.to_lowercase());
-    let other_key = format!("{}_manifest_warnings", other_side.to_lowercase());
+    let key = side.to_lowercase();
+    let other_key = other_side.to_lowercase();
 
     let json = json_of(repo, &["diff", "main", "--format", "json"]);
-    assert_one_warning_mentions(&json, &key, "fixtures/go.mod");
-    assert!(json.get(&other_key).is_none(), "{json}");
-    assert!(json.get("manifest_warnings").is_none(), "{json}");
+    assert_one_warning_mentions(&json["manifest_warnings"][&key], "fixtures/go.mod");
+    assert!(
+        json["manifest_warnings"].get(&other_key).is_none(),
+        "{json}"
+    );
 
     let toon = text_of(repo, &["diff", "main"]);
-    assert_contains(&toon, &key);
-    assert!(!toon.contains(&other_key), "{toon}");
+    assert_contains(&toon, &format!("{key}[1]"));
+    assert!(!toon.contains(&format!("{other_key}[")), "{toon}");
 
     let markdown = text_of(repo, &["diff", "main", "--format", "markdown"]);
     assert_contains(

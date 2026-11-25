@@ -1802,7 +1802,7 @@ Files under a skipped manifest count toward the surrounding Workspace package, a
 A skipped manifest is also left out of dependency, import, and entry-point resolution.
 
 Each skipped manifest adds one entry to `manifest_warnings` in JSON and TOON reports of `codeint check`, and one line in Markdown reports.
-`codeint diff` keeps the two sides apart: `base_manifest_warnings` lists the manifests skipped in the base commit, and `head_manifest_warnings` lists those skipped in the head, so a manifest that you fixed in the head still shows as a base warning.
+`codeint diff` keeps the two sides apart: `manifest_warnings.base` lists the manifests skipped in the base commit, and `manifest_warnings.head` lists those skipped in the head, so a manifest that you fixed in the head still shows as a base warning.
 The Markdown report of `codeint diff` prefixes each line with `Base commit:` or `Head commit:`.
 `codeint trend` lists the warnings of each commit that skipped a manifest under `manifest_warnings`, as entries with the `commit` and its `warnings`, and prefixes each Markdown line with `Commit {id}:`.
 codeint writes each warning on one line and escapes control characters in it, such as ESC, as `\u{1b}`:
