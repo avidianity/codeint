@@ -300,21 +300,38 @@ fn evaluate_one(
     repository(&summary, "local/special").clone()
 }
 
-fn evaluate_with_built_in_python_oracle(repo: &Path, commit: &str) -> RepositoryResult {
-    evaluate_one(repo, commit, "python", BTreeMap::new())
+fn evaluate_python_files(
+    files: &[(&str, &[u8])],
+    links: &[(&str, &str)],
+) -> Option<RepositoryResult> {
+    if !python_is_new_enough() {
+        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+        return None;
+    }
+    let repo = init_git_repo(&[("README.md", "# special files\n")]);
+    for (path, bytes) in files {
+        std::fs::write(repo.path().join(path), bytes).expect("write file");
+    }
+    for (link, target) in links {
+        std::os::unix::fs::symlink(target, repo.path().join(link)).expect("symlink");
+    }
+    let commit = commit_all(repo.path());
+    Some(evaluate_one(
+        repo.path(),
+        &commit,
+        "python",
+        BTreeMap::new(),
+    ))
 }
+
+const PYTHON_ID: &[u8] = b"def f(x):\n    return x\n";
 
 #[test]
 fn evaluation_runner_counts_a_tracked_symlink_as_unmeasured_and_keeps_it_out_of_the_audit_sample() {
-    if !python_is_new_enough() {
-        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+    let Some(result) = evaluate_python_files(&[("app.py", PYTHON_ID)], &[("link.py", "app.py")])
+    else {
         return;
-    }
-    let repo = init_git_repo(&[("app.py", "def f(x):\n    return x\n")]);
-    std::os::unix::fs::symlink("app.py", repo.path().join("link.py")).expect("symlink");
-    let commit = commit_all(repo.path());
-
-    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+    };
 
     let recall = result.oracle.recall.as_ref().expect("python recall");
     assert_eq!(recall.unmeasured_files, vec!["link.py".to_owned()]);
@@ -324,19 +341,11 @@ fn evaluation_runner_counts_a_tracked_symlink_as_unmeasured_and_keeps_it_out_of_
 
 #[test]
 fn evaluation_runner_counts_a_non_utf8_python_file_as_unmeasured_not_oracle_unparsable() {
-    if !python_is_new_enough() {
-        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+    let latin: &[u8] = b"# -*- coding: latin-1 -*-\n\n\ndef g():\n    return \"caf\xe9\"\n";
+    let Some(result) = evaluate_python_files(&[("ok.py", PYTHON_ID), ("latin.py", latin)], &[])
+    else {
         return;
-    }
-    let repo = init_git_repo(&[("ok.py", "def f(x):\n    return x\n")]);
-    std::fs::write(
-        repo.path().join("latin.py"),
-        b"# -*- coding: latin-1 -*-\n\n\ndef g():\n    return \"caf\xe9\"\n",
-    )
-    .expect("write latin-1 file");
-    let commit = commit_all(repo.path());
-
-    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+    };
 
     let recall = result.oracle.recall.as_ref().expect("python recall");
     assert!(recall.oracle_unparsable_files.is_empty(), "{recall:?}");
@@ -346,19 +355,11 @@ fn evaluation_runner_counts_a_non_utf8_python_file_as_unmeasured_not_oracle_unpa
 
 #[test]
 fn evaluation_runner_compares_a_tracked_file_whose_name_contains_a_newline() {
-    if !python_is_new_enough() {
-        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+    let Some(result) =
+        evaluate_python_files(&[("ok.py", PYTHON_ID), ("odd\nname.py", PYTHON_ID)], &[])
+    else {
         return;
-    }
-    let repo = init_git_repo(&[("ok.py", "def f(x):\n    return x\n")]);
-    std::fs::write(
-        repo.path().join("odd\nname.py"),
-        "def g(x):\n    return x\n",
-    )
-    .expect("write odd file");
-    let commit = commit_all(repo.path());
-
-    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+    };
 
     let recall = result.oracle.recall.as_ref().expect("python recall");
     assert_eq!(recall.functions.total, 2, "{recall:?}");
@@ -371,17 +372,10 @@ fn evaluation_runner_compares_a_tracked_file_whose_name_contains_a_newline() {
 
 #[test]
 fn evaluation_runner_scores_identical_functions_that_share_a_line_span_at_full_recall() {
-    if !python_is_new_enough() {
-        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+    let shared: &[u8] = b"def outer(x): return lambda y: y if y else x\n";
+    let Some(result) = evaluate_python_files(&[("shared.py", shared)], &[]) else {
         return;
-    }
-    let repo = init_git_repo(&[(
-        "shared.py",
-        "def outer(x): return lambda y: y if y else x\n",
-    )]);
-    let commit = commit_all(repo.path());
-
-    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+    };
 
     let recall = result.oracle.recall.as_ref().expect("python recall");
     assert_eq!((recall.functions.matched, recall.functions.total), (2, 2));

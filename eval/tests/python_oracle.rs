@@ -80,42 +80,32 @@ fn run_oracle_on(checkout: &Path, paths: &[&str]) -> Vec<Value> {
         .collect()
 }
 
-#[test]
-fn the_python_oracle_honors_a_coding_declaration_on_a_non_utf8_file() {
+fn assert_oracle_record(file_name: &str, bytes: &[u8], expected: Value) {
     if !require_python() {
         return;
     }
     let checkout = TempDir::new().expect("checkout folder");
-    std::fs::write(
-        checkout.path().join("latin.py"),
+    std::fs::write(checkout.path().join(file_name), bytes).expect("write source file");
+
+    let records = run_oracle_on(checkout.path(), &[file_name]);
+
+    assert_eq!(records, vec![expected]);
+}
+
+#[test]
+fn the_python_oracle_honors_a_coding_declaration_on_a_non_utf8_file() {
+    assert_oracle_record(
+        "latin.py",
         b"# -*- coding: latin-1 -*-\nimport os\n\n\ndef f():\n    return \"caf\xe9\"\n",
-    )
-    .expect("write latin.py");
-
-    let records = run_oracle_on(checkout.path(), &["latin.py"]);
-
-    assert_eq!(
-        records,
-        vec![json!({"path": "latin.py", "functions": [[5, 6, 0]], "imports": ["os"]})]
+        json!({"path": "latin.py", "functions": [[5, 6, 0]], "imports": ["os"]}),
     );
 }
 
 #[test]
 fn the_python_oracle_reads_paths_that_contain_a_newline() {
-    if !require_python() {
-        return;
-    }
-    let checkout = TempDir::new().expect("checkout folder");
-    std::fs::write(
-        checkout.path().join("odd\nname.py"),
-        "def f():\n    return 1\n",
-    )
-    .expect("write odd file");
-
-    let records = run_oracle_on(checkout.path(), &["odd\nname.py"]);
-
-    assert_eq!(
-        records,
-        vec![json!({"path": "odd\nname.py", "functions": [[1, 2, 0]], "imports": []})]
+    assert_oracle_record(
+        "odd\nname.py",
+        b"def f():\n    return 1\n",
+        json!({"path": "odd\nname.py", "functions": [[1, 2, 0]], "imports": []}),
     );
 }

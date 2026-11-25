@@ -79,21 +79,25 @@ fn codeint_checkout_scratch_root() -> TempDir {
         .expect("scratch root inside the codeint checkout")
 }
 
+fn assert_guard_refuses(folder: &Path, manifest_repository: &Path, scratch_root: &Path) {
+    let output = run_from(folder, manifest_repository, scratch_root);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains(GUARD_MESSAGE), "{stderr}");
+}
+
 #[test]
 fn a_scratch_root_inside_the_codeint_checkout_exits_2_when_the_manifest_is_in_another_repository() {
     let other_repository = repository_with_manifest();
     let scratch_root = codeint_checkout_scratch_root();
     let elsewhere = TempDir::new().expect("other folder");
 
-    let output = run_from(
+    assert_guard_refuses(
         elsewhere.path(),
         other_repository.path(),
         scratch_root.path(),
     );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(2), "{stderr}");
-    assert!(stderr.contains(GUARD_MESSAGE), "{stderr}");
 }
 
 #[test]
@@ -115,15 +119,11 @@ fn a_scratch_root_inside_the_codeint_checkout_exits_2_when_the_manifest_is_outsi
     let scratch_root = codeint_checkout_scratch_root();
     let elsewhere = TempDir::new().expect("other folder");
 
-    let output = run_from(
+    assert_guard_refuses(
         elsewhere.path(),
         manifest_folder.path(),
         scratch_root.path(),
     );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(2), "{stderr}");
-    assert!(stderr.contains(GUARD_MESSAGE), "{stderr}");
 }
 
 #[test]
@@ -132,13 +132,9 @@ fn a_scratch_root_inside_the_current_folders_repository_exits_2() {
     let current_repository = repository_with_manifest();
     let scratch_root = current_repository.path().join("eval/scratch");
 
-    let output = run_from(
+    assert_guard_refuses(
         current_repository.path(),
         manifest_folder.path(),
         &scratch_root,
     );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(2), "{stderr}");
-    assert!(stderr.contains(GUARD_MESSAGE), "{stderr}");
 }

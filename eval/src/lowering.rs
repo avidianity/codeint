@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use codeint_git::Repository;
 use codeint_model::{LowerError, RepoPath, SourceSet, settle_source_set};
 use codeint_plugin_host::{NamedLanguagePlugin, built_in_language_plugin};
 
@@ -32,12 +31,11 @@ pub(crate) fn lower_language_files(
         detail: format!("{language} is not a built-in Language plugin"),
     })?;
     let extensions = plugin.plugin.extensions();
-    let measured = measured_files(checkout)?;
     Ok(tracked_files(checkout)?
         .into_iter()
         .filter(|path| has_extension(path, &extensions))
         .map(|path| LoweredFile {
-            outcome: if measured.contains(&path) {
+            outcome: if is_measured_file(checkout, &path) {
                 lower_file(plugin, checkout, &path)
             } else {
                 LoweredOutcome::NotMeasured
@@ -47,20 +45,8 @@ pub(crate) fn lower_language_files(
         .collect())
 }
 
-fn measured_files(checkout: &Path) -> Result<BTreeSet<String>, EvaluationError> {
-    let listing = |error: codeint_git::GitError| EvaluationError::Command {
-        command: format!("list the files codeint measures in {}", checkout.display()),
-        detail: error.to_string(),
-    };
-    let snapshot = Repository::discover(checkout)
-        .map_err(listing)?
-        .working_tree()
-        .map_err(listing)?;
-    Ok(snapshot
-        .files()
-        .iter()
-        .map(|path| path.as_str().to_owned())
-        .collect())
+fn is_measured_file(checkout: &Path, path: &str) -> bool {
+    std::fs::symlink_metadata(checkout.join(path)).is_ok_and(|metadata| metadata.is_file())
 }
 
 fn has_extension(path: &str, extensions: &[String]) -> bool {

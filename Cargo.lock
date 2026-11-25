@@ -327,7 +327,6 @@ name = "codeint-eval"
 version = "0.6.0"
 dependencies = [
  "clap",
- "codeint-git",
  "codeint-model",
  "codeint-plugin-host",
  "serde",

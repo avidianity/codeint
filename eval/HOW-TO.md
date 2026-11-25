@@ -70,7 +70,7 @@ The newest `analyzer` that admits Dart 3.0 is 6.4.1; it fails with "Expected an 
   The Go and Dart parsers accept only UTF-8, so a file in another encoding is oracle-unparsable for them.
 - A file that the oracle parses and codeint did not measure, such as a file that is not UTF-8 or that is over a limit, counts every oracle function, decision point, and import in it as a miss.
   The report lists these files as unmeasured.
-- The measured files are exactly the files that `codeint` measures: the runner asks the `codeint-git` crate, which `codeint check` uses, for the working-tree files of the clone.
+- The measured files are the tracked regular files of the clone, the same files that `codeint` keeps from its Git listing; the report of `codeint check` names no files to read them from.
   A tracked symlink, a submodule, or any other tracked source file that `codeint` does not measure is still sent to the oracle, then counted as unmeasured and left out of the audit sample.
 
 An oracle program receives one argument: a file that lists repository-relative paths, each ended by a NUL byte, so a path with a newline survives.
