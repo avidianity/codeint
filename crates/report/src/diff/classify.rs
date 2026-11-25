@@ -20,6 +20,10 @@ trait Identified {
     fn id(&self) -> &str;
 }
 
+trait FileAttributed {
+    fn visit_files(&self, visit: &mut dyn FnMut(&str));
+}
+
 pub(super) fn source_set_changes(
     mut base: SourceSetMeasurement,
     mut head: SourceSetMeasurement,
@@ -190,7 +194,7 @@ pub(super) fn dependencies_changes(
     })
 }
 
-fn classify<T: Identified + OwnedFinding>(
+fn classify<T: Identified + OwnedFinding + FileAttributed>(
     metric_version: u32,
     base: MetricMeasurement<T>,
     head: MetricMeasurement<T>,
@@ -201,19 +205,27 @@ fn classify<T: Identified + OwnedFinding>(
     let head_findings = ownership.apply(head.findings_worst_first);
     let base_ids = ids(&base_findings);
     let head_ids = ids(&head_findings);
+    let new_items: Vec<T> = head_findings
+        .into_iter()
+        .filter(|finding| !base_ids.contains(finding.id()))
+        .collect();
+    let new_findings_by_file = count_findings_by_file(&new_items);
     MetricChanges {
         metric_version,
         base_ratio: Decimal::rounded(base.ratio),
         head_ratio: Decimal::rounded(head.ratio),
         base_numerator: Decimal::rounded(base.numerator),
         head_numerator: Decimal::rounded(head.numerator),
+        base_file_numerators: rounded_file_numerators(base.file_numerators),
+        head_file_numerators: rounded_file_numerators(head.file_numerators),
+        new_findings_by_file,
         unchanged: head_ids.intersection(&base_ids).count(),
-        new: missing_from(head_findings, &base_ids, shown),
+        new: Findings::worst_first(new_items.into_iter(), shown),
         resolved: missing_from(base_findings, &head_ids, shown),
     }
 }
 
-fn classify_optional<T: Identified + OwnedFinding>(
+fn classify_optional<T: Identified + OwnedFinding + FileAttributed>(
     metric_version: u32,
     base: Option<MetricMeasurement<T>>,
     head: Option<MetricMeasurement<T>>,
@@ -230,6 +242,26 @@ fn classify_optional<T: Identified + OwnedFinding>(
             ownership,
         )),
     }
+}
+
+fn rounded_file_numerators(raw: BTreeMap<String, f64>) -> BTreeMap<String, Decimal> {
+    raw.into_iter()
+        .map(|(path, value)| (path, Decimal::rounded(value)))
+        .collect()
+}
+
+fn count_findings_by_file<T: FileAttributed>(findings: &[T]) -> BTreeMap<String, usize> {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for finding in findings {
+        let mut unique: BTreeSet<String> = BTreeSet::new();
+        finding.visit_files(&mut |path| {
+            unique.insert(path.to_owned());
+        });
+        for path in unique {
+            *counts.entry(path).or_insert(0) += 1;
+        }
+    }
+    counts
 }
 
 fn ids<T: Identified>(findings: &[T]) -> HashSet<String> {
@@ -320,5 +352,48 @@ impl Identified for OrphanFileRow {
 impl Identified for HazardLineRow {
     fn id(&self) -> &str {
         &self.id
+    }
+}
+
+macro_rules! impl_single_file_attributed {
+    ($ty:ty, $field:ident) => {
+        impl FileAttributed for $ty {
+            fn visit_files(&self, visit: &mut dyn FnMut(&str)) {
+                visit(self.$field.as_str());
+            }
+        }
+    };
+}
+
+impl_single_file_attributed!(ErodedFunctionFinding, path);
+impl_single_file_attributed!(CognitiveComplexityFinding, path);
+impl_single_file_attributed!(FlaggedLineRow, path);
+impl_single_file_attributed!(ExternalMetricFinding, path);
+impl_single_file_attributed!(BoundaryFindingRow, importer);
+impl_single_file_attributed!(UnusedDependencyRow, manifest);
+impl_single_file_attributed!(OrphanFileRow, path);
+impl_single_file_attributed!(HazardLineRow, path);
+
+impl FileAttributed for CloneGroupFinding {
+    fn visit_files(&self, visit: &mut dyn FnMut(&str)) {
+        for location in &self.locations {
+            visit(location.path.as_str());
+        }
+    }
+}
+
+impl FileAttributed for ImportCycleFinding {
+    fn visit_files(&self, visit: &mut dyn FnMut(&str)) {
+        for module in &self.modules {
+            visit(module.as_str());
+        }
+    }
+}
+
+impl FileAttributed for ImportedDependencyRow {
+    fn visit_files(&self, visit: &mut dyn FnMut(&str)) {
+        for importer in &self.importers {
+            visit(importer.as_str());
+        }
     }
 }

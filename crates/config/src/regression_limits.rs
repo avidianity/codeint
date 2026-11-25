@@ -24,6 +24,7 @@ pub struct RegressionLimit {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RegressionLimits {
+    per_file: bool,
     every_source_set: Vec<(String, RegressionLimitSetting)>,
     one_source_set: Vec<(SourceSet, String, RegressionLimitSetting)>,
 }
@@ -92,13 +93,24 @@ impl RegressionLimitSetting {
 
 impl RegressionLimits {
     pub(crate) fn new(
+        per_file: bool,
         every_source_set: Vec<(String, RegressionLimitSetting)>,
         one_source_set: Vec<(SourceSet, String, RegressionLimitSetting)>,
     ) -> RegressionLimits {
         RegressionLimits {
+            per_file,
             every_source_set,
             one_source_set,
         }
+    }
+
+    pub fn per_file(&self) -> bool {
+        self.per_file
+    }
+
+    pub fn with_per_file(mut self, per_file: bool) -> RegressionLimits {
+        self.per_file = per_file;
+        self
     }
 
     pub fn limit(&self, source_set: SourceSet, metric: Metric) -> RegressionLimit {

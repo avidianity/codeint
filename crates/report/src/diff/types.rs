@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{Budgets, FindingsShown, RegressionLimits};
 use serde::ser::SerializeMap;
@@ -69,24 +69,40 @@ impl std::fmt::Display for NewFileBudgetFailure {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(super) struct Regression {
+pub(crate) struct Regression {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) source_set: Option<String>,
-    pub(super) metric: String,
-    pub(super) rule: RegressionRule,
-    pub(super) base: Decimal,
-    pub(super) head: Decimal,
-    pub(super) new_findings: usize,
-    pub(super) ratio_rise_limit: f64,
+    pub(crate) source_set: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) file: Option<String>,
+    pub(crate) metric: String,
+    pub(crate) rule: RegressionRule,
+    pub(crate) base: Decimal,
+    pub(crate) head: Decimal,
+    pub(crate) new_findings: usize,
+    pub(crate) ratio_rise_limit: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum RegressionRule {
+pub(crate) enum RegressionRule {
     RatioRise,
     NewFindings,
     #[serde(alias = "numerator_rise_with_new_findings")]
     NumeratorRise,
+    PerFileNumeratorRise,
+    PerFileNewFindings,
+}
+
+impl RegressionRule {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            RegressionRule::RatioRise => "ratio_rise",
+            RegressionRule::NewFindings => "new_findings",
+            RegressionRule::NumeratorRise => "numerator_rise",
+            RegressionRule::PerFileNumeratorRise => "per_file_numerator_rise",
+            RegressionRule::PerFileNewFindings => "per_file_new_findings",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,6 +174,9 @@ pub(super) struct MetricChanges<T> {
     pub(super) head_ratio: Decimal,
     pub(super) base_numerator: Decimal,
     pub(super) head_numerator: Decimal,
+    pub(super) base_file_numerators: BTreeMap<String, Decimal>,
+    pub(super) head_file_numerators: BTreeMap<String, Decimal>,
+    pub(super) new_findings_by_file: BTreeMap<String, usize>,
     pub(super) new: Findings<T>,
     pub(super) resolved: Findings<T>,
     pub(super) unchanged: usize,
@@ -175,6 +194,7 @@ pub struct DiffReportOptions<'a> {
     pub budgets: &'a Budgets,
     pub new_file_budgets: &'a Budgets,
     pub new_files: Option<CommitMeasurement>,
+    pub changed_files: BTreeSet<String>,
     pub limits: &'a RegressionLimits,
     pub ownership: OwnershipOptions<'a>,
     pub include_test_gap_note: bool,
@@ -287,6 +307,9 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
             head_ratio: raw.head_ratio,
             base_numerator: Decimal(0.0),
             head_numerator: Decimal(0.0),
+            base_file_numerators: BTreeMap::new(),
+            head_file_numerators: BTreeMap::new(),
+            new_findings_by_file: BTreeMap::new(),
             new,
             resolved,
             unchanged,
@@ -338,6 +361,9 @@ impl<'de> Deserialize<'de> for DuplicationChanges {
                 head_ratio: raw.head_ratio,
                 base_numerator: Decimal(0.0),
                 head_numerator: Decimal(0.0),
+                base_file_numerators: BTreeMap::new(),
+                head_file_numerators: BTreeMap::new(),
+                new_findings_by_file: BTreeMap::new(),
                 new,
                 resolved,
                 unchanged,

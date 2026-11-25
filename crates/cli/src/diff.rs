@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 
 use codeint_config::{FindingsShown, PluginHostConfig};
@@ -24,6 +24,13 @@ struct Sides {
     head_commit: Option<CommitId>,
 }
 
+struct MeasuredHead {
+    selected: Option<SelectedPackage>,
+    measurement: CommitMeasurement,
+    new_files: Option<CommitMeasurement>,
+    changed_files: BTreeSet<String>,
+}
+
 pub(crate) fn diff(
     folder: &Path,
     refs: Refs<'_>,
@@ -40,13 +47,20 @@ pub(crate) fn diff(
         head_commit,
     } = sides(&run.context.repository, &refs)?;
     let check_new_file_budgets = !run.context.configuration.new_file_budgets.is_empty();
-    let (selected, head_measurement, new_files_measurement) = measure_head(
+    let check_per_file = run.context.configuration.regression_limits.per_file();
+    let MeasuredHead {
+        selected,
+        measurement: head_measurement,
+        new_files: new_files_measurement,
+        changed_files,
+    } = measure_head(
         &run.context,
         merge_base,
         head_commit,
         package,
         result_cache,
         check_new_file_budgets,
+        check_per_file,
     )?;
     let base_measurer = CommitMeasurer::for_package(
         &run.context.repository,
@@ -69,6 +83,7 @@ pub(crate) fn diff(
             budgets: &run.context.configuration.budgets,
             new_file_budgets: &run.context.configuration.new_file_budgets,
             new_files: new_files_measurement,
+            changed_files,
             limits: &run.context.configuration.regression_limits,
             ownership: run.ownership(),
             include_test_gap_note: !run.context.configuration.coverage_reports.is_empty(),
@@ -92,30 +107,84 @@ fn measure_head(
     package: Option<&str>,
     result_cache: Option<&ResultCache>,
     check_new_file_budgets: bool,
-) -> Result<
-    (
-        Option<SelectedPackage>,
-        CommitMeasurement,
-        Option<CommitMeasurement>,
-    ),
-    CheckError,
-> {
-    if check_new_file_budgets {
-        let head_snapshot = open_head_snapshot(&context.repository, head_commit)?;
-        let new_files = newly_added_files(&context.repository, merge_base, &head_snapshot)?;
-        if !new_files.is_empty() {
-            return measure_all_languages_with_new_files(
-                &head_snapshot,
-                &new_files,
-                &context.plugins,
-                &context.configuration,
-                package,
-            );
-        }
+    check_per_file: bool,
+) -> Result<MeasuredHead, CheckError> {
+    if !check_new_file_budgets && !check_per_file {
+        let (selected, measurement) =
+            measure_head_without_new_files(context, head_commit, package, result_cache)?;
+        return Ok(MeasuredHead {
+            selected,
+            measurement,
+            new_files: None,
+            changed_files: BTreeSet::new(),
+        });
     }
-    let (selected, head_measurement) =
+    let head_snapshot = open_head_snapshot(&context.repository, head_commit)?;
+    let base_snapshot = context.repository.commit(merge_base)?;
+    let changed_files = collect_changed_files(&base_snapshot, &head_snapshot, check_per_file)?;
+    if let Some(measured) = measure_head_if_new_files(
+        context,
+        &base_snapshot,
+        &head_snapshot,
+        package,
+        check_new_file_budgets,
+        &changed_files,
+    )? {
+        return Ok(measured);
+    }
+    let (selected, measurement) =
         measure_head_without_new_files(context, head_commit, package, result_cache)?;
-    Ok((selected, head_measurement, None))
+    Ok(MeasuredHead {
+        selected,
+        measurement,
+        new_files: None,
+        changed_files,
+    })
+}
+
+fn collect_changed_files(
+    base_snapshot: &Snapshot,
+    head_snapshot: &Snapshot,
+    enabled: bool,
+) -> Result<BTreeSet<String>, GitError> {
+    if !enabled {
+        return Ok(BTreeSet::new());
+    }
+    Ok(head_snapshot
+        .changed_files_from(base_snapshot)?
+        .into_iter()
+        .map(|path| path.to_string())
+        .collect())
+}
+
+fn measure_head_if_new_files(
+    context: &WorkspaceContext,
+    base_snapshot: &Snapshot,
+    head_snapshot: &Snapshot,
+    package: Option<&str>,
+    enabled: bool,
+    changed_files: &BTreeSet<String>,
+) -> Result<Option<MeasuredHead>, CheckError> {
+    if !enabled {
+        return Ok(None);
+    }
+    let new_files = newly_added_files(base_snapshot, head_snapshot);
+    if new_files.is_empty() {
+        return Ok(None);
+    }
+    let (selected, measurement, new_files) = measure_all_languages_with_new_files(
+        head_snapshot,
+        &new_files,
+        &context.plugins,
+        &context.configuration,
+        package,
+    )?;
+    Ok(Some(MeasuredHead {
+        selected,
+        measurement,
+        new_files,
+        changed_files: changed_files.clone(),
+    }))
 }
 
 fn open_head_snapshot(
@@ -128,19 +197,14 @@ fn open_head_snapshot(
     }
 }
 
-fn newly_added_files(
-    repository: &Repository,
-    merge_base: CommitId,
-    head_snapshot: &Snapshot,
-) -> Result<HashSet<RepoPath>, GitError> {
-    let base_snapshot = repository.commit(merge_base)?;
+fn newly_added_files(base_snapshot: &Snapshot, head_snapshot: &Snapshot) -> HashSet<RepoPath> {
     let base_files: HashSet<&RepoPath> = base_snapshot.files().iter().collect();
-    Ok(head_snapshot
+    head_snapshot
         .files()
         .iter()
         .filter(|path| !base_files.contains(path))
         .cloned()
-        .collect())
+        .collect()
 }
 
 fn measure_head_without_new_files(

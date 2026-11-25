@@ -102,6 +102,10 @@ impl Hazards {
     pub fn findings(&self) -> &[HazardLineFinding] {
         &self.findings
     }
+
+    pub fn lines_by_file(&self) -> &BTreeMap<RepoPath, HazardLines> {
+        &self.lines_by_file
+    }
 }
 
 fn group_files_in_path_order(model: &CodeModel) -> BTreeMap<&RepoPath, Vec<&SourceFile>> {

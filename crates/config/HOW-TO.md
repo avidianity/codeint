@@ -80,6 +80,7 @@ let any_new_finding_fails = limit.new_findings == NewFindingsRule::AnyNewFinding
   Round the difference of the two displayed ratios to four places before you pass it, because the plain floating-point difference of 0.0142 and 0.0042 is above 0.01.
 - `NewFindingsRule::AnyNewFinding` fails on any new Finding or numerator rise; `NewFindingsRule::NumeratorRise` fails whenever the numerator rises (rounded to four decimal places), so a Finding that only moves passes; `NewFindingsRule::Never` never fails on new Findings or numerator rises, so only `ratio_rise` can still make a Regression.
   In `codeint.json` the canonical values are `any_new_finding`, `numerator_rise`, and `never`, and `numerator_rise_with_new_findings` is accepted as a deprecated alias for `numerator_rise`.
+- `regression_limits.per_file()` defaults to `false`; when `true`, `codeint diff` also compares file-level Metric numerators and Findings for every modified file and fails if any modified file worsens (respecting `NewFindingsRule::Never`).
 
 ## Limit each Language plugin to its folders
 

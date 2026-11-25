@@ -102,6 +102,8 @@ jobs:
 
 - Commit `.codeint/ratchet.json` (created and tightened with `codeint ratchet update`) so whole-repository `codeint check` and `codeint diff` runs fail in CI if any Metric rises above its recorded ceiling or if a Metric version upgrade needs re-baselining.
 
+- Set `"regression_limits": { "per_file": true }` in configuration when you want pull-request diffs to fail if any individual modified file worsens, even when another file deletes a larger Finding.
+
 - Pair `codeint diff` in CI with local `codeint guard <path>` checks (or the `guard` MCP tool) so architectural boundary rules are checked before code is even written.
 
 ## Notes
