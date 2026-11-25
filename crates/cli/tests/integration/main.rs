@@ -25,6 +25,7 @@ mod init;
 mod init_adopt;
 #[cfg(unix)]
 mod install;
+mod invalid_manifest;
 mod mcp;
 mod npm_packages;
 mod orphan_files;

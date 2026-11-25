@@ -4,7 +4,8 @@ use codeint_config::{ConfigFileKind, display_package_key};
 use codeint_git::Snapshot;
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, LanguageFacts, Manifest, RepoPath, ResolveError,
-    RuntimeImport, SourceFile, Workspace, choose_manifests, resolve_runtime_imports,
+    RuntimeImport, SourceFile, Workspace, WorkspaceError, choose_manifests,
+    resolve_runtime_imports,
 };
 use codeint_plugin_host::NamedLanguagePlugin;
 use codeint_report::MeasuredLanguage;
@@ -40,30 +41,68 @@ pub(crate) fn read_manifests(
         .collect()
 }
 
+pub(crate) struct WorkspaceDiscovery {
+    pub(crate) members_by_plugin: Vec<Vec<RepoPath>>,
+    pub(crate) manifests_by_plugin: Vec<Vec<Manifest>>,
+    pub(crate) warnings: Vec<String>,
+}
+
 pub(crate) fn find_workspace(
     plugins: &[NamedLanguagePlugin<'_>],
-    manifests_by_plugin: &[Vec<Manifest>],
-) -> Result<Workspace, CheckError> {
-    let member_roots = find_plugin_workspaces(plugins, manifests_by_plugin)?
-        .into_iter()
-        .flatten();
-    Ok(Workspace::new(member_roots))
+    manifests_by_plugin: Vec<Vec<Manifest>>,
+) -> Result<(Workspace, Vec<String>), CheckError> {
+    let discovery = find_plugin_workspaces(plugins, manifests_by_plugin)?;
+    let workspace = Workspace::new(discovery.members_by_plugin.into_iter().flatten());
+    Ok((workspace, discovery.warnings))
 }
 
 pub(super) fn find_plugin_workspaces(
     plugins: &[NamedLanguagePlugin<'_>],
-    manifests_by_plugin: &[Vec<Manifest>],
-) -> Result<Vec<Vec<RepoPath>>, CheckError> {
-    plugins
-        .iter()
-        .zip(manifests_by_plugin)
-        .map(|(named, manifests)| {
-            if !named.plugin.has_imports() {
-                return Ok(Vec::new());
+    manifests_by_plugin: Vec<Vec<Manifest>>,
+) -> Result<WorkspaceDiscovery, CheckError> {
+    let mut discovery = WorkspaceDiscovery {
+        members_by_plugin: Vec::with_capacity(plugins.len()),
+        manifests_by_plugin: Vec::with_capacity(plugins.len()),
+        warnings: Vec::new(),
+    };
+    for (named, manifests) in plugins.iter().zip(manifests_by_plugin) {
+        if !named.plugin.has_imports() {
+            discovery.members_by_plugin.push(Vec::new());
+            discovery.manifests_by_plugin.push(manifests);
+            continue;
+        }
+        let (members, valid_manifests) =
+            find_valid_plugin_workspace(named, manifests, &mut discovery.warnings)?;
+        discovery.members_by_plugin.push(members);
+        discovery.manifests_by_plugin.push(valid_manifests);
+    }
+    Ok(discovery)
+}
+
+fn find_valid_plugin_workspace(
+    named: &NamedLanguagePlugin<'_>,
+    mut manifests: Vec<Manifest>,
+    warnings: &mut Vec<String>,
+) -> Result<(Vec<RepoPath>, Vec<Manifest>), CheckError> {
+    loop {
+        match named.plugin.workspace_packages(manifests.clone()) {
+            Ok(members) => return Ok((members, manifests)),
+            Err(WorkspaceError::Manifest { path, message }) => {
+                let Some(position) = manifests.iter().position(|manifest| manifest.path == path)
+                else {
+                    return Err(WorkspaceError::Manifest { path, message }.into());
+                };
+                manifests.remove(position);
+                let reason = message.split_whitespace().collect::<Vec<_>>().join(" ");
+                warnings.push(format!(
+                    "Skipped the invalid {} manifest {path}: {}. Files under it count toward the surrounding Workspace package.",
+                    named.name,
+                    reason.trim_end_matches('.')
+                ));
             }
-            Ok(named.plugin.workspace_packages(manifests.clone())?)
-        })
-        .collect()
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 pub(super) fn finalize_language_model(

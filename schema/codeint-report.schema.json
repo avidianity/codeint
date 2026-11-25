@@ -46,6 +46,13 @@
       "type": "string",
       "description": "One-line note shown when Ratchet enforcement is skipped, such as on --package runs."
     },
+    "manifest_warnings": {
+      "type": "array",
+      "description": "One warning for each invalid manifest that codeint skipped; files under a skipped manifest count toward the surrounding Workspace package.",
+      "items": {
+        "type": "string"
+      }
+    },
     "baseline": {
       "type": "object",
       "description": "The Baseline in effect; present when .codeint/baseline.json exists and codeint check runs without --ignore-baseline.",
