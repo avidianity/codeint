@@ -380,6 +380,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeint-lang-shell"
+version = "0.6.0"
+dependencies = [
+ "codeint-model",
+]
+
+[[package]]
 name = "codeint-lang-sql"
 version = "0.6.0"
 dependencies = [

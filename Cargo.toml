@@ -17,6 +17,7 @@ codeint-lang-go = { path = "plugins/languages/go" }
 codeint-lang-php = { path = "plugins/languages/php" }
 codeint-lang-python = { path = "plugins/languages/python" }
 codeint-lang-rust = { path = "plugins/languages/rust" }
+codeint-lang-shell = { path = "plugins/languages/shell" }
 codeint-lang-sql = { path = "plugins/languages/sql" }
 codeint-lang-ts = { path = "plugins/languages/ts" }
 codeint-metrics = { path = "crates/metrics" }
