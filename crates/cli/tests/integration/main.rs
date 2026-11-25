@@ -18,6 +18,7 @@ mod guard;
 mod hazards;
 mod impact;
 mod init;
+mod init_adopt;
 #[cfg(unix)]
 mod install;
 mod mcp;

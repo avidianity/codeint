@@ -284,6 +284,14 @@ fn init_remedy(error: &InitError) -> Cow<'static, str> {
         ),
         InitError::Git(error) => Cow::Borrowed(git_remedy(error)),
         InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
+        InitError::Check(error) => check_remedy(error),
+        InitError::Ratchet(error) => ratchet_remedy(error),
+        InitError::StateFileExists { update_command, .. } => Cow::Owned(format!(
+            "Run {update_command} to tighten it, or delete it and run codeint init --adopt again."
+        )),
+        InitError::Inspect { .. } => Cow::Borrowed(
+            "Check the permissions of the .codeint folder and run codeint init --adopt again.",
+        ),
     }
 }
 

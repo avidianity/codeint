@@ -1,7 +1,10 @@
 use codeint_model::RepoPath;
 use serde_json::Value;
 
-use super::{DetectedLanguage, starter_configuration_text};
+use super::{
+    DetectedLanguage, StarterKind, starter_configuration_text,
+    starter_configuration_text_with_boundaries,
+};
 use crate::codeint_json::{configuration_schema, parse, parse_jsonc, shape};
 
 fn path(text: &str) -> RepoPath {
@@ -209,7 +212,11 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
         StarterBoundaries::Preset(BoundaryPreset::Layered),
         StarterBoundaries::Preset(BoundaryPreset::Hexagonal),
     ] {
-        let text = starter_configuration_text_with_boundaries(&detected, Some(&boundaries));
+        let text = starter_configuration_text_with_boundaries(
+            &detected,
+            Some(&boundaries),
+            StarterKind::Standard,
+        );
         assert!(text.contains("sql.dialects"), "{text}");
         let starter: Value = parse_jsonc(&text).expect("starter with boundaries is valid JSONC");
         shape::check_shape(&starter, &schema).expect("starter fits schema");
@@ -223,4 +230,20 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
         let active = parse(&uncommented).expect("uncommented boundaries parses cleanly");
         assert!(active.boundaries.is_some());
     }
+}
+
+#[test]
+fn the_adoption_starter_enables_per_file_and_keeps_new_file_budgets_commented_and_valid() {
+    let schema = published_schema();
+
+    let text = starter_configuration_text_with_boundaries(&[], None, StarterKind::Adoption);
+
+    assert!(text.contains("// \"new_file_budgets\": {"), "{text}");
+    let starter: Value = parse_jsonc(&text).expect("the adoption starter is valid JSONC");
+    assert_eq!(
+        starter["regression_limits"],
+        serde_json::json!({ "per_file": true })
+    );
+    assert!(starter.get("new_file_budgets").is_none());
+    shape::check_shape(&starter, &schema).expect("the adoption starter fits the schema");
 }

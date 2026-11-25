@@ -369,6 +369,16 @@ pub(crate) fn measure_whole_repo(
     )
 }
 
+pub(crate) fn load_and_measure_whole_repo(
+    folder: &Path,
+    coverage_reports: &[PathBuf],
+    plugin_host: &PluginHostConfig,
+) -> Result<(WorkspaceContext, Report), CheckError> {
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    let report = measure_whole_repo(&context, folder, coverage_reports)?;
+    Ok((context, report))
+}
+
 fn check_loaded(
     repository: &Repository,
     configuration: &Configuration,

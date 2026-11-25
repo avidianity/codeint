@@ -99,10 +99,43 @@ pub fn published_schema_address() -> String {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StarterKind {
+    Standard,
+    Adoption,
+}
+
 pub fn write_starter_configuration(
     repository_root: &Path,
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
+) -> Result<PathBuf, StarterConfigurationError> {
+    write_starter(
+        repository_root,
+        languages,
+        boundaries,
+        StarterKind::Standard,
+    )
+}
+
+pub fn write_adoption_starter_configuration(
+    repository_root: &Path,
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+) -> Result<PathBuf, StarterConfigurationError> {
+    write_starter(
+        repository_root,
+        languages,
+        boundaries,
+        StarterKind::Adoption,
+    )
+}
+
+fn write_starter(
+    repository_root: &Path,
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+    kind: StarterKind,
 ) -> Result<PathBuf, StarterConfigurationError> {
     for kind in ConfigFileKind::ALL {
         let existing_path = repository_root.join(kind.file_name());
@@ -126,7 +159,7 @@ pub fn write_starter_configuration(
         }
     }
     let path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
-    let text = starter_configuration_text_with_boundaries(languages, boundaries);
+    let text = starter_configuration_text_with_boundaries(languages, boundaries, kind);
     let unwritable = |source| StarterConfigurationError::Unwritable {
         path: path.clone(),
         source,
@@ -150,31 +183,36 @@ pub fn write_starter_configuration(
 
 #[cfg(test)]
 fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
-    starter_configuration_text_with_boundaries(languages, None)
+    starter_configuration_text_with_boundaries(languages, None, StarterKind::Standard)
 }
 
 fn starter_configuration_text_with_boundaries(
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
+    kind: StarterKind,
 ) -> String {
-    let starter = ConfigurationFile::starter(
-        published_schema_address(),
-        (!languages.is_empty()).then(|| {
-            languages
-                .iter()
-                .map(|language| {
-                    LanguageGlobs::new(
-                        language.plugin.clone(),
-                        language
-                            .include
-                            .iter()
-                            .map(|path| globset::escape(path.as_str()))
-                            .collect(),
-                    )
-                })
-                .collect()
-        }),
-    );
+    let schema_address = published_schema_address();
+    let detected_languages = (!languages.is_empty()).then(|| {
+        languages
+            .iter()
+            .map(|language| {
+                LanguageGlobs::new(
+                    language.plugin.clone(),
+                    language
+                        .include
+                        .iter()
+                        .map(|path| globset::escape(path.as_str()))
+                        .collect(),
+                )
+            })
+            .collect()
+    });
+    let starter = match kind {
+        StarterKind::Standard => ConfigurationFile::starter(schema_address, detected_languages),
+        StarterKind::Adoption => {
+            ConfigurationFile::adoption_starter(schema_address, detected_languages)
+        }
+    };
     let mut json = serde_json::to_value(&starter)
         .expect("the configuration types serialize to JSON without fallible keys");
     if let Some(root) = json.as_object_mut() {
@@ -186,6 +224,9 @@ fn starter_configuration_text_with_boundaries(
         1,
     );
     let mut trailing_hints = String::new();
+    if kind == StarterKind::Adoption {
+        trailing_hints.push_str(NEW_FILE_BUDGETS_HINT);
+    }
     if languages.iter().any(|language| language.plugin == "sql") {
         trailing_hints.push_str(
             "  // Optional: map SQL folders to a Dialect with sql.dialects (postgresql, mysql, sqlite, or duckdb).\n  // \"sql\": { \"dialects\": [] }\n",
@@ -201,6 +242,8 @@ fn starter_configuration_text_with_boundaries(
     }
     rendered
 }
+
+const NEW_FILE_BUDGETS_HINT: &str = "  // Optional: uncomment to hold every new file to a strict bar in codeint diff (add a comma above).\n  // \"new_file_budgets\": {\n  //   \"production\": {\n  //     \"erosion\": 0,\n  //     \"cognitive_complexity\": 0,\n  //     \"hazards\": 0,\n  //     \"boundaries\": 0\n  //   }\n  // }\n";
 
 fn render_commented_boundaries(output: &mut String, boundaries: &StarterBoundaries) {
     match boundaries {

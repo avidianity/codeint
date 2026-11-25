@@ -28,7 +28,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `trend` | Measure each commit of the main line and print each Metric over time; see [`codeint trend`](#codeint-trend) |
 | `impact` | Compute the transitive reverse-dependency blast radius of one or more repository files; see [`codeint impact`](#codeint-impact) |
 | `trace` | Find the shortest runtime import path between two files in the repository; see [`codeint trace`](#codeint-trace) |
-| `init` | Write a starter `codeint.jsonc`; see [`codeint init`](#codeint-init) |
+| `init` | Write a starter `codeint.jsonc`, and with `--adopt` the initial Ratchet and Baseline; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling` tools; see [`codeint mcp`](#codeint-mcp) |
 | `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, allowed importers, and external-package rules for a file path; see [`codeint guard`](#codeint-guard) |
@@ -68,6 +68,7 @@ codeint help check
 
 | Option | Meaning |
 | ------ | ------- |
+| `--adopt` | Also enable per-file Regression checks, suggest new-file Budgets, write `.codeint/ratchet.json` and `.codeint/baseline.json` from the current state, and print pull-request CI instructions |
 | `-h, --help` | Print the help of `codeint init` |
 
 `codeint init` writes a starter `codeint.jsonc` at the root of the Git repository that contains the current folder:
@@ -121,6 +122,52 @@ when built-in Language plugins discover two or more Workspace packages, it sugge
 in a single-package repository whose Production source files match at least two zones of the `layered` or `hexagonal` preset, it suggests the matching commented-out `boundaries.preset`;
 in a flat or custom layout without those signals, it emits no boundary suggestions.
 Because the suggested block stays commented out, `codeint check` and `codeint config` pass cleanly immediately after `codeint init`.
+`codeint init --adopt` onboards an existing codebase in one step ([Adopting codeint on an existing codebase](./guide/adopting-on-an-existing-codebase.md)).
+It writes the same starter `codeint.jsonc` with two differences: `regression_limits.per_file` is `true`, and a commented-out `new_file_budgets` block follows the last key.
+It then measures the whole repository once, writes `.codeint/ratchet.json` as `codeint ratchet update` would on a first run, writes `.codeint/baseline.json` as `codeint baseline update` would on a first run, and prints the next steps, including a pull-request workflow.
+Because the Baseline hides every existing Finding and the Ratchet holds every ceiling at its current ratio, `codeint check` passes immediately afterward and fails on a new Finding.
+`codeint init --adopt` never replaces a file: it stops with exit code 2, before it writes anything, when a configuration file, `.codeint/ratchet.json`, or `.codeint/baseline.json` already exists.
+When measuring fails, it removes the files it wrote and exits with code 2.
+Run `codeint ratchet update` or `codeint baseline update` instead to refresh an existing state file.
+
+```sh exit=0
+codeint init --adopt
+```
+
+```text stdout
+Wrote /home/me/shop/codeint.jsonc
+Wrote /home/me/shop/.codeint/ratchet.json (5 Metric ceilings)
+Wrote /home/me/shop/.codeint/baseline.json (2 existing Findings)
+
+Next steps:
+1. Commit codeint.jsonc and the .codeint folder.
+2. Run codeint check locally and in your coding agent loop; it hides the existing Findings and fails on any new one.
+3. Save this as .github/workflows/codeint.yml to gate every pull request:
+
+name: codeint
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  codeint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: avidianity/codeint@main
+
+4. After you fix legacy code, run codeint ratchet update and codeint baseline update, and commit the result.
+5. To hold every new file to a strict bar, uncomment new_file_budgets in codeint.jsonc.
+
+Guide: https://github.com/avidianity/codeint/blob/main/docs/guide/adopting-on-an-existing-codebase.md
+```
+
 `codeint init` never replaces an existing `codeint.jsonc` or `codeint.json`.
 With this `codeint.json` in place:
 
