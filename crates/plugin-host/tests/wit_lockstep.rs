@@ -2,8 +2,14 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use codeint_model::{CodeModel, LanguagePlugin, MetricPlugin, RepoPath};
-use codeint_plugin_host::{PLUGIN_INTERFACE_VERSION, built_in_language_plugins};
+use codeint_model::{
+    CodeModel, FrameworkProfileSelection, LanguagePlugin, Manifest, Metric, MetricPlugin, RepoPath,
+    SourceFile,
+};
+use codeint_plugin_host::{
+    PLUGIN_INTERFACE_VERSION, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, built_in_language_plugin,
+    built_in_language_plugins, select_language_reference_ranges,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 struct WitContract {
@@ -346,10 +352,16 @@ fn exercise_language_plugin_contract(plugin: &dyn LanguagePlugin) {
     let _ = plugin.lower(&sample_path, "");
     let _ = plugin.manifest_paths(&[]);
     let _ = plugin.workspace_packages(Vec::new());
-    let _ = plugin.resolve_imports(&[], Vec::new(), Vec::new());
+    let _ = plugin.resolve_imports(&[], Vec::new(), Vec::new(), &[]);
     let _ = plugin.declared_dependencies(Vec::new());
     let _ = plugin.entry_points(&[], Vec::new());
     assert!(plugin.reference_ranges().is_ok());
+    let _ = plugin.known_framework_profiles();
+    assert!(
+        plugin
+            .resolve_framework_profiles("", &[], Vec::new(), FrameworkProfileSelection::Auto)
+            .is_ok()
+    );
     let has_hazards = plugin.has_hazard_rules();
     let rules = plugin.hazard_rules();
     if !has_hazards {
@@ -362,6 +374,7 @@ fn exercise_metric_plugin_contract(plugin: &dyn MetricPlugin) {
     assert!(!plugin.key().is_empty());
     assert!(!plugin.name().is_empty());
     assert!(!plugin.description().is_empty());
+    assert!(plugin.version() >= 1);
     let _ = plugin.measure(&CodeModel::default());
 }
 
@@ -514,4 +527,86 @@ fn wit_parser_ignores_comments_and_nested_records_and_detects_version_drift() {
         BTreeSet::from(["sample".to_owned()])
     );
     assert_eq!(parsed.functions, BTreeSet::from(["real-fn".to_owned()]));
+}
+
+#[test]
+fn every_built_in_language_reference_range_matches_current_metric_version() {
+    for named in built_in_language_plugins() {
+        let ranges = named
+            .plugin
+            .reference_ranges()
+            .unwrap_or_else(|error| panic!("{}: invalid reference_ranges: {error}", named.name));
+        let mut count = 0usize;
+        for range in ranges.iter() {
+            let metric = Metric::from_key(&range.metric).unwrap_or_else(|| {
+                panic!(
+                    "{}: Reference range names unknown built-in Metric {:?}",
+                    named.name, range.metric
+                )
+            });
+            assert_eq!(
+                range.metric_version,
+                metric.version(),
+                "{}: stale Reference range metric_version for {}",
+                named.name,
+                range.metric
+            );
+            count += 1;
+        }
+        assert!(
+            count > 0,
+            "{}: expected built-in Reference ranges to be checked",
+            named.name
+        );
+    }
+
+    let ts = built_in_language_plugin(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME)
+        .expect("built-in typescript-javascript plugin");
+    let tsx_path = RepoPath::new("src/App.tsx").expect("valid repo path");
+    let vue_path = RepoPath::new("src/App.vue").expect("valid repo path");
+    let tsx_model = CodeModel {
+        files: vec![SourceFile {
+            path: tsx_path.clone(),
+            model: ts
+                .plugin
+                .lower(&tsx_path, "export const App = () => <div />;\n")
+                .expect("tsx lowers"),
+        }],
+        ..CodeModel::default()
+    };
+    let vue_model = CodeModel {
+        files: vec![SourceFile {
+            path: vue_path.clone(),
+            model: ts
+                .plugin
+                .lower(&vue_path, "<script setup>\nconst x = 1;\n</script>\n")
+                .expect("vue lowers"),
+        }],
+        ..CodeModel::default()
+    };
+    for (label, model, dep_json) in [
+        (
+            "react",
+            &tsx_model,
+            r#"{"dependencies":{"react":"^18.3.1"}}"#,
+        ),
+        ("vue2", &vue_model, r#"{"dependencies":{"vue":"^2.7.16"}}"#),
+        ("vue3", &vue_model, r#"{"dependencies":{"vue":"^3.4.0"}}"#),
+    ] {
+        let manifests = vec![Manifest {
+            path: "package.json".to_owned(),
+            text: dep_json.to_owned(),
+        }];
+        let ranges = select_language_reference_ranges(&ts, model, &manifests)
+            .unwrap_or_else(|error| panic!("{label}: invalid framework ranges: {error}"));
+        for range in ranges.iter() {
+            let metric = Metric::from_key(&range.metric).expect("known built-in metric");
+            assert_eq!(
+                range.metric_version,
+                metric.version(),
+                "{label}: stale framework Reference range metric_version for {}",
+                range.metric
+            );
+        }
+    }
 }

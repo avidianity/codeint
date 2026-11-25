@@ -163,6 +163,7 @@ impl LanguagePlugin for Sql {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
+        _active_profiles: &[String],
     ) -> Result<Vec<Resolution>, LanguagePluginError> {
         Ok(Vec::new())
     }
@@ -193,6 +194,7 @@ impl LanguagePlugin for Sql {
             .into_iter()
             .map(|(metric, low, high)| ReferenceRange {
                 metric: metric.to_owned(),
+                metric_version: 1,
                 low,
                 high,
                 source: source.to_owned(),
@@ -200,6 +202,8 @@ impl LanguagePlugin for Sql {
             .collect(),
         )
     }
+
+    codeint_model::empty_framework_profile_plugin_methods!();
 
     fn has_hazard_rules(&self) -> bool {
         true

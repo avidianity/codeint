@@ -4,10 +4,11 @@
 
 ```rust
 use codeint_model::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    SourceSet, Token, TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind,
+    WorkspaceError,
 };
-use codeint_model::token_text_hash;
+use codeint_model::{empty_framework_profile_result, token_text_hash};
 
 pub struct Plain;
 
@@ -61,6 +62,7 @@ impl Guest for Plain {
         _repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         requests
             .iter()
@@ -79,10 +81,24 @@ impl Guest for Plain {
     fn reference_ranges() -> Vec<ReferenceRange> {
         vec![ReferenceRange {
             metric: "erosion".to_owned(),
+            metric_version: 1,
             low: 0.12,
             high: 0.56,
             source: "Plain text panel of 40 repositories, Table 3".to_owned(),
         }]
+    }
+
+    fn known_framework_profiles() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn resolve_framework_profiles(
+        _package_root: String,
+        _files: Vec<String>,
+        _manifests: Vec<Manifest>,
+        _selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, String> {
+        Ok(empty_framework_profile_result())
     }
 
     fn has_hazard_rules() -> bool {
@@ -99,7 +115,7 @@ impl Guest for Plain {
 }
 ```
 
-- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.3.0`.
+- The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.4.0`.
 - `codeint_model::language` holds the Rust types that wit-bindgen generates from that file.
   Never write a second Rust copy of a WIT type.
 - A built-in Language plugin implements the generated `Guest` trait, so it compiles against the same interface as an external WebAssembly Plugin.
@@ -123,10 +139,11 @@ impl Guest for Plain {
   Which files are Vendored is a rule of the core, because it is the same in every language.
   A generated marker comment is a Generated rule of the Language plugin, because only the plugin knows what a comment is in its language.
   Build output folders and very long lines are Generated rules of the core, because they read only the path and the text.
-- `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each with a `source` label that names where it was published.
+- `reference_ranges` returns the Reference ranges measured in the plugin's language, at most one per Metric, each tagged with its positive integer `metric-version` and a `source` label that names where it was published.
   `metric` is the Metric's key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
   `low` and `high` are ratios with `0 <= low <= high <= 1`.
   Return no entry for a Metric that has no published Reference range in this language; never borrow a range measured in another language.
+- `known_framework_profiles` returns the stable names of Framework profiles this Language plugin defines, and `resolve_framework_profiles` resolves active profiles, convention entry points, generated paths, framework Reference ranges, and an optional Reference range note for one Workspace package.
 - `has_hazard_rules` states whether this Language plugin defines Hazard line rules, and `hazard_rules` returns their stable names (empty when `has_hazard_rules` is `false`).
   The five built-in Language plugins return `false` and an empty list.
 - `has_imports` states whether the language has runtime imports, manifests, and entry points.
@@ -178,7 +195,7 @@ assert_eq!(model.source_lines, 2);
   Every `Guest` is a `LanguagePlugin`; the WebAssembly Plugin host implements `LanguagePlugin` itself.
 - The core picks the Language plugin of a file from the extensions that the plugins declare, never from its own list.
 - Before lowering, call `choose_manifests(plugin, repository_paths)` once per Language plugin and read each path it returns, once, as `Manifest { path, text }`.
-  Pass those manifests to `workspace_packages`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers)` with the files the plugin lowered.
+  Pass those manifests to `workspace_packages`, and after lowering to `resolve_runtime_imports(plugin, repository_paths, manifests, &importers, active_profiles)` with the files the plugin lowered and the active Framework profile names.
   `choose_manifests` fails with `ResolveError::UnknownManifest` when the plugin names a path outside the snapshot.
   `resolve_runtime_imports` returns one `RuntimeImport` per runtime import for `CodeModel::runtime_imports`, and a `ResolveError` when the plugin answers the wrong number of requests, returns an empty `Resolved` target list, or names a file outside the snapshot.
 - `codeint_model::LowerError` is the core's error; it converts from the WIT `lower-error` and names the failure in its message.

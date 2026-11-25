@@ -609,7 +609,9 @@ replace (
         ("main.go", "github.com/acme/outside/pkg"),
     ]);
 
-    let resolutions = Go.resolve_imports(&repo, manifests.clone(), reqs).unwrap();
+    let resolutions = Go
+        .resolve_imports(&repo, manifests.clone(), reqs, &[])
+        .unwrap();
     assert_eq!(resolutions[0], Resolution::Builtin);
     assert_eq!(resolutions[1], Resolution::Builtin);
     assert_eq!(resolutions[2], Resolution::Builtin);
@@ -652,6 +654,7 @@ replace (
             &repo,
             manifests.clone(),
             make_requests(&[("pkg/init/a.go", "example.com/root/pkg/init")]),
+            &[],
         )
         .unwrap();
     assert_eq!(
@@ -968,6 +971,7 @@ func NumMulFuncLit(a, b, c, d bool) int {
             &repo,
             manifests.clone(),
             make_requests(&[("main.go", "example.org/lib")]),
+            &[],
         )
         .unwrap();
     assert_eq!(

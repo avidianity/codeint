@@ -61,17 +61,29 @@ pub(crate) enum ReferenceRangeEntry {
 }
 
 impl ReferenceRangeScope {
-    pub(crate) fn entry(&self, metric: &str) -> ReferenceRangeEntry {
+    pub(crate) fn entry(&self, metric: &str, metric_version: u32) -> ReferenceRangeEntry {
         match self {
-            ReferenceRangeScope::OneLanguage(ranges) => ranges.for_metric(metric).map_or_else(
-                || ReferenceRangeEntry::NotShown(NOT_PUBLISHED_FOR_THIS_LANGUAGE.to_owned()),
-                ReferenceRangeEntry::from,
-            ),
+            ReferenceRangeScope::OneLanguage(ranges) => match ranges.for_metric(metric) {
+                None => ReferenceRangeEntry::NotShown(NOT_PUBLISHED_FOR_THIS_LANGUAGE.to_owned()),
+                Some(range) if range.metric_version != metric_version => {
+                    ReferenceRangeEntry::NotShown(format_stale_reference_range_note(
+                        range.metric_version,
+                        metric_version,
+                    ))
+                }
+                Some(range) => ReferenceRangeEntry::from(range),
+            },
             ReferenceRangeScope::SeveralLanguages => {
                 ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_SEVERAL_LANGUAGES.to_owned())
             }
         }
     }
+}
+
+fn format_stale_reference_range_note(found_version: u32, current_version: u32) -> String {
+    format!(
+        "not shown, because the Reference range targets Metric version {found_version}, which does not match Metric version {current_version}"
+    )
 }
 
 impl From<&ReferenceRange> for ReferenceRangeEntry {

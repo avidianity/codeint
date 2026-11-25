@@ -256,7 +256,10 @@ impl DuplicationSection {
                 }),
             )
         } else {
-            (ranges.entry(Metric::Duplication.key()), None)
+            (
+                ranges.entry(Metric::Duplication.key(), Metric::Duplication.version()),
+                None,
+            )
         };
         let all_clone_families = view.ownership.apply(
             duplication
@@ -410,7 +413,7 @@ impl SourceSetSection {
                 ExternalMetricSection {
                     name: plugin.name().to_owned(),
                     description: plugin.description().to_owned(),
-                    header: MetricHeader::new(result.ratio, ranges, plugin.key()),
+                    header: MetricHeader::new(result.ratio, ranges, plugin.key(), plugin.version()),
                     numerator: Decimal::rounded(result.numerator),
                     denominator: Decimal::rounded(result.denominator),
                     findings: view.map(&result.findings),
@@ -421,7 +424,12 @@ impl SourceSetSection {
             files: model.files.len(),
             source_lines: source_lines(model),
             erosion: MetricSection {
-                header: MetricHeader::new(measured.erosion.ratio(), ranges, Metric::Erosion.key()),
+                header: MetricHeader::new(
+                    measured.erosion.ratio(),
+                    ranges,
+                    Metric::Erosion.key(),
+                    Metric::Erosion.version(),
+                ),
                 totals: ErosionTotals {
                     eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
                     total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
@@ -433,6 +441,7 @@ impl SourceSetSection {
                     measured.cognitive_complexity.ratio(),
                     ranges,
                     Metric::CognitiveComplexity.key(),
+                    Metric::CognitiveComplexity.version(),
                 ),
                 totals: CognitiveComplexityTotals {
                     complex_cognitive_complexity: measured
@@ -455,6 +464,7 @@ impl SourceSetSection {
                     measured.verbosity.ratio(),
                     ranges,
                     Metric::Verbosity.key(),
+                    Metric::Verbosity.version(),
                 ),
                 totals: VerbosityTotals {
                     verbose_lines: measured.verbosity.verbose_lines(),
@@ -467,7 +477,12 @@ impl SourceSetSection {
                 .import_cycles
                 .as_ref()
                 .map(|cycles| ImportCyclesSection {
-                    header: MetricHeader::new(cycles.ratio(), ranges, Metric::ImportCycles.key()),
+                    header: MetricHeader::new(
+                        cycles.ratio(),
+                        ranges,
+                        Metric::ImportCycles.key(),
+                        Metric::ImportCycles.version(),
+                    ),
                     modules_in_import_cycles: cycles.modules_in_import_cycles(),
                     modules: cycles.modules(),
                     findings: view.map(cycles.cycles()),

@@ -147,10 +147,15 @@ crate_structs! {
 }
 
 impl MetricHeader {
-    pub(crate) fn new(ratio: f64, ranges: &ReferenceRangeScope, key: &str) -> MetricHeader {
+    pub(crate) fn new(
+        ratio: f64,
+        ranges: &ReferenceRangeScope,
+        key: &str,
+        metric_version: u32,
+    ) -> MetricHeader {
         MetricHeader {
             ratio: Decimal::rounded(ratio),
-            reference_range: ranges.entry(key),
+            reference_range: ranges.entry(key, metric_version),
         }
     }
 }

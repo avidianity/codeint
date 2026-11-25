@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use codeint_config::{PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource};
 use codeint_model::{
-    CodeModel, DeclaredDep, ExternalMetricMeasurement, FileModel, InvalidReferenceRange,
-    LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
-    ReferenceRanges, RepoPath, WorkspaceError, language,
+    CodeModel, DeclaredDep, ExternalMetricMeasurement, FileModel, FrameworkProfileResult,
+    FrameworkProfileSelection, InvalidReferenceRange, LanguagePlugin, LanguagePluginError,
+    LowerError, Manifest, MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath,
+    WorkspaceError, language,
 };
 
 mod builtins;
@@ -31,9 +32,9 @@ pub use sql::{
     apply_sql_schema_pass, lower_sql_source,
 };
 pub use wasm::WasmLanguagePlugin;
-pub use wasm_metric::{WasmMetricPlugin, validate_metric_key};
+pub use wasm_metric::{WasmMetricPlugin, validate_metric_key, validate_metric_version};
 
-pub const PLUGIN_INTERFACE_VERSION: &str = "0.3.0";
+pub const PLUGIN_INTERFACE_VERSION: &str = "0.4.0";
 
 #[derive(Debug, thiserror::Error)]
 pub enum PluginHostError {
@@ -96,6 +97,10 @@ pub enum PluginHostError {
     },
     #[error("Metric plugin {name:?} declared a duplicate Metric key {key:?}")]
     DuplicateMetricKey { name: String, key: String },
+    #[error(
+        "Metric plugin {name:?} declared an invalid Metric version {version}; Metric versions must be positive integers (>= 1)"
+    )]
+    InvalidMetricVersion { name: String, version: u32 },
     #[error("Plugin {name:?} URL {url:?} must use HTTPS (https://)")]
     NonHttpsUrl { name: String, url: String },
     #[error("cannot cache Plugin {name:?} from {url}: no cache directory is configured")]
@@ -301,8 +306,9 @@ impl LanguagePlugin for WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
+        active_profiles: &[String],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
-        self.resolve_imports_impl(repository_paths, manifests, requests)
+        self.resolve_imports_impl(repository_paths, manifests, requests, active_profiles)
     }
 
     fn declared_dependencies(
@@ -322,6 +328,20 @@ impl LanguagePlugin for WasmLanguagePlugin {
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         self.reference_ranges_impl()
+    }
+
+    fn known_framework_profiles(&self) -> Vec<String> {
+        self.known_framework_profiles_impl()
+    }
+
+    fn resolve_framework_profiles(
+        &self,
+        package_root: &str,
+        files: &[RepoPath],
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, LanguagePluginError> {
+        self.resolve_framework_profiles_impl(package_root, files, manifests, selection)
     }
 
     fn has_hazard_rules(&self) -> bool {
@@ -348,6 +368,10 @@ impl MetricPlugin for WasmMetricPlugin {
 
     fn description(&self) -> &str {
         self.description_impl()
+    }
+
+    fn version(&self) -> u32 {
+        self.version_impl()
     }
 
     fn measure(&self, model: &CodeModel) -> Result<ExternalMetricMeasurement, MetricPluginError> {

@@ -70,6 +70,7 @@ impl Guest for TypeScriptAndJavaScript {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         let resolver = ProjectResolver::new(&repository_paths, manifests);
         requests
@@ -96,12 +97,15 @@ impl Guest for TypeScriptAndJavaScript {
         .into_iter()
         .map(|(metric, low, high)| ReferenceRange {
             metric: metric.to_owned(),
+            metric_version: 1,
             low,
             high,
             source: REFERENCE_RANGE_SOURCE.to_owned(),
         })
         .collect()
     }
+
+    codeint_model::empty_framework_profile_guest_methods!();
 
     fn has_hazard_rules() -> bool {
         false

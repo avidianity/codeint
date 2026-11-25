@@ -1165,7 +1165,7 @@ fn resolve(repository_paths: &[&str], importer: &str, specifier: &str) -> Resolu
         specifier: specifier.to_owned(),
     };
     let mut resolutions = plugin()
-        .resolve_imports(&paths, Vec::new(), vec![request])
+        .resolve_imports(&paths, Vec::new(), vec![request], &[])
         .expect("resolve imports");
     assert_eq!(resolutions.len(), 1, "one resolution per request");
     resolutions.remove(0)
@@ -1270,7 +1270,7 @@ fn resolutions_come_back_one_per_request_in_request_order() {
     .collect();
 
     let resolutions = plugin()
-        .resolve_imports(&paths, Vec::new(), requests)
+        .resolve_imports(&paths, Vec::new(), requests, &[])
         .expect("resolve imports");
 
     assert_eq!(
@@ -1306,7 +1306,7 @@ fn resolve_in_project(files: &[(&str, &str)], importer: &str, specifier: &str) -
         specifier: specifier.to_owned(),
     };
     let mut resolutions = plugin()
-        .resolve_imports(&paths, manifests, vec![request])
+        .resolve_imports(&paths, manifests, vec![request], &[])
         .expect("resolve imports");
     assert_eq!(resolutions.len(), 1, "one resolution per request");
     resolutions.remove(0)
@@ -1965,7 +1965,7 @@ fn resolve_for(
         })
         .collect();
     plugin()
-        .resolve_imports(&repo_paths, manifest_list, import_requests)
+        .resolve_imports(&repo_paths, manifest_list, import_requests, &[])
         .expect("resolve imports")
 }
 

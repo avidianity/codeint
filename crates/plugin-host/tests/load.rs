@@ -101,25 +101,15 @@ fn loads_sample_external_plugin_with_zero_capabilities_and_valid_hash() {
         .expect("workspace packages");
     assert_eq!(packages, vec![RepoPath::new("packages/core").unwrap()]);
 
+    let requests: Vec<ImportRequest> = ["./util", "external-pkg", "std:io"]
+        .into_iter()
+        .map(|specifier| ImportRequest {
+            importer: "src/app.mini".to_owned(),
+            specifier: specifier.to_owned(),
+        })
+        .collect();
     let resolutions = plugin
-        .resolve_imports(
-            &repo_paths,
-            Vec::new(),
-            vec![
-                ImportRequest {
-                    importer: "src/app.mini".to_owned(),
-                    specifier: "./util".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/app.mini".to_owned(),
-                    specifier: "external-pkg".to_owned(),
-                },
-                ImportRequest {
-                    importer: "src/app.mini".to_owned(),
-                    specifier: "std:io".to_owned(),
-                },
-            ],
-        )
+        .resolve_imports(&repo_paths, Vec::new(), requests, &[])
         .expect("resolve imports");
     assert_eq!(
         resolutions,
@@ -586,12 +576,12 @@ fn built_in_and_sample_plugins_fit_comfortably_within_default_limits() {
 }
 
 #[test]
-fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
-    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.3.0");
+fn verifies_0_4_0_contract_fields_and_methods_across_wasm_boundary() {
+    assert_eq!(PLUGIN_INTERFACE_VERSION, "0.4.0");
     let wasm_path = sample_plugin_wasm();
     let declaration = declaration_for("sample-mini", wasm_path);
     let plugin = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
-        .expect("0.3.0 sample plugin loads");
+        .expect("0.4.0 sample plugin loads");
 
     let lowered = plugin
         .lower(
@@ -671,6 +661,7 @@ fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
                         specifier: "./missing".to_owned(),
                     },
                 ],
+                &[],
             )
             .expect("resolve imports"),
         vec![
@@ -680,6 +671,110 @@ fn verifies_0_3_0_contract_fields_and_methods_across_wasm_boundary() {
             Resolution::Unresolved("cannot find src/missing.mini".to_owned()),
         ]
     );
+
+    assert_eq!(
+        plugin.known_framework_profiles(),
+        vec!["mini-web".to_owned(), "mini-cli".to_owned()]
+    );
+    let fw_paths = vec![
+        RepoPath::new("mini.workspace").expect("valid repo path"),
+        RepoPath::new("src/main.mini").expect("valid repo path"),
+        RepoPath::new("src/util.mini").expect("valid repo path"),
+        RepoPath::new("pages/home.mini").expect("valid repo path"),
+        RepoPath::new("gen/routes.mini").expect("valid repo path"),
+    ];
+    let fw_manifests = vec![Manifest {
+        path: "mini.workspace".to_owned(),
+        text: "framework:mini-web\nframework:mini-cli\n".to_owned(),
+    }];
+    let auto_resolved = plugin
+        .resolve_framework_profiles(
+            "",
+            &fw_paths,
+            fw_manifests.clone(),
+            codeint_model::FrameworkProfileSelection::Auto,
+        )
+        .expect("auto framework profiles");
+    assert_eq!(
+        auto_resolved.active_profiles,
+        vec!["mini-web".to_owned(), "mini-cli".to_owned()]
+    );
+    assert_eq!(auto_resolved.entry_points, vec!["pages/home.mini"]);
+    assert_eq!(auto_resolved.generated_paths, vec!["gen/routes.mini"]);
+    assert!(auto_resolved.reference_ranges.is_empty());
+    assert!(
+        auto_resolved
+            .reference_range_note
+            .as_deref()
+            .is_some_and(|note| note.contains("falling back"))
+    );
+
+    let excluded = plugin
+        .resolve_framework_profiles(
+            "",
+            &fw_paths,
+            fw_manifests.clone(),
+            codeint_model::FrameworkProfileSelection::Exclude(vec!["mini-cli".to_owned()]),
+        )
+        .expect("exclude mini-cli");
+    assert_eq!(excluded.active_profiles, vec!["mini-web".to_owned()]);
+    assert_eq!(excluded.reference_ranges.len(), 1);
+    assert_eq!(excluded.reference_ranges[0].metric, "erosion");
+    assert_eq!(excluded.reference_ranges[0].metric_version, 1);
+
+    let disabled = plugin
+        .resolve_framework_profiles(
+            "",
+            &fw_paths,
+            fw_manifests,
+            codeint_model::FrameworkProfileSelection::Disabled,
+        )
+        .expect("disabled framework profiles");
+    assert!(disabled.active_profiles.is_empty());
+    assert!(disabled.entry_points.is_empty());
+    assert!(disabled.generated_paths.is_empty());
+
+    let unknown_only = plugin.resolve_framework_profiles(
+        "",
+        &fw_paths,
+        Vec::new(),
+        codeint_model::FrameworkProfileSelection::Only(vec!["nonexistent".to_owned()]),
+    );
+    assert!(matches!(
+        unknown_only,
+        Err(LanguagePluginError::FrameworkProfile { ref message }) if message.contains("nonexistent")
+    ));
+
+    let alias_request = vec![ImportRequest {
+        importer: "pages/home.mini".to_owned(),
+        specifier: "@/util".to_owned(),
+    }];
+    assert_eq!(
+        plugin
+            .resolve_imports(&fw_paths, Vec::new(), alias_request.clone(), &[])
+            .expect("resolve without profile"),
+        vec![Resolution::External("@/util".to_owned())]
+    );
+    assert_eq!(
+        plugin
+            .resolve_imports(
+                &fw_paths,
+                Vec::new(),
+                alias_request,
+                &["mini-web".to_owned()],
+            )
+            .expect("resolve with mini-web active profile"),
+        vec![Resolution::Resolved(vec!["src/util.mini".to_owned()])]
+    );
+
+    let metric_wasm = sample_metric_plugin_wasm();
+    let metric_plugin = load_metric_plugin(
+        Path::new("."),
+        &declaration_with_kind("sample-metric", PluginKind::Metric, metric_wasm),
+        &PluginHostConfig::default(),
+    )
+    .expect("0.4.0 sample metric plugin loads");
+    assert_eq!(metric_plugin.version(), 1);
 }
 
 fn assert_incompatible_contract_error(
@@ -719,12 +814,12 @@ fn rejects_v0_1_0_language_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_language_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Language plugin must be rejected by 0.3.0 host");
+        .expect("0.1.0 Language plugin must be rejected by 0.4.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-lang",
-        "codeint:plugin/language@0.3.0",
+        "codeint:plugin/language@0.4.0",
         "codeint:plugin/language@0.1.0",
     );
 }
@@ -736,41 +831,93 @@ fn rejects_v0_1_0_metric_plugin_with_actionable_version_mismatch_error() {
 
     let error = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
         .err()
-        .expect("0.1.0 Metric plugin must be rejected by 0.3.0 host");
+        .expect("0.1.0 Metric plugin must be rejected by 0.4.0 host");
 
     assert_incompatible_contract_error(
         error,
         "legacy-metric",
-        "codeint:plugin/metric@0.3.0",
+        "codeint:plugin/metric@0.4.0",
         "codeint:plugin/metric@0.1.0",
     );
 }
 
 #[test]
-fn rejects_v0_2_0_language_and_metric_plugins_with_actionable_version_mismatch_error() {
-    let lang_path = sandbox_probe_wasm("legacy_v0_2_0_language_plugin.wasm");
-    let lang_decl = declaration_for("legacy-v02-lang", &lang_path);
-    let lang_err = load_language_plugin(Path::new("."), &lang_decl, &PluginHostConfig::default())
-        .err()
-        .expect("0.2.0 Language plugin must be rejected by 0.3.0 host");
-    assert_incompatible_contract_error(
-        lang_err,
-        "legacy-v02-lang",
-        "codeint:plugin/language@0.3.0",
-        "codeint:plugin/language@0.2.0",
-    );
+fn rejects_v0_2_0_and_v0_3_0_language_and_metric_plugins_with_actionable_version_mismatch_error() {
+    for (label, wasm_file, expected_found) in [
+        (
+            "legacy-v02-lang",
+            "legacy_v0_2_0_language_plugin.wasm",
+            "codeint:plugin/language@0.2.0",
+        ),
+        (
+            "legacy-v03-lang",
+            "legacy_v0_3_0_language_plugin.wasm",
+            "codeint:plugin/language@0.3.0",
+        ),
+    ] {
+        let lang_path = sandbox_probe_wasm(wasm_file);
+        let lang_decl = declaration_for(label, &lang_path);
+        let lang_err =
+            load_language_plugin(Path::new("."), &lang_decl, &PluginHostConfig::default())
+                .err()
+                .expect("legacy Language plugin must be rejected by 0.4.0 host");
+        assert_incompatible_contract_error(
+            lang_err,
+            label,
+            "codeint:plugin/language@0.4.0",
+            expected_found,
+        );
+        let legacy_lang_bytes = std::fs::read(&lang_path).expect("read legacy language wasm");
+        let verify_lang_err =
+            verify_plugin_component(label, &lang_path, PluginKind::Language, &legacy_lang_bytes)
+                .expect_err("legacy language component must fail contract verification");
+        assert_incompatible_contract_error(
+            verify_lang_err,
+            label,
+            "codeint:plugin/language@0.4.0",
+            expected_found,
+        );
+    }
 
-    let metric_path = sandbox_probe_wasm("legacy_v0_2_0_metric_plugin.wasm");
-    let metric_decl = declaration_with_kind("legacy-v02-metric", PluginKind::Metric, &metric_path);
-    let metric_err = load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
-        .err()
-        .expect("0.2.0 Metric plugin must be rejected by 0.3.0 host");
-    assert_incompatible_contract_error(
-        metric_err,
-        "legacy-v02-metric",
-        "codeint:plugin/metric@0.3.0",
-        "codeint:plugin/metric@0.2.0",
-    );
+    for (label, wasm_file, expected_found) in [
+        (
+            "legacy-v02-metric",
+            "legacy_v0_2_0_metric_plugin.wasm",
+            "codeint:plugin/metric@0.2.0",
+        ),
+        (
+            "legacy-v03-metric",
+            "legacy_v0_3_0_metric_plugin.wasm",
+            "codeint:plugin/metric@0.3.0",
+        ),
+    ] {
+        let metric_path = sandbox_probe_wasm(wasm_file);
+        let metric_decl = declaration_with_kind(label, PluginKind::Metric, &metric_path);
+        let metric_err =
+            load_metric_plugin(Path::new("."), &metric_decl, &PluginHostConfig::default())
+                .err()
+                .expect("legacy Metric plugin must be rejected by 0.4.0 host");
+        assert_incompatible_contract_error(
+            metric_err,
+            label,
+            "codeint:plugin/metric@0.4.0",
+            expected_found,
+        );
+        let legacy_metric_bytes = std::fs::read(&metric_path).expect("read legacy metric wasm");
+        let verify_metric_err = verify_plugin_component(
+            label,
+            &metric_path,
+            PluginKind::Metric,
+            &legacy_metric_bytes,
+        )
+        .expect_err("legacy metric component must fail contract verification");
+        assert_incompatible_contract_error(
+            verify_metric_err,
+            label,
+            "codeint:plugin/metric@0.4.0",
+            expected_found,
+        );
+    }
 
     let sample_lang_bytes = std::fs::read(sample_plugin_wasm()).expect("read sample language wasm");
     assert!(
@@ -793,34 +940,24 @@ fn rejects_v0_2_0_language_and_metric_plugins_with_actionable_version_mismatch_e
         )
         .is_ok()
     );
-    let legacy_lang_bytes = std::fs::read(&lang_path).expect("read legacy 0.2.0 language wasm");
-    let verify_lang_err = verify_plugin_component(
-        "legacy-v02-lang",
-        &lang_path,
-        PluginKind::Language,
-        &legacy_lang_bytes,
-    )
-    .expect_err("0.2.0 language component must fail contract verification");
-    assert_incompatible_contract_error(
-        verify_lang_err,
-        "legacy-v02-lang",
-        "codeint:plugin/language@0.3.0",
-        "codeint:plugin/language@0.2.0",
-    );
-    let legacy_metric_bytes = std::fs::read(&metric_path).expect("read legacy 0.2.0 metric wasm");
-    let verify_metric_err = verify_plugin_component(
-        "legacy-v02-metric",
-        &metric_path,
-        PluginKind::Metric,
-        &legacy_metric_bytes,
-    )
-    .expect_err("0.2.0 metric component must fail contract verification");
-    assert_incompatible_contract_error(
-        verify_metric_err,
-        "legacy-v02-metric",
-        "codeint:plugin/metric@0.3.0",
-        "codeint:plugin/metric@0.2.0",
-    );
+}
+
+#[test]
+fn rejects_metric_plugin_returning_version_zero_at_load_time() {
+    let wasm_path = sandbox_probe_wasm("zero_version_metric_plugin.wasm");
+    let declaration = declaration_with_kind("zero-ver-metric", PluginKind::Metric, &wasm_path);
+    match load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default()) {
+        Err(
+            ref error @ PluginHostError::InvalidMetricVersion {
+                ref name,
+                version: 0,
+            },
+        ) if name == "zero-ver-metric" => {
+            assert!(error.to_string().contains("positive integer"));
+        }
+        Err(other) => panic!("expected InvalidMetricVersion, got: {other}"),
+        Ok(_) => panic!("Metric plugin with version 0 must be rejected at load time"),
+    }
 }
 
 fn trigger_manifest(directive: &str) -> Vec<Manifest> {
@@ -1016,7 +1153,7 @@ fn rejects_invalid_entry_points_and_declared_dependencies_from_wasm_plugin() {
 }
 
 #[test]
-fn loads_dual_version_language_plugin_exporting_0_2_0_and_0_3_0() {
+fn loads_dual_version_language_plugin_exporting_0_3_0_and_0_4_0() {
     let plugin = load_probe(
         "dual-lang",
         "dual_version_language_plugin.wasm",
@@ -1547,7 +1684,7 @@ fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
         model: main_model,
     };
 
-    let resolved = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&main_file])
+    let resolved = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&main_file], &[])
         .expect("resolve multi-file folder import");
     assert_eq!(resolved.len(), 1);
     assert_eq!(
@@ -1571,15 +1708,18 @@ fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
         "pkg/util -> [pkg/util/alpha.fld, pkg/util/beta.fld]"
     );
 
-    let empty_model = language
-        .lower(&main_path, "use empty\nfn main()\n")
-        .expect("lower empty-import file");
-    let empty_file = SourceFile {
-        path: main_path.clone(),
-        model: empty_model,
+    let resolve_error_for = |source: &str| {
+        let model = language
+            .lower(&main_path, source)
+            .expect("lower probe file");
+        let file = SourceFile {
+            path: main_path.clone(),
+            model,
+        };
+        resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&file], &[])
+            .expect_err("invalid folder import must fail")
     };
-    let empty_err = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&empty_file])
-        .expect_err("empty resolved list must fail");
+    let empty_err = resolve_error_for("use empty\nfn main()\n");
     assert!(
         matches!(
             empty_err,
@@ -1590,16 +1730,7 @@ fn language_plugin_resolves_multi_file_imports_and_metric_plugin_reads_them() {
         ),
         "unexpected error: {empty_err:?}"
     );
-
-    let partial_model = language
-        .lower(&main_path, "use partial-missing\nfn main()\n")
-        .expect("lower partial-missing file");
-    let partial_file = SourceFile {
-        path: main_path,
-        model: partial_model,
-    };
-    let partial_err = resolve_runtime_imports(&language, &repo_paths, Vec::new(), &[&partial_file])
-        .expect_err("unknown target inside multi-file list must fail");
+    let partial_err = resolve_error_for("use partial-missing\nfn main()\n");
     assert!(
         matches!(
             partial_err,

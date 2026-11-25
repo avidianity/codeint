@@ -55,6 +55,7 @@ impl Guest for Python {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         resolve_all(&repository_paths, &manifests, &requests)
     }
@@ -66,6 +67,8 @@ impl Guest for Python {
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
         discover_entry_points(&repository_paths, &manifests)
     }
+
+    codeint_model::empty_framework_profile_guest_methods!();
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         if !path.ends_with(".py") {

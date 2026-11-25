@@ -144,6 +144,7 @@ fn python_imports_type_checking_resolution_and_workspaces() {
                     specifier: "..missing".into(),
                 },
             ],
+            &[],
         )
         .expect("resolve imports");
     assert_eq!(
@@ -308,7 +309,7 @@ def fetch(cfg: Mapping[str, str]) -> str:
         })
         .collect();
     let resolutions = Python
-        .resolve_imports(&repo, manifests.clone(), requests)
+        .resolve_imports(&repo, manifests.clone(), requests, &[])
         .expect("resolve imports");
     let expected = [
         ("collections.abc", Resolution::Builtin),
@@ -504,7 +505,7 @@ fn relative_symbol_imports_fall_back_to_package_init_without_hiding_missing_subm
     .collect();
 
     let resolutions = Python
-        .resolve_imports(&repo, manifests, requests)
+        .resolve_imports(&repo, manifests, requests, &[])
         .expect("resolve imports");
     assert_eq!(
         resolutions[0],

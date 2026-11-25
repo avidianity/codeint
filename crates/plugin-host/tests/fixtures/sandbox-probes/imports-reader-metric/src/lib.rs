@@ -4,7 +4,6 @@ extern crate alloc;
 extern crate probe_runtime;
 
 use alloc::format;
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 wit_bindgen::generate!({
@@ -20,17 +19,12 @@ struct ImportsReaderMetricPlugin;
 export!(ImportsReaderMetricPlugin);
 
 impl Guest for ImportsReaderMetricPlugin {
-    fn key() -> String {
-        "resolved_links".to_string()
-    }
-
-    fn name() -> String {
-        "Resolved links".to_string()
-    }
-
-    fn description() -> String {
-        "Test Metric plugin that reads multi-file resolved runtime imports".to_string()
-    }
+    probe_runtime::metric_metadata!(
+        "resolved_links",
+        "Resolved links",
+        "Test Metric plugin that reads multi-file resolved runtime imports",
+        1
+    );
 
     fn measure(model: CodeModel) -> Measurement {
         let mut findings = Vec::new();

@@ -1,12 +1,12 @@
 use super::language::{
-    DeclaredDep, DepKind, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange,
-    Resolution, SourceSet, WorkspaceError,
+    DeclaredDep, DepKind, FileModel, FrameworkProfileResult, Guest, ImportRequest, LowerError,
+    Manifest, ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
 use super::{
     CodeModel, FunctionCoverage, ImportResolution, InvalidReferenceRange, LanguageFacts,
     LanguagePlugin, LanguagePluginError, ManifestUsedDep, Package, ReferenceRanges, RepoPath,
-    RuntimeImport, SourceFile, Workspace, token_text_hash, validate_declared_dependencies,
-    validate_entry_points,
+    RuntimeImport, SourceFile, Workspace, empty_framework_profile_result, token_text_hash,
+    validate_declared_dependencies, validate_entry_points, validate_framework_profile_result,
 };
 
 fn path(text: &str) -> RepoPath {
@@ -80,6 +80,7 @@ impl Guest for MeasuredLanguage {
         _repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         let reason = format!("{} manifests name no module", manifests.len());
         requests
@@ -100,6 +101,8 @@ impl Guest for MeasuredLanguage {
         vec![range("erosion", 0.12, 0.56, "Measured panel, Table 1")]
     }
 
+    crate::empty_framework_profile_guest_methods!();
+
     fn has_hazard_rules() -> bool {
         false
     }
@@ -116,6 +119,7 @@ impl Guest for MeasuredLanguage {
 fn range(metric: &str, low: f64, high: f64, source: &str) -> ReferenceRange {
     ReferenceRange {
         metric: metric.to_owned(),
+        metric_version: 1,
         low,
         high,
         source: source.to_owned(),
@@ -572,4 +576,56 @@ fn unlisted_hazard_rule_error_names_plugin_file_and_rule() {
             && message.contains("unlisted-rule"),
         "unexpected error message: {message}"
     );
+}
+
+#[test]
+fn validate_framework_profile_result_rejects_unlisted_profiles_unknown_paths_and_invalid_ranges() {
+    let known = vec!["react".to_owned()];
+    let files = vec![path("src/App.tsx"), path("src/gen/routes.ts")];
+    let valid = FrameworkProfileResult {
+        active_profiles: vec!["react".to_owned()],
+        entry_points: vec!["src/App.tsx".to_owned()],
+        generated_paths: vec!["src/gen/routes.ts".to_owned()],
+        reference_ranges: vec![range("erosion", 0.1, 0.5, "React panel")],
+        reference_range_note: Some("react profile".to_owned()),
+    };
+    assert!(validate_framework_profile_result(&known, &files, valid).is_ok());
+
+    let unlisted = FrameworkProfileResult {
+        active_profiles: vec!["svelte".to_owned()],
+        ..empty_framework_profile_result()
+    };
+    assert!(matches!(
+        validate_framework_profile_result(&known, &files, unlisted),
+        Err(LanguagePluginError::UnlistedFrameworkProfile { ref profile }) if profile == "svelte"
+    ));
+
+    let bad_entry = FrameworkProfileResult {
+        entry_points: vec!["src/missing.tsx".to_owned()],
+        ..empty_framework_profile_result()
+    };
+    assert!(matches!(
+        validate_framework_profile_result(&known, &files, bad_entry),
+        Err(LanguagePluginError::UnknownEntryPoint { ref path }) if path == "src/missing.tsx"
+    ));
+
+    let bad_generated = FrameworkProfileResult {
+        generated_paths: vec!["../escape.ts".to_owned()],
+        ..empty_framework_profile_result()
+    };
+    assert!(matches!(
+        validate_framework_profile_result(&known, &files, bad_generated),
+        Err(LanguagePluginError::InvalidGeneratedPath { ref path }) if path == "../escape.ts"
+    ));
+
+    let bad_range = FrameworkProfileResult {
+        reference_ranges: vec![range("erosion", 0.8, 0.2, "Reversed")],
+        ..empty_framework_profile_result()
+    };
+    assert!(matches!(
+        validate_framework_profile_result(&known, &files, bad_range),
+        Err(LanguagePluginError::InvalidFrameworkReferenceRange(
+            InvalidReferenceRange::Bounds { .. }
+        ))
+    ));
 }

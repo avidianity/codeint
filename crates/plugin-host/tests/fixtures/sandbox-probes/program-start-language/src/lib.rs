@@ -14,8 +14,8 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    SourceSet, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
 
 struct ProgramStartLanguagePlugin;
@@ -64,6 +64,7 @@ impl Guest for ProgramStartLanguagePlugin {
         repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         requests
             .into_iter()
@@ -100,6 +101,8 @@ impl Guest for ProgramStartLanguagePlugin {
     fn reference_ranges() -> Vec<ReferenceRange> {
         Vec::new()
     }
+
+    probe_runtime::empty_framework_profile_stubs!();
 
     fn has_hazard_rules() -> bool {
         false

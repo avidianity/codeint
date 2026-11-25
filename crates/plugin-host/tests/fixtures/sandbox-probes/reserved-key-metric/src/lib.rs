@@ -3,8 +3,6 @@
 extern crate alloc;
 extern crate probe_runtime;
 
-use alloc::string::String;
-
 wit_bindgen::generate!({
     world: "metric-plugin",
     path: "../../../../../../wit",
@@ -17,17 +15,12 @@ struct ReservedKeyProbe;
 export!(ReservedKeyProbe);
 
 impl Guest for ReservedKeyProbe {
-    fn description() -> String {
-        String::from("Rejects built-in Metric key reuse")
-    }
-
-    fn name() -> String {
-        String::from("Reserved key")
-    }
-
-    fn key() -> String {
-        String::from("cognitive_complexity")
-    }
+    probe_runtime::metric_metadata!(
+        "cognitive_complexity",
+        "Reserved key",
+        "Rejects built-in Metric key reuse",
+        1
+    );
 
     fn measure(_model: CodeModel) -> Measurement {
         unreachable!("load must reject the reserved Metric key before measure runs")

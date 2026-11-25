@@ -145,5 +145,5 @@ impl Guest for LegacyV020LanguagePlugin {
         })
     }
 
-    probe_runtime::empty_language_metadata_stubs!();
+    probe_runtime::legacy_language_metadata_stubs!();
 }

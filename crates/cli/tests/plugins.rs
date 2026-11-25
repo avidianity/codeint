@@ -1082,11 +1082,12 @@ fn invalid_plugin_limits_print_the_offending_key_and_exit_2() {
     }
 }
 
-fn assert_legacy_v0_2_0_plugin_stops_check(
+fn assert_legacy_plugin_stops_check(
     plugin_name: &str,
     kind: &str,
     wasm_file: &str,
     found_interface: &str,
+    found_version: &str,
     expected_interface: &str,
 ) {
     let output = run_check_with_sandbox_probe(plugin_name, Some(kind), wasm_file);
@@ -1104,39 +1105,129 @@ fn assert_legacy_v0_2_0_plugin_stops_check(
     assert!(
         lines[0].contains(plugin_name)
             && lines[0].contains(found_interface)
-            && lines[0].contains("0.2.0")
+            && lines[0].contains(found_version)
             && lines[0].contains(expected_interface)
-            && lines[0].contains("0.3.0"),
+            && lines[0].contains("0.4.0"),
         "expected stderr line 1 to name plugin and both versions, got: {}",
         lines[0]
     );
     assert!(
-        lines[1].to_ascii_lowercase().contains("rebuild") && lines[1].contains("0.3.0"),
-        "expected stderr line 2 to instruct rebuilding against 0.3.0, got: {}",
+        lines[1].to_ascii_lowercase().contains("rebuild") && lines[1].contains("0.4.0"),
+        "expected stderr line 2 to instruct rebuilding against 0.4.0, got: {}",
         lines[1]
     );
 }
 
 #[test]
-fn v0_2_0_language_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
-    assert_legacy_v0_2_0_plugin_stops_check(
+fn v0_2_0_and_v0_3_0_language_plugins_stop_check_with_exit_2_and_rebuild_remedy() {
+    assert_legacy_plugin_stops_check(
         "legacy-v02-lang",
         "language",
         "legacy_v0_2_0_language_plugin.wasm",
         "codeint:plugin/language@0.2.0",
+        "0.2.0",
+        "codeint:plugin/language@0.4.0",
+    );
+    assert_legacy_plugin_stops_check(
+        "legacy-v03-lang",
+        "language",
+        "legacy_v0_3_0_language_plugin.wasm",
         "codeint:plugin/language@0.3.0",
+        "0.3.0",
+        "codeint:plugin/language@0.4.0",
     );
 }
 
 #[test]
-fn v0_2_0_metric_plugin_stops_check_with_exit_2_and_rebuild_remedy() {
-    assert_legacy_v0_2_0_plugin_stops_check(
+fn v0_2_0_and_v0_3_0_metric_plugins_stop_check_with_exit_2_and_rebuild_remedy() {
+    assert_legacy_plugin_stops_check(
         "legacy-v02-metric",
         "metric",
         "legacy_v0_2_0_metric_plugin.wasm",
         "codeint:plugin/metric@0.2.0",
-        "codeint:plugin/metric@0.3.0",
+        "0.2.0",
+        "codeint:plugin/metric@0.4.0",
     );
+    assert_legacy_plugin_stops_check(
+        "legacy-v03-metric",
+        "metric",
+        "legacy_v0_3_0_metric_plugin.wasm",
+        "codeint:plugin/metric@0.3.0",
+        "0.3.0",
+        "codeint:plugin/metric@0.4.0",
+    );
+}
+
+#[test]
+fn zero_version_metric_plugin_stops_check_with_exit_2_and_actionable_remedy() {
+    let output = run_check_with_sandbox_probe(
+        "zero-ver-metric",
+        Some("metric"),
+        "zero_version_metric_plugin.wasm",
+    );
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(lines.len() >= 2, "expected error and remedy, got: {stderr}");
+    assert!(
+        lines[0].contains("zero-ver-metric") && lines[0].contains("version 0"),
+        "expected version 0 error, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("positive integer") && lines[1].contains("version"),
+        "expected actionable version remedy, got: {}",
+        lines[1]
+    );
+}
+
+fn run_check_markdown_stdout(repo_path: &Path) -> String {
+    let output = run_codeint(repo_path, &["check", "--format", "markdown"]);
+    assert_eq!(output.status.code(), Some(0));
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+#[test]
+fn stale_reference_range_from_external_language_plugin_hides_stale_range_with_note_without_failing()
+{
+    let (repo, _hash) = init_single_probe_repo(
+        "stale-ranges",
+        None,
+        "stale_reference_range_language_plugin.wasm",
+        "",
+    );
+    write_file(repo.path(), "src/sample.stale", "alpha\nbeta\n");
+
+    let report = run_check_json_report(repo.path());
+    let prod = &report["source_sets"]["production"];
+    for (metric, expected_found) in [
+        ("erosion", "Metric version 2"),
+        ("verbosity", "Metric version 0"),
+    ] {
+        let note = prod[metric]["reference_range"]
+            .as_str()
+            .unwrap_or_else(|| panic!("stale {metric} Reference range must be hidden as a note"));
+        assert!(
+            note.contains(expected_found) && note.contains("Metric version 1"),
+            "unexpected stale {metric} note: {note:?}"
+        );
+    }
+    assert_eq!(
+        prod["duplication"]["reference_range"]["source"],
+        "fresh v1 duplication panel"
+    );
+
+    let md_stdout = run_check_markdown_stdout(repo.path());
+    for needle in [
+        "Metric version 2",
+        "Metric version 0",
+        "fresh v1 duplication panel",
+    ] {
+        assert!(
+            md_stdout.contains(needle),
+            "missing {needle:?} in markdown: {md_stdout}"
+        );
+    }
 }
 
 fn assert_exact_language_findings(findings: &[Value], expected: &[(&str, &str)]) {

@@ -156,8 +156,9 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, DepKind, FileModel, FlaggedLine, Function, Guest, ImportRequest, LowerError,
-    Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
+    DeclaredDep, DepKind, FileModel, FlaggedLine, FrameworkProfileResult,
+    FrameworkProfileSelection, Function, Guest, ImportRequest, LowerError, Manifest,
+    ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
 };
 
 struct SampleMiniPlugin;
@@ -457,17 +458,7 @@ impl LowerState {
     }
 }
 
-fn resolve_single_import(repository_paths: &[String], request: ImportRequest) -> Resolution {
-    if request.specifier.starts_with("std:") {
-        return Resolution::Builtin;
-    }
-    let Some(relative) = request.specifier.strip_prefix("./") else {
-        return Resolution::External(request.specifier);
-    };
-    let candidate = match request.importer.rsplit_once('/') {
-        Some((dir, _)) => format!("{dir}/{relative}"),
-        None => relative.to_string(),
-    };
+fn resolve_mini_candidate(repository_paths: &[String], candidate: String) -> Resolution {
     let with_ext = if candidate.ends_with(".mini") {
         candidate.clone()
     } else {
@@ -479,6 +470,95 @@ fn resolve_single_import(repository_paths: &[String], request: ImportRequest) ->
         Resolution::Resolved(vec![with_ext])
     } else {
         Resolution::Unresolved(format!("cannot find {with_ext}"))
+    }
+}
+
+fn resolve_single_import(
+    repository_paths: &[String],
+    request: ImportRequest,
+    active_profiles: &[String],
+) -> Resolution {
+    if request.specifier.starts_with("std:") {
+        return Resolution::Builtin;
+    }
+    if active_profiles.iter().any(|profile| profile == "mini-web")
+        && let Some(alias_path) = request.specifier.strip_prefix("@/")
+    {
+        return resolve_mini_candidate(repository_paths, format!("src/{alias_path}"));
+    }
+    let Some(relative) = request.specifier.strip_prefix("./") else {
+        return Resolution::External(request.specifier);
+    };
+    let candidate = match request.importer.rsplit_once('/') {
+        Some((dir, _)) => format!("{dir}/{relative}"),
+        None => relative.to_string(),
+    };
+    resolve_mini_candidate(repository_paths, candidate)
+}
+
+fn detect_framework_profiles(manifests: &[Manifest]) -> Vec<String> {
+    ["mini-web", "mini-cli"]
+        .into_iter()
+        .filter(|profile| {
+            let marker = format!("framework:{profile}");
+            manifests
+                .iter()
+                .any(|manifest| manifest.text.lines().any(|line| line.trim() == marker))
+        })
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn select_active_profiles(
+    detected: Vec<String>,
+    selection: FrameworkProfileSelection,
+) -> Result<Vec<String>, String> {
+    match selection {
+        FrameworkProfileSelection::Auto => Ok(detected),
+        FrameworkProfileSelection::Disabled => Ok(Vec::new()),
+        FrameworkProfileSelection::Exclude(excluded) => Ok(detected
+            .into_iter()
+            .filter(|profile| !excluded.contains(profile))
+            .collect()),
+        FrameworkProfileSelection::Only(only) => {
+            if let Some(unknown) = only
+                .iter()
+                .find(|profile| profile.as_str() != "mini-web" && profile.as_str() != "mini-cli")
+            {
+                return Err(format!("unknown Framework profile {unknown:?}"));
+            }
+            Ok(only)
+        }
+    }
+}
+
+fn filter_mini_paths(files: &[String], folder: &str) -> Vec<String> {
+    files
+        .iter()
+        .filter(|file| file.contains(folder) && file.ends_with(".mini"))
+        .cloned()
+        .collect()
+}
+
+fn select_profile_ranges(has_web: bool, has_cli: bool) -> (Vec<ReferenceRange>, Option<String>) {
+    if has_web && has_cli {
+        (
+            Vec::new(),
+            Some("multiple profiles active; falling back to base mini ranges".to_string()),
+        )
+    } else if has_web {
+        (
+            vec![ReferenceRange {
+                metric: "erosion".to_string(),
+                metric_version: 1,
+                low: 0.05,
+                high: 0.4,
+                source: "mini-web framework profile".to_string(),
+            }],
+            Some("mini-web profile active".to_string()),
+        )
+    } else {
+        (Vec::new(), None)
     }
 }
 
@@ -554,10 +634,11 @@ impl Guest for SampleMiniPlugin {
         repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         requests
             .into_iter()
-            .map(|request| resolve_single_import(&repository_paths, request))
+            .map(|request| resolve_single_import(&repository_paths, request, &active_profiles))
             .collect()
     }
 
@@ -613,10 +694,45 @@ impl Guest for SampleMiniPlugin {
     fn reference_ranges() -> Vec<ReferenceRange> {
         vec![ReferenceRange {
             metric: "erosion".to_string(),
+            metric_version: 1,
             low: 0.0,
             high: 0.5,
             source: "sample mini language fixture".to_string(),
         }]
+    }
+
+    fn known_framework_profiles() -> Vec<String> {
+        vec!["mini-web".to_string(), "mini-cli".to_string()]
+    }
+
+    fn resolve_framework_profiles(
+        _package_root: String,
+        files: Vec<String>,
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, String> {
+        let detected = detect_framework_profiles(&manifests);
+        let active_profiles = select_active_profiles(detected, selection)?;
+        let has_web = active_profiles.iter().any(|profile| profile == "mini-web");
+        let has_cli = active_profiles.iter().any(|profile| profile == "mini-cli");
+        let entry_points = if has_web {
+            filter_mini_paths(&files, "pages/")
+        } else {
+            Vec::new()
+        };
+        let generated_paths = if has_web {
+            filter_mini_paths(&files, "gen/")
+        } else {
+            Vec::new()
+        };
+        let (reference_ranges, reference_range_note) = select_profile_ranges(has_web, has_cli);
+        Ok(FrameworkProfileResult {
+            active_profiles,
+            entry_points,
+            generated_paths,
+            reference_ranges,
+            reference_range_note,
+        })
     }
 
     fn has_hazard_rules() -> bool {

@@ -1,6 +1,6 @@
 use codeint_model::{Metric, STRUCTURAL_REPORT_KEYS, SourceSet};
 
-use super::validate_metric_key;
+use super::{validate_metric_key, validate_metric_version};
 use crate::PluginHostError;
 
 fn assert_reserved_metric_key(reserved: &str) {
@@ -74,5 +74,25 @@ fn rejects_every_metric_registry_structural_and_source_set_key() {
         .chain(SourceSet::ALL.into_iter().map(SourceSet::key))
     {
         assert_reserved_metric_key(reserved);
+    }
+}
+
+#[test]
+fn validates_positive_integer_metric_versions() {
+    let error =
+        validate_metric_version("custom-metric", 0).expect_err("Metric version 0 must be rejected");
+    assert!(
+        matches!(
+            error,
+            PluginHostError::InvalidMetricVersion {
+                ref name,
+                version: 0,
+            } if name == "custom-metric"
+        ),
+        "unexpected error: {error}"
+    );
+    for version in [1, 2, 42] {
+        validate_metric_version("custom-metric", version)
+            .unwrap_or_else(|err| panic!("expected version {version} to be accepted: {err}"));
     }
 }

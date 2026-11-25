@@ -18,14 +18,14 @@ mod bindings {
         world: "language-plugin",
         path: "../../wit",
         additional_derives: [PartialEq, Eq],
-        additional_derives_ignore: ["reference-range"],
+        additional_derives_ignore: ["reference-range", "framework-profile-result"],
     });
 }
 
 pub use bindings::exports::codeint::plugin::language;
 pub use language::{
-    DeclaredDep, DepKind, FileModel, FunctionCoverage, HazardLine, Manifest, ReferenceRange,
-    SourceSet, Token, TokenKind,
+    DeclaredDep, DepKind, FileModel, FrameworkProfileResult, FrameworkProfileSelection,
+    FunctionCoverage, HazardLine, Manifest, ReferenceRange, SourceSet, Token, TokenKind,
 };
 pub use metric::{
     ExternalFinding, ExternalMetricMeasurement, Metric, MetricCapability, MetricDescriptor,
@@ -358,6 +358,10 @@ impl ReferenceRanges {
     pub fn for_metric(&self, metric: &str) -> Option<&ReferenceRange> {
         self.by_metric.get(metric)
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &ReferenceRange> {
+        self.by_metric.values()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -368,6 +372,18 @@ pub enum LanguagePluginError {
         "the Language plugin returned entry point {path:?}, which is not a file of the repository"
     )]
     UnknownEntryPoint { path: String },
+    #[error("the Language plugin returned an invalid generated path {path:?}")]
+    InvalidGeneratedPath { path: String },
+    #[error(
+        "the Language plugin returned generated path {path:?}, which is not a file of the package"
+    )]
+    UnknownGeneratedPath { path: String },
+    #[error("the Language plugin returned an unlisted Framework profile {profile:?}")]
+    UnlistedFrameworkProfile { profile: String },
+    #[error("the Language plugin failed to resolve Framework profiles: {message}")]
+    FrameworkProfile { message: String },
+    #[error("the Language plugin returned an invalid Framework profile Reference range")]
+    InvalidFrameworkReferenceRange(#[from] InvalidReferenceRange),
     #[error(
         "the Language plugin declared a dependency with an invalid package root {package_root:?}"
     )]
@@ -441,6 +457,99 @@ pub fn validate_entry_points(
         .collect()
 }
 
+fn validate_known_paths(
+    paths: &[String],
+    known_files: &HashSet<&str>,
+    invalid: fn(String) -> LanguagePluginError,
+    unknown: fn(String) -> LanguagePluginError,
+) -> Result<(), LanguagePluginError> {
+    for path in paths {
+        let repo_path = RepoPath::new(path.clone()).map_err(|_| invalid(path.clone()))?;
+        if !known_files.contains(repo_path.as_str()) {
+            return Err(unknown(path.clone()));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_framework_profile_result(
+    known_profiles: &[String],
+    files: &[RepoPath],
+    result: FrameworkProfileResult,
+) -> Result<FrameworkProfileResult, LanguagePluginError> {
+    let known_profile_set: HashSet<&str> = known_profiles.iter().map(String::as_str).collect();
+    for profile in &result.active_profiles {
+        if !known_profile_set.contains(profile.as_str()) {
+            return Err(LanguagePluginError::UnlistedFrameworkProfile {
+                profile: profile.clone(),
+            });
+        }
+    }
+    let known_files: HashSet<&str> = files.iter().map(RepoPath::as_str).collect();
+    validate_known_paths(
+        &result.entry_points,
+        &known_files,
+        |path| LanguagePluginError::InvalidEntryPointPath { path },
+        |path| LanguagePluginError::UnknownEntryPoint { path },
+    )?;
+    validate_known_paths(
+        &result.generated_paths,
+        &known_files,
+        |path| LanguagePluginError::InvalidGeneratedPath { path },
+        |path| LanguagePluginError::UnknownGeneratedPath { path },
+    )?;
+    let _ = ReferenceRanges::new(result.reference_ranges.clone())?;
+    Ok(result)
+}
+
+pub fn empty_framework_profile_result() -> FrameworkProfileResult {
+    FrameworkProfileResult {
+        active_profiles: Vec::new(),
+        entry_points: Vec::new(),
+        generated_paths: Vec::new(),
+        reference_ranges: Vec::new(),
+        reference_range_note: None,
+    }
+}
+
+#[macro_export]
+macro_rules! empty_framework_profile_guest_methods {
+    () => {
+        fn known_framework_profiles() -> ::std::vec::Vec<::std::string::String> {
+            ::std::vec::Vec::new()
+        }
+
+        fn resolve_framework_profiles(
+            _package_root: ::std::string::String,
+            _files: ::std::vec::Vec<::std::string::String>,
+            _manifests: ::std::vec::Vec<$crate::language::Manifest>,
+            _selection: $crate::language::FrameworkProfileSelection,
+        ) -> ::std::result::Result<$crate::language::FrameworkProfileResult, ::std::string::String>
+        {
+            ::std::result::Result::Ok($crate::empty_framework_profile_result())
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! empty_framework_profile_plugin_methods {
+    () => {
+        fn known_framework_profiles(&self) -> ::std::vec::Vec<::std::string::String> {
+            ::std::vec::Vec::new()
+        }
+
+        fn resolve_framework_profiles(
+            &self,
+            _package_root: &str,
+            _files: &[$crate::RepoPath],
+            _manifests: ::std::vec::Vec<$crate::Manifest>,
+            _selection: $crate::FrameworkProfileSelection,
+        ) -> ::std::result::Result<$crate::FrameworkProfileResult, $crate::LanguagePluginError> {
+            ::std::result::Result::Ok($crate::empty_framework_profile_result())
+        }
+    };
+}
+
 pub trait LanguagePlugin: Sync {
     fn extensions(&self) -> Vec<String>;
 
@@ -456,6 +565,7 @@ pub trait LanguagePlugin: Sync {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
+        active_profiles: &[String],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError>;
 
     fn declared_dependencies(
@@ -470,6 +580,16 @@ pub trait LanguagePlugin: Sync {
     ) -> Result<Vec<RepoPath>, LanguagePluginError>;
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
+
+    fn known_framework_profiles(&self) -> Vec<String>;
+
+    fn resolve_framework_profiles(
+        &self,
+        package_root: &str,
+        files: &[RepoPath],
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, LanguagePluginError>;
 
     fn has_hazard_rules(&self) -> bool;
 
@@ -506,11 +626,13 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
+        active_profiles: &[String],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         Ok(Plugin::resolve_imports(
             owned_paths(repository_paths),
             manifests,
             requests,
+            active_profiles.to_vec(),
         ))
     }
 
@@ -534,6 +656,27 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         ReferenceRanges::new(Plugin::reference_ranges())
+    }
+
+    fn known_framework_profiles(&self) -> Vec<String> {
+        Plugin::known_framework_profiles()
+    }
+
+    fn resolve_framework_profiles(
+        &self,
+        package_root: &str,
+        files: &[RepoPath],
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, LanguagePluginError> {
+        let result = Plugin::resolve_framework_profiles(
+            package_root.to_owned(),
+            owned_paths(files),
+            manifests,
+            selection,
+        )
+        .map_err(|message| LanguagePluginError::FrameworkProfile { message })?;
+        validate_framework_profile_result(&Plugin::known_framework_profiles(), files, result)
     }
 
     fn has_hazard_rules(&self) -> bool {

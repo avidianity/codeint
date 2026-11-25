@@ -72,7 +72,8 @@ let external = load_language_plugins(repository.root(), &configuration.plugins, 
 - `PluginSource::HttpsUrl` downloads through `curl` with `--proto =https --tlsv1.2 --proto-redir =https`, verifies the SHA-256 digest of the downloaded bytes before atomically renaming into `<cache_dir>/<sha256>.wasm`, and reuses a valid cached entry without network I/O.
 - Every `WasmLanguagePlugin` is instantiated with an empty `wasmtime::component::Linker` with zero host capabilities (no WASI, no filesystem, no network, no environment variables, no clocks).
   A component that imports any host interface fails to instantiate with `PluginHostError::Instantiate`.
-- Every `WasmLanguagePlugin` and `WasmMetricPlugin` validates its exported WIT interface version against `codeint:plugin@0.3.0` before instantiation; an incompatible version (such as `codeint:plugin@0.2.0`) fails with `PluginHostError::IncompatibleContractVersion`.
+- Every `WasmLanguagePlugin` and `WasmMetricPlugin` validates its exported WIT interface version against `codeint:plugin@0.4.0` before instantiation; an incompatible version (such as `codeint:plugin@0.3.0` or `codeint:plugin@0.2.0`) fails with `PluginHostError::IncompatibleContractVersion`.
+- Every `WasmMetricPlugin` also validates its `version()` export at load time through `validate_metric_version`, rejecting `0` with `PluginHostError::InvalidMetricVersion`.
 - `verify_plugin_component` compiles component bytes and checks the exported WIT contract version and zero-capability sandbox requirements without instantiating or running untrusted guest code.
 - Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter` and wall-clock time limit via `wasmtime` epoch interruption).
   Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from `codeint.json`.

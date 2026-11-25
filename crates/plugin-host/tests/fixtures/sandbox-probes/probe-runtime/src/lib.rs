@@ -193,7 +193,7 @@ pub fn extract_manifest_entries(
 }
 
 #[macro_export]
-macro_rules! empty_language_metadata_stubs {
+macro_rules! common_empty_language_metadata_stubs {
     () => {
         fn manifest_paths(
             _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
@@ -205,14 +205,6 @@ macro_rules! empty_language_metadata_stubs {
             _manifests: ::alloc::vec::Vec<Manifest>,
         ) -> ::core::result::Result<::alloc::vec::Vec<::alloc::string::String>, WorkspaceError> {
             ::core::result::Result::Ok(::alloc::vec::Vec::new())
-        }
-
-        fn resolve_imports(
-            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
-            _manifests: ::alloc::vec::Vec<Manifest>,
-            _requests: ::alloc::vec::Vec<ImportRequest>,
-        ) -> ::alloc::vec::Vec<Resolution> {
-            ::alloc::vec::Vec::new()
         }
 
         fn declared_dependencies(
@@ -230,6 +222,105 @@ macro_rules! empty_language_metadata_stubs {
 
         fn reference_ranges() -> ::alloc::vec::Vec<ReferenceRange> {
             ::alloc::vec::Vec::new()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! empty_resolve_imports_stub {
+    ($($extra_param:ident : $extra_ty:ty),* $(,)?) => {
+        fn resolve_imports(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+            _requests: ::alloc::vec::Vec<ImportRequest>,
+            $($extra_param: $extra_ty),*
+        ) -> ::alloc::vec::Vec<Resolution> {
+            ::alloc::vec::Vec::new()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! legacy_language_metadata_stubs {
+    () => {
+        $crate::common_empty_language_metadata_stubs!();
+        $crate::empty_resolve_imports_stub!();
+    };
+}
+
+#[macro_export]
+macro_rules! empty_framework_profile_stubs {
+    () => {
+        fn known_framework_profiles() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn resolve_framework_profiles(
+            _package_root: ::alloc::string::String,
+            _files: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+            _selection: FrameworkProfileSelection,
+        ) -> ::core::result::Result<FrameworkProfileResult, ::alloc::string::String> {
+            ::core::result::Result::Ok(FrameworkProfileResult {
+                active_profiles: ::alloc::vec::Vec::new(),
+                entry_points: ::alloc::vec::Vec::new(),
+                generated_paths: ::alloc::vec::Vec::new(),
+                reference_ranges: ::alloc::vec::Vec::new(),
+                reference_range_note: ::core::option::Option::None,
+            })
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! empty_language_metadata_stubs {
+    () => {
+        $crate::common_empty_language_metadata_stubs!();
+        $crate::empty_resolve_imports_stub!(_active_profiles: ::alloc::vec::Vec<::alloc::string::String>);
+        $crate::empty_framework_profile_stubs!();
+    };
+}
+
+#[macro_export]
+macro_rules! metric_metadata {
+    ($key:expr, $name:expr, $description:expr, $version:expr) => {
+        fn key() -> ::alloc::string::String {
+            ::alloc::string::ToString::to_string($key)
+        }
+
+        fn name() -> ::alloc::string::String {
+            ::alloc::string::ToString::to_string($name)
+        }
+
+        fn description() -> ::alloc::string::String {
+            ::alloc::string::ToString::to_string($description)
+        }
+
+        fn version() -> u32 {
+            $version
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! capability_probe_language_tail {
+    () => {
+        fn lower(_path: ::alloc::string::String, _text: ::alloc::string::String) -> ::core::result::Result<FileModel, LowerError> {
+            ::core::result::Result::Err(LowerError::DeclarationOnly)
+        }
+
+        $crate::empty_language_metadata_stubs!();
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn has_imports() -> bool {
+            true
         }
     };
 }
@@ -253,6 +344,7 @@ macro_rules! panic_no_imports_stubs {
             _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
             _manifests: ::alloc::vec::Vec<Manifest>,
             _requests: ::alloc::vec::Vec<ImportRequest>,
+            _active_profiles: ::alloc::vec::Vec<::alloc::string::String>,
         ) -> ::alloc::vec::Vec<Resolution> {
             panic!("resolve-imports must not be called when has-imports is false");
         }
@@ -321,11 +413,14 @@ macro_rules! fixture_erosion_ranges {
         fn reference_ranges() -> ::alloc::vec::Vec<ReferenceRange> {
             ::alloc::vec![ReferenceRange {
                 metric: ::alloc::string::ToString::to_string("erosion"),
+                metric_version: 1,
                 low: 0.0,
                 high: 0.2,
                 source: ::alloc::string::ToString::to_string($source),
             }]
         }
+
+        $crate::empty_framework_profile_stubs!();
 
         fn has_hazard_rules() -> bool {
             false

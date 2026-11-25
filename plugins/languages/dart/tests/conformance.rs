@@ -112,6 +112,7 @@ fn dart_directives_and_resolution() {
                 text: "name: demo\n".into(),
             }],
             reqs,
+            &[],
         )
         .expect("resolve imports");
     assert_eq!(res[0], Resolution::Resolved(vec!["lib/u.dart".into()]));
@@ -251,7 +252,7 @@ int run() => coreValue();
         });
     }
     let resolutions = Dart
-        .resolve_imports(&files, pubspecs.clone(), requests)
+        .resolve_imports(&files, pubspecs.clone(), requests, &[])
         .expect("resolve imports");
     assert_eq!(
         resolutions,

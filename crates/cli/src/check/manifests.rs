@@ -98,7 +98,7 @@ pub(super) fn finalize_language_model(
             );
         model.declared_dependencies = declared_dependencies;
         model.runtime_imports =
-            resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers)
+            resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers, &[])
                 .map_err(|source| match source {
                     ResolveError::Plugin(error) => CheckError::language_plugin(config_file, error),
                     other => CheckError::Resolve {

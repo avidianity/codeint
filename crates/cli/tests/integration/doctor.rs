@@ -527,25 +527,43 @@ fn doctor_plugin_error_remedies_name_codeint_jsonc_when_active() {
 }
 
 #[test]
-fn doctor_reports_v0_2_0_language_and_metric_plugins_as_not_loadable() {
+fn doctor_reports_v0_2_0_and_v0_3_0_language_and_metric_plugins_as_not_loadable() {
     let cases = [
         (
             "legacy-v02-lang",
             "language",
             "legacy_v0_2_0_language_plugin.wasm",
             "codeint:plugin/language@0.2.0",
-            "codeint:plugin/language@0.3.0",
+            "0.2.0",
+            "codeint:plugin/language@0.4.0",
         ),
         (
             "legacy-v02-metric",
             "metric",
             "legacy_v0_2_0_metric_plugin.wasm",
             "codeint:plugin/metric@0.2.0",
+            "0.2.0",
+            "codeint:plugin/metric@0.4.0",
+        ),
+        (
+            "legacy-v03-lang",
+            "language",
+            "legacy_v0_3_0_language_plugin.wasm",
+            "codeint:plugin/language@0.3.0",
+            "0.3.0",
+            "codeint:plugin/language@0.4.0",
+        ),
+        (
+            "legacy-v03-metric",
+            "metric",
+            "legacy_v0_3_0_metric_plugin.wasm",
             "codeint:plugin/metric@0.3.0",
+            "0.3.0",
+            "codeint:plugin/metric@0.4.0",
         ),
     ];
 
-    for (name, kind, wasm_file, found_interface, expected_interface) in cases {
+    for (name, kind, wasm_file, found_interface, found_version, expected_interface) in cases {
         let fixture = DoctorFixture::git_repo_with_ts();
         let bytes = sandbox_probe_bytes(wasm_file);
         let digest = sha256_hex(&sha256(&bytes));
@@ -567,15 +585,15 @@ fn doctor_reports_v0_2_0_language_and_metric_plugins_as_not_loadable() {
             summary.contains("not loadable")
                 && summary.contains(name)
                 && summary.contains(found_interface)
-                && summary.contains("0.2.0")
+                && summary.contains(found_version)
                 && summary.contains(expected_interface)
-                && summary.contains("0.3.0"),
+                && summary.contains("0.4.0"),
             "expected summary to report {name} not loadable with both versions, got: {summary:?}"
         );
         let remedy = check["remedy"].as_str().unwrap_or_default();
         assert!(
-            remedy.to_ascii_lowercase().contains("rebuild") && remedy.contains("0.3.0"),
-            "expected remedy to instruct rebuilding against 0.3.0, got: {remedy:?}"
+            remedy.to_ascii_lowercase().contains("rebuild") && remedy.contains("0.4.0"),
+            "expected remedy to instruct rebuilding against 0.4.0, got: {remedy:?}"
         );
     }
 

@@ -13,8 +13,9 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, FileModel, Function, Guest, ImportRequest, LowerError, Manifest, ReferenceRange,
-    Resolution, SourceSet, Token, TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Function, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind,
+    WorkspaceError,
 };
 
 struct NoImportsLanguagePlugin;

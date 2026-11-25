@@ -10,13 +10,13 @@ use wasmtime::Store;
 use crate::PluginHostError;
 use crate::limits::{LimitTrap, PluginStoreState, arm_call_deadline, classify_trap};
 use crate::wasm::{
-    ContractSpec, InstancePool, instantiate_sandboxed_component, map_host_trap,
+    ContractSpec, InstancePool, VerifiedComponent, instantiate_sandboxed_component,
     prepare_sandboxed_component,
 };
 
 const METRIC_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/metric@",
-    expected_interface: "codeint:plugin/metric@0.3.0",
+    expected_interface: "codeint:plugin/metric@0.4.0",
 };
 
 pub(crate) fn verify_metric_component(
@@ -54,6 +54,7 @@ pub struct WasmMetricPlugin {
     key: String,
     display_name: String,
     description: String,
+    version: u32,
     instances: InstancePool<bindings::MetricPluginPre<PluginStoreState>, bindings::MetricPlugin>,
 }
 
@@ -64,62 +65,26 @@ impl WasmMetricPlugin {
         bytes: &[u8],
         limits: PluginLimits,
     ) -> Result<WasmMetricPlugin, PluginHostError> {
-        let mut component = instantiate_sandboxed_component(
-            &plugin_name,
+        let verified = VerifiedComponent {
+            name: &plugin_name,
             path,
             bytes,
             limits,
+        };
+        let mut component = instantiate_sandboxed_component(
+            verified,
             METRIC_CONTRACT,
             bindings::MetricPluginPre::new,
             |pre, store| pre.instantiate(store),
         )?;
-        let api = component.bindings.codeint_plugin_metric();
-        arm_call_deadline(&mut component.store, limits);
-        let key = api.call_key(&mut component.store).map_err(|error| {
-            map_host_trap(
-                &plugin_name,
-                path,
-                Some("key"),
-                limits,
-                &component.store,
-                error,
-            )
-        })?;
-        validate_metric_key(&plugin_name, &key)?;
-        arm_call_deadline(&mut component.store, limits);
-        let display_name = api.call_name(&mut component.store).map_err(|error| {
-            map_host_trap(
-                &plugin_name,
-                path,
-                Some("name"),
-                limits,
-                &component.store,
-                error,
-            )
-        })?;
-        arm_call_deadline(&mut component.store, limits);
-        let description = api
-            .call_description(&mut component.store)
-            .map_err(|error| {
-                map_host_trap(
-                    &plugin_name,
-                    path,
-                    Some("description"),
-                    limits,
-                    &component.store,
-                    error,
-                )
-            })?;
-        let display_name = if display_name.trim().is_empty() {
-            key.clone()
-        } else {
-            display_name
-        };
+        let (key, display_name, description, version) =
+            read_metric_metadata(&mut component, &plugin_name, path, limits)?;
         Ok(WasmMetricPlugin {
             plugin_name,
             key,
             display_name,
             description,
+            version,
             instances: InstancePool::from_component(component, limits),
         })
     }
@@ -138,6 +103,10 @@ impl WasmMetricPlugin {
 
     pub(crate) fn description_impl(&self) -> &str {
         &self.description
+    }
+
+    pub(crate) fn version_impl(&self) -> u32 {
+        self.version
     }
 
     pub(crate) fn measure_impl(
@@ -171,6 +140,32 @@ impl WasmMetricPlugin {
     }
 }
 
+fn read_metric_metadata(
+    component: &mut crate::wasm::InstantiatedComponent<
+        bindings::MetricPluginPre<PluginStoreState>,
+        bindings::MetricPlugin,
+    >,
+    plugin_name: &str,
+    path: &Path,
+    limits: PluginLimits,
+) -> Result<(String, String, String, u32), PluginHostError> {
+    let mut init = component.init_session(plugin_name, path, limits);
+    let key = init.call("key", |b, s| b.codeint_plugin_metric().call_key(s))?;
+    validate_metric_key(plugin_name, &key)?;
+    let raw_name = init.call("name", |b, s| b.codeint_plugin_metric().call_name(s))?;
+    let description = init.call("description", |b, s| {
+        b.codeint_plugin_metric().call_description(s)
+    })?;
+    let version = init.call("version", |b, s| b.codeint_plugin_metric().call_version(s))?;
+    validate_metric_version(plugin_name, version)?;
+    let display_name = if raw_name.trim().is_empty() {
+        key.clone()
+    } else {
+        raw_name
+    };
+    Ok((key, display_name, description, version))
+}
+
 fn map_metric_trap(
     plugin: &str,
     limits: PluginLimits,
@@ -191,6 +186,16 @@ fn map_metric_trap(
             reason: error.to_string(),
         },
     }
+}
+
+pub fn validate_metric_version(plugin_name: &str, version: u32) -> Result<(), PluginHostError> {
+    if version == 0 {
+        return Err(PluginHostError::InvalidMetricVersion {
+            name: plugin_name.to_owned(),
+            version,
+        });
+    }
+    Ok(())
 }
 
 pub fn validate_metric_key(plugin_name: &str, key: &str) -> Result<(), PluginHostError> {

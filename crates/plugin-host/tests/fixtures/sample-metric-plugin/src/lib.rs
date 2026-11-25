@@ -188,6 +188,10 @@ impl Guest for SampleLongFunctionsPlugin {
         "Share of functions with more than 10 source lines".to_string()
     }
 
+    fn version() -> u32 {
+        1
+    }
+
     fn measure(model: CodeModel) -> Measurement {
         let mut total_functions: u64 = 0;
         let mut long_functions: u64 = 0;

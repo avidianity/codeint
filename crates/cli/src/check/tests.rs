@@ -108,6 +108,7 @@ macro_rules! every_import_is_external {
             _repository_paths: Vec<String>,
             _manifests: Vec<Manifest>,
             requests: Vec<ImportRequest>,
+            _active_profiles: Vec<String>,
         ) -> Vec<Resolution> {
             requests
                 .iter()
@@ -122,12 +123,15 @@ macro_rules! every_import_is_external {
         fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
             Vec::new()
         }
+
+        codeint_model::empty_framework_profile_guest_methods!();
     };
 }
 
 fn erosion_range(low: f64, high: f64, source: &str) -> Vec<ReferenceRange> {
     vec![ReferenceRange {
         metric: "erosion".to_owned(),
+        metric_version: 1,
         low,
         high,
         source: source.to_owned(),
@@ -156,6 +160,7 @@ macro_rules! panic_on_import_calls {
             _repository_paths: Vec<String>,
             _manifests: Vec<Manifest>,
             _requests: Vec<ImportRequest>,
+            _active_profiles: Vec<String>,
         ) -> Vec<Resolution> {
             panic!("resolve_imports must not be called when has_imports is false");
         }
@@ -167,6 +172,8 @@ macro_rules! panic_on_import_calls {
         fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
             panic!("entry_points must not be called when has_imports is false");
         }
+
+        codeint_model::empty_framework_profile_guest_methods!();
     };
 }
 
@@ -755,6 +762,8 @@ impl ParallelProofPlugin {
 }
 
 impl LanguagePlugin for ParallelProofPlugin {
+    codeint_model::empty_framework_profile_plugin_methods!();
+
     fn extensions(&self) -> Vec<String> {
         vec!["parallel".to_owned()]
     }
@@ -795,6 +804,7 @@ impl LanguagePlugin for ParallelProofPlugin {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: &[String],
     ) -> Result<Vec<Resolution>, codeint_model::LanguagePluginError> {
         Ok(requests
             .iter()
