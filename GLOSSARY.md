@@ -70,6 +70,10 @@ _Avoid_: duplicate, copy
 Three or more overlapping exact or near-clone fragments clustered together across locations in a codebase.
 _Avoid_: duplicate cluster, copy group
 
+**Evaluation suite**:
+The repeatable accuracy, performance, memory, and Reference range calibration harness built from owned synthetic planted-defect suites and a pinned manifest of public repositories measured only in ephemeral scratch folders outside codeint.
+_Avoid_: benchmark pack, test corpus, validation set
+
 **Import cycle**:
 A group of modules in which every module can reach every other module through runtime imports.
 The Import cycles Metric is the share of modules that belong to at least one Import cycle.

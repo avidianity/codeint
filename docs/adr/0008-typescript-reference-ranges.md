@@ -190,6 +190,7 @@ The source label reads `codeint panel of 20 TypeScript and JavaScript repositori
   Rejected: 10 repositories per language give unstable percentiles, and one Language plugin serves both languages.
 - **The most-starred repositories at their current commits.**
   Rejected: recent commits may hold agent-written code, which a range for human-written code must leave out.
+  Superseded on 2026-11-25 by [ADR 0028](./0028-stratified-reference-panels.md), which replaces the top-20 pre-2023 rule with stratified 50-repository base-language panels and 20-repository Framework profile panels pinned to latest default-branch commits.
 - **Remove the outliers and measure again.**
   Rejected: the selection rule keeps them, and the percentile band already limits their effect.
 - **Change the Verbosity definition to exclude clone lines (#81).**

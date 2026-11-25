@@ -52,3 +52,5 @@
 - [ADR 0025: Framework profiles](docs/adr/0025-framework-profiles.md)
 - [ADR 0026: Direct numerator-rise Regression rules and `.codeint/` Ratchet ceilings](docs/adr/0026-regression-and-ratchet.md)
 - [ADR 0027: Narrow ADR 0004 amendment for `codeint-plugin-sdk` guest runtime shim](docs/adr/0027-plugin-sdk-guest-runtime-unsafe.md)
+- [ADR 0028: Stratified 50-repository current-codebase Reference panels](docs/adr/0028-stratified-reference-panels.md)
+- [ADR 0029: Hand-written lexers for PHP, Dart, Python, and Go Language plugins](docs/adr/0029-hand-written-lexers.md)
