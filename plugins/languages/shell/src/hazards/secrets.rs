@@ -158,6 +158,13 @@ fn strip_outer_quotes(value: &str) -> &str {
     value
 }
 
+fn is_non_secret_shape(value: &str) -> bool {
+    value.starts_with('/')
+        || value.contains("://")
+        || value.bytes().all(|b| b.is_ascii_digit())
+        || value.contains(char::is_whitespace)
+}
+
 fn is_secret_literal(value: &str) -> bool {
     let trimmed = value.trim();
     if trimmed.len() < MIN_SECRET_LITERAL_LEN {
@@ -166,11 +173,7 @@ fn is_secret_literal(value: &str) -> bool {
     if trimmed.starts_with('<') && trimmed.ends_with('>') {
         return false;
     }
-    if trimmed.starts_with('/')
-        || trimmed.contains("://")
-        || trimmed.bytes().all(|b| b.is_ascii_digit())
-        || trimmed.contains(char::is_whitespace)
-    {
+    if is_non_secret_shape(trimmed) {
         return false;
     }
     let lower = trimmed.to_ascii_lowercase();

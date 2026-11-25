@@ -40,27 +40,7 @@ pub(super) fn analyze(
 
     let top_level = collect_top_level_tokens(tokens, &extracted.index);
     let has_top_level_code = top_level.iter().any(|tok| !tok.is_newline());
-    let parsed = parse_commands(&top_level);
-    let mut called: BTreeSet<&str> = BTreeSet::new();
-    for cmd in &parsed.commands {
-        let Some(cmd_idx) = cmd.cmd_idx else {
-            continue;
-        };
-        let cmd_tok = &top_level[cmd_idx];
-        if !cmd_tok.has_quotes {
-            called.insert(cmd_tok.text.as_str());
-        }
-        let args: Vec<&str> = cmd
-            .arg_indices
-            .iter()
-            .map(|&i| top_level[i].text.as_str())
-            .collect();
-        if cmd_tok.is_word("set") {
-            apply_set_args(&args, &mut flags);
-        } else if dialect == ShellDialect::Zsh && cmd_tok.is_word("setopt") {
-            apply_zsh_setopt(&args, &mut flags);
-        }
-    }
+    let called = apply_top_level_commands(&top_level, dialect, &mut flags);
 
     let top_level_errexit = flags.has_e;
     let function_flags: Vec<(&FunctionSpan, StrictFlags)> = extracted
@@ -85,6 +65,35 @@ pub(super) fn analyze(
         has_top_level_code,
         errexit_tokens,
     }
+}
+
+fn apply_top_level_commands<'a>(
+    top_level: &'a [ShellToken],
+    dialect: ShellDialect,
+    flags: &mut StrictFlags,
+) -> BTreeSet<&'a str> {
+    let parsed = parse_commands(top_level);
+    let mut called: BTreeSet<&str> = BTreeSet::new();
+    for cmd in &parsed.commands {
+        let Some(cmd_idx) = cmd.cmd_idx else {
+            continue;
+        };
+        let cmd_tok = &top_level[cmd_idx];
+        if !cmd_tok.has_quotes {
+            called.insert(cmd_tok.text.as_str());
+        }
+        let args: Vec<&str> = cmd
+            .arg_indices
+            .iter()
+            .map(|&i| top_level[i].text.as_str())
+            .collect();
+        if cmd_tok.is_word("set") {
+            apply_set_args(&args, flags);
+        } else if dialect == ShellDialect::Zsh && cmd_tok.is_word("setopt") {
+            apply_zsh_setopt(&args, flags);
+        }
+    }
+    called
 }
 
 fn leading_set_flags(

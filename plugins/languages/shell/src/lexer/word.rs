@@ -231,30 +231,31 @@ fn scan_dollar_unquoted(scanner: &mut Scanner<'_>, acc: &mut WordAcc) -> Result<
             scanner.pos += 1;
             scan_double_quote(scanner, acc)
         }
-        Some(b'(') => {
-            acc.other_segments += 1;
-            scan_dollar_paren(scanner, acc, false)
-        }
+        _ => scan_dollar_expansion(scanner, acc),
+    }
+}
+
+fn scan_dollar_expansion(scanner: &mut Scanner<'_>, acc: &mut WordAcc) -> Result<(), LowerError> {
+    acc.other_segments += 1;
+    let zsh = scanner.dialect == ShellDialect::Zsh;
+    match scanner.peek_at(1) {
+        Some(b'(') => scan_dollar_paren(scanner, acc, false),
         Some(b'{') => {
-            acc.other_segments += 1;
-            if scanner.dialect == ShellDialect::Zsh && scanner.peek_at(2) == Some(b'=') {
+            if zsh && scanner.peek_at(2) == Some(b'=') {
                 acc.record_zsh_split(scanner.line);
             }
             scan_param_expansion(scanner, acc, false)
         }
         Some(next) if is_var_start(next) => {
-            acc.other_segments += 1;
             scan_simple_var(scanner, acc, false);
             Ok(())
         }
-        Some(b'~') if scanner.dialect == ShellDialect::Zsh => {
-            acc.other_segments += 1;
+        Some(b'~') if zsh => {
             acc.record_zsh_split(scanner.line);
             scanner.pos += 1;
             Ok(())
         }
         _ => {
-            acc.other_segments += 1;
             scanner.pos += 1;
             Ok(())
         }
