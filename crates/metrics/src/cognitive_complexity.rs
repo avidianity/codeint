@@ -78,6 +78,10 @@ impl CognitiveComplexity {
         &self.complex_functions
     }
 
+    pub fn totals_by_file(&self) -> &BTreeMap<RepoPath, CognitiveComplexityTotals> {
+        &self.totals_by_file
+    }
+
     pub fn by_package<'model>(
         &self,
         model: &'model CodeModel,

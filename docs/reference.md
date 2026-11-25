@@ -459,12 +459,15 @@ A Regression is a Metric that got worse from the merge-base to the head side by 
 - Any numerator rise (rounded to four decimal places) is a Regression (`numerator_rise`), even when no new Finding identifier appeared.
   The numerator is `eroded_function_mass`, `complex_cognitive_complexity`, `clone_lines`, `verbose_lines`, `modules_in_import_cycles`, `boundary_findings`, `orphan_files`, `hazard_lines`, `unused`, `unlisted`, or `dev_in_production`.
   A Finding that only moves to another file, so the numerator stays the same, is not a Regression under `numerator_rise`.
+- When `regression_limits.per_file` is `true` (`false` by default), `codeint diff` also compares file-level Metric numerators and Findings for every modified file.
+  If any individual modified file worsens, `codeint diff` reports a per-file Regression naming that file, Metric, base value, and head value even when another file shrank enough to keep the repository total flat or lower.
 
 [`regression_limits`](#regression-limits) in `codeint.json` changes these limits.
 `codeint diff` also applies the [Budgets](#budgets) of `codeint.json` to the head side, as `codeint check` does.
 
 When a Budget or a Regression fails, codeint still writes the whole report, lists each failure under `over_budget` or `regressions`, names it on standard error, and exits with code 1.
-Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, and the numerators for `numerator_rise`.
+Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, the repository numerators for `numerator_rise`, and the file-level numerators alongside `file` for `per_file_numerator_rise` and `per_file_new_findings`.
+In SARIF output, per-file Regressions also appear under `runs[0].properties.perFileRegressions`.
 `ratio_rise_limit` is the ratio rise limit of the Metric in that Source set.
 The output of `codeint diff main` [above](#codeint-diff) shows a Regression.
 With no failure, the report has no `over_budget` or `regressions` key, and codeint exits with code 0.
@@ -924,6 +927,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `new_file_budgets.{source_set}.hazards` | number from 0 to 1 | The highest Hazards ratio across newly added files in this Source set; passes when Hazards is absent; see [Hazards](#hazards) |
 | `new_file_budgets.production.test_gap` | number from 0 to 1 | The highest Test gap ratio across newly added Production files; setting `test_gap` under any other Source set stops the run with exit code 2 |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
+| `regression_limits.per_file` | boolean | When `true`, `codeint diff` compares file-level Metric numerators and Findings for every modified file and fails if any modified file worsens; `false` by default |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
 | `regression_limits.{metric}.new_findings` | string | When new Findings or a numerator rise are a Regression: `any_new_finding`, `numerator_rise` (or deprecated alias `numerator_rise_with_new_findings`), or `never` |
@@ -1143,6 +1147,27 @@ Each limit has two settings, and you may set either one or both:
 
 codeint settles each setting on its own: the Source set limit wins, then the Metric limit, then the default.
 So the example above gives production Erosion a ratio rise limit of 0.02 and fails it on any new Finding.
+Set `regression_limits.per_file` to `true` (`false` by default) to prevent a change from worsening one modified file while shrinking another file:
+
+```json codeint.json
+{
+  "regression_limits": {
+    "per_file": true
+  }
+}
+```
+
+```sh exit=1
+codeint diff main
+```
+
+```text stderr
+codeint: the production erosion numerator eroded_function_mass rose from 44.8999 to 67.8823
+codeint: file src/route.ts regressed in production erosion: eroded_function_mass rose from 0 to 67.8823
+```
+
+When `per_file` is `true`, each modified file is checked against its own base file-level numerator (and new Findings when `new_findings` is `any_new_finding`), while Metrics configured with `new_findings: "never"` skip per-file checks.
+Unmodified files and modified files that improve or stay equal pass.
 Setting `orphan_files` under `regression_limits.test`, `regression_limits.generated`, or `regression_limits.vendored` stops the run with exit code 2 and names the key, because Orphan files applies to the Production Source set only (use `regression_limits.orphan_files` or `regression_limits.production.orphan_files`).
 Setting `test_gap` under `regression_limits` (at the top level or under any Source set) stops the run with exit code 2 and names the key, because `codeint diff` leaves Test gap out.
 

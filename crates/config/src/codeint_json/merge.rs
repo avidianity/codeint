@@ -107,7 +107,7 @@ pub(super) fn parse_value_with_overrides(
     let new_file_budgets = new_file_budgets(sections.new_file_budgets);
     append_new_file_budget_settings(&new_file_budgets, &mut settings);
     let regression_limits = sections.regression_limits.into_regression_limits();
-    append_regression_limit_settings(&regression_limits, &mut settings);
+    append_regression_limit_settings(raw.as_ref(), &regression_limits, &mut settings);
     append_languages_setting(effective.languages(), &mut settings);
     let languages = languages(config_file_kind, sections.languages)?;
     append_plugins_setting(raw.as_ref(), effective.plugins(), &mut settings);
@@ -480,9 +480,21 @@ fn push_resolved_regression_limit(
 }
 
 fn append_regression_limit_settings(
+    raw: Option<&Value>,
     limits: &RegressionLimits,
     settings: &mut Vec<ResolvedSetting>,
 ) {
+    let per_file_source = if has_json_path(raw, &["regression_limits", "per_file"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "regression_limits.per_file",
+        json!(limits.per_file()),
+        per_file_source,
+    );
     let extra_metric_keys = limits.extra_metric_keys();
     for source_set in SourceSet::ALL {
         let metric_keys = allowed_regression_limit_metric_keys(Some(source_set), &[]);

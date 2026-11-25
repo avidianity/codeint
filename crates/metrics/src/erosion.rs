@@ -122,4 +122,8 @@ impl Erosion {
     ) -> BTreeMap<Package<'model>, FunctionMasses> {
         group_by_package(model, &self.masses_by_file, FunctionMasses::add)
     }
+
+    pub fn masses_by_file(&self) -> &BTreeMap<RepoPath, FunctionMasses> {
+        &self.masses_by_file
+    }
 }

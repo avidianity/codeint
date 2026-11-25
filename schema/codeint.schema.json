@@ -362,6 +362,10 @@
     "RegressionLimitsFile": {
       "type": "object",
       "properties": {
+        "per_file": {
+          "type": "boolean",
+          "description": "When true, codeint diff compares file-level Metric numerators and Findings for every modified file and reports a Regression if any modified file worsens, even when another file shrank; false by default so moving an unchanged function between files passes."
+        },
         "erosion": {
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Erosion in every Source set."

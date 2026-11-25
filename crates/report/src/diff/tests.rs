@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use codeint_config::RegressionLimit;
 
 use super::{MetricChanges, RegressionRule};
@@ -10,6 +12,9 @@ fn ratio_changes(base_ratio: f64, head_ratio: f64) -> MetricChanges<()> {
         head_ratio: Decimal::rounded(head_ratio),
         base_numerator: Decimal(1.0),
         head_numerator: Decimal(1.0),
+        base_file_numerators: BTreeMap::new(),
+        head_file_numerators: BTreeMap::new(),
+        new_findings_by_file: BTreeMap::new(),
         new: Findings {
             listed: Vec::new(),
             left_out: 0,
@@ -277,6 +282,7 @@ fn diff_report_evaluates_new_file_budgets_and_round_trips_saved_report() {
             budgets: &Budgets::default(),
             new_file_budgets: &config.new_file_budgets,
             new_files: Some(CommitMeasurement::of(new_file_model)),
+            changed_files: BTreeSet::new(),
             limits: &RegressionLimits::default(),
             ownership: crate::OwnershipOptions::default(),
             include_test_gap_note: false,

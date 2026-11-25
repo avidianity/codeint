@@ -55,6 +55,7 @@ If your config file pins an official `$schema` tag newer than the running binary
   },
   // Ratchet rules for `codeint diff`
   "regression_limits": {
+    "per_file": false,
     "generated": {
       "duplication": { "ratio_rise": 1, "new_findings": "never" },
     },
@@ -145,7 +146,9 @@ If your config file pins an official `$schema` tag newer than the running binary
 - **`new_file_budgets`**: per-Source-set maximum ratios (`0` to `1`) enforced by `codeint diff` solely across newly added files (present on the head side and absent at the merge-base), so teams with legacy debt can keep new code clean.
   Stays silent when no new files were added.
   Accepts the same per-Source-set keys as `budgets` (`orphan_files` and `test_gap` under `production` only, plus external Metric keys) and rejects repository-wide Dependency hygiene keys or Production-only keys outside `production` with exit code `2`.
-- **`regression_limits`**: per-Metric or per-Source-set tolerances for `codeint diff`.
+- **`regression_limits`**: per-Metric or per-Source-set tolerances for `codeint diff`, plus an opt-in `per_file` check (`false` by default).
+  Set `per_file: true` to compare file-level Metric numerators and Findings for every modified file so `codeint diff` fails whenever any individual modified file worsens, even if another file deleted a larger Finding.
+  Keep `per_file: false` (the default) when you want moving an unchanged function between files to pass.
   `ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise` (with `numerator_rise_with_new_findings` retained as a deprecated 0.x alias), or `never`.
   By default, `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and external Metrics use `numerator_rise` (failing whenever the numerator rises, rounded to 4 decimal places, while keeping the `0.01` `ratio_rise` buffer when the numerator is flat), whereas `import_cycles`, `boundaries`, `orphan_files`, `hazards`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding` (plus numerator rise).
   Setting `orphan_files` under `regression_limits.test`, `regression_limits.generated`, or `regression_limits.vendored` stops the run with exit code `2`, because Orphan files applies to the Production Source set only.
