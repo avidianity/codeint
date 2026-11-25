@@ -698,6 +698,7 @@ impl CognitiveScorer<'_> {
             }
             "else" => Some(self.visit_else(cursor, end, depth, runs)),
             "func" => self.visit_func_literal(cursor, end, depth, runs),
+            "struct" | "interface" => Some(self.skip_inline_type_body(cursor, end)),
             "goto" => {
                 self.add_flat(1);
                 runs.reset();
@@ -773,6 +774,17 @@ impl CognitiveScorer<'_> {
         pos
     }
 
+    fn skip_inline_type_body(&self, cursor: usize, end: usize) -> usize {
+        if cursor + 1 < end
+            && self.tokens[cursor + 1].text == "{"
+            && let Some(close) = matching_within(self.tokens, cursor + 1, end)
+        {
+            close + 1
+        } else {
+            cursor + 1
+        }
+    }
+
     fn visit_func_literal(
         &mut self,
         cursor: usize,
@@ -832,6 +844,7 @@ fn matches_method_self_call(tokens: &[GoToken], cursor: usize, recv: &str, metho
         && tokens[cursor - 1].text == "."
         && tokens[cursor - 2].kind == GoKind::Ident
         && tokens[cursor - 2].text == recv
+        && (cursor < 3 || tokens[cursor - 3].text != ".")
 }
 
 fn matches_fn_self_call(tokens: &[GoToken], cursor: usize, name: &str) -> bool {

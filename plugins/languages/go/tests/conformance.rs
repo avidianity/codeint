@@ -976,3 +976,233 @@ func NumMulFuncLit(a, b, c, d bool) int {
     );
     assert!(Go.declared_dependencies(manifests).unwrap().is_empty());
 }
+
+#[test]
+fn go_cognitive_excludes_chained_delegation_and_inline_type_bodies() {
+    let src = r#"package delegation
+
+type Node struct {
+	n     *Node
+	inner *Node
+}
+
+func (n *Node) Read() int {
+	return n.n.Read()
+}
+
+func (n *Node) DeepDelegate() int {
+	return n.inner.n.DeepDelegate()
+}
+
+func (n *Node) Recurse(k int) int {
+	if k <= 0 {
+		return 0
+	}
+	return n.Recurse(k - 1)
+}
+
+func CheckMatch(x any) bool {
+	type matcher interface {
+		CheckMatch() bool
+	}
+	if v, ok := x.(interface{ CheckMatch() bool }); ok {
+		return v.CheckMatch()
+	}
+	_, ok := x.(matcher)
+	return ok
+}
+
+func StructLitInBody(a, b bool) int {
+	s := struct {
+		Val int
+	}{
+		Val: func() int {
+			if a && b {
+				return 1
+			}
+			return 0
+		}(),
+	}
+	return s.Val
+}
+"#;
+    let model = lower_ok("pkg/delegation.go", src);
+    let scores: Vec<(Option<&str>, u32)> = model
+        .functions
+        .iter()
+        .map(|f| (f.name.as_deref(), f.cognitive_complexity))
+        .collect();
+    assert_eq!(
+        scores,
+        [
+            (Some("Node.Read"), 0),
+            (Some("Node.DeepDelegate"), 0),
+            (Some("Node.Recurse"), 2),
+            (Some("CheckMatch"), 1),
+            (Some("StructLitInBody"), 3),
+        ]
+    );
+}
+
+#[test]
+fn go_unquotes_escaped_and_raw_cr_imports_and_handles_utf8_escape_in_strings() {
+    let src = "package imp\n\nimport (\n\t\"\\x66mt\"\n\t\"\\u0069o\"\n\t\"\\U00000073ort\"\n\t\"\\157s\"\n\t`net/http\r`\n)\n\nfunc Use() string {\n\treturn \"\\é\"\n}\n";
+    let model = lower_ok("pkg/imp.go", src);
+    assert_eq!(
+        model.runtime_imports,
+        ["fmt", "io", "net/http", "os", "sort"]
+    );
+    assert_eq!(fn_names(&model), [Some("Use")]);
+}
+
+#[test]
+fn go_modern_syntax_go118_to_go124_and_planted_defect_recall() {
+    let src = r#"//go:build linux && amd64
+
+package modern
+
+import (
+	_ "embed"
+	"fmt"
+	f `io`
+)
+
+//go:embed data.txt
+var embedded string
+
+type Pair[K ~int | ~string, V interface{ comparable; ~float64 }] struct {
+	Key K
+	Val V
+}
+
+type Alias[T any] = Pair[string, float64]
+
+func (p *Pair[K, V]) Get() K {
+	return p.Key
+}
+
+func (Pair[K, V]) Zero() K {
+	var zero K
+	return zero
+}
+
+func ((*Pair[K, V])) Reset() {}
+
+func RangeOverIntAndFunc(items []int) int {
+	sum := 0
+	for i := range 10 {
+		sum += i
+	}
+	for v := range func(yield func(int) bool) {
+		for _, item := range items {
+			if !yield(item) {
+				return
+			}
+		}
+	} {
+		sum += v
+	}
+	return sum
+}
+
+func RawStringsRunesAndUnicode(ch1, ch2 chan int) string {
+	raw := `func Fake() {
+		if a && b || c {
+			for i := range 3 {
+				switch i {
+				case 1:
+					import "fake/pkg"
+				}
+			}
+		}
+	} // " ' /*`
+	runes := []rune{'\'', '\\', '\n', '\x7f', '\u1234', '\U0001F600', '\000', '{', '}', '"', '`', 'é'}
+	select {
+	case v, ok := <-ch1:
+		if ok && v > 0 {
+			return fmt.Sprint(v, raw, runes, f.EOF, embedded)
+		}
+	case ch2 <- 1:
+		return "sent"
+	default:
+		return "none"
+	}
+	return ""
+}
+
+func λ(α, β int) int {
+	if α > 0 && β > 0 {
+		return α + β
+	}
+	return 0
+}
+
+func PlantedDefects[T ~int | ~string](x T, flag bool, ch chan int) int {
+	check := func(v bool) bool {
+		if v {
+			return true
+		} else {
+			return false
+		}
+	}
+	var active bool
+	if flag {
+		active = true
+	} else {
+		active = false
+	}
+	_ = check(active)
+	helper := func() {
+		fmt.Println(x)
+		return
+	}
+	helper()
+	select {
+	case <-ch:
+		fmt.Println(x)
+		break
+	default:
+	}
+	if flag {
+		return 1
+	} else {
+		return 2
+	}
+}
+"#;
+    let model = lower_ok("pkg/modern.go", src);
+    assert_eq!(model.runtime_imports, ["embed", "fmt", "io"]);
+    assert_eq!(
+        fn_names(&model),
+        [
+            Some("Pair.Get"),
+            Some("Pair.Zero"),
+            Some("Pair.Reset"),
+            Some("RangeOverIntAndFunc"),
+            Some("RawStringsRunesAndUnicode"),
+            Some("λ"),
+            Some("PlantedDefects"),
+        ]
+    );
+    assert_eq!(model.functions[3].decision_points, 4);
+    assert_eq!(model.functions[4].decision_points, 4);
+    assert_eq!(model.functions[5].decision_points, 2);
+
+    let mut planted_rules: Vec<&str> = model
+        .flagged_lines
+        .iter()
+        .map(|fl| fl.rule.as_str())
+        .collect();
+    planted_rules.sort_unstable();
+    planted_rules.dedup();
+    assert_eq!(
+        planted_rules,
+        [
+            "conditional-yields-boolean",
+            "else-after-return",
+            "if-else-returns-boolean",
+            "redundant-break",
+            "trailing-bare-return",
+        ]
+    );
+}
