@@ -575,7 +575,7 @@ if "init" in features:
     ac_files = (read_text("init/adopt_existing_config.files") or "").split()
     check("init.adopt_existing_config.no_state", not any(f.startswith(".codeint/") for f in ac_files), str(ac_files))
     ac_err = read_text("init/adopt_existing_config.stderr") or ""
-    check("init.adopt_existing_config.stderr", "already exists" in ac_err, ac_err)
+    check("init.adopt_existing_config.stderr", "already exists" in ac_err and "codeint ratchet update" in ac_err and "codeint baseline update" in ac_err, ac_err)
 
     check("init.adopt_existing_state.exit", read_exit("init/adopt_existing_state") == 2, str(read_exit("init/adopt_existing_state")))
     as_before = (read_text("init/adopt_existing_state.before.sha256") or "").strip()

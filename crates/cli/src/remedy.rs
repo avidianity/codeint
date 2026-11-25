@@ -284,6 +284,9 @@ fn init_remedy(error: &InitError) -> Cow<'static, str> {
         ),
         InitError::Git(error) => Cow::Borrowed(git_remedy(error)),
         InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
+        InitError::AdoptConfigurationExists(_) => Cow::Borrowed(
+            "This repository already has a codeint config; run codeint ratchet update and codeint baseline update to create the Ratchet and Baseline for it.",
+        ),
         InitError::Check(error) => check_remedy(error),
         InitError::Ratchet(error) => ratchet_remedy(error),
         InitError::StateFileExists { update_command, .. } => Cow::Owned(format!(

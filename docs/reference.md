@@ -129,6 +129,7 @@ Because the Baseline hides every existing Finding and the Ratchet holds every ce
 `codeint init --adopt` never replaces a file: it stops with exit code 2, before it writes anything, when a configuration file, `.codeint/ratchet.json`, or `.codeint/baseline.json` already exists.
 When measuring fails, it removes the files it wrote and exits with code 2.
 Run `codeint ratchet update` or `codeint baseline update` instead to refresh an existing state file.
+When a configuration file already exists, the message points to `codeint ratchet update` and `codeint baseline update`, which create the state files for it.
 
 ```sh exit=0
 codeint init --adopt

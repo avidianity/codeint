@@ -32,6 +32,7 @@ The command does four things:
 It never replaces a file.
 When `codeint.jsonc`, `codeint.json`, `.codeint/ratchet.json`, or `.codeint/baseline.json` already exists, it stops with exit code 2 and writes nothing.
 In that case, edit the existing file, or use the commands in the sections below.
+When only the configuration file exists, the message names `codeint ratchet update` and `codeint baseline update`, which create the Ratchet and Baseline for it.
 
 Commit `codeint.jsonc` and the `.codeint` folder.
 Then run `codeint check`:

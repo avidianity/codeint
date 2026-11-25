@@ -23,7 +23,7 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | `adopt_fresh` | Git repo with a committed eroded function and no config, run with `--adopt` | `0` | Stored `codeint.jsonc` has `regression_limits.per_file: true`; `.codeint/ratchet.json` and `.codeint/baseline.json` exist with the legacy `erosion` Finding baselined; standard output prints `Next steps` |
 | `adopt_check_clean` | `codeint check` right after `adopt_fresh` | `0` | The baselined legacy Finding does not fail the check |
 | `adopt_check_new` | `codeint check` after a new eroded file is added to the adopted repo | `1` | Standard error reports the new Finding |
-| `adopt_existing_config` | Repo where the config already exists, run with `--adopt` | `2` | Standard error states `already exists`; SHA-256 of the config is unchanged; no file appears under `.codeint/` |
+| `adopt_existing_config` | Repo where the config already exists, run with `--adopt` | `2` | Standard error states `already exists` and names `codeint ratchet update` and `codeint baseline update`; SHA-256 of the config is unchanged; no file appears under `.codeint/` |
 | `adopt_existing_state` | Repo with `.codeint/baseline.json` and no config, run with `--adopt` | `2` | Standard error states `already exists` and names `codeint baseline update`; SHA-256 of `.codeint/baseline.json` is unchanged; no config and no `.codeint/ratchet.json` appear |
 
 ## Drive and Assert

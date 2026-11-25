@@ -32,6 +32,8 @@ pub(crate) enum InitError {
         path: PathBuf,
         update_command: &'static str,
     },
+    #[error(transparent)]
+    AdoptConfigurationExists(StarterConfigurationError),
     #[error("cannot inspect {}", path.display())]
     Inspect {
         path: PathBuf,
@@ -73,7 +75,13 @@ pub(crate) fn adopt(
         &root,
         &starter.languages,
         starter.boundaries.as_ref(),
-    )?;
+    )
+    .map_err(|error| match error {
+        StarterConfigurationError::AlreadyExists { .. } => {
+            InitError::AdoptConfigurationExists(error)
+        }
+        other => InitError::StarterConfiguration(other),
+    })?;
     write_adopted_state(&root, plugin_host, configuration.clone()).inspect_err(|_| {
         let _ = std::fs::remove_file(&configuration);
         let _ = std::fs::remove_file(root.join(DEFAULT_RATCHET_PATH));

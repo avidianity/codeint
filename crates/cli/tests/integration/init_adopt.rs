@@ -111,6 +111,11 @@ fn adopt_never_replaces_an_existing_config_and_writes_nothing_else() {
         stderr.contains("already exists, and codeint init never replaces it"),
         "got: {stderr}"
     );
+    assert!(
+        stderr.contains("codeint ratchet update") && stderr.contains("codeint baseline update"),
+        "got: {stderr}"
+    );
+    assert!(!stderr.contains("run codeint init again"), "got: {stderr}");
     assert_eq!(
         fs::read_to_string(repo.path().join("codeint.jsonc")).expect("read config"),
         "// keep me\n{}\n"
