@@ -28,6 +28,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
       - run: printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title.txt"
       - run: printf '%s\n' "$BODY" > "$RUNNER_TEMP/body.md"
       - run: cargo xtask commit-message --file "$RUNNER_TEMP/title.txt"
