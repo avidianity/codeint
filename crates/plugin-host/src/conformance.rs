@@ -317,7 +317,7 @@ fn record_load_failure(report: &mut ConformanceReport, error: &PluginHostError, 
             report.fail(
                 "metric-key",
                 error.to_string(),
-                "return a lowercase snake_case key that is not a built-in Metric key or a reserved report key",
+                "return a key that starts with a lowercase ASCII letter, contains only lowercase ASCII letters, digits, underscores, or hyphens, and is not a built-in Metric key or a reserved report key",
             );
         }
         PluginHostError::InvalidMetricVersion { .. } => {
@@ -381,29 +381,33 @@ fn run_language(
     let hazard_rules = plugin.hazard_rules();
     check_hazard_rules(report, &plugin, &hazard_rules);
     check_framework_profiles(report, &plugin, &mut watch);
-    let probe_extension = probe_extension(&extensions);
+    let probe_extensions = probe_extensions(&extensions);
     check_lower(
         report,
         &plugin,
         LowerProbeSetup {
             plugin_name: &name,
-            extension: &probe_extension,
+            extensions: &probe_extensions,
             hazard_rules: &hazard_rules,
             sources,
         },
         &mut watch,
     );
-    check_repository_queries(report, &plugin, &probe_extension, &mut watch);
+    check_repository_queries(report, &plugin, &probe_extensions[0], &mut watch);
     watch.settle(report, plugin.peak_memory_bytes(), limits);
 }
 
-fn probe_extension(extensions: &[String]) -> String {
+fn probe_extensions(extensions: &[String]) -> Vec<String> {
+    let mut usable: Vec<String> = Vec::new();
     for extension in extensions {
-        if usable_extension(extension) {
-            return extension.clone();
+        if usable_extension(extension) && !usable.contains(extension) {
+            usable.push(extension.clone());
         }
     }
-    "txt".to_owned()
+    if usable.is_empty() {
+        usable.push("txt".to_owned());
+    }
+    usable
 }
 
 fn usable_extension(extension: &str) -> bool {
@@ -411,13 +415,11 @@ fn usable_extension(extension: &str) -> bool {
 }
 
 fn check_extensions(report: &mut ConformanceReport, extensions: &[String]) {
-    let mut seen = HashSet::new();
     let invalid = extensions.iter().find(|extension| {
         extension.is_empty()
             || extension.starts_with('.')
             || extension.contains('/')
             || extension.chars().any(char::is_whitespace)
-            || !seen.insert(extension.as_str())
     });
     if extensions.is_empty() {
         report.fail(
@@ -428,8 +430,8 @@ fn check_extensions(report: &mut ConformanceReport, extensions: &[String]) {
     } else if let Some(extension) = invalid {
         report.fail(
             "extensions",
-            format!("invalid or duplicate extension {extension:?}"),
-            "return unique extensions without a leading dot, a slash, or whitespace",
+            format!("invalid extension {extension:?}"),
+            "return extensions that are not empty and have no leading dot, slash, or whitespace",
         );
     } else {
         report.pass("extensions", format!("claims {}", extensions.join(", ")));
@@ -441,7 +443,6 @@ fn check_hazard_rules(
     plugin: &WasmLanguagePlugin,
     hazard_rules: &[String],
 ) {
-    let unique: HashSet<&String> = hazard_rules.iter().collect();
     if plugin.has_hazard_rules() != !hazard_rules.is_empty() {
         report.fail(
             "hazard-rules",
@@ -452,11 +453,11 @@ fn check_hazard_rules(
             ),
             "return true from has-hazard-rules exactly when hazard-rules is not empty",
         );
-    } else if hazard_rules.iter().any(String::is_empty) || unique.len() != hazard_rules.len() {
+    } else if hazard_rules.iter().any(String::is_empty) {
         report.fail(
             "hazard-rules",
-            "hazard-rules holds an empty or duplicate rule name",
-            "list each Hazard rule once with a non-empty stable identifier",
+            "hazard-rules holds an empty rule name",
+            "list each Hazard rule with a non-empty stable identifier",
         );
     } else {
         report.pass(
@@ -479,12 +480,11 @@ fn check_framework_profiles(
         );
         return;
     }
-    let unique: HashSet<&String> = profiles.iter().collect();
-    if profiles.iter().any(String::is_empty) || unique.len() != profiles.len() {
+    if profiles.iter().any(String::is_empty) {
         report.fail(
             "framework-profiles",
-            "known-framework-profiles holds an empty or duplicate name",
-            "list each Framework profile once with a non-empty stable name",
+            "known-framework-profiles holds an empty name",
+            "list each Framework profile with a non-empty stable name",
         );
         return;
     }
@@ -538,13 +538,14 @@ fn repo_path(text: &str) -> RepoPath {
 
 struct LowerProbe {
     label: String,
+    extension: String,
     file_name: String,
     text: String,
 }
 
 struct LowerProbeSetup<'a> {
     plugin_name: &'a str,
-    extension: &'a str,
+    extensions: &'a [String],
     hazard_rules: &'a [String],
     sources: &'a [ConformanceSource],
 }
@@ -556,7 +557,7 @@ fn probe_repo_path(file_name: &str, extension: &str) -> RepoPath {
         .unwrap_or_else(|_| repo_path("src/probe.txt"))
 }
 
-fn built_in_probes(extension: &str, sources: &[ConformanceSource]) -> Vec<LowerProbe> {
+fn built_in_probes(extensions: &[String], sources: &[ConformanceSource]) -> Vec<LowerProbe> {
     let samples: [(&str, String); 7] = [
         ("empty file", String::new()),
         ("blank lines", "\n\n\n".to_owned()),
@@ -578,16 +579,23 @@ fn built_in_probes(extension: &str, sources: &[ConformanceSource]) -> Vec<LowerP
         ),
         ("2000 lines", "x = 1\n".repeat(2000)),
     ];
-    let mut probes: Vec<LowerProbe> = samples
-        .into_iter()
-        .map(|(label, text)| LowerProbe {
-            label: label.to_owned(),
+    let mut probes: Vec<LowerProbe> = Vec::new();
+    for extension in extensions {
+        let label_suffix = if extensions.len() > 1 {
+            format!(" (.{extension})")
+        } else {
+            String::new()
+        };
+        probes.extend(samples.iter().map(|(label, text)| LowerProbe {
+            label: format!("{label}{label_suffix}"),
+            extension: extension.clone(),
             file_name: format!("probe.{extension}"),
-            text,
-        })
-        .collect();
+            text: text.clone(),
+        }));
+    }
     probes.extend(sources.iter().map(|source| LowerProbe {
         label: format!("source {}", source.file_name),
+        extension: extensions[0].clone(),
         file_name: source.file_name.clone(),
         text: source.text.clone(),
     }));
@@ -602,8 +610,8 @@ fn check_lower(
 ) {
     let listed: HashSet<String> = setup.hazard_rules.iter().cloned().collect();
     let mut lowered_count = 0;
-    for probe in built_in_probes(setup.extension, setup.sources) {
-        let path = probe_repo_path(&probe.file_name, setup.extension);
+    for probe in built_in_probes(setup.extensions, setup.sources) {
+        let path = probe_repo_path(&probe.file_name, &probe.extension);
         let first = plugin.lower(&path, &probe.text);
         let second = plugin.lower(&path, &probe.text);
         if let Err(error) = &first

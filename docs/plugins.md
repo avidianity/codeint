@@ -499,6 +499,9 @@ Every Language plugin (built-in or external) must pass the shared Seam 2 conform
 The suite verifies:
 
 - Non-empty file extensions without leading dots.
+  An extension that contains `/` or whitespace never matches a repository file name, so `codeint plugin test` fails it.
+  Duplicate extensions are allowed; codeint skips an extension that is already listed.
+- Non-empty Framework profile names, because an empty name can never be selected in config.
 - `UnsupportedFile`, empty file, `DeclarationOnly`, and `Unparsable` handling in `lower`.
 - Production and Test Source set classification.
 - LF and CRLF equivalence for `source-lines` and `functions`.
