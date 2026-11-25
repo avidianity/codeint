@@ -2,6 +2,7 @@
 
 mod dependencies;
 mod entry_points;
+mod frameworks;
 mod functions;
 mod imports;
 mod lexer;
@@ -13,8 +14,9 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    Token, TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token, TokenKind,
+    WorkspaceError,
 };
 use codeint_model::token_text_hash;
 
@@ -77,6 +79,10 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
 }
 
 impl Guest for Dart {
+    fn known_framework_profiles() -> Vec<String> {
+        frameworks::known_profiles()
+    }
+
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
         extract_declared(&manifests)
     }
@@ -93,13 +99,22 @@ impl Guest for Dart {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
-        resolution::resolve_all(&repository_paths, &manifests, &requests)
+        resolution::resolve_dart_imports(&repository_paths, &manifests, &requests, &active_profiles)
     }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         lower_dart(&path, &text)
+    }
+
+    fn resolve_framework_profiles(
+        package_root: String,
+        files: Vec<String>,
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, String> {
+        frameworks::resolve_framework_profiles(package_root, files, manifests, selection)
     }
 
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
@@ -121,8 +136,6 @@ impl Guest for Dart {
             ],
         )
     }
-
-    codeint_model::empty_framework_profile_guest_methods!();
 
     fn has_hazard_rules() -> bool {
         false

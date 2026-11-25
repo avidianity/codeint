@@ -179,7 +179,7 @@ fn resolve_module_spec(
     }
 }
 
-fn module_spec_to_rel_path(spec: &str) -> Option<String> {
+pub(crate) fn module_spec_to_rel_path(spec: &str) -> Option<String> {
     let module_part = spec
         .trim()
         .split(':')
