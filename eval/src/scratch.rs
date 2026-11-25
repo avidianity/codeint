@@ -11,9 +11,15 @@ pub(crate) struct ScratchFolder {
 }
 
 impl ScratchFolder {
-    pub(crate) fn outside(codeint_repository: &Path) -> Result<ScratchFolder, EvaluationError> {
-        let folder =
-            TempDir::with_prefix("codeint-eval-").map_err(io_error(std::env::temp_dir()))?;
+    pub(crate) fn outside(
+        codeint_repository: &Path,
+        scratch_root: Option<&Path>,
+    ) -> Result<ScratchFolder, EvaluationError> {
+        let root = scratch_root.map_or_else(std::env::temp_dir, Path::to_path_buf);
+        let folder = tempfile::Builder::new()
+            .prefix("codeint-eval-")
+            .tempdir_in(&root)
+            .map_err(io_error(root))?;
         let scratch = folder
             .path()
             .canonicalize()

@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -58,20 +57,6 @@ fn file_url(path: &Path) -> String {
     format!("file://{}", path.display())
 }
 
-fn scratch_folders() -> BTreeSet<PathBuf> {
-    std::fs::read_dir(std::env::temp_dir())
-        .expect("read temp folder")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("codeint-eval-"))
-        })
-        .collect()
-}
-
-#[cfg(unix)]
 fn write_fake_oracle(folder: &Path) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
@@ -93,7 +78,6 @@ fn repository<'summary>(
         .expect("repository result")
 }
 
-#[cfg(unix)]
 #[test]
 fn evaluation_runner_measures_local_repositories_in_scratch_folders_and_writes_reports() {
     let (python_repo, python_commit) = source_repository(&[
@@ -114,13 +98,14 @@ fn evaluation_runner_measures_local_repositories_in_scratch_folders_and_writes_r
     });
     std::fs::write(&manifest, corpus.to_string()).expect("write manifest");
     let output_dir = work.path().join("docs");
-    let before = scratch_folders();
+    let scratch_root = TempDir::new().expect("scratch root");
 
     let summary = run_evaluation(&EvaluationConfig {
         manifest,
         codeint: PathBuf::from(env!("CARGO_BIN_EXE_codeint")),
         output_dir: output_dir.clone(),
         codeint_repository: work.path().to_path_buf(),
+        scratch_root: Some(scratch_root.path().to_path_buf()),
         languages: Vec::new(),
         repositories: Vec::new(),
         runs: 3,
@@ -131,8 +116,11 @@ fn evaluation_runner_measures_local_repositories_in_scratch_folders_and_writes_r
     })
     .expect("evaluation runs");
 
-    assert!(
-        scratch_folders().is_subset(&before),
+    assert_eq!(
+        std::fs::read_dir(scratch_root.path())
+            .expect("read scratch root")
+            .count(),
+        0,
         "scratch folders are removed"
     );
     assert!(!summary.passed, "{summary:?}");
@@ -226,7 +214,6 @@ while IFS= read -r path; do
 done < "$1"
 "#;
 
-#[cfg(unix)]
 #[test]
 fn evaluation_runner_counts_files_codeint_did_not_measure_as_recall_misses() {
     use std::os::unix::fs::PermissionsExt;
@@ -274,6 +261,7 @@ fn evaluation_runner_counts_files_codeint_did_not_measure_as_recall_misses() {
         codeint: PathBuf::from(env!("CARGO_BIN_EXE_codeint")),
         output_dir: work.path().join("docs"),
         codeint_repository: work.path().to_path_buf(),
+        scratch_root: None,
         languages: Vec::new(),
         repositories: Vec::new(),
         runs: 1,

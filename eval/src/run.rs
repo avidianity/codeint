@@ -27,6 +27,7 @@ pub struct EvaluationConfig {
     pub codeint: PathBuf,
     pub output_dir: PathBuf,
     pub codeint_repository: PathBuf,
+    pub scratch_root: Option<PathBuf>,
     pub languages: Vec<String>,
     pub repositories: Vec<String>,
     pub runs: u32,
@@ -51,8 +52,9 @@ pub fn run_evaluation(config: &EvaluationConfig) -> Result<EvaluationSummary, Ev
     let config = &resolve_programs(config)?;
     let corpus = load_corpus(&config.manifest)?;
     let selected = select(&corpus, config)?;
+    let oracle_workspace =
+        ScratchFolder::outside(&config.codeint_repository, config.scratch_root.as_deref())?;
     let codeint_version = codeint_version(&config.codeint)?;
-    let oracle_workspace = ScratchFolder::outside(&config.codeint_repository)?;
     let languages: BTreeSet<&str> = selected
         .iter()
         .map(|entry| entry.language.as_str())
@@ -125,7 +127,8 @@ fn measure_repository(
     oracles: &BTreeMap<String, PreparedOracle>,
     population: &mut AuditPopulation,
 ) -> Result<(), EvaluationError> {
-    let scratch = ScratchFolder::outside(&config.codeint_repository)?;
+    let scratch =
+        ScratchFolder::outside(&config.codeint_repository, config.scratch_root.as_deref())?;
     let checkout = clone_at_commit(&scratch, &entry.url, &entry.commit)?;
     let check = measure_check(&config.codeint, &checkout, scratch.path(), config.runs)?;
     record_check(result, &check);

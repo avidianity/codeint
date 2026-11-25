@@ -177,6 +177,7 @@ fn build_dart_oracle(folder: &Path) -> Result<OracleCommand, EvaluationError> {
     run_checked(
         Command::new("dart")
             .args(["pub", "get"])
+            .env("PUB_CACHE", folder.join(".pub-cache"))
             .current_dir(folder),
     )?;
     let binary = folder.join("oracle");
@@ -184,6 +185,7 @@ fn build_dart_oracle(folder: &Path) -> Result<OracleCommand, EvaluationError> {
         Command::new("dart")
             .args(["compile", "exe", "bin/oracle.dart", "-o"])
             .arg(&binary)
+            .env("PUB_CACHE", folder.join(".pub-cache"))
             .current_dir(folder),
     )?;
     Ok(compiled(binary))

@@ -20,12 +20,13 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
 | `--repository <NAME>` | every repository | Measure only the repository with this name, such as `spf13/cobra`; may repeat |
 | `--runs <COUNT>` | `3` | How many times to run `codeint check` per repository |
 | `--audit-sample-size <COUNT>` | `100` | How many Findings to sample per audit category |
+| `--scratch-root <DIR>` | system temporary folder | Create the `codeint-eval-*` scratch folders under this folder |
 | `--oracle <PLUGIN=PROGRAM>` | none | Use `PROGRAM` instead of the built-in native-parser oracle for one Language plugin |
 
 ## Rules
 
 - Each repository is shallow-cloned at its pinned commit into a new folder under the system temporary folder, named `codeint-eval-*`.
-  The runner refuses a temporary folder inside the codeint checkout.
+  The runner exits with code `2` when the scratch folder is inside the codeint repository, whose root it finds with `git rev-parse --show-toplevel` from the manifest's folder, or from the current folder when the manifest is outside a repository.
   It deletes the folder when the repository is measured, also when the clone, the measurement, or the oracle fails.
 - A repository passes when `codeint check` exits `0` and its native-parser recall, when measured, meets the bar.
   A failed clone, a failed measurement, or a failed oracle is recorded as that repository's `error`.
@@ -45,8 +46,12 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
 | `php` | `PhpToken::tokenize` with `TOKEN_PARSE` | `php` 8.1 or newer |
 | `dart` | `package:analyzer` 14.5.0 | `dart` 3.11 or newer, and network access for `dart pub get` |
 
+The Dart minimum is 3.11 because `analyzer` 14.5.0 requires it.
+The newest `analyzer` that admits Dart 3.0 is 6.4.1; it fails with "Expected an identifier." on dot shorthands and null-aware list elements, so it would mark current Dart files as oracle-unparsable.
+
 - The oracle sources live in [oracles/](./oracles/).
   The runner writes them into a scratch folder outside the checkout, and builds the Go and Dart oracles there.
+  `dart pub get` uses a `PUB_CACHE` inside that scratch folder, so nothing outlives the run.
 - When a runtime is missing or too old, or an oracle does not build, the language's recall status is `skipped` with the reason.
 - Recall compares each file that the oracle parses with the codeint Language plugin's model of the same file:
   functions match by first and last line, decision points count up to the oracle's count per matched function, and static imports match by specifier.

@@ -12,6 +12,7 @@ mod coupling;
 mod dependencies;
 mod diff;
 mod doctor;
+#[cfg(unix)]
 mod evaluation_runner;
 mod go;
 mod guard;
