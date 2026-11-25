@@ -1,5 +1,7 @@
 mod common;
 mod history_support;
+#[path = "../wasm_fixtures/mod.rs"]
+mod wasm_fixtures;
 
 mod agent;
 mod boundaries;

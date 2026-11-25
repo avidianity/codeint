@@ -21,22 +21,12 @@ use codeint_plugin_host::{
     load_metric_plugin_with_limits, load_metric_plugins, verify_plugin_component,
 };
 
-use common::{
-    build_fixture_workspace, declaration_for, declaration_with_kind, sample_plugin_wasm,
-    sandbox_probe_wasm,
-};
+use common::{declaration_for, declaration_with_kind, sample_plugin_wasm, sandbox_probe_wasm};
 
 static SAMPLE_METRIC_WASM: OnceLock<PathBuf> = OnceLock::new();
 
 fn sample_metric_plugin_wasm() -> &'static Path {
-    SAMPLE_METRIC_WASM.get_or_init(|| {
-        build_fixture_workspace(
-            "tests/fixtures/sample-metric-plugin/Cargo.toml",
-            "wasm-fixtures",
-            false,
-        )
-        .join("sample_long_functions_plugin.wasm")
-    })
+    SAMPLE_METRIC_WASM.get_or_init(|| sandbox_probe_wasm("sample_long_functions_plugin.wasm"))
 }
 
 fn assert_sandbox_blocks(plugin_name: &str, wasm_file: &str, denied_interface: &str) {
@@ -1790,4 +1780,80 @@ fn metric_plugin_reads_per_language_has_imports_statement() {
             ),
         ],
     );
+}
+
+#[test]
+fn concurrent_plugin_loads_keep_independent_memory_and_time_limits_on_shared_engine() {
+    let hog_path = sandbox_probe_wasm("memory_hog_language_plugin.wasm");
+    let hog_decl = declaration_for("hog-lang", &hog_path);
+    let tight_hog = load_language_plugin_with_limits(
+        Path::new("."),
+        &hog_decl,
+        &PluginHostConfig::default(),
+        PluginLimits {
+            memory_mb: 2,
+            timeout_ms: 1_000,
+        },
+    )
+    .expect("tight memory hog plugin loads");
+    let generous_hog = load_language_plugin_with_limits(
+        Path::new("."),
+        &hog_decl,
+        &PluginHostConfig::default(),
+        PluginLimits {
+            memory_mb: 8,
+            timeout_ms: 1_000,
+        },
+    )
+    .expect("generous memory hog plugin loads");
+
+    let loop_path = sandbox_probe_wasm("loop_language_plugin.wasm");
+    let loop_decl = declaration_for("loop-lang", &loop_path);
+    let short_timeout_loop = load_language_plugin_with_limits(
+        Path::new("."),
+        &loop_decl,
+        &PluginHostConfig::default(),
+        PluginLimits {
+            memory_mb: 4,
+            timeout_ms: 50,
+        },
+    )
+    .expect("loop language plugin loads");
+
+    let sample_metric = load_metric_plugin(
+        Path::new("."),
+        &declaration_with_kind(
+            "long-functions",
+            PluginKind::Metric,
+            sample_metric_plugin_wasm(),
+        ),
+        &PluginHostConfig::default(),
+    )
+    .expect("sample metric plugin loads alongside language plugins");
+
+    let hog_file = RepoPath::new("src/big.hog").expect("valid repo path");
+    assert!(matches!(
+        tight_hog.lower(&hog_file, "ALLOC_2MB\n"),
+        Err(LowerError::MemoryLimitExceeded { memory_mb: 2, .. })
+    ));
+    assert_eq!(
+        generous_hog
+            .lower(&hog_file, "ALLOC_2MB\n")
+            .expect("raised memory cap succeeds while tight-cap instance is loaded")
+            .source_lines,
+        1
+    );
+
+    assert!(matches!(
+        short_timeout_loop.lower(
+            &RepoPath::new("src/hang.loop").expect("valid repo path"),
+            "LOOP_FOREVER\n",
+        ),
+        Err(LowerError::TimeLimitExceeded { timeout_ms: 50, .. })
+    ));
+
+    let measurement = sample_metric
+        .measure(&CodeModel::default())
+        .expect("metric plugin stays healthy after sibling language plugins hit limits");
+    assert_eq!(measurement.denominator, 0.0);
 }

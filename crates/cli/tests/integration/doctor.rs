@@ -1,61 +1,20 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::sync::OnceLock;
 
 use codeint_plugin_host::{sha256, sha256_hex};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-static DOCTOR_SAMPLE_PLUGIN: OnceLock<PathBuf> = OnceLock::new();
-static DOCTOR_SANDBOX_PROBES: OnceLock<PathBuf> = OnceLock::new();
-
-fn compile_fixture_dir(manifest_rel: &str, workspace: bool) -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let target = root.join("target/wasm-fixtures");
-    let mut cmd = Command::new("cargo");
-    cmd.args([
-        "build",
-        "--locked",
-        "--offline",
-        "--target",
-        "wasm32-wasip2",
-    ]);
-    if workspace {
-        cmd.arg("--workspace");
-    }
-    let status = cmd
-        .args([
-            "--manifest-path",
-            &root.join(manifest_rel).to_string_lossy(),
-        ])
-        .args(["--target-dir", &target.to_string_lossy()])
-        .status()
-        .expect("build wasm fixture");
-    assert!(status.success(), "wasm fixture build failed: {status}");
-    target.join("wasm32-wasip2/debug")
-}
-
 fn sample_plugin_bytes() -> Vec<u8> {
-    let path = DOCTOR_SAMPLE_PLUGIN.get_or_init(|| {
-        compile_fixture_dir(
-            "crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml",
-            false,
-        )
-        .join("sample_mini_plugin.wasm")
-    });
+    let path = crate::wasm_fixtures::wasm_fixture_path("sample_mini_plugin.wasm");
     fs::read(path).expect("read compiled sample plugin")
 }
 
 pub(crate) fn sandbox_probe_bytes(file_name: &str) -> Vec<u8> {
-    let dir = DOCTOR_SANDBOX_PROBES.get_or_init(|| {
-        compile_fixture_dir(
-            "crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml",
-            true,
-        )
-    });
-    fs::read(dir.join(file_name)).expect("read compiled sandbox probe")
+    let path = crate::wasm_fixtures::wasm_fixture_path(file_name);
+    fs::read(path).expect("read compiled sandbox probe")
 }
 
 struct DoctorFixture {

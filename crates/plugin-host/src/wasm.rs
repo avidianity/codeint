@@ -1,6 +1,7 @@
+use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use codeint_config::PluginLimits;
 use codeint_model::{
@@ -16,6 +17,66 @@ use crate::limits::{
     EpochTicker, LimitTrap, PluginStoreState, arm_call_deadline, classify_trap,
     enforce_lifted_budget, new_limited_store,
 };
+
+#[cfg(test)]
+mod tests;
+
+const MAX_CACHED_COMPONENTS: usize = 64;
+
+static SHARED_ENGINE: OnceLock<Result<Engine, String>> = OnceLock::new();
+static COMPONENT_CACHE: OnceLock<Mutex<ComponentCache>> = OnceLock::new();
+
+struct ComponentCache {
+    order: VecDeque<[u8; 32]>,
+    entries: BTreeMap<[u8; 32], Component>,
+}
+
+impl ComponentCache {
+    fn new() -> ComponentCache {
+        ComponentCache {
+            order: VecDeque::new(),
+            entries: BTreeMap::new(),
+        }
+    }
+
+    fn get(&self, digest: &[u8; 32]) -> Option<Component> {
+        self.entries.get(digest).cloned()
+    }
+
+    fn insert(&mut self, digest: [u8; 32], component: Component, capacity: usize) {
+        if capacity == 0 || self.entries.contains_key(&digest) {
+            return;
+        }
+        while self.order.len() >= capacity {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.order.push_back(digest);
+        self.entries.insert(digest, component);
+    }
+}
+
+fn shared_engine(name: &str, path: &Path) -> Result<Engine, PluginHostError> {
+    SHARED_ENGINE
+        .get_or_init(|| {
+            let mut config = Config::new();
+            config.wasm_component_model(true);
+            config.epoch_interruption(true);
+            Engine::new(&config).map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .cloned()
+        .map_err(|reason| PluginHostError::Compile {
+            name: name.to_owned(),
+            path: path.to_path_buf(),
+            reason: reason.clone(),
+        })
+}
+
+fn component_cache() -> &'static Mutex<ComponentCache> {
+    COMPONENT_CACHE.get_or_init(|| Mutex::new(ComponentCache::new()))
+}
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -153,20 +214,25 @@ fn compile_component(
     path: &Path,
     bytes: &[u8],
 ) -> Result<(Engine, Component), PluginHostError> {
-    let mut config = Config::new();
-    config.wasm_component_model(true);
-    config.epoch_interruption(true);
-    let engine = Engine::new(&config).map_err(|error| PluginHostError::Compile {
-        name: name.to_owned(),
-        path: path.to_path_buf(),
-        reason: error.to_string(),
-    })?;
+    let engine = shared_engine(name, path)?;
+    let digest = crate::sha256::sha256(bytes);
+    if let Some(component) = component_cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&digest)
+    {
+        return Ok((engine, component));
+    }
     let component =
         Component::from_binary(&engine, bytes).map_err(|error| PluginHostError::Compile {
             name: name.to_owned(),
             path: path.to_path_buf(),
             reason: error.to_string(),
         })?;
+    component_cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(digest, component.clone(), MAX_CACHED_COMPONENTS);
     Ok((engine, component))
 }
 
@@ -233,7 +299,7 @@ pub(crate) fn instantiate_sandboxed_component<Pre, Bindings>(
     instantiate: impl FnOnce(&Pre, &mut Store<PluginStoreState>) -> Result<Bindings, wasmtime::Error>,
 ) -> Result<InstantiatedComponent<Pre, Bindings>, PluginHostError> {
     let (engine, pre) = prepare_sandboxed_component(name, path, bytes, spec, bind)?;
-    let ticker = EpochTicker::start(engine.clone());
+    let ticker = EpochTicker::acquire(&engine);
     let mut store = new_limited_store(&engine, limits);
     let bindings = instantiate(&pre, &mut store)
         .map_err(|error| map_host_trap(name, path, None, limits, &store, error))?;

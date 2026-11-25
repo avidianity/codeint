@@ -1,6 +1,7 @@
 use codeint_config::PluginLimits;
+use wasmtime::{Config, Engine};
 
-use super::enforce_lifted_budget;
+use super::{EpochTicker, enforce_lifted_budget};
 use crate::PluginHostError;
 
 #[test]
@@ -21,4 +22,21 @@ fn enforce_lifted_budget_rejects_excessive_bytes_and_elements() {
         enforce_lifted_budget("probe", limits, max_elements + 1, 0),
         Err(PluginHostError::MemoryLimitExceeded { ref name, memory_mb: 1 }) if name == "probe"
     ));
+}
+
+#[test]
+fn shared_epoch_ticker_reference_counts_leases_and_stops_cleanly() {
+    let mut config = Config::new();
+    config.epoch_interruption(true);
+    let engine = Engine::new(&config).expect("engine with epoch interruption");
+
+    assert_eq!(EpochTicker::snapshot_for_test(), (0, false));
+    let first = EpochTicker::acquire(&engine);
+    assert_eq!(EpochTicker::snapshot_for_test(), (1, true));
+    let second = EpochTicker::acquire(&engine);
+    assert_eq!(EpochTicker::snapshot_for_test(), (2, true));
+    drop(first);
+    assert_eq!(EpochTicker::snapshot_for_test(), (1, true));
+    drop(second);
+    assert_eq!(EpochTicker::snapshot_for_test(), (0, false));
 }
