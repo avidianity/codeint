@@ -11,7 +11,7 @@ use codeint_plugin_host::{sha256, sha256_hex};
 use codeint_report::MeasuredLanguage;
 use serde::Serialize;
 
-use super::CheckError;
+use super::errors::CheckError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResolvedCoverageReportPath {
