@@ -113,8 +113,8 @@ If your config file pins an official `$schema` tag newer than the running binary
   A `hazards` Budget passes when Hazards is absent because no measured language defines Hazard line rules.
   Setting `budgets.production.test_gap` without a matching Coverage report stops the run with exit code `2`; setting `orphan_files` or `test_gap` under another Source set also stops with exit code `2`.
 - **`regression_limits`**: per-Metric or per-Source-set tolerances for `codeint diff`.
-  `ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise_with_new_findings`, or `never`.
-  By default, `import_cycles`, `boundaries`, `orphan_files`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding`, while `hazards` uses the same defaults as the other ratio Metrics (`ratio_rise: 0.01`, `new_findings: "numerator_rise_with_new_findings"`).
+  `ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise` (with `numerator_rise_with_new_findings` retained as a deprecated 0.x alias), or `never`.
+  By default, `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and external Metrics use `numerator_rise` (failing whenever the numerator rises, rounded to 4 decimal places, while keeping the `0.01` `ratio_rise` buffer when the numerator is flat), whereas `import_cycles`, `boundaries`, `orphan_files`, `hazards`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding` (plus numerator rise).
   Setting `orphan_files` under `regression_limits.test`, `regression_limits.generated`, or `regression_limits.vendored` stops the run with exit code `2`, because Orphan files applies to the Production Source set only.
   Setting `test_gap` under `regression_limits` stops the run with exit code `2`, because `codeint diff` leaves Test gap out.
 - **`sql`**: map folders or file globs under `sql.dialects` to `postgresql`, `mysql` (covering MariaDB), `sqlite`, or `duckdb`; unmatched `.sql` files stay generic SQL.

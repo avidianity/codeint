@@ -79,7 +79,7 @@ pub(super) struct ConfigurationFile {
     budgets: SourceSetBudgets,
     #[serde(default)]
     #[schemars(
-        description = "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and new Findings fail only with a numerator rise, except for Import cycles, where any new Finding fails."
+        description = "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and numerator_rise (direct numerator rise), except for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene, where any_new_finding (plus numerator rise) applies."
     )]
     regression_limits: RegressionLimitsFile,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,4 +1,6 @@
-use schemars::JsonSchema;
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::{CodeModel, RepoPath, SourceSet};
@@ -35,12 +37,35 @@ impl MetricScope {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NewFindingsRule {
     AnyNewFinding,
-    NumeratorRiseWithNewFindings,
+    #[serde(alias = "numerator_rise_with_new_findings")]
+    NumeratorRise,
     Never,
+}
+
+impl JsonSchema for NewFindingsRule {
+    fn schema_name() -> Cow<'static, str> {
+        Cow::Borrowed("NewFindingsRule")
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        Cow::Borrowed(concat!(module_path!(), "::NewFindingsRule"))
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "enum": [
+                "any_new_finding",
+                "numerator_rise",
+                "numerator_rise_with_new_findings",
+                "never"
+            ]
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -92,7 +117,7 @@ impl Metric {
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,
-                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                default_new_findings_rule: NewFindingsRule::NumeratorRise,
                 required_capability: MetricCapability::None,
                 numerator_field: "eroded_function_mass",
             },
@@ -106,7 +131,7 @@ impl Metric {
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,
-                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                default_new_findings_rule: NewFindingsRule::NumeratorRise,
                 required_capability: MetricCapability::None,
                 numerator_field: "complex_cognitive_complexity",
             },
@@ -120,7 +145,7 @@ impl Metric {
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,
-                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                default_new_findings_rule: NewFindingsRule::NumeratorRise,
                 required_capability: MetricCapability::None,
                 numerator_field: "clone_lines",
             },
@@ -134,7 +159,7 @@ impl Metric {
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,
-                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                default_new_findings_rule: NewFindingsRule::NumeratorRise,
                 required_capability: MetricCapability::None,
                 numerator_field: "verbose_lines",
             },
@@ -190,7 +215,7 @@ impl Metric {
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::ProductionOnly,
                 supports_diff_regression: false,
-                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                default_new_findings_rule: NewFindingsRule::NumeratorRise,
                 required_capability: MetricCapability::CoverageReport,
                 numerator_field: "untested_function_mass",
             },
@@ -204,7 +229,7 @@ impl Metric {
                 kind: MetricKind::Hazards,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,
-                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                default_new_findings_rule: NewFindingsRule::AnyNewFinding,
                 required_capability: MetricCapability::HazardLines,
                 numerator_field: "hazard_lines",
             },

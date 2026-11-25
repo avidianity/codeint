@@ -10,7 +10,7 @@ use crate::{BudgetFailure, Decimal, dependency_over_budget};
 const REGRESSION_RULES: [RegressionRule; 3] = [
     RegressionRule::RatioRise,
     RegressionRule::NewFindings,
-    RegressionRule::NumeratorRiseWithNewFindings,
+    RegressionRule::NumeratorRise,
 ];
 
 pub(super) fn over_budget(
@@ -194,6 +194,8 @@ impl<T> MetricChanges<T> {
 
     pub(super) fn breaks(&self, rule: RegressionRule, limit: RegressionLimit) -> bool {
         let adds_findings = self.new_findings() > 0;
+        let numerator_rises =
+            Decimal::rounded(self.head_numerator.0).0 > Decimal::rounded(self.base_numerator.0).0;
         match rule {
             RegressionRule::RatioRise => !limit
                 .ratio_rise
@@ -201,10 +203,12 @@ impl<T> MetricChanges<T> {
             RegressionRule::NewFindings => {
                 adds_findings && limit.new_findings == NewFindingsRule::AnyNewFinding
             }
-            RegressionRule::NumeratorRiseWithNewFindings => {
-                adds_findings
-                    && limit.new_findings == NewFindingsRule::NumeratorRiseWithNewFindings
-                    && self.head_numerator.0 > self.base_numerator.0
+            RegressionRule::NumeratorRise => {
+                numerator_rises
+                    && matches!(
+                        limit.new_findings,
+                        NewFindingsRule::NumeratorRise | NewFindingsRule::AnyNewFinding
+                    )
             }
         }
     }
@@ -218,9 +222,9 @@ impl<T> MetricChanges<T> {
             RegressionRule::RatioRise | RegressionRule::NewFindings => {
                 (Decimal(self.base_ratio.0), Decimal(self.head_ratio.0))
             }
-            RegressionRule::NumeratorRiseWithNewFindings => (
-                Decimal(self.base_numerator.0),
-                Decimal(self.head_numerator.0),
+            RegressionRule::NumeratorRise => (
+                Decimal::rounded(self.base_numerator.0),
+                Decimal::rounded(self.head_numerator.0),
             ),
         }
     }
@@ -232,13 +236,12 @@ impl Regression {
             RegressionRule::RatioRise | RegressionRule::NewFindings => {
                 crate::markdown::sentence_item(self)
             }
-            RegressionRule::NumeratorRiseWithNewFindings => format!(
-                "The {} numerator {} rose from {} to {} with {}.",
+            RegressionRule::NumeratorRise => format!(
+                "The {} numerator {} rose from {} to {}.",
                 self.scope_prose(),
                 crate::markdown::code(numerator_key(&self.metric)),
                 self.base.0,
-                self.head.0,
-                new_findings_phrase(self.new_findings)
+                self.head.0
             ),
         }
     }
@@ -276,13 +279,12 @@ impl std::fmt::Display for Regression {
                 "the {scope} Metric has {}, and its Regression limit allows none",
                 new_findings_phrase(self.new_findings)
             ),
-            RegressionRule::NumeratorRiseWithNewFindings => write!(
+            RegressionRule::NumeratorRise => write!(
                 formatter,
-                "the {scope} numerator {} rose from {} to {} with {}",
+                "the {scope} numerator {} rose from {} to {}",
                 numerator_key(&self.metric),
                 self.base.0,
-                self.head.0,
-                new_findings_phrase(self.new_findings)
+                self.head.0
             ),
         }
     }

@@ -83,7 +83,7 @@ fn config_resolved_reports_defaults_only_across_text_json_and_toon_formats() {
     assert_setting(
         &payload,
         "regression_limits.production.erosion.new_findings",
-        json!("numerator_rise_with_new_findings"),
+        json!("numerator_rise"),
         "default",
     );
     assert_setting(
@@ -109,7 +109,7 @@ fn config_resolved_reports_defaults_only_across_text_json_and_toon_formats() {
     assert_setting(
         &payload,
         "regression_limits.production.cognitive_complexity.new_findings",
-        json!("numerator_rise_with_new_findings"),
+        json!("numerator_rise"),
         "default",
     );
     assert_setting(
@@ -216,7 +216,7 @@ fn config_resolved_merges_file_and_cli_overrides_with_per_field_provenance() {
     assert_setting(
         &file_only,
         "regression_limits.production.erosion.new_findings",
-        json!("numerator_rise_with_new_findings"),
+        json!("numerator_rise"),
         "default",
     );
     assert_setting(
@@ -556,4 +556,35 @@ fn config_resolved_reads_codeint_jsonc_and_rejects_ambiguous_config_files() {
 #[test]
 fn config_resolved_reports_broken_symlink_for_codeint_jsonc() {
     assert_broken_config_symlink("codeint.jsonc", "missing-target.jsonc");
+}
+
+#[test]
+fn config_resolved_canonicalizes_deprecated_numerator_rise_alias_and_shows_hazards_default() {
+    let default_repo = init_repo_with_config(None);
+    let default_payload = resolved_json(default_repo.path(), &[]);
+    assert_setting(
+        &default_payload,
+        "regression_limits.production.erosion.new_findings",
+        json!("numerator_rise"),
+        "default",
+    );
+    assert_setting(
+        &default_payload,
+        "regression_limits.production.hazards.new_findings",
+        json!("any_new_finding"),
+        "default",
+    );
+
+    let alias_repo = init_repo_with_config(Some(json!({
+        "regression_limits": {
+            "erosion": { "new_findings": "numerator_rise_with_new_findings" }
+        }
+    })));
+    let alias_payload = resolved_json(alias_repo.path(), &[]);
+    assert_setting(
+        &alias_payload,
+        "regression_limits.production.erosion.new_findings",
+        json!("numerator_rise"),
+        "file",
+    );
 }

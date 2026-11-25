@@ -46,6 +46,37 @@ fn new_findings_saturates_when_left_out_is_usize_max() {
     assert_eq!(changes.new_findings(), usize::MAX);
 }
 
+#[test]
+fn numerator_rise_compares_to_four_decimal_places_and_respects_rule_modes() {
+    use codeint_config::{NewFindingsRule, RatioRise};
+
+    let mut flat_after_rounding = ratio_changes(0.5, 0.5);
+    flat_after_rounding.base_numerator = Decimal(10.00001);
+    flat_after_rounding.head_numerator = Decimal(10.00004);
+    assert!(!flat_after_rounding.breaks(RegressionRule::NumeratorRise, RegressionLimit::DEFAULT));
+
+    let mut rises_without_new_findings = ratio_changes(0.5, 0.5);
+    rises_without_new_findings.base_numerator = Decimal(10.0);
+    rises_without_new_findings.head_numerator = Decimal(10.0001);
+    assert!(
+        rises_without_new_findings.breaks(RegressionRule::NumeratorRise, RegressionLimit::DEFAULT)
+    );
+    assert!(rises_without_new_findings.breaks(
+        RegressionRule::NumeratorRise,
+        RegressionLimit {
+            ratio_rise: RatioRise::DEFAULT,
+            new_findings: NewFindingsRule::AnyNewFinding,
+        }
+    ));
+    assert!(!rises_without_new_findings.breaks(
+        RegressionRule::NumeratorRise,
+        RegressionLimit {
+            ratio_rise: RatioRise::DEFAULT,
+            new_findings: NewFindingsRule::Never,
+        }
+    ));
+}
+
 fn single_file_model(
     path: &str,
     language: &str,

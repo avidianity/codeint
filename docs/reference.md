@@ -310,11 +310,11 @@ source_sets:
       resolved: []
       unchanged: 0
 regressions[1]{source_set,metric,rule,base,head,new_findings,ratio_rise_limit}:
-  production,erosion,numerator_rise_with_new_findings,44.8999,67.8823,1,0.01
+  production,erosion,numerator_rise,44.8999,67.8823,1,0.01
 ```
 
 ```text stderr
-codeint: the production erosion numerator eroded_function_mass rose from 44.8999 to 67.8823 with 1 new Finding
+codeint: the production erosion numerator eroded_function_mass rose from 44.8999 to 67.8823
 ```
 
 codeint reads the merge-base straight from Git objects, so it never checks out a commit and leaves the working tree and the index as they are.
@@ -424,7 +424,7 @@ Pass a branch, tag, or commit that exists in this repository; fetch it first whe
 
 When a repository has a `CODEOWNERS` file (`.github/CODEOWNERS`, `CODEOWNERS`, or `docs/CODEOWNERS`), codeint attaches matched owners to Findings and `--owner <OWNER>` filters Findings to those matching the pattern:
 
-```sh exit=0
+```sh exit=1
 codeint diff main --owner @team
 ```
 
@@ -433,18 +433,18 @@ codeint diff main --owner @team
 A Regression is a Metric that got worse from the merge-base to the head side by more than its limit.
 `codeint diff` checks each Metric of each Source set against three default rules:
 
-- Any new Import cycle is a Regression.
+- Any new Finding on Import cycles, Boundaries, Orphan files, Hazards, or Dependency hygiene is a Regression (`any_new_finding`, plus numerator rise).
 - A ratio rise over 0.01 is a Regression.
-  codeint compares the ratios as the report shows them, rounded to four decimal places, so a rise of exactly 0.01 passes.
-- A numerator rise that adds new Findings is a Regression.
-  The numerator is `eroded_function_mass`, `complex_cognitive_complexity`, `clone_lines`, `verbose_lines`, `modules_in_import_cycles`, or `hazard_lines`.
-  A Finding that only moves, so the numerator stays the same, is not a Regression.
+  codeint compares the ratios as the report shows them, rounded to four decimal places, so a rise of exactly 0.01 passes when the numerator does not rise.
+- Any numerator rise (rounded to four decimal places) is a Regression (`numerator_rise`), even when no new Finding identifier appeared.
+  The numerator is `eroded_function_mass`, `complex_cognitive_complexity`, `clone_lines`, `verbose_lines`, `modules_in_import_cycles`, `boundary_findings`, `orphan_files`, `hazard_lines`, `unused`, `unlisted`, or `dev_in_production`.
+  A Finding that only moves to another file, so the numerator stays the same, is not a Regression under `numerator_rise`.
 
 [`regression_limits`](#regression-limits) in `codeint.json` changes these limits.
 `codeint diff` also applies the [Budgets](#budgets) of `codeint.json` to the head side, as `codeint check` does.
 
 When a Budget or a Regression fails, codeint still writes the whole report, lists each failure under `over_budget` or `regressions`, names it on standard error, and exits with code 1.
-Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, and the numerators for `numerator_rise_with_new_findings`.
+Each Regression names its rule and its base and head values: the ratios for `ratio_rise` and `new_findings`, and the numerators for `numerator_rise`.
 `ratio_rise_limit` is the ratio rise limit of the Metric in that Source set.
 The output of `codeint diff main` [above](#codeint-diff) shows a Regression.
 With no failure, the report has no `over_budget` or `regressions` key, and codeint exits with code 0.
@@ -864,32 +864,32 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
-| `regression_limits.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{metric}.new_findings` | string | When new Findings or a numerator rise are a Regression: `any_new_finding`, `numerator_rise` (or deprecated alias `numerator_rise_with_new_findings`), or `never` |
 | `regression_limits.boundaries` | object | The Regression limit of Boundaries in every Source set |
 | `regression_limits.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
-| `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings or a numerator rise are a Regression: `any_new_finding` (default), `numerator_rise`, or `never` |
 | `regression_limits.orphan_files` | object | The Regression limit of Orphan files in the Production Source set |
 | `regression_limits.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
-| `regression_limits.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.orphan_files.new_findings` | string | When new Orphan files Findings or a numerator rise are a Regression: `any_new_finding` (default), `numerator_rise`, or `never` |
 | `regression_limits.hazards` | object | The Regression limit of Hazards in every Source set; see [Hazards](#hazards) |
 | `regression_limits.hazards.ratio_rise` | number from 0 to 1 | The highest Hazards ratio rise that passes; `0.01` by default |
-| `regression_limits.hazards.new_findings` | string | When new Hazards Findings are a Regression: `numerator_rise_with_new_findings` (default), `any_new_finding`, or `never` |
+| `regression_limits.hazards.new_findings` | string | When new Hazards Findings or a numerator rise are a Regression: `any_new_finding` (default), `numerator_rise`, or `never` |
 | `regression_limits.{dependency_metric}` | object | The Regression limit of this Dependency hygiene Metric |
 | `regression_limits.{dependency_metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
-| `regression_limits.{dependency_metric}.new_findings` | string | When new Dependency hygiene Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{dependency_metric}.new_findings` | string | When new Dependency hygiene Findings or a numerator rise are a Regression: `any_new_finding` (default), `numerator_rise`, or `never` |
 | `regression_limits.{source_set}` | object | The Regression limits of this Source set only |
 | `regression_limits.{source_set}.{metric}` | object | The Regression limit of this Metric in this Source set |
 | `regression_limits.{source_set}.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
-| `regression_limits.{source_set}.{metric}.new_findings` | string | When new Findings are a Regression: `any_new_finding`, `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{source_set}.{metric}.new_findings` | string | When new Findings or a numerator rise are a Regression: `any_new_finding`, `numerator_rise` (or deprecated alias `numerator_rise_with_new_findings`), or `never` |
 | `regression_limits.{source_set}.boundaries` | object | The Regression limit of Boundaries in this Source set |
 | `regression_limits.{source_set}.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
-| `regression_limits.{source_set}.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.{source_set}.boundaries.new_findings` | string | When new Boundaries Findings or a numerator rise are a Regression: `any_new_finding` (default), `numerator_rise`, or `never` |
 | `regression_limits.production.orphan_files` | object | The Regression limit of Orphan files in the Production Source set; setting `orphan_files` under any other Source set stops the run with exit code 2 |
 | `regression_limits.production.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
-| `regression_limits.production.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.production.orphan_files.new_findings` | string | When new Orphan files Findings or a numerator rise are a Regression: `any_new_finding` (default), `numerator_rise`, or `never` |
 | `regression_limits.{source_set}.hazards` | object | The Regression limit of Hazards in this Source set; see [Hazards](#hazards) |
 | `regression_limits.{source_set}.hazards.ratio_rise` | number from 0 to 1 | The highest Hazards ratio rise that passes in this Source set |
-| `regression_limits.{source_set}.hazards.new_findings` | string | When new Hazards Findings are a Regression in this Source set: `numerator_rise_with_new_findings`, `any_new_finding`, or `never` |
+| `regression_limits.{source_set}.hazards.new_findings` | string | When new Hazards Findings or a numerator rise are a Regression in this Source set: `any_new_finding` (default), `numerator_rise`, or `never` |
 | `languages` | list of objects | Which Language plugin measures which folders; see [Languages](#languages) |
 | `languages[].plugin` | string | The name of the Language plugin, such as `typescript-javascript` |
 | `languages[].include` | list of strings | Globs of repository-relative folders or files that the Language plugin measures; a folder covers every file below it |
@@ -1023,7 +1023,7 @@ A key named after a Source set holds limits for that Source set only:
 {
   "regression_limits": {
     "erosion": { "ratio_rise": 0.02 },
-    "import_cycles": { "new_findings": "numerator_rise_with_new_findings" },
+    "import_cycles": { "new_findings": "numerator_rise" },
     "generated": { "duplication": { "ratio_rise": 1 } },
     "production": { "erosion": { "new_findings": "any_new_finding" } }
   }
@@ -1037,10 +1037,10 @@ codeint diff main
 Each limit has two settings, and you may set either one or both:
 
 - `ratio_rise` is the highest ratio rise that passes, a number from 0 to 1; the default is 0.01.
-- `new_findings` says when new Findings are a Regression.
-  `any_new_finding` fails on any new Finding, the default for Import cycles.
-  `numerator_rise_with_new_findings` fails only when the numerator rises too, the default for the other Metrics.
-  `never` lets new Findings pass; together with `ratio_rise: 1`, the Metric never makes a Regression there, which suits the `generated` and `vendored` Source sets.
+- `new_findings` says when new Findings or a numerator rise are a Regression.
+  `any_new_finding` fails on any new Finding or numerator rise, the default for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene.
+  `numerator_rise` fails whenever the numerator rises (rounded to four decimal places), the default for Erosion, Cognitive complexity, Duplication, Verbosity, and external Metrics; `numerator_rise_with_new_findings` is accepted as a deprecated 0.x alias for `numerator_rise`.
+  `never` lets new Findings and numerator rises pass; together with `ratio_rise: 1`, the Metric never makes a Regression there, which suits the `generated` and `vendored` Source sets.
 
 codeint settles each setting on its own: the Source set limit wins, then the Metric limit, then the default.
 So the example above gives production Erosion a ratio rise limit of 0.02 and fails it on any new Finding.
@@ -1482,7 +1482,7 @@ See [docs/guide/hazards.md](./guide/hazards.md) for the full guide.
 - **Disabling rules (`hazards.disabled_rules`)**: list rule names to turn off across the repository.
   A turned-off rule adds no Hazard line and no Finding on either side of `codeint diff`; an unknown rule name stops the run with exit code 2 and names it.
 - **Budgets and Regression limits**: `budgets.{source_set}.hazards` accepts a number from `0` to `1` and passes when Hazards is absent.
-  `regression_limits.hazards` and `regression_limits.{source_set}.hazards` accept `ratio_rise` (default `0.01`) and `new_findings` (default `numerator_rise_with_new_findings`, where the numerator is `hazard_lines`).
+  `regression_limits.hazards` and `regression_limits.{source_set}.hazards` accept `ratio_rise` (default `0.01`) and `new_findings` (default `any_new_finding`, plus numerator rise where the numerator is `hazard_lines`).
 - **No Reference range**: Hazards has no published Reference range.
 
 ```json codeint.json
@@ -1498,7 +1498,7 @@ See [docs/guide/hazards.md](./guide/hazards.md) for the full guide.
   "regression_limits": {
     "hazards": {
       "ratio_rise": 0.01,
-      "new_findings": "numerator_rise_with_new_findings"
+      "new_findings": "any_new_finding"
     },
     "production": {
       "hazards": {

@@ -42,7 +42,7 @@ Turn off named rules, enforce per-Source-set Budgets, and configure `codeint dif
   "regression_limits": {
     "hazards": {
       "ratio_rise": 0.01,
-      "new_findings": "numerator_rise_with_new_findings",
+      "new_findings": "any_new_finding",
     },
     "production": {
       "hazards": {
@@ -69,8 +69,8 @@ Turn off named rules, enforce per-Source-set Budgets, and configure `codeint dif
 
 ### Regression limits (`regression_limits.hazards` and `regression_limits.{source_set}.hazards`)
 
-- Defaults match the other ratio Metrics: `ratio_rise` of `0.01` and `new_findings` of `numerator_rise_with_new_findings` (where the numerator is `hazard_lines`).
-- Set `new_findings` to `any_new_finding` to fail a pull request on any newly introduced Hazard line, or to `never` (with `ratio_rise: 1`) on `generated` or `vendored` SQL.
+- Defaults match the structural Metrics: `ratio_rise` of `0.01` and `new_findings` of `any_new_finding` (plus numerator rise, where the numerator is `hazard_lines`), so introducing a brand-new Hazard line fails even when an old Hazard line is removed elsewhere.
+- Set `new_findings` to `numerator_rise` to allow replacing one Hazard line with another when `hazard_lines` does not rise, or to `never` (with `ratio_rise: 1`) on `generated` or `vendored` SQL.
 - A per-Source-set setting wins over the top-level `regression_limits.hazards` setting.
 
 ## Commands, report formats, and MCP

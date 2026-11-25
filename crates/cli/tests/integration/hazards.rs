@@ -334,3 +334,45 @@ fn secret_sentinel_never_leaks_in_any_check_diff_or_mcp_output() {
     assert_eq!(mcp_finding["line"], 1);
     assert_eq!(mcp_finding["rule"], "plain-text-secret");
 }
+
+#[test]
+fn hazards_default_any_new_finding_fails_even_when_removing_larger_old_hazards() {
+    let fixture = HistoryFixture::init();
+    fixture.save_and_commit(
+        &[(
+            "queries/users.sql",
+            concat!(
+                "SELECT * FROM users WHERE id = 1;\n",
+                "SELECT * FROM orders WHERE id = 2;\n",
+                "SELECT id FROM accounts WHERE id = 3;\n",
+                "SELECT id FROM invoices WHERE id = 4;\n",
+            )
+            .to_owned(),
+        )],
+        "base with two hazards",
+        "2026-05-01T10:00:00Z",
+    );
+    fs::write(
+        fixture.root().join("queries/users.sql"),
+        concat!(
+            "DELETE FROM sessions;\n",
+            "SELECT id FROM orders WHERE id = 2;\n",
+            "SELECT id FROM accounts WHERE id = 3;\n",
+            "SELECT id FROM invoices WHERE id = 4;\n",
+        ),
+    )
+    .expect("replace two hazards with one new hazard");
+
+    let stdout = run_stdout(fixture.root(), &["diff", "HEAD", "--format", "json"], 1);
+    let report: Value = serde_json::from_str(&stdout).expect("valid diff json");
+    let hazards = &report["source_sets"]["production"]["hazards"];
+    assert_eq!(hazards["base_ratio"], 0.5);
+    assert_eq!(hazards["head_ratio"], 0.25);
+    assert_eq!(hazards["new"].as_array().map(Vec::len), Some(1));
+    assert_eq!(hazards["resolved"].as_array().map(Vec::len), Some(2));
+    let regressions = report["regressions"].as_array().expect("regressions");
+    assert_eq!(regressions.len(), 1, "regressions: {regressions:?}");
+    assert_eq!(regressions[0]["metric"], "hazards");
+    assert_eq!(regressions[0]["rule"], "new_findings");
+    assert_eq!(regressions[0]["new_findings"], 1);
+}

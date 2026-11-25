@@ -59,7 +59,8 @@ pub(super) struct Regression {
 pub(super) enum RegressionRule {
     RatioRise,
     NewFindings,
-    NumeratorRiseWithNewFindings,
+    #[serde(alias = "numerator_rise_with_new_findings")]
+    NumeratorRise,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
