@@ -7,11 +7,12 @@ use codeint_config::{
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_plugin_host::{
-    PLUGIN_INTERFACE_VERSION, PluginHostError, sha256, sha256_hex, verify_plugin_component,
+    PLUGIN_INTERFACE_VERSION, PluginHostError, built_in_language_names, built_in_language_plugins,
+    sha256, sha256_hex, verify_plugin_component,
 };
 use codeint_report::{DoctorCheck, DoctorReport};
 
-use crate::check::{BUILT_IN_LANGUAGE_PLUGINS, find_workspace, read_manifests};
+use crate::check::{find_workspace, read_manifests};
 use crate::describe;
 use crate::remedy::{configuration_file_remedy, git_remedy};
 
@@ -209,10 +210,7 @@ fn check_repository_contents(
 }
 
 fn check_languages(tree: &Snapshot, configuration: Option<&Configuration>) -> DoctorCheck {
-    let mut plugin_names: Vec<&str> = BUILT_IN_LANGUAGE_PLUGINS
-        .iter()
-        .map(|plugin| plugin.name)
-        .collect();
+    let mut plugin_names: Vec<&str> = built_in_language_names();
     if let Some(config) = configuration {
         for plugin in &config.plugins {
             if plugin.kind == PluginKind::Language && !plugin_names.contains(&plugin.name.as_str())
@@ -264,7 +262,7 @@ fn count_language_files(
     coverage: &[LanguageCoverage<'_>],
 ) -> Vec<(String, usize)> {
     let mut counts = Vec::new();
-    for (index, named) in BUILT_IN_LANGUAGE_PLUGINS.iter().enumerate() {
+    for (index, named) in built_in_language_plugins().iter().enumerate() {
         let extensions = named.plugin.extensions();
         let matched = tree
             .files()
@@ -283,13 +281,14 @@ fn count_language_files(
 }
 
 fn check_workspace(tree: &Snapshot) -> DoctorCheck {
-    let manifests = match read_manifests(tree, &BUILT_IN_LANGUAGE_PLUGINS) {
+    let plugins = built_in_language_plugins();
+    let manifests = match read_manifests(tree, plugins) {
         Ok(manifests) => manifests,
         Err(error) => {
             return DoctorCheck::error("workspace", describe(&error));
         }
     };
-    let workspace = match find_workspace(&BUILT_IN_LANGUAGE_PLUGINS, &manifests) {
+    let workspace = match find_workspace(plugins, &manifests) {
         Ok(workspace) => workspace,
         Err(error) => {
             return DoctorCheck::error("workspace", describe(&error)).with_remedy(
@@ -334,9 +333,9 @@ fn check_plugins(
             "No external Wasm Plugins configured",
         )];
     }
-    let mut seen_names: BTreeSet<String> = BUILT_IN_LANGUAGE_PLUGINS
-        .iter()
-        .map(|plugin| plugin.name.to_owned())
+    let mut seen_names: BTreeSet<String> = built_in_language_names()
+        .into_iter()
+        .map(str::to_owned)
         .collect();
     configuration
         .plugins

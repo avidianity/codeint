@@ -1216,10 +1216,10 @@ fn assert_package_ranges(repo: &std::path::Path, cases: &[(&str, &str)]) {
 
 #[test]
 fn react_reference_ranges_select_adr_0020_and_preserve_vue_and_hybrid_precedence() {
-    let ts_plugin = [NamedLanguagePlugin {
-        name: "typescript-javascript",
-        plugin: &codeint_lang_ts::TypeScriptAndJavaScript,
-    }];
+    let ts_plugin = [codeint_plugin_host::built_in_language_plugin(
+        codeint_plugin_host::TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
+    )
+    .expect("built-in typescript-javascript plugin")];
 
     type RangeCase<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a str);
     let cases: &[RangeCase<'_>] = &[

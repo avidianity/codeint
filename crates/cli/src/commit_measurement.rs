@@ -1,12 +1,12 @@
 use codeint_config::Configuration;
 use codeint_git::{CommitId, Repository, ResultCache, Snapshot};
-use codeint_plugin_host::PLUGIN_INTERFACE_VERSION;
+use codeint_plugin_host::{PLUGIN_INTERFACE_VERSION, built_in_language_names};
 use codeint_report::{CommitMeasurement, CommitMeasurementOptions};
 use serde::Serialize;
 
 use crate::check::{
-    BUILT_IN_LANGUAGE_PLUGINS, CheckError, CoverageReportDigest, LoadedPlugins, MeasuredSnapshot,
-    SelectedPackage, compute_dependency_hygiene, compute_orphan_files, filter_languages_to_package,
+    CheckError, CoverageReportDigest, LoadedPlugins, MeasuredSnapshot, SelectedPackage,
+    compute_dependency_hygiene, compute_orphan_files, filter_languages_to_package,
     hash_configured_coverage_reports, measure_snapshot, select_workspace_package,
     workspace_of_languages,
 };
@@ -59,10 +59,10 @@ impl<'run> CommitMeasurer<'run> {
         result_cache: Option<&'run ResultCache>,
         package: Option<&'run str>,
     ) -> CommitMeasurer<'run> {
-        let mut language_plugins: Vec<PluginIdentity> = BUILT_IN_LANGUAGE_PLUGINS
-            .iter()
-            .map(|named| PluginIdentity {
-                name: named.name.to_owned(),
+        let mut language_plugins: Vec<PluginIdentity> = built_in_language_names()
+            .into_iter()
+            .map(|name| PluginIdentity {
+                name: name.to_owned(),
                 version: CODEINT_VERSION.to_owned(),
             })
             .collect();

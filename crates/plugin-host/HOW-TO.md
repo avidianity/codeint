@@ -1,12 +1,68 @@
-# How to load external Language plugins
+# How to use the Plugin host
 
-## Load plugins declared in codeint.json
+## Discover built-in Language plugins
+
+```rust
+use codeint_plugin_host::{
+    built_in_language_descriptors, built_in_language_hazard_rules, built_in_language_names,
+    built_in_language_plugin, built_in_language_plugins,
+};
+
+let plugins = built_in_language_plugins();
+let reserved = built_in_language_names();
+let descriptors = built_in_language_descriptors();
+let hazard_rules = built_in_language_hazard_rules();
+let ts_plugin = built_in_language_plugin("typescript-javascript");
+```
+
+- `built_in_language_plugins` returns the static slice of all seven built-in `NamedLanguagePlugin` entries (`typescript-javascript`, `rust`, `php`, `dart`, `python`, `go`, `sql`).
+- `built_in_language_plugin` looks up a single built-in Language plugin by name.
+- `built_in_language_names` returns the reserved built-in plugin names in registration order.
+- `built_in_language_descriptors` returns each built-in Language plugin's name and claimed extensions for schema and discovery reporting.
+- `built_in_language_hazard_rules` returns the map of built-in Language plugins that expose Hazard line rules to their declared rule names.
+
+## Lower SQL files and run the cross-file SQL schema pass
+
+```rust
+use std::collections::BTreeMap;
+
+use codeint_config::SqlDialect;
+use codeint_plugin_host::{apply_sql_schema_pass, lower_sql_source};
+
+let lowered = lower_sql_source(&path, source, SqlDialect::Postgresql)?;
+let mut parsed_by_path = BTreeMap::new();
+parsed_by_path.insert(path, lowered.parsed);
+let summaries = apply_sql_schema_pass(&mut sql_model, &parsed_by_path);
+```
+
+- `lower_sql_source` lowers a SQL source file with the configured `codeint_config::SqlDialect` and returns its `FileModel`, opaque `SqlParsedFile`, and any `SqlRejectedStatement` entries.
+- `apply_sql_schema_pass` builds per-(package, dialect) schemas from non-vendored, non-down-migration SQL files, appends cross-file schema Hazard lines to `sql_model`, and returns sorted `SqlSchemaScopeSummary` records.
+
+## Select framework-aware Reference ranges
+
+```rust
+use codeint_plugin_host::{
+    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, manifests_declare_framework_reference_ranges,
+    select_language_reference_ranges,
+};
+
+let has_framework = manifests_declare_framework_reference_ranges(
+    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
+    &manifests,
+);
+let ranges = select_language_reference_ranges(&named, &model, &manifests)?;
+```
+
+- `select_language_reference_ranges` is a temporary host helper that selects React (ADR 0020) or Vue (ADR 0014 / ADR 0015) Reference ranges for `typescript-javascript` when the measured files and manifests match, preserving hybrid Vue+React fallback to the base TypeScript/JavaScript ranges, and delegates to `named.plugin.reference_ranges()` for all other plugins.
+- `manifests_declare_framework_reference_ranges` reports whether a set of manifests declares React or Vue framework ranges for the named plugin, used when scoping member manifests in a Workspace.
+
+## Load external plugins declared in codeint.json
 
 ```rust
 use codeint_config::PluginHostConfig;
-use codeint_plugin_host::load_language_plugins;
+use codeint_plugin_host::{built_in_language_names, load_language_plugins};
 
-let reserved = ["typescript-javascript"];
+let reserved = built_in_language_names();
 let host_config = PluginHostConfig::default();
 let external = load_language_plugins(repository.root(), &configuration.plugins, &reserved, &host_config)?;
 ```
@@ -14,10 +70,12 @@ let external = load_language_plugins(repository.root(), &configuration.plugins, 
 - `load_language_plugins` reads each local plugin file or fetches and caches each HTTPS plugin once, verifies its SHA-256 digest against the declared `sha256` before caching, compiling, or instantiating it, and returns `Vec<(String, WasmLanguagePlugin)>`.
 - Relative paths in `PluginSource::Path` resolve against `repository_root`; absolute paths are used as given.
 - `PluginSource::HttpsUrl` downloads through `curl` with `--proto =https --tlsv1.2 --proto-redir =https`, verifies the SHA-256 digest of the downloaded bytes before atomically renaming into `<cache_dir>/<sha256>.wasm`, and reuses a valid cached entry without network I/O.
-- Every `WasmLanguagePlugin` is instantiated with an empty `wasmtime::component::Linker` with zero host capabilities (no WASI, no filesystem, no network, no environment variables, no clocks). A component that imports any host interface fails to instantiate with `PluginHostError::Instantiate`.
+- Every `WasmLanguagePlugin` is instantiated with an empty `wasmtime::component::Linker` with zero host capabilities (no WASI, no filesystem, no network, no environment variables, no clocks).
+  A component that imports any host interface fails to instantiate with `PluginHostError::Instantiate`.
 - Every `WasmLanguagePlugin` and `WasmMetricPlugin` validates its exported WIT interface version against `codeint:plugin@0.3.0` before instantiation; an incompatible version (such as `codeint:plugin@0.2.0`) fails with `PluginHostError::IncompatibleContractVersion`.
 - `verify_plugin_component` compiles component bytes and checks the exported WIT contract version and zero-capability sandbox requirements without instantiating or running untrusted guest code.
-- Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter` and wall-clock time limit via `wasmtime` epoch interruption). Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from `codeint.json`.
+- Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter` and wall-clock time limit via `wasmtime` epoch interruption).
+  Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from `codeint.json`.
 - `validate_metric_key` enforces external Metric key syntax and rejects every built-in Metric key (`Metric::ALL_BUILT_IN_KEYS`) as well as reserved report and configuration keys (`files`, `source_lines`, `packages`, `commit`, `committed_on`, `production`, `test`, `generated`, `vendored`, `dependencies`).
 - `WasmLanguagePlugin` implements `codeint_model::LanguagePlugin: Sync` using an internal pool of pre-instantiated component instances, so callers can invoke `lower` concurrently across threads.
 

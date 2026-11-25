@@ -294,13 +294,6 @@ version = "0.6.0"
 dependencies = [
  "codeint-config",
  "codeint-git",
- "codeint-lang-dart",
- "codeint-lang-go",
- "codeint-lang-php",
- "codeint-lang-python",
- "codeint-lang-rust",
- "codeint-lang-sql",
- "codeint-lang-ts",
  "codeint-metrics",
  "codeint-model",
  "codeint-plugin-host",
