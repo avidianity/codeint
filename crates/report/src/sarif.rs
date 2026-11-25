@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use codeint_model::{Metric, SourceSet};
 
+use crate::diff::Regression;
 use crate::schema::built_in_metric_descriptor;
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
@@ -45,6 +46,22 @@ struct RunProperties {
     new_file_budget_failures: Vec<SarifNewFileBudgetFailure>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     ratchet_failures: Vec<SarifRatchetFailure>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    per_file_regressions: Vec<SarifPerFileRegression>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifPerFileRegression {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_set: Option<String>,
+    file: String,
+    metric: String,
+    rule: String,
+    base: f64,
+    head: f64,
+    new_findings: usize,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -308,6 +325,33 @@ impl SarifLog {
                 failures.iter().map(SarifRatchetFailure::from).collect();
         }
         self
+    }
+
+    pub(crate) fn with_per_file_regressions(mut self, regressions: &[Regression]) -> SarifLog {
+        let per_file: Vec<SarifPerFileRegression> = regressions
+            .iter()
+            .filter_map(SarifPerFileRegression::from_regression)
+            .collect();
+        if !per_file.is_empty() {
+            self.run_properties_mut().per_file_regressions = per_file;
+        }
+        self
+    }
+}
+
+impl SarifPerFileRegression {
+    fn from_regression(regression: &Regression) -> Option<SarifPerFileRegression> {
+        let file = regression.file.as_ref()?.clone();
+        Some(SarifPerFileRegression {
+            source_set: regression.source_set.clone(),
+            file,
+            metric: regression.metric.clone(),
+            rule: regression.rule.as_str().to_owned(),
+            base: regression.base.0,
+            head: regression.head.0,
+            new_findings: regression.new_findings,
+            message: regression.to_string(),
+        })
     }
 }
 

@@ -92,6 +92,10 @@ impl Verbosity {
                 .map(|(path, lines)| (path, *lines)),
         )
     }
+
+    pub fn verbose_lines_by_file(&self) -> &BTreeMap<RepoPath, u64> {
+        &self.verbose_lines_by_file
+    }
 }
 
 fn flagged_line_findings(

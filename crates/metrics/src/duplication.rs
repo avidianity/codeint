@@ -207,7 +207,7 @@ impl CloneLines {
         self.0.values().map(|lines| lines.len() as u64).sum()
     }
 
-    pub(crate) fn count_by_file(&self) -> impl Iterator<Item = (&RepoPath, u64)> {
+    pub fn count_by_file(&self) -> impl Iterator<Item = (&RepoPath, u64)> {
         self.0
             .iter()
             .map(|(path, lines)| (path, lines.len() as u64))

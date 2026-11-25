@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use codeint_config::{Budgets, NewFindingsRule, RegressionLimit, RegressionLimits};
 use codeint_model::{Metric, SourceSet};
 
@@ -140,48 +142,85 @@ fn source_set_measurement_ratios(measurement: &SourceSetMeasurement) -> Vec<(&st
 pub(super) fn regressions(
     source_sets: &SourceSetChangesSections,
     limits: &RegressionLimits,
+    changed_files: &BTreeSet<String>,
 ) -> Vec<Regression> {
     source_sets
         .iter()
-        .flat_map(|(source_set, changes)| changes.regressions(source_set, limits))
+        .flat_map(|(source_set, changes)| changes.regressions(source_set, limits, changed_files))
         .collect()
 }
 
 impl SourceSetChanges {
-    fn regressions(&self, source_set: SourceSet, limits: &RegressionLimits) -> Vec<Regression> {
-        let mut found: Vec<Regression> = [
-            self.erosion
-                .regressions(source_set, Metric::Erosion.key(), limits),
-            self.cognitive_complexity.regressions(
-                source_set,
-                Metric::CognitiveComplexity.key(),
-                limits,
-            ),
-            self.duplication
-                .groups
-                .regressions(source_set, Metric::Duplication.key(), limits),
-            self.verbosity
-                .regressions(source_set, Metric::Verbosity.key(), limits),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        if let Some(import_cycles) = &self.import_cycles {
-            found.extend(import_cycles.regressions(source_set, Metric::ImportCycles.key(), limits));
-        }
-        if let Some(boundaries) = &self.boundaries {
-            found.extend(boundaries.regressions(source_set, Metric::Boundaries.key(), limits));
-        }
-        if let Some(orphan_files) = &self.orphan_files {
-            found.extend(orphan_files.regressions(source_set, Metric::OrphanFiles.key(), limits));
-        }
-        if let Some(hazards) = &self.hazards {
-            found.extend(hazards.regressions(source_set, Metric::Hazards.key(), limits));
-        }
+    fn regressions(
+        &self,
+        source_set: SourceSet,
+        limits: &RegressionLimits,
+        changed_files: &BTreeSet<String>,
+    ) -> Vec<Regression> {
+        let mut found = Vec::new();
+        let ctx = (source_set, limits, changed_files);
+        push_metric(&mut found, &self.erosion, Metric::Erosion.key(), ctx);
+        push_metric(
+            &mut found,
+            &self.cognitive_complexity,
+            Metric::CognitiveComplexity.key(),
+            ctx,
+        );
+        push_metric(
+            &mut found,
+            &self.duplication.groups,
+            Metric::Duplication.key(),
+            ctx,
+        );
+        push_metric(&mut found, &self.verbosity, Metric::Verbosity.key(), ctx);
+        push_opt_metric(
+            &mut found,
+            self.import_cycles.as_ref(),
+            Metric::ImportCycles.key(),
+            ctx,
+        );
+        push_opt_metric(
+            &mut found,
+            self.boundaries.as_ref(),
+            Metric::Boundaries.key(),
+            ctx,
+        );
+        push_opt_metric(
+            &mut found,
+            self.orphan_files.as_ref(),
+            Metric::OrphanFiles.key(),
+            ctx,
+        );
+        push_opt_metric(
+            &mut found,
+            self.hazards.as_ref(),
+            Metric::Hazards.key(),
+            ctx,
+        );
         for (key, external) in &self.external_metrics {
-            found.extend(external.changes.regressions(source_set, key, limits));
+            push_metric(&mut found, &external.changes, key, ctx);
         }
         found
+    }
+}
+
+fn push_metric<T>(
+    found: &mut Vec<Regression>,
+    changes: &MetricChanges<T>,
+    metric_key: &str,
+    (source_set, limits, changed_files): (SourceSet, &RegressionLimits, &BTreeSet<String>),
+) {
+    found.extend(changes.regressions(source_set, metric_key, limits, changed_files));
+}
+
+fn push_opt_metric<T>(
+    found: &mut Vec<Regression>,
+    changes: Option<&MetricChanges<T>>,
+    metric_key: &str,
+    ctx: (SourceSet, &RegressionLimits, &BTreeSet<String>),
+) {
+    if let Some(changes) = changes {
+        push_metric(found, changes, metric_key, ctx);
     }
 }
 
@@ -195,22 +234,29 @@ impl DependenciesChanges {
         )
     }
 
-    pub(super) fn regressions(&self, limits: &RegressionLimits) -> Vec<Regression> {
+    pub(super) fn regressions(
+        &self,
+        limits: &RegressionLimits,
+        changed_files: &BTreeSet<String>,
+    ) -> Vec<Regression> {
         let mut found = Vec::new();
         found.extend(self.unused_dependencies.regressions_with_limit(
             None,
             Metric::UnusedDependencies.key(),
             limits.limit_for_dependency(Metric::UnusedDependencies.key()),
+            changed_files,
         ));
         found.extend(self.unlisted_dependencies.regressions_with_limit(
             None,
             Metric::UnlistedDependencies.key(),
             limits.limit_for_dependency(Metric::UnlistedDependencies.key()),
+            changed_files,
         ));
         found.extend(self.dev_in_production_dependencies.regressions_with_limit(
             None,
             Metric::DevInProductionDependencies.key(),
             limits.limit_for_dependency(Metric::DevInProductionDependencies.key()),
+            changed_files,
         ));
         found
     }
@@ -222,11 +268,13 @@ impl<T> MetricChanges<T> {
         source_set: SourceSet,
         metric_key: &str,
         limits: &RegressionLimits,
+        changed_files: &BTreeSet<String>,
     ) -> Vec<Regression> {
         self.regressions_with_limit(
             Some(source_set.key()),
             metric_key,
             limits.limit_for_key(source_set, metric_key),
+            changed_files,
         )
     }
 
@@ -235,14 +283,16 @@ impl<T> MetricChanges<T> {
         source_set: Option<&'static str>,
         metric_key: &str,
         limit: RegressionLimit,
+        changed_files: &BTreeSet<String>,
     ) -> Vec<Regression> {
-        REGRESSION_RULES
+        let mut found: Vec<Regression> = REGRESSION_RULES
             .into_iter()
             .filter(|rule| self.breaks(*rule, limit))
             .map(|rule| {
                 let (base, head) = self.compared_values(rule);
                 Regression {
                     source_set: source_set.map(str::to_owned),
+                    file: None,
                     metric: metric_key.to_owned(),
                     rule,
                     base,
@@ -251,7 +301,54 @@ impl<T> MetricChanges<T> {
                     ratio_rise_limit: limit.ratio_rise.ratio(),
                 }
             })
-            .collect()
+            .collect();
+        found.extend(self.per_file_regressions_with_limit(
+            source_set,
+            metric_key,
+            limit,
+            changed_files,
+        ));
+        found
+    }
+
+    fn per_file_regressions_with_limit(
+        &self,
+        source_set: Option<&'static str>,
+        metric_key: &str,
+        limit: RegressionLimit,
+        changed_files: &BTreeSet<String>,
+    ) -> Vec<Regression> {
+        if limit.new_findings == NewFindingsRule::Never || changed_files.is_empty() {
+            return Vec::new();
+        }
+        let mut found = Vec::new();
+        for file in changed_files {
+            let base = self
+                .base_file_numerators
+                .get(file)
+                .copied()
+                .unwrap_or(Decimal(0.0));
+            let head = self
+                .head_file_numerators
+                .get(file)
+                .copied()
+                .unwrap_or(Decimal(0.0));
+            let new_findings = self.new_findings_by_file.get(file).copied().unwrap_or(0);
+            let rule = per_file_regression_rule(base, head, new_findings, limit.new_findings);
+            if let Some(rule) = rule {
+                found.push(Regression {
+                    source_set: source_set.map(str::to_owned),
+                    file: Some(file.clone()),
+                    metric: metric_key.to_owned(),
+                    rule,
+                    base,
+                    head,
+                    new_findings,
+                    ratio_rise_limit: limit.ratio_rise.ratio(),
+                });
+            }
+        }
+        found
     }
 
     pub(super) fn breaks(&self, rule: RegressionRule, limit: RegressionLimit) -> bool {
@@ -272,6 +369,7 @@ impl<T> MetricChanges<T> {
                         NewFindingsRule::NumeratorRise | NewFindingsRule::AnyNewFinding
                     )
             }
+            RegressionRule::PerFileNumeratorRise | RegressionRule::PerFileNewFindings => false,
         }
     }
 
@@ -284,11 +382,28 @@ impl<T> MetricChanges<T> {
             RegressionRule::RatioRise | RegressionRule::NewFindings => {
                 (Decimal(self.base_ratio.0), Decimal(self.head_ratio.0))
             }
-            RegressionRule::NumeratorRise => (
+            RegressionRule::NumeratorRise
+            | RegressionRule::PerFileNumeratorRise
+            | RegressionRule::PerFileNewFindings => (
                 Decimal::rounded(self.base_numerator.0),
                 Decimal::rounded(self.head_numerator.0),
             ),
         }
+    }
+}
+
+fn per_file_regression_rule(
+    base: Decimal,
+    head: Decimal,
+    new_findings: usize,
+    rule: NewFindingsRule,
+) -> Option<RegressionRule> {
+    if head.0 > base.0 {
+        Some(RegressionRule::PerFileNumeratorRise)
+    } else if rule == NewFindingsRule::AnyNewFinding && new_findings > 0 {
+        Some(RegressionRule::PerFileNewFindings)
+    } else {
+        None
     }
 }
 
@@ -301,6 +416,23 @@ impl Regression {
             RegressionRule::NumeratorRise => format!(
                 "The {} numerator {} rose from {} to {}.",
                 self.scope_prose(),
+                crate::markdown::code(numerator_key(&self.metric)),
+                self.base.0,
+                self.head.0
+            ),
+            RegressionRule::PerFileNumeratorRise => format!(
+                "File {} regressed in {}: {} rose from {} to {}.",
+                crate::markdown::code(self.file.as_deref().unwrap_or("")),
+                self.scope_prose(),
+                crate::markdown::code(numerator_key(&self.metric)),
+                self.base.0,
+                self.head.0
+            ),
+            RegressionRule::PerFileNewFindings => format!(
+                "File {} regressed in {}: {} ({} from {} to {}).",
+                crate::markdown::code(self.file.as_deref().unwrap_or("")),
+                self.scope_prose(),
+                new_findings_phrase(self.new_findings),
                 crate::markdown::code(numerator_key(&self.metric)),
                 self.base.0,
                 self.head.0
@@ -344,6 +476,23 @@ impl std::fmt::Display for Regression {
             RegressionRule::NumeratorRise => write!(
                 formatter,
                 "the {scope} numerator {} rose from {} to {}",
+                numerator_key(&self.metric),
+                self.base.0,
+                self.head.0
+            ),
+            RegressionRule::PerFileNumeratorRise => write!(
+                formatter,
+                "file {} regressed in {scope}: {} rose from {} to {}",
+                self.file.as_deref().unwrap_or(""),
+                numerator_key(&self.metric),
+                self.base.0,
+                self.head.0
+            ),
+            RegressionRule::PerFileNewFindings => write!(
+                formatter,
+                "file {} regressed in {scope}: {} with {} from {} to {}",
+                self.file.as_deref().unwrap_or(""),
+                new_findings_phrase(self.new_findings),
                 numerator_key(&self.metric),
                 self.base.0,
                 self.head.0

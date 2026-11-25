@@ -186,6 +186,7 @@ impl ConfigurationFile {
     pub(super) fn without_schema_address(&self) -> ConfigurationFile {
         ConfigurationFile {
             _schema: None,
+            regression_limits: self.regression_limits.clone().normalized(),
             duplication: self.duplication.clone().normalized(),
             ..self.clone()
         }
@@ -346,6 +347,12 @@ impl PluginEntry {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 pub(super) struct RegressionLimitsFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "bool",
+        description = "When true, codeint diff compares file-level Metric numerators and Findings for every modified file and reports a Regression if any modified file worsens, even when another file shrank; false by default so moving an unchanged function between files passes."
+    )]
+    per_file: Option<bool>,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Erosion in every Source set.")]
     erosion: RegressionLimitSetting,
@@ -509,8 +516,14 @@ fn dependency_metric_pairs<T>(
 }
 
 impl RegressionLimitsFile {
+    fn normalized(mut self) -> RegressionLimitsFile {
+        self.per_file = self.per_file.filter(|&enabled| enabled);
+        self
+    }
+
     pub(super) fn into_regression_limits(self) -> RegressionLimits {
         let RegressionLimitsFile {
+            per_file,
             erosion,
             cognitive_complexity,
             duplication,
@@ -565,6 +578,7 @@ impl RegressionLimitsFile {
                 .map(move |(metric, setting)| (source_set, metric, setting))
         });
         RegressionLimits::new(
+            per_file.unwrap_or(false),
             every_source_set,
             production_limits.chain(other_limits).collect(),
         )

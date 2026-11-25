@@ -236,21 +236,8 @@ impl Repository {
         let merge_base = self.merge_base_with_head(base_ref)?;
         let base = self.commit(merge_base)?;
         let working = self.working_tree()?;
-        let mut changed = Vec::new();
-        for path in working.files() {
-            let is_changed = match base.contains_file(path) {
-                false => true,
-                true => working.read(path)? != base.read(path)?,
-            };
-            if is_changed {
-                changed.push(path.clone());
-            }
-        }
-        changed.sort();
-        Ok(ChangedFiles {
-            merge_base,
-            files: changed,
-        })
+        let files = working.changed_files_from(&base)?;
+        Ok(ChangedFiles { merge_base, files })
     }
 }
 
@@ -261,6 +248,35 @@ impl Snapshot {
 
     pub fn submodules(&self) -> &[RepoPath] {
         &self.submodules
+    }
+
+    pub fn changed_files_from(&self, base: &Snapshot) -> Result<Vec<RepoPath>, GitError> {
+        let mut changed = Vec::new();
+        for path in self.files() {
+            if self.file_differs_from(base, path)? {
+                changed.push(path.clone());
+            }
+        }
+        changed.sort();
+        Ok(changed)
+    }
+
+    fn file_differs_from(&self, base: &Snapshot, path: &RepoPath) -> Result<bool, GitError> {
+        if !base.contains_file(path) {
+            return Ok(true);
+        }
+        if let (
+            Contents::Commit {
+                blobs: head_blobs, ..
+            },
+            Contents::Commit {
+                blobs: base_blobs, ..
+            },
+        ) = (&self.contents, &base.contents)
+        {
+            return Ok(head_blobs.get(path) != base_blobs.get(path));
+        }
+        Ok(self.read(path)? != base.read(path)?)
     }
 
     fn contains_file(&self, path: &RepoPath) -> bool {
