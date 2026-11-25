@@ -1,5 +1,10 @@
+mod angular;
+mod nestjs;
+mod nextjs;
+mod nuxt;
 mod react;
 mod svelte;
+mod sveltekit;
 mod vue2;
 mod vue3;
 
@@ -11,23 +16,39 @@ use codeint_model::language::{
 use codeint_model::scan::build_reference_ranges;
 use serde_json::Value;
 
-pub(crate) const KNOWN_PROFILES: [&str; 4] = ["react", "vue2", "vue3", "svelte"];
+pub(crate) const KNOWN_PROFILES: [&str; 9] = [
+    "react",
+    "vue2",
+    "vue3",
+    "svelte",
+    "nextjs",
+    "nuxt",
+    "sveltekit",
+    "angular",
+    "nestjs",
+];
 
-const PROFILES: [&ProfileDefinition; 4] = [
+const PROFILES: [&ProfileDefinition; 9] = [
     &react::PROFILE,
     &vue2::PROFILE,
     &vue3::PROFILE,
     &svelte::PROFILE,
+    &nextjs::PROFILE,
+    &nuxt::PROFILE,
+    &sveltekit::PROFILE,
+    &angular::PROFILE,
+    &nestjs::PROFILE,
 ];
 
 pub(crate) struct ProfileDefinition {
     pub(crate) name: &'static str,
-    pub(crate) parent: Option<&'static str>,
+    pub(crate) parents: &'static [&'static str],
     pub(crate) detect: fn(&PackageContext<'_>) -> bool,
     pub(crate) entry_points: fn(&PackageContext<'_>) -> Vec<String>,
     pub(crate) generated_paths: fn(&PackageContext<'_>) -> Vec<String>,
     pub(crate) reference_ranges: fn(&PackageContext<'_>) -> Option<Vec<ReferenceRange>>,
     pub(crate) fallback_import: fn(&str) -> Vec<String>,
+    pub(crate) is_virtual_module: fn(&str) -> bool,
 }
 
 pub(crate) struct PackageContext<'a> {
@@ -77,6 +98,12 @@ impl<'a> PackageContext<'a> {
             .collect()
     }
 
+    pub(crate) fn has_matching_file(&self, predicate: impl Fn(&str) -> bool) -> bool {
+        self.files
+            .iter()
+            .any(|full| self.rel_path(full).is_some_and(&predicate))
+    }
+
     pub(crate) fn has_file(&self, rel: &str) -> bool {
         self.files
             .iter()
@@ -88,14 +115,8 @@ impl<'a> PackageContext<'a> {
     }
 
     pub(crate) fn has_any_extension(&self, extensions: &[&str]) -> bool {
-        self.files.iter().any(|full| {
-            let Some(rel) = self.rel_path(full) else {
-                return false;
-            };
-            let file_name = rel.rsplit_once('/').map_or(rel, |(_, name)| name);
-            file_name
-                .rsplit_once('.')
-                .is_some_and(|(stem, ext)| !stem.is_empty() && extensions.contains(&ext))
+        self.has_matching_file(|rel| {
+            split_file_name(rel).is_some_and(|(_, ext)| extensions.contains(&ext))
         })
     }
 
@@ -128,11 +149,61 @@ impl<'a> PackageContext<'a> {
         self.has_dep_in("peerDependencies", name) && !self.has_runtime_dep(name)
     }
 
+    pub(crate) fn is_peer_only_dep_any(&self, name: &str) -> bool {
+        self.has_dep_in("peerDependencies", name) && !self.has_runtime_or_dev_dep(name)
+    }
+
     pub(crate) fn has_top_level_field(&self, field: &str) -> bool {
         self.package_json
             .as_ref()
             .and_then(Value::as_object)
             .is_some_and(|obj| obj.contains_key(field))
+    }
+}
+
+pub(crate) fn split_file_name(rel: &str) -> Option<(&str, &str)> {
+    let file_name = rel.rsplit_once('/').map_or(rel, |(_, name)| name);
+    let (stem, ext) = file_name.rsplit_once('.')?;
+    (!stem.is_empty()).then_some((stem, ext))
+}
+
+pub(crate) fn is_declaration_file(rel: &str) -> bool {
+    rel.ends_with(".d.ts") || rel.ends_with(".d.mts") || rel.ends_with(".d.cts")
+}
+
+pub(crate) fn has_code_extension(rel: &str, extensions: &[&str]) -> bool {
+    !is_declaration_file(rel)
+        && split_file_name(rel).is_some_and(|(_, ext)| extensions.contains(&ext))
+}
+
+pub(crate) fn has_any_prefix(rel: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| rel.starts_with(prefix))
+}
+
+pub(crate) fn matches_workspace_subpath(rel: &str, root_dir: &str, tail_files: &[&str]) -> bool {
+    let Some(rest) = rel.strip_prefix(root_dir).and_then(|s| s.strip_prefix('/')) else {
+        return false;
+    };
+    let Some((project, inner)) = rest.split_once('/') else {
+        return false;
+    };
+    !project.is_empty()
+        && inner
+            .strip_prefix("src/")
+            .is_some_and(|file| tail_files.contains(&file))
+}
+
+pub(crate) fn strip_query_and_fragment(specifier: &str) -> &str {
+    let without_query = specifier
+        .split_once('?')
+        .map_or(specifier, |(head, _)| head);
+    if let Some(rest) = without_query.strip_prefix('#') {
+        rest.find('#')
+            .map_or(without_query, |offset| &without_query[..offset + 1])
+    } else {
+        without_query
+            .split_once('#')
+            .map_or(without_query, |(head, _)| head)
     }
 }
 
@@ -165,22 +236,47 @@ pub(crate) fn no_fallback_imports(_specifier: &str) -> Vec<String> {
     Vec::new()
 }
 
+pub(crate) fn no_virtual_modules(_specifier: &str) -> bool {
+    false
+}
+
 pub(crate) fn prefix_alias_fallback(
     specifier: &str,
     prefix: &str,
     target_prefix: &str,
 ) -> Vec<String> {
-    let Some(subpath) = specifier.strip_prefix(prefix) else {
+    multi_prefix_alias_fallback(specifier, &[prefix], &[target_prefix])
+}
+
+pub(crate) fn multi_prefix_alias_fallback(
+    specifier: &str,
+    prefixes: &[&str],
+    target_prefixes: &[&str],
+) -> Vec<String> {
+    let Some(subpath) = prefixes
+        .iter()
+        .find_map(|prefix| specifier.strip_prefix(prefix))
+    else {
         return Vec::new();
     };
     if subpath.is_empty() || subpath.split('/').any(|segment| segment == "..") {
         return Vec::new();
     }
-    vec![format!("{target_prefix}{subpath}")]
+    target_prefixes
+        .iter()
+        .map(|target| format!("{target}{subpath}"))
+        .collect()
 }
 
 pub(crate) fn at_src_fallback(specifier: &str) -> Vec<String> {
     prefix_alias_fallback(specifier, "@/", "./src/")
+}
+
+pub(crate) fn svelte_lib_fallback(specifier: &str) -> Vec<String> {
+    if specifier == "$lib" {
+        return vec!["./src/lib/index".to_owned()];
+    }
+    prefix_alias_fallback(specifier, "$lib/", "./src/lib/")
 }
 
 pub(crate) fn extension_reference_ranges(
@@ -331,7 +427,7 @@ fn select_reference_ranges(
 
     let overridden_parents: BTreeSet<&str> = candidates
         .iter()
-        .filter_map(|(profile, _)| profile.parent)
+        .flat_map(|(profile, _)| profile.parents.iter().copied())
         .collect();
     let remaining: Vec<(&'static ProfileDefinition, Vec<ReferenceRange>)> = candidates
         .into_iter()
@@ -372,16 +468,37 @@ pub(crate) fn fallback_import_candidates(
     specifier: &str,
 ) -> Vec<String> {
     let mut candidates = Vec::new();
-    for profile in PROFILES {
-        if active_profiles.iter().any(|active| active == profile.name) {
-            for candidate in (profile.fallback_import)(specifier) {
-                if !candidates.contains(&candidate) {
-                    candidates.push(candidate);
-                }
-            }
+    collect_profile_candidates(active_profiles, specifier, true, &mut candidates);
+    collect_profile_candidates(active_profiles, specifier, false, &mut candidates);
+    candidates
+}
+
+fn collect_profile_candidates(
+    active_profiles: &[String],
+    specifier: &str,
+    children_only: bool,
+    candidates: &mut Vec<String>,
+) {
+    let matching = PROFILES.iter().copied().filter(|profile| {
+        (!profile.parents.is_empty() == children_only)
+            && active_profiles.iter().any(|active| active == profile.name)
+    });
+    for candidate in matching.flat_map(|profile| (profile.fallback_import)(specifier)) {
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
         }
     }
-    candidates
+}
+
+pub(crate) fn is_profile_virtual_module(active_profiles: &[String], specifier: &str) -> bool {
+    if active_profiles.is_empty() {
+        return false;
+    }
+    let clean = strip_query_and_fragment(specifier);
+    PROFILES.iter().any(|profile| {
+        active_profiles.iter().any(|active| active == profile.name)
+            && (profile.is_virtual_module)(clean)
+    })
 }
 
 #[cfg(test)]
@@ -402,21 +519,14 @@ mod tests {
         true
     }
 
-    fn no_paths(_: &PackageContext<'_>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn no_hints(_: &str) -> Vec<String> {
-        Vec::new()
-    }
-
     static SYNTHETIC_CHILD: ProfileDefinition = ProfileDefinition {
         name: "synthetic-next",
-        parent: Some("react"),
+        parents: &["react"],
         detect: always_detect,
-        entry_points: no_paths,
-        generated_paths: no_paths,
-        fallback_import: no_hints,
+        entry_points: empty_paths,
+        generated_paths: empty_paths,
+        fallback_import: no_fallback_imports,
+        is_virtual_module: no_virtual_modules,
         reference_ranges: child_ranges,
     };
 
@@ -438,5 +548,28 @@ mod tests {
             assert_eq!(ranges.len(), 1);
             assert_eq!(ranges[0].source, "synthetic child profile");
         }
+    }
+
+    #[test]
+    fn child_without_reference_ranges_inherits_parent_reference_ranges() {
+        let files = vec!["package.json".to_owned(), "src/app/page.tsx".to_owned()];
+        let manifests = vec![Manifest {
+            path: "package.json".to_owned(),
+            text: r#"{"dependencies":{"next":"^15.0.0","react":"^19.0.0","react-dom":"^19.0.0"}}"#
+                .to_owned(),
+        }];
+        let ctx = PackageContext::new("", &files, &manifests);
+        let (ranges, note) = select_reference_ranges(&ctx, &[&react::PROFILE, &nextjs::PROFILE]);
+        assert!(note.is_none(), "expected no fallback note, got {note:?}");
+        assert!(ranges.iter().any(|range| range.source.contains("ADR 0020")));
+    }
+
+    #[test]
+    fn strip_query_and_fragment_handles_multibyte_utf8_and_leading_hash_safely() {
+        assert_eq!(strip_query_and_fragment("über"), "über");
+        assert_eq!(strip_query_and_fragment("日本語#section?v=1"), "日本語");
+        assert_eq!(strip_query_and_fragment("#imports?raw"), "#imports");
+        assert_eq!(strip_query_and_fragment("#imports#frag?raw"), "#imports");
+        assert_eq!(strip_query_and_fragment("#"), "#");
     }
 }

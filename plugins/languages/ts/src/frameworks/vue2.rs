@@ -1,8 +1,8 @@
 use codeint_model::language::ReferenceRange;
 
 use super::{
-    PackageContext, ProfileDefinition, at_src_fallback, detect_vue_major, vue_entry_points,
-    vue_reference_ranges,
+    PackageContext, ProfileDefinition, at_src_fallback, detect_vue_major, no_virtual_modules,
+    vue_entry_points, vue_reference_ranges,
 };
 
 const VUE2_REFERENCE_SOURCE: &str =
@@ -17,12 +17,13 @@ const VUE2_TOOLING: [&str; 3] = [
 
 pub(super) const PROFILE: ProfileDefinition = ProfileDefinition {
     name: "vue2",
-    parent: None,
+    parents: &[],
     detect,
     entry_points,
     generated_paths,
     reference_ranges,
     fallback_import: at_src_fallback,
+    is_virtual_module: no_virtual_modules,
 };
 
 fn detect(ctx: &PackageContext<'_>) -> bool {

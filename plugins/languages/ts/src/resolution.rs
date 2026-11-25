@@ -159,10 +159,13 @@ impl ProjectResolver {
         specifier: &str,
         error: ResolveError,
     ) -> Resolution {
-        if matches!(error, ResolveError::Builtin { .. }) || is_framework_virtual_module(specifier) {
+        if matches!(error, ResolveError::Builtin { .. })
+            || is_framework_virtual_module(specifier)
+            || crate::frameworks::is_profile_virtual_module(&self.active_profiles, specifier)
+        {
             return Resolution::Builtin;
         }
-        if matches!(error, ResolveError::NotFound(_))
+        if (matches!(error, ResolveError::NotFound(_)) || specifier.starts_with('#'))
             && let Some(resolution) = self.resolve_not_found_fallback(importer_path, specifier)
         {
             return resolution;

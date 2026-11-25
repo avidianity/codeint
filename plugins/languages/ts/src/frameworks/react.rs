@@ -1,7 +1,8 @@
 use codeint_model::language::ReferenceRange;
 
 use super::{
-    PackageContext, ProfileDefinition, empty_paths, extension_reference_ranges, no_fallback_imports,
+    PackageContext, ProfileDefinition, empty_paths, extension_reference_ranges,
+    no_fallback_imports, no_virtual_modules,
 };
 
 const REACT_REFERENCE_SOURCE: &str =
@@ -24,12 +25,13 @@ const HTML_ENTRIES: [&str; 2] = ["index.html", "public/index.html"];
 
 pub(super) const PROFILE: ProfileDefinition = ProfileDefinition {
     name: "react",
-    parent: None,
+    parents: &[],
     detect,
     entry_points,
     generated_paths: empty_paths,
     reference_ranges,
     fallback_import: no_fallback_imports,
+    is_virtual_module: no_virtual_modules,
 };
 
 fn has_renderer(ctx: &PackageContext<'_>) -> bool {

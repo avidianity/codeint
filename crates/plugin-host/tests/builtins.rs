@@ -129,6 +129,11 @@ fn built_in_typescript_plugin_resolves_framework_profiles_and_sibling_fallback()
             "vue2".to_owned(),
             "vue3".to_owned(),
             "svelte".to_owned(),
+            "nextjs".to_owned(),
+            "nuxt".to_owned(),
+            "sveltekit".to_owned(),
+            "angular".to_owned(),
+            "nestjs".to_owned(),
         ])
     );
 
