@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+pub use codeint_model::NewFindingsRule;
 use codeint_model::{Metric, SourceSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -16,14 +17,6 @@ impl<'de> Deserialize<'de> for RatioRise {
         let value = f64::deserialize(deserializer)?;
         Ok(RatioRise(if value == 0.0 { 0.0 } else { value }))
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum NewFindingsRule {
-    AnyNewFinding,
-    NumeratorRiseWithNewFindings,
-    Never,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -79,15 +72,17 @@ impl RegressionLimit {
         new_findings: NewFindingsRule::AnyNewFinding,
     };
 
+    pub const fn default_for(metric: Metric) -> RegressionLimit {
+        RegressionLimit {
+            ratio_rise: RatioRise::DEFAULT,
+            new_findings: metric.default_new_findings_rule(),
+        }
+    }
+
     fn default_for_key(metric_key: &str) -> RegressionLimit {
-        if metric_key == Metric::ImportCycles.key()
-            || metric_key == "boundaries"
-            || metric_key == "orphan_files"
-            || crate::DEPENDENCY_METRIC_KEYS.contains(&metric_key)
-        {
-            RegressionLimit::DEFAULT_FOR_IMPORT_CYCLES
-        } else {
-            RegressionLimit::DEFAULT
+        match Metric::from_key(metric_key) {
+            Some(metric) => RegressionLimit::default_for(metric),
+            None => RegressionLimit::DEFAULT,
         }
     }
 }
@@ -160,13 +155,7 @@ impl RegressionLimits {
     pub(crate) fn extra_metric_keys(&self) -> Vec<String> {
         let mut keys = BTreeSet::new();
         for (_, key) in self.metric_keys() {
-            if !Metric::BUILT_IN_KEYS.contains(&key)
-                && key != "cognitive_complexity"
-                && key != "boundaries"
-                && key != "orphan_files"
-                && key != crate::HAZARDS_METRIC_KEY
-                && !crate::DEPENDENCY_METRIC_KEYS.contains(&key)
-            {
+            if Metric::from_key(key).is_none() {
                 keys.insert(key.to_owned());
             }
         }

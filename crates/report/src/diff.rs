@@ -3,10 +3,6 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use codeint_config::{
     Budgets, FindingsShown, NewFindingsRule, RegressionLimit, RegressionLimits, ReportFormat,
 };
-use codeint_metrics::{
-    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, HAZARDS_METRIC_KEY,
-    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
-};
 use codeint_model::{Metric, SourceSet};
 
 use serde::ser::SerializeMap;
@@ -18,12 +14,11 @@ use crate::measurement::{
 use crate::ownership::{OwnedFinding, OwnershipOptions};
 use crate::sarif::{ListedDependencies, ListedExternalMetric, ListedFindings, SarifLog};
 use crate::{
-    BoundaryFindingRow, BudgetFailure, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding,
-    CloneGroupFinding, CognitiveComplexityFinding, Decimal, ErodedFunctionFinding,
-    ExternalMetricFinding, Findings, FlaggedLineRow, HazardLineRow, ImportCycleFinding,
-    ImportedDependencyRow, OrphanFileRow, PerSourceSet, ReportError, TEST_GAP_DIFF_NOTE,
-    UnusedDependencyRow, clustered_clone_group_ids, dependency_over_budget,
-    unlisted_clone_family_group_ids,
+    BoundaryFindingRow, BudgetFailure, CloneFamilyFinding, CloneGroupFinding,
+    CognitiveComplexityFinding, Decimal, ErodedFunctionFinding, ExternalMetricFinding, Findings,
+    FlaggedLineRow, HazardLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow,
+    PerSourceSet, ReportError, TEST_GAP_DIFF_NOTE, UnusedDependencyRow, clustered_clone_group_ids,
+    dependency_over_budget, unlisted_clone_family_group_ids,
 };
 
 mod markdown;
@@ -542,7 +537,7 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                 ),
                 (
                     source_set,
-                    COGNITIVE_COMPLEXITY_KEY,
+                    Metric::CognitiveComplexity.key(),
                     changes.cognitive_complexity.head_ratio.0,
                 ),
                 (
@@ -562,23 +557,23 @@ fn over_budget(source_sets: &SourceSetChangesSections, budgets: &Budgets) -> Vec
                     (source_set, Metric::ImportCycles.key(), cycles.head_ratio.0)
                 }),
             )
+            .chain(changes.boundaries.iter().map(move |boundaries| {
+                (
+                    source_set,
+                    Metric::Boundaries.key(),
+                    boundaries.head_ratio.0,
+                )
+            }))
             .chain(
-                changes
-                    .boundaries
-                    .iter()
-                    .map(move |boundaries| (source_set, "boundaries", boundaries.head_ratio.0)),
-            )
-            .chain(
-                changes
-                    .orphan_files
-                    .iter()
-                    .map(move |orphans| (source_set, "orphan_files", orphans.head_ratio.0)),
+                changes.orphan_files.iter().map(move |orphans| {
+                    (source_set, Metric::OrphanFiles.key(), orphans.head_ratio.0)
+                }),
             )
             .chain(
                 changes
                     .hazards
                     .iter()
-                    .map(move |hazards| (source_set, HAZARDS_METRIC_KEY, hazards.head_ratio.0)),
+                    .map(move |hazards| (source_set, Metric::Hazards.key(), hazards.head_ratio.0)),
             )
             .chain(
                 changes.external_metrics.iter().map(move |(key, metric)| {
@@ -604,8 +599,11 @@ impl SourceSetChanges {
         let mut found: Vec<Regression> = [
             self.erosion
                 .regressions(source_set, Metric::Erosion.key(), limits),
-            self.cognitive_complexity
-                .regressions(source_set, COGNITIVE_COMPLEXITY_KEY, limits),
+            self.cognitive_complexity.regressions(
+                source_set,
+                Metric::CognitiveComplexity.key(),
+                limits,
+            ),
             self.duplication
                 .groups
                 .regressions(source_set, Metric::Duplication.key(), limits),
@@ -619,13 +617,13 @@ impl SourceSetChanges {
             found.extend(import_cycles.regressions(source_set, Metric::ImportCycles.key(), limits));
         }
         if let Some(boundaries) = &self.boundaries {
-            found.extend(boundaries.regressions(source_set, "boundaries", limits));
+            found.extend(boundaries.regressions(source_set, Metric::Boundaries.key(), limits));
         }
         if let Some(orphan_files) = &self.orphan_files {
-            found.extend(orphan_files.regressions(source_set, "orphan_files", limits));
+            found.extend(orphan_files.regressions(source_set, Metric::OrphanFiles.key(), limits));
         }
         if let Some(hazards) = &self.hazards {
-            found.extend(hazards.regressions(source_set, HAZARDS_METRIC_KEY, limits));
+            found.extend(hazards.regressions(source_set, Metric::Hazards.key(), limits));
         }
         for (key, external) in &self.external_metrics {
             found.extend(external.changes.regressions(source_set, key, limits));
@@ -645,20 +643,9 @@ impl DependenciesChanges {
     fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
         dependency_over_budget(
             budgets,
-            [
-                (
-                    UNUSED_DEPENDENCIES_METRIC_KEY,
-                    self.unused_dependencies.head_ratio.0,
-                ),
-                (
-                    UNLISTED_DEPENDENCIES_METRIC_KEY,
-                    self.unlisted_dependencies.head_ratio.0,
-                ),
-                (
-                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
-                    self.dev_in_production_dependencies.head_ratio.0,
-                ),
-            ],
+            self.unused_dependencies.head_ratio.0,
+            self.unlisted_dependencies.head_ratio.0,
+            self.dev_in_production_dependencies.head_ratio.0,
         )
     }
 
@@ -666,18 +653,18 @@ impl DependenciesChanges {
         let mut found = Vec::new();
         found.extend(self.unused_dependencies.regressions_with_limit(
             None,
-            UNUSED_DEPENDENCIES_METRIC_KEY,
-            limits.limit_for_dependency(UNUSED_DEPENDENCIES_METRIC_KEY),
+            Metric::UnusedDependencies.key(),
+            limits.limit_for_dependency(Metric::UnusedDependencies.key()),
         ));
         found.extend(self.unlisted_dependencies.regressions_with_limit(
             None,
-            UNLISTED_DEPENDENCIES_METRIC_KEY,
-            limits.limit_for_dependency(UNLISTED_DEPENDENCIES_METRIC_KEY),
+            Metric::UnlistedDependencies.key(),
+            limits.limit_for_dependency(Metric::UnlistedDependencies.key()),
         ));
         found.extend(self.dev_in_production_dependencies.regressions_with_limit(
             None,
-            DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
-            limits.limit_for_dependency(DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY),
+            Metric::DevInProductionDependencies.key(),
+            limits.limit_for_dependency(Metric::DevInProductionDependencies.key()),
         ));
         found
     }
@@ -850,25 +837,8 @@ impl std::fmt::Display for Regression {
     }
 }
 
-const NUMERATOR_KEYS: [(&str, &str); 11] = [
-    ("erosion", "eroded_function_mass"),
-    ("cognitive_complexity", "complex_cognitive_complexity"),
-    ("duplication", "clone_lines"),
-    ("verbosity", "verbose_lines"),
-    ("import_cycles", "modules_in_import_cycles"),
-    ("boundaries", "boundary_findings"),
-    ("orphan_files", "orphan_files"),
-    ("hazards", "hazard_lines"),
-    ("unused_dependencies", "unused"),
-    ("unlisted_dependencies", "unlisted"),
-    ("dev_in_production_dependencies", "dev_in_production"),
-];
-
 fn numerator_key(metric_key: &str) -> &'static str {
-    NUMERATOR_KEYS
-        .iter()
-        .find(|(key, _)| *key == metric_key)
-        .map_or("numerator", |(_, numerator)| *numerator)
+    Metric::from_key(metric_key).map_or("numerator", Metric::numerator_field)
 }
 
 fn new_findings_phrase(count: usize) -> String {

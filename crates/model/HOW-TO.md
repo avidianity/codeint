@@ -290,3 +290,21 @@ let total = CodeModel::merge([typescript_model, python_model]);
 - `merge` joins the files, skipped files, declaration-only files, runtime imports, declared dependencies, dependency manifests, manifest-used dependencies, workspace packages, and per-language facts (`languages`) of every model.
 - Give each Language plugin's `CodeModel` the whole `workspace` that every plugin found, so each per-language section lists the same workspace packages as the total.
 - It orders files, skipped files, declaration-only files, and `languages` deterministically by path or language name, so the total does not depend on the order of the plugins.
+
+## Read built-in Metric metadata from the descriptor registry
+
+```rust
+use codeint_model::{Metric, STRUCTURAL_REPORT_KEYS, is_reserved_report_key};
+
+for metric in Metric::ALL {
+    let descriptor = metric.descriptor();
+    println!("{} ({}, v{}): {}", descriptor.display_name, descriptor.key, descriptor.version, descriptor.numerator_field);
+}
+assert_eq!(Metric::from_key("orphan_files"), Some(Metric::OrphanFiles));
+assert!(is_reserved_report_key(STRUCTURAL_REPORT_KEYS[0]));
+```
+
+- `Metric` enumerates all twelve built-in Metrics, backed by one ordered table (`Metric::DESCRIPTORS`) and `Metric::ALL`.
+- Each `MetricDescriptor` carries nine fields: machine key, Glossary display name, initial integer Metric version (`1`), kind (`MetricKind::SoftwareEntropy` or `MetricKind::Hazards`), Source-set scope (`MetricScope`), whether `codeint diff` supports Regression checks, default Regression rule (`NewFindingsRule`), required capability (`MetricCapability`), and report numerator field name.
+- `STRUCTURAL_REPORT_KEYS` lists the three structural JSON report keys (`files`, `source_lines`, `packages`), and `is_reserved_report_key` checks both `Metric::BUILT_IN_KEYS` and `STRUCTURAL_REPORT_KEYS`.
+- Read built-in keys, default Regression rules, scopes, capabilities, and numerator field names from `Metric` instead of keeping duplicate partial tables in downstream crates.

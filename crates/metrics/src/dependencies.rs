@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::{
-    CodeModel, DeclaredDep, DepKind, ImportResolution, RepoPath, SourceSet, token_text_hash,
+    CodeModel, DeclaredDep, DepKind, ImportResolution, Metric, RepoPath, SourceSet, token_text_hash,
 };
 
 use crate::finding_id::{FindingId, FindingIds};
@@ -43,9 +43,10 @@ pub struct DevInProductionDependencyFinding {
     pub importers: Vec<RepoPath>,
 }
 
-pub const UNUSED_DEPENDENCIES_METRIC_KEY: &str = "unused_dependencies";
-pub const UNLISTED_DEPENDENCIES_METRIC_KEY: &str = "unlisted_dependencies";
-pub const DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY: &str = "dev_in_production_dependencies";
+pub const UNUSED_DEPENDENCIES_METRIC_KEY: &str = Metric::UnusedDependencies.key();
+pub const UNLISTED_DEPENDENCIES_METRIC_KEY: &str = Metric::UnlistedDependencies.key();
+pub const DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY: &str =
+    Metric::DevInProductionDependencies.key();
 
 impl UnusedDependencyKind {
     pub fn key(self) -> &'static str {
@@ -138,13 +139,13 @@ impl DependencyHygiene {
         };
         let (declared_count, unused) = tables.build_unused(&include_package);
         let (imported_count, unlisted_raw) = tables.build_imported_findings(
-            UNLISTED_DEPENDENCIES_METRIC_KEY,
+            Metric::UnlistedDependencies,
             &include_package,
             |pkg| &pkg.checked,
             |declared_kinds| declared_kinds.is_none(),
         );
         let (production_imported_count, dev_raw) = tables.build_imported_findings(
-            DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+            Metric::DevInProductionDependencies,
             &include_package,
             |pkg| &pkg.production,
             |declared_kinds| declared_kinds.is_some_and(DeclaredKinds::is_dev_only),
@@ -482,7 +483,7 @@ impl DependencyTables<'_> {
         &self,
         include_package: impl Fn(&str) -> bool,
     ) -> (usize, Vec<UnusedDependencyFinding>) {
-        let mut ids = FindingIds::for_key(UNUSED_DEPENDENCIES_METRIC_KEY);
+        let mut ids = FindingIds::new(Metric::UnusedDependencies);
         let mut declared_count = 0usize;
         let findings = self
             .declared
@@ -511,12 +512,12 @@ impl DependencyTables<'_> {
 
     fn build_imported_findings(
         &self,
-        metric_key: &'static str,
+        metric: Metric,
         include_package: impl Fn(&str) -> bool,
         select: impl Fn(&PackageImports) -> &BTreeMap<String, BTreeSet<RepoPath>>,
         should_flag: impl Fn(Option<DeclaredKinds>) -> bool,
     ) -> (usize, Vec<MatchedImportFinding>) {
-        let mut ids = FindingIds::for_key(metric_key);
+        let mut ids = FindingIds::new(metric);
         let mut total = 0usize;
         let mut findings = Vec::new();
         for (package_root, package_imports) in self.imports {

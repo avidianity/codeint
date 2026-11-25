@@ -423,6 +423,8 @@ dependencies = [
 name = "codeint-model"
 version = "0.6.0"
 dependencies = [
+ "schemars",
+ "serde",
  "thiserror",
  "wit-bindgen",
 ]

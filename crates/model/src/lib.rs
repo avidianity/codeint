@@ -28,7 +28,9 @@ pub use language::{
     SourceSet, Token, TokenKind,
 };
 pub use metric::{
-    ExternalFinding, ExternalMetricMeasurement, Metric, MetricPlugin, MetricPluginError,
+    ExternalFinding, ExternalMetricMeasurement, Metric, MetricCapability, MetricDescriptor,
+    MetricKind, MetricPlugin, MetricPluginError, MetricScope, NewFindingsRule,
+    STRUCTURAL_REPORT_KEYS, is_reserved_report_key,
 };
 pub use runtime_imports::{
     ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,

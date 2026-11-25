@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use codeint_model::language::Function;
-use codeint_model::{CodeModel, Package, RepoPath, SourceFile, SourceSet};
+use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile, SourceSet};
 
 use crate::FindingId;
 use crate::erosion::function_mass;
@@ -10,7 +10,7 @@ use crate::finding_id::{FindingIds, function_finding_id, group_by_package};
 #[cfg(test)]
 mod tests;
 
-pub const TEST_GAP_METRIC_KEY: &str = "test_gap";
+pub const TEST_GAP_METRIC_KEY: &str = Metric::TestGap.key();
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TestGapFinding {
@@ -73,7 +73,7 @@ impl TestGap {
         let mut masses = TestGapMasses::default();
         let mut masses_by_file = BTreeMap::new();
         let mut findings = Vec::new();
-        let mut ids = FindingIds::for_key(TEST_GAP_METRIC_KEY);
+        let mut ids = FindingIds::new(Metric::TestGap);
         for file in &model.files {
             if file.model.source_set != SourceSet::Production {
                 continue;
