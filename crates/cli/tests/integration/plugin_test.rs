@@ -251,6 +251,22 @@ fn a_plugin_that_rejects_only_manifests_it_did_not_choose_passes() {
 }
 
 #[test]
+fn a_plugin_with_an_empty_workspace_answer_is_sent_every_manifest_in_one_root_call() {
+    let (output, report) = json_report(
+        "language",
+        "empty_workspace_multi_manifest_language_plugin.wasm",
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        failed_checks(&report)
+            .iter()
+            .any(|(id, _)| id == "framework-profiles"),
+        "{report}"
+    );
+}
+
+#[test]
 fn a_chosen_source_file_is_sent_its_real_content_not_a_labelled_garbage_manifest() {
     for wasm in [
         "source_manifest_workspace_language_plugin.wasm",

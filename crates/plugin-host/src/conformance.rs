@@ -501,6 +501,26 @@ fn probe_workspace() -> Workspace {
     Workspace::new([repo_path(PROBE_PACKAGE)])
 }
 
+fn reported_workspace(plugin: &WasmLanguagePlugin, chosen: &[RepoPath]) -> Workspace {
+    if !plugin.has_imports() {
+        return Workspace::default();
+    }
+    match plugin.workspace_packages(chosen_manifests(chosen, true)) {
+        Ok(members) => Workspace::new(members),
+        Err(_) => Workspace::default(),
+    }
+}
+
+fn package_keys(workspace: &Workspace) -> Vec<String> {
+    workspace
+        .packages()
+        .map(|package| match package {
+            Package::Root => String::new(),
+            Package::Member(root) => root.as_str().to_owned(),
+        })
+        .collect()
+}
+
 fn package_key(workspace: &Workspace, path: &RepoPath) -> String {
     match workspace.package_of(path) {
         Package::Root => String::new(),
@@ -628,21 +648,31 @@ fn check_framework_profiles(
             FrameworkProfileSelection::Only(subset),
         ));
     }
-    let workspace = probe_workspace();
-    for package_root in ["", PROBE_PACKAGE] {
-        for (manifest_label, files, manifests) in package_inputs(&inputs, &workspace, package_root)
-        {
-            let call = ProfileCall {
-                plugin,
-                package_root,
-                files: &files,
-                manifests: &manifests,
-                manifest_label,
-            };
-            for (label, selection) in &selections {
-                if let Some((message, hint)) = call.failure(label, selection, watch) {
-                    report.fail("framework-profiles", message, hint);
-                    return;
+    let mut scopes: Vec<(Workspace, Vec<String>)> = Vec::new();
+    let reported = reported_workspace(plugin, inputs.chosen);
+    let reported_roots = package_keys(&reported);
+    scopes.push((reported.clone(), reported_roots));
+    let probe = probe_workspace();
+    if probe != reported {
+        scopes.push((probe, vec![String::new(), PROBE_PACKAGE.to_owned()]));
+    }
+    for (workspace, package_roots) in &scopes {
+        for package_root in package_roots {
+            for (manifest_label, files, manifests) in
+                package_inputs(&inputs, workspace, package_root)
+            {
+                let call = ProfileCall {
+                    plugin,
+                    package_root,
+                    files: &files,
+                    manifests: &manifests,
+                    manifest_label,
+                };
+                for (label, selection) in &selections {
+                    if let Some((message, hint)) = call.failure(label, selection, watch) {
+                        report.fail("framework-profiles", message, hint);
+                        return;
+                    }
                 }
             }
         }

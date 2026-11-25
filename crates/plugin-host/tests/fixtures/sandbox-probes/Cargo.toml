@@ -38,6 +38,7 @@ members = [
     "manifest-paths-trap-language",
     "exclude-trap-language",
     "manifest-strict-profiles-language",
+    "empty-workspace-multi-manifest-language",
     "source-manifest-workspace-language",
     "source-manifest-profiles-language",
     "single-profile-only-language",
