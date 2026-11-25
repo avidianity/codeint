@@ -105,7 +105,9 @@ if !report.passed() {
 
 - `run_conformance` reads the file, loads it through the same zero-capability sandbox as `codeint check`, and returns one `ConformanceCheck` per rule with `ConformanceStatus::{Pass, Fail, Skipped}`, a message, and a fix hint on every fail.
 - It returns `Err(PluginHostError::Read)` only when the file cannot be read; every contract violation is a failed check, never an `Err`.
-- A check that depends on a failed load or an earlier fail is `Skipped`.
+- A check that depends on a failed load or an earlier fail is `Skipped`, and so is every import check of a Language plugin whose `has-imports` is false.
+- The report lists every check exactly once, in a fixed order.
+- `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::workspace_packages_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths` still turns a trap into an empty list, as `codeint check` expects.
 - `sources` adds Language plugin probe sources to the built-in ones; each file name carries the extension that the Plugin claims.
 - `codeint plugin test` is the command-line front end; see [docs/reference.md](../../docs/reference.md#codeint-plugin).
 

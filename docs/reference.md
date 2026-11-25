@@ -836,19 +836,23 @@ The runner checks a Language plugin for the following rules:
 - It is a valid WebAssembly component that exports `codeint:plugin/language@0.4.0` and imports no WASI or host interface.
 - It claims at least one valid, unique extension, and its Hazard rule list matches `has-hazard-rules`.
 - `lower` is deterministic and stateless on built-in probe sources and on every `--source` file, returns lines counted from 1 inside the file, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
-- Its Framework profiles resolve for the disabled, auto, and only selections, and it answers `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, `entry-points`, and `reference-ranges` with valid data.
-- It stays within the memory and time limits of each call.
+- Its Framework profiles resolve for the disabled, auto, exclude, and only selections.
+- When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts.
+  When `has-imports` is false, codeint never calls these five, so the runner reports them as skipped.
+- It answers `reference-ranges` with valid data.
+- It stays within the memory and time limits of each call; a call that hits a limit fails `limits`.
 
 The runner checks a Metric plugin for the following rules:
 
 - It is a valid WebAssembly component that exports `codeint:plugin/metric@0.4.0` and imports no WASI or host interface.
 - Its key is a valid snake_case key that collides with no built-in Metric or reserved report key, its version is 1 or higher, and its name and description are not empty.
-- `measure` is deterministic and stateless, and it returns a ratio between 0 and 1, finite and non-negative numbers, Findings with a non-empty id, lines counted from 1, and paths relative to the repository root.
+- `measure` is deterministic and stateless on an empty Code model and on Code models with functions, tokens, Hazard lines, runtime imports, and several Production and Test files, and it returns a ratio between 0 and 1, finite and non-negative numbers, Findings with a non-empty id, lines counted from 1, and paths relative to the repository root.
 - It stays within the memory and time limits of each call.
 
 Each check prints as pass, fail, or skipped.
 A fail names the rule and a fix hint.
-A check that needs a Plugin that did not load, or a measurement that an earlier fail stopped, prints as skipped.
+A check that needs a Plugin that did not load, a call that codeint never makes for the Plugin, or a measurement that an earlier fail stopped, prints as skipped.
+Checks print in a fixed order, and each check appears once.
 `codeint plugin test` exits with code 0 when no check fails and code 1 when at least one check fails.
 A path that names no readable file stops the run with exit code 2.
 

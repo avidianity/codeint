@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use codeint_plugin_host::{LANGUAGE_CHECKS, METRIC_CHECKS};
 use serde_json::Value;
 
 fn fixture(file_name: &str) -> PathBuf {
@@ -112,25 +113,221 @@ fn broken_plugins_fail_with_a_fix_hint() {
         } else {
             &[]
         };
-        for format in ["text", "json", "toon"] {
-            let output = run_plugin_test_with(kind, wasm, format, extra);
-            assert_eq!(output.status.code(), Some(1), "{wasm} {format}: {output:?}");
-            assert!(
-                stdout(&output).contains(check_id),
-                "{wasm} {format}: {}",
-                stdout(&output)
-            );
-        }
         let (_, report) = json_report(kind, wasm, extra);
         assert_eq!(report["passed"], false, "{wasm}");
         let failed = failed_checks(&report);
-        assert!(
-            failed
-                .iter()
-                .any(|(id, hint)| id == check_id && !hint.is_empty()),
-            "{wasm}: expected failed {check_id} with a hint, got {failed:?}"
-        );
+        let hint = failed
+            .iter()
+            .find(|(id, hint)| id == check_id && !hint.is_empty())
+            .map(|(_, hint)| hint.clone())
+            .unwrap_or_else(|| {
+                panic!("{wasm}: expected failed {check_id} with a hint, got {failed:?}")
+            });
+        for format in ["text", "toon"] {
+            let output = run_plugin_test_with(kind, wasm, format, extra);
+            assert_eq!(output.status.code(), Some(1), "{wasm} {format}: {output:?}");
+            let text = stdout(&output);
+            if format == "text" {
+                assert!(
+                    text.contains(&format!("[FAIL] {check_id}:")),
+                    "{wasm} text: {text}"
+                );
+                assert!(
+                    text.contains(&format!("fix: {hint}")),
+                    "{wasm} text: {text}"
+                );
+            } else {
+                assert!(text.contains(check_id), "{wasm} toon: {text}");
+                assert!(text.contains("fail"), "{wasm} toon: {text}");
+                assert!(text.contains(&hint), "{wasm} toon: {text}");
+            }
+        }
     }
+}
+
+fn check_ids(report: &Value) -> Vec<String> {
+    report["checks"]
+        .as_array()
+        .expect("checks array")
+        .iter()
+        .map(|check| check["id"].as_str().expect("id").to_owned())
+        .collect()
+}
+
+fn check_status(report: &Value, id: &str) -> String {
+    report["checks"]
+        .as_array()
+        .expect("checks array")
+        .iter()
+        .find(|check| check["id"] == id)
+        .and_then(|check| check["status"].as_str())
+        .unwrap_or_else(|| panic!("no check {id}"))
+        .to_owned()
+}
+
+fn assert_fails(kind: &str, wasm: &str, extra: &[&std::ffi::OsStr], check_id: &str) -> Value {
+    let (output, report) = json_report(kind, wasm, extra);
+    assert_eq!(output.status.code(), Some(1), "{wasm}: {output:?}");
+    let failed = failed_checks(&report);
+    assert!(
+        failed
+            .iter()
+            .any(|(id, hint)| id == check_id && !hint.is_empty()),
+        "{wasm}: expected failed {check_id} with a hint, got {failed:?}"
+    );
+    report
+}
+
+#[test]
+fn workspace_packages_failures_fail_the_check() {
+    for wasm in [
+        "invalid_workspace_root_language_plugin.wasm",
+        "workspace_trap_language_plugin.wasm",
+    ] {
+        assert_fails("language", wasm, &[], "workspace-packages");
+    }
+}
+
+#[test]
+fn a_manifest_paths_trap_fails_the_check() {
+    assert_fails(
+        "language",
+        "manifest_paths_trap_language_plugin.wasm",
+        &[],
+        "manifest-paths",
+    );
+}
+
+#[test]
+fn a_trap_on_the_exclude_selection_fails_framework_profiles() {
+    assert_fails(
+        "language",
+        "exclude_trap_language_plugin.wasm",
+        &[],
+        "framework-profiles",
+    );
+}
+
+#[test]
+fn per_function_findings_with_an_empty_id_fail_the_check() {
+    assert_fails(
+        "metric",
+        "empty_finding_id_metric_plugin.wasm",
+        &[],
+        "finding-ids",
+    );
+}
+
+#[test]
+fn a_memory_cap_hit_in_lower_fails_limits() {
+    let sources = tempfile::tempdir().expect("tempdir");
+    let source = sources.path().join("big.hog");
+    std::fs::write(&source, "HOG_MEMORY\n").expect("write source");
+    let extra: [&std::ffi::OsStr; 4] = [
+        "--source".as_ref(),
+        source.as_os_str(),
+        "--plugin-memory-mb".as_ref(),
+        "16".as_ref(),
+    ];
+    let report = assert_fails(
+        "language",
+        "memory_hog_language_plugin.wasm",
+        &extra,
+        "lower",
+    );
+    assert_eq!(check_status(&report, "limits"), "fail");
+}
+
+#[test]
+fn a_plugin_without_imports_skips_every_import_check_and_passes() {
+    let (output, report) = json_report("language", "no_imports_language_plugin.wasm", &[]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    for id in [
+        "manifest-paths",
+        "workspace-packages",
+        "resolve-imports",
+        "declared-dependencies",
+        "entry-points",
+    ] {
+        assert_eq!(check_status(&report, id), "skipped", "{id}");
+    }
+}
+
+#[test]
+fn a_source_file_name_with_a_backslash_does_not_crash_the_runner() {
+    let sources = tempfile::tempdir().expect("tempdir");
+    let source = sources.path().join("a\\b.noimp");
+    std::fs::write(&source, "fn alpha\n").expect("write source");
+    let extra: [&std::ffi::OsStr; 2] = ["--source".as_ref(), source.as_os_str()];
+    let (output, report) = json_report("language", "no_imports_language_plugin.wasm", &extra);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(check_status(&report, "lower"), "pass");
+}
+
+#[test]
+fn an_extension_with_a_backslash_does_not_crash_the_runner() {
+    let (output, report) = json_report("language", "backslash_extension_language_plugin.wasm", &[]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(check_status(&report, "extensions"), "pass");
+}
+
+#[test]
+fn every_report_lists_each_check_once_in_order() {
+    let language = [
+        "legacy_v0_3_0_language_plugin.wasm",
+        "clock_reader_plugin.wasm",
+        "invalid_workspace_root_language_plugin.wasm",
+        "workspace_trap_language_plugin.wasm",
+        "manifest_paths_trap_language_plugin.wasm",
+        "exclude_trap_language_plugin.wasm",
+        "no_imports_language_plugin.wasm",
+        "backslash_extension_language_plugin.wasm",
+        "unlisted_hazard_rule_language_plugin.wasm",
+        "sample_mini_plugin.wasm",
+    ];
+    let metric = [
+        "legacy_v0_3_0_metric_plugin.wasm",
+        "zero_version_metric_plugin.wasm",
+        "reserved_key_metric_plugin.wasm",
+        "out_of_range_ratio_metric_plugin.wasm",
+        "invalid_finding_path_metric_plugin.wasm",
+        "empty_finding_id_metric_plugin.wasm",
+        "sample_long_functions_plugin.wasm",
+    ];
+    for (kind, wasms, expected) in [
+        ("language", &language[..], &LANGUAGE_CHECKS[..]),
+        ("metric", &metric[..], &METRIC_CHECKS[..]),
+    ] {
+        for wasm in wasms {
+            let (_, report) = json_report(kind, wasm, &[]);
+            assert_eq!(check_ids(&report), expected, "{wasm}");
+        }
+    }
+}
+
+#[test]
+fn a_non_limit_measure_error_still_lists_limits() {
+    let report = assert_fails(
+        "metric",
+        "out_of_range_ratio_metric_plugin.wasm",
+        &[],
+        "measurement-bounds",
+    );
+    assert_eq!(check_status(&report, "limits"), "pass");
+    assert_eq!(check_status(&report, "finding-ids"), "skipped");
+}
+
+#[test]
+fn load_failures_report_earlier_checks_as_passed_and_later_checks_as_skipped() {
+    let (_, report) = json_report("language", "clock_reader_plugin.wasm", &[]);
+    assert_eq!(check_status(&report, "component"), "pass");
+    assert_eq!(check_status(&report, "wit-contract"), "pass");
+    assert_eq!(check_status(&report, "zero-imports"), "fail");
+    assert_eq!(check_status(&report, "extensions"), "skipped");
+    let (_, report) = json_report("language", "legacy_v0_3_0_language_plugin.wasm", &[]);
+    assert_eq!(check_status(&report, "component"), "pass");
+    assert_eq!(check_status(&report, "wit-contract"), "fail");
+    assert_eq!(check_status(&report, "zero-imports"), "skipped");
 }
 
 #[test]

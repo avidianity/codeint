@@ -9,6 +9,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "backslash-extension-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -39,10 +47,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "empty-finding-id-metric-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
+
+[[package]]
+name = "exclude-trap-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
 
 [[package]]
 name = "file-reader-plugin"
@@ -140,6 +164,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "invalid-workspace-root-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -215,6 +247,14 @@ dependencies = [
 
 [[package]]
 name = "loop-metric-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "manifest-paths-trap-language-plugin"
 version = "0.1.0"
 dependencies = [
  "probe-runtime",
@@ -517,6 +557,14 @@ dependencies = [
  "serde_json",
  "unicode-ident",
  "wasmparser",
+]
+
+[[package]]
+name = "workspace-trap-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
 ]
 
 [[package]]

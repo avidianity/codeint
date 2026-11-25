@@ -60,3 +60,38 @@ fn extension_check_rejects_empty_dotted_and_duplicate_extensions() {
     check_extensions(&mut report, &["ts".to_owned(), "tsx".to_owned()]);
     assert_eq!(report.checks[0].status, ConformanceStatus::Pass);
 }
+
+#[test]
+fn probe_paths_never_panic_on_backslashes() {
+    assert_eq!(
+        probe_repo_path("a\\b.noimp", "noimp").as_str(),
+        "src/a_b.noimp"
+    );
+    assert_eq!(probe_repo_path("..", "ts").as_str(), "src/probe.ts");
+    assert!(!usable_extension("a\\b"));
+    assert!(usable_extension("ts"));
+}
+
+#[test]
+fn extension_check_accepts_a_backslash_extension_like_codeint_check() {
+    let mut report = ConformanceReport {
+        kind: PluginKind::Language,
+        checks: Vec::new(),
+    };
+    check_extensions(&mut report, &["a\\b".to_owned()]);
+    assert_eq!(report.checks[0].status, ConformanceStatus::Pass);
+}
+
+#[test]
+fn finalize_orders_checks_and_adds_the_missing_ones_as_skipped() {
+    let mut report = ConformanceReport {
+        kind: PluginKind::Metric,
+        checks: Vec::new(),
+    };
+    report.pass("limits", "ok");
+    report.pass("component", "ok");
+    report.finalize(&METRIC_CHECKS);
+    let ids: Vec<&str> = report.checks.iter().map(|check| check.id).collect();
+    assert_eq!(ids, METRIC_CHECKS);
+    assert_eq!(report.checks[1].status, ConformanceStatus::Skipped);
+}

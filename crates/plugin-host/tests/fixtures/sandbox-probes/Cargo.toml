@@ -30,6 +30,12 @@ members = [
     "out-of-range-ratio-metric",
     "invalid-finding-path-metric",
     "stale-reference-range-language",
+    "invalid-workspace-root-language",
+    "workspace-trap-language",
+    "manifest-paths-trap-language",
+    "exclude-trap-language",
+    "backslash-extension-language",
+    "empty-finding-id-metric",
 ]
 
 [workspace.package]
