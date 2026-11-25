@@ -27,3 +27,4 @@ Doc comments in the published WIT interface stay allowed, because they document 
 
 - The compiler rejects any `unsafe` block, so the no-comments rule has no Rust exception.
 - A future need for `unsafe` requires a new ADR that supersedes this one.
+- Narrowly amended by [ADR 0027](./0027-plugin-sdk-guest-runtime-unsafe.md) to allow only the isolated WebAssembly guest runtime shim inside `codeint-plugin-sdk`; every host, core, CLI, and built-in Language plugin crate continues to enforce `#![forbid(unsafe_code)]`.
