@@ -66,3 +66,42 @@ fn performance_budget_rejects_non_positive_budget_seconds() {
     let _ = fs::remove_dir_all(&scratch);
     assert!(result.is_err());
 }
+
+#[test]
+fn commit_scopes_cover_every_built_in_language_plugin() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or(Path::new("."));
+    let settings = match load_settings(root) {
+        Ok(settings) => settings,
+        Err(error) => panic!("{error}"),
+    };
+    let entries = match fs::read_dir(root.join("plugins/languages")) {
+        Ok(entries) => entries,
+        Err(error) => panic!("cannot read plugins/languages: {error}"),
+    };
+    let mut plugin_dirs = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => panic!("cannot read plugin entry: {error}"),
+        };
+        if entry.path().is_dir()
+            && let Some(name) = entry.file_name().to_str()
+        {
+            plugin_dirs.push(name.to_owned());
+        }
+    }
+    plugin_dirs.sort();
+    assert!(
+        !plugin_dirs.is_empty(),
+        "expected built-in language plugin directories"
+    );
+    for dir in plugin_dirs {
+        let expected_scope = format!("lang-{dir}");
+        assert!(
+            settings.commit_scopes.contains(&expected_scope),
+            "checks.toml commit.scopes is missing {expected_scope:?}"
+        );
+    }
+}

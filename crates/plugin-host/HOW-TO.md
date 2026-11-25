@@ -93,3 +93,7 @@ let plugin = load_language_plugin(repository.root(), &declaration, &PluginHostCo
 
 - `sha256` is a pure-Rust, `#![forbid(unsafe_code)]`, std-only FIPS 180-4 SHA-256 implementation.
 - On a hash mismatch, `load_language_plugin` returns `PluginHostError::HashMismatch` (local path) or `PluginHostError::DownloadHashMismatch` (HTTPS URL) naming the plugin, its path or URL, and both expected and actual digests, without caching or passing the bytes to `wasmtime`.
+
+## Verify WIT contract lockstep
+
+Run `cargo test --locked -p codeint-plugin-host --test wit_lockstep` to verify that `wit/language.wit` and `wit/metric.wit` match `PLUGIN_INTERFACE_VERSION`, the `LanguagePlugin` and `MetricPlugin` traits in `codeint-model`, the host wrappers in `codeint-plugin-host`, and built-in Language plugin registration.
