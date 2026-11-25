@@ -23,6 +23,14 @@ pub struct TrendReport {
     source_sets: SourceSetTrends,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     test_gap_note: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    manifest_warnings: Vec<CommitManifestWarnings>,
+}
+
+#[derive(Debug, Serialize)]
+struct CommitManifestWarnings {
+    commit: String,
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -66,8 +74,15 @@ impl TrendReport {
         let commits = points_oldest_first.len();
         let mut source_sets = SourceSetTrends::default();
         let mut external_versions = BTreeMap::new();
+        let mut manifest_warnings = Vec::new();
         for point in points_oldest_first {
             let committed_on = point.committed_on.to_string();
+            if !point.measurement.manifest_warnings().is_empty() {
+                manifest_warnings.push(CommitManifestWarnings {
+                    commit: point.commit.clone(),
+                    warnings: point.measurement.manifest_warnings().to_vec(),
+                });
+            }
             for (source_set, measured) in point.measurement.into_source_sets() {
                 for (key, entry) in &measured.external_metrics {
                     external_versions.insert(key.clone(), entry.metric_version);
@@ -86,6 +101,7 @@ impl TrendReport {
             metric_versions,
             source_sets,
             test_gap_note: include_test_gap_note.then(|| TEST_GAP_TREND_NOTE.to_owned()),
+            manifest_warnings,
         }
     }
 

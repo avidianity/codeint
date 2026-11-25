@@ -1801,13 +1801,18 @@ codeint asks the plugin again for the Workspace packages without the invalid man
 Files under a skipped manifest count toward the surrounding Workspace package, as if the manifest did not exist.
 A skipped manifest is also left out of dependency, import, and entry-point resolution.
 
-Each skipped manifest adds one entry to `manifest_warnings` in JSON and TOON reports, one line in Markdown reports, and one entry in `codeint diff` reports:
+Each skipped manifest adds one entry to `manifest_warnings` in JSON and TOON reports of `codeint check`, and one line in Markdown reports.
+`codeint diff` keeps the two sides apart: `base_manifest_warnings` lists the manifests skipped in the base commit, and `head_manifest_warnings` lists those skipped in the head, so a manifest that you fixed in the head still shows as a base warning.
+The Markdown report of `codeint diff` prefixes each line with `Base commit:` or `Head commit:`.
+`codeint trend` lists the warnings of each commit that skipped a manifest under `manifest_warnings`, as entries with the `commit` and its `warnings`, and prefixes each Markdown line with `Commit {id}:`.
+codeint writes each warning on one line and escapes control characters in it, such as ESC, as `\u{1b}`:
 
 ```text illustration
 Skipped the invalid go manifest internal/warpc/genwebp/go.mod: missing module directive. Files under it count toward the surrounding Workspace package.
 ```
 
 A warning never changes the exit code by itself.
+`codeint check --package {folder}` names the skipped manifest and the plugin's reason when `{folder}` holds a skipped manifest, because the manifest never made that folder a Workspace package.
 `codeint doctor` reports the `workspace` check as `warn` and lists each skipped manifest.
 A plugin trap, an error that names a path codeint did not pass, and an error that is not about a manifest still stop the run with exit code 2.
 

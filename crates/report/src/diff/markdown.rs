@@ -34,8 +34,13 @@ pub(super) fn render(report: &DiffReport) -> String {
     if let Some(note) = &report.ratchet_note {
         blocks.push(prose(note));
     }
-    for warning in &report.manifest_warnings {
-        blocks.push(prose(warning));
+    for (side, warnings) in [
+        ("Base commit", &report.base_manifest_warnings),
+        ("Head commit", &report.head_manifest_warnings),
+    ] {
+        for warning in warnings {
+            blocks.push(prose(&format!("{side}: {warning}")));
+        }
     }
     if !sections.is_empty() {
         blocks.push(table(

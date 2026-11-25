@@ -3744,6 +3744,17 @@ fn workspace_packages_of_the_object_form_with_packages_are_reported_like_the_arr
     assert_two_package_report(&output);
 }
 
+fn assert_files_stay_in_the_root_package(repository: &Repository) {
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("parse json");
+    assert_eq!(report["files"], 1, "{report}");
+    assert!(
+        report.get("packages").is_none(),
+        "files under the skipped manifest must stay in the root package: {report}"
+    );
+}
+
 #[test]
 fn a_workspaces_field_of_the_wrong_shape_is_skipped_with_a_warning() {
     let repository = Repository::new();
@@ -3765,6 +3776,7 @@ fn a_workspaces_field_of_the_wrong_shape_is_skipped_with_a_warning() {
         )),
         "{text}"
     );
+    assert_files_stay_in_the_root_package(&repository);
 }
 
 #[test]
@@ -3811,6 +3823,7 @@ fn a_pnpm_workspace_yaml_that_is_not_yaml_is_skipped_with_a_warning() {
         )),
         "{text}"
     );
+    assert_files_stay_in_the_root_package(&repository);
 }
 
 const PACKAGES_HEADER: &str = concat!(

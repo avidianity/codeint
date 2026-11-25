@@ -66,12 +66,8 @@ impl DiffReport {
         options: DiffReportOptions<'_>,
     ) -> DiffReport {
         let mut source_sets = SourceSetChangesSections::default();
-        let mut manifest_warnings = base_measurement.manifest_warnings().to_vec();
-        for warning in head_measurement.manifest_warnings() {
-            if !manifest_warnings.contains(warning) {
-                manifest_warnings.push(warning.clone());
-            }
-        }
+        let base_manifest_warnings = base_measurement.manifest_warnings().to_vec();
+        let head_manifest_warnings = head_measurement.manifest_warnings().to_vec();
         let (base_sets, base_dependencies) = base_measurement.into_parts();
         let (head_sets, head_dependencies) = head_measurement.into_parts();
         for ((source_set, base), (_, head)) in base_sets.into_iter().zip(head_sets) {
@@ -122,7 +118,8 @@ impl DiffReport {
                 .include_test_gap_note
                 .then(|| TEST_GAP_DIFF_NOTE.to_owned()),
             ratchet_note: None,
-            manifest_warnings,
+            base_manifest_warnings,
+            head_manifest_warnings,
             dependencies,
         }
     }

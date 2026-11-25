@@ -32,25 +32,26 @@ pub(crate) fn select_workspace_package(
     workspace: &Workspace,
     requested: &str,
 ) -> Result<SelectedPackage, CheckError> {
-    let available: Vec<String> = workspace.member_roots().map(ToString::to_string).collect();
-    if !workspace.has_members() {
-        return Err(CheckError::UnknownWorkspacePackage {
-            requested: requested.to_owned(),
-            available,
-        });
-    }
     let normalized = normalize_package_path(requested);
-    if normalized == "." {
-        return Ok(SelectedPackage::Root);
-    }
-    if let Ok(candidate) = RepoPath::new(normalized)
-        && workspace.member_roots().any(|root| root == &candidate)
-    {
-        return Ok(SelectedPackage::Member(candidate));
+    if workspace.has_members() {
+        if normalized == "." {
+            return Ok(SelectedPackage::Root);
+        }
+        if let Ok(candidate) = RepoPath::new(&normalized)
+            && workspace.member_roots().any(|root| root == &candidate)
+        {
+            return Ok(SelectedPackage::Member(candidate));
+        }
     }
     Err(CheckError::UnknownWorkspacePackage {
         requested: requested.to_owned(),
-        available,
+        available: workspace.member_roots().map(ToString::to_string).collect(),
+        skipped_manifest: workspace.skipped_manifest_in(&normalized).map(|skipped| {
+            format!(
+                "its {} manifest {} is invalid and was skipped: {}",
+                skipped.plugin, skipped.path, skipped.reason
+            )
+        }),
     })
 }
 

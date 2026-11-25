@@ -37,7 +37,9 @@ pub struct DiffReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) ratchet_note: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) manifest_warnings: Vec<String>,
+    pub(super) base_manifest_warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) head_manifest_warnings: Vec<String>,
     pub(super) source_sets: SourceSetChangesSections,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) dependencies: Option<DependenciesChanges>,

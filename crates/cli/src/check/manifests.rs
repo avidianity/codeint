@@ -4,7 +4,7 @@ use codeint_config::{ConfigFileKind, display_package_key};
 use codeint_git::Snapshot;
 use codeint_model::{
     CodeModel, DeclaredDep, DependencyManifest, LanguageFacts, Manifest, RepoPath, ResolveError,
-    RuntimeImport, SourceFile, Workspace, WorkspaceError, choose_manifests,
+    RuntimeImport, SkippedManifest, SourceFile, Workspace, WorkspaceError, choose_manifests,
     resolve_runtime_imports,
 };
 use codeint_plugin_host::NamedLanguagePlugin;
@@ -44,7 +44,37 @@ pub(crate) fn read_manifests(
 pub(crate) struct WorkspaceDiscovery {
     pub(crate) members_by_plugin: Vec<Vec<RepoPath>>,
     pub(crate) manifests_by_plugin: Vec<Vec<Manifest>>,
-    pub(crate) warnings: Vec<String>,
+    pub(crate) skipped: Vec<SkippedManifest>,
+}
+
+impl WorkspaceDiscovery {
+    pub(crate) fn warnings(&self) -> Vec<String> {
+        self.skipped.iter().map(skipped_manifest_warning).collect()
+    }
+
+    pub(crate) fn workspace(&self) -> Workspace {
+        Workspace::new(self.members_by_plugin.iter().flatten().cloned())
+            .with_skipped_manifests(self.skipped.iter().cloned())
+    }
+}
+
+fn skipped_manifest_warning(skipped: &SkippedManifest) -> String {
+    escape_control_characters(&format!(
+        "Skipped the invalid {} manifest {}: {}. Files under it count toward the surrounding Workspace package.",
+        skipped.plugin, skipped.path, skipped.reason
+    ))
+}
+
+fn escape_control_characters(text: &str) -> String {
+    text.chars()
+        .flat_map(|character| {
+            if character.is_control() {
+                character.escape_debug().collect::<Vec<_>>()
+            } else {
+                vec![character]
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn find_workspace(
@@ -52,8 +82,7 @@ pub(crate) fn find_workspace(
     manifests_by_plugin: Vec<Vec<Manifest>>,
 ) -> Result<(Workspace, Vec<String>), CheckError> {
     let discovery = find_plugin_workspaces(plugins, manifests_by_plugin)?;
-    let workspace = Workspace::new(discovery.members_by_plugin.into_iter().flatten());
-    Ok((workspace, discovery.warnings))
+    Ok((discovery.workspace(), discovery.warnings()))
 }
 
 pub(super) fn find_plugin_workspaces(
@@ -63,7 +92,7 @@ pub(super) fn find_plugin_workspaces(
     let mut discovery = WorkspaceDiscovery {
         members_by_plugin: Vec::with_capacity(plugins.len()),
         manifests_by_plugin: Vec::with_capacity(plugins.len()),
-        warnings: Vec::new(),
+        skipped: Vec::new(),
     };
     for (named, manifests) in plugins.iter().zip(manifests_by_plugin) {
         if !named.plugin.has_imports() {
@@ -72,7 +101,7 @@ pub(super) fn find_plugin_workspaces(
             continue;
         }
         let (members, valid_manifests) =
-            find_valid_plugin_workspace(named, manifests, &mut discovery.warnings)?;
+            find_valid_plugin_workspace(named, manifests, &mut discovery.skipped)?;
         discovery.members_by_plugin.push(members);
         discovery.manifests_by_plugin.push(valid_manifests);
     }
@@ -82,7 +111,7 @@ pub(super) fn find_plugin_workspaces(
 fn find_valid_plugin_workspace(
     named: &NamedLanguagePlugin<'_>,
     mut manifests: Vec<Manifest>,
-    warnings: &mut Vec<String>,
+    skipped: &mut Vec<SkippedManifest>,
 ) -> Result<(Vec<RepoPath>, Vec<Manifest>), CheckError> {
     loop {
         match named.plugin.workspace_packages(manifests.clone()) {
@@ -94,11 +123,11 @@ fn find_valid_plugin_workspace(
                 };
                 manifests.remove(position);
                 let reason = message.split_whitespace().collect::<Vec<_>>().join(" ");
-                warnings.push(format!(
-                    "Skipped the invalid {} manifest {path}: {}. Files under it count toward the surrounding Workspace package.",
-                    named.name,
-                    reason.trim_end_matches('.')
-                ));
+                skipped.push(SkippedManifest {
+                    path,
+                    plugin: named.name.to_owned(),
+                    reason: escape_control_characters(reason.trim_end_matches('.')),
+                });
             }
             Err(error) => return Err(error.into()),
         }

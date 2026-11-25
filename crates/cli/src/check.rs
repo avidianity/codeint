@@ -552,12 +552,11 @@ fn measure(
     let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let sql_dialects =
         sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
-    let manifests::WorkspaceDiscovery {
-        members_by_plugin: plugin_members,
-        manifests_by_plugin,
-        warnings: manifest_warnings,
-    } = manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins)?)?;
-    let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
+    let discovery = manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins)?)?;
+    let workspace = discovery.workspace();
+    let manifest_warnings = discovery.warnings();
+    let plugin_members = discovery.members_by_plugin;
+    let manifests_by_plugin = discovery.manifests_by_plugin;
     let outcomes =
         lowering::lower_covered_files(tree, plugins, &covered_files, &sql_dialects, config_file)?;
     let mut collected = lowering::collect_plugin_models(plugins.len(), workspace.clone(), outcomes);
