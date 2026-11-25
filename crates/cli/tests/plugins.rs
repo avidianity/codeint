@@ -1935,3 +1935,53 @@ fn external_wasm_language_plugin_with_hazard_rules_populates_hazards_metric() {
     let filtered = run_check_json_report(repo.path());
     assert_prod_hazards(&filtered, 1, 0.25, &["leading-wildcard-like"]);
 }
+
+#[test]
+fn every_built_in_metric_and_source_set_key_from_schema_is_rejected_for_external_plugins() {
+    let schema = serde_json::to_value(codeint_cli::schema()).expect("serialize schema");
+    for metric in schema["metrics"].as_array().expect("schema metrics") {
+        let key = metric["key"].as_str().expect("metric key");
+        let error = codeint_plugin_host::validate_metric_key("external-probe", key)
+            .expect_err("built-in Metric key from schema must be rejected");
+        assert!(
+            matches!(
+                error,
+                codeint_plugin_host::PluginHostError::InvalidMetricKey {
+                    key: ref rejected, ..
+                } if rejected == key
+            ),
+            "unexpected error for {key}: {error}"
+        );
+    }
+    for source_set in schema["source_sets"]
+        .as_array()
+        .expect("schema source_sets")
+    {
+        let key = source_set.as_str().expect("source set key");
+        codeint_plugin_host::validate_metric_key("external-probe", key)
+            .expect_err("Source set key from schema must be rejected");
+    }
+}
+
+#[test]
+fn codeint_check_refuses_external_metric_plugin_using_built_in_key() {
+    let (repo, _hash) = init_single_probe_repo(
+        "reserved-metric",
+        Some("metric"),
+        "reserved_key_metric_plugin.wasm",
+        "",
+    );
+    write_file(repo.path(), "src/app.ts", "export const x = 1;\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .current_dir(repo.path())
+        .arg("check")
+        .output()
+        .expect("run codeint check");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cognitive_complexity") && stderr.contains("collides"),
+        "expected stderr to reject cognitive_complexity collision, got: {stderr}"
+    );
+}

@@ -271,6 +271,27 @@ fn refuses_duplicate_metric_keys_across_external_metric_plugins() {
 }
 
 #[test]
+fn refuses_external_metric_plugin_declaring_built_in_metric_key() {
+    let wasm_path = sandbox_probe_wasm("reserved_key_metric_plugin.wasm");
+    let declaration = declaration_with_kind("reserved-metric", PluginKind::Metric, &wasm_path);
+
+    let error = load_metric_plugin(Path::new("."), &declaration, &PluginHostConfig::default())
+        .err()
+        .expect("external Metric plugin using built-in key must fail");
+    assert!(
+        matches!(
+            error,
+            PluginHostError::InvalidMetricKey {
+                ref name,
+                ref key,
+                ..
+            } if name == "reserved-metric" && key == "cognitive_complexity"
+        ),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
 fn external_plugin_cannot_read_files() {
     assert_sandbox_blocks(
         "rogue-file-reader",

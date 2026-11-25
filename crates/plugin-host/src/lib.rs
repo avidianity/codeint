@@ -18,7 +18,7 @@ mod wasm_metric;
 
 pub use sha256::{format_hex as sha256_hex, sha256};
 pub use wasm::WasmLanguagePlugin;
-pub use wasm_metric::WasmMetricPlugin;
+pub use wasm_metric::{WasmMetricPlugin, validate_metric_key};
 
 pub const PLUGIN_INTERFACE_VERSION: &str = "0.3.0";
 

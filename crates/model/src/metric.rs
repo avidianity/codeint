@@ -12,6 +12,21 @@ impl Metric {
     pub const BUILT_IN_KEYS: [&'static str; 4] =
         ["erosion", "duplication", "verbosity", "import_cycles"];
 
+    pub const ALL_BUILT_IN_KEYS: [&'static str; 12] = [
+        "erosion",
+        "cognitive_complexity",
+        "duplication",
+        "verbosity",
+        "import_cycles",
+        "boundaries",
+        "orphan_files",
+        "unused_dependencies",
+        "unlisted_dependencies",
+        "dev_in_production_dependencies",
+        "test_gap",
+        "hazards",
+    ];
+
     pub fn key(self) -> &'static str {
         match self {
             Metric::Erosion => "erosion",

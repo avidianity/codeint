@@ -44,18 +44,17 @@ mod bindings {
 use bindings::codeint::plugin::language as guest_language;
 use bindings::exports::codeint::plugin::metric as guest_metric;
 
-const RESERVED_KEYS: [&str; 11] = [
+const RESERVED_REPORT_AND_CONFIG_KEYS: [&str; 10] = [
     "files",
     "source_lines",
     "packages",
-    "cognitive_complexity",
-    "boundaries",
-    "orphan_files",
-    "unused_dependencies",
-    "unlisted_dependencies",
-    "dev_in_production_dependencies",
-    "test_gap",
-    "hazards",
+    "commit",
+    "committed_on",
+    "production",
+    "test",
+    "generated",
+    "vendored",
+    "dependencies",
 ];
 
 #[cfg(test)]
@@ -205,7 +204,7 @@ fn map_metric_trap(
     }
 }
 
-fn validate_metric_key(plugin_name: &str, key: &str) -> Result<(), PluginHostError> {
+pub fn validate_metric_key(plugin_name: &str, key: &str) -> Result<(), PluginHostError> {
     let invalid = |reason: &'static str| PluginHostError::InvalidMetricKey {
         name: plugin_name.to_owned(),
         key: key.to_owned(),
@@ -223,7 +222,7 @@ fn validate_metric_key(plugin_name: &str, key: &str) -> Result<(), PluginHostErr
             "the Metric key must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, underscores, or hyphens",
         ));
     }
-    if Metric::BUILT_IN_KEYS.contains(&key) || RESERVED_KEYS.contains(&key) {
+    if Metric::ALL_BUILT_IN_KEYS.contains(&key) || RESERVED_REPORT_AND_CONFIG_KEYS.contains(&key) {
         return Err(invalid(
             "the Metric key collides with a built-in report key",
         ));
