@@ -44,7 +44,7 @@ pub use codeint_json::{
     StarterBoundaries, StarterBoundaryZone, StarterConfigurationError, TEST_GAP_METRIC_KEY,
     configuration_schema, discover_config_file, inspect_configuration, is_broken_symlink,
     published_schema_address, read_configuration, read_resolved_configuration, schema_value_span,
-    write_starter_configuration,
+    write_adoption_starter_configuration, write_adoption_zero_budgets, write_starter_configuration,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{

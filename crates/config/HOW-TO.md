@@ -172,6 +172,8 @@ let written = write_starter_configuration(tree.root(), &languages, None)?;
 
 - Pass the root of the working tree; the file lands at `{root}/codeint.jsonc`.
 - It fails with `StarterConfigurationError::AlreadyExists` when any of `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` already exists, and never replaces it.
+- `write_adoption_starter_configuration` takes the same arguments and writes the same file with `regression_limits.per_file` set to `true` and a commented-out `new_file_budgets` block after the last key; `codeint init --adopt` calls it.
+- `write_adoption_zero_budgets` takes the same arguments plus the `MeasuredBaselineMetric` list of a run, and rewrites the adoption starter at `{root}/codeint.jsonc` with a zero Budget under `budgets.production` for each recorded Production Metric (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Hazards), a zero Budget under `budgets` for each recorded Dependency hygiene Metric, and the commented `test_gap` line kept; it never adds a Test gap Budget.
 - `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
 - An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.
 - Pass `Some(&StarterBoundaries::WorkspaceZones(...))` (from `StarterBoundaries::from_workspace_packages`) or `Some(&StarterBoundaries::Preset(...))` (from `BoundaryPreset::detect`) to append commented-out starter `boundaries` hints that keep `boundaries` inactive until uncommented.
