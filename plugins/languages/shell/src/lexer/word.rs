@@ -1,6 +1,8 @@
 use codeint_model::language::LowerError;
 
 use super::{Scanner, ShellToken, ShellTokenKind, is_operator_start};
+use crate::commands::is_assignment_word;
+use crate::dialect::ShellDialect;
 
 struct WordAcc {
     start_pos: usize,
@@ -8,6 +10,7 @@ struct WordAcc {
     has_quotes: bool,
     single_quote_segments: usize,
     other_segments: usize,
+    is_array_assignment: bool,
     has_backtick: bool,
     has_unquoted_var: bool,
     has_var_expansion: bool,
@@ -24,6 +27,7 @@ impl WordAcc {
             has_quotes: false,
             single_quote_segments: 0,
             other_segments: 0,
+            is_array_assignment: false,
             has_backtick: false,
             has_unquoted_var: false,
             has_var_expansion: false,
@@ -59,6 +63,8 @@ impl WordAcc {
             has_quotes: self.has_quotes,
             is_fully_single_quoted,
             is_process_sub: false,
+            is_case_pattern_paren: false,
+            is_array_assignment: self.is_array_assignment,
             has_backtick: self.has_backtick,
             has_unquoted_var: self.has_unquoted_var,
             has_var_expansion: self.has_var_expansion,
@@ -73,6 +79,10 @@ pub(super) fn scan_word(scanner: &mut Scanner<'_>) -> Result<ShellToken, LowerEr
     let mut acc = WordAcc::new(scanner.pos, scanner.line);
     scanner.mark_code_line(scanner.line);
     while let Some(ch) = scanner.peek() {
+        if ch == b'(' && is_assignment_prefix(&scanner.src[acc.start_pos..scanner.pos]) {
+            scan_array_literal(scanner, &mut acc)?;
+            continue;
+        }
         if is_word_delimiter(ch) {
             break;
         }
@@ -81,6 +91,49 @@ pub(super) fn scan_word(scanner: &mut Scanner<'_>) -> Result<ShellToken, LowerEr
     let end_line = scanner.line;
     let text = scanner.src[acc.start_pos..scanner.pos].to_owned();
     Ok(acc.finish(text, end_line))
+}
+
+fn is_assignment_prefix(text: &str) -> bool {
+    text.ends_with('=') && is_assignment_word(text)
+}
+
+fn scan_array_literal(scanner: &mut Scanner<'_>, acc: &mut WordAcc) -> Result<(), LowerError> {
+    let start_line = scanner.line;
+    acc.is_array_assignment = true;
+    scanner.pos += 1;
+    let mut at_element_start = true;
+    while let Some(ch) = scanner.peek() {
+        match ch {
+            b')' => {
+                scanner.mark_code_line(scanner.line);
+                scanner.pos += 1;
+                return Ok(());
+            }
+            b' ' | b'\t' | b'\r' => {
+                scanner.pos += 1;
+                at_element_start = true;
+            }
+            b'\n' => {
+                scanner.advance_newline();
+                at_element_start = true;
+            }
+            b'#' if at_element_start => skip_array_comment(scanner),
+            b'\\' if scanner.consume_line_continuation() => at_element_start = true,
+            _ => {
+                scan_word_piece(scanner, ch, acc)?;
+                at_element_start = false;
+            }
+        }
+    }
+    Err(LowerError::Unparsable(format!(
+        "unterminated array assignment at line {start_line}"
+    )))
+}
+
+fn skip_array_comment(scanner: &mut Scanner<'_>) {
+    while scanner.peek().is_some_and(|ch| ch != b'\n') {
+        scanner.pos += 1;
+    }
 }
 
 fn is_word_delimiter(ch: u8) -> bool {
@@ -172,9 +225,14 @@ fn scan_dollar_paren(
     in_double_quotes: bool,
 ) -> Result<(), LowerError> {
     let start_line = scanner.line;
+    let start_pos = scanner.pos;
     if scanner.peek_at(2) == Some(b'(') {
         acc.has_var_expansion = true;
-        return skip_arith_expansion(scanner);
+        if skip_arith_expansion(scanner)? {
+            return Ok(());
+        }
+        scanner.pos = start_pos;
+        scanner.line = start_line;
     }
     if !in_double_quotes {
         acc.record_unquoted_var(start_line);
@@ -225,9 +283,9 @@ fn step_param_expansion(
         scanner.pos += 1;
         return Ok(*depth == 0);
     }
-    if ch == b'{' {
+    if ch == b'$' && scanner.peek_at(1) == Some(b'{') {
         *depth += 1;
-        scanner.pos += 1;
+        scanner.pos += 2;
         return Ok(false);
     }
     step_param_body_char(scanner, ch, acc, in_double_quotes)?;
@@ -241,7 +299,9 @@ fn step_param_body_char(
     in_double_quotes: bool,
 ) -> Result<(), LowerError> {
     match ch {
-        b'\'' => skip_single_quote(scanner),
+        b'\'' if !(in_double_quotes && scanner.dialect == ShellDialect::Zsh) => {
+            skip_single_quote(scanner)
+        }
         b'"' => scan_double_quote(scanner, acc),
         b'\\' => scan_unquoted_escape(scanner),
         b'$' if scanner.peek_at(1) == Some(b'(') => {
@@ -275,7 +335,7 @@ fn scan_simple_var(scanner: &mut Scanner<'_>, acc: &mut WordAcc, in_double_quote
     }
 }
 
-fn skip_arith_expansion(scanner: &mut Scanner<'_>) -> Result<(), LowerError> {
+fn skip_arith_expansion(scanner: &mut Scanner<'_>) -> Result<bool, LowerError> {
     let start_line = scanner.line;
     scanner.pos += 3;
     let mut depth = 0usize;
@@ -285,12 +345,15 @@ fn skip_arith_expansion(scanner: &mut Scanner<'_>) -> Result<(), LowerError> {
                 depth += 1;
                 scanner.pos += 1;
             }
-            b')' if depth == 0 && scanner.peek_at(1) == Some(b')') => {
+            b')' if depth == 0 => {
+                if scanner.peek_at(1) != Some(b')') {
+                    return Ok(false);
+                }
                 scanner.pos += 2;
-                return Ok(());
+                return Ok(true);
             }
             b')' => {
-                depth = depth.saturating_sub(1);
+                depth -= 1;
                 scanner.pos += 1;
             }
             b'\\' => scan_unquoted_escape(scanner)?,

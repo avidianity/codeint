@@ -92,9 +92,9 @@ fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
         )));
     }
     let dialect = detect_dialect(path, text);
-    let lexed = lexer::scan(text)?;
+    let lexed = lexer::scan(text, dialect)?;
     let source_lines = u32::try_from(lexed.code_lines.len()).map_err(|_| LowerError::TooLarge)?;
-    let extracted = functions::extract(&lexed.tokens, &lexed.code_lines);
+    let extracted = functions::extract(&lexed.tokens, &lexed.code_lines, dialect);
     let flagged_lines = flagged::evaluate(&lexed.tokens, &lexed.code_lines);
     let hazard_lines = hazards::evaluate(
         &lexed.tokens,

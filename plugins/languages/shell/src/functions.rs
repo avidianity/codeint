@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use codeint_model::language::Function;
 
+use crate::dialect::ShellDialect;
 use crate::lexer::{ShellToken, ShellTokenKind};
 
 #[derive(Clone, Debug)]
@@ -48,8 +49,12 @@ fn is_reserved_word(word: &str) -> bool {
     )
 }
 
-pub(crate) fn extract(tokens: &[ShellToken], code_lines: &BTreeSet<u32>) -> ExtractedFunctions {
-    let spans = find_named_functions(tokens);
+pub(crate) fn extract(
+    tokens: &[ShellToken],
+    code_lines: &BTreeSet<u32>,
+    dialect: ShellDialect,
+) -> ExtractedFunctions {
+    let spans = find_named_functions(tokens, dialect);
     let mut functions: Vec<Function> = spans
         .iter()
         .enumerate()
@@ -176,12 +181,12 @@ pub(crate) fn child_span_end(
         .max()
 }
 
-fn find_named_functions(tokens: &[ShellToken]) -> Vec<FunctionSpan> {
+fn find_named_functions(tokens: &[ShellToken], dialect: ShellDialect) -> Vec<FunctionSpan> {
     let mut spans = Vec::new();
     let mut at_cmd_pos = true;
     let mut idx = 0usize;
     while idx < tokens.len() {
-        if at_cmd_pos && let Some(span) = try_parse_function_at(tokens, idx) {
+        if at_cmd_pos && let Some(span) = try_parse_function_at(tokens, idx, dialect) {
             let next_after_header = span.body_start;
             spans.push(span);
             idx = next_after_header;
@@ -194,11 +199,15 @@ fn find_named_functions(tokens: &[ShellToken]) -> Vec<FunctionSpan> {
     spans
 }
 
-fn try_parse_function_at(tokens: &[ShellToken], idx: usize) -> Option<FunctionSpan> {
+fn try_parse_function_at(
+    tokens: &[ShellToken],
+    idx: usize,
+    dialect: ShellDialect,
+) -> Option<FunctionSpan> {
     let (name, header_end) = parse_function_header(tokens, idx)?;
     let mut pos = skip_newlines(tokens, header_end);
     let body_open = pos;
-    let body_end = find_compound_body_end(tokens, body_open)?;
+    let body_end = find_compound_body_end(tokens, body_open, dialect)?;
     pos = body_end;
     Some(FunctionSpan {
         decl_start: idx,
@@ -255,10 +264,14 @@ fn skip_newlines(tokens: &[ShellToken], mut idx: usize) -> usize {
     idx
 }
 
-pub(crate) fn find_compound_body_end(tokens: &[ShellToken], open_idx: usize) -> Option<usize> {
+fn find_compound_body_end(
+    tokens: &[ShellToken],
+    open_idx: usize,
+    dialect: ShellDialect,
+) -> Option<usize> {
     let tok = tokens.get(open_idx)?;
     if tok.is_word("{") {
-        return find_matching_brace_group(tokens, open_idx);
+        return find_matching_brace_group(tokens, open_idx, dialect == ShellDialect::Zsh);
     }
     if tok.is_op("(") {
         return find_matching_subshell(tokens, open_idx);
@@ -275,21 +288,31 @@ pub(crate) fn find_compound_body_end(tokens: &[ShellToken], open_idx: usize) -> 
     None
 }
 
-fn find_matching_brace_group(tokens: &[ShellToken], open_idx: usize) -> Option<usize> {
+fn find_matching_brace_group(
+    tokens: &[ShellToken],
+    open_idx: usize,
+    close_brace_ends_any_command: bool,
+) -> Option<usize> {
     let mut depth = 0usize;
     let mut at_cmd_pos = true;
     for (idx, tok) in tokens.iter().enumerate().skip(open_idx) {
         if tok.is_word("{") && (at_cmd_pos || follows_function_header(tokens, idx)) {
             depth += 1;
-        } else if at_cmd_pos && tok.is_word("}") {
+        } else if (at_cmd_pos || close_brace_ends_any_command) && tok.is_word("}") {
             depth -= 1;
             if depth == 0 {
                 return Some(idx);
             }
         }
-        at_cmd_pos = tok.next_is_cmd_pos();
+        at_cmd_pos = tok.next_is_cmd_pos() || (at_cmd_pos && ends_compound_command(tok));
     }
     None
+}
+
+fn ends_compound_command(tok: &ShellToken) -> bool {
+    ["esac", "fi", "done", "}"]
+        .iter()
+        .any(|keyword| tok.is_word(keyword))
 }
 
 fn follows_function_header(tokens: &[ShellToken], brace_idx: usize) -> bool {
@@ -315,6 +338,9 @@ fn prev_non_newline(tokens: &[ShellToken], mut idx: usize) -> Option<usize> {
 fn find_matching_subshell(tokens: &[ShellToken], open_idx: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (idx, tok) in tokens.iter().enumerate().skip(open_idx) {
+        if tok.is_case_pattern_paren {
+            continue;
+        }
         if tok.is_op("(") {
             depth += 1;
         } else if tok.is_op(")") {

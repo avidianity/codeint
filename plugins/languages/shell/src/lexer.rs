@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 use codeint_model::language::LowerError;
 
+use crate::dialect::ShellDialect;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ShellTokenKind {
     Word,
@@ -22,6 +24,8 @@ pub(crate) struct ShellToken {
     pub(crate) has_quotes: bool,
     pub(crate) is_fully_single_quoted: bool,
     pub(crate) is_process_sub: bool,
+    pub(crate) is_case_pattern_paren: bool,
+    pub(crate) is_array_assignment: bool,
     pub(crate) has_backtick: bool,
     pub(crate) has_unquoted_var: bool,
     pub(crate) has_var_expansion: bool,
@@ -48,10 +52,11 @@ impl ShellToken {
             return true;
         }
         if self.kind == ShellTokenKind::Operator {
-            return matches!(
-                self.text.as_str(),
-                ";" | "&" | "&&" | "||" | "|" | "|&" | "(" | ";;" | ";&" | ";;&"
-            );
+            return (self.is_case_pattern_paren && self.text == ")")
+                || matches!(
+                    self.text.as_str(),
+                    ";" | "&" | "&&" | "||" | "|" | "|&" | "(" | ";;" | ";&" | ";;&"
+                );
         }
         self.kind == ShellTokenKind::Word && !self.has_quotes && is_cmd_prefix_keyword(&self.text)
     }
@@ -65,6 +70,8 @@ impl ShellToken {
             has_quotes: false,
             is_fully_single_quoted: false,
             is_process_sub: false,
+            is_case_pattern_paren: false,
+            is_array_assignment: false,
             has_backtick: false,
             has_unquoted_var: false,
             has_var_expansion: false,
@@ -94,8 +101,8 @@ pub(crate) struct PendingHeredoc {
     pub(crate) start_line: u32,
 }
 
-pub(crate) fn scan(source: &str) -> Result<LexedShell, LowerError> {
-    let mut scanner = Scanner::new(source);
+pub(crate) fn scan(source: &str, dialect: ShellDialect) -> Result<LexedShell, LowerError> {
+    let mut scanner = Scanner::new(source, dialect);
     let tokens = scanner.scan_stream(false)?;
     scanner.finish_pending_heredocs()?;
     Ok(LexedShell {
@@ -114,6 +121,7 @@ pub(crate) struct Scanner<'a> {
     pub(crate) header_comments: Vec<String>,
     pub(crate) saw_code: bool,
     pub(crate) pending_heredocs: Vec<PendingHeredoc>,
+    pub(crate) dialect: ShellDialect,
 }
 
 struct StreamState {
@@ -170,7 +178,11 @@ impl StreamState {
         false
     }
 
-    fn record_op_state(&mut self, op: &str) {
+    fn record_op_state(&mut self, op: &str, ends_case_pattern: bool) {
+        if ends_case_pattern {
+            self.at_cmd_pos = true;
+            return;
+        }
         match op {
             ";" | "&" | "&&" | "||" | "|" | "|&" | "(" => {
                 self.at_cmd_pos = true;
@@ -196,7 +208,7 @@ fn is_cmd_prefix_keyword(word: &str) -> bool {
 }
 
 impl<'a> Scanner<'a> {
-    fn new(src: &'a str) -> Self {
+    fn new(src: &'a str, dialect: ShellDialect) -> Self {
         let pos = if src.starts_with('\u{feff}') { 3 } else { 0 };
         Self {
             src,
@@ -207,6 +219,7 @@ impl<'a> Scanner<'a> {
             header_comments: Vec::new(),
             saw_code: false,
             pending_heredocs: Vec::new(),
+            dialect,
         }
     }
 
@@ -376,7 +389,7 @@ impl<'a> Scanner<'a> {
         }
         if ch == b'('
             && self.peek_at(1) == Some(b'(')
-            && state.at_cmd_pos
+            && (state.at_cmd_pos || state.tokens.last().is_some_and(|tok| tok.is_word("for")))
             && let Some(token) = self.try_scan_arith_cmd()?
         {
             state.at_cmd_pos = false;
@@ -495,19 +508,22 @@ impl<'a> Scanner<'a> {
         let start_line = self.line;
         let op = self.consume_operator();
         self.mark_code_line(start_line);
+        let is_case_pattern_paren = matches!(op, "(" | ")") && state.in_case_pattern();
         self.update_paren_and_case_on_op(state, op);
         state.expect_heredoc = match op {
             "<<" => Some(false),
             "<<-" => Some(true),
             _ => None,
         };
-        state.record_op_state(op);
-        state.tokens.push(ShellToken::simple(
+        state.record_op_state(op, is_case_pattern_paren && op == ")");
+        let mut token = ShellToken::simple(
             ShellTokenKind::Operator,
             op.to_owned(),
             start_line,
             start_line,
-        ));
+        );
+        token.is_case_pattern_paren = is_case_pattern_paren;
+        state.tokens.push(token);
     }
 
     fn update_paren_and_case_on_op(&self, state: &mut StreamState, op: &str) {
