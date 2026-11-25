@@ -129,6 +129,9 @@ fn copy_codeint_to(dir: &Path) -> PathBuf {
         "codeint"
     };
     let dest = dir.join(bin_name);
+    if crate::common::try_hard_link_codeint(&dest) {
+        return dest;
+    }
     fs::copy(codeint_binary(), &dest).expect("copy codeint");
     dest
 }
@@ -243,6 +246,13 @@ fn update_refuses_to_overwrite_node_modules_install() {
 fn run_update_in_repo(temp: &TempDir, repo_dir: &Path, latest_tag: &str) -> Output {
     let install_dir = temp.path().join("bin");
     let release_dir = temp.path().join("release");
+    if release_dir.join("SHA256SUMS").is_file()
+        && fs::read_to_string(release_dir.join("LATEST"))
+            .is_ok_and(|content| content.trim() == latest_tag)
+    {
+        let exe = copy_codeint_to(&install_dir);
+        return run_exe_in_dir(&exe, Some(repo_dir), &["update"], Some(&release_dir));
+    }
     fs::create_dir_all(&install_dir).expect("install dir");
     fs::create_dir_all(&release_dir).expect("release dir");
     let exe = copy_codeint_to(&install_dir);
