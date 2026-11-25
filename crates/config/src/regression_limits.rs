@@ -41,7 +41,7 @@ pub(crate) struct RegressionLimitSetting {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "NewFindingsRule",
-        description = "When new Findings fail: any_new_finding fails on any new Finding; numerator_rise_with_new_findings fails only when the numerator rises too, so a Finding that only moves passes; never lets new Findings pass, so that with ratio_rise 1 this Metric never makes a Regression here."
+        description = "When new Findings or a numerator rise fail: any_new_finding fails on any new Finding or numerator rise; numerator_rise fails whenever the numerator rises (rounded to 4 decimal places), so a Finding that only moves passes; numerator_rise_with_new_findings is a deprecated alias for numerator_rise; never lets new Findings and numerator rises pass, so that with ratio_rise 1 this Metric never makes a Regression here."
     )]
     new_findings: Option<NewFindingsRule>,
 }
@@ -61,7 +61,7 @@ impl RatioRise {
 impl RegressionLimit {
     pub const DEFAULT: RegressionLimit = RegressionLimit {
         ratio_rise: RatioRise::DEFAULT,
-        new_findings: NewFindingsRule::NumeratorRiseWithNewFindings,
+        new_findings: NewFindingsRule::NumeratorRise,
     };
 
     pub const DEFAULT_FOR_IMPORT_CYCLES: RegressionLimit = RegressionLimit {

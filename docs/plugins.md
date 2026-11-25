@@ -336,7 +336,7 @@ See [docs/reference.md](./reference.md#plugins) for the full configuration schem
   "regression_limits": {
     "long_functions": {
       "ratio_rise": 0.02,
-      "new_findings": "numerator_rise_with_new_findings"
+      "new_findings": "numerator_rise"
     }
   }
 }

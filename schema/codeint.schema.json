@@ -32,7 +32,7 @@
     },
     "regression_limits": {
       "$ref": "#/$defs/RegressionLimitsFile",
-      "description": "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and new Findings fail only with a numerator rise, except for Import cycles, where any new Finding fails.",
+      "description": "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and numerator_rise (direct numerator rise), except for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene, where any_new_finding (plus numerator rise) applies.",
       "default": {}
     },
     "languages": {
@@ -395,7 +395,7 @@
         },
         "new_findings": {
           "$ref": "#/$defs/NewFindingsRule",
-          "description": "When new Findings fail: any_new_finding fails on any new Finding; numerator_rise_with_new_findings fails only when the numerator rises too, so a Finding that only moves passes; never lets new Findings pass, so that with ratio_rise 1 this Metric never makes a Regression here."
+          "description": "When new Findings or a numerator rise fail: any_new_finding fails on any new Finding or numerator rise; numerator_rise fails whenever the numerator rises (rounded to 4 decimal places), so a Finding that only moves passes; numerator_rise_with_new_findings is a deprecated alias for numerator_rise; never lets new Findings and numerator rises pass, so that with ratio_rise 1 this Metric never makes a Regression here."
         }
       }
     },
@@ -403,6 +403,7 @@
       "type": "string",
       "enum": [
         "any_new_finding",
+        "numerator_rise",
         "numerator_rise_with_new_findings",
         "never"
       ]

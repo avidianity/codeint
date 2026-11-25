@@ -572,12 +572,13 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          \n\
          ## Regressions\n\
          \n\
-         - The production erosion numerator `eroded_function_mass` rose from 44.8999 to 87.0689 with 1 new Finding.\n\
+         - The production erosion numerator `eroded_function_mass` rose from 44.8999 to 87.0689.\n\
          - The production cognitive\\_complexity ratio rose from 0 to 0.9, more than its Regression limit 0.01.\n\
-         - The production cognitive\\_complexity numerator `complex_cognitive_complexity` rose from 0 to 18 with 1 new Finding.\n\
+         - The production cognitive\\_complexity numerator `complex_cognitive_complexity` rose from 0 to 18.\n\
          - The production duplication ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
-         - The production duplication numerator `clone_lines` rose from 0 to 16 with 1 new Finding.\n\
+         - The production duplication numerator `clone_lines` rose from 0 to 16.\n\
          - The production verbosity ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
+         - The production verbosity numerator `verbose_lines` rose from 0 to 16.\n\
          \n\
          ## Production changes\n\
          \n\
@@ -650,14 +651,8 @@ fn erosion_numerator_rise_with_1_new_finding() -> Fixture {
 
 fn assert_erosion_numerator_rise_fails(fixture: &Fixture) -> Value {
     fixture.diff_failing_with(
-        &[regression(
-            "erosion",
-            "numerator_rise_with_new_findings",
-            19.0526,
-            38.1051,
-            1,
-        )],
-        "the production erosion numerator eroded_function_mass rose from 19.0526 to 38.1051 with 1 new Finding",
+        &[regression("erosion", "numerator_rise", 19.0526, 38.1051, 1)],
+        "the production erosion numerator eroded_function_mass rose from 19.0526 to 38.1051",
     )
 }
 
@@ -680,6 +675,96 @@ fn a_finding_that_moves_to_another_file_without_a_numerator_rise_is_not_a_regres
         (paths_of(&erosion["new"]), paths_of(&erosion["resolved"])),
         (vec!["src/b.ts".to_owned()], vec!["src/a.ts".to_owned()])
     );
+}
+
+fn erosion_worsening_without_new_finding_id() -> Fixture {
+    let conditions: Vec<String> = (1..=11).map(|value| format!("value > {value}")).collect();
+    let source = |separator: &str| {
+        format!(
+            "export function a(value: number): boolean {{\n  return (\n    {}\n  );\n}}\n",
+            conditions.join(separator)
+        )
+    };
+    let fixture = Fixture::on_main();
+    fixture.put("src/a.ts", &source(" && "));
+    fixture.commit("base");
+    fixture.put("src/a.ts", &source(" &&\n    "));
+    fixture
+}
+
+fn assert_direct_numerator_rise_regression(fixture: &Fixture) -> (Value, String) {
+    let (code, report, stderr) = fixture.diff_outcome();
+    assert_eq!(code, Some(1), "expected numerator_rise failure: {stderr}");
+    let found = regressions(&report);
+    assert_eq!(found.len(), 1, "regressions: {found:?}");
+    assert_eq!(found[0]["metric"], "erosion");
+    assert_eq!(found[0]["rule"], "numerator_rise");
+    assert_eq!(found[0]["new_findings"], 0);
+    assert!(
+        found[0]["head"].as_f64().expect("head numerator")
+            > found[0]["base"].as_f64().expect("base numerator")
+    );
+    (report, stderr)
+}
+
+#[test]
+fn a_numerator_rise_without_new_finding_ids_is_a_regression_under_default_numerator_rise() {
+    let (report, stderr) =
+        assert_direct_numerator_rise_regression(&erosion_worsening_without_new_finding_id());
+    assert!(
+        stderr.contains("the production erosion numerator eroded_function_mass rose from"),
+        "stderr: {stderr}"
+    );
+    let erosion = &report["source_sets"]["production"]["erosion"];
+    assert_eq!(
+        (
+            &erosion["new"],
+            &erosion["resolved"],
+            &erosion["unchanged"],
+            &erosion["base_ratio"],
+            &erosion["head_ratio"],
+        ),
+        (&json!([]), &json!([]), &json!(1), &json!(1.0), &json!(1.0))
+    );
+}
+
+#[test]
+fn deleting_clean_code_within_0_01_ratio_buffer_with_flat_numerator_passes() {
+    let fixture = Fixture::on_main();
+    fixture.put("src/a.ts", &function_with_conditions_on_one_line("a", 11));
+    for index in 1..=200 {
+        fixture.put(
+            &format!("src/clean_{index:03}.ts"),
+            &format!(
+                "export function clean{index}(x: number): number {{\n  return x + {index};\n}}\n"
+            ),
+        );
+    }
+    fixture.commit("base");
+    for index in 1..=15 {
+        fixture.remove(&format!("src/clean_{index:03}.ts"));
+    }
+
+    let report = fixture.diff_passing();
+    let erosion = &report["source_sets"]["production"]["erosion"];
+    let base_ratio = erosion["base_ratio"].as_f64().expect("base_ratio");
+    let head_ratio = erosion["head_ratio"].as_f64().expect("head_ratio");
+    assert!(head_ratio > base_ratio, "expected ratio rise: {erosion}");
+    assert!(
+        head_ratio - base_ratio <= 0.01,
+        "expected rise within 0.01: {erosion}"
+    );
+}
+
+#[test]
+fn canonical_numerator_rise_and_deprecated_alias_both_enforce_direct_numerator_rise() {
+    assert_replaced_import_cycle_passes_with_new_findings_rule("numerator_rise");
+
+    let fixture = erosion_worsening_without_new_finding_id();
+    fixture.put_regression_limits(
+        r#"{ "erosion": { "new_findings": "numerator_rise_with_new_findings" } }"#,
+    );
+    assert_direct_numerator_rise_regression(&fixture);
 }
 
 fn import_cycles_ratio_from_0_02_to_0_04_under(regression_limits: &str) -> Fixture {
@@ -847,7 +932,7 @@ fn a_ratio_limit_over_1_stops_diff_with_exit_code_2_and_names_the_key() {
 fn an_unknown_new_findings_rule_stops_diff_with_exit_code_2_and_names_the_key_and_the_rules() {
     assert_regression_limits_rejected(
         r#"{ "erosion": { "new_findings": "sometimes" } }"#,
-        "regression_limits.erosion.new_findings must be one of any_new_finding, numerator_rise_with_new_findings, never, not \"sometimes\"",
+        "regression_limits.erosion.new_findings must be one of any_new_finding, numerator_rise, numerator_rise_with_new_findings, never, not \"sometimes\"",
         "Set the value to one of the allowed values; the JSON schema that $schema links to describes each one.",
     );
 }

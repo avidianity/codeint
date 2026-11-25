@@ -241,3 +241,42 @@ fn schema_value_span_uses_last_duplicate_key_and_unescapes_string_value() {
         "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/extra/schema/codeint.schema.json"
     );
 }
+
+#[test]
+fn new_findings_rule_accepts_canonical_numerator_rise_and_deprecated_alias() {
+    use codeint_model::{Metric, NewFindingsRule, SourceSet};
+
+    let canonical =
+        parse(r#"{ "regression_limits": { "erosion": { "new_findings": "numerator_rise" } } }"#)
+            .expect("parse canonical numerator_rise");
+    let alias = parse(
+        r#"{ "regression_limits": { "erosion": { "new_findings": "numerator_rise_with_new_findings" } } }"#,
+    )
+    .expect("parse deprecated alias");
+    assert_eq!(
+        canonical
+            .regression_limits
+            .limit(SourceSet::Production, Metric::Erosion)
+            .new_findings,
+        NewFindingsRule::NumeratorRise
+    );
+    assert_eq!(
+        alias
+            .regression_limits
+            .limit(SourceSet::Production, Metric::Erosion)
+            .new_findings,
+        NewFindingsRule::NumeratorRise
+    );
+    assert_eq!(
+        serde_json::to_string(&canonical).expect("serialize canonical"),
+        serde_json::to_string(&alias).expect("serialize alias")
+    );
+    let default_config = parse("{}").expect("default config");
+    assert_eq!(
+        default_config
+            .regression_limits
+            .limit(SourceSet::Production, Metric::Hazards)
+            .new_findings,
+        NewFindingsRule::AnyNewFinding
+    );
+}

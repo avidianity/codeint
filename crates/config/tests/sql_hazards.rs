@@ -402,7 +402,10 @@ fn hazards_regression_limits_default_and_override_globally_and_per_source_set() 
                 .configuration
                 .regression_limits
                 .limit_for_key(source_set, HAZARDS_METRIC_KEY),
-            RegressionLimit::DEFAULT
+            RegressionLimit {
+                ratio_rise: RatioRise::DEFAULT,
+                new_findings: NewFindingsRule::AnyNewFinding,
+            }
         );
     }
 
