@@ -5,9 +5,10 @@ use std::sync::{Mutex, OnceLock};
 
 use codeint_config::PluginLimits;
 use codeint_model::{
-    DeclaredDep, DepKind, FileModel, InvalidReferenceRange, LanguagePluginError, LowerError,
-    Manifest, ReferenceRange, ReferenceRanges, RepoPath, SourceSet, Token, TokenKind,
-    WorkspaceError, language, validate_declared_dependencies, validate_entry_points,
+    DeclaredDep, DepKind, FileModel, FrameworkProfileResult, FrameworkProfileSelection,
+    InvalidReferenceRange, LanguagePluginError, LowerError, Manifest, ReferenceRange,
+    ReferenceRanges, RepoPath, SourceSet, Token, TokenKind, WorkspaceError, language,
+    validate_declared_dependencies, validate_entry_points, validate_framework_profile_result,
 };
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Config, Engine, Store};
@@ -94,7 +95,7 @@ pub(crate) struct ContractSpec {
 
 const LANGUAGE_CONTRACT: ContractSpec = ContractSpec {
     interface_prefix: "codeint:plugin/language@",
-    expected_interface: "codeint:plugin/language@0.3.0",
+    expected_interface: "codeint:plugin/language@0.4.0",
 };
 
 pub(crate) fn check_contract_version(
@@ -202,6 +203,7 @@ impl<Pre, Bindings> InstancePool<Pre, Bindings> {
 pub struct WasmLanguagePlugin {
     name: String,
     extensions: Vec<String>,
+    known_framework_profiles: Vec<String>,
     has_hazard_rules: bool,
     hazard_rules: Vec<String>,
     has_imports: bool,
@@ -287,22 +289,35 @@ pub(crate) struct InstantiatedComponent<Pre, Bindings> {
     pub(crate) bindings: Bindings,
 }
 
+pub(crate) struct VerifiedComponent<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) path: &'a Path,
+    pub(crate) bytes: &'a [u8],
+    pub(crate) limits: PluginLimits,
+}
+
 pub(crate) fn instantiate_sandboxed_component<Pre, Bindings>(
-    name: &str,
-    path: &Path,
-    bytes: &[u8],
-    limits: PluginLimits,
+    verified: VerifiedComponent<'_>,
     spec: ContractSpec,
     bind: impl FnOnce(
         wasmtime::component::InstancePre<PluginStoreState>,
     ) -> Result<Pre, wasmtime::Error>,
     instantiate: impl FnOnce(&Pre, &mut Store<PluginStoreState>) -> Result<Bindings, wasmtime::Error>,
 ) -> Result<InstantiatedComponent<Pre, Bindings>, PluginHostError> {
-    let (engine, pre) = prepare_sandboxed_component(name, path, bytes, spec, bind)?;
+    let (engine, pre) =
+        prepare_sandboxed_component(verified.name, verified.path, verified.bytes, spec, bind)?;
     let ticker = EpochTicker::acquire(&engine);
-    let mut store = new_limited_store(&engine, limits);
-    let bindings = instantiate(&pre, &mut store)
-        .map_err(|error| map_host_trap(name, path, None, limits, &store, error))?;
+    let mut store = new_limited_store(&engine, verified.limits);
+    let bindings = instantiate(&pre, &mut store).map_err(|error| {
+        map_host_trap(
+            verified.name,
+            verified.path,
+            None,
+            verified.limits,
+            &store,
+            error,
+        )
+    })?;
     Ok(InstantiatedComponent {
         engine,
         ticker,
@@ -310,6 +325,63 @@ pub(crate) fn instantiate_sandboxed_component<Pre, Bindings>(
         store,
         bindings,
     })
+}
+
+pub(crate) struct InitSession<'a, Pre, Bindings> {
+    component: &'a mut InstantiatedComponent<Pre, Bindings>,
+    name: &'a str,
+    path: &'a Path,
+    limits: PluginLimits,
+}
+
+impl<Pre, Bindings> InstantiatedComponent<Pre, Bindings> {
+    pub(crate) fn init_session<'a>(
+        &'a mut self,
+        name: &'a str,
+        path: &'a Path,
+        limits: PluginLimits,
+    ) -> InitSession<'a, Pre, Bindings> {
+        InitSession {
+            component: self,
+            name,
+            path,
+            limits,
+        }
+    }
+}
+
+impl<Pre, Bindings> InitSession<'_, Pre, Bindings> {
+    pub(crate) fn call<T>(
+        &mut self,
+        call: &'static str,
+        invoke: impl FnOnce(&Bindings, &mut Store<PluginStoreState>) -> Result<T, wasmtime::Error>,
+    ) -> Result<T, PluginHostError> {
+        arm_call_deadline(&mut self.component.store, self.limits);
+        invoke(&self.component.bindings, &mut self.component.store).map_err(|error| {
+            map_host_trap(
+                self.name,
+                self.path,
+                Some(call),
+                self.limits,
+                &self.component.store,
+                error,
+            )
+        })
+    }
+
+    pub(crate) fn call_list(
+        &mut self,
+        call: &'static str,
+        invoke: impl FnOnce(
+            &Bindings,
+            &mut Store<PluginStoreState>,
+        ) -> Result<Vec<String>, wasmtime::Error>,
+    ) -> Result<Vec<String>, PluginHostError> {
+        let values = self.call(call, invoke)?;
+        let (count, bytes) = values.lifted_budget();
+        enforce_lifted_budget(self.name, self.limits, count, bytes)?;
+        Ok(values)
+    }
 }
 
 impl WasmLanguagePlugin {
@@ -320,81 +392,36 @@ impl WasmLanguagePlugin {
         limits: PluginLimits,
     ) -> Result<WasmLanguagePlugin, PluginHostError> {
         let mut component = instantiate_sandboxed_component(
-            &name,
-            path,
-            bytes,
-            limits,
+            VerifiedComponent {
+                name: &name,
+                path,
+                bytes,
+                limits,
+            },
             LANGUAGE_CONTRACT,
             bindings::LanguagePluginPre::new,
             |pre, store| pre.instantiate(store),
         )?;
-        arm_call_deadline(&mut component.store, limits);
-        let extensions = component
-            .bindings
-            .codeint_plugin_language()
-            .call_extensions(&mut component.store)
-            .map_err(|error| {
-                map_host_trap(
-                    &name,
-                    path,
-                    Some("extensions"),
-                    limits,
-                    &component.store,
-                    error,
-                )
-            })?;
-        let (ext_count, ext_bytes) = extensions.lifted_budget();
-        enforce_lifted_budget(&name, limits, ext_count, ext_bytes)?;
-        arm_call_deadline(&mut component.store, limits);
-        let has_hazard_rules = component
-            .bindings
-            .codeint_plugin_language()
-            .call_has_hazard_rules(&mut component.store)
-            .map_err(|error| {
-                map_host_trap(
-                    &name,
-                    path,
-                    Some("has-hazard-rules"),
-                    limits,
-                    &component.store,
-                    error,
-                )
-            })?;
-        arm_call_deadline(&mut component.store, limits);
-        let hazard_rules = component
-            .bindings
-            .codeint_plugin_language()
-            .call_hazard_rules(&mut component.store)
-            .map_err(|error| {
-                map_host_trap(
-                    &name,
-                    path,
-                    Some("hazard-rules"),
-                    limits,
-                    &component.store,
-                    error,
-                )
-            })?;
-        let (rule_count, rule_bytes) = hazard_rules.lifted_budget();
-        enforce_lifted_budget(&name, limits, rule_count, rule_bytes)?;
-        arm_call_deadline(&mut component.store, limits);
-        let has_imports = component
-            .bindings
-            .codeint_plugin_language()
-            .call_has_imports(&mut component.store)
-            .map_err(|error| {
-                map_host_trap(
-                    &name,
-                    path,
-                    Some("has-imports"),
-                    limits,
-                    &component.store,
-                    error,
-                )
-            })?;
+        let mut init = component.init_session(&name, path, limits);
+        let extensions = init.call_list("extensions", |b, s| {
+            b.codeint_plugin_language().call_extensions(s)
+        })?;
+        let known_framework_profiles = init.call_list("known-framework-profiles", |b, s| {
+            b.codeint_plugin_language().call_known_framework_profiles(s)
+        })?;
+        let has_hazard_rules = init.call("has-hazard-rules", |b, s| {
+            b.codeint_plugin_language().call_has_hazard_rules(s)
+        })?;
+        let hazard_rules = init.call_list("hazard-rules", |b, s| {
+            b.codeint_plugin_language().call_hazard_rules(s)
+        })?;
+        let has_imports = init.call("has-imports", |b, s| {
+            b.codeint_plugin_language().call_has_imports(s)
+        })?;
         Ok(WasmLanguagePlugin {
             name,
             extensions,
+            known_framework_profiles,
             has_hazard_rules,
             hazard_rules,
             has_imports,
@@ -444,6 +471,10 @@ impl WasmLanguagePlugin {
 
     pub(crate) fn extensions_impl(&self) -> Vec<String> {
         self.extensions.clone()
+    }
+
+    pub(crate) fn known_framework_profiles_impl(&self) -> Vec<String> {
+        self.known_framework_profiles.clone()
     }
 
     pub(crate) fn has_hazard_rules_impl(&self) -> bool {
@@ -519,6 +550,7 @@ impl WasmLanguagePlugin {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<language::ImportRequest>,
+        active_profiles: &[String],
     ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
         let paths = owned_paths(repository_paths);
         let host_manifests = to_guest_manifests(manifests);
@@ -531,7 +563,13 @@ impl WasmLanguagePlugin {
             .collect();
         let resolutions = self
             .with_checked_instance("resolve-imports", |api, store| {
-                api.call_resolve_imports(store, &paths, &host_manifests, &host_requests)
+                api.call_resolve_imports(
+                    store,
+                    &paths,
+                    &host_manifests,
+                    &host_requests,
+                    active_profiles,
+                )
             })
             .map_err(map_language_plugin_error)?;
         Ok(resolutions.into_iter().map(convert_resolution).collect())
@@ -572,14 +610,38 @@ impl WasmLanguagePlugin {
             })
             .unwrap_or_default()
             .into_iter()
-            .map(|range| ReferenceRange {
-                metric: range.metric,
-                low: range.low,
-                high: range.high,
-                source: range.source,
-            })
+            .map(convert_reference_range)
             .collect();
         ReferenceRanges::new(ranges)
+    }
+
+    pub(crate) fn resolve_framework_profiles_impl(
+        &self,
+        package_root: &str,
+        files: &[RepoPath],
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, LanguagePluginError> {
+        let file_paths = owned_paths(files);
+        let host_manifests = to_guest_manifests(manifests);
+        let guest_selection = to_guest_framework_profile_selection(selection);
+        let resolved = self
+            .with_checked_instance("resolve-framework-profiles", |api, store| {
+                api.call_resolve_framework_profiles(
+                    store,
+                    package_root,
+                    &file_paths,
+                    &host_manifests,
+                    &guest_selection,
+                )
+            })
+            .map_err(map_language_plugin_error)?
+            .map_err(|message| LanguagePluginError::FrameworkProfile { message })?;
+        validate_framework_profile_result(
+            &self.known_framework_profiles,
+            files,
+            convert_framework_profile_result(resolved),
+        )
     }
 }
 
@@ -634,6 +696,36 @@ impl LiftedSize for Vec<guest::ReferenceRange> {
         slice_budget(self, |range| {
             range.metric.len().saturating_add(range.source.len())
         })
+    }
+}
+
+impl LiftedSize for Result<guest::FrameworkProfileResult, String> {
+    fn lifted_budget(&self) -> (usize, usize) {
+        match self {
+            Ok(result) => {
+                let (profiles_count, profiles_bytes) = result.active_profiles.lifted_budget();
+                let (entries_count, entries_bytes) = result.entry_points.lifted_budget();
+                let (generated_count, generated_bytes) = result.generated_paths.lifted_budget();
+                let (ranges_count, ranges_bytes) = result.reference_ranges.lifted_budget();
+                let (note_count, note_bytes) = result
+                    .reference_range_note
+                    .as_ref()
+                    .map_or((0, 0), |note| (1, note.len()));
+                (
+                    profiles_count
+                        .saturating_add(entries_count)
+                        .saturating_add(generated_count)
+                        .saturating_add(ranges_count)
+                        .saturating_add(note_count),
+                    profiles_bytes
+                        .saturating_add(entries_bytes)
+                        .saturating_add(generated_bytes)
+                        .saturating_add(ranges_bytes)
+                        .saturating_add(note_bytes),
+                )
+            }
+            Err(message) => (1, message.len()),
+        }
     }
 }
 
@@ -822,6 +914,45 @@ fn convert_declared_dep(dep: guest::DeclaredDep) -> DeclaredDep {
             guest::DepKind::Dev => DepKind::Dev,
             guest::DepKind::Optional => DepKind::Optional,
         },
+    }
+}
+
+fn convert_reference_range(range: guest::ReferenceRange) -> ReferenceRange {
+    ReferenceRange {
+        metric: range.metric,
+        metric_version: range.metric_version,
+        low: range.low,
+        high: range.high,
+        source: range.source,
+    }
+}
+
+fn to_guest_framework_profile_selection(
+    selection: FrameworkProfileSelection,
+) -> guest::FrameworkProfileSelection {
+    match selection {
+        FrameworkProfileSelection::Auto => guest::FrameworkProfileSelection::Auto,
+        FrameworkProfileSelection::Disabled => guest::FrameworkProfileSelection::Disabled,
+        FrameworkProfileSelection::Exclude(names) => {
+            guest::FrameworkProfileSelection::Exclude(names)
+        }
+        FrameworkProfileSelection::Only(names) => guest::FrameworkProfileSelection::Only(names),
+    }
+}
+
+fn convert_framework_profile_result(
+    result: guest::FrameworkProfileResult,
+) -> FrameworkProfileResult {
+    FrameworkProfileResult {
+        active_profiles: result.active_profiles,
+        entry_points: result.entry_points,
+        generated_paths: result.generated_paths,
+        reference_ranges: result
+            .reference_ranges
+            .into_iter()
+            .map(convert_reference_range)
+            .collect(),
+        reference_range_note: result.reference_range_note,
     }
 }
 

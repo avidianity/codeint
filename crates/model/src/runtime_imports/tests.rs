@@ -21,6 +21,28 @@ impl Answering {
     }
 }
 
+macro_rules! stub_non_import_language_methods {
+    ($has_imports:expr) => {
+        fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+            ReferenceRanges::new(Vec::new())
+        }
+
+        crate::empty_framework_profile_plugin_methods!();
+
+        fn has_hazard_rules(&self) -> bool {
+            false
+        }
+
+        fn hazard_rules(&self) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn has_imports(&self) -> bool {
+            $has_imports
+        }
+    };
+}
+
 impl LanguagePlugin for Answering {
     fn declared_dependencies(
         &self,
@@ -61,6 +83,7 @@ impl LanguagePlugin for Answering {
         _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
+        _active_profiles: &[String],
     ) -> Result<Vec<Resolution>, LanguagePluginError> {
         match &self.0 {
             StubAnswer::Resolutions(resolutions) => Ok(resolutions.clone()),
@@ -73,21 +96,7 @@ impl LanguagePlugin for Answering {
         }
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        ReferenceRanges::new(Vec::new())
-    }
-
-    fn has_hazard_rules(&self) -> bool {
-        false
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports(&self) -> bool {
-        true
-    }
+    stub_non_import_language_methods!(true);
 }
 
 fn path(text: &str) -> RepoPath {
@@ -126,6 +135,7 @@ fn each_runtime_import_keeps_its_importer_specifier_and_resolution() {
         &[path("a.ts"), path("b.ts"), path("c.ts")],
         Vec::new(),
         &[&a, &b],
+        &[],
     )
     .expect("the plugin answers every request");
 
@@ -163,7 +173,7 @@ fn a_plugin_that_answers_the_wrong_number_of_requests_is_an_error() {
     let plugin = Answering::of(vec![Resolution::External("react".to_owned())]);
     let a = importer("a.ts", &["react", "vue"]);
 
-    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);
+    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a], &[]);
 
     assert!(
         matches!(
@@ -182,7 +192,7 @@ fn a_plugin_that_resolves_to_an_empty_list_is_an_error() {
     let plugin = Answering::of(vec![Resolution::Resolved(Vec::new())]);
     let a = importer("a.ts", &["./empty"]);
 
-    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);
+    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a], &[]);
 
     assert!(
         matches!(
@@ -202,7 +212,7 @@ fn a_plugin_that_resolves_to_a_file_outside_the_snapshot_is_an_error() {
     ])]);
     let a = importer("a.ts", &["./b"]);
 
-    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a]);
+    let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a], &[]);
 
     assert!(
         matches!(&result, Err(ResolveError::UnknownTarget { target, .. }) if target == "../etc/passwd"),
@@ -256,6 +266,7 @@ fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
             _repository_paths: &[RepoPath],
             _manifests: Vec<Manifest>,
             _requests: Vec<ImportRequest>,
+            _active_profiles: &[String],
         ) -> Result<Vec<Resolution>, LanguagePluginError> {
             panic!("resolve_imports must not be called when has_imports is false");
         }
@@ -275,21 +286,7 @@ fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
             panic!("entry_points must not be called when has_imports is false");
         }
 
-        fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-            ReferenceRanges::new(Vec::new())
-        }
-
-        fn has_hazard_rules(&self) -> bool {
-            false
-        }
-
-        fn hazard_rules(&self) -> Vec<String> {
-            Vec::new()
-        }
-
-        fn has_imports(&self) -> bool {
-            false
-        }
+        stub_non_import_language_methods!(false);
     }
 
     let plugin = NoImportsPlugin;
@@ -299,7 +296,7 @@ fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
         choose_manifests(&plugin, &[path("a.noimp")]).expect("choose_manifests skips no-imports");
     assert!(manifests.is_empty());
 
-    let resolved = resolve_runtime_imports(&plugin, &[path("a.noimp")], Vec::new(), &[&file])
+    let resolved = resolve_runtime_imports(&plugin, &[path("a.noimp")], Vec::new(), &[&file], &[])
         .expect("resolve_runtime_imports skips no-imports");
     assert!(resolved.is_empty());
 }
@@ -315,7 +312,7 @@ fn resolve_runtime_imports_deduplicates_targets_preserving_first_seen_order() {
     let repo = [path("src/main.fld"), path("src/a.fld"), path("src/b.fld")];
     let file = importer("src/main.fld", &["pkg"]);
 
-    let resolved = resolve_runtime_imports(&plugin, &repo, Vec::new(), &[&file])
+    let resolved = resolve_runtime_imports(&plugin, &repo, Vec::new(), &[&file], &[])
         .expect("deduplicated multi-file resolution");
 
     assert_eq!(
@@ -335,8 +332,9 @@ fn resolve_runtime_imports_propagates_plugin_memory_limit_errors() {
         memory_mb: 1,
     });
     let file = importer("src/main.fld", &["pkg"]);
-    let error = resolve_runtime_imports(&plugin, &[path("src/main.fld")], Vec::new(), &[&file])
-        .expect_err("memory limit error must propagate instead of becoming WrongCount");
+    let error =
+        resolve_runtime_imports(&plugin, &[path("src/main.fld")], Vec::new(), &[&file], &[])
+            .expect_err("memory limit error must propagate instead of becoming WrongCount");
 
     assert!(
         matches!(

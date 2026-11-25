@@ -4,7 +4,7 @@ extern crate alloc;
 extern crate probe_runtime;
 
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 wit_bindgen::generate!({
@@ -58,17 +58,12 @@ fn finding_for_function(
 }
 
 impl Guest for CoverageReaderMetricPlugin {
-    fn key() -> String {
-        "coverage_reader".to_string()
-    }
-
-    fn name() -> String {
-        "Coverage reader".to_string()
-    }
-
-    fn description() -> String {
-        "Test Metric plugin that reads per-function and per-language coverage facts".to_string()
-    }
+    probe_runtime::metric_metadata!(
+        "coverage_reader",
+        "Coverage reader",
+        "Test Metric plugin that reads per-function and per-language coverage facts",
+        1
+    );
 
     fn measure(model: CodeModel) -> Measurement {
         let mut total_listed: u64 = 0;

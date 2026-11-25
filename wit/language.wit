@@ -1,6 +1,6 @@
 /// The Plugin interface of codeint.
 /// A change that breaks a Plugin built against this version needs a new version.
-package codeint:plugin@0.3.0;
+package codeint:plugin@0.4.0;
 
 /// The interface a Language plugin exports: the file extensions it reads, and the Code model of each such file.
 interface language {
@@ -203,8 +203,10 @@ interface language {
     /// Resolves runtime imports against the files of one repository snapshot.
     /// `repository-paths` lists every file of the snapshot, relative to the root, with forward slashes.
     /// `manifests` holds each file that `manifest-paths` chose, with its text.
+    /// `requests` lists the runtime imports to resolve.
+    /// `active-profiles` lists the active Framework profile names for this Language plugin, so fallback import-resolution hints share detection without recomputing it.
     /// The result holds one resolution per request, in request order.
-    resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>) -> list<resolution>;
+    resolve-imports: func(repository-paths: list<string>, manifests: list<manifest>, requests: list<import-request>, active-profiles: list<string>) -> list<resolution>;
 
     /// Extracts external dependencies declared in the selected manifests.
     /// `manifests` holds each file that `manifest-paths` chose, with its text.
@@ -220,6 +222,8 @@ interface language {
     record reference-range {
         /// The Metric, by its key in the report: `erosion`, `verbosity`, `duplication`, or `import_cycles`.
         metric: string,
+        /// The positive integer version of the Metric that this Reference range was calibrated against.
+        metric-version: u32,
         /// The lowest typical ratio, from 0 to 1.
         low: f64,
         /// The highest typical ratio, from `low` to 1.
@@ -232,6 +236,43 @@ interface language {
     /// A Metric without an entry has no published Reference range for this language.
     /// codeint shows a range only next to values that this Language plugin measured.
     reference-ranges: func() -> list<reference-range>;
+
+    /// How the host asks a Language plugin to select Framework profiles for one Workspace package.
+    variant framework-profile-selection {
+        /// Auto-detect every matching Framework profile from files and manifests.
+        auto,
+        /// Disable all Framework profiles for this Workspace package.
+        disabled,
+        /// Auto-detect Framework profiles, leaving out the named profiles.
+        exclude(list<string>),
+        /// Activate only the named Framework profiles for this Workspace package.
+        only(list<string>),
+    }
+
+    /// The resolved Framework profiles and package-level conventions for one Workspace package.
+    record framework-profile-result {
+        /// The stable names of the active Framework profiles for this Workspace package, each listed in `known-framework-profiles`.
+        active-profiles: list<string>,
+        /// Framework convention entry-point source files, each coming from `files`.
+        entry-points: list<string>,
+        /// Framework convention generated file paths, each coming from `files`.
+        generated-paths: list<string>,
+        /// Framework-specific Reference ranges for this Workspace package; empty means use the language's default `reference-ranges`.
+        reference-ranges: list<reference-range>,
+        /// An optional note explaining why framework Reference ranges were selected or fell back.
+        reference-range-note: option<string>,
+    }
+
+    /// The stable names of the Framework profiles this Language plugin knows.
+    /// Empty when the Language plugin defines no Framework profiles.
+    known-framework-profiles: func() -> list<string>;
+
+    /// Resolves active Framework profiles and package-level conventions for one Workspace package.
+    /// `package-root` is the package root folder relative to the repository root, with forward slashes, or empty for the repository root.
+    /// `files` lists the repository-relative file paths belonging to this Workspace package, with forward slashes.
+    /// `manifests` holds the manifests relevant to this Workspace package, with their text.
+    /// `selection` chooses automatic detection or an explicit per-package override.
+    resolve-framework-profiles: func(package-root: string, files: list<string>, manifests: list<manifest>, selection: framework-profile-selection) -> result<framework-profile-result, string>;
 
     /// Whether this Language plugin defines Hazard line rules.
     /// When false, the Hazards Metric is absent for this language rather than 0.

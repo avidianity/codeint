@@ -69,6 +69,7 @@ pub fn resolve_runtime_imports(
     repository_paths: &[RepoPath],
     manifests: Vec<Manifest>,
     importers: &[&SourceFile],
+    active_profiles: &[String],
 ) -> Result<Vec<RuntimeImport>, ResolveError> {
     if !plugin.has_imports() {
         return Ok(Vec::new());
@@ -92,7 +93,8 @@ pub fn resolve_runtime_imports(
             specifier: (*specifier).clone(),
         })
         .collect();
-    let resolutions = plugin.resolve_imports(repository_paths, manifests, requests)?;
+    let resolutions =
+        plugin.resolve_imports(repository_paths, manifests, requests, active_profiles)?;
     if resolutions.len() != pending.len() {
         return Err(ResolveError::WrongCount {
             asked: pending.len(),

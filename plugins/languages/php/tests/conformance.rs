@@ -190,7 +190,7 @@ fn resolve_single_manifest_php(
             specifier: (*spec).to_owned(),
         })
         .collect();
-    Php.resolve_imports(&repo, manifests, requests)
+    Php.resolve_imports(&repo, manifests, requests, &[])
         .expect("resolve imports")
 }
 
@@ -361,6 +361,7 @@ final class InvoiceService {
                     specifier: specifier.clone(),
                 })
                 .collect(),
+            &[],
         )
         .expect("resolve imports");
     let by_spec: std::collections::BTreeMap<&str, Resolution> = lowered

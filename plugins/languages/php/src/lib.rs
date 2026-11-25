@@ -52,6 +52,8 @@ fn classify_token(raw: &RawToken, is_import: bool) -> TokenKind {
 }
 
 impl Guest for Php {
+    codeint_model::empty_framework_profile_guest_methods!();
+
     fn reference_ranges() -> Vec<ReferenceRange> {
         codeint_model::scan::build_reference_ranges(
             "codeint panel of 20 PHP repositories, ADR 0011, codeint 0.2.1",
@@ -102,6 +104,7 @@ impl Guest for Php {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         resolve_batch(&repository_paths, &manifests, &requests)
     }

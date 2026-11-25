@@ -71,6 +71,7 @@ impl Guest for Go {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         resolution::resolve_all(&repository_paths, &manifests, &requests)
     }
@@ -82,6 +83,8 @@ impl Guest for Go {
     fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
         entry_points::discover(&repository_paths, &manifests)
     }
+
+    codeint_model::empty_framework_profile_guest_methods!();
 }
 
 fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {

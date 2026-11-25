@@ -14,8 +14,9 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, FileModel, Function, Guest, ImportRequest, LowerError, Manifest, ReferenceRange,
-    Resolution, SourceSet, Token, TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Function, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind,
+    WorkspaceError,
 };
 
 struct FolderImportLanguagePlugin;
@@ -170,6 +171,7 @@ impl Guest for FolderImportLanguagePlugin {
         repository_paths: Vec<String>,
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         requests
             .into_iter()

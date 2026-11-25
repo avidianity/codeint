@@ -13,8 +13,8 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, DepKind, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange,
-    Resolution, SourceSet, WorkspaceError,
+    DeclaredDep, DepKind, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
 
 fn aliased_strings(count: usize, chunk_bytes: usize) -> Vec<String> {
@@ -95,6 +95,7 @@ impl Guest for MemoryHogLanguagePlugin {
         _paths: Vec<String>,
         _manifests: Vec<Manifest>,
         _requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         vec![]
     }
@@ -149,6 +150,8 @@ impl Guest for MemoryHogLanguagePlugin {
     fn reference_ranges() -> Vec<ReferenceRange> {
         vec![]
     }
+
+    probe_runtime::empty_framework_profile_stubs!();
 
     fn has_hazard_rules() -> bool {
         false

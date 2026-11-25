@@ -46,7 +46,7 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
     assert!(sql.manifest_paths(&[repo_path("schema.sql")]).is_empty());
     assert!(sql.workspace_packages(Vec::new()).unwrap().is_empty());
     assert!(
-        sql.resolve_imports(&[], Vec::new(), Vec::new())
+        sql.resolve_imports(&[], Vec::new(), Vec::new(), &[])
             .unwrap()
             .is_empty()
     );

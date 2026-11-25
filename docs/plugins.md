@@ -6,11 +6,11 @@ This guide explains how to build, hash, declare, and test a Language plugin and 
 
 ## Versioned WIT contract
 
-codeint defines its Plugin contract in `package codeint:plugin@0.3.0`.
+codeint defines its Plugin contract in `package codeint:plugin@0.4.0`.
 Two WIT files hold the contract:
 
-- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.3.0` and the `language-plugin` world.
-- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.3.0` and the `metric-plugin` world.
+- [wit/language.wit](../wit/language.wit) defines `codeint:plugin/language@0.4.0` and the `language-plugin` world.
+- [wit/metric.wit](../wit/metric.wit) defines `codeint:plugin/metric@0.4.0` and the `metric-plugin` world.
 
 The `metric` interface reuses `file-model` and `resolution` from `language`.
 A Language plugin exports `language` and lowers source files into the Code model.
@@ -70,8 +70,9 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, DepKind, FileModel, FlaggedLine, Function, Guest, ImportRequest, LowerError,
-    Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
+    DeclaredDep, DepKind, FileModel, FlaggedLine, FrameworkProfileResult,
+    FrameworkProfileSelection, Function, Guest, ImportRequest, LowerError, Manifest,
+    ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
 };
 
 struct SampleMiniPlugin;
@@ -81,7 +82,7 @@ export!(SampleMiniPlugin);
 
 ### Required functions
 
-Implement all eleven functions on `Guest`:
+Implement all thirteen functions on `Guest`:
 
 | Function | Responsibility |
 | -------- | -------------- |
@@ -89,10 +90,12 @@ Implement all eleven functions on `Guest`:
 | `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `hazard-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
 | `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. Never called when `has-imports` returns `false`. |
 | `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. Never called when `has-imports` returns `false`. |
-| `resolve-imports(repository-paths, manifests, requests) -> list<resolution>` | Return one `resolved(list<string>)` (one or more paths from `repository-paths`; an empty list is a Plugin error), `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. Never called when `has-imports` returns `false`. |
+| `resolve-imports(repository-paths, manifests, requests, active-profiles) -> list<resolution>` | Return one `resolved(list<string>)` (one or more paths from `repository-paths`; an empty list is a Plugin error), `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. Receives the active Framework profile names resolved for this Language plugin. Never called when `has-imports` returns `false`. |
 | `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). Never called when `has-imports` returns `false`. |
 | `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. Never called when `has-imports` returns `false`. |
-| `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric. |
+| `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric, each tagged with its calibrated positive integer `metric-version`. |
+| `known-framework-profiles() -> list<string>` | Return the stable names of the Framework profiles this Language plugin knows; empty when none are defined. |
+| `resolve-framework-profiles(package-root, files, manifests, selection) -> result<framework-profile-result, string>` | Resolve active Framework profiles, convention entry points, generated paths, framework Reference ranges, and optional Reference range note for one Workspace package. |
 | `has-hazard-rules() -> bool` | State whether this Language plugin defines Hazard line rules; when `false`, the Hazards Metric is absent for this language rather than `0`. |
 | `hazard-rules() -> list<string>` | Return the stable names of the Hazard line rules this Language plugin may emit; empty when `has-hazard-rules` returns `false`. |
 | `has-imports() -> bool` | State whether this language has runtime imports, manifests, and entry points; when `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`. |
@@ -148,19 +151,22 @@ export!(SampleLongFunctionsPlugin);
 
 ### Required functions and host validation
 
-Implement all four functions on `Guest`:
+Implement all five functions on `Guest`:
 
 | Function | Responsibility |
 | -------- | -------------- |
 | `key() -> string` | Return the Metric key used in reports, Budgets, and Regression limits, such as `long_functions`. |
 | `name() -> string` | Return the display name shown in human-readable reports, such as `Long functions`. |
 | `description() -> string` | Return a short description used in SARIF rule metadata. |
+| `version() -> u32` | Return the positive integer version (`>= 1`) of this Metric's measurement semantics. |
 | `measure(model) -> measurement` | Compute `ratio`, `numerator`, `denominator`, and `findings` for one Source set's Code model. |
 
 The Plugin host enforces these rules at load and measurement time:
 
 - `key` must be non-empty, start with a lowercase ASCII letter, and contain only lowercase ASCII letters, digits, `_`, or `-`.
 - `key` must not collide with built-in Metric keys (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, `unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`, `test_gap`, `hazards`), reserved report or configuration keys (`files`, `source_lines`, `packages`, `commit`, `committed_on`, `production`, `test`, `generated`, `vendored`, `dependencies`), or another external Metric plugin's key.
+- `version` must be a positive integer (`>= 1`); returning `0` stops the run at load time with exit code 2.
+- If a Language plugin returns a Reference range whose `metric-version` does not match the current Metric's version (including `0`), codeint hides that stale Reference range from report comparison and shows a note explaining the version mismatch instead of failing the run.
 - `ratio` must be finite and between `0.0` and `1.0`.
 - `numerator` and `denominator` must be finite and `>= 0.0`.
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
@@ -410,15 +416,15 @@ cargo test --locked -p codeint-cli --test plugins
 The WIT package declaration carries a Semantic Versioning number:
 
 ```wit
-package codeint:plugin@0.3.0;
+package codeint:plugin@0.4.0;
 ```
 
-This version identifies the exported interfaces `codeint:plugin/language@0.3.0` and `codeint:plugin/metric@0.3.0` in the compiled WebAssembly component.
+This version identifies the exported interfaces `codeint:plugin/language@0.4.0` and `codeint:plugin/metric@0.4.0` in the compiled WebAssembly component.
 
 ### Compatibility rules
 
-- **Pre-1.0 (`0.x.y`)**: While the major version is `0`, a minor version bump (`0.2.0` to `0.3.0`) may introduce breaking changes.
-  A patch version bump (`0.3.0` to `0.3.1`) contains only non-breaking fixes.
+- **Pre-1.0 (`0.x.y`)**: While the major version is `0`, a minor version bump (`0.3.0` to `0.4.0`) may introduce breaking changes.
+  A patch version bump (`0.4.0` to `0.4.1`) contains only non-breaking fixes.
 - **Stable (`1.x.y` and later)**:
   - Additive, backward-compatible changes (such as adding a new optional interface or new world) bump the minor version (`1.0.0` to `1.1.0`).
   - Breaking changes (removing or renaming a function, changing record fields, or changing variant or enum cases) bump the major version (`1.0.0` to `2.0.0`).
@@ -428,18 +434,20 @@ This version identifies the exported interfaces `codeint:plugin/language@0.3.0` 
 `wasmtime::component::bindgen!` binds the codeint host to the exact WIT interface version compiled into the binary.
 At load time, wasmtime checks that the component's exported interface name and version match what the host expects.
 
-- A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.2.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.3.0` interface version, and how to rebuild it.
+- A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.3.0` or `codeint:plugin@0.2.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.4.0` interface version, and how to rebuild it.
 - Rebuild the Plugin against the updated `wit/` files and update its `sha256` in `codeint.jsonc` or `codeint.json` when upgrading to a breaking WIT version.
 - Never silently mutate an existing released WIT version in place; every breaking change gets a new version number.
 
-### Moving a Plugin from 0.2.0 to 0.3.0
+### Moving a Plugin from 0.3.0 to 0.4.0
 
-codeint loads only `codeint:plugin@0.3.0`.
-A Plugin built against `codeint:plugin@0.2.0` stops the run with exit code 2.
+codeint loads only `codeint:plugin@0.4.0`.
+A Plugin built against `codeint:plugin@0.3.0` stops the run with exit code 2.
 
-Move an existing external Plugin to `0.3.0`:
+Move an existing external Plugin to `0.4.0`:
 
-1. Update your copy of [wit/language.wit](../wit/language.wit) and [wit/metric.wit](../wit/metric.wit) to `package codeint:plugin@0.3.0;`.
-2. Rebuild the WebAssembly component for `wasm32-wasip2` so it exports `codeint:plugin/language@0.3.0` or `codeint:plugin/metric@0.3.0`.
-3. Compute the SHA-256 digest of the rebuilt `.wasm` file and update `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
-4. Run `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.
+1. Update your copy of [wit/language.wit](../wit/language.wit) and [wit/metric.wit](../wit/metric.wit) to `package codeint:plugin@0.4.0;`.
+2. For Language plugins: add `metric-version` to every `reference-range`, accept `active-profiles: list<string>` in `resolve-imports`, and export `known-framework-profiles` and `resolve-framework-profiles`.
+3. For Metric plugins: export `version() -> u32` returning a positive integer (`>= 1`).
+4. Rebuild the WebAssembly component for `wasm32-wasip2` so it exports `codeint:plugin/language@0.4.0` or `codeint:plugin/metric@0.4.0`.
+5. Compute the SHA-256 digest of the rebuilt `.wasm` file and update `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
+6. Run `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.

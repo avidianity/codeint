@@ -26,8 +26,8 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, WorkspaceError,
 };
 
 struct FileReaderPlugin;
@@ -39,47 +39,5 @@ impl Guest for FileReaderPlugin {
         fs_probe::wasi::filesystem::preopens::get_directories()
     }
 
-    fn lower(_path: String, _text: String) -> Result<FileModel, LowerError> {
-        Err(LowerError::DeclarationOnly)
-    }
-
-    fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
-    }
-
-    fn resolve_imports(
-        _repository_paths: Vec<String>,
-        _manifests: Vec<Manifest>,
-        _requests: Vec<ImportRequest>,
-    ) -> Vec<Resolution> {
-        Vec::new()
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
-    }
-
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports() -> bool {
-        true
-    }
+    probe_runtime::capability_probe_language_tail!();
 }

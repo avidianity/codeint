@@ -1,4 +1,4 @@
-package codeint:plugin@0.3.0;
+package codeint:plugin@0.4.0;
 
 /// The interface a Metric plugin exports: metadata for one Metric and a function that measures a Code model.
 interface metric {
@@ -80,6 +80,9 @@ interface metric {
 
     /// A short description of what the Metric measures, used in SARIF rule metadata.
     description: func() -> string;
+
+    /// The positive integer version of this Metric's measurement semantics, starting at 1.
+    version: func() -> u32;
 
     /// Measures the Code model of one Source set and returns the Metric value and its Findings.
     measure: func(model: code-model) -> measurement;

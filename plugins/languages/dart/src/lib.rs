@@ -93,6 +93,7 @@ impl Guest for Dart {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
         resolution::resolve_all(&repository_paths, &manifests, &requests)
     }
@@ -120,6 +121,8 @@ impl Guest for Dart {
             ],
         )
     }
+
+    codeint_model::empty_framework_profile_guest_methods!();
 
     fn has_hazard_rules() -> bool {
         false

@@ -430,5 +430,7 @@ pub trait MetricPlugin: Sync {
 
     fn description(&self) -> &str;
 
+    fn version(&self) -> u32;
+
     fn measure(&self, model: &CodeModel) -> Result<ExternalMetricMeasurement, MetricPluginError>;
 }

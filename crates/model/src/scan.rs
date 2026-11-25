@@ -316,6 +316,7 @@ pub fn build_reference_ranges(source: &str, entries: [(&str, f64, f64); 4]) -> V
         .into_iter()
         .map(|(metric, low, high)| ReferenceRange {
             metric: metric.to_owned(),
+            metric_version: 1,
             low,
             high,
             source: source.to_owned(),

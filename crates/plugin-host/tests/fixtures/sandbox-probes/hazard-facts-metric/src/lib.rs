@@ -4,8 +4,6 @@ extern crate alloc;
 extern crate probe_runtime;
 
 use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
 wit_bindgen::generate!({
     world: "metric-plugin",
@@ -19,17 +17,12 @@ struct HazardFactsMetricPlugin;
 export!(HazardFactsMetricPlugin);
 
 impl Guest for HazardFactsMetricPlugin {
-    fn key() -> String {
-        "hazard_facts".to_string()
-    }
-
-    fn name() -> String {
-        "Hazard facts".to_string()
-    }
-
-    fn description() -> String {
-        "Test Metric plugin that reads per-language hazard rule capability".to_string()
-    }
+    probe_runtime::metric_metadata!(
+        "hazard_facts",
+        "Hazard facts",
+        "Test Metric plugin that reads per-language hazard rule capability",
+        1
+    );
 
     fn measure(model: CodeModel) -> Measurement {
         let (enabled, mut findings) = probe_runtime::language_fact_findings!(

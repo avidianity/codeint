@@ -4,7 +4,7 @@ extern crate alloc;
 extern crate probe_runtime;
 
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 wit_bindgen::generate!({
@@ -19,17 +19,12 @@ struct ProgramStartMetricPlugin;
 export!(ProgramStartMetricPlugin);
 
 impl Guest for ProgramStartMetricPlugin {
-    fn key() -> String {
-        "program_starts".to_string()
-    }
-
-    fn name() -> String {
-        "Program starts".to_string()
-    }
-
-    fn description() -> String {
-        "Test Metric plugin that reads program-start marks".to_string()
-    }
+    probe_runtime::metric_metadata!(
+        "program_starts",
+        "Program starts",
+        "Test Metric plugin that reads program-start marks",
+        1
+    );
 
     fn measure(model: CodeModel) -> Measurement {
         let mut findings = Vec::new();

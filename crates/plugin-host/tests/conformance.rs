@@ -132,7 +132,7 @@ fn assert_import_conformance(
         })
         .collect();
     let resolutions = plugin
-        .resolve_imports(&repo_paths, valid_manifest.clone(), requests)
+        .resolve_imports(&repo_paths, valid_manifest.clone(), requests, &[])
         .unwrap_or_else(|error| panic!("{label}: resolve_imports failed: {error}"));
     assert_eq!(
         resolutions.len(),
@@ -454,11 +454,33 @@ fn assert_reference_ranges_and_concurrency(
         .reference_ranges()
         .unwrap_or_else(|error| panic!("{label}: reference_ranges failed: {error}"));
     if fixture.expect_erosion_reference_range {
+        let erosion = ranges
+            .for_metric("erosion")
+            .unwrap_or_else(|| panic!("{label}: expected erosion reference range"));
         assert!(
-            ranges.for_metric("erosion").is_some(),
-            "{label}: expected erosion reference range"
+            erosion.metric_version >= 1,
+            "{label}: expected positive erosion reference range metric_version"
         );
     }
+    let known_profiles = plugin.known_framework_profiles();
+    for profile in &known_profiles {
+        assert!(
+            !profile.is_empty(),
+            "{label}: known_framework_profiles must not contain empty names"
+        );
+    }
+    let resolved_profiles = plugin
+        .resolve_framework_profiles(
+            "",
+            &[],
+            Vec::new(),
+            codeint_model::FrameworkProfileSelection::Disabled,
+        )
+        .unwrap_or_else(|error| panic!("{label}: resolve_framework_profiles failed: {error}"));
+    assert!(
+        resolved_profiles.active_profiles.is_empty(),
+        "{label}: Disabled framework profile selection must activate no profiles"
+    );
     let prod_path = RepoPath::new(fixture.production_path).unwrap();
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)

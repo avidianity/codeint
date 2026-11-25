@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use codeint_config::SqlDialect as ConfigSqlDialect;
 use codeint_lang_sql::schema::{SqlSchema, collect_schema_hazards};
 use codeint_lang_sql::{ParsedSqlStatement, Sql, SqlDialect};
-use codeint_model::language::{DeclaredDep, FileModel, ImportRequest, Manifest, Resolution};
+use codeint_model::language::{
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, ImportRequest,
+    Manifest, Resolution,
+};
 use codeint_model::{
     CodeModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Package,
     ReferenceRanges, RepoPath, SourceFile, SourceSet, WorkspaceError,
@@ -36,8 +39,9 @@ impl LanguagePlugin for BuiltInSql {
         repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
+        active_profiles: &[String],
     ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        Sql::new().resolve_imports(repository_paths, manifests, requests)
+        Sql::new().resolve_imports(repository_paths, manifests, requests, active_profiles)
     }
 
     fn declared_dependencies(
@@ -57,6 +61,20 @@ impl LanguagePlugin for BuiltInSql {
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
         Sql::new().reference_ranges()
+    }
+
+    fn known_framework_profiles(&self) -> Vec<String> {
+        Sql::new().known_framework_profiles()
+    }
+
+    fn resolve_framework_profiles(
+        &self,
+        package_root: &str,
+        files: &[RepoPath],
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, LanguagePluginError> {
+        Sql::new().resolve_framework_profiles(package_root, files, manifests, selection)
     }
 
     fn has_hazard_rules(&self) -> bool {

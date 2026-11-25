@@ -13,8 +13,8 @@ wit_bindgen::generate!({
 });
 
 use exports::codeint::plugin::language::{
-    DeclaredDep, FileModel, Guest, HazardLine, ImportRequest, LowerError, Manifest, ReferenceRange,
-    Resolution, SourceSet, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest, HazardLine,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
 
 struct HazardRulesLanguagePlugin;

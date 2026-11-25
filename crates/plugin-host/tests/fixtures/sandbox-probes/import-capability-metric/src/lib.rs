@@ -3,10 +3,6 @@
 extern crate alloc;
 extern crate probe_runtime;
 
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-
 wit_bindgen::generate!({
     world: "metric-plugin",
     path: "../../../../../../wit",
@@ -19,17 +15,12 @@ struct ImportCapabilityMetricPlugin;
 export!(ImportCapabilityMetricPlugin);
 
 impl Guest for ImportCapabilityMetricPlugin {
-    fn key() -> String {
-        "import_capability".to_string()
-    }
-
-    fn name() -> String {
-        "Import capability".to_string()
-    }
-
-    fn description() -> String {
-        "Test Metric plugin that reads per-language import capability".to_string()
-    }
+    probe_runtime::metric_metadata!(
+        "import_capability",
+        "Import capability",
+        "Test Metric plugin that reads per-language import capability",
+        1
+    );
 
     fn measure(model: CodeModel) -> Measurement {
         let (with_imports, findings) = probe_runtime::language_fact_findings!(

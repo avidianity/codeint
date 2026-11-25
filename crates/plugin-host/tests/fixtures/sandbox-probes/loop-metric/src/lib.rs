@@ -3,7 +3,6 @@
 extern crate alloc;
 extern crate probe_runtime;
 
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 wit_bindgen::generate!({
@@ -18,17 +17,12 @@ struct LoopMetricPlugin;
 export!(LoopMetricPlugin);
 
 impl Guest for LoopMetricPlugin {
-    fn key() -> String {
-        "loop_metric".to_string()
-    }
-
-    fn name() -> String {
-        "Loop metric".to_string()
-    }
-
-    fn description() -> String {
-        "Test Metric plugin that loops forever or exhausts memory".to_string()
-    }
+    probe_runtime::metric_metadata!(
+        "loop_metric",
+        "Loop metric",
+        "Test Metric plugin that loops forever or exhausts memory",
+        1
+    );
 
     fn measure(model: CodeModel) -> Measurement {
         if model
