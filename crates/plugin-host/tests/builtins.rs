@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use codeint_config::SqlDialect;
-use codeint_model::{CodeModel, Manifest, RepoPath, SourceFile};
+use codeint_model::{CodeModel, FrameworkProfileSelection, Manifest, RepoPath, SourceFile};
 use codeint_plugin_host::{
     SQL_PLUGIN_NAME, SqlSchemaScopeSummary, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
-    apply_sql_schema_pass, built_in_language_descriptors, built_in_language_hazard_rules,
-    built_in_language_names, built_in_language_plugin, built_in_language_plugins, lower_sql_source,
-    manifests_declare_framework_reference_ranges, select_language_reference_ranges,
+    apply_sql_schema_pass, built_in_language_descriptors, built_in_language_framework_profiles,
+    built_in_language_hazard_rules, built_in_language_names, built_in_language_plugin,
+    built_in_language_plugins, lower_sql_source,
 };
 
 #[test]
@@ -120,7 +120,18 @@ fn sql_host_helpers_lower_with_dialect_and_apply_cross_file_schema_hazards() {
 }
 
 #[test]
-fn select_language_reference_ranges_applies_react_and_vue_framework_precedence() {
+fn built_in_typescript_plugin_resolves_framework_profiles_and_sibling_fallback() {
+    let profiles_by_language = built_in_language_framework_profiles();
+    assert_eq!(
+        profiles_by_language.get(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME),
+        Some(&vec![
+            "react".to_owned(),
+            "vue2".to_owned(),
+            "vue3".to_owned(),
+            "svelte".to_owned(),
+        ])
+    );
+
     let ts_plugin = built_in_language_plugin(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME)
         .expect("built-in typescript-javascript plugin");
     let rust_plugin = built_in_language_plugin("rust").expect("built-in rust plugin");
@@ -138,99 +149,52 @@ fn select_language_reference_ranges_applies_react_and_vue_framework_precedence()
         text: r#"{"dependencies":{"react":"^18.3.1","vue":"^3.4.0"}}"#.to_owned(),
     }];
 
-    assert!(manifests_declare_framework_reference_ranges(
-        TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
-        &react_manifest
-    ));
-    assert!(manifests_declare_framework_reference_ranges(
-        TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
-        &vue_manifest
-    ));
-    assert!(!manifests_declare_framework_reference_ranges(
-        "rust",
-        &react_manifest
-    ));
-
     let tsx_path = RepoPath::new("src/App.tsx").expect("valid path");
-    let tsx_file = ts_plugin
-        .plugin
-        .lower(
-            &tsx_path,
-            "export function App() { return <div>hi</div>; }\n",
-        )
-        .expect("tsx lowers");
     let vue_path = RepoPath::new("src/App.vue").expect("valid path");
-    let vue_file = ts_plugin
+
+    let assert_profile_adr =
+        |path: &RepoPath, manifests: Vec<Manifest>, expected_profile: &str, expected_adr: &str| {
+            let resolved = ts_plugin
+                .plugin
+                .resolve_framework_profiles(
+                    "",
+                    std::slice::from_ref(path),
+                    manifests,
+                    FrameworkProfileSelection::Auto,
+                )
+                .expect("framework profile");
+            assert_eq!(resolved.active_profiles, vec![expected_profile]);
+            assert!(
+                resolved
+                    .reference_ranges
+                    .iter()
+                    .find(|range| range.metric == "erosion")
+                    .expect("erosion range")
+                    .source
+                    .contains(expected_adr)
+            );
+        };
+
+    assert_profile_adr(&tsx_path, react_manifest.clone(), "react", "ADR 0020");
+    assert_profile_adr(&vue_path, vue_manifest, "vue3", "ADR 0015");
+
+    let hybrid = ts_plugin
         .plugin
-        .lower(&vue_path, "<script setup>\nconst x = 1;\n</script>\n")
-        .expect("vue lowers");
+        .resolve_framework_profiles(
+            "",
+            &[tsx_path, vue_path],
+            hybrid_manifest,
+            FrameworkProfileSelection::Auto,
+        )
+        .expect("hybrid profile");
+    assert_eq!(hybrid.active_profiles, vec!["react", "vue3"]);
+    assert!(hybrid.reference_ranges.is_empty());
+    assert!(hybrid.reference_range_note.is_some());
 
-    let react_model = CodeModel {
-        files: vec![SourceFile {
-            path: tsx_path.clone(),
-            model: tsx_file.clone(),
-        }],
-        ..CodeModel::default()
-    };
-    let react_ranges = select_language_reference_ranges(&ts_plugin, &react_model, &react_manifest)
-        .expect("react ranges");
-    assert!(
-        react_ranges
-            .for_metric("erosion")
-            .expect("erosion range")
-            .source
-            .contains("ADR 0020")
-    );
-
-    let vue_model = CodeModel {
-        files: vec![SourceFile {
-            path: vue_path.clone(),
-            model: vue_file.clone(),
-        }],
-        ..CodeModel::default()
-    };
-    let vue_ranges = select_language_reference_ranges(&ts_plugin, &vue_model, &vue_manifest)
-        .expect("vue ranges");
-    assert!(
-        vue_ranges
-            .for_metric("erosion")
-            .expect("erosion range")
-            .source
-            .contains("ADR 0015")
-    );
-
-    let hybrid_model = CodeModel {
-        files: vec![
-            SourceFile {
-                path: tsx_path,
-                model: tsx_file,
-            },
-            SourceFile {
-                path: vue_path,
-                model: vue_file,
-            },
-        ],
-        ..CodeModel::default()
-    };
-    let hybrid_ranges =
-        select_language_reference_ranges(&ts_plugin, &hybrid_model, &hybrid_manifest)
-            .expect("hybrid ranges");
-    assert!(
-        hybrid_ranges
-            .for_metric("erosion")
-            .expect("erosion range")
-            .source
-            .contains("ADR 0008")
-    );
-
-    let rust_ranges =
-        select_language_reference_ranges(&rust_plugin, &CodeModel::default(), &react_manifest)
-            .expect("rust ranges");
-    assert!(
-        rust_ranges
-            .for_metric("erosion")
-            .expect("erosion range")
-            .source
-            .contains("ADR 0010")
-    );
+    let rust = rust_plugin
+        .plugin
+        .resolve_framework_profiles("", &[], react_manifest, FrameworkProfileSelection::Auto)
+        .expect("rust profile");
+    assert!(rust.active_profiles.is_empty());
+    assert!(rust.reference_ranges.is_empty());
 }

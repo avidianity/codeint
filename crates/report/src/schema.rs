@@ -132,6 +132,8 @@ struct LanguageSchemaEntry {
     extensions: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     hazard_rules: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    framework_profiles: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -203,6 +205,7 @@ impl SchemaReport {
                 name: language.name,
                 extensions: language.extensions,
                 hazard_rules: Vec::new(),
+                framework_profiles: Vec::new(),
             })
             .collect();
         SchemaReport {
@@ -227,6 +230,18 @@ impl SchemaReport {
         for language in &mut self.languages {
             if let Some(rules) = rules_by_language.remove(&language.name) {
                 language.hazard_rules = rules;
+            }
+        }
+        self
+    }
+
+    pub fn with_language_framework_profiles(
+        mut self,
+        mut profiles_by_language: BTreeMap<String, Vec<String>>,
+    ) -> SchemaReport {
+        for language in &mut self.languages {
+            if let Some(profiles) = profiles_by_language.remove(&language.name) {
+                language.framework_profiles = profiles;
             }
         }
         self

@@ -578,6 +578,36 @@ fn sql_and_hazards_config_remedy(error: &ConfigurationFileError) -> Option<&'sta
             "Set non-empty rule names in hazards.disabled_rules in codeint.json, or remove the empty entry.",
             "Set non-empty rule names in hazards.disabled_rules in codeint.jsonc, or remove the empty entry.",
         ),
+        UnknownFrameworkProfile { file, .. } => (
+            *file,
+            "Use one of the known Framework profile names in codeint.json, or run codeint schema to list supported Framework profiles.",
+            "Use one of the known Framework profile names in codeint.jsonc, or run codeint schema to list supported Framework profiles.",
+        ),
+        EmptyFrameworkProfileName { file, .. } => (
+            *file,
+            "Set non-empty Framework profile names in codeint.json, or remove the empty entry.",
+            "Set non-empty Framework profile names in codeint.jsonc, or remove the empty entry.",
+        ),
+        ConflictingFrameworkProfileRule { file, .. } => (
+            *file,
+            "Set either exclude or only on framework_profiles in codeint.json, not both.",
+            "Set either exclude or only on framework_profiles in codeint.jsonc, not both.",
+        ),
+        EmptyFrameworkProfileObject { file, .. } => (
+            *file,
+            "Set either exclude or only in the framework_profiles object in codeint.json, or use false or a list of names.",
+            "Set either exclude or only in the framework_profiles object in codeint.jsonc, or use false or a list of names.",
+        ),
+        InvalidPackageConfigKey { file, .. } => (
+            *file,
+            "Key packages in codeint.json by repository-relative Workspace package paths with forward slashes (or \".\" for the repository root).",
+            "Key packages in codeint.jsonc by repository-relative Workspace package paths with forward slashes (or \".\" for the repository root).",
+        ),
+        DuplicatePackageConfigKey { file, .. } => (
+            *file,
+            "Merge duplicate Workspace package keys under packages in codeint.json so each package appears once.",
+            "Merge duplicate Workspace package keys under packages in codeint.jsonc so each package appears once.",
+        ),
         _ => return None,
     };
     Some(choose_file_remedy(file, json, jsonc))

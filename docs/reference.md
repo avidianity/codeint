@@ -966,6 +966,8 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `sql.dialects[].include` | list of strings | Globs of repository-relative folders or files that use this SQL Dialect; a folder covers every file below it |
 | `hazards` | object | Hazards Metric settings; see [Hazards](#hazards) |
 | `hazards.disabled_rules` | list of strings | Names of Hazard line rules turned off across the repository; empty by default |
+| `framework_profiles` | boolean, list of strings, or object | Global Framework profile selection (`false` to disable all, `true` for auto-detection, a list of profile names or `{"only": [...]}` to allow-list, or `{"exclude": [...]}` to exclude named profiles); auto-detected by default; see [Framework profiles](#framework-profiles) |
+| `packages` | object | Per-Workspace-package configuration overrides keyed by repository-relative package root (or `"."` for the repository root), such as `packages.<path>.framework_profiles`; empty by default; see [Framework profiles](#framework-profiles) |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -981,14 +983,19 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards, framework_profiles, packages
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
 ### Source sets
 
 Each file belongs to one Source set: `production`, `test`, `generated`, or `vendored`.
-The Language plugin and the core rules settle the Source set of each file.
+Source sets settle in strict priority order from lowest to highest:
+
+1. Per-file lowering by the Language plugin.
+2. Core Vendored (`vendor/`, `third_party/`) and standard build-folder (`dist/`, `build/`, `out/`, `coverage/`, minified lines) rules.
+3. Active Framework profile `generated_paths`, which reclassify matching non-Vendored files to `generated` and never override `vendored`.
+4. Explicit `source_sets` globs in `codeint.json`, which always win.
 
 - `typescript-javascript` puts a file in `test` when its name ends in `.test.{extension}` or `.spec.{extension}`, such as `src/greet.test.ts`, or when any folder in its path is named `__tests__`, `test`, or `tests`, such as `test/greet.ts` or `packages/app/tests/setup.ts`.
   A file named `test.ts` or `tests.ts` outside such a folder stays in `production`.
@@ -1578,6 +1585,31 @@ See [docs/guide/hazards.md](./guide/hazards.md) for the full guide.
         "new_findings": "any_new_finding"
       }
     }
+  }
+}
+```
+
+```sh exit=0
+codeint check
+```
+
+### Framework profiles
+
+A **Framework profile** is a package-level rule set inside a Language plugin that adds framework detection, convention entry points, framework-generated Source set paths, fallback import hints, and optional Reference ranges while keeping per-file lowering framework-blind ([ADR 0025](./adr/0025-framework-profiles.md)).
+`typescript-javascript` ships built-in Framework profiles for `react`, `vue2`, `vue3`, and `svelte`, and external WebAssembly Language plugins may expose their own Framework profiles through `codeint:plugin@0.4.0`.
+Active Framework profile names appear under `framework_profiles` per language and per Workspace package in TOON, JSON, Markdown, and text reports (omitted when none are active).
+
+- **Automatic detection (default)**: each Workspace package resolves Framework profiles strictly from its own local manifest and files; a monorepo root manifest never activates a profile on a child package without a local signal, and `peerDependencies`-only UI libraries do not activate app-only conventions (`svelte` allows `devDependencies`).
+- **Global override (`framework_profiles`)**: set `false` to disable all profiles, `true` to use automatic detection, a list of profile names (or `{"only": [...]}`) to activate only those profiles, or `{"exclude": [...]}` to exclude named profiles.
+- **Per-package override (`packages.<path>.framework_profiles`)**: override `framework_profiles` for one Workspace package keyed by its repository-relative root (or `"."` for the repository root).
+- **Fail-fast validation**: every configured profile name is validated against the union of `known_framework_profiles()` across all loaded Language plugins; an unknown name stops the run with exit code 2.
+- **Disabling import hints**: disabling a profile also disables its fallback import hints during import resolution.
+
+```json codeint.json
+{
+  "framework_profiles": { "exclude": ["svelte"] },
+  "packages": {
+    ".": { "framework_profiles": false }
   }
 }
 ```

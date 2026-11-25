@@ -31,7 +31,7 @@ Each pull request can pass tests and linters while quietly adding copied blocks,
 Over dozens of changes, that structural drag compounds until both humans and agents slow down.
 
 codeint measures **Software entropy** directly from the shape of your source code so you see it grow before it compounds, and reports **Hazards** next to Software entropy ([ADR 0016](./docs/adr/0016-hazards-next-to-software-entropy.md)).
-It ships with seven built-in Language plugins covering TypeScript/JavaScript (including React `.jsx`/`.tsx`, Vue, and Svelte `<script>` blocks), Rust, PHP, Dart, Python, Go, and SQL, plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
+It ships with seven built-in Language plugins covering TypeScript/JavaScript (with built-in `react`, `vue2`, `vue3`, and `svelte` Framework profiles plus framework-blind `.vue` and `.svelte` `<script>` lowering), Rust, PHP, Dart, Python, Go, and SQL, plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
 
 ## How it works
 

@@ -271,7 +271,36 @@ pub struct MeasuredLanguage {
     pub plugin: String,
     pub model: CodeModel,
     pub reference_ranges: ReferenceRanges,
+    pub reference_range_note: Option<String>,
     pub has_imports: bool,
+    pub framework_profiles: Vec<String>,
+    pub framework_profiles_by_package: BTreeMap<String, Vec<String>>,
+}
+
+impl MeasuredLanguage {
+    pub fn new(
+        plugin: impl Into<String>,
+        model: CodeModel,
+        reference_ranges: ReferenceRanges,
+        has_imports: bool,
+    ) -> MeasuredLanguage {
+        MeasuredLanguage {
+            plugin: plugin.into(),
+            model,
+            reference_ranges,
+            reference_range_note: None,
+            has_imports,
+            framework_profiles: Vec::new(),
+            framework_profiles_by_package: BTreeMap::new(),
+        }
+    }
+}
+
+pub fn combine_reference_range_notes<'a>(
+    notes: impl IntoIterator<Item = &'a str>,
+) -> Option<String> {
+    let unique: BTreeSet<&str> = notes.into_iter().filter(|note| !note.is_empty()).collect();
+    (!unique.is_empty()).then(|| unique.into_iter().collect::<Vec<_>>().join("; "))
 }
 
 pub struct ReportOptions<'a> {
@@ -462,6 +491,9 @@ impl Report {
         let top_has_hazard_rules = measured
             .iter()
             .any(|language| model_has_hazard_rules(&language.model));
+        let top_framework_profiles = collect_framework_profiles(&measured);
+        let top_framework_profiles_by_package = collect_framework_profiles_by_package(&measured);
+        let top_reference_range_note = collect_reference_range_note(&measured);
         let section_options = SectionOptions {
             findings: options.findings,
             metric_plugins: options.metric_plugins,
@@ -474,6 +506,9 @@ impl Report {
             disabled_hazard_rules: &extras.disabled_hazard_rules,
             coverage_reports_named: options.coverage_reports_named,
             per_language_section: false,
+            framework_profiles: &top_framework_profiles,
+            framework_profiles_by_package: &top_framework_profiles_by_package,
+            reference_range_note: top_reference_range_note.as_deref(),
         };
         let (total_ranges, sections_per_language) =
             build_per_language_sections(&measured, &options, ignored, section_options)?;
@@ -619,6 +654,41 @@ fn collect_import_bearing_model(
     })
 }
 
+fn collect_framework_profiles(measured: &[MeasuredLanguage]) -> Vec<String> {
+    let mut profiles = BTreeSet::new();
+    for language in measured {
+        profiles.extend(language.framework_profiles.iter().cloned());
+    }
+    profiles.into_iter().collect()
+}
+
+fn collect_reference_range_note(measured: &[MeasuredLanguage]) -> Option<String> {
+    combine_reference_range_notes(
+        measured
+            .iter()
+            .filter_map(|language| language.reference_range_note.as_deref()),
+    )
+}
+
+fn collect_framework_profiles_by_package(
+    measured: &[MeasuredLanguage],
+) -> BTreeMap<String, Vec<String>> {
+    let mut by_package: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for language in measured {
+        for (package, profiles) in &language.framework_profiles_by_package {
+            by_package
+                .entry(package.clone())
+                .or_default()
+                .extend(profiles.iter().cloned());
+        }
+    }
+    by_package
+        .into_iter()
+        .filter(|(_, profiles)| !profiles.is_empty())
+        .map(|(package, profiles)| (package, profiles.into_iter().collect()))
+        .collect()
+}
+
 fn build_per_language_sections(
     measured: &[MeasuredLanguage],
     options: &ReportOptions<'_>,
@@ -691,6 +761,9 @@ fn build_single_language_section(
             has_imports: language.has_imports,
             has_hazard_rules: language_has_hazard_rules,
             per_language_section: true,
+            framework_profiles: &language.framework_profiles,
+            framework_profiles_by_package: &language.framework_profiles_by_package,
+            reference_range_note: language.reference_range_note.as_deref(),
             ..section_options
         },
     )

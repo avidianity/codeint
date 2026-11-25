@@ -93,6 +93,17 @@
     "hazards": {
       "$ref": "#/$defs/HazardsConfigFile",
       "description": "Hazards Metric settings, including Hazard line rules turned off across the repository."
+    },
+    "framework_profiles": {
+      "$ref": "#/$defs/FrameworkProfileRuleFile",
+      "description": "Global Framework profile selection: false to disable all, true for auto-detection, a list of profile names (or {\"only\": [...]}), or {\"exclude\": [...]}. Omitted uses automatic detection."
+    },
+    "packages": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/PackageConfigFile"
+      },
+      "description": "Per-Workspace-package configuration overrides keyed by repository-relative package root (or \".\" for the repository root)."
     }
   },
   "title": "codeint.json",
@@ -810,6 +821,65 @@
             "type": "string"
           },
           "description": "Names of Hazard line rules turned off across the repository. A turned-off rule adds no Hazard line and no Finding."
+        }
+      }
+    },
+    "FrameworkProfileRuleFile": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "$ref": "#/$defs/FrameworkProfileObjectFile"
+        }
+      ]
+    },
+    "FrameworkProfileObjectFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exclude": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Auto-detect Framework profiles except the named profiles."
+        },
+        "only": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Activate only the named Framework profiles."
+        }
+      }
+    },
+    "PackageConfigFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framework_profiles": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrameworkProfileRuleFile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Framework profile selection for this Workspace package: false to disable all, true for auto-detection, a list of profile names (or {\"only\": [...]}), or {\"exclude\": [...]}."
         }
       }
     }

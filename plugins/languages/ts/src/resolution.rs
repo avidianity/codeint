@@ -42,10 +42,35 @@ fn file_name(path: &str) -> &str {
 pub(crate) struct ProjectResolver {
     resolver: ResolverGeneric<Snapshot>,
     package_folders: HashMap<String, String>,
+    active_profiles: Vec<String>,
+    manifest_package_roots: Vec<String>,
 }
 
 impl ProjectResolver {
-    pub(crate) fn new(repository_paths: &[String], manifests: Vec<Manifest>) -> ProjectResolver {
+    pub(crate) fn new(
+        repository_paths: &[String],
+        manifests: Vec<Manifest>,
+        active_profiles: &[String],
+    ) -> ProjectResolver {
+        let mut manifest_package_roots: Vec<String> = manifests
+            .iter()
+            .filter_map(|manifest| {
+                if manifest.path.split('/').any(|seg| seg == "node_modules") {
+                    return None;
+                }
+                if manifest.path == PACKAGE_MANIFEST {
+                    Some(String::new())
+                } else {
+                    manifest
+                        .path
+                        .strip_suffix(&format!("/{PACKAGE_MANIFEST}"))
+                        .map(str::to_owned)
+                }
+            })
+            .collect();
+        manifest_package_roots
+            .sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+        manifest_package_roots.dedup();
         let links: Vec<PackageLink> = packages::package_links(&manifests);
         let package_folders = links
             .iter()
@@ -76,6 +101,8 @@ impl ProjectResolver {
         ProjectResolver {
             resolver: ResolverGeneric::new_with_file_system(file_system, options),
             package_folders,
+            active_profiles: active_profiles.to_vec(),
+            manifest_package_roots,
         }
     }
 
@@ -86,7 +113,7 @@ impl ProjectResolver {
         }
         let importer = snapshot::absolute(&request.importer);
         let resolved = self.resolve_with_fallback(&importer, specifier);
-        self.classify_resolution(&importer, specifier, resolved)
+        self.classify_resolution(&request.importer, &importer, specifier, resolved)
     }
 
     fn resolve_with_fallback(
@@ -106,6 +133,7 @@ impl ProjectResolver {
 
     fn classify_resolution(
         &self,
+        importer_path: &str,
         importer: &std::path::Path,
         specifier: &str,
         resolved: Result<oxc_resolver::Resolution, ResolveError>,
@@ -120,12 +148,13 @@ impl ProjectResolver {
                 },
                 |path| Resolution::Resolved(vec![path]),
             ),
-            Err(error) => self.classify_error(importer, specifier, error),
+            Err(error) => self.classify_error(importer_path, importer, specifier, error),
         }
     }
 
     fn classify_error(
         &self,
+        importer_path: &str,
         importer: &std::path::Path,
         specifier: &str,
         error: ResolveError,
@@ -134,9 +163,7 @@ impl ProjectResolver {
             return Resolution::Builtin;
         }
         if matches!(error, ResolveError::NotFound(_))
-            && !is_relative(specifier)
-            && !specifier.starts_with('#')
-            && let Some(resolution) = self.resolve_workspace_fallback(specifier)
+            && let Some(resolution) = self.resolve_not_found_fallback(importer_path, specifier)
         {
             return resolution;
         }
@@ -149,6 +176,53 @@ impl ProjectResolver {
             }
             other => Resolution::Unresolved(format!("{specifier:?}: {other}")),
         }
+    }
+
+    fn resolve_not_found_fallback(
+        &self,
+        importer_path: &str,
+        specifier: &str,
+    ) -> Option<Resolution> {
+        if !is_relative(specifier)
+            && !specifier.starts_with('#')
+            && let Some(resolution) = self.resolve_workspace_fallback(specifier)
+        {
+            return Some(resolution);
+        }
+        if !self.active_profiles.is_empty() {
+            return self.resolve_framework_fallback(importer_path, specifier);
+        }
+        None
+    }
+
+    fn importer_package_root(&self, importer_path: &str) -> &str {
+        self.manifest_package_roots
+            .iter()
+            .find(|root| is_within_package(root, importer_path))
+            .map_or("", String::as_str)
+    }
+
+    fn resolve_framework_fallback(
+        &self,
+        importer_path: &str,
+        specifier: &str,
+    ) -> Option<Resolution> {
+        let candidates =
+            crate::frameworks::fallback_import_candidates(&self.active_profiles, specifier);
+        if candidates.is_empty() {
+            return None;
+        }
+        let pkg_root = self.importer_package_root(importer_path);
+        let pkg_dir = snapshot::absolute(pkg_root);
+        for candidate in candidates {
+            if let Ok(resolution) = self.resolver.resolve(&pkg_dir, &candidate)
+                && let Some(repo_path) = snapshot::repository_path(resolution.path())
+                && is_within_package(pkg_root, &repo_path)
+            {
+                return Some(Resolution::Resolved(vec![repo_path]));
+            }
+        }
+        None
     }
 
     fn resolve_workspace_fallback(&self, specifier: &str) -> Option<Resolution> {

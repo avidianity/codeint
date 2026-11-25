@@ -24,6 +24,10 @@ crate_structs! {
     struct MeasuredSection {
         files: usize,
         source_lines: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        framework_profiles: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reference_range_note: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         import_metrics_note: Option<String>,
         source_sets: SourceSetSections,
@@ -211,6 +215,8 @@ crate_structs! {
         path: String,
         files: usize,
         source_lines: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        framework_profiles: Vec<String>,
         erosion: PackageErosion,
         cognitive_complexity: PackageCognitiveComplexity,
         duplication: PackageDuplication,

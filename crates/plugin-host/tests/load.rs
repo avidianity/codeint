@@ -674,7 +674,11 @@ fn verifies_0_4_0_contract_fields_and_methods_across_wasm_boundary() {
 
     assert_eq!(
         plugin.known_framework_profiles(),
-        vec!["mini-web".to_owned(), "mini-cli".to_owned()]
+        vec![
+            "mini-web".to_owned(),
+            "mini-cli".to_owned(),
+            "mini-app".to_owned()
+        ]
     );
     let fw_paths = vec![
         RepoPath::new("mini.workspace").expect("valid repo path"),

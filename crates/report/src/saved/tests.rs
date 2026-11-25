@@ -97,12 +97,12 @@ fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_ro
     let budgets = Budgets::default();
 
     let check = Report::summarize_with_metrics(
-        vec![MeasuredLanguage {
-            plugin: "typescript-javascript".to_owned(),
-            model: model.clone(),
-            reference_ranges: ReferenceRanges::default(),
-            has_imports: true,
-        }],
+        vec![MeasuredLanguage::new(
+            "typescript-javascript",
+            model.clone(),
+            ReferenceRanges::default(),
+            true,
+        )],
         Vec::new(),
         FindingsShown::default(),
         &budgets,

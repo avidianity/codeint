@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use codeint_config::{Budgets, DependenciesConfig, DuplicationConfig, FindingsShown, ReportFormat};
@@ -172,7 +173,13 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
             plugin: "typescript-javascript".to_owned(),
             model: sample_model(true, true),
             reference_ranges: ReferenceRanges::default(),
+            reference_range_note: None,
             has_imports: true,
+            framework_profiles: vec!["react".to_owned()],
+            framework_profiles_by_package: BTreeMap::from([(
+                "packages/api".to_owned(),
+                vec!["react".to_owned()],
+            )]),
         }],
         Vec::new(),
         ReportOptions {
@@ -229,7 +236,10 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
             plugin: "typescript-javascript".to_owned(),
             model: sample_model(false, false),
             reference_ranges: ReferenceRanges::default(),
+            reference_range_note: None,
             has_imports: true,
+            framework_profiles: Vec::new(),
+            framework_profiles_by_package: BTreeMap::new(),
         }],
         Vec::new(),
         FindingsShown::default(),
@@ -295,7 +305,10 @@ fn report_schema_validates_external_package_boundary_findings() {
             plugin: "typescript-javascript".to_owned(),
             model,
             reference_ranges: ReferenceRanges::default(),
+            reference_range_note: None,
             has_imports: true,
+            framework_profiles: Vec::new(),
+            framework_profiles_by_package: BTreeMap::new(),
         }],
         Vec::new(),
         ReportOptions {
@@ -377,12 +390,12 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
     let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
     let budgets = Budgets::default();
     let report = Report::summarize_with_metrics(
-        vec![MeasuredLanguage {
-            plugin: "typescript-javascript".to_owned(),
+        vec![MeasuredLanguage::new(
+            "typescript-javascript",
             model,
-            reference_ranges: ReferenceRanges::default(),
-            has_imports: true,
-        }],
+            ReferenceRanges::default(),
+            true,
+        )],
         Vec::new(),
         FindingsShown::default(),
         &budgets,

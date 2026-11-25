@@ -267,6 +267,7 @@ pub fn schema() -> SchemaReport {
         exit_codes(),
     )
     .with_language_hazard_rules(codeint_plugin_host::built_in_language_hazard_rules())
+    .with_language_framework_profiles(codeint_plugin_host::built_in_language_framework_profiles())
 }
 
 pub fn resolved_config(

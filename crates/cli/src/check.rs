@@ -11,9 +11,9 @@ use codeint_model::{
     CodeModel, LanguagePlugin, Manifest, MetricPlugin, RepoPath, SourceFile, SourceSet, Workspace,
 };
 use codeint_plugin_host::{
-    NamedLanguagePlugin, SQL_PLUGIN_NAME, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, WasmLanguagePlugin,
-    WasmMetricPlugin, built_in_language_descriptors, built_in_language_names,
-    built_in_language_plugins, load_language_plugins_with_limits, load_metric_plugins_with_limits,
+    NamedLanguagePlugin, SQL_PLUGIN_NAME, WasmLanguagePlugin, WasmMetricPlugin,
+    built_in_language_descriptors, built_in_language_names, built_in_language_plugins,
+    load_language_plugins_with_limits, load_metric_plugins_with_limits,
 };
 use codeint_report::{
     LanguageSchema, MeasuredLanguage, OwnershipOptions, RejectedStatementEntry, Report,
@@ -22,6 +22,7 @@ use codeint_report::{
 
 mod coverage;
 mod errors;
+mod frameworks;
 mod lowering;
 mod manifests;
 mod package_filter;
@@ -86,7 +87,9 @@ impl LoadedPlugins {
             external_languages,
             external_metrics,
         };
-        sql::validate_disabled_hazard_rules(&loaded.as_named(), configuration)?;
+        let named = loaded.as_named();
+        sql::validate_disabled_hazard_rules(&named, configuration)?;
+        frameworks::validate_configured_framework_profiles(&named, configuration)?;
         Ok(loaded)
     }
 
@@ -227,6 +230,7 @@ fn check_with(
     let configuration = read_configuration(repository.root())?;
     configuration.validate_metrics(&[])?;
     sql::validate_disabled_hazard_rules(plugins, &configuration)?;
+    frameworks::validate_configured_framework_profiles(plugins, &configuration)?;
     check_loaded(
         &repository,
         &configuration,
@@ -253,7 +257,8 @@ struct CheckRequest<'a> {
 pub(crate) struct MeasuredSnapshot {
     pub(crate) languages: Vec<MeasuredLanguage>,
     pub(crate) entry_points_by_language: BTreeMap<String, Vec<RepoPath>>,
-    pub(crate) manifests_by_language: BTreeMap<String, Vec<Manifest>>,
+    pub(crate) framework_profiles_by_language:
+        BTreeMap<String, frameworks::ResolvedLanguageProfiles>,
     pub(crate) file_line_counts: BTreeMap<RepoPath, usize>,
     pub(crate) rejected_statements: Vec<RejectedStatementEntry>,
     pub(crate) sql_schemas: Vec<SqlSchemaSummary>,
@@ -400,11 +405,10 @@ fn apply_selected_package(
         workspace,
         selected_pkg,
     );
-    manifests::refresh_reference_ranges_for_package(
+    manifests::refresh_profiles_for_package(
         &mut snapshot.languages,
         plugins,
-        &snapshot.manifests_by_language,
-        workspace,
+        &snapshot.framework_profiles_by_language,
         selected_pkg,
     )
 }
@@ -452,15 +456,20 @@ fn measure(
     let manifests_by_plugin = read_manifests(tree, plugins)?;
     let plugin_members = manifests::find_plugin_workspaces(plugins, &manifests_by_plugin)?;
     let workspace = Workspace::new(plugin_members.iter().flatten().cloned());
-    let outcomes = lowering::lower_covered_files(
+    let outcomes =
+        lowering::lower_covered_files(tree, plugins, &covered_files, &sql_dialects, config_file)?;
+    let mut collected = lowering::collect_plugin_models(plugins.len(), workspace.clone(), outcomes);
+    let profiles_by_plugin = frameworks::resolve_all_language_profiles(
         tree,
         plugins,
-        &covered_files,
-        &sql_dialects,
-        &configuration.source_set_overrides,
-        config_file,
+        &collected.models,
+        &manifests_by_plugin,
+        &workspace,
+        configuration,
     )?;
-    let mut collected = lowering::collect_plugin_models(plugins.len(), workspace, outcomes);
+    for (model, profiles) in collected.models.iter_mut().zip(&profiles_by_plugin) {
+        frameworks::apply_source_set_priority(model, profiles, &configuration.source_set_overrides);
+    }
     let sql_schemas = plugins
         .iter()
         .position(|named| named.name == SQL_PLUGIN_NAME)
@@ -469,38 +478,53 @@ fn measure(
             sql::apply_sql_schema_pass(&mut collected.models[index], &collected.sql_parsed)
         })
         .unwrap_or_default();
-    let mut snapshot = resolve_measured_snapshot(
+    let mut snapshot = resolve_measured_snapshot(SnapshotInputs {
         tree,
         plugins,
-        collected.models,
+        models: collected.models,
         manifests_by_plugin,
-        &plugin_members,
-        &configuration.entry_points,
+        plugin_members: &plugin_members,
+        profiles_by_plugin,
+        configured_entry_points: &configuration.entry_points,
         config_file,
-    )?;
+    })?;
     snapshot.file_line_counts = collected.file_line_counts;
     snapshot.rejected_statements = collected.rejected_statements;
     snapshot.sql_schemas = sql_schemas;
     Ok(snapshot)
 }
 
-fn resolve_measured_snapshot(
-    tree: &Snapshot,
-    plugins: &[NamedLanguagePlugin<'_>],
+struct SnapshotInputs<'a> {
+    tree: &'a Snapshot,
+    plugins: &'a [NamedLanguagePlugin<'a>],
     models: Vec<CodeModel>,
     manifests_by_plugin: Vec<Vec<Manifest>>,
-    plugin_members: &[Vec<RepoPath>],
-    configured_entry_points: &EntryPoints,
+    plugin_members: &'a [Vec<RepoPath>],
+    profiles_by_plugin: Vec<frameworks::ResolvedLanguageProfiles>,
+    configured_entry_points: &'a EntryPoints,
     config_file: ConfigFileKind,
-) -> Result<MeasuredSnapshot, CheckError> {
+}
+
+fn resolve_measured_snapshot(inputs: SnapshotInputs<'_>) -> Result<MeasuredSnapshot, CheckError> {
+    let SnapshotInputs {
+        tree,
+        plugins,
+        models,
+        manifests_by_plugin,
+        plugin_members,
+        profiles_by_plugin,
+        configured_entry_points,
+        config_file,
+    } = inputs;
     let mut languages = Vec::with_capacity(plugins.len());
     let mut entry_points_by_language = BTreeMap::new();
-    let mut manifests_by_language = BTreeMap::new();
-    for (((named, model), manifests), members) in plugins
+    let mut framework_profiles_by_language = BTreeMap::new();
+    for ((((named, model), manifests), members), profiles) in plugins
         .iter()
         .zip(models)
         .zip(manifests_by_plugin)
         .zip(plugin_members)
+        .zip(profiles_by_plugin)
     {
         let manifest_entries = if named.plugin.has_imports() {
             named
@@ -511,12 +535,12 @@ fn resolve_measured_snapshot(
             Vec::new()
         };
         let combined_entries = if named.plugin.has_imports() {
-            combine_entry_points(manifest_entries, &model.files, configured_entry_points)
-        } else {
-            Vec::new()
-        };
-        let retained_manifests = if named.name == TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME {
-            manifests.clone()
+            combine_entry_points(
+                manifest_entries,
+                profiles.entry_points(),
+                &model.files,
+                configured_entry_points,
+            )
         } else {
             Vec::new()
         };
@@ -525,17 +549,18 @@ fn resolve_measured_snapshot(
             model,
             manifests,
             members,
+            &profiles,
             tree.files(),
             config_file,
         )?;
         entry_points_by_language.insert(named.name.to_owned(), combined_entries);
-        manifests_by_language.insert(named.name.to_owned(), retained_manifests);
+        framework_profiles_by_language.insert(named.name.to_owned(), profiles);
         languages.push(measured);
     }
     Ok(MeasuredSnapshot {
         languages,
         entry_points_by_language,
-        manifests_by_language,
+        framework_profiles_by_language,
         file_line_counts: BTreeMap::new(),
         rejected_statements: Vec::new(),
         sql_schemas: Vec::new(),
@@ -544,10 +569,14 @@ fn resolve_measured_snapshot(
 
 fn combine_entry_points(
     manifest_entries: Vec<RepoPath>,
+    framework_entries: Vec<RepoPath>,
     files: &[SourceFile],
     configured: &EntryPoints,
 ) -> Vec<RepoPath> {
-    let mut entries: BTreeSet<RepoPath> = manifest_entries.into_iter().collect();
+    let mut entries: BTreeSet<RepoPath> = manifest_entries
+        .into_iter()
+        .chain(framework_entries)
+        .collect();
     for file in files {
         let marked_production =
             file.model.program_start && file.model.source_set == SourceSet::Production;

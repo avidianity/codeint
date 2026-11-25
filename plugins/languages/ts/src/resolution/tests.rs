@@ -4,7 +4,7 @@ use super::{ProjectResolver, package_name};
 
 fn resolve_specifier(specifier: &str) -> Resolution {
     let paths = vec!["src/main.ts".to_owned()];
-    let resolver = ProjectResolver::new(&paths, Vec::new());
+    let resolver = ProjectResolver::new(&paths, Vec::new(), &[]);
     resolver.resolve(&ImportRequest {
         importer: "src/main.ts".to_owned(),
         specifier: specifier.to_owned(),
@@ -168,7 +168,7 @@ fn tsconfig_app_alias_resolves_to_repo_file_before_virtual_module_fallback() {
         "tsconfig.json",
         r#"{"compilerOptions":{"paths":{"$app/*":["./src/app/*"]}}}"#,
     )];
-    let resolver = ProjectResolver::new(&paths, manifests);
+    let resolver = ProjectResolver::new(&paths, manifests, &[]);
     let resolve = |specifier: &str| {
         resolver.resolve(&ImportRequest {
             importer: "src/main.ts".to_owned(),
@@ -214,7 +214,7 @@ fn workspace_members_resolve_third_party_root_dependencies_as_external() {
             r#"{"name":"@mono/retired","dependencies":{}}"#,
         ),
     ];
-    let resolver = ProjectResolver::new(&paths, manifests);
+    let resolver = ProjectResolver::new(&paths, manifests, &[]);
     let resolve = |importer: &str, specifier: &str| {
         resolver.resolve(&ImportRequest {
             importer: importer.to_owned(),

@@ -22,9 +22,8 @@ mod wasm_metric;
 pub use builtins::{
     BuiltInLanguageDescriptor, NamedLanguagePlugin, SQL_PLUGIN_NAME,
     TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, built_in_language_descriptors,
-    built_in_language_hazard_rules, built_in_language_names, built_in_language_plugin,
-    built_in_language_plugins, manifests_declare_framework_reference_ranges,
-    select_language_reference_ranges,
+    built_in_language_framework_profiles, built_in_language_hazard_rules, built_in_language_names,
+    built_in_language_plugin, built_in_language_plugins,
 };
 pub use sha256::{format_hex as sha256_hex, sha256};
 pub use sql::{

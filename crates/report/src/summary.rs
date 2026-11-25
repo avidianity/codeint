@@ -92,6 +92,9 @@ pub(crate) struct SectionOptions<'a> {
     pub(crate) disabled_hazard_rules: &'a BTreeSet<String>,
     pub(crate) coverage_reports_named: bool,
     pub(crate) per_language_section: bool,
+    pub(crate) framework_profiles: &'a [String],
+    pub(crate) framework_profiles_by_package: &'a BTreeMap<String, Vec<String>>,
+    pub(crate) reference_range_note: Option<&'a str>,
 }
 
 #[derive(Clone, Copy)]
@@ -507,6 +510,7 @@ impl SourceSetSection {
                     hazards_model: effective_hazards_model,
                 },
                 &measured,
+                options.framework_profiles_by_package,
             ),
         })
     }
@@ -520,7 +524,16 @@ fn source_lines(model: &CodeModel) -> u64 {
         .sum()
 }
 
-fn package_sections<'a>(models: SectionModels<'a>, measured: &Measured) -> Vec<PackageSection> {
+fn sorted_unique_profiles(profiles: &[String]) -> Vec<String> {
+    let unique: BTreeSet<String> = profiles.iter().cloned().collect();
+    unique.into_iter().collect()
+}
+
+fn package_sections<'a>(
+    models: SectionModels<'a>,
+    measured: &Measured,
+    framework_profiles_by_package: &BTreeMap<String, Vec<String>>,
+) -> Vec<PackageSection> {
     let model = models.model;
     if !model.workspace.has_members() {
         return Vec::new();
@@ -577,10 +590,17 @@ fn package_sections<'a>(models: SectionModels<'a>, measured: &Measured) -> Vec<P
                     source_lines: lines.source_lines,
                 })
             });
+            let package_path = package.to_string();
+            let package_framework_profiles = framework_profiles_by_package
+                .get(&package_path)
+                .map(Vec::as_slice)
+                .map(sorted_unique_profiles)
+                .unwrap_or_default();
             PackageSection {
-                path: package.to_string(),
+                path: package_path,
                 files: package_files,
                 source_lines: clone_lines.source_lines,
+                framework_profiles: package_framework_profiles,
                 erosion: PackageErosion {
                     ratio: Decimal::rounded(masses.ratio()),
                     eroded_function_mass: Decimal::rounded(masses.eroded),
@@ -675,6 +695,8 @@ impl MeasuredSection {
         Ok(MeasuredSection {
             files,
             source_lines: lines,
+            framework_profiles: sorted_unique_profiles(options.framework_profiles),
+            reference_range_note: options.reference_range_note.map(str::to_owned),
             import_metrics_note,
             source_sets,
             test_gap_note,

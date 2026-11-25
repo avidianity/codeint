@@ -1,19 +1,17 @@
 use std::collections::{BTreeMap, HashSet};
 
-use codeint_config::ConfigFileKind;
+use codeint_config::{ConfigFileKind, display_package_key};
 use codeint_git::Snapshot;
 use codeint_model::{
-    CodeModel, DeclaredDep, DependencyManifest, LanguageFacts, Manifest, ReferenceRanges, RepoPath,
-    ResolveError, SourceFile, Workspace, choose_manifests, resolve_runtime_imports,
+    CodeModel, DeclaredDep, DependencyManifest, LanguageFacts, Manifest, RepoPath, ResolveError,
+    RuntimeImport, SourceFile, Workspace, choose_manifests, resolve_runtime_imports,
 };
-use codeint_plugin_host::{
-    NamedLanguagePlugin, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
-    manifests_declare_framework_reference_ranges, select_language_reference_ranges,
-};
+use codeint_plugin_host::NamedLanguagePlugin;
 use codeint_report::MeasuredLanguage;
 
 use super::errors::CheckError;
-use super::package_filter::{SelectedPackage, package_root_matches_selected};
+use super::frameworks::{ResolvedLanguageProfiles, package_root_key};
+use super::package_filter::SelectedPackage;
 
 pub(crate) fn read_manifests(
     tree: &Snapshot,
@@ -73,13 +71,14 @@ pub(super) fn finalize_language_model(
     mut model: CodeModel,
     manifests: Vec<Manifest>,
     plugin_members: &[RepoPath],
+    profiles: &ResolvedLanguageProfiles,
     repository_paths: &[RepoPath],
     config_file: ConfigFileKind,
 ) -> Result<MeasuredLanguage, CheckError> {
-    let reference_ranges = select_reference_ranges(named, &model, &manifests)?;
+    let (reference_ranges, reference_range_note) =
+        profiles.reference_ranges_for_scope(named, None)?;
     let has_imports = named.plugin.has_imports();
     if has_imports {
-        let importers: Vec<&SourceFile> = model.files.iter().collect();
         let declared_dependencies = named
             .plugin
             .declared_dependencies(manifests.clone())
@@ -97,15 +96,14 @@ pub(super) fn finalize_language_model(
                 &declared_dependencies,
             );
         model.declared_dependencies = declared_dependencies;
-        model.runtime_imports =
-            resolve_runtime_imports(named.plugin, repository_paths, manifests, &importers, &[])
-                .map_err(|source| match source {
-                    ResolveError::Plugin(error) => CheckError::language_plugin(config_file, error),
-                    other => CheckError::Resolve {
-                        plugin: named.name.to_owned(),
-                        source: other,
-                    },
-                })?;
+        model.runtime_imports = resolve_imports_with_profiles(
+            named,
+            &model,
+            repository_paths,
+            manifests,
+            profiles,
+            config_file,
+        )?;
     }
     if !model.files.is_empty() {
         model.languages = vec![LanguageFacts {
@@ -119,8 +117,72 @@ pub(super) fn finalize_language_model(
         plugin: named.name.to_owned(),
         model,
         reference_ranges,
+        reference_range_note,
         has_imports,
+        framework_profiles: profiles.active_profiles_union(),
+        framework_profiles_by_package: profiles.active_profiles_by_package(),
     })
+}
+
+fn resolve_imports_with_profiles(
+    named: &NamedLanguagePlugin<'_>,
+    model: &CodeModel,
+    repository_paths: &[RepoPath],
+    manifests: Vec<Manifest>,
+    profiles: &ResolvedLanguageProfiles,
+    config_file: ConfigFileKind,
+) -> Result<Vec<RuntimeImport>, CheckError> {
+    let mut grouped: BTreeMap<Vec<String>, Vec<&SourceFile>> = BTreeMap::new();
+    for file in &model.files {
+        let pkg_root = package_root_key(model.workspace.package_of(&file.path));
+        let active = profiles.active_profiles_for_package(&pkg_root);
+        grouped.entry(active).or_default().push(file);
+    }
+    let map_error = |source| match source {
+        ResolveError::Plugin(error) => CheckError::language_plugin(config_file, error),
+        other => CheckError::Resolve {
+            plugin: named.name.to_owned(),
+            source: other,
+        },
+    };
+    if grouped.len() <= 1 {
+        let (active_profiles, importers) = match grouped.into_iter().next() {
+            Some(entry) => entry,
+            None => return Ok(Vec::new()),
+        };
+        return resolve_runtime_imports(
+            named.plugin,
+            repository_paths,
+            manifests,
+            &importers,
+            &active_profiles,
+        )
+        .map_err(map_error);
+    }
+    let mut by_importer: BTreeMap<RepoPath, Vec<RuntimeImport>> = BTreeMap::new();
+    for (active_profiles, importers) in grouped {
+        let resolved = resolve_runtime_imports(
+            named.plugin,
+            repository_paths,
+            manifests.clone(),
+            &importers,
+            &active_profiles,
+        )
+        .map_err(map_error)?;
+        for import in resolved {
+            by_importer
+                .entry(import.importer.clone())
+                .or_default()
+                .push(import);
+        }
+    }
+    let mut ordered = Vec::new();
+    for file in &model.files {
+        if let Some(imports) = by_importer.remove(&file.path) {
+            ordered.extend(imports);
+        }
+    }
+    Ok(ordered)
 }
 
 fn collect_dependency_manifests(
@@ -205,57 +267,36 @@ fn manifest_root(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
-fn scoped_manifests_for_package(
-    manifests: &[Manifest],
-    workspace: &Workspace,
-    selected: &SelectedPackage,
-) -> Vec<Manifest> {
-    let own: Vec<Manifest> = manifests
-        .iter()
-        .filter(|manifest| {
-            package_root_matches_selected(workspace, selected, manifest_root(&manifest.path))
-        })
-        .cloned()
-        .collect();
-    if matches!(selected, SelectedPackage::Root)
-        || manifests_declare_framework_reference_ranges(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, &own)
-    {
-        return own;
-    }
-    manifests
-        .iter()
-        .filter(|manifest| manifest_root(&manifest.path).is_empty())
-        .cloned()
-        .collect()
-}
-
-pub(super) fn refresh_reference_ranges_for_package(
+pub(super) fn refresh_profiles_for_package(
     languages: &mut [MeasuredLanguage],
     plugins: &[NamedLanguagePlugin<'_>],
-    manifests_by_language: &BTreeMap<String, Vec<Manifest>>,
-    workspace: &Workspace,
+    profiles_by_language: &BTreeMap<String, ResolvedLanguageProfiles>,
     selected: &SelectedPackage,
 ) -> Result<(), CheckError> {
+    let selected_root = match selected {
+        SelectedPackage::Root => "",
+        SelectedPackage::Member(root) => root.as_str(),
+    };
+    let selected_display = display_package_key(selected_root);
     for language in languages {
-        if language.plugin != TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME {
-            continue;
-        }
         let Some(named) = plugins.iter().find(|plugin| plugin.name == language.plugin) else {
             continue;
         };
-        let scoped = manifests_by_language
-            .get(&language.plugin)
-            .map(|manifests| scoped_manifests_for_package(manifests, workspace, selected))
-            .unwrap_or_default();
-        language.reference_ranges = select_reference_ranges(named, &language.model, &scoped)?;
+        let Some(profiles) = profiles_by_language.get(&language.plugin) else {
+            continue;
+        };
+        let (reference_ranges, reference_range_note) =
+            profiles.reference_ranges_for_scope(named, Some(selected_root))?;
+        language.reference_ranges = reference_ranges;
+        language.reference_range_note = reference_range_note;
+        let active = profiles.active_profiles_for_package(selected_root);
+        language.framework_profiles = active.clone();
+        language.framework_profiles_by_package.clear();
+        if !active.is_empty() {
+            language
+                .framework_profiles_by_package
+                .insert(selected_display.to_owned(), active);
+        }
     }
     Ok(())
-}
-
-fn select_reference_ranges(
-    named: &NamedLanguagePlugin<'_>,
-    model: &CodeModel,
-    manifests: &[Manifest],
-) -> Result<ReferenceRanges, CheckError> {
-    select_language_reference_ranges(named, model, manifests).map_err(CheckError::ReferenceRange)
 }

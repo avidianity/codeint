@@ -316,13 +316,19 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
         files,
         ..CodeModel::default()
     };
-    let report = Report::summarize(
+    let measured_language = || {
         vec![MeasuredLanguage {
             plugin: "typescript-javascript".to_owned(),
             model: model.clone(),
             reference_ranges: ReferenceRanges::default(),
+            reference_range_note: None,
             has_imports: true,
-        }],
+            framework_profiles: Vec::new(),
+            framework_profiles_by_package: std::collections::BTreeMap::new(),
+        }]
+    };
+    let report = Report::summarize(
+        measured_language(),
         Vec::new(),
         FindingsShown::default(),
         &Budgets::default(),
@@ -343,12 +349,7 @@ fn sarif_does_not_leak_member_clone_groups_of_families_beyond_display_cap() {
     );
 
     let full_report = Report::summarize(
-        vec![MeasuredLanguage {
-            plugin: "typescript-javascript".to_owned(),
-            model: model.clone(),
-            reference_ranges: ReferenceRanges::default(),
-            has_imports: true,
-        }],
+        measured_language(),
         Vec::new(),
         FindingsShown::All,
         &Budgets::default(),

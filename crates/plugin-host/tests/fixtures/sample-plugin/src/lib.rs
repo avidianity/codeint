@@ -497,7 +497,7 @@ fn resolve_single_import(
 }
 
 fn detect_framework_profiles(manifests: &[Manifest]) -> Vec<String> {
-    ["mini-web", "mini-cli"]
+    ["mini-web", "mini-cli", "mini-app"]
         .into_iter()
         .filter(|profile| {
             let marker = format!("framework:{profile}");
@@ -521,10 +521,9 @@ fn select_active_profiles(
             .filter(|profile| !excluded.contains(profile))
             .collect()),
         FrameworkProfileSelection::Only(only) => {
-            if let Some(unknown) = only
-                .iter()
-                .find(|profile| profile.as_str() != "mini-web" && profile.as_str() != "mini-cli")
-            {
+            if let Some(unknown) = only.iter().find(|profile| {
+                !matches!(profile.as_str(), "mini-web" | "mini-cli" | "mini-app")
+            }) {
                 return Err(format!("unknown Framework profile {unknown:?}"));
             }
             Ok(only)
@@ -540,11 +539,26 @@ fn filter_mini_paths(files: &[String], folder: &str) -> Vec<String> {
         .collect()
 }
 
-fn select_profile_ranges(has_web: bool, has_cli: bool) -> (Vec<ReferenceRange>, Option<String>) {
-    if has_web && has_cli {
+fn select_profile_ranges(
+    has_web: bool,
+    has_cli: bool,
+    has_app: bool,
+) -> (Vec<ReferenceRange>, Option<String>) {
+    if has_cli && (has_web || has_app) {
         (
             Vec::new(),
             Some("multiple profiles active; falling back to base mini ranges".to_string()),
+        )
+    } else if has_app {
+        (
+            vec![ReferenceRange {
+                metric: "erosion".to_string(),
+                metric_version: 1,
+                low: 0.02,
+                high: 0.25,
+                source: "mini-app framework profile".to_string(),
+            }],
+            None,
         )
     } else if has_web {
         (
@@ -702,7 +716,11 @@ impl Guest for SampleMiniPlugin {
     }
 
     fn known_framework_profiles() -> Vec<String> {
-        vec!["mini-web".to_string(), "mini-cli".to_string()]
+        vec![
+            "mini-web".to_string(),
+            "mini-cli".to_string(),
+            "mini-app".to_string(),
+        ]
     }
 
     fn resolve_framework_profiles(
@@ -715,17 +733,23 @@ impl Guest for SampleMiniPlugin {
         let active_profiles = select_active_profiles(detected, selection)?;
         let has_web = active_profiles.iter().any(|profile| profile == "mini-web");
         let has_cli = active_profiles.iter().any(|profile| profile == "mini-cli");
-        let entry_points = if has_web {
-            filter_mini_paths(&files, "pages/")
-        } else {
-            Vec::new()
-        };
-        let generated_paths = if has_web {
-            filter_mini_paths(&files, "gen/")
-        } else {
-            Vec::new()
-        };
-        let (reference_ranges, reference_range_note) = select_profile_ranges(has_web, has_cli);
+        let has_app = active_profiles.iter().any(|profile| profile == "mini-app");
+        let mut entry_points = Vec::new();
+        if has_web {
+            entry_points.extend(filter_mini_paths(&files, "pages/"));
+        }
+        if has_app {
+            entry_points.extend(filter_mini_paths(&files, "routes/"));
+        }
+        let mut generated_paths = Vec::new();
+        if has_web {
+            generated_paths.extend(filter_mini_paths(&files, "gen/"));
+        }
+        if has_app {
+            generated_paths.extend(filter_mini_paths(&files, "dist-gen/"));
+        }
+        let (reference_ranges, reference_range_note) =
+            select_profile_ranges(has_web, has_cli, has_app);
         Ok(FrameworkProfileResult {
             active_profiles,
             entry_points,

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::string::FromUtf8Error;
 
-use codeint_config::{ConfigFileKind, LanguageCoverage, SourceSetOverrides, SqlDialect};
+use codeint_config::{ConfigFileKind, LanguageCoverage, SqlDialect};
 use codeint_git::Snapshot;
 use codeint_model::{
     CodeModel, HazardLine, LanguagePluginError, LowerError, RepoPath, SkippedFile, SourceFile,
@@ -128,7 +128,6 @@ pub(super) fn lower_covered_files(
     plugins: &[NamedLanguagePlugin<'_>],
     covered_files: &[(&RepoPath, usize)],
     sql_dialects: &[Option<SqlDialect>],
-    overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
 ) -> Result<Vec<(usize, LoweredOutcome)>, CheckError> {
     let listed_hazard_rules = listed_hazard_rules_by_plugin(plugins);
@@ -140,7 +139,6 @@ pub(super) fn lower_covered_files(
                 &plugins[index],
                 dialect,
                 &listed_hazard_rules[index],
-                overrides,
                 config_file,
             )?;
             Ok((index, lowered))
@@ -233,7 +231,6 @@ fn lower_bytes(
     named: &NamedLanguagePlugin<'_>,
     sql_dialect: Option<SqlDialect>,
     listed_hazard_rules: &HashSet<String>,
-    overrides: &SourceSetOverrides,
     config_file: ConfigFileKind,
 ) -> Result<LoweredOutcome, CheckError> {
     let text = match String::from_utf8(bytes) {
@@ -266,8 +263,7 @@ fn lower_bytes(
             if !named.plugin.has_imports() {
                 file.program_start = false;
             }
-            file.source_set =
-                overrides.source_set(path, settle_source_set(path, &text, file.source_set));
+            file.source_set = settle_source_set(path, &text, file.source_set);
             Ok(LoweredOutcome {
                 file: LoweredFile::Measured(SourceFile {
                     path: path.clone(),

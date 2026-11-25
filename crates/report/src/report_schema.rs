@@ -15,6 +15,15 @@ fn report_schema_value() -> Value {
         "properties": {
             "files": { "type": "integer", "minimum": 0 },
             "source_lines": { "type": "integer", "minimum": 0 },
+            "framework_profiles": {
+                "type": "array",
+                "description": "Sorted names of active Framework profiles for this measured scope.",
+                "items": { "type": "string" }
+            },
+            "reference_range_note": {
+                "type": "string",
+                "description": "Note explaining Framework profile Reference range selection or fallback to base language Reference ranges."
+            },
             "import_metrics_note": { "type": "string" },
             "source_sets": { "$ref": "#/$defs/SourceSetSections" },
             "test_gap_note": {
@@ -65,6 +74,11 @@ fn report_schema_value() -> Value {
                 "properties": {
                     "files": { "type": "integer", "minimum": 0 },
                     "source_lines": { "type": "integer", "minimum": 0 },
+                    "framework_profiles": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "reference_range_note": { "type": "string" },
                     "import_metrics_note": { "type": "string" },
                     "source_sets": { "$ref": "#/$defs/SourceSetSections" },
                     "test_gap_note": { "type": "string" },
@@ -220,6 +234,10 @@ fn report_schema_value() -> Value {
                     "path": { "type": "string" },
                     "files": { "type": "integer", "minimum": 0 },
                     "source_lines": { "type": "integer", "minimum": 0 },
+                    "framework_profiles": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
                     "erosion": { "type": "object" },
                     "cognitive_complexity": { "type": "object" },
                     "duplication": { "type": "object" },

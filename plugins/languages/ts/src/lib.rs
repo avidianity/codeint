@@ -2,6 +2,7 @@
 
 mod dependencies;
 mod entry_points;
+mod frameworks;
 mod functions;
 mod nesting;
 mod resolution;
@@ -15,8 +16,8 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, WorkspaceError,
 };
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -32,7 +33,6 @@ use crate::source_set::source_set;
 use crate::tokens::tokens;
 
 pub use rules::flagged_line_rules;
-pub use sfc::{react_reference_ranges, vue_reference_ranges};
 
 pub(crate) const EXTENSIONS: [&str; 10] = [
     "ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs", "vue", "svelte",
@@ -70,9 +70,9 @@ impl Guest for TypeScriptAndJavaScript {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
-        let resolver = ProjectResolver::new(&repository_paths, manifests);
+        let resolver = ProjectResolver::new(&repository_paths, manifests, &active_profiles);
         requests
             .iter()
             .map(|request| resolver.resolve(request))
@@ -105,7 +105,18 @@ impl Guest for TypeScriptAndJavaScript {
         .collect()
     }
 
-    codeint_model::empty_framework_profile_guest_methods!();
+    fn known_framework_profiles() -> Vec<String> {
+        frameworks::known_profiles()
+    }
+
+    fn resolve_framework_profiles(
+        package_root: String,
+        files: Vec<String>,
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, String> {
+        frameworks::resolve_framework_profiles(package_root, files, manifests, selection)
+    }
 
     fn has_hazard_rules() -> bool {
         false
