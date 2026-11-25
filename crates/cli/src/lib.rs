@@ -529,7 +529,11 @@ fn run_command(command: Command) -> Result<Outcome, CliError> {
 
 fn run_auxiliary_command(command: Command) -> Result<Outcome, CliError> {
     match command {
-        Command::Init { folder } => run_init(&folder),
+        Command::Init {
+            folder,
+            adopt,
+            plugin_host,
+        } => run_init(&folder, adopt, &plugin_host),
         Command::Update {
             check_only,
             version,
@@ -646,7 +650,9 @@ fn run_ratchet(command: RatchetCommand) -> Result<Outcome, CliError> {
             format,
             plugin_host,
         } => {
-            let report = ratchet::update(&folder, reset, &coverage_reports, &plugin_host)?;
+            let (context, measured) =
+                check::load_and_measure_whole_repo(&folder, &coverage_reports, &plugin_host)?;
+            let report = ratchet::update_from_report(&context, &measured, reset)?;
             print_report(&format!("{}\n", report.render(format)?))?;
             Ok(Outcome::Passed)
         }
@@ -662,7 +668,9 @@ fn run_baseline(command: BaselineCommand) -> Result<Outcome, CliError> {
             format,
             plugin_host,
         } => {
-            let summary = baseline::update(&folder, reset, &coverage_reports, &plugin_host)?;
+            let (context, measured) =
+                check::load_and_measure_whole_repo(&folder, &coverage_reports, &plugin_host)?;
+            let summary = baseline::update_from_report(&context, &measured, reset)?;
             print_report(&format!("{}\n", render_baseline_update(&summary, format)?))?;
             Ok(Outcome::Passed)
         }
@@ -737,7 +745,16 @@ fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcom
     Ok(Outcome::Passed)
 }
 
-fn run_init(folder: &Path) -> Result<Outcome, CliError> {
+fn run_init(
+    folder: &Path,
+    adopt: bool,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    if adopt {
+        let adopted = init::adopt(folder, plugin_host)?;
+        print_report(&init::render_adoption(&adopted))?;
+        return Ok(Outcome::Passed);
+    }
     let written = init::init(folder)?;
     print_report(&format!("Wrote {}\n", written.display()))?;
     Ok(Outcome::Passed)

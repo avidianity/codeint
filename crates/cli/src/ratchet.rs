@@ -1,11 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use codeint_config::{
-    PluginHostConfig, Ratchet, RatchetFileError, RatchetVersionMismatch, RatchetViolation,
-};
-use codeint_report::{RATCHET_PACKAGE_SKIPPED_NOTE, RatchetUpdateReport};
+use codeint_config::{Ratchet, RatchetFileError, RatchetVersionMismatch, RatchetViolation};
+use codeint_report::{RATCHET_PACKAGE_SKIPPED_NOTE, RatchetUpdateReport, Report};
 
-use crate::check::{CheckError, WorkspaceContext, measure_whole_repo};
+use crate::check::{CheckError, WorkspaceContext};
 
 pub(crate) fn enforce_if_present<T, FNote, FApply>(
     repository_root: &Path,
@@ -37,8 +35,6 @@ where
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RatchetError {
     #[error(transparent)]
-    Check(#[from] CheckError),
-    #[error(transparent)]
     RatchetFile(#[from] RatchetFileError),
     #[error(
         "refusing to loosen Ratchet ceilings in {path:?} for unchanged Metric versions: {}",
@@ -50,14 +46,11 @@ pub(crate) enum RatchetError {
     },
 }
 
-pub(crate) fn update(
-    folder: &Path,
+pub(crate) fn update_from_report(
+    context: &WorkspaceContext,
+    report: &Report,
     reset: bool,
-    coverage_reports: &[PathBuf],
-    plugin_host: &PluginHostConfig,
 ) -> Result<RatchetUpdateReport, RatchetError> {
-    let context = WorkspaceContext::load(folder, plugin_host)?;
-    let report = measure_whole_repo(&context, folder, coverage_reports)?;
     let measured = report.ratchet_metrics();
     let ratchet_path = &context.configuration.ratchet.path;
     let loaded = Ratchet::load_for_update(context.repository.root(), ratchet_path, reset)?;

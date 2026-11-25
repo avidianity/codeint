@@ -1,7 +1,13 @@
-use codeint_model::RepoPath;
+use std::collections::BTreeSet;
+
+use codeint_model::{Metric, RepoPath, SourceSet};
 use serde_json::Value;
 
-use super::{DetectedLanguage, starter_configuration_text};
+use super::{
+    DetectedLanguage, StarterKind, ZeroBudgetKeys, starter_configuration_text,
+    starter_configuration_text_with_boundaries, zero_budget_keys,
+};
+use crate::baseline::MeasuredBaselineMetric;
 use crate::codeint_json::{configuration_schema, parse, parse_jsonc, shape};
 
 fn path(text: &str) -> RepoPath {
@@ -209,7 +215,12 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
         StarterBoundaries::Preset(BoundaryPreset::Layered),
         StarterBoundaries::Preset(BoundaryPreset::Hexagonal),
     ] {
-        let text = starter_configuration_text_with_boundaries(&detected, Some(&boundaries));
+        let text = starter_configuration_text_with_boundaries(
+            &detected,
+            Some(&boundaries),
+            StarterKind::Standard,
+            &ZeroBudgetKeys::none(),
+        );
         assert!(text.contains("sql.dialects"), "{text}");
         let starter: Value = parse_jsonc(&text).expect("starter with boundaries is valid JSONC");
         shape::check_shape(&starter, &schema).expect("starter fits schema");
@@ -223,4 +234,113 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
         let active = parse(&uncommented).expect("uncommented boundaries parses cleanly");
         assert!(active.boundaries.is_some());
     }
+}
+
+#[test]
+fn the_adoption_starter_enables_per_file_and_keeps_new_file_budgets_commented_and_valid() {
+    let schema = published_schema();
+
+    let text = starter_configuration_text_with_boundaries(
+        &[],
+        None,
+        StarterKind::Adoption,
+        &ZeroBudgetKeys::none(),
+    );
+
+    assert!(text.contains("// \"new_file_budgets\": {"), "{text}");
+    let starter: Value = parse_jsonc(&text).expect("the adoption starter is valid JSONC");
+    assert_eq!(
+        starter["regression_limits"],
+        serde_json::json!({ "per_file": true })
+    );
+    assert!(starter.get("new_file_budgets").is_none());
+    shape::check_shape(&starter, &schema).expect("the adoption starter fits the schema");
+}
+
+#[test]
+fn the_adoption_starter_writes_zero_budgets_for_recorded_metrics_and_keeps_test_gap_commented() {
+    let schema = published_schema();
+    let zero_budgets = ZeroBudgetKeys {
+        production: vec!["erosion", "hazards"],
+        test: vec!["erosion"],
+        dependencies: vec!["unused_dependencies"],
+    };
+
+    let text =
+        starter_configuration_text_with_boundaries(&[], None, StarterKind::Adoption, &zero_budgets);
+
+    let starter: Value = parse_jsonc(&text).expect("the adoption starter is valid JSONC");
+    assert_eq!(
+        starter["budgets"]["production"],
+        serde_json::json!({ "erosion": 0, "hazards": 0 })
+    );
+    assert_eq!(
+        starter["budgets"]["test"],
+        serde_json::json!({ "erosion": 0 })
+    );
+    assert_eq!(
+        starter["budgets"]["unused_dependencies"],
+        serde_json::json!(0)
+    );
+    assert!(text.contains("// \"test_gap\": 0.2,"), "{text}");
+    shape::check_shape(&starter, &schema).expect("the adoption starter fits the schema");
+    let activated = text.replace("// \"test_gap\": 0.2,", "\"test_gap\": 0.2,");
+    parse(&activated).expect("uncommenting test_gap keeps the file valid");
+}
+
+#[test]
+fn zero_budget_keys_cover_every_recorded_metric_of_the_registry_except_test_gap() {
+    let recorded: Vec<MeasuredBaselineMetric> = Metric::ALL
+        .into_iter()
+        .flat_map(|metric| {
+            [
+                Some(SourceSet::Production),
+                Some(SourceSet::Test),
+                Some(SourceSet::Generated),
+                None,
+            ]
+            .map(|source_set| MeasuredBaselineMetric {
+                source_set,
+                metric: metric.key().to_owned(),
+                metric_version: metric.version(),
+                findings: BTreeSet::new(),
+            })
+        })
+        .collect();
+
+    let keys = zero_budget_keys(&recorded);
+
+    assert_eq!(
+        keys.production,
+        vec![
+            "erosion",
+            "cognitive_complexity",
+            "duplication",
+            "verbosity",
+            "import_cycles",
+            "boundaries",
+            "orphan_files",
+            "hazards"
+        ]
+    );
+    assert_eq!(
+        keys.test,
+        vec![
+            "erosion",
+            "cognitive_complexity",
+            "duplication",
+            "verbosity",
+            "import_cycles",
+            "boundaries",
+            "hazards"
+        ]
+    );
+    assert_eq!(
+        keys.dependencies,
+        vec![
+            "unused_dependencies",
+            "unlisted_dependencies",
+            "dev_in_production_dependencies"
+        ]
+    );
 }
