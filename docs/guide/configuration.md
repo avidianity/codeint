@@ -74,6 +74,13 @@ If your config file pins an official `$schema` tag newer than the running binary
   "hazards": {
     "disabled_rules": ["select-star"],
   },
+  // Global and per-Workspace-package Framework profile overrides
+  "framework_profiles": {
+    "exclude": ["svelte"],
+  },
+  "packages": {
+    "packages/legacy": { "framework_profiles": false },
+  },
   // Optional shingle-based near-clone detection
   "duplication": {
     "near_clones": true,
@@ -141,6 +148,8 @@ If your config file pins an official `$schema` tag newer than the running binary
   See [SQL](./sql.md).
 - **`hazards`**: list Hazard line rule names under `hazards.disabled_rules` to turn them off across the repository.
   See [Hazards](./hazards.md).
+- **`framework_profiles`** and **`packages`**: control Framework profile detection globally (`false`, `true`, `["react"]`, `{"only": [...]}`, or `{"exclude": [...]}`) and per Workspace package under `packages.<path>.framework_profiles`.
+  Unknown profile names fail fast with exit code `2`.
 - **`coverage_reports`**: repository-relative paths to LCOV or Cobertura XML Coverage reports used to compute **Test gap**; overridden when `--coverage-report` is passed on `codeint check`.
   See [Test gap](./test-gap.md).
 - **`boundaries`**: architectural import zones, optional `preset` (`layered` or `hexagonal`), `public_files` encapsulation, directional internal `allow` or `deny` rules, external package `allow_external` or `deny_external` globs with optional `reason`, `strict_zones`, and `source_sets` (default `["production"]`).

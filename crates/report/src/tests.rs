@@ -36,12 +36,12 @@ fn tiny_positive_min_similarity_preserves_nonzero_json_toon_and_markdown_display
         },
     });
     let report = Report::summarize_with_config(
-        vec![MeasuredLanguage {
-            plugin: "typescript-javascript".to_owned(),
+        vec![MeasuredLanguage::new(
+            "typescript-javascript",
             model,
-            reference_ranges: ReferenceRanges::default(),
-            has_imports: true,
-        }],
+            ReferenceRanges::default(),
+            true,
+        )],
         Vec::new(),
         FindingsShown::default(),
         &Budgets::default(),

@@ -150,6 +150,12 @@ impl Noun {
 pub(crate) fn render(report: &Report) -> String {
     let sections = report.measured.source_sets.named();
     let mut blocks = vec![TITLE.to_string(), measured_summary(&report.measured)];
+    if !report.measured.framework_profiles.is_empty() {
+        blocks.push(framework_profiles_line(&report.measured.framework_profiles));
+    }
+    if let Some(note) = &report.measured.reference_range_note {
+        blocks.push(prose(note));
+    }
     if let Some(note) = &report.measured.import_metrics_note {
         blocks.push(prose(note));
     }
@@ -230,6 +236,12 @@ fn push_language_sections(
         let language_sections = language.source_sets.named();
         blocks.push(format!("## Language plugin {}", code(plugin)));
         blocks.push(measured_summary(language));
+        if !language.framework_profiles.is_empty() {
+            blocks.push(framework_profiles_line(&language.framework_profiles));
+        }
+        if let Some(note) = &language.reference_range_note {
+            blocks.push(prose(note));
+        }
         if let Some(note) = &language.import_metrics_note {
             blocks.push(prose(note));
         }
@@ -278,6 +290,7 @@ fn metric_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
 }
 
 struct OptionalPackageColumns {
+    framework_profiles: bool,
     import_cycles: bool,
     test_gap: bool,
     hazards: bool,
@@ -285,6 +298,12 @@ struct OptionalPackageColumns {
 
 fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
     let optional = OptionalPackageColumns {
+        framework_profiles: sections.iter().any(|(_, section)| {
+            section
+                .packages
+                .iter()
+                .any(|package| !package.framework_profiles.is_empty())
+        }),
         import_cycles: sections.iter().any(|(_, section)| {
             section
                 .packages
@@ -317,6 +336,9 @@ fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
         return None;
     }
     let mut columns: Vec<&str> = PACKAGE_COLUMNS.to_vec();
+    if optional.framework_profiles {
+        columns.push("Framework profiles");
+    }
     if optional.import_cycles {
         columns.push("Import cycles");
     }
@@ -327,6 +349,23 @@ fn package_table(sections: &[(&str, &SourceSetSection)]) -> Option<String> {
         columns.push("Hazards");
     }
     Some(table(&columns, package_rows))
+}
+
+fn framework_profiles_line(profiles: &[String]) -> String {
+    format!("Framework profiles: {}.", format_code_list(profiles))
+}
+
+fn format_code_list(items: &[String]) -> String {
+    if items.is_empty() {
+        "-".to_owned()
+    } else {
+        items
+            .iter()
+            .map(String::as_str)
+            .map(code)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 pub(crate) fn sentence_item(failure: &impl std::fmt::Display) -> String {
@@ -354,6 +393,9 @@ fn package_row(
         package.duplication.ratio.0.to_string(),
         package.verbosity.ratio.0.to_string(),
     ];
+    if optional.framework_profiles {
+        cells.push(format_code_list(&package.framework_profiles));
+    }
     if optional.import_cycles {
         cells.push(package.import_cycles.as_ref().map_or_else(
             || "not measured".to_string(),

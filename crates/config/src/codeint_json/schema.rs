@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::RegressionLimits;
 use crate::boundaries::BoundariesFile;
 use crate::dependencies::DependenciesFile;
+use crate::framework_profiles::{FrameworkProfileRuleFile, PackageConfigFile};
 use crate::hazards::HazardsConfigFile;
 use crate::regression_limits::RegressionLimitSetting;
 use crate::sql::SqlConfigFile;
@@ -136,6 +137,17 @@ pub(super) struct ConfigurationFile {
         description = "Hazards Metric settings, including Hazard line rules turned off across the repository."
     )]
     hazards: HazardsConfigFile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "FrameworkProfileRuleFile",
+        description = "Global Framework profile selection: false to disable all, true for auto-detection, a list of profile names (or {\"only\": [...]}), or {\"exclude\": [...]}. Omitted uses automatic detection."
+    )]
+    framework_profiles: Option<FrameworkProfileRuleFile>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Per-Workspace-package configuration overrides keyed by repository-relative package root (or \".\" for the repository root)."
+    )]
+    packages: BTreeMap<String, PackageConfigFile>,
 }
 
 pub(super) struct ConfigurationFileSections {
@@ -148,6 +160,8 @@ pub(super) struct ConfigurationFileSections {
     pub(super) duplication: DuplicationConfigFile,
     pub(super) sql: SqlConfigFile,
     pub(super) hazards: HazardsConfigFile,
+    pub(super) framework_profiles: Option<FrameworkProfileRuleFile>,
+    pub(super) packages: BTreeMap<String, PackageConfigFile>,
 }
 
 impl ConfigurationFile {
@@ -181,6 +195,8 @@ impl ConfigurationFile {
             duplication: self.duplication,
             sql: self.sql,
             hazards: self.hazards,
+            framework_profiles: self.framework_profiles,
+            packages: self.packages,
         }
     }
 

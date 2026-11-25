@@ -12,6 +12,7 @@ use crate::RegressionLimits;
 use crate::boundaries::Boundaries;
 use crate::config_error::{ConfigFileKind, ConfigurationFileError, KeyPath, KeySegment, glob_set};
 use crate::dependencies::DependenciesConfig;
+use crate::framework_profiles::FrameworkProfilesConfig;
 use crate::hazards::HazardsConfig;
 use crate::sql::SqlConfig;
 
@@ -100,6 +101,7 @@ pub struct Configuration {
     pub coverage_reports: Vec<String>,
     pub sql: SqlConfig,
     pub hazards: HazardsConfig,
+    pub framework_profiles: FrameworkProfilesConfig,
     pub(super) config_file: ConfigFileKind,
     pub(super) effective: ConfigurationFile,
 }

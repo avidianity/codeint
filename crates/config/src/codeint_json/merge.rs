@@ -22,6 +22,9 @@ use crate::RegressionLimits;
 use crate::boundaries::{Boundaries, BoundariesFile};
 use crate::config_error::{ConfigFileKind, ConfigurationFileError, compile_glob};
 use crate::dependencies::{DependenciesConfig, DependenciesFile};
+use crate::framework_profiles::{
+    FrameworkProfileRuleFile, FrameworkProfilesConfig, PackageConfigFile,
+};
 use crate::hazards::{HazardsConfig, HazardsConfigFile};
 use crate::regression_limits::ResolvedRegressionLimit;
 use crate::resolved::{
@@ -120,6 +123,12 @@ pub(super) fn parse_value_with_overrides(
     )?;
     let (sql, hazards) =
         parse_sql_and_hazards(raw.as_ref(), sections.sql, sections.hazards, &mut settings)?;
+    let framework_profiles = parse_framework_profiles(
+        raw.as_ref(),
+        sections.framework_profiles,
+        sections.packages,
+        &mut settings,
+    )?;
     let configuration = Configuration {
         config_file: config_file_kind,
         effective,
@@ -137,6 +146,7 @@ pub(super) fn parse_value_with_overrides(
         coverage_reports: features.coverage_reports,
         sql,
         hazards,
+        framework_profiles,
     };
     Ok(ResolvedConfiguration {
         config_file,
@@ -174,6 +184,35 @@ fn parse_sql_and_hazards(
         hazards_source,
     );
     Ok((sql, hazards))
+}
+
+fn parse_framework_profiles(
+    raw: Option<&Value>,
+    global: Option<FrameworkProfileRuleFile>,
+    packages: BTreeMap<String, PackageConfigFile>,
+    settings: &mut Vec<ResolvedSetting>,
+) -> Result<FrameworkProfilesConfig, ConfigurationFileError> {
+    let config = FrameworkProfilesConfig::from_files(global, packages)?;
+    let global_source = if has_json_path(raw, &["framework_profiles"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "framework_profiles",
+        config.resolved_global_value(),
+        global_source,
+    );
+    let package_settings = config.resolved_package_settings();
+    if package_settings.is_empty() {
+        push_setting(settings, "packages", json!({}), ConfigProvenance::Default);
+    } else {
+        for (key, value) in package_settings {
+            push_setting(settings, key, value, ConfigProvenance::File);
+        }
+    }
+    Ok(config)
 }
 
 fn append_dependencies_settings(

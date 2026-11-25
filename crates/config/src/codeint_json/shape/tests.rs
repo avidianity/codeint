@@ -2,9 +2,10 @@ use serde_json::Value;
 
 use crate::configuration_schema;
 
-const CHECKED_KEYWORDS: [&str; 11] = [
+const CHECKED_KEYWORDS: [&str; 12] = [
     "$ref",
     "$defs",
+    "anyOf",
     "type",
     "properties",
     "additionalProperties",
@@ -18,29 +19,48 @@ const CHECKED_KEYWORDS: [&str; 11] = [
 
 const ANNOTATION_KEYWORDS: [&str; 5] = ["$schema", "title", "description", "default", "format"];
 
+fn check_nested_keyword(keyword: &str, value: &Value, found: &mut Vec<String>) -> bool {
+    match keyword {
+        "$defs" | "properties" => {
+            for nested in value.as_object().into_iter().flat_map(|map| map.values()) {
+                keywords_outside_the_checked_subset(nested, found);
+            }
+            true
+        }
+        "anyOf" => {
+            for nested in value.as_array().into_iter().flatten() {
+                keywords_outside_the_checked_subset(nested, found);
+            }
+            true
+        }
+        "items" => {
+            keywords_outside_the_checked_subset(value, found);
+            true
+        }
+        "additionalProperties" => {
+            if value.is_object() {
+                keywords_outside_the_checked_subset(value, found);
+            } else if value != &Value::Bool(false) {
+                found.push(keyword.to_owned());
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 fn keywords_outside_the_checked_subset(schema: &Value, found: &mut Vec<String>) {
     let Some(members) = schema.as_object() else {
         return;
     };
     for (keyword, value) in members {
-        match keyword.as_str() {
-            "$defs" | "properties" => {
-                for nested in value.as_object().into_iter().flat_map(|map| map.values()) {
-                    keywords_outside_the_checked_subset(nested, found);
-                }
-            }
-            "items" => keywords_outside_the_checked_subset(value, found),
-            "additionalProperties" => {
-                if value.is_object() {
-                    keywords_outside_the_checked_subset(value, found);
-                } else if value != &Value::Bool(false) {
-                    found.push(keyword.clone());
-                }
-            }
-            keyword if CHECKED_KEYWORDS.contains(&keyword) => {}
-            keyword if ANNOTATION_KEYWORDS.contains(&keyword) => {}
-            keyword => found.push(keyword.to_owned()),
+        if check_nested_keyword(keyword, value, found)
+            || CHECKED_KEYWORDS.contains(&keyword.as_str())
+            || ANNOTATION_KEYWORDS.contains(&keyword.as_str())
+        {
+            continue;
         }
+        found.push(keyword.clone());
     }
 }
 

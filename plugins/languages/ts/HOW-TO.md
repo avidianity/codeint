@@ -97,12 +97,16 @@ fn find_empty_statements(program: &Program<'_>, _code: &str) -> Vec<Span> {
 - `oxc_parser` does not support Flow syntax; when a JavaScript file with a `@flow` comment fails to parse, `oxc_parser` reports `Flow is not supported`, and the plugin returns `LowerError::Unparsable` so the report skips and counts it with the parse error.
 - Prove JSX and Flow handling in `tests/conformance.rs` and `crates/cli/tests/check.rs`.
 
-## Reference ranges
+## Framework profiles and Reference ranges
 
 - `reference_ranges` in `src/lib.rs` returns the 10th to 90th percentile ranges from [ADR 0008](../../../docs/adr/0008-typescript-reference-ranges.md).
   Its source label is `codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0`.
-- `vue_reference_ranges` in `src/sfc.rs` selects the calibrated Vue 2 Reference ranges ([ADR 0014](../../../docs/adr/0014-vue2-reference-ranges.md)) or Vue 3 Reference ranges ([ADR 0015](../../../docs/adr/0015-vue3-reference-ranges.md)) when `.vue` files are measured and `package.json` declares `vue` major version 2 or 3.
-- `react_reference_ranges` in `src/sfc.rs` selects the calibrated React (JSX and TSX) Reference ranges ([ADR 0020](../../../docs/adr/0020-react-reference-ranges.md)) when `.jsx` or `.tsx` files are measured (without `.vue` files) and `package.json` declares `react`.
-- `src/sfc.rs` extracts `<script>`, `<script setup>`, `<script context="module">`, and `<script module>` blocks from `.vue` and `.svelte` Single-File Components while preserving original 1-based line numbers and skipping HTML templates and CSS styles.
+- `src/frameworks/` holds isolated package-level Framework profile modules (`react.rs`, `vue2.rs`, `vue3.rs`, `svelte.rs`) coordinated by `src/frameworks/mod.rs` ([ADR 0025](../../../docs/adr/0025-framework-profiles.md)).
+  Sibling framework modules never import one another.
+- `known_framework_profiles` returns `["react", "vue2", "vue3", "svelte"]`, and `resolve_framework_profiles` evaluates strict local package signals (isolating monorepo members from root manifests and excluding `peerDependencies`-only libraries from app-only conventions; `svelte` allows `devDependencies`).
+- React ([ADR 0020](../../../docs/adr/0020-react-reference-ranges.md)), Vue 2 ([ADR 0014](../../../docs/adr/0014-vue2-reference-ranges.md)), and Vue 3 ([ADR 0015](../../../docs/adr/0015-vue3-reference-ranges.md)) supply calibrated Reference ranges when active.
+  When two unrelated sibling profiles both supply Reference ranges in the same scope, conventions union cleanly and Reference ranges fall back to base TypeScript/JavaScript ranges with a `reference_range_note`.
+- `resolve_imports` honors `active_profiles` for framework fallback import hints (`@/*` -> `src/*` for `vue2`/`vue3`; `$lib` and `$lib/*` -> `src/lib/*` for `svelte`) only after `oxc_resolver` and `tsconfig.json` `paths` fail to resolve a specifier.
+- `src/sfc.rs` stays stateless and framework-blind: it extracts `<script>`, `<script setup>`, `<script context="module">`, and `<script module>` blocks from `.vue` and `.svelte` Single-File Components while preserving original 1-based line numbers and skipping HTML templates and CSS styles, even when no framework manifest is present.
 - Measure the panel again and amend the relevant ADR whenever Metric rules, the default rule set, or Source set rules change.
-- Prove a change in `tests/conformance.rs`, `tests/sfc.rs`, and `crates/cli/tests/check.rs`.
+- Prove a change in `tests/conformance.rs`, `tests/sfc.rs`, `tests/frameworks.rs`, and `crates/cli/tests/framework_profiles.rs`.

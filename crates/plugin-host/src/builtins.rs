@@ -5,8 +5,8 @@ use codeint_lang_go::Go;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
-use codeint_lang_ts::{TypeScriptAndJavaScript, react_reference_ranges, vue_reference_ranges};
-use codeint_model::{CodeModel, InvalidReferenceRange, LanguagePlugin, Manifest, ReferenceRanges};
+use codeint_lang_ts::TypeScriptAndJavaScript;
+use codeint_model::LanguagePlugin;
 
 use crate::sql::BuiltInSql;
 
@@ -92,40 +92,12 @@ pub fn built_in_language_hazard_rules() -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-pub fn manifests_declare_framework_reference_ranges(
-    plugin_name: &str,
-    manifests: &[Manifest],
-) -> bool {
-    plugin_name == TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME
-        && (vue_reference_ranges(manifests).is_some()
-            || react_reference_ranges(manifests).is_some())
-}
-
-pub fn select_language_reference_ranges(
-    named: &NamedLanguagePlugin<'_>,
-    model: &CodeModel,
-    manifests: &[Manifest],
-) -> Result<ReferenceRanges, InvalidReferenceRange> {
-    if named.name == TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME {
-        let has_vue = model
-            .files
-            .iter()
-            .any(|file| file.path.as_str().ends_with(".vue"));
-        let has_jsx_or_tsx = model.files.iter().any(|file| {
-            file.path.as_str().ends_with(".tsx") || file.path.as_str().ends_with(".jsx")
-        });
-        let react_ranges = has_jsx_or_tsx
-            .then(|| react_reference_ranges(manifests))
-            .flatten();
-        if has_vue {
-            if react_ranges.is_none()
-                && let Some(ranges) = vue_reference_ranges(manifests)
-            {
-                return ReferenceRanges::new(ranges);
-            }
-        } else if let Some(ranges) = react_ranges {
-            return ReferenceRanges::new(ranges);
-        }
-    }
-    named.plugin.reference_ranges()
+pub fn built_in_language_framework_profiles() -> BTreeMap<String, Vec<String>> {
+    BUILT_IN_LANGUAGE_PLUGINS
+        .iter()
+        .filter_map(|named| {
+            let profiles = named.plugin.known_framework_profiles();
+            (!profiles.is_empty()).then(|| (named.name.to_owned(), profiles))
+        })
+        .collect()
 }

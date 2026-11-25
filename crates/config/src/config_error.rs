@@ -331,6 +331,31 @@ pub enum ConfigurationFileError {
     EmptySqlDialectPattern { file: ConfigFileKind, key: KeyPath },
     #[error("{file}: {key} must not be empty")]
     EmptyHazardRuleName { file: ConfigFileKind, key: KeyPath },
+    #[error("{}", format_unknown_framework_profile(*file, key, name, known))]
+    UnknownFrameworkProfile {
+        file: ConfigFileKind,
+        key: KeyPath,
+        name: String,
+        known: Vec<String>,
+    },
+    #[error("{file}: {key} must not be empty")]
+    EmptyFrameworkProfileName { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} must set either exclude or only, not both")]
+    ConflictingFrameworkProfileRule { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} must set either exclude or only")]
+    EmptyFrameworkProfileObject { file: ConfigFileKind, key: KeyPath },
+    #[error("{file}: {key} has invalid Workspace package path {package:?}")]
+    InvalidPackageConfigKey {
+        file: ConfigFileKind,
+        key: KeyPath,
+        package: String,
+    },
+    #[error("{file}: {key} duplicates Workspace package path {package:?}")]
+    DuplicatePackageConfigKey {
+        file: ConfigFileKind,
+        key: KeyPath,
+        package: String,
+    },
 }
 
 impl ConfigurationFileError {
@@ -374,7 +399,13 @@ impl ConfigurationFileError {
             | MetricRegressionLimitOutsideProduction { file, .. }
             | EmptySqlDialectInclude { file, .. }
             | EmptySqlDialectPattern { file, .. }
-            | EmptyHazardRuleName { file, .. } => *file = file_kind,
+            | EmptyHazardRuleName { file, .. }
+            | UnknownFrameworkProfile { file, .. }
+            | EmptyFrameworkProfileName { file, .. }
+            | ConflictingFrameworkProfileRule { file, .. }
+            | EmptyFrameworkProfileObject { file, .. }
+            | InvalidPackageConfigKey { file, .. }
+            | DuplicatePackageConfigKey { file, .. } => *file = file_kind,
             AmbiguousConfigFiles
             | UnknownCliBudgetMetric { .. }
             | CliTestGapBudgetOutsideProduction { .. }
@@ -497,4 +528,22 @@ fn any_of(types: &[JsonType]) -> String {
         .map(|json_type| json_type.with_article())
         .collect::<Vec<_>>()
         .join(" or ")
+}
+
+fn format_unknown_framework_profile(
+    file: ConfigFileKind,
+    key: &KeyPath,
+    name: &str,
+    known: &[String],
+) -> String {
+    if known.is_empty() {
+        format!(
+            "{file} names an unknown Framework profile {name:?} at {key}; no loaded Language plugin defines Framework profiles"
+        )
+    } else {
+        format!(
+            "{file} names an unknown Framework profile {name:?} at {key}; the known Framework profiles are {}",
+            known.join(", ")
+        )
+    }
 }

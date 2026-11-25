@@ -12,6 +12,7 @@ mod command;
 mod config_error;
 mod coupling;
 mod dependencies;
+mod framework_profiles;
 mod hazards;
 mod regression_limits;
 mod resolved;
@@ -53,6 +54,7 @@ pub use coupling::{
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
 };
 pub use dependencies::DependenciesConfig;
+pub use framework_profiles::{FrameworkProfilesConfig, display_package_key};
 pub use hazards::HazardsConfig;
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 pub use resolved::{

@@ -82,7 +82,10 @@ fn measured_sql(model: CodeModel) -> MeasuredLanguage {
         plugin: "sql".to_owned(),
         model,
         reference_ranges: ReferenceRanges::default(),
+        reference_range_note: None,
         has_imports: false,
+        framework_profiles: Vec::new(),
+        framework_profiles_by_package: BTreeMap::new(),
     }
 }
 
@@ -91,7 +94,10 @@ fn measured_rust(model: CodeModel) -> MeasuredLanguage {
         plugin: "rust".to_owned(),
         model,
         reference_ranges: ReferenceRanges::default(),
+        reference_range_note: None,
         has_imports: true,
+        framework_profiles: Vec::new(),
+        framework_profiles_by_package: BTreeMap::new(),
     }
 }
 

@@ -133,6 +133,10 @@ _Avoid_: parser plugin, language adapter, language provider
 One variant of a language that its Language plugin reads with different rules, such as PostgreSQL or SQLite within SQL.
 _Avoid_: flavor, variant, engine
 
+**Framework profile**:
+A package-level rule set inside a **Language plugin** that adds framework detection, convention entry points, framework-generated **Source set** paths, fallback import hints, and optional **Reference ranges** while keeping per-file reading framework-blind.
+_Avoid_: framework plugin, preset, adapter
+
 **Metric plugin**:
 A Plugin that computes one Metric from the Code model alone, without knowing the source language.
 _Avoid_: analyzer, detector, rule

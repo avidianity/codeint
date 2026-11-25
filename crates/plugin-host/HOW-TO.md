@@ -4,14 +4,16 @@
 
 ```rust
 use codeint_plugin_host::{
-    built_in_language_descriptors, built_in_language_hazard_rules, built_in_language_names,
-    built_in_language_plugin, built_in_language_plugins,
+    built_in_language_descriptors, built_in_language_framework_profiles,
+    built_in_language_hazard_rules, built_in_language_names, built_in_language_plugin,
+    built_in_language_plugins,
 };
 
 let plugins = built_in_language_plugins();
 let reserved = built_in_language_names();
 let descriptors = built_in_language_descriptors();
 let hazard_rules = built_in_language_hazard_rules();
+let framework_profiles = built_in_language_framework_profiles();
 let ts_plugin = built_in_language_plugin("typescript-javascript");
 ```
 
@@ -20,6 +22,7 @@ let ts_plugin = built_in_language_plugin("typescript-javascript");
 - `built_in_language_names` returns the reserved built-in plugin names in registration order.
 - `built_in_language_descriptors` returns each built-in Language plugin's name and claimed extensions for schema and discovery reporting.
 - `built_in_language_hazard_rules` returns the map of built-in Language plugins that expose Hazard line rules to their declared rule names.
+- `built_in_language_framework_profiles` returns the map of built-in Language plugins that expose Framework profiles to their declared profile names.
 
 ## Lower SQL files and run the cross-file SQL schema pass
 
@@ -38,23 +41,10 @@ let summaries = apply_sql_schema_pass(&mut sql_model, &parsed_by_path);
 - `lower_sql_source` lowers a SQL source file with the configured `codeint_config::SqlDialect` and returns its `FileModel`, opaque `SqlParsedFile`, and any `SqlRejectedStatement` entries.
 - `apply_sql_schema_pass` builds per-(package, dialect) schemas from non-vendored, non-down-migration SQL files, appends cross-file schema Hazard lines to `sql_model`, and returns sorted `SqlSchemaScopeSummary` records.
 
-## Select framework-aware Reference ranges
+## Resolve Framework profiles
 
-```rust
-use codeint_plugin_host::{
-    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, manifests_declare_framework_reference_ranges,
-    select_language_reference_ranges,
-};
-
-let has_framework = manifests_declare_framework_reference_ranges(
-    TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
-    &manifests,
-);
-let ranges = select_language_reference_ranges(&named, &model, &manifests)?;
-```
-
-- `select_language_reference_ranges` is a temporary host helper that selects React (ADR 0020) or Vue (ADR 0014 / ADR 0015) Reference ranges for `typescript-javascript` when the measured files and manifests match, preserving hybrid Vue+React fallback to the base TypeScript/JavaScript ranges, and delegates to `named.plugin.reference_ranges()` for all other plugins.
-- `manifests_declare_framework_reference_ranges` reports whether a set of manifests declares React or Vue framework ranges for the named plugin, used when scoping member manifests in a Workspace.
+- Built-in and external Language plugins resolve package-level Framework profiles, convention entry points, framework-generated Source set paths, and framework Reference ranges through `LanguagePlugin::known_framework_profiles` and `LanguagePlugin::resolve_framework_profiles` (`codeint:plugin@0.4.0`).
+- Resolved active profile names are then passed into `LanguagePlugin::resolve_imports` so fallback import hints stay coupled to active profiles.
 
 ## Load external plugins declared in codeint.json
 

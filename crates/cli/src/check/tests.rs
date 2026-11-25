@@ -1456,6 +1456,24 @@ fn package_scoped_reference_ranges_prefer_member_manifests_over_root() {
             r#"{"name":"hoisted-vue"}"#,
         ),
         ("packages/hoisted-vue/src/App.vue", vue_script),
+        (
+            "packages/local-signal-react/package.json",
+            r#"{"name":"local-signal-react"}"#,
+        ),
+        ("packages/local-signal-react/index.html", "<html></html>\n"),
+        ("packages/local-signal-react/src/main.tsx", tsx_main),
+        (
+            "packages/local-signal-vue2/package.json",
+            r#"{"name":"local-signal-vue2"}"#,
+        ),
+        (
+            "packages/local-signal-vue2/vue.config.js",
+            "module.exports = {};\n",
+        ),
+        (
+            "packages/local-signal-vue2/src/App.vue",
+            "<script>\nexport default {};\n</script>\n",
+        ),
         ("packages/plain-api/package.json", r#"{"name":"plain-api"}"#),
         (
             "packages/plain-api/src/index.ts",
@@ -1468,8 +1486,10 @@ fn package_scoped_reference_ranges_prefer_member_manifests_over_root() {
             ("packages/legacy", VUE2_RANGE),
             ("packages/vue-jsx", VUE3_RANGE),
             ("packages/hybrid", TS_JS_RANGE),
-            ("packages/hoisted-react", REACT_RANGE),
-            ("packages/hoisted-vue", VUE3_RANGE),
+            ("packages/hoisted-react", TS_JS_RANGE),
+            ("packages/hoisted-vue", TS_JS_RANGE),
+            ("packages/local-signal-react", REACT_RANGE),
+            ("packages/local-signal-vue2", VUE2_RANGE),
             ("packages/plain-api", TS_JS_RANGE),
         ],
     );

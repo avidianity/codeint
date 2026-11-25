@@ -4,11 +4,10 @@ use std::path::{Path, PathBuf};
 
 use codeint_model::{
     CodeModel, FrameworkProfileSelection, LanguagePlugin, Manifest, Metric, MetricPlugin, RepoPath,
-    SourceFile,
 };
 use codeint_plugin_host::{
     PLUGIN_INTERFACE_VERSION, TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, built_in_language_plugin,
-    built_in_language_plugins, select_language_reference_ranges,
+    built_in_language_plugins,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -564,42 +563,34 @@ fn every_built_in_language_reference_range_matches_current_metric_version() {
         .expect("built-in typescript-javascript plugin");
     let tsx_path = RepoPath::new("src/App.tsx").expect("valid repo path");
     let vue_path = RepoPath::new("src/App.vue").expect("valid repo path");
-    let tsx_model = CodeModel {
-        files: vec![SourceFile {
-            path: tsx_path.clone(),
-            model: ts
-                .plugin
-                .lower(&tsx_path, "export const App = () => <div />;\n")
-                .expect("tsx lowers"),
-        }],
-        ..CodeModel::default()
-    };
-    let vue_model = CodeModel {
-        files: vec![SourceFile {
-            path: vue_path.clone(),
-            model: ts
-                .plugin
-                .lower(&vue_path, "<script setup>\nconst x = 1;\n</script>\n")
-                .expect("vue lowers"),
-        }],
-        ..CodeModel::default()
-    };
-    for (label, model, dep_json) in [
+    for (label, path, dep_json) in [
         (
             "react",
-            &tsx_model,
+            &tsx_path,
             r#"{"dependencies":{"react":"^18.3.1"}}"#,
         ),
-        ("vue2", &vue_model, r#"{"dependencies":{"vue":"^2.7.16"}}"#),
-        ("vue3", &vue_model, r#"{"dependencies":{"vue":"^3.4.0"}}"#),
+        ("vue2", &vue_path, r#"{"dependencies":{"vue":"^2.7.16"}}"#),
+        ("vue3", &vue_path, r#"{"dependencies":{"vue":"^3.4.0"}}"#),
     ] {
         let manifests = vec![Manifest {
             path: "package.json".to_owned(),
             text: dep_json.to_owned(),
         }];
-        let ranges = select_language_reference_ranges(&ts, model, &manifests)
-            .unwrap_or_else(|error| panic!("{label}: invalid framework ranges: {error}"));
-        for range in ranges.iter() {
+        let resolved = ts
+            .plugin
+            .resolve_framework_profiles(
+                "",
+                std::slice::from_ref(path),
+                manifests,
+                FrameworkProfileSelection::Auto,
+            )
+            .unwrap_or_else(|error| panic!("{label}: resolve_framework_profiles failed: {error}"));
+        assert_eq!(resolved.active_profiles, vec![label]);
+        assert!(
+            !resolved.reference_ranges.is_empty(),
+            "{label}: expected calibrated framework Reference ranges"
+        );
+        for range in &resolved.reference_ranges {
             let metric = Metric::from_key(&range.metric).expect("known built-in metric");
             assert_eq!(
                 range.metric_version,

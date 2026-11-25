@@ -26,6 +26,9 @@ impl<'schema> Shape<'schema> {
         key: &KeyPath,
     ) -> Result<(), ConfigurationFileError> {
         let schema = self.resolve(schema);
+        if let Some(variants) = schema.get("anyOf").and_then(Value::as_array) {
+            return self.check_any_of(value, variants, key);
+        }
         self.check_type(value, schema, key)?;
         check_range(value, schema, key)?;
         check_allowed_values(value, schema, key)?;
@@ -33,6 +36,68 @@ impl<'schema> Shape<'schema> {
             Value::Object(members) => self.check_members(members, schema, key),
             Value::Array(items) => self.check_items(items, schema, key),
             _ => Ok(()),
+        }
+    }
+
+    fn check_any_of(
+        &self,
+        value: &Value,
+        variants: &'schema [Value],
+        key: &KeyPath,
+    ) -> Result<(), ConfigurationFileError> {
+        let mut matched_type_error: Option<ConfigurationFileError> = None;
+        let mut allowed_types = Vec::new();
+        for variant in variants {
+            let resolved = self.resolve(variant);
+            let variant_types = self.expected_types(resolved);
+            for ty in &variant_types {
+                if !allowed_types.contains(ty) {
+                    allowed_types.push(*ty);
+                }
+            }
+            match self.check(value, resolved, key) {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    if matched_type_error.is_none()
+                        && variant_types.iter().any(|ty| ty.accepts(value))
+                    {
+                        matched_type_error = Some(error);
+                    }
+                }
+            }
+        }
+        if let Some(error) = matched_type_error {
+            return Err(error);
+        }
+        Err(ConfigurationFileError::WrongType {
+            file: ConfigFileKind::Json,
+            key: key.clone(),
+            expected: allowed_types,
+            found: JsonType::of(value),
+        })
+    }
+
+    fn expected_types(&self, schema: &'schema Value) -> Vec<JsonType> {
+        let resolved = self.resolve(schema);
+        if let Some(variants) = resolved.get("anyOf").and_then(Value::as_array) {
+            let mut types = Vec::new();
+            for variant in variants {
+                for ty in self.expected_types(variant) {
+                    if !types.contains(&ty) {
+                        types.push(ty);
+                    }
+                }
+            }
+            return types;
+        }
+        match resolved.get("type") {
+            Some(Value::String(name)) => JsonType::from_schema_name(name).into_iter().collect(),
+            Some(Value::Array(names)) => names
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(JsonType::from_schema_name)
+                .collect(),
+            _ => Vec::new(),
         }
     }
 
@@ -48,10 +113,10 @@ impl<'schema> Shape<'schema> {
     fn check_type(
         &self,
         value: &Value,
-        schema: &Value,
+        schema: &'schema Value,
         key: &KeyPath,
     ) -> Result<(), ConfigurationFileError> {
-        let expected = expected_types(schema);
+        let expected = self.expected_types(schema);
         if expected.is_empty() || expected.iter().any(|json_type| json_type.accepts(value)) {
             Ok(())
         } else {
@@ -187,16 +252,4 @@ fn check_allowed_values(
             .collect(),
         found: Box::new(value.clone()),
     })
-}
-
-fn expected_types(schema: &Value) -> Vec<JsonType> {
-    match schema.get("type") {
-        Some(Value::String(name)) => JsonType::from_schema_name(name).into_iter().collect(),
-        Some(Value::Array(names)) => names
-            .iter()
-            .filter_map(Value::as_str)
-            .filter_map(JsonType::from_schema_name)
-            .collect(),
-        _ => Vec::new(),
-    }
 }

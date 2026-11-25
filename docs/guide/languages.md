@@ -14,7 +14,7 @@ Every built-in Language plugin extracts:
 
 | Plugin name | Extensions | Workspace & dependency manifest | Default Test / Generated rules |
 | ----------- | ---------- | ------------------------------- | ------------------------------ |
-| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.test-d.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`; supports React (`.tsx`, `.jsx`, and JSX in `.js`/`.mjs`/`.cjs`); `.vue` and `.svelte` measure `<script>` blocks only |
+| `typescript-javascript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.vue`, `.svelte` | `package.json` (npm, Yarn, Bun) / `pnpm-workspace.yaml` | `*.test.*`, `*.test-d.*`, `*.spec.*`, `__tests__/`, `test/`, `tests/`; built-in Framework profiles (`react`, `vue2`, `vue3`, `svelte`) add package-level entry points, generated paths, fallback import hints, and calibrated Reference ranges while `.vue` and `.svelte` `<script>` lowering stays framework-blind |
 | `rust` | `.rs` | `Cargo.toml` | `tests/`, `benches/`, `examples/`, `tests.rs`, `*_test.rs`, `*_tests.rs`; inline `#[cfg(test)]` and `#[cfg(all(test, ...))]` excluded from Production |
 | `php` | `.php` | `composer.json` (`repositories` of type `path`) | `tests/`, `test/`, `*Test.php`, `*.test.php` |
 | `dart` | `.dart` | `pubspec.yaml` (`workspace`) | `test/`, `tests/`, `integration_test/`, `*_test.dart`; `*.g.dart`, `*.freezed.dart`, `*.gr.dart`, `*.mocks.dart`, `*.pb*.dart` -> Generated |
