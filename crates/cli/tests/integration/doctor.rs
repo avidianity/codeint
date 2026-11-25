@@ -309,7 +309,7 @@ fn doctor_warns_outside_git_repository_without_blocking_and_remains_read_only() 
         "config",
         "warn",
         "summary",
-        "No codeint.jsonc or codeint.json found; using built-in defaults",
+        "No configuration file found (codeint.json, codeint.jsonc, .codeint/config.json, or .codeint/config.jsonc); using built-in defaults",
     );
     assert_check_field(
         &report,
@@ -471,8 +471,8 @@ fn doctor_validates_codeint_jsonc_and_reports_ambiguous_config_files() {
     assert_blocking_error(
         &fixture,
         "config",
-        "both codeint.json and codeint.jsonc exist at the repository root",
-        "Remove either codeint.json or codeint.jsonc",
+        "multiple configuration files exist (codeint.json, codeint.jsonc); keep only one",
+        "Keep only one configuration file among codeint.json, codeint.jsonc, .codeint/config.json, and .codeint/config.jsonc",
     );
 }
 

@@ -5,6 +5,8 @@ use std::process::{Command, Output};
 use serde_json::Value;
 use tempfile::TempDir;
 
+use crate::common::run_git;
+
 fn init_fixture(files: &[(&str, &str)]) -> TempDir {
     let dir = tempfile::tempdir().expect("create temporary folder");
     run_git(dir.path(), &["init", "--quiet", "--initial-branch", "main"]);
@@ -20,21 +22,6 @@ fn write_fixture(root: &Path, relative: &str, text: &str) {
         fs::create_dir_all(parent).expect("create parent folder");
     }
     fs::write(full, text).expect("write file");
-}
-
-fn run_git(root: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_AUTHOR_NAME", "Fixture")
-        .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
-        .env("GIT_COMMITTER_NAME", "Fixture")
-        .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
-        .status()
-        .expect("run git");
-    assert!(status.success(), "git {args:?} exited with {status}");
 }
 
 fn run_cli(root: &Path, args: &[&str]) -> Output {

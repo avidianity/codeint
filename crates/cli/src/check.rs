@@ -333,7 +333,65 @@ pub(crate) fn compute_dependency_hygiene(
     (total, by_language)
 }
 
+pub(crate) fn measure_whole_repo_for_ratchet(
+    context: &WorkspaceContext,
+    folder: &Path,
+    coverage_reports: &[PathBuf],
+) -> Result<Report, CheckError> {
+    let plugins = context.plugins.as_named();
+    let metric_plugins = context.plugins.metric_plugins();
+    measure_check_report(
+        &context.repository,
+        &context.configuration,
+        &plugins,
+        &metric_plugins,
+        CheckRequest {
+            folder,
+            findings: FindingsShown::default(),
+            package: None,
+            cli_coverage_reports: coverage_reports,
+            ownership: OwnershipOptions::default(),
+        },
+    )
+}
+
 fn check_loaded(
+    repository: &Repository,
+    configuration: &Configuration,
+    plugins: &[NamedLanguagePlugin<'_>],
+    metric_plugins: &[&dyn MetricPlugin],
+    request: CheckRequest<'_>,
+) -> Result<Report, CheckError> {
+    let package_scoped = request.package.is_some();
+    let mut report =
+        measure_check_report(repository, configuration, plugins, metric_plugins, request)?;
+    ensure_test_gap_budget_present(configuration, &report)?;
+    apply_ratchet_to_check_report(
+        repository.root(),
+        configuration,
+        package_scoped,
+        &mut report,
+    )?;
+    Ok(report)
+}
+
+fn apply_ratchet_to_check_report(
+    repository_root: &Path,
+    configuration: &Configuration,
+    package_scoped: bool,
+    report: &mut Report,
+) -> Result<(), CheckError> {
+    crate::ratchet::enforce_if_present(
+        repository_root,
+        &configuration.ratchet.path,
+        package_scoped,
+        report,
+        Report::set_ratchet_note,
+        Report::apply_ratchet,
+    )
+}
+
+fn measure_check_report(
     repository: &Repository,
     configuration: &Configuration,
     plugins: &[NamedLanguagePlugin<'_>],
@@ -362,7 +420,7 @@ fn check_loaded(
     let (dependency_hygiene, dependency_hygiene_by_language) =
         compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected_ref);
     apply_selected_package(&mut snapshot, plugins, selected.as_ref())?;
-    let report = Report::summarize_with_extras(
+    Report::summarize_with_extras(
         snapshot.languages,
         tree.submodules().to_vec(),
         ReportOptions {
@@ -385,9 +443,7 @@ fn check_loaded(
             .with_rejected_statements(snapshot.rejected_statements)
             .with_sql_schemas(snapshot.sql_schemas),
     )
-    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))?;
-    ensure_test_gap_budget_present(configuration, &report)?;
-    Ok(report)
+    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }
 
 fn apply_selected_package(

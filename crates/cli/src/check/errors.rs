@@ -1,6 +1,9 @@
 use std::fmt;
 
-use codeint_config::{CodeownersError, ConfigFileKind, ConfigurationFileError, SqlDialectConflict};
+use codeint_config::{
+    CodeownersError, ConfigFileKind, ConfigurationFileError, RatchetFileError,
+    RatchetVersionMismatch, SqlDialectConflict,
+};
 use codeint_git::GitError;
 use codeint_metrics::{CoverageApplyError, CoverageParseError};
 use codeint_model::{
@@ -99,6 +102,24 @@ pub(crate) enum CheckError {
         config_file: ConfigFileKind,
         rule: String,
     },
+    #[error(transparent)]
+    RatchetFile(#[from] RatchetFileError),
+    #[error(
+        "Ratchet file {path:?} has stale Metric versions: {}; run `codeint ratchet update` to re-baseline",
+        format_ratchet_mismatches(mismatches)
+    )]
+    RatchetVersionMismatch {
+        path: String,
+        mismatches: Vec<RatchetVersionMismatch>,
+    },
+}
+
+fn format_ratchet_mismatches(mismatches: &[RatchetVersionMismatch]) -> String {
+    mismatches
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl CheckError {

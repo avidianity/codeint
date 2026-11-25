@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use codeint_model::{Metric, MetricScope, SourceSet};
 use serde_json::Value;
@@ -9,7 +9,10 @@ use super::types::{
     Sha256Digest,
 };
 use crate::RegressionLimits;
-use crate::config_error::{ConfigFileKind, ConfigurationFileError, KeyPath, KeySegment};
+use crate::config_error::{
+    ConfigFileKind, ConfigurationFileError, KeyPath, KeySegment, contains_parent_traversal,
+    is_absolute_repo_path,
+};
 use crate::resolved::BudgetOverride;
 
 impl Configuration {
@@ -364,7 +367,7 @@ pub(super) fn coverage_reports(reports: &[String]) -> Result<Vec<String>, Config
                 key: entry_key,
             });
         }
-        if is_absolute_coverage_report_path(entry) {
+        if is_absolute_repo_path(entry) {
             return Err(ConfigurationFileError::AbsoluteCoverageReportPath {
                 file: ConfigFileKind::Json,
                 key: entry_key,
@@ -381,18 +384,6 @@ pub(super) fn coverage_reports(reports: &[String]) -> Result<Vec<String>, Config
         validated.push(entry.clone());
     }
     Ok(validated)
-}
-
-fn is_absolute_coverage_report_path(path: &str) -> bool {
-    if Path::new(path).is_absolute() || path.starts_with('/') || path.starts_with('\\') {
-        return true;
-    }
-    let bytes = path.as_bytes();
-    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
-}
-
-fn contains_parent_traversal(path: &str) -> bool {
-    path.split(['/', '\\']).any(|segment| segment == "..")
 }
 
 pub(super) fn duplication_config(

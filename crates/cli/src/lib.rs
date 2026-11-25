@@ -13,6 +13,7 @@ mod impact;
 mod init;
 mod mcp;
 mod package_scripts;
+mod ratchet;
 mod remedy;
 mod report;
 mod trace;
@@ -26,8 +27,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    AgentCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, ReportDestination, ReportInput,
-    ReportRenderFormat, cli_schema, read_invocation,
+    AgentCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, RatchetCommand, ReportDestination,
+    ReportInput, ReportRenderFormat, cli_schema, read_invocation,
 };
 use codeint_git::ResultCache;
 use codeint_report::{ExitCodeSchema, ReportError};
@@ -35,14 +36,14 @@ use codeint_report::{ExitCodeSchema, ReportError};
 pub use codeint_config::{
     AgentClient, AgentFormat, BudgetOverride, CalendarDay, ChurnFormat, ChurnSince, ChurnWindow,
     ConfigFormat, ConfigOverrides, CouplingRatio, CouplingRatioError, CouplingSettings,
-    DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, ReportFormat,
-    SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat, TrendRange,
+    DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, RatchetFormat,
+    ReportFormat, SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat, TrendRange,
 };
 pub use codeint_report::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
     ChurnReport, ConfigReport, CouplingReport, DiffReport, DoctorCheck, DoctorReport, DoctorStatus,
-    DoctorSummary, GuardReport, ImpactReport, Report, SavedReport, SchemaReport, TraceReport,
-    TrendReport,
+    DoctorSummary, GuardReport, ImpactReport, RatchetFailure, RatchetUpdateReport, Report,
+    SavedReport, SchemaReport, TraceReport, TrendReport,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -142,7 +143,7 @@ impl CodeintError {
     fn from_cli_error(error: CliError) -> CodeintError {
         CodeintError {
             message: describe(&error),
-            remedy: remedy::remedy(&error).to_owned(),
+            remedy: remedy::remedy(&error).into_owned(),
         }
     }
 }
@@ -165,11 +166,7 @@ pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, Code
         &options.plugin_host,
     )
     .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
-    let failures: Vec<String> = report
-        .over_budget()
-        .iter()
-        .map(ToString::to_string)
-        .collect();
+    let failures = report.failure_messages();
     let passed = failures.is_empty();
     Ok(CheckOutcome {
         passed,
@@ -332,6 +329,8 @@ enum CliError {
     #[error(transparent)]
     Agent(#[from] agent::AgentError),
     #[error(transparent)]
+    Ratchet(#[from] ratchet::RatchetError),
+    #[error(transparent)]
     Impact(#[from] impact::ImpactCommandError),
     #[error(transparent)]
     Trace(#[from] trace::TraceCommandError),
@@ -362,12 +361,12 @@ fn exit_codes() -> Vec<ExitCodeSchema> {
         ExitCodeSchema {
             code: SUCCESS,
             name: "success",
-            description: "The run succeeded, and no Budget, Regression, or codeint doctor blocking error failed.",
+            description: "The run succeeded, and no Budget, Ratchet, Regression, or codeint doctor blocking error failed.",
         },
         ExitCodeSchema {
             code: BUDGET_OR_REGRESSION_FAILED,
             name: "budget_or_regression_failed",
-            description: "The run succeeded, and at least one Budget, Regression, or codeint doctor blocking error failed.",
+            description: "The run succeeded, and at least one Budget, Ratchet, Regression, or codeint doctor blocking error failed.",
         },
         ExitCodeSchema {
             code: OPERATIONAL_ERROR,
@@ -556,6 +555,13 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
             plugin_host,
         } => run_doctor(&folder, format, &plugin_host),
         Command::Agent(command) => run_agent(command),
+        Command::Ratchet(command) => run_ratchet(command),
+        other => run_history_command(other),
+    }
+}
+
+fn run_history_command(command: Command) -> Result<Outcome, CliError> {
+    match command {
         Command::Churn {
             folder,
             window,
@@ -586,13 +592,7 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
             format,
             &plugin_host,
         ),
-        Command::Check { .. }
-        | Command::Diff { .. }
-        | Command::Trend { .. }
-        | Command::Impact { .. }
-        | Command::Trace { .. }
-        | Command::Init { .. }
-        | Command::Update { .. } => unreachable!("handled by run"),
+        _ => unreachable!("handled by run"),
     }
 }
 
@@ -614,6 +614,22 @@ fn run_agent(command: AgentCommand) -> Result<Outcome, CliError> {
             format,
         } => {
             let report = agent::install(&config_root, client, dry_run)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
+    }
+}
+
+fn run_ratchet(command: RatchetCommand) -> Result<Outcome, CliError> {
+    match command {
+        RatchetCommand::Update {
+            folder,
+            reset,
+            coverage_reports,
+            format,
+            plugin_host,
+        } => {
+            let report = ratchet::update(&folder, reset, &coverage_reports, &plugin_host)?;
             print_report(&format!("{}\n", report.render(format)?))?;
             Ok(Outcome::Passed)
         }
@@ -728,13 +744,7 @@ fn run_check(
         &options.plugin_host,
     )?;
     write_report(&report.render(format)?, destination)?;
-    Ok(Outcome::from_failures(
-        report
-            .over_budget()
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
-    ))
+    Ok(Outcome::from_failures(report.failure_messages()))
 }
 
 fn run_diff(

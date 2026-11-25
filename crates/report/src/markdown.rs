@@ -150,26 +150,16 @@ impl Noun {
 pub(crate) fn render(report: &Report) -> String {
     let sections = report.measured.source_sets.named();
     let mut blocks = vec![TITLE.to_string(), measured_summary(&report.measured)];
-    if !report.measured.framework_profiles.is_empty() {
-        blocks.push(framework_profiles_line(&report.measured.framework_profiles));
-    }
-    if let Some(note) = &report.measured.reference_range_note {
-        blocks.push(prose(note));
-    }
-    if let Some(note) = &report.measured.import_metrics_note {
-        blocks.push(prose(note));
-    }
-    if let Some(note) = &report.measured.test_gap_note {
-        blocks.push(prose(note));
-    }
-    if let Some(note) = &report.coverage_unmatched_note {
-        blocks.push(prose(note));
-    }
+    push_header_notes(&mut blocks, report);
     blocks.extend(metric_table(&sections));
     push_dependencies_summary(&mut blocks, report.measured.dependencies.as_ref());
     if !report.over_budget.is_empty() {
         blocks.push("## Over Budget".to_string());
         blocks.push(list(report.over_budget.iter().map(sentence_item)));
+    }
+    if !report.over_ratchet.is_empty() {
+        blocks.push("## Over Ratchet".to_string());
+        blocks.push(list(report.over_ratchet.iter().map(sentence_item)));
     }
     if let Some(packages) = package_table(&sections) {
         blocks.push("## Workspace packages".to_string());
@@ -186,6 +176,24 @@ pub(crate) fn render(report: &Report) -> String {
         blocks.push(not_measured.join("\n"));
     }
     blocks.join("\n\n")
+}
+
+fn push_header_notes(blocks: &mut Vec<String>, report: &Report) {
+    if !report.measured.framework_profiles.is_empty() {
+        blocks.push(framework_profiles_line(&report.measured.framework_profiles));
+    }
+    for note in [
+        report.measured.reference_range_note.as_deref(),
+        report.measured.import_metrics_note.as_deref(),
+        report.measured.test_gap_note.as_deref(),
+        report.coverage_unmatched_note.as_deref(),
+        report.ratchet_note.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        blocks.push(prose(note));
+    }
 }
 
 fn push_sql_schemas(blocks: &mut Vec<String>, schemas: &[SqlSchemaSummary]) {

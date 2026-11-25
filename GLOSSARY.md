@@ -111,6 +111,10 @@ _Avoid_: file kind, file category
 The highest value a Metric may reach in one Source set before codeint reports a failure.
 _Avoid_: limit, threshold, quota
 
+**Ratchet**:
+A repository file (`.codeint/ratchet.json` by default) that records each Metric's ceiling ratio alongside its Metric version so whole-repository checks fail if Software entropy or Hazards rise above the recorded ceiling.
+_Avoid_: lockfile, snapshot, baseline file
+
 **Regression**:
 An increase in a Metric, from the merge-base of a base Git ref to the code under measurement, that exceeds the allowed limit.
 _Avoid_: degradation, drift
@@ -157,6 +161,7 @@ _Avoid_: analyzer, detector, rule
 - A **Metric** value is backed by zero or more **Findings**.
 - Every **Metric** carries a positive integer **Metric version** that increases whenever its calculation rules change.
 - A **Budget** applies to one **Metric** in one **Source set**.
+- A **Ratchet** stores one ceiling and **Metric version** per measured **Metric** and applies to whole-repository runs only.
 - Every source file belongs to exactly one **Source set**.
 
 ## Flagged ambiguities

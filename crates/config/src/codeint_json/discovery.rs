@@ -9,8 +9,7 @@ use serde_json::Value;
 use super::merge::parse_value_with_overrides;
 use super::types::Configuration;
 use crate::config_error::{
-    CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME, ConfigFileKind, ConfigurationFileError,
-    JsoncError,
+    CONFIGURATION_FILE_NAME, ConfigFileKind, ConfigurationFileError, JsoncError,
 };
 use crate::resolved::{ConfigOverrides, ResolvedConfiguration};
 
@@ -38,11 +37,13 @@ pub enum ConfigurationInspection {
         path: PathBuf,
     },
     Valid {
+        kind: ConfigFileKind,
         path: PathBuf,
         schema: SchemaVersionStatus,
         configuration: Box<Configuration>,
     },
     Invalid {
+        kind: Option<ConfigFileKind>,
         path: PathBuf,
         schema: Option<SchemaVersionStatus>,
         error: ConfigurationFileError,
@@ -72,7 +73,14 @@ fn path_exists_including_symlinks(
 ) -> Result<bool, ConfigurationFileError> {
     match std::fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(false)
+        }
         Err(source) => Err(ConfigurationFileError::Unreadable { file, source }),
     }
 }
@@ -80,21 +88,19 @@ fn path_exists_including_symlinks(
 pub fn discover_config_file(
     repository_root: &Path,
 ) -> Result<Option<DiscoveredConfigFile>, ConfigurationFileError> {
-    let json_path = repository_root.join(CONFIGURATION_FILE_NAME);
-    let jsonc_path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
-    let has_json = path_exists_including_symlinks(&json_path, ConfigFileKind::Json)?;
-    let has_jsonc = path_exists_including_symlinks(&jsonc_path, ConfigFileKind::Jsonc)?;
-    match (has_json, has_jsonc) {
-        (true, true) => Err(ConfigurationFileError::AmbiguousConfigFiles),
-        (true, false) => Ok(Some(DiscoveredConfigFile {
-            kind: ConfigFileKind::Json,
-            path: json_path,
-        })),
-        (false, true) => Ok(Some(DiscoveredConfigFile {
-            kind: ConfigFileKind::Jsonc,
-            path: jsonc_path,
-        })),
-        (false, false) => Ok(None),
+    let mut found = Vec::new();
+    for kind in ConfigFileKind::ALL {
+        let path = repository_root.join(kind.file_name());
+        if path_exists_including_symlinks(&path, kind)? {
+            found.push(DiscoveredConfigFile { kind, path });
+        }
+    }
+    match found.len() {
+        0 => Ok(None),
+        1 => Ok(found.into_iter().next()),
+        _ => Err(ConfigurationFileError::AmbiguousConfigFiles {
+            files: found.into_iter().map(|entry| entry.kind).collect(),
+        }),
     }
 }
 
@@ -223,6 +229,7 @@ pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection 
         }
         Err(error) => {
             return ConfigurationInspection::Invalid {
+                kind: None,
                 path: repository_root.join(CONFIGURATION_FILE_NAME),
                 schema: None,
                 error,
@@ -233,6 +240,7 @@ pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection 
         Ok(text) => text,
         Err(error) => {
             return ConfigurationInspection::Invalid {
+                kind: Some(discovered.kind),
                 path: discovered.path,
                 schema: None,
                 error,
@@ -243,6 +251,7 @@ pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection 
         Ok(value) => value,
         Err(error) => {
             return ConfigurationInspection::Invalid {
+                kind: Some(discovered.kind),
                 path: discovered.path,
                 schema: None,
                 error,
@@ -252,11 +261,13 @@ pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection 
     let schema = inspect_schema_version(&value, env!("CARGO_PKG_VERSION"));
     match parse_value_without_schema_version(discovered.kind, value) {
         Ok(configuration) => ConfigurationInspection::Valid {
+            kind: discovered.kind,
             path: discovered.path,
             schema,
             configuration: Box::new(configuration),
         },
         Err(error) => ConfigurationInspection::Invalid {
+            kind: Some(discovered.kind),
             path: discovered.path,
             schema: Some(schema),
             error,

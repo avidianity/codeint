@@ -14,6 +14,7 @@ use crate::config_error::{ConfigFileKind, ConfigurationFileError, KeyPath, KeySe
 use crate::dependencies::DependenciesConfig;
 use crate::framework_profiles::FrameworkProfilesConfig;
 use crate::hazards::HazardsConfig;
+use crate::ratchet::RatchetConfig;
 use crate::sql::SqlConfig;
 
 pub const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
@@ -102,6 +103,7 @@ pub struct Configuration {
     pub sql: SqlConfig,
     pub hazards: HazardsConfig,
     pub framework_profiles: FrameworkProfilesConfig,
+    pub ratchet: RatchetConfig,
     pub(super) config_file: ConfigFileKind,
     pub(super) effective: ConfigurationFile,
 }

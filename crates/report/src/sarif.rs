@@ -9,7 +9,7 @@ use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
     HazardLineRow, ImportCycleFinding, ImportedDependencyRow, NewFileBudgetFailure, OrphanFileRow,
-    Report, SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
+    RatchetFailure, Report, SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -38,10 +38,24 @@ struct Run {
     properties: Option<RunProperties>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RunProperties {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     new_file_budget_failures: Vec<SarifNewFileBudgetFailure>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ratchet_failures: Vec<SarifRatchetFailure>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifRatchetFailure {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_set: Option<String>,
+    metric: String,
+    ratio: f64,
+    ceiling: f64,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -208,6 +222,7 @@ impl SarifLog {
                 .map(|(source_set, section)| (source_set, ListedFindings::of_section(section))),
             dependencies,
         )
+        .with_ratchet_failures(&report.over_ratchet)
     }
 
     pub(crate) fn listing<'findings>(
@@ -268,26 +283,56 @@ impl SarifLog {
         }
     }
 
+    fn run_properties_mut(&mut self) -> &mut RunProperties {
+        self.runs[0]
+            .properties
+            .get_or_insert_with(RunProperties::default)
+    }
+
     pub(crate) fn with_new_file_budget_failures(
         mut self,
         failures: &[NewFileBudgetFailure],
     ) -> SarifLog {
         if !failures.is_empty() {
-            self.runs[0].properties = Some(RunProperties {
-                new_file_budget_failures: failures
-                    .iter()
-                    .map(|failure| SarifNewFileBudgetFailure {
-                        source_set: failure.source_set.clone(),
-                        metric: failure.metric.clone(),
-                        ratio: failure.ratio.0,
-                        budget: failure.budget,
-                        files: failure.files,
-                        message: failure.to_string(),
-                    })
-                    .collect(),
-            });
+            self.run_properties_mut().new_file_budget_failures = failures
+                .iter()
+                .map(SarifNewFileBudgetFailure::from)
+                .collect();
         }
         self
+    }
+
+    pub(crate) fn with_ratchet_failures(mut self, failures: &[RatchetFailure]) -> SarifLog {
+        if !failures.is_empty() {
+            self.run_properties_mut().ratchet_failures =
+                failures.iter().map(SarifRatchetFailure::from).collect();
+        }
+        self
+    }
+}
+
+impl From<&NewFileBudgetFailure> for SarifNewFileBudgetFailure {
+    fn from(failure: &NewFileBudgetFailure) -> SarifNewFileBudgetFailure {
+        SarifNewFileBudgetFailure {
+            source_set: failure.source_set.clone(),
+            metric: failure.metric.clone(),
+            ratio: failure.ratio.0,
+            budget: failure.budget,
+            files: failure.files,
+            message: failure.to_string(),
+        }
+    }
+}
+
+impl From<&RatchetFailure> for SarifRatchetFailure {
+    fn from(failure: &RatchetFailure) -> SarifRatchetFailure {
+        SarifRatchetFailure {
+            source_set: failure.source_set.clone(),
+            metric: failure.metric.clone(),
+            ratio: failure.ratio.0,
+            ceiling: failure.ceiling.0,
+            message: failure.to_string(),
+        }
     }
 }
 

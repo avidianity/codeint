@@ -41,6 +41,8 @@ if !report.over_budget().is_empty() {
   When overlapping or transitively related Clone groups form a Clone family across three or more locations, `duplication.clone_families` lists the Clone families worst-first by `duplicated_lines` in JSON, TOON, Markdown, and MCP, and SARIF emits one consolidated result per Clone family instead of duplicate results for its member Clone groups.
 - When `DuplicationConfig::near_clones` is enabled via `Report::summarize_with_config` or `CommitMeasurement::of_with_config`, near-clone `CloneGroupFinding` entries carry their `similarity` ratio (rendered as a percentage in Markdown and SARIF), `duplication.near_clones` records the active `min_similarity`, Duplication omits exact-clone Reference ranges, and Verbosity remains unaffected because it counts Flagged lines only.
 - `over_budget` returns every `BudgetFailure` whose displayed ratio exceeds its configured `Budget`.
+- `over_ratchet` returns every `RatchetFailure` recorded by `apply_ratchet`, `set_ratchet_note` sets the optional `ratchet_note` emitted on `--package` runs, and `failure_messages` combines `over_budget` and `over_ratchet`.
+- `ratchet_metrics` returns every measured Metric's rounded ratio and `metric_version` for Ratchet checking or updating.
 
 ## Measure one commit with `CommitMeasurement`
 
@@ -80,8 +82,8 @@ for message in diff.failure_messages() {
 
 - Use `Head::WorkingTree` when comparing against the working tree, or `Head::Commit(HeadCommit { git_ref, commit })` when comparing two commits.
 - `DiffReport::compare` matches Findings by id to classify each one as `new`, `resolved`, or `unchanged`.
-- `failure_messages` returns every `BudgetFailure` on the head side, followed by every `NewFileBudgetFailure` evaluated from `DiffReportOptions::new_files` against `DiffReportOptions::new_file_budgets`, followed by every `Regression` that exceeds `RegressionLimits` (`ratio_rise`, direct `numerator_rise` rounded to four decimal places, and `new_findings` on Metrics configured with `any_new_finding`, which is the default for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene).
-- `render` formats the diff as `Toon`, `Json`, `Sarif` (new Findings only, plus `runs[0].properties.newFileBudgetFailures` when any new-file Budget fails), or `Markdown` (including `## Over New-file Budget` when any new-file Budget fails).
+- `failure_messages` returns every `BudgetFailure` on the head side, followed by every `NewFileBudgetFailure` evaluated from `DiffReportOptions::new_files` against `DiffReportOptions::new_file_budgets`, followed by every `RatchetFailure` recorded by `apply_ratchet`, followed by every `Regression` that exceeds `RegressionLimits` (`ratio_rise`, direct `numerator_rise` rounded to four decimal places, and `new_findings` on Metrics configured with `any_new_finding`, which is the default for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene).
+- `render` formats the diff as `Toon`, `Json`, `Sarif` (new Findings only, plus `runs[0].properties.newFileBudgetFailures` and `runs[0].properties.ratchetFailures` when present), or `Markdown` (including `## Over New-file Budget` and `## Over Ratchet` when present).
 
 ## Summarize history with `TrendReport`
 

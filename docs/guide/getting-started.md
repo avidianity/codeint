@@ -24,7 +24,7 @@ npx codeint check
 
 ## First measurements inside a Git repository
 
-1. Create a starter `codeint.jsonc` pinned to your installed version's JSON schema (never overwriting an existing `codeint.json` or `codeint.jsonc`).
+1. Create a starter `codeint.jsonc` pinned to your installed version's JSON schema (never overwriting an existing `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc`).
    When codeint finds two or more Workspace packages, or a single-package repository matching at least two zones of the `layered` or `hexagonal` preset, it includes a commented-out `boundaries` starter suggestion that stays inactive until you uncomment it:
 
    ```sh
@@ -49,13 +49,19 @@ npx codeint check
    codeint check
    ```
 
-5. Compare your branch against `main` and fail on any Budget failure or Regression:
+5. Compare your branch against `main` and fail on any Budget, Ratchet, or Regression failure:
 
    ```sh
    codeint diff main
    ```
 
-6. Save a JSON report once and re-render it losslessly into Markdown, SARIF, or TOON without re-scanning:
+6. Lock in current whole-repository ratios in `.codeint/ratchet.json` and monotonically tighten them as code improves (use `--reset` only when intentionally loosening unchanged-version ceilings):
+
+   ```sh
+   codeint ratchet update
+   ```
+
+7. Save a JSON report once and re-render it losslessly into Markdown, SARIF, or TOON without re-scanning:
 
    ```sh
    codeint diff main --format json --output diff.json
@@ -63,7 +69,7 @@ npx codeint check
    codeint report diff.json --format sarif --output codeint.sarif
    ```
 
-7. Inspect how each Metric evolved over the latest 20 main-line commits:
+8. Inspect how each Metric evolved over the latest 20 main-line commits:
 
    ```sh
    codeint trend
@@ -112,8 +118,8 @@ Use codeint before editing or refactoring to understand architectural rules and 
 
 ## Exit codes
 
-- `0`: succeeded with no Budget, Regression, or blocking `codeint doctor` error.
-- `1`: succeeded, and at least one Budget, Regression, or blocking `codeint doctor` error failed.
-- `2`: operational error (invalid `codeint.jsonc` / `codeint.json`, both config files present at once, missing folder, unknown option, or not inside a Git repository).
+- `0`: succeeded with no Budget, Ratchet, Regression, or blocking `codeint doctor` error.
+- `1`: succeeded, and at least one Budget, Ratchet, Regression, or blocking `codeint doctor` error failed.
+- `2`: operational error (invalid configuration file, more than one configuration file across `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, and `.codeint/config.jsonc`, Ratchet Metric version mismatch, missing folder, unknown option, or not inside a Git repository).
 
 See [docs/reference.md](../reference.md) for every command flag and output format (`toon`, `json`, `sarif`, `markdown`, `text`).

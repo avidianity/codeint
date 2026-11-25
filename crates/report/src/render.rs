@@ -1,5 +1,6 @@
 use codeint_config::{
-    AgentFormat, ConfigFormat, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, TraceFormat,
+    AgentFormat, ConfigFormat, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
+    RatchetFormat, TraceFormat,
 };
 use codeint_model::{ReferenceRange, ReferenceRanges, SourceSet};
 use serde::ser::SerializeMap;
@@ -32,7 +33,7 @@ pub enum ReportError {
     Sarif(#[source] serde_json::Error),
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub(crate) struct Decimal(pub(crate) f64);
 
@@ -323,6 +324,7 @@ impl_text_report_format!(
     DoctorFormat,
     GuardFormat,
     ImpactFormat,
+    RatchetFormat,
     TraceFormat,
 );
 

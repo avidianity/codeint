@@ -31,6 +31,9 @@ pub(super) fn render(report: &DiffReport) -> String {
     if let Some(note) = &report.test_gap_note {
         blocks.push(prose(note));
     }
+    if let Some(note) = &report.ratchet_note {
+        blocks.push(prose(note));
+    }
     if !sections.is_empty() {
         blocks.push(table(
             &METRIC_COLUMNS,
@@ -70,6 +73,10 @@ fn push_failure_blocks(blocks: &mut Vec<String>, report: &DiffReport) {
     if !report.over_new_file_budget.is_empty() {
         blocks.push("## Over New-file Budget".to_string());
         blocks.push(list(report.over_new_file_budget.iter().map(sentence_item)));
+    }
+    if !report.over_ratchet.is_empty() {
+        blocks.push("## Over Ratchet".to_string());
+        blocks.push(list(report.over_ratchet.iter().map(sentence_item)));
     }
     if !report.regressions.is_empty() {
         blocks.push("## Regressions".to_string());

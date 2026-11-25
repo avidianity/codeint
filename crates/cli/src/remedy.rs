@@ -1,5 +1,8 @@
+use std::borrow::Cow;
+
 use codeint_config::{
-    CodeownersError, ConfigError, ConfigFileKind, ConfigurationFileError, StarterConfigurationError,
+    CodeownersError, ConfigError, ConfigFileKind, ConfigurationFileError, RatchetFileError,
+    StarterConfigurationError,
 };
 use codeint_git::GitError;
 use codeint_metrics::ImpactError;
@@ -14,14 +17,15 @@ use crate::config::ConfigCommandError;
 use crate::guard::GuardError;
 use crate::impact::ImpactCommandError;
 use crate::init::InitError;
+use crate::ratchet::RatchetError;
 use crate::report::RerenderError;
 use crate::trace::TraceCommandError;
 use crate::update::UpdateError;
 
-pub(crate) fn remedy(error: &CliError) -> &'static str {
+pub(crate) fn remedy(error: &CliError) -> Cow<'static, str> {
     use CliError::*;
     match error {
-        Config(error) => config_remedy(error),
+        Config(error) => Cow::Borrowed(config_remedy(error)),
         ConfigCommand(error) => config_command_remedy(error),
         Check(error) => check_remedy(error),
         Guard(error) => guard_remedy(error),
@@ -31,67 +35,106 @@ pub(crate) fn remedy(error: &CliError) -> &'static str {
     }
 }
 
-fn tooling_remedy(error: &CliError) -> &'static str {
+fn tooling_remedy(error: &CliError) -> Cow<'static, str> {
     use CliError::*;
     match error {
-        Agent(error) => agent_remedy(error),
+        Agent(error) => Cow::Borrowed(agent_remedy(error)),
+        Ratchet(error) => ratchet_remedy(error),
         Init(error) => init_remedy(error),
-        Update(error) => update_remedy(error),
-        Report(_) => {
-            "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues."
-        }
-        Rerender(error) => rerender_remedy(error),
-        Output(_) => "Keep standard output open until codeint exits.",
-        OutputFile { .. } => {
-            "Pass --output a file path that you have permission to write, not a folder."
-        }
+        Update(error) => Cow::Borrowed(update_remedy(error)),
+        Report(_) => Cow::Borrowed(
+            "This is a defect in codeint; report it at https://github.com/avidianity/codeint/issues.",
+        ),
+        Rerender(error) => Cow::Borrowed(rerender_remedy(error)),
+        Output(_) => Cow::Borrowed("Keep standard output open until codeint exits."),
+        OutputFile { .. } => Cow::Borrowed(
+            "Pass --output a file path that you have permission to write, not a folder.",
+        ),
         Config(_) | ConfigCommand(_) | Check(_) | Guard(_) | Impact(_) | Trace(_) => {
             unreachable!("handled by remedy")
         }
     }
 }
 
-fn trace_remedy(error: &TraceCommandError) -> &'static str {
+fn ratchet_remedy(error: &RatchetError) -> Cow<'static, str> {
     match error {
-        TraceCommandError::Check(error) => check_remedy(error),
-        TraceCommandError::UnknownModule { .. }
-        | TraceCommandError::Trace(TraceError::UnknownModule { .. }) => {
-            "Pass repository-relative paths of files measured by codeint (not ignored, unparsable, declaration-only, or outside the repository)."
+        RatchetError::Check(error) => check_remedy(error),
+        RatchetError::RatchetFile(error) => Cow::Borrowed(ratchet_file_remedy(error)),
+        RatchetError::LooseningRefused { .. } => Cow::Borrowed(
+            "Fix the regressed Metrics, or run codeint ratchet update --reset to intentionally loosen unchanged-version Ratchet ceilings.",
+        ),
+    }
+}
+
+fn ratchet_file_remedy(error: &RatchetFileError) -> &'static str {
+    match error {
+        RatchetFileError::OutsideRepository { .. } => {
+            "Configure ratchet.path to a repository-relative path without \"..\" or symlinks escaping the repository."
         }
-        TraceCommandError::Trace(TraceError::InvalidMaxPaths) => {
-            "Pass a positive integer (at least 1) for --max-paths."
+        RatchetFileError::BrokenSymlink { .. } => {
+            "Point the Ratchet symlink to an existing file inside the repository, or remove it and run codeint ratchet update."
+        }
+        RatchetFileError::Unreadable { .. } => {
+            "Check that the Ratchet file is readable, then run codeint again."
+        }
+        RatchetFileError::InvalidJson { .. }
+        | RatchetFileError::UnsupportedSchemaVersion { .. }
+        | RatchetFileError::InvalidCeiling { .. }
+        | RatchetFileError::InvalidMetricVersion { .. }
+        | RatchetFileError::UnknownDependencyMetric { .. } => {
+            "Fix the Ratchet file syntax and values, or regenerate it with codeint ratchet update --reset."
+        }
+        RatchetFileError::Write { .. } => {
+            "Check that you have permission to create and write the Ratchet file inside the repository, then retry."
         }
     }
 }
 
-fn check_remedy(error: &CheckError) -> &'static str {
-    if let Some(remedy) = coverage_check_remedy(error) {
-        return remedy;
+fn trace_remedy(error: &TraceCommandError) -> Cow<'static, str> {
+    match error {
+        TraceCommandError::Check(error) => check_remedy(error),
+        TraceCommandError::UnknownModule { .. }
+        | TraceCommandError::Trace(TraceError::UnknownModule { .. }) => Cow::Borrowed(
+            "Pass repository-relative paths of files measured by codeint (not ignored, unparsable, declaration-only, or outside the repository).",
+        ),
+        TraceCommandError::Trace(TraceError::InvalidMaxPaths) => {
+            Cow::Borrowed("Pass a positive integer (at least 1) for --max-paths.")
+        }
+    }
+}
+
+fn check_remedy(error: &CheckError) -> Cow<'static, str> {
+    if let Some(remedy) = coverage_or_ratchet_check_remedy(error) {
+        return Cow::Borrowed(remedy);
     }
     match error {
-        CheckError::ExtensionConflict { config_file, .. } => choose_file_remedy(
-            *config_file,
-            "Assign separate directories to each Language plugin in the languages setting of codeint.json.",
-            "Assign separate directories to each Language plugin in the languages setting of codeint.jsonc.",
+        CheckError::ExtensionConflict { config_file, .. } => Cow::Owned(format!(
+            "Assign separate directories to each Language plugin in the languages setting of {config_file}."
+        )),
+        CheckError::UnknownWorkspacePackage { .. } => Cow::Borrowed(
+            "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository.",
         ),
-        CheckError::UnknownWorkspacePackage { .. } => {
-            "Pass one of the discovered Workspace package paths to --package, or omit --package to measure the whole repository."
-        }
-        CheckError::SqlDialectConflict { config_file, .. } => choose_file_remedy(
-            *config_file,
-            "Adjust the include globs in sql.dialects in codeint.json so each SQL file matches at most one Dialect.",
-            "Adjust the include globs in sql.dialects in codeint.jsonc so each SQL file matches at most one Dialect.",
-        ),
-        CheckError::UnknownHazardRule { config_file, .. } => choose_file_remedy(
-            *config_file,
-            "Remove the unknown rule name from hazards.disabled_rules in codeint.json, or run codeint schema to list the known Hazard line rules.",
-            "Remove the unknown rule name from hazards.disabled_rules in codeint.jsonc, or run codeint schema to list the known Hazard line rules.",
-        ),
-        CheckError::Git(error) => git_remedy(error),
+        CheckError::SqlDialectConflict { config_file, .. } => Cow::Owned(format!(
+            "Adjust the include globs in sql.dialects in {config_file} so each SQL file matches at most one Dialect."
+        )),
+        CheckError::UnknownHazardRule { config_file, .. } => Cow::Owned(format!(
+            "Remove the unknown rule name from hazards.disabled_rules in {config_file}, or run codeint schema to list the known Hazard line rules."
+        )),
+        CheckError::Git(error) => Cow::Borrowed(git_remedy(error)),
         CheckError::Configuration(error) => configuration_file_remedy(error),
-        CheckError::Codeowners(error) => codeowners_remedy(error),
-        CheckError::Workspace(error) => workspace_remedy(error),
+        CheckError::Codeowners(error) => Cow::Borrowed(codeowners_remedy(error)),
+        CheckError::Workspace(error) => Cow::Borrowed(workspace_remedy(error)),
         other => check_plugin_remedy(other),
+    }
+}
+
+fn coverage_or_ratchet_check_remedy(error: &CheckError) -> Option<&'static str> {
+    match error {
+        CheckError::RatchetFile(error) => Some(ratchet_file_remedy(error)),
+        CheckError::RatchetVersionMismatch { .. } => Some(
+            "Run codeint ratchet update to re-baseline the Ratchet file for the updated Metric versions.",
+        ),
+        other => coverage_check_remedy(other),
     }
 }
 
@@ -119,14 +162,14 @@ fn coverage_check_remedy(error: &CheckError) -> Option<&'static str> {
     })
 }
 
-fn check_plugin_remedy(error: &CheckError) -> &'static str {
+fn check_plugin_remedy(error: &CheckError) -> Cow<'static, str> {
     match error {
-        CheckError::Resolve { .. } => {
-            "This is a defect in the Language plugin; report it to the author of the Language plugin."
-        }
-        CheckError::ReferenceRange(_) => {
-            "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author."
-        }
+        CheckError::Resolve { .. } => Cow::Borrowed(
+            "This is a defect in the Language plugin; report it to the author of the Language plugin.",
+        ),
+        CheckError::ReferenceRange(_) => Cow::Borrowed(
+            "Fix the Reference ranges that the Language plugin supplies, or report the defect to its author.",
+        ),
         CheckError::PluginHost(scoped) => plugin_host_remedy(&scoped.error, scoped.config_file),
         CheckError::LanguagePlugin(scoped) => {
             language_plugin_remedy(&scoped.error, scoped.config_file)
@@ -142,6 +185,8 @@ fn check_plugin_remedy(error: &CheckError) -> &'static str {
         | CheckError::TestGapBudgetWithoutCoverage { .. }
         | CheckError::SqlDialectConflict { .. }
         | CheckError::UnknownHazardRule { .. }
+        | CheckError::RatchetFile(_)
+        | CheckError::RatchetVersionMismatch { .. }
         | CheckError::Git(_)
         | CheckError::Configuration(_)
         | CheckError::Codeowners(_)
@@ -149,22 +194,22 @@ fn check_plugin_remedy(error: &CheckError) -> &'static str {
     }
 }
 
-fn config_command_remedy(error: &ConfigCommandError) -> &'static str {
+fn config_command_remedy(error: &ConfigCommandError) -> Cow<'static, str> {
     match error {
-        ConfigCommandError::Git(error) => git_remedy(error),
+        ConfigCommandError::Git(error) => Cow::Borrowed(git_remedy(error)),
         ConfigCommandError::Configuration(error) => configuration_file_remedy(error),
     }
 }
 
-fn guard_remedy(error: &GuardError) -> &'static str {
+fn guard_remedy(error: &GuardError) -> Cow<'static, str> {
     match error {
-        GuardError::Git(error) => git_remedy(error),
+        GuardError::Git(error) => Cow::Borrowed(git_remedy(error)),
         GuardError::Configuration(error) => configuration_file_remedy(error),
-        GuardError::OutsideRepository { .. } => {
-            "Pass a file path inside the Git repository, such as src/domain/service.ts."
-        }
+        GuardError::OutsideRepository { .. } => Cow::Borrowed(
+            "Pass a file path inside the Git repository, such as src/domain/service.ts.",
+        ),
         GuardError::NonUtf8Path { .. } | GuardError::InvalidPath { .. } => {
-            "Pass a valid UTF-8 file path inside the Git repository."
+            Cow::Borrowed("Pass a valid UTF-8 file path inside the Git repository.")
         }
     }
 }
@@ -191,33 +236,34 @@ fn agent_remedy(error: &AgentError) -> &'static str {
     }
 }
 
-fn impact_remedy(error: &ImpactCommandError) -> &'static str {
+fn impact_remedy(error: &ImpactCommandError) -> Cow<'static, str> {
     match error {
         ImpactCommandError::Check(error) => check_remedy(error),
-        ImpactCommandError::Analysis(ImpactError::TargetNotInCodeModel { .. }) => {
-            "Pass a tracked or non-ignored source file that a Language plugin measures, or check the file path."
-        }
-        ImpactCommandError::MissingTargets => {
-            "Pass one or more repository file paths, or pass --changed <base> to analyze changed files."
-        }
+        ImpactCommandError::Analysis(ImpactError::TargetNotInCodeModel { .. }) => Cow::Borrowed(
+            "Pass a tracked or non-ignored source file that a Language plugin measures, or check the file path.",
+        ),
+        ImpactCommandError::MissingTargets => Cow::Borrowed(
+            "Pass one or more repository file paths, or pass --changed <base> to analyze changed files.",
+        ),
         ImpactCommandError::PathOutsideRepository { .. } => {
-            "Pass a file path inside the Git repository."
+            Cow::Borrowed("Pass a file path inside the Git repository.")
         }
         ImpactCommandError::InvalidTargetPath { .. } => {
-            "Pass a repository-relative file path using forward slashes."
+            Cow::Borrowed("Pass a repository-relative file path using forward slashes.")
         }
     }
 }
 
-fn init_remedy(error: &InitError) -> &'static str {
+fn init_remedy(error: &InitError) -> Cow<'static, str> {
     match error {
-        InitError::Git(GitError::NotInRepository { .. }) => {
-            "Run codeint init inside a Git repository; it writes codeint.jsonc at the root of the repository."
-        }
-        InitError::Git(error) => git_remedy(error),
+        InitError::Git(GitError::NotInRepository { .. }) => Cow::Borrowed(
+            "Run codeint init inside a Git repository; it writes codeint.jsonc at the root of the repository.",
+        ),
+        InitError::Git(error) => Cow::Borrowed(git_remedy(error)),
         InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
     }
 }
+
 fn update_remedy(error: &UpdateError) -> &'static str {
     match error {
         UpdateError::ManagedByPackageManager { .. } => {
@@ -311,53 +357,36 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
     }
 }
 
-pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> &'static str {
+pub(crate) fn configuration_file_remedy(error: &ConfigurationFileError) -> Cow<'static, str> {
     plugin_config_remedy(error)
         .or_else(|| test_gap_config_remedy(error))
-        .or_else(|| sql_and_hazards_config_remedy(error))
+        .or_else(|| sql_hazards_and_ratchet_config_remedy(error))
         .or_else(|| boundary_config_remedy(error))
         .or_else(|| file_access_remedy(error))
-        .or_else(|| json_shape_remedy(error))
-        .unwrap_or("Check the configuration file against the JSON schema that $schema links to.")
+        .or_else(|| json_shape_remedy(error).map(Cow::Borrowed))
+        .unwrap_or(Cow::Borrowed(
+            "Check the configuration file against the JSON schema that $schema links to.",
+        ))
 }
 
-fn choose_file_remedy(
-    file: ConfigFileKind,
-    json: &'static str,
-    jsonc: &'static str,
-) -> &'static str {
-    match file {
-        ConfigFileKind::Json => json,
-        ConfigFileKind::Jsonc => jsonc,
-    }
-}
-
-fn file_access_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+fn file_access_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str>> {
     use ConfigurationFileError as E;
     match error {
-        E::AmbiguousConfigFiles => Some(
-            "Remove either codeint.json or codeint.jsonc so only one configuration file exists at the repository root.",
-        ),
-        E::Unreadable { file, .. } => Some(choose_file_remedy(
-            *file,
-            "Check that codeint.json is a file you have permission to read, then run codeint again.",
-            "Check that codeint.jsonc is a file you have permission to read, then run codeint again.",
+        E::AmbiguousConfigFiles { .. } => Some(Cow::Borrowed(
+            "Keep only one configuration file among codeint.json, codeint.jsonc, .codeint/config.json, and .codeint/config.jsonc, and remove the others.",
         )),
-        E::BrokenSymlink { file } => Some(choose_file_remedy(
-            *file,
-            "Point the codeint.json symlink to an existing file, or remove the broken symlink and run codeint again.",
-            "Point the codeint.jsonc symlink to an existing file, or remove the broken symlink and run codeint again.",
-        )),
-        E::NotJson { file, .. } | E::InvalidJsonc { file, .. } => Some(choose_file_remedy(
-            *file,
-            "Fix the JSON syntax of codeint.json at that line and column.",
-            "Fix the JSON syntax of codeint.jsonc at that line and column.",
-        )),
-        E::NewerSchemaVersion { file, .. } => Some(choose_file_remedy(
-            *file,
-            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.",
-            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.jsonc.",
-        )),
+        E::Unreadable { file, .. } => Some(Cow::Owned(format!(
+            "Check that {file} is a file you have permission to read, then run codeint again."
+        ))),
+        E::BrokenSymlink { file } => Some(Cow::Owned(format!(
+            "Point the {file} symlink to an existing file, or remove the broken symlink and run codeint again."
+        ))),
+        E::NotJson { file, .. } | E::InvalidJsonc { file, .. } => Some(Cow::Owned(format!(
+            "Fix the JSON syntax of {file} at that line and column."
+        ))),
+        E::NewerSchemaVersion { file, .. } => Some(Cow::Owned(format!(
+            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in {file}."
+        ))),
         _ => None,
     }
 }
@@ -406,321 +435,284 @@ fn out_of_exclusive_min_range_remedy(exclusive_minimum: f64, maximum: f64) -> &'
     }
 }
 
-fn boundary_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+fn boundary_config_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str>> {
     use ConfigurationFileError::*;
     match error {
-        InvalidBoundaryZoneName { file, .. } => Some(choose_file_remedy(
-            *file,
-            "Give each boundary zone in codeint.json a non-empty name other than \"*\".",
-            "Give each boundary zone in codeint.jsonc a non-empty name other than \"*\".",
+        InvalidBoundaryZoneName { file, .. } => Some(Cow::Owned(format!(
+            "Give each boundary zone in {file} a non-empty name other than \"*\"."
+        ))),
+        EmptyBoundaryZonePatterns { .. } => Some(Cow::Borrowed(
+            "Add at least one path glob under patterns for every zone in boundaries.zones.",
         )),
-        EmptyBoundaryZonePatterns { .. } => {
-            Some("Add at least one path glob under patterns for every zone in boundaries.zones.")
-        }
-        UnknownBoundaryZone { .. } => Some(
+        UnknownBoundaryZone { .. } => Some(Cow::Borrowed(
             "Reference only zones defined under boundaries.zones (or \"*\") in boundaries.rules.",
-        ),
-        ConflictingBoundaryRule { .. } => {
-            Some("Set either allow or deny on each rule in boundaries.rules, not both.")
-        }
-        ConflictingExternalBoundaryRule { .. } => Some(
-            "Set either allow_external or deny_external on each rule in boundaries.rules, not both.",
-        ),
-        MissingBoundaryRuleDirective { .. } => Some(
-            "Set at least one of allow, deny, allow_external, or deny_external on each rule in boundaries.rules.",
-        ),
-        ConflictingBoundaryDirectives { .. } => Some(
-            "Use either allow rules or deny rules for a given source zone in boundaries.rules, not both.",
-        ),
-        ConflictingExternalBoundaryDirectives { .. } => Some(
-            "Use either allow_external rules or deny_external rules for a given source zone in boundaries.rules, not both.",
-        ),
-        EmptyBoundaryExternalPattern { file, .. } => Some(choose_file_remedy(
-            *file,
-            "Set non-empty package globs in allow_external or deny_external in codeint.json, or remove the empty entry.",
-            "Set non-empty package globs in allow_external or deny_external in codeint.jsonc, or remove the empty entry.",
         )),
+        ConflictingBoundaryRule { .. } => Some(Cow::Borrowed(
+            "Set either allow or deny on each rule in boundaries.rules, not both.",
+        )),
+        ConflictingExternalBoundaryRule { .. } => Some(Cow::Borrowed(
+            "Set either allow_external or deny_external on each rule in boundaries.rules, not both.",
+        )),
+        MissingBoundaryRuleDirective { .. } => Some(Cow::Borrowed(
+            "Set at least one of allow, deny, allow_external, or deny_external on each rule in boundaries.rules.",
+        )),
+        ConflictingBoundaryDirectives { .. } => Some(Cow::Borrowed(
+            "Use either allow rules or deny rules for a given source zone in boundaries.rules, not both.",
+        )),
+        ConflictingExternalBoundaryDirectives { .. } => Some(Cow::Borrowed(
+            "Use either allow_external rules or deny_external rules for a given source zone in boundaries.rules, not both.",
+        )),
+        EmptyBoundaryExternalPattern { file, .. } => Some(Cow::Owned(format!(
+            "Set non-empty package globs in allow_external or deny_external in {file}, or remove the empty entry."
+        ))),
         _ => None,
     }
 }
 
-fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+fn plugin_config_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str>> {
     use ConfigurationFileError::*;
     Some(match error {
-        UnknownLanguagePlugin { .. } => {
-            "Name one of the Language plugins listed, or remove the entry from languages."
-        }
-        InvalidGlob { .. } | InvalidCliGlob { .. } => {
-            "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b."
-        }
-        InvalidSha256 { .. } => {
-            "Set sha256 to the 64-character hexadecimal SHA-256 digest of the plugin file."
-        }
-        EmptyPluginField { file, .. } => choose_file_remedy(
-            *file,
-            "Set a non-empty value for the plugin field in codeint.json.",
-            "Set a non-empty value for the plugin field in codeint.jsonc.",
+        UnknownLanguagePlugin { .. } => Cow::Borrowed(
+            "Name one of the Language plugins listed, or remove the entry from languages.",
         ),
-        MissingPluginSource { file, .. } => choose_file_remedy(
-            *file,
-            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.json.",
-            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in codeint.jsonc.",
+        InvalidGlob { .. } | InvalidCliGlob { .. } => Cow::Borrowed(
+            "Fix the glob: * matches within one folder, ** matches across folders, and {a,b} matches either a or b.",
         ),
-        AmbiguousPluginSource { file, .. } => choose_file_remedy(
-            *file,
-            "Keep either path or url on the plugin entry in codeint.json and remove the other.",
-            "Keep either path or url on the plugin entry in codeint.jsonc and remove the other.",
+        InvalidSha256 { .. } => Cow::Borrowed(
+            "Set sha256 to the 64-character hexadecimal SHA-256 digest of the plugin file.",
         ),
-        NonHttpsPluginUrl { file, .. } => choose_file_remedy(
-            *file,
-            "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused.",
-            "Use an https:// URL for the plugin in codeint.jsonc; plain HTTP and other schemes are refused.",
-        ),
-        EmptyDependencyIgnore { file, .. } => choose_file_remedy(
-            *file,
-            "Set non-empty package names in dependencies.ignore in codeint.json, or remove the empty entry.",
-            "Set non-empty package names in dependencies.ignore in codeint.jsonc, or remove the empty entry.",
-        ),
+        EmptyPluginField { file, .. } => Cow::Owned(format!(
+            "Set a non-empty value for the plugin field in {file}."
+        )),
+        MissingPluginSource { file, .. } => Cow::Owned(format!(
+            "Set either path (for a local file) or url (for an https:// download) on the plugin entry in {file}."
+        )),
+        AmbiguousPluginSource { file, .. } => Cow::Owned(format!(
+            "Keep either path or url on the plugin entry in {file} and remove the other."
+        )),
+        NonHttpsPluginUrl { file, .. } => Cow::Owned(format!(
+            "Use an https:// URL for the plugin in {file}; plain HTTP and other schemes are refused."
+        )),
+        EmptyDependencyIgnore { file, .. } => Cow::Owned(format!(
+            "Set non-empty package names in dependencies.ignore in {file}, or remove the empty entry."
+        )),
         _ => return None,
     })
 }
 
-fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str>> {
     use ConfigurationFileError::*;
     Some(match error {
-        EmptyCoverageReportPath { file, .. } => choose_file_remedy(
-            *file,
-            "Set non-empty paths in coverage_reports in codeint.json, or remove the empty entry.",
-            "Set non-empty paths in coverage_reports in codeint.jsonc, or remove the empty entry.",
-        ),
+        EmptyCoverageReportPath { file, .. } => Cow::Owned(format!(
+            "Set non-empty paths in coverage_reports in {file}, or remove the empty entry."
+        )),
         AbsoluteCoverageReportPath { file, .. }
-        | ParentTraversalCoverageReportPath { file, .. } => choose_file_remedy(
-            *file,
-            "Use repository-relative paths without \"..\" in coverage_reports in codeint.json.",
-            "Use repository-relative paths without \"..\" in coverage_reports in codeint.jsonc.",
-        ),
+        | ParentTraversalCoverageReportPath { file, .. } => Cow::Owned(format!(
+            "Use repository-relative paths without \"..\" in coverage_reports in {file}."
+        )),
         TestGapBudgetOutsideProduction { file, key } => {
             test_gap_outside_production_remedy(*file, key.first_key())
         }
-        CliTestGapBudgetOutsideProduction { .. } => {
-            "Pass --budget production.test_gap=RATIO; Test gap covers only the Production Source set."
-        }
-        TestGapRegressionLimit { file, .. } => choose_file_remedy(
-            *file,
-            "Remove test_gap from regression_limits in codeint.json; Test gap is checked with budgets.production.test_gap only.",
-            "Remove test_gap from regression_limits in codeint.jsonc; Test gap is checked with budgets.production.test_gap only.",
+        CliTestGapBudgetOutsideProduction { .. } => Cow::Borrowed(
+            "Pass --budget production.test_gap=RATIO; Test gap covers only the Production Source set.",
         ),
+        TestGapRegressionLimit { file, .. } => Cow::Owned(format!(
+            "Remove test_gap from regression_limits in {file}; Test gap is checked with budgets.production.test_gap only."
+        )),
         MetricBudgetOutsideProduction { file, key, .. } => {
             metric_budget_outside_production_remedy(*file, key.first_key())
         }
-        CliMetricBudgetOutsideProduction { .. } => {
-            "Pass --budget production.<metric>=RATIO; this Metric applies to the Production Source set only."
-        }
-        MetricRegressionLimitOutsideProduction { file, .. } => choose_file_remedy(
-            *file,
-            "Move this Regression limit to regression_limits.production or top-level regression_limits in codeint.json, or remove it.",
-            "Move this Regression limit to regression_limits.production or top-level regression_limits in codeint.jsonc, or remove it.",
+        CliMetricBudgetOutsideProduction { .. } => Cow::Borrowed(
+            "Pass --budget production.<metric>=RATIO; this Metric applies to the Production Source set only.",
         ),
+        MetricRegressionLimitOutsideProduction { file, .. } => Cow::Owned(format!(
+            "Move this Regression limit to regression_limits.production or top-level regression_limits in {file}, or remove it."
+        )),
         _ => return None,
     })
 }
 
-fn test_gap_outside_production_remedy(file: ConfigFileKind, section: Option<&str>) -> &'static str {
+fn test_gap_outside_production_remedy(
+    file: ConfigFileKind,
+    section: Option<&str>,
+) -> Cow<'static, str> {
     if section == Some("new_file_budgets") {
-        choose_file_remedy(
-            file,
-            "Move the test_gap Budget to new_file_budgets.production.test_gap in codeint.json, or remove it.",
-            "Move the test_gap Budget to new_file_budgets.production.test_gap in codeint.jsonc, or remove it.",
-        )
+        Cow::Owned(format!(
+            "Move the test_gap Budget to new_file_budgets.production.test_gap in {file}, or remove it."
+        ))
     } else {
-        choose_file_remedy(
-            file,
-            "Move the test_gap Budget to budgets.production.test_gap in codeint.json, or remove it.",
-            "Move the test_gap Budget to budgets.production.test_gap in codeint.jsonc, or remove it.",
-        )
+        Cow::Owned(format!(
+            "Move the test_gap Budget to budgets.production.test_gap in {file}, or remove it."
+        ))
     }
 }
 
 fn metric_budget_outside_production_remedy(
     file: ConfigFileKind,
     section: Option<&str>,
-) -> &'static str {
+) -> Cow<'static, str> {
     if section == Some("new_file_budgets") {
-        choose_file_remedy(
-            file,
-            "Move this Budget to new_file_budgets.production in codeint.json, or remove it.",
-            "Move this Budget to new_file_budgets.production in codeint.jsonc, or remove it.",
-        )
+        Cow::Owned(format!(
+            "Move this Budget to new_file_budgets.production in {file}, or remove it."
+        ))
     } else {
-        choose_file_remedy(
-            file,
-            "Move this Budget to budgets.production in codeint.json, or remove it.",
-            "Move this Budget to budgets.production in codeint.jsonc, or remove it.",
-        )
+        Cow::Owned(format!(
+            "Move this Budget to budgets.production in {file}, or remove it."
+        ))
     }
 }
 
-fn sql_and_hazards_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
+fn sql_hazards_and_ratchet_config_remedy(
+    error: &ConfigurationFileError,
+) -> Option<Cow<'static, str>> {
+    if let Some(remedy) = framework_profile_config_remedy(error) {
+        return Some(remedy);
+    }
     use ConfigurationFileError::*;
-    let (file, json, jsonc) = match error {
-        EmptySqlDialectInclude { file, .. } => (
-            *file,
-            "Add at least one glob pattern under include for every entry in sql.dialects in codeint.json.",
-            "Add at least one glob pattern under include for every entry in sql.dialects in codeint.jsonc.",
-        ),
-        EmptySqlDialectPattern { file, .. } => (
-            *file,
-            "Set non-empty glob patterns in sql.dialects in codeint.json, or remove the empty entry.",
-            "Set non-empty glob patterns in sql.dialects in codeint.jsonc, or remove the empty entry.",
-        ),
-        EmptyHazardRuleName { file, .. } => (
-            *file,
-            "Set non-empty rule names in hazards.disabled_rules in codeint.json, or remove the empty entry.",
-            "Set non-empty rule names in hazards.disabled_rules in codeint.jsonc, or remove the empty entry.",
-        ),
-        UnknownFrameworkProfile { file, .. } => (
-            *file,
-            "Use one of the known Framework profile names in codeint.json, or run codeint schema to list supported Framework profiles.",
-            "Use one of the known Framework profile names in codeint.jsonc, or run codeint schema to list supported Framework profiles.",
-        ),
-        EmptyFrameworkProfileName { file, .. } => (
-            *file,
-            "Set non-empty Framework profile names in codeint.json, or remove the empty entry.",
-            "Set non-empty Framework profile names in codeint.jsonc, or remove the empty entry.",
-        ),
-        ConflictingFrameworkProfileRule { file, .. } => (
-            *file,
-            "Set either exclude or only on framework_profiles in codeint.json, not both.",
-            "Set either exclude or only on framework_profiles in codeint.jsonc, not both.",
-        ),
-        EmptyFrameworkProfileObject { file, .. } => (
-            *file,
-            "Set either exclude or only in the framework_profiles object in codeint.json, or use false or a list of names.",
-            "Set either exclude or only in the framework_profiles object in codeint.jsonc, or use false or a list of names.",
-        ),
-        InvalidPackageConfigKey { file, .. } => (
-            *file,
-            "Key packages in codeint.json by repository-relative Workspace package paths with forward slashes (or \".\" for the repository root).",
-            "Key packages in codeint.jsonc by repository-relative Workspace package paths with forward slashes (or \".\" for the repository root).",
-        ),
-        DuplicatePackageConfigKey { file, .. } => (
-            *file,
-            "Merge duplicate Workspace package keys under packages in codeint.json so each package appears once.",
-            "Merge duplicate Workspace package keys under packages in codeint.jsonc so each package appears once.",
-        ),
-        _ => return None,
-    };
-    Some(choose_file_remedy(file, json, jsonc))
-}
-
-fn plugin_host_remedy(error: &PluginHostError, file: ConfigFileKind) -> &'static str {
-    plugin_load_remedy(error, file).unwrap_or_else(|| plugin_runtime_remedy(error, file))
-}
-
-fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<&'static str> {
     Some(match error {
-        PluginHostError::Read { .. } => choose_file_remedy(
-            file,
-            "Check that the plugin path in codeint.json points to an existing readable WebAssembly component file.",
-            "Check that the plugin path in codeint.jsonc points to an existing readable WebAssembly component file.",
+        EmptySqlDialectInclude { file, .. } => Cow::Owned(format!(
+            "Add at least one glob pattern under include for every entry in sql.dialects in {file}."
+        )),
+        EmptySqlDialectPattern { file, .. } => Cow::Owned(format!(
+            "Set non-empty glob patterns in sql.dialects in {file}, or remove the empty entry."
+        )),
+        EmptyHazardRuleName { file, .. } => Cow::Owned(format!(
+            "Set non-empty rule names in hazards.disabled_rules in {file}, or remove the empty entry."
+        )),
+        EmptyRatchetPath { file, .. } => Cow::Owned(format!(
+            "Set a non-empty repository-relative path in ratchet.path in {file}, or remove ratchet.path to use .codeint/ratchet.json."
+        )),
+        AbsoluteRatchetPath { file, .. } | ParentTraversalRatchetPath { file, .. } => Cow::Owned(
+            format!("Use a repository-relative path without \"..\" in ratchet.path in {file}."),
         ),
-        PluginHostError::HashMismatch { .. } | PluginHostError::DownloadHashMismatch { .. } => {
-            choose_file_remedy(
-                file,
-                "Verify the plugin file has not been modified, then update sha256 in codeint.json to match the trusted file.",
-                "Verify the plugin file has not been modified, then update sha256 in codeint.jsonc to match the trusted file.",
-            )
-        }
-        PluginHostError::Compile { .. } => {
-            "Build the plugin as a WebAssembly component targeting codeint:plugin@0.4.0."
-        }
-        PluginHostError::Instantiate { .. } => {
-            "Ensure the plugin exports codeint:plugin/language@0.4.0 or codeint:plugin/metric@0.4.0 and imports no host capabilities."
-        }
-        PluginHostError::IncompatibleContractVersion { .. } => choose_file_remedy(
-            file,
-            "Rebuild the plugin against codeint:plugin@0.4.0 and update its sha256 in codeint.json.",
-            "Rebuild the plugin against codeint:plugin@0.4.0 and update its sha256 in codeint.jsonc.",
-        ),
-        PluginHostError::NonHttpsUrl { .. } => choose_file_remedy(
-            file,
-            "Use an https:// URL for the plugin in codeint.json; plain HTTP and other schemes are refused.",
-            "Use an https:// URL for the plugin in codeint.jsonc; plain HTTP and other schemes are refused.",
-        ),
-        PluginHostError::MissingCacheDir { .. } => {
-            "Set CODEINT_CACHE_DIR, XDG_CACHE_HOME, HOME, or LOCALAPPDATA so codeint can cache downloaded plugins."
-        }
-        PluginHostError::CacheWrite { .. } => {
-            "Check that you have permission to write to the codeint plugin cache directory, or set CODEINT_CACHE_DIR to a writable folder."
-        }
-        PluginHostError::Download { .. } => {
-            "Check that curl is installed, the HTTPS URL is reachable, and its TLS certificate is valid."
-        }
         _ => return None,
     })
 }
 
-fn plugin_runtime_remedy(error: &PluginHostError, file: ConfigFileKind) -> &'static str {
+fn framework_profile_config_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str>> {
+    use ConfigurationFileError::*;
+    let (file, message) = match error {
+        UnknownFrameworkProfile { file, .. } => (
+            *file,
+            "Use one of the known Framework profile names in {file}, or run codeint schema to list supported Framework profiles.",
+        ),
+        EmptyFrameworkProfileName { file, .. } => (
+            *file,
+            "Set non-empty Framework profile names in {file}, or remove the empty entry.",
+        ),
+        ConflictingFrameworkProfileRule { file, .. } => (
+            *file,
+            "Set either exclude or only on framework_profiles in {file}, not both.",
+        ),
+        EmptyFrameworkProfileObject { file, .. } => (
+            *file,
+            "Set either exclude or only in the framework_profiles object in {file}, or use false or a list of names.",
+        ),
+        InvalidPackageConfigKey { file, .. } => (
+            *file,
+            "Key packages in {file} by repository-relative Workspace package paths with forward slashes (or \".\" for the repository root).",
+        ),
+        DuplicatePackageConfigKey { file, .. } => (
+            *file,
+            "Merge duplicate Workspace package keys under packages in {file} so each package appears once.",
+        ),
+        _ => return None,
+    };
+    Some(Cow::Owned(message.replace("{file}", file.file_name())))
+}
+
+fn plugin_host_remedy(error: &PluginHostError, file: ConfigFileKind) -> Cow<'static, str> {
+    plugin_load_remedy(error, file).unwrap_or_else(|| plugin_runtime_remedy(error, file))
+}
+
+fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<Cow<'static, str>> {
+    Some(match error {
+        PluginHostError::Read { .. } => Cow::Owned(format!(
+            "Check that the plugin path in {file} points to an existing readable WebAssembly component file."
+        )),
+        PluginHostError::HashMismatch { .. } | PluginHostError::DownloadHashMismatch { .. } => {
+            Cow::Owned(format!(
+                "Verify the plugin file has not been modified, then update sha256 in {file} to match the trusted file."
+            ))
+        }
+        PluginHostError::Compile { .. } => Cow::Borrowed(
+            "Build the plugin as a WebAssembly component targeting codeint:plugin@0.4.0.",
+        ),
+        PluginHostError::Instantiate { .. } => Cow::Borrowed(
+            "Ensure the plugin exports codeint:plugin/language@0.4.0 or codeint:plugin/metric@0.4.0 and imports no host capabilities.",
+        ),
+        PluginHostError::IncompatibleContractVersion { .. } => Cow::Owned(format!(
+            "Rebuild the plugin against codeint:plugin@0.4.0 and update its sha256 in {file}."
+        )),
+        PluginHostError::NonHttpsUrl { .. } => Cow::Owned(format!(
+            "Use an https:// URL for the plugin in {file}; plain HTTP and other schemes are refused."
+        )),
+        PluginHostError::MissingCacheDir { .. } => Cow::Borrowed(
+            "Set CODEINT_CACHE_DIR, XDG_CACHE_HOME, HOME, or LOCALAPPDATA so codeint can cache downloaded plugins.",
+        ),
+        PluginHostError::CacheWrite { .. } => Cow::Borrowed(
+            "Check that you have permission to write to the codeint plugin cache directory, or set CODEINT_CACHE_DIR to a writable folder.",
+        ),
+        PluginHostError::Download { .. } => Cow::Borrowed(
+            "Check that curl is installed, the HTTPS URL is reachable, and its TLS certificate is valid.",
+        ),
+        _ => return None,
+    })
+}
+
+fn plugin_runtime_remedy(error: &PluginHostError, file: ConfigFileKind) -> Cow<'static, str> {
     match error {
-        PluginHostError::Call { .. } => {
-            "Fix the defect in the external Plugin, or report it to the plugin's author."
-        }
+        PluginHostError::Call { .. } => Cow::Borrowed(
+            "Fix the defect in the external Plugin, or report it to the plugin's author.",
+        ),
         PluginHostError::MemoryLimitExceeded { .. } | PluginHostError::TimeLimitExceeded { .. } => {
-            choose_file_remedy(
-                file,
-                "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the plugin needs more resources, or fix the defect in the plugin.",
-                "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.jsonc if the plugin needs more resources, or fix the defect in the plugin.",
-            )
+            Cow::Owned(format!(
+                "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in {file} if the plugin needs more resources, or fix the defect in the plugin."
+            ))
         }
-        PluginHostError::DuplicatePluginName { .. } => choose_file_remedy(
-            file,
-            "Give each external plugin in codeint.json a unique name that does not collide with built-in plugins.",
-            "Give each external plugin in codeint.jsonc a unique name that does not collide with built-in plugins.",
+        PluginHostError::DuplicatePluginName { .. } => Cow::Owned(format!(
+            "Give each external plugin in {file} a unique name that does not collide with built-in plugins."
+        )),
+        PluginHostError::InvalidMetricKey { .. } => Cow::Borrowed(
+            "Return a valid Metric key that does not collide with built-in report keys from the Metric plugin.",
         ),
-        PluginHostError::InvalidMetricKey { .. } => {
-            "Return a valid Metric key that does not collide with built-in report keys from the Metric plugin."
-        }
         PluginHostError::DuplicateMetricKey { .. } => {
-            "Remove one of the Metric plugins that declare the same Metric key."
+            Cow::Borrowed("Remove one of the Metric plugins that declare the same Metric key.")
         }
-        PluginHostError::InvalidMetricVersion { .. } => {
-            "Return a positive integer Metric version (>= 1) from the Metric plugin's version export."
-        }
-        _ => choose_file_remedy(
-            file,
-            "Check the plugin configuration in codeint.json.",
-            "Check the plugin configuration in codeint.jsonc.",
+        PluginHostError::InvalidMetricVersion { .. } => Cow::Borrowed(
+            "Return a positive integer Metric version (>= 1) from the Metric plugin's version export.",
         ),
+        _ => Cow::Owned(format!("Check the plugin configuration in {file}.")),
     }
 }
 
-fn language_plugin_remedy(error: &LanguagePluginError, file: ConfigFileKind) -> &'static str {
+fn language_plugin_remedy(error: &LanguagePluginError, file: ConfigFileKind) -> Cow<'static, str> {
     match error {
         LanguagePluginError::MemoryLimitExceeded { .. }
-        | LanguagePluginError::TimeLimitExceeded { .. } => choose_file_remedy(
-            file,
-            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Language plugin needs more resources, or fix the defect in the plugin.",
-            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.jsonc if the Language plugin needs more resources, or fix the defect in the plugin.",
+        | LanguagePluginError::TimeLimitExceeded { .. } => Cow::Owned(format!(
+            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in {file} if the Language plugin needs more resources, or fix the defect in the plugin."
+        )),
+        LanguagePluginError::HazardLineOutOfRange { .. } => Cow::Borrowed(
+            "Return 1-based Hazard line numbers within the file's line count from the Language plugin, or report the defect to its author.",
         ),
-        LanguagePluginError::HazardLineOutOfRange { .. } => {
-            "Return 1-based Hazard line numbers within the file's line count from the Language plugin, or report the defect to its author."
-        }
-        LanguagePluginError::UnlistedHazardRule { .. } => {
-            "List every Hazard line rule name in the Language plugin's hazard-rules export, or report the defect to the plugin's author."
-        }
-        _ => "Fix the defect in the Language plugin, or report it to the plugin's author.",
+        LanguagePluginError::UnlistedHazardRule { .. } => Cow::Borrowed(
+            "List every Hazard line rule name in the Language plugin's hazard-rules export, or report the defect to the plugin's author.",
+        ),
+        _ => Cow::Borrowed(
+            "Fix the defect in the Language plugin, or report it to the plugin's author.",
+        ),
     }
 }
 
-fn metric_plugin_remedy(error: &MetricPluginError, file: ConfigFileKind) -> &'static str {
+fn metric_plugin_remedy(error: &MetricPluginError, file: ConfigFileKind) -> Cow<'static, str> {
     match error {
         MetricPluginError::MemoryLimitExceeded { .. }
-        | MetricPluginError::TimeLimitExceeded { .. } => choose_file_remedy(
-            file,
-            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.json if the Metric plugin needs more resources, or fix the defect in the plugin.",
-            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in codeint.jsonc if the Metric plugin needs more resources, or fix the defect in the plugin.",
+        | MetricPluginError::TimeLimitExceeded { .. } => Cow::Owned(format!(
+            "Raise plugin_limits.memory_mb or plugin_limits.timeout_ms in {file} if the Metric plugin needs more resources, or fix the defect in the plugin."
+        )),
+        _ => Cow::Borrowed(
+            "Fix the defect in the external Metric plugin, or report it to the plugin's author.",
         ),
-        _ => "Fix the defect in the external Metric plugin, or report it to the plugin's author.",
     }
 }
 
@@ -749,18 +741,21 @@ fn rerender_remedy(error: &RerenderError) -> &'static str {
     }
 }
 
-fn starter_configuration_remedy(error: &StarterConfigurationError) -> &'static str {
+fn starter_configuration_remedy(error: &StarterConfigurationError) -> Cow<'static, str> {
     match error {
         StarterConfigurationError::AlreadyExists { path } => {
-            if path.file_name().and_then(|name| name.to_str()) == Some("codeint.jsonc") {
-                "Edit the existing codeint.jsonc, or delete it and run codeint init again."
-            } else {
-                "Edit the existing codeint.json, or delete it and run codeint init again."
-            }
+            let label = ConfigFileKind::ALL
+                .into_iter()
+                .map(ConfigFileKind::file_name)
+                .find(|name| path.ends_with(name))
+                .unwrap_or("codeint.json");
+            Cow::Owned(format!(
+                "Edit the existing {label}, or delete it and run codeint init again."
+            ))
         }
-        StarterConfigurationError::Unwritable { .. } => {
-            "Check that you have permission to write to the root of the repository, then run codeint init again."
-        }
+        StarterConfigurationError::Unwritable { .. } => Cow::Borrowed(
+            "Check that you have permission to write to the root of the repository, then run codeint init again.",
+        ),
     }
 }
 

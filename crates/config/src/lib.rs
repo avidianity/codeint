@@ -14,6 +14,7 @@ mod coupling;
 mod dependencies;
 mod framework_profiles;
 mod hazards;
+mod ratchet;
 mod regression_limits;
 mod resolved;
 mod result_cache_folder;
@@ -43,8 +44,8 @@ pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{
     AgentClient, AgentCommand, AgentFormat, Command, ConfigError, ConfigFormat,
     DEFAULT_MAX_TRACE_PATHS, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, Invocation,
-    PluginHostConfig, ReportDestination, ReportFormat, ReportInput, ReportRenderFormat,
-    SchemaFormat, TraceFormat, TrendFormat, TrendRange,
+    PluginHostConfig, RatchetCommand, RatchetFormat, ReportDestination, ReportFormat, ReportInput,
+    ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat, TrendRange,
 };
 pub use config_error::{
     ConfigFileKind, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,
@@ -56,6 +57,11 @@ pub use coupling::{
 pub use dependencies::DependenciesConfig;
 pub use framework_profiles::{FrameworkProfilesConfig, display_package_key};
 pub use hazards::HazardsConfig;
+pub use ratchet::{
+    DEFAULT_RATCHET_PATH, MeasuredRatchetMetric, RATCHET_SCHEMA_VERSION, Ratchet, RatchetConfig,
+    RatchetEntry, RatchetFileError, RatchetSourceSets, RatchetUpdateSummary,
+    RatchetVersionMismatch, RatchetViolation, round_ratchet_ratio,
+};
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
 pub use resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,

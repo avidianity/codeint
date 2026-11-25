@@ -17,9 +17,6 @@ use crate::check::{find_workspace, read_manifests};
 use crate::describe;
 use crate::remedy::{configuration_file_remedy, git_remedy};
 
-const NEWER_SCHEMA_REMEDY_JSON: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.json.";
-const NEWER_SCHEMA_REMEDY_JSONC: &str = "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in codeint.jsonc.";
-
 struct ActiveConfiguration {
     file_name: &'static str,
     configuration: Configuration,
@@ -91,17 +88,18 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfigura
         ConfigurationInspection::Missing { .. } => {
             let check = DoctorCheck::warn(
                 "config",
-                "No codeint.jsonc or codeint.json found; using built-in defaults",
+                "No configuration file found (codeint.json, codeint.jsonc, .codeint/config.json, or .codeint/config.jsonc); using built-in defaults",
             )
             .with_remedy("Run codeint init to write a starter codeint.jsonc.");
             (vec![check], None, true)
         }
         ConfigurationInspection::Valid {
-            path,
+            kind,
             schema,
             configuration,
+            ..
         } => {
-            let file_name = config_file_label(&path);
+            let file_name = kind.file_name();
             let checks = valid_configuration_checks(file_name, &schema, &configuration);
             (
                 checks,
@@ -113,11 +111,12 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfigura
             )
         }
         ConfigurationInspection::Invalid {
-            path,
+            kind,
             schema,
             error,
+            ..
         } => {
-            let file_name = config_file_label(&path);
+            let file_name = kind.map_or("codeint.json", codeint_config::ConfigFileKind::file_name);
             let config_check = DoctorCheck::error("config", describe(&error))
                 .with_remedy(configuration_file_remedy(&error));
             let mut checks = vec![config_check];
@@ -126,14 +125,6 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfigura
             }
             (checks, None, false)
         }
-    }
-}
-
-fn config_file_label(path: &Path) -> &'static str {
-    if path.file_name().and_then(|name| name.to_str()) == Some("codeint.jsonc") {
-        "codeint.jsonc"
-    } else {
-        "codeint.json"
     }
 }
 
@@ -207,11 +198,9 @@ fn schema_check(file_name: &'static str, status: &SchemaVersionStatus) -> Doctor
             ),
         )
         .with_detail(url.clone())
-        .with_remedy(if file_name == "codeint.jsonc" {
-            NEWER_SCHEMA_REMEDY_JSONC
-        } else {
-            NEWER_SCHEMA_REMEDY_JSON
-        }),
+        .with_remedy(format!(
+            "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in {file_name}."
+        )),
     }
 }
 

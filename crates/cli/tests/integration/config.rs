@@ -547,7 +547,7 @@ fn config_resolved_reads_codeint_jsonc_and_rejects_ambiguous_config_files() {
     assert_config_rejected(
         repo.path(),
         &["config", "--resolved"],
-        "both codeint.json and codeint.jsonc exist at the repository root",
+        "multiple configuration files exist (codeint.json, codeint.jsonc); keep only one",
         None,
     );
 }

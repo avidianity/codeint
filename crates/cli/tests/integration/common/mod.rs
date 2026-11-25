@@ -87,26 +87,27 @@ pub(crate) fn write_repo_files(root: &Path, files: &[(&str, &str)]) {
     }
 }
 
+pub(crate) fn run_git(dir: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?} failed");
+}
+
 pub(crate) fn init_git_repo(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().unwrap();
-    let run_git = |args: &[&str]| {
-        let status = Command::new("git")
-            .args(args)
-            .current_dir(dir.path())
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_AUTHOR_NAME", "Test")
-            .env("GIT_AUTHOR_EMAIL", "test@example.com")
-            .env("GIT_COMMITTER_NAME", "Test")
-            .env("GIT_COMMITTER_EMAIL", "test@example.com")
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    };
-    run_git(&["init", "-q", "-b", "main"]);
+    run_git(dir.path(), &["init", "-q", "-b", "main"]);
     write_repo_files(dir.path(), files);
-    run_git(&["add", "."]);
-    run_git(&["commit", "-q", "-m", "initial"]);
+    run_git(dir.path(), &["add", "."]);
+    run_git(dir.path(), &["commit", "-q", "-m", "initial"]);
     dir
 }
 

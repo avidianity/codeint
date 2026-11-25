@@ -104,10 +104,14 @@
         "$ref": "#/$defs/PackageConfigFile"
       },
       "description": "Per-Workspace-package configuration overrides keyed by repository-relative package root (or \".\" for the repository root)."
+    },
+    "ratchet": {
+      "$ref": "#/$defs/RatchetConfigFile",
+      "description": "Ratchet settings, including an optional repository-relative path for the Ratchet file (.codeint/ratchet.json by default)."
     }
   },
   "title": "codeint.json",
-  "description": "The configuration of codeint, read from codeint.json at the root of the repository.",
+  "description": "The configuration of codeint, read from codeint.json, codeint.jsonc, .codeint/config.json, or .codeint/config.jsonc at the root of the repository.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
     "SourceSetGlobs": {
@@ -880,6 +884,16 @@
             }
           ],
           "description": "Framework profile selection for this Workspace package: false to disable all, true for auto-detection, a list of profile names (or {\"only\": [...]}), or {\"exclude\": [...]}."
+        }
+      }
+    },
+    "RatchetConfigFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path relative to the repository root of the Ratchet file; .codeint/ratchet.json by default."
         }
       }
     }

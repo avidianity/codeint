@@ -6,7 +6,8 @@ use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnFormat, ChurnSince};
 use crate::command::{
     AgentClient, AgentFormat, ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat, GuardFormat,
-    ImpactFormat, ReportFormat, ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat,
+    ImpactFormat, RatchetFormat, ReportFormat, ReportRenderFormat, SchemaFormat, TraceFormat,
+    TrendFormat,
 };
 use crate::coupling::{CouplingRatio, DEFAULT_MAX_COMMIT_FILES, DEFAULT_MIN_CO_CHANGES};
 use crate::resolved::{BudgetOverride, SourceSetOverride};
@@ -222,6 +223,11 @@ pub(super) enum CommandArguments {
         #[command(subcommand)]
         command: AgentSubcommandArguments,
     },
+    #[command(about = "Manage the repository Ratchet ceilings in .codeint/ratchet.json")]
+    Ratchet {
+        #[command(subcommand)]
+        command: RatchetSubcommandArguments,
+    },
     #[command(
         about = "Rank eroded and duplicated files alongside their Git commit churn independently per Metric"
     )]
@@ -312,6 +318,37 @@ pub(super) enum AgentSubcommandArguments {
             help = "Override the home folder containing agent configuration files"
         )]
         config_root: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(super) enum RatchetSubcommandArguments {
+    #[command(
+        about = "Create or monotonically tighten .codeint/ratchet.json from the current working tree"
+    )]
+    Update {
+        #[arg(
+            help = "A folder inside the Git repository to measure; the current folder by default"
+        )]
+        path: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Allow loosening Ratchet ceilings for Metrics whose Metric version has not changed"
+        )]
+        reset: bool,
+        #[arg(
+            long = "coverage-report",
+            value_name = "PATH",
+            help = "Path to an LCOV or Cobertura XML Coverage report; may repeat, and replaces coverage_reports in codeint.json"
+        )]
+        coverage_reports: Vec<PathBuf>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = RatchetFormat::Text,
+            help = "The format of the output"
+        )]
+        format: RatchetFormat,
     },
 }
 

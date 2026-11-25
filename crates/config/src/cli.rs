@@ -7,7 +7,7 @@ use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnSince, ChurnWindow};
 use crate::command::{
     AgentCommand, Command, ConfigError, ConfigFormat, DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
-    FindingsShown, Invocation, PluginHostConfig, ReportDestination, ReportInput,
+    FindingsShown, Invocation, PluginHostConfig, RatchetCommand, ReportDestination, ReportInput,
     ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange, WORST_FINDINGS_PER_METRIC,
 };
 use crate::coupling::{CouplingRatio, CouplingSettings};
@@ -20,7 +20,7 @@ pub(crate) use args::Arguments;
 
 use args::{
     AgentSubcommandArguments, CommandArguments, HistoryReportArguments, ImpactArguments,
-    ReportArguments, TraceArguments,
+    RatchetSubcommandArguments, ReportArguments, TraceArguments,
 };
 
 const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
@@ -136,6 +136,7 @@ fn build_tooling_command(
             plugin_host: plugin_host_config_of_this_process(current_folder),
         }),
         CommandArguments::Agent { command } => build_agent_command(current_folder, command),
+        CommandArguments::Ratchet { command } => build_ratchet_command(current_folder, command),
         CommandArguments::Check { .. }
         | CommandArguments::Diff { .. }
         | CommandArguments::Trend { .. }
@@ -216,6 +217,26 @@ fn build_agent_command(
             client,
             dry_run,
             format,
+        })),
+    }
+}
+
+fn build_ratchet_command(
+    current_folder: &Path,
+    arguments: RatchetSubcommandArguments,
+) -> Result<Command, ConfigError> {
+    match arguments {
+        RatchetSubcommandArguments::Update {
+            path,
+            reset,
+            coverage_reports,
+            format,
+        } => Ok(Command::Ratchet(RatchetCommand::Update {
+            folder: existing_folder(current_folder, path)?,
+            reset,
+            coverage_reports,
+            format,
+            plugin_host: plugin_host_config_of_this_process(current_folder),
         })),
     }
 }

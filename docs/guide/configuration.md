@@ -1,14 +1,14 @@
-# Configuration (`codeint.jsonc` / `codeint.json`)
+# Configuration (`codeint.jsonc`, `codeint.json`, or `.codeint/config.*`)
 
-codeint reads `codeint.jsonc` or `codeint.json` from the root of your Git repository.
-Both files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
-Keep only one of `codeint.jsonc` or `codeint.json` at the repository root; having both files present stops the run with exit code `2`.
-Without either file, codeint measures every supported language with default settings and no hard Budgets.
+codeint reads `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` from the root of your Git repository.
+All four files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
+Keep only one configuration file across those four paths; having more than one present stops the run with exit code `2` and lists every conflicting file.
+Without any configuration file, codeint measures every supported language with default settings and no hard Budgets.
 
 ## Starter configuration
 
 Run `codeint init` to generate a starter `codeint.jsonc` with a versioned `$schema` URL for editor autocomplete.
-`codeint init` never replaces an existing `codeint.json` or `codeint.jsonc`.
+`codeint init` never replaces an existing configuration file at `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc`.
 When built-in Language plugins discover two or more Workspace packages, `codeint init` appends commented-out starter `boundaries.zones` entries for each package.
 In a single-package repository whose Production source folders match at least two zones of the `layered` or `hexagonal` preset, `codeint init` appends a commented-out `boundaries.preset` suggestion.
 In flat or custom repositories without those signals, `codeint init` emits no guessed boundary zones.
@@ -81,6 +81,11 @@ If your config file pins an official `$schema` tag newer than the running binary
   "packages": {
     "packages/legacy": { "framework_profiles": false },
   },
+
+  // Optional custom path for the Ratchet file (defaults to .codeint/ratchet.json)
+  "ratchet": {
+    "path": ".codeint/ratchet.json",
+  },
   // Optional shingle-based near-clone detection
   "duplication": {
     "near_clones": true,
@@ -150,6 +155,8 @@ If your config file pins an official `$schema` tag newer than the running binary
   See [Hazards](./hazards.md).
 - **`framework_profiles`** and **`packages`**: control Framework profile detection globally (`false`, `true`, `["react"]`, `{"only": [...]}`, or `{"exclude": [...]}`) and per Workspace package under `packages.<path>.framework_profiles`.
   Unknown profile names fail fast with exit code `2`.
+- **`ratchet`**: configure `ratchet.path` (repository-relative, no `..`, defaults to `.codeint/ratchet.json`) for the Ratchet file managed by `codeint ratchet update` and enforced automatically in whole-repository `codeint check` and `codeint diff` runs ([ADR 0026](../adr/0026-regression-and-ratchet.md)).
+  `--package` runs skip Ratchet enforcement with a `ratchet_note`, and Metric version mismatches fail with exit code `2` naming `codeint ratchet update`.
 - **`coverage_reports`**: repository-relative paths to LCOV or Cobertura XML Coverage reports used to compute **Test gap**; overridden when `--coverage-report` is passed on `codeint check`.
   See [Test gap](./test-gap.md).
 - **`boundaries`**: architectural import zones, optional `preset` (`layered` or `hexagonal`), `public_files` encapsulation, directional internal `allow` or `deny` rules, external package `allow_external` or `deny_external` globs with optional `reason`, `strict_zones`, and `source_sets` (default `["production"]`).

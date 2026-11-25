@@ -2780,7 +2780,7 @@ fn an_unknown_key_in_codeint_json_is_named_with_the_allowed_keys_and_exits_2() {
 fn an_unknown_top_level_key_in_codeint_json_is_named_and_exits_2() {
     assert_codeint_json_is_rejected(
         r#"{ "budget": {} }"#,
-        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards, framework_profiles, packages",
+        "codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards, framework_profiles, packages, ratchet",
         UNKNOWN_KEY_REMEDY,
     );
 }
@@ -2904,8 +2904,8 @@ fn having_both_codeint_json_and_codeint_jsonc_exits_2_with_clear_message() {
 
     assert_operational_error(
         &output,
-        "codeint: both codeint.json and codeint.jsonc exist at the repository root; keep only one\n\
-         Remove either codeint.json or codeint.jsonc so only one configuration file exists at the repository root.\n",
+        "codeint: multiple configuration files exist (codeint.json, codeint.jsonc); keep only one\n\
+         Keep only one configuration file among codeint.json, codeint.jsonc, .codeint/config.json, and .codeint/config.jsonc, and remove the others.\n",
     );
 }
 

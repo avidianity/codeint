@@ -56,7 +56,7 @@ pub(crate) fn diff(
         selected.as_ref().map(|pkg| pkg.as_str()),
     );
     let base_measurement = base_measurer.measure_selected_package(merge_base, selected.as_ref())?;
-    Ok(DiffReport::compare_with_options(
+    let mut report = DiffReport::compare_with_options(
         BaseCommit {
             git_ref: refs.base.to_owned(),
             merge_base: merge_base.to_string(),
@@ -73,7 +73,16 @@ pub(crate) fn diff(
             ownership: run.ownership(),
             include_test_gap_note: !run.context.configuration.coverage_reports.is_empty(),
         },
-    ))
+    );
+    crate::ratchet::enforce_if_present(
+        run.context.repository.root(),
+        &run.context.configuration.ratchet.path,
+        package.is_some(),
+        &mut report,
+        DiffReport::set_ratchet_note,
+        DiffReport::apply_ratchet,
+    )?;
+    Ok(report)
 }
 
 fn measure_head(
