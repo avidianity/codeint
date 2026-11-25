@@ -3,6 +3,7 @@
 mod builtins;
 mod dependencies;
 mod entry_points;
+mod frameworks;
 mod functions;
 mod imports;
 mod lexer;
@@ -14,15 +15,16 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    Token, TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token, TokenKind,
+    WorkspaceError,
 };
 use codeint_model::token_text_hash;
 
 use crate::dependencies::extract_declared;
 use crate::entry_points::extract as extract_entry_points;
 use crate::lexer::{RawKind, RawToken};
-use crate::resolution::{manifest_paths as find_manifest_paths, resolve_batch};
+use crate::resolution::{manifest_paths as find_manifest_paths, resolve_batch_with_profiles};
 
 pub use rules::flagged_line_rules;
 
@@ -52,7 +54,18 @@ fn classify_token(raw: &RawToken, is_import: bool) -> TokenKind {
 }
 
 impl Guest for Php {
-    codeint_model::empty_framework_profile_guest_methods!();
+    fn known_framework_profiles() -> Vec<String> {
+        frameworks::known_profiles()
+    }
+
+    fn resolve_framework_profiles(
+        package_root: String,
+        files: Vec<String>,
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, String> {
+        frameworks::resolve_framework_profiles(&package_root, &files, &manifests, selection)
+    }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         codeint_model::scan::build_reference_ranges(
@@ -104,9 +117,9 @@ impl Guest for Php {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
-        resolve_batch(&repository_paths, &manifests, &requests)
+        resolve_batch_with_profiles(&repository_paths, &manifests, &requests, &active_profiles)
     }
 
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
