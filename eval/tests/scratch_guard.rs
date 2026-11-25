@@ -5,18 +5,14 @@ use tempfile::TempDir;
 
 const GUARD_MESSAGE: &str = "inside the codeint repository";
 
-fn git(folder: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .args(args)
-        .current_dir(folder)
-        .status()
-        .expect("run git");
-    assert!(status.success(), "git {args:?}");
-}
-
 fn repository_with_manifest() -> TempDir {
     let repository = TempDir::new().expect("repository folder");
-    git(repository.path(), &["init", "--quiet"]);
+    let init = Command::new("git")
+        .args(["init", "--quiet"])
+        .arg(repository.path())
+        .output()
+        .expect("run git init");
+    assert!(init.status.success(), "{init:?}");
     std::fs::create_dir_all(repository.path().join("eval/scratch")).expect("scratch folder");
     let corpus = serde_json::json!({
         "measured_on": "2026-11-25",
