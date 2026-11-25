@@ -35,7 +35,11 @@ pub use metric::{
 pub use runtime_imports::{
     ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,
 };
-pub use source_set::settle_source_set;
+pub use source_set::{
+    STANDARD_GENERATED_MARKERS, contains_ascii_ignore_case, has_any_ascii_marker, has_folder_named,
+    has_generated_header_marker, has_generated_header_marker_with_extra, path_file_name,
+    settle_source_set,
+};
 pub use workspace::{Package, Workspace, WorkspaceError};
 
 pub fn token_text_hash(text: &str) -> u64 {
@@ -102,7 +106,7 @@ impl RepoPath {
     }
 
     pub fn file_name(&self) -> &str {
-        self.0.rsplit('/').next().unwrap_or(&self.0)
+        path_file_name(&self.0)
     }
 
     pub fn extension(&self) -> Option<&str> {

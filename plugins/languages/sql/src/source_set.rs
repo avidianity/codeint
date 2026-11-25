@@ -1,4 +1,4 @@
-use codeint_model::{RepoPath, SourceSet};
+use codeint_model::{RepoPath, SourceSet, contains_ascii_ignore_case, has_folder_named};
 
 use crate::SqlDialect;
 
@@ -53,11 +53,10 @@ fn has_generated_header(source: &str) -> bool {
         if !trimmed.starts_with("--") {
             continue;
         }
-        let lower = trimmed.to_ascii_lowercase();
-        if lower.contains("code generated") {
+        if contains_ascii_ignore_case(trimmed, "code generated") {
             saw_code_generated = true;
         }
-        if lower.contains("do not edit") {
+        if contains_ascii_ignore_case(trimmed, "do not edit") {
             saw_do_not_edit = true;
         }
         if saw_code_generated && saw_do_not_edit {
@@ -78,30 +77,20 @@ fn has_migration_marker(source: &str) -> bool {
 }
 
 fn is_generated_migration_folder(path: &RepoPath) -> bool {
+    if has_folder_named(path.as_str(), &["drizzle"]) {
+        return true;
+    }
     let Some((parent, _)) = path.as_str().rsplit_once('/') else {
         return false;
     };
     let segments: Vec<&str> = parent.split('/').collect();
-    let has_drizzle = segments.contains(&"drizzle");
-    let has_prisma_migrations = segments
+    segments
         .windows(2)
-        .any(|pair| pair == ["prisma", "migrations"]);
-    has_drizzle || has_prisma_migrations
+        .any(|pair| pair == ["prisma", "migrations"])
 }
 
 fn is_test_path(path: &RepoPath) -> bool {
-    let raw = path.as_str();
-    let (parent, file_name) = match raw.rsplit_once('/') {
-        Some((dir, name)) => (Some(dir), name),
-        None => (None, raw),
-    };
-    if is_test_file_name(file_name) {
-        return true;
-    }
-    parent.is_some_and(|dir| {
-        dir.split('/')
-            .any(|segment| TEST_FOLDER_NAMES.contains(&segment))
-    })
+    is_test_file_name(path.file_name()) || has_folder_named(path.as_str(), TEST_FOLDER_NAMES)
 }
 
 fn is_test_file_name(file_name: &str) -> bool {

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use codeint_model::has_folder_named;
 use codeint_model::language::Manifest;
 
 use crate::go_mod::{is_go_mod_path, manifest_dir, parse};
@@ -49,8 +50,5 @@ fn has_internal_segment_from_root(path: &str, mod_root: &str) -> bool {
             .and_then(|rest| rest.strip_prefix('/'))
             .unwrap_or(path)
     };
-    let Some((rel_dir, _)) = rel.rsplit_once('/') else {
-        return false;
-    };
-    rel_dir.split('/').any(|segment| segment == "internal")
+    has_folder_named(rel, &["internal"])
 }
