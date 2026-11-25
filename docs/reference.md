@@ -114,6 +114,11 @@ It sets every key to its default, and lists under `languages` each top-level fol
 
 When no file belongs to a Language plugin, the file leaves `languages` out, so every Language plugin measures the whole repository.
 When `sql` files are detected, `codeint init` adds a commented `sql.dialects` hint to the starter file.
+`codeint init` also adds a commented-out Import boundary starter block only when high-confidence signals exist:
+when built-in Language plugins discover two or more Workspace packages, it suggests commented-out `boundaries.zones` entries for each Workspace package;
+in a single-package repository whose Production source files match at least two zones of the `layered` or `hexagonal` preset, it suggests the matching commented-out `boundaries.preset`;
+in a flat or custom layout without those signals, it emits no boundary suggestions.
+Because the suggested block stays commented out, `codeint check` and `codeint config` pass cleanly immediately after `codeint init`.
 `codeint init` never replaces an existing `codeint.jsonc` or `codeint.json`.
 With this `codeint.json` in place:
 

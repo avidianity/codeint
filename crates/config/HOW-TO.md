@@ -136,19 +136,20 @@ for declaration in &configuration.plugins {
 ## Write a starter codeint.jsonc
 
 ```rust
-use codeint_config::{DetectedLanguage, write_starter_configuration};
+use codeint_config::{DetectedLanguage, StarterBoundaries, write_starter_configuration};
 
 let languages = vec![DetectedLanguage {
     plugin: "typescript-javascript".to_owned(),
     include: vec![RepoPath::new("packages")?],
 }];
-let written = write_starter_configuration(tree.root(), &languages)?;
+let written = write_starter_configuration(tree.root(), &languages, None)?;
 ```
 
 - Pass the root of the working tree; the file lands at `{root}/codeint.jsonc`.
 - It fails with `StarterConfigurationError::AlreadyExists` when either `codeint.json` or `codeint.jsonc` already exists, and never replaces it.
 - `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
 - An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.
+- Pass `Some(&StarterBoundaries::WorkspaceZones(...))` (from `StarterBoundaries::from_workspace_packages`) or `Some(&StarterBoundaries::Preset(...))` (from `BoundaryPreset::detect`) to append commented-out starter `boundaries` hints that keep `boundaries` inactive until uncommented.
 - The `$schema` value is `published_schema_address()`: the raw GitHub address of `schema/codeint.schema.json` at the tag `v{version}` of the running codeint.
 
 ## Find the result cache folder

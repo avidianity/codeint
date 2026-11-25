@@ -24,7 +24,8 @@ npx codeint check
 
 ## First measurements inside a Git repository
 
-1. Create a starter `codeint.jsonc` pinned to your installed version's JSON schema (never overwriting an existing `codeint.json` or `codeint.jsonc`):
+1. Create a starter `codeint.jsonc` pinned to your installed version's JSON schema (never overwriting an existing `codeint.json` or `codeint.jsonc`).
+   When codeint finds two or more Workspace packages, or a single-package repository matching at least two zones of the `layered` or `hexagonal` preset, it includes a commented-out `boundaries` starter suggestion that stays inactive until you uncomment it:
 
    ```sh
    codeint init
