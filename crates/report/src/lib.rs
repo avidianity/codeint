@@ -3,8 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{
-    Boundaries as BoundariesConfig, Budgets, DependenciesConfig, DuplicationConfig, FindingsShown,
-    MeasuredRatchetMetric, Ratchet, RatchetVersionMismatch, ReportFormat,
+    Baseline, Boundaries as BoundariesConfig, Budgets, DependenciesConfig, DuplicationConfig,
+    FindingsShown, MeasuredBaselineMetric, MeasuredRatchetMetric, Ratchet, RatchetVersionMismatch,
+    ReportFormat,
 };
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
@@ -37,6 +38,9 @@ macro_rules! crate_structs {
 }
 
 mod agent;
+mod baseline;
+mod baseline_listing;
+mod baseline_rows;
 mod churn;
 mod config;
 mod coupling;
@@ -67,6 +71,7 @@ mod trend;
 pub use agent::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
 };
+pub use baseline_listing::render_baseline_update;
 pub use churn::{ChurnHistoryInput, ChurnReport};
 pub use codeint_metrics::TraceError;
 pub use config::ConfigReport;
@@ -86,6 +91,7 @@ pub use schema::{ExitCodeSchema, LanguageSchema, McpToolSchema, MetricSchema, Sc
 pub use trace::{TraceMultiFileImport, TraceReport};
 pub use trend::{TrendPoint, TrendReport};
 
+pub(crate) use baseline::{BudgetedRatio, ReportBaseline};
 pub(crate) use dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 pub(crate) use findings::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
@@ -112,6 +118,8 @@ pub struct Report {
     coverage_unmatched_note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ratchet_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    baseline: Option<ReportBaseline>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     languages: BTreeMap<String, MeasuredSection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -137,62 +145,77 @@ pub struct BudgetFailure {
     metric: String,
     ratio: Decimal,
     budget: f64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    non_baselined: bool,
 }
 
 impl std::fmt::Display for BudgetFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.source_set.as_deref() {
-            Some(source_set) => write!(
-                formatter,
-                "the {source_set} {} ratio {} is over its Budget {}",
-                self.metric, self.ratio.0, self.budget
-            ),
-            None => write!(
-                formatter,
-                "the {} ratio {} is over its Budget {}",
-                self.metric, self.ratio.0, self.budget
-            ),
-        }
+        let scope = if self.non_baselined {
+            "the non-baselined"
+        } else {
+            "the"
+        };
+        let source_set = self
+            .source_set
+            .as_deref()
+            .map(|source_set| format!(" {source_set}"))
+            .unwrap_or_default();
+        write!(
+            formatter,
+            "{scope}{source_set} {} ratio {} is over its Budget {}",
+            self.metric, self.ratio.0, self.budget
+        )
     }
 }
 
-pub(crate) fn over_budget<'a>(
+impl BudgetFailure {
+    fn exceeding(
+        source_set: Option<SourceSet>,
+        metric: &str,
+        measured: BudgetedRatio,
+        budget: codeint_config::Budget,
+    ) -> Option<BudgetFailure> {
+        (!budget.admits(measured.ratio)).then(|| BudgetFailure {
+            source_set: source_set.map(|source_set| source_set.key().to_owned()),
+            metric: metric.to_owned(),
+            ratio: Decimal(measured.ratio),
+            budget: budget.ratio(),
+            non_baselined: measured.non_baselined,
+        })
+    }
+}
+
+pub(crate) fn over_budget<'a, R: Into<BudgetedRatio>>(
     budgets: &Budgets,
-    displayed_ratios: impl Iterator<Item = (SourceSet, &'a str, f64)>,
+    displayed_ratios: impl Iterator<Item = (SourceSet, &'a str, R)>,
 ) -> Vec<BudgetFailure> {
     displayed_ratios
         .filter_map(|(source_set, metric, ratio)| {
             let budget = budgets.budget_for_key(source_set, metric)?;
-            (!budget.admits(ratio)).then(|| BudgetFailure {
-                source_set: Some(source_set.key().to_owned()),
-                metric: metric.to_owned(),
-                ratio: Decimal(ratio),
-                budget: budget.ratio(),
-            })
+            BudgetFailure::exceeding(Some(source_set), metric, ratio.into(), budget)
         })
         .collect()
 }
 
 pub(crate) fn dependency_over_budget(
     budgets: &Budgets,
-    unused: f64,
-    unlisted: f64,
-    dev_in_production: f64,
+    unused: impl Into<BudgetedRatio>,
+    unlisted: impl Into<BudgetedRatio>,
+    dev_in_production: impl Into<BudgetedRatio>,
 ) -> Vec<BudgetFailure> {
     [
-        (Metric::UnusedDependencies, unused),
-        (Metric::UnlistedDependencies, unlisted),
-        (Metric::DevInProductionDependencies, dev_in_production),
+        (Metric::UnusedDependencies, unused.into()),
+        (Metric::UnlistedDependencies, unlisted.into()),
+        (
+            Metric::DevInProductionDependencies,
+            dev_in_production.into(),
+        ),
     ]
     .into_iter()
     .filter_map(|(metric, ratio)| {
         let budget = budgets.dependency_budget(metric.key())?;
-        (!budget.admits(ratio)).then(|| BudgetFailure {
-            source_set: None,
-            metric: metric.key().to_owned(),
-            ratio: Decimal(ratio),
-            budget: budget.ratio(),
-        })
+        BudgetFailure::exceeding(None, metric.key(), ratio, budget)
     })
     .collect()
 }
@@ -201,9 +224,15 @@ impl DependenciesSection {
     fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
         dependency_over_budget(
             budgets,
-            self.unused_dependencies.header.ratio.0,
-            self.unlisted_dependencies.header.ratio.0,
-            self.dev_in_production_dependencies.header.ratio.0,
+            self.unused_dependencies
+                .findings
+                .budgeted(self.unused_dependencies.header.ratio),
+            self.unlisted_dependencies
+                .findings
+                .budgeted(self.unlisted_dependencies.header.ratio),
+            self.dev_in_production_dependencies
+                .findings
+                .budgeted(self.dev_in_production_dependencies.header.ratio),
         )
     }
 }
@@ -217,22 +246,34 @@ impl SourceSetSections {
                     (
                         source_set,
                         Metric::Erosion.key(),
-                        section.erosion.header.ratio.0,
+                        section
+                            .erosion
+                            .findings
+                            .budgeted(section.erosion.header.ratio),
                     ),
                     (
                         source_set,
                         Metric::CognitiveComplexity.key(),
-                        section.cognitive_complexity.header.ratio.0,
+                        section
+                            .cognitive_complexity
+                            .findings
+                            .budgeted(section.cognitive_complexity.header.ratio),
                     ),
                     (
                         source_set,
                         Metric::Duplication.key(),
-                        section.duplication.header.ratio.0,
+                        section
+                            .duplication
+                            .clone_groups
+                            .budgeted(section.duplication.header.ratio),
                     ),
                     (
                         source_set,
                         Metric::Verbosity.key(),
-                        section.verbosity.header.ratio.0,
+                        section
+                            .verbosity
+                            .findings
+                            .budgeted(section.verbosity.header.ratio),
                     ),
                 ]
                 .into_iter()
@@ -240,34 +281,46 @@ impl SourceSetSections {
                     (
                         source_set,
                         Metric::ImportCycles.key(),
-                        import_cycles.header.ratio.0,
+                        import_cycles.findings.budgeted(import_cycles.header.ratio),
                     )
                 }))
                 .chain(section.boundaries.iter().map(move |boundaries| {
                     (
                         source_set,
                         Metric::Boundaries.key(),
-                        boundaries.header.ratio.0,
+                        boundaries.findings.budgeted(boundaries.header.ratio),
                     )
                 }))
                 .chain(section.orphan_files.iter().map(move |orphans| {
                     (
                         source_set,
                         Metric::OrphanFiles.key(),
-                        orphans.header.ratio.0,
+                        orphans.findings.budgeted(orphans.header.ratio),
                     )
                 }))
                 .chain(section.test_gap.iter().map(move |test_gap| {
-                    (source_set, Metric::TestGap.key(), test_gap.header.ratio.0)
+                    (
+                        source_set,
+                        Metric::TestGap.key(),
+                        test_gap.findings.budgeted(test_gap.header.ratio),
+                    )
                 }))
                 .chain(section.hazards.iter().map(move |hazards| {
-                    (source_set, Metric::Hazards.key(), hazards.header.ratio.0)
+                    (
+                        source_set,
+                        Metric::Hazards.key(),
+                        hazards.findings.budgeted(hazards.header.ratio),
+                    )
                 }))
-                .chain(
-                    section.external_metrics.iter().map(move |(key, metric)| {
-                        (source_set, key.as_str(), metric.header.ratio.0)
-                    }),
-                )
+                .chain(section.external_metrics.iter().map(
+                    move |(key, metric)| {
+                        (
+                            source_set,
+                            key.as_str(),
+                            metric.findings.budgeted(metric.header.ratio),
+                        )
+                    },
+                ))
             }),
         )
     }
@@ -323,6 +376,7 @@ pub struct ReportOptions<'a> {
     pub ownership: OwnershipOptions<'a>,
     pub coverage_reports_named: bool,
     pub unmatched_coverage_paths: &'a [String],
+    pub baseline: Option<&'a Baseline>,
 }
 
 impl<'a> ReportOptions<'a> {
@@ -347,6 +401,7 @@ impl<'a> ReportOptions<'a> {
             ownership: OwnershipOptions::default(),
             coverage_reports_named: false,
             unmatched_coverage_paths: &[],
+            baseline: None,
         }
     }
 
@@ -515,6 +570,7 @@ impl Report {
             framework_profiles: &top_framework_profiles,
             framework_profiles_by_package: &top_framework_profiles_by_package,
             reference_range_note: top_reference_range_note.as_deref(),
+            baseline: options.baseline,
         };
         let (total_ranges, sections_per_language) =
             build_per_language_sections(&measured, &options, ignored, section_options)?;
@@ -548,7 +604,11 @@ impl Report {
         if let Some(dependencies) = &measured.dependencies {
             failures.extend(dependencies.over_budget(options.budgets));
         }
+        let baseline = options
+            .baseline
+            .map(|_| ReportBaseline::new(measured.hidden_by_baseline()));
         Ok(Report {
+            baseline,
             over_budget: failures,
             over_ratchet: Vec::new(),
             skipped,
@@ -597,6 +657,10 @@ impl Report {
 
     pub fn set_ratchet_note(&mut self, note: impl Into<String>) {
         self.ratchet_note = Some(note.into());
+    }
+
+    pub fn baseline_metrics(&self) -> Vec<MeasuredBaselineMetric> {
+        self.measured.baseline_metrics()
     }
 
     pub fn ratchet_metrics(&self) -> Vec<MeasuredRatchetMetric> {

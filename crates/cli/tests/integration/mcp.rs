@@ -3,7 +3,9 @@ use std::process::Command;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-use crate::common::{init_git_repo, mcp_payload, mcp_tool_call, send_mcp_requests};
+use crate::common::{
+    eroded_ts, init_git_repo, mcp_payload, mcp_tool_call, run_codeint_text, send_mcp_requests,
+};
 
 fn init_sample_repo() -> TempDir {
     init_git_repo(&[(
@@ -385,4 +387,54 @@ fn mcp_churn_and_coupling_reject_non_object_arguments_and_wrong_types() {
     assert_tool_err_contains(&responses[6], "include_tests");
     assert_tool_err_contains(&responses[7], "all");
     assert_tool_err_contains(&responses[8], "path");
+}
+
+#[test]
+fn mcp_check_tool_bypasses_the_baseline_with_ignore_baseline() {
+    let repo = init_git_repo(&[
+        (
+            "codeint.json",
+            r#"{ "budgets": { "production": { "erosion": 0 } } }"#,
+        ),
+        ("src/legacy.ts", &eroded_ts("legacy", 12)),
+    ]);
+    run_codeint_text(repo.path(), &["baseline", "update"], 0);
+
+    let baseline_path = repo.path().join(".codeint/baseline.json");
+    let mut stale: Value =
+        serde_json::from_str(&std::fs::read_to_string(&baseline_path).unwrap()).unwrap();
+    stale["source_sets"]["production"]["erosion"]["metric_version"] = json!(99);
+    std::fs::write(&baseline_path, stale.to_string()).unwrap();
+
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            mcp_tool_call(1, "check", json!({})),
+            mcp_tool_call(2, "check", json!({"ignore_baseline": true})),
+            mcp_tool_call(3, "check", json!({"ignore_baseline": "yes"})),
+        ],
+    );
+    assert_tool_err_contains(&responses[0], "ignore_baseline");
+    let stale_text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        !stale_text.contains("--ignore-baseline"),
+        "err: {stale_text}"
+    );
+
+    let bypassed = mcp_payload(&responses[1]);
+    assert_eq!(bypassed["passed"], false);
+    assert!(bypassed["report"].get("baseline").is_none());
+    assert_tool_err_contains(&responses[2], "ignore_baseline");
+
+    let tools = send_mcp_requests(
+        repo.path(),
+        &[json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})],
+    );
+    let check = &tools[0]["result"]["tools"][0];
+    assert_eq!(
+        check["inputSchema"]["properties"]["ignore_baseline"]["type"],
+        "boolean"
+    );
 }

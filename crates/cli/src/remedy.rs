@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use codeint_config::{
-    CodeownersError, ConfigError, ConfigFileKind, ConfigurationFileError, RatchetFileError,
-    StarterConfigurationError,
+    CodeownersError, ConfigError, ConfigFileKind, ConfigurationFileError, RepoStateFile,
+    StarterConfigurationError, StateFileError,
 };
 use codeint_git::GitError;
 use codeint_metrics::ImpactError;
@@ -35,6 +35,15 @@ pub(crate) fn remedy(error: &CliError) -> Cow<'static, str> {
     }
 }
 
+pub(crate) fn mcp_remedy(error: &CliError) -> Cow<'static, str> {
+    match error {
+        CliError::Check(CheckError::BaselineVersionMismatch { .. }) => Cow::Borrowed(
+            "Run codeint baseline update to refresh the Baseline for the updated Metric versions, or pass ignore_baseline: true to show every Finding.",
+        ),
+        other => remedy(other),
+    }
+}
+
 fn tooling_remedy(error: &CliError) -> Cow<'static, str> {
     use CliError::*;
     match error {
@@ -59,34 +68,44 @@ fn tooling_remedy(error: &CliError) -> Cow<'static, str> {
 fn ratchet_remedy(error: &RatchetError) -> Cow<'static, str> {
     match error {
         RatchetError::Check(error) => check_remedy(error),
-        RatchetError::RatchetFile(error) => Cow::Borrowed(ratchet_file_remedy(error)),
+        RatchetError::RatchetFile(error) => state_file_remedy(error),
         RatchetError::LooseningRefused { .. } => Cow::Borrowed(
             "Fix the regressed Metrics, or run codeint ratchet update --reset to intentionally loosen unchanged-version Ratchet ceilings.",
         ),
     }
 }
 
-fn ratchet_file_remedy(error: &RatchetFileError) -> &'static str {
+fn state_file_remedy(error: &StateFileError) -> Cow<'static, str> {
+    let file = error.state_file();
+    let command = match file {
+        RepoStateFile::Ratchet => "codeint ratchet update",
+        RepoStateFile::Baseline => "codeint baseline update",
+    };
     match error {
-        RatchetFileError::OutsideRepository { .. } => {
-            "Configure ratchet.path to a repository-relative path without \"..\" or symlinks escaping the repository."
-        }
-        RatchetFileError::BrokenSymlink { .. } => {
-            "Point the Ratchet symlink to an existing file inside the repository, or remove it and run codeint ratchet update."
-        }
-        RatchetFileError::Unreadable { .. } => {
-            "Check that the Ratchet file is readable, then run codeint again."
-        }
-        RatchetFileError::InvalidJson { .. }
-        | RatchetFileError::UnsupportedSchemaVersion { .. }
-        | RatchetFileError::InvalidCeiling { .. }
-        | RatchetFileError::InvalidMetricVersion { .. }
-        | RatchetFileError::UnknownDependencyMetric { .. } => {
-            "Fix the Ratchet file syntax and values, or regenerate it with codeint ratchet update --reset."
-        }
-        RatchetFileError::Write { .. } => {
-            "Check that you have permission to create and write the Ratchet file inside the repository, then retry."
-        }
+        StateFileError::OutsideRepository { .. } => Cow::Borrowed(match file {
+            RepoStateFile::Ratchet => {
+                "Configure ratchet.path to a repository-relative path without \"..\" or symlinks escaping the repository."
+            }
+            RepoStateFile::Baseline => {
+                "Make .codeint/baseline.json a regular file inside the repository, not a symbolic link that leaves it."
+            }
+        }),
+        StateFileError::BrokenSymlink { .. } => Cow::Owned(format!(
+            "Point the {file} symlink to an existing file inside the repository, or remove it and run {command}."
+        )),
+        StateFileError::Unreadable { .. } => Cow::Owned(format!(
+            "Check that the {file} file is readable, then run codeint again."
+        )),
+        StateFileError::InvalidJson { .. }
+        | StateFileError::UnsupportedSchemaVersion { .. }
+        | StateFileError::InvalidCeiling { .. }
+        | StateFileError::InvalidMetricVersion { .. }
+        | StateFileError::UnknownDependencyMetric { .. } => Cow::Owned(format!(
+            "Fix the {file} file syntax and values, or regenerate it with {command} --reset."
+        )),
+        StateFileError::Write { .. } => Cow::Owned(format!(
+            "Check that you have permission to create and write the {file} file inside the repository, then retry."
+        )),
     }
 }
 
@@ -104,8 +123,8 @@ fn trace_remedy(error: &TraceCommandError) -> Cow<'static, str> {
 }
 
 fn check_remedy(error: &CheckError) -> Cow<'static, str> {
-    if let Some(remedy) = coverage_or_ratchet_check_remedy(error) {
-        return Cow::Borrowed(remedy);
+    if let Some(remedy) = repository_state_or_coverage_remedy(error) {
+        return remedy;
     }
     match error {
         CheckError::ExtensionConflict { config_file, .. } => Cow::Owned(format!(
@@ -128,13 +147,16 @@ fn check_remedy(error: &CheckError) -> Cow<'static, str> {
     }
 }
 
-fn coverage_or_ratchet_check_remedy(error: &CheckError) -> Option<&'static str> {
+fn repository_state_or_coverage_remedy(error: &CheckError) -> Option<Cow<'static, str>> {
     match error {
-        CheckError::RatchetFile(error) => Some(ratchet_file_remedy(error)),
-        CheckError::RatchetVersionMismatch { .. } => Some(
+        CheckError::StateFile(error) => Some(state_file_remedy(error)),
+        CheckError::RatchetVersionMismatch { .. } => Some(Cow::Borrowed(
             "Run codeint ratchet update to re-baseline the Ratchet file for the updated Metric versions.",
-        ),
-        other => coverage_check_remedy(other),
+        )),
+        CheckError::BaselineVersionMismatch { .. } => Some(Cow::Borrowed(
+            "Run codeint baseline update to refresh the Baseline for the updated Metric versions, or pass --ignore-baseline to show every Finding.",
+        )),
+        other => coverage_check_remedy(other).map(Cow::Borrowed),
     }
 }
 
@@ -185,8 +207,9 @@ fn check_plugin_remedy(error: &CheckError) -> Cow<'static, str> {
         | CheckError::TestGapBudgetWithoutCoverage { .. }
         | CheckError::SqlDialectConflict { .. }
         | CheckError::UnknownHazardRule { .. }
-        | CheckError::RatchetFile(_)
+        | CheckError::StateFile(_)
         | CheckError::RatchetVersionMismatch { .. }
+        | CheckError::BaselineVersionMismatch { .. }
         | CheckError::Git(_)
         | CheckError::Configuration(_)
         | CheckError::Codeowners(_)

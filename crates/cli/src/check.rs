@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use codeint_config::{
-    Codeowners, ConfigFileKind, Configuration, DependenciesConfig, EntryPoints, FindingsShown,
-    LanguageCoverage, OwnerFilter, PluginHostConfig, read_configuration,
+    Baseline, Codeowners, ConfigFileKind, Configuration, DependenciesConfig, EntryPoints,
+    FindingsShown, LanguageCoverage, OwnerFilter, PluginHostConfig, read_configuration,
 };
 use codeint_git::{Repository, Snapshot};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
@@ -194,17 +194,27 @@ impl PreparedRun {
     }
 }
 
+pub(crate) struct CheckScope<'a> {
+    pub(crate) findings: FindingsShown,
+    pub(crate) package: Option<&'a str>,
+    pub(crate) owner: Option<&'a str>,
+    pub(crate) coverage_reports: &'a [PathBuf],
+    pub(crate) ignore_baseline: bool,
+}
+
 pub(crate) fn check(
     folder: &Path,
-    findings: FindingsShown,
-    package: Option<&str>,
-    owner: Option<&str>,
-    coverage_reports: &[PathBuf],
+    scope: CheckScope<'_>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Report, CheckError> {
-    let run = PreparedRun::load(folder, owner, plugin_host)?;
+    let run = PreparedRun::load(folder, scope.owner, plugin_host)?;
     let plugins = run.context.plugins.as_named();
     let metric_plugins = run.context.plugins.metric_plugins();
+    let baseline = if scope.ignore_baseline {
+        None
+    } else {
+        Baseline::load_optional(run.context.repository.root())?
+    };
     check_loaded(
         &run.context.repository,
         &run.context.configuration,
@@ -212,10 +222,11 @@ pub(crate) fn check(
         &metric_plugins,
         CheckRequest {
             folder,
-            findings,
-            package,
-            cli_coverage_reports: coverage_reports,
+            findings: scope.findings,
+            package: scope.package,
+            cli_coverage_reports: scope.coverage_reports,
             ownership: run.ownership(),
+            baseline: baseline.as_ref(),
         },
     )
 }
@@ -242,6 +253,7 @@ fn check_with(
             package: None,
             cli_coverage_reports: &[],
             ownership: OwnershipOptions::default(),
+            baseline: None,
         },
     )
 }
@@ -252,6 +264,7 @@ struct CheckRequest<'a> {
     package: Option<&'a str>,
     cli_coverage_reports: &'a [PathBuf],
     ownership: OwnershipOptions<'a>,
+    baseline: Option<&'a Baseline>,
 }
 
 pub(crate) struct MeasuredSnapshot {
@@ -333,7 +346,7 @@ pub(crate) fn compute_dependency_hygiene(
     (total, by_language)
 }
 
-pub(crate) fn measure_whole_repo_for_ratchet(
+pub(crate) fn measure_whole_repo(
     context: &WorkspaceContext,
     folder: &Path,
     coverage_reports: &[PathBuf],
@@ -347,10 +360,11 @@ pub(crate) fn measure_whole_repo_for_ratchet(
         &metric_plugins,
         CheckRequest {
             folder,
-            findings: FindingsShown::default(),
+            findings: FindingsShown::All,
             package: None,
             cli_coverage_reports: coverage_reports,
             ownership: OwnershipOptions::default(),
+            baseline: None,
         },
     )
 }
@@ -363,9 +377,11 @@ fn check_loaded(
     request: CheckRequest<'_>,
 ) -> Result<Report, CheckError> {
     let package_scoped = request.package.is_some();
+    let baseline = request.baseline;
     let mut report =
         measure_check_report(repository, configuration, plugins, metric_plugins, request)?;
     ensure_test_gap_budget_present(configuration, &report)?;
+    ensure_baseline_versions_match(baseline, &report)?;
     apply_ratchet_to_check_report(
         repository.root(),
         configuration,
@@ -373,6 +389,20 @@ fn check_loaded(
         &mut report,
     )?;
     Ok(report)
+}
+
+fn ensure_baseline_versions_match(
+    baseline: Option<&Baseline>,
+    report: &Report,
+) -> Result<(), CheckError> {
+    let mismatches = baseline
+        .map(|baseline| baseline.version_mismatches(&report.baseline_metrics()))
+        .unwrap_or_default();
+    if mismatches.is_empty() {
+        Ok(())
+    } else {
+        Err(CheckError::BaselineVersionMismatch { mismatches })
+    }
 }
 
 fn apply_ratchet_to_check_report(
@@ -437,6 +467,7 @@ fn measure_check_report(
             ownership: request.ownership,
             coverage_reports_named,
             unmatched_coverage_paths: &coverage_outcome.unmatched_paths,
+            baseline: request.baseline,
         },
         ReportExtras::default()
             .with_disabled_hazard_rules(configuration.hazards.disabled_rules_set())

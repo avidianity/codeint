@@ -1,8 +1,8 @@
 use std::fmt;
 
 use codeint_config::{
-    CodeownersError, ConfigFileKind, ConfigurationFileError, RatchetFileError,
-    RatchetVersionMismatch, SqlDialectConflict,
+    BASELINE_PATH, CodeownersError, ConfigFileKind, ConfigurationFileError, RatchetVersionMismatch,
+    SqlDialectConflict, StateFileError,
 };
 use codeint_git::GitError;
 use codeint_metrics::{CoverageApplyError, CoverageParseError};
@@ -103,13 +103,20 @@ pub(crate) enum CheckError {
         rule: String,
     },
     #[error(transparent)]
-    RatchetFile(#[from] RatchetFileError),
+    StateFile(#[from] StateFileError),
     #[error(
         "Ratchet file {path:?} has stale Metric versions: {}; run `codeint ratchet update` to re-baseline",
         format_ratchet_mismatches(mismatches)
     )]
     RatchetVersionMismatch {
         path: String,
+        mismatches: Vec<RatchetVersionMismatch>,
+    },
+    #[error(
+        "Baseline file {BASELINE_PATH:?} has stale Metric versions: {}; run `codeint baseline update` to re-baseline",
+        format_ratchet_mismatches(mismatches)
+    )]
+    BaselineVersionMismatch {
         mismatches: Vec<RatchetVersionMismatch>,
     },
 }

@@ -4,6 +4,7 @@ mod history_support;
 mod wasm_fixtures;
 
 mod agent;
+mod baseline;
 mod boundaries;
 mod churn;
 mod codeowners;
