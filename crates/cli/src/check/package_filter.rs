@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use codeint_model::{CodeModel, Package, RepoPath, Workspace};
 use codeint_report::MeasuredLanguage;
 
+use super::control_characters::escape_control_characters;
 use super::errors::CheckError;
-use super::manifests::escape_control_characters;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SelectedPackage {

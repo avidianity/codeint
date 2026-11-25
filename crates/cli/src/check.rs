@@ -20,6 +20,7 @@ use codeint_report::{
     ReportExtras, ReportOptions, SqlSchemaSummary,
 };
 
+mod control_characters;
 mod coverage;
 mod errors;
 mod frameworks;

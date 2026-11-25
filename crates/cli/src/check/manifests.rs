@@ -10,6 +10,7 @@ use codeint_model::{
 use codeint_plugin_host::NamedLanguagePlugin;
 use codeint_report::MeasuredLanguage;
 
+use super::control_characters::escape_control_characters;
 use super::errors::CheckError;
 use super::frameworks::{ResolvedLanguageProfiles, package_root_key};
 use super::package_filter::SelectedPackage;
@@ -63,18 +64,6 @@ fn skipped_manifest_warning(skipped: &SkippedManifest) -> String {
         "Skipped the invalid {} manifest {}: {}. Files under it count toward the surrounding Workspace package.",
         skipped.plugin, skipped.path, skipped.reason
     ))
-}
-
-pub(super) fn escape_control_characters(text: &str) -> String {
-    text.chars()
-        .flat_map(|character| {
-            if character.is_control() {
-                character.escape_debug().collect::<Vec<_>>()
-            } else {
-                vec![character]
-            }
-        })
-        .collect()
 }
 
 pub(crate) fn find_workspace(
