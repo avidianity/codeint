@@ -1,11 +1,10 @@
 use std::fs;
-use std::path::Path;
 
 use serde_json::{Value, json};
 
 use crate::common::{
     assert_doctor_counts_language_files, assert_import_metrics_absent, check_json_with_config,
-    finding_names, init_git_repo_with, run_check_json as check_json,
+    finding_names, init_git_repo_with, run_check_json as check_json, run_codeint_json as run_json,
     run_codeint_stdout as run_stdout, write_repo_files,
 };
 
@@ -126,12 +125,6 @@ fn shell_repo() -> tempfile::TempDir {
             ),
         ],
     )
-}
-
-fn run_json(dir: &Path, args: &[&str], expected_code: i32) -> Value {
-    let mut full = args.to_vec();
-    full.extend(["--format", "json"]);
-    serde_json::from_str(&run_stdout(dir, &full, expected_code)).expect("valid JSON output")
 }
 
 fn rules_at(findings: &Value, path: &str) -> Vec<(u64, String)> {

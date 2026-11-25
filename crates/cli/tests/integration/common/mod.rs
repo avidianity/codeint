@@ -184,6 +184,12 @@ pub(crate) fn run_codeint_stdout(dir: &Path, args: &[&str], expected_code: i32) 
     run_codeint_text(dir, args, expected_code).0
 }
 
+pub(crate) fn run_codeint_json(dir: &Path, args: &[&str], expected_code: i32) -> Value {
+    let mut full = args.to_vec();
+    full.extend(["--format", "json"]);
+    serde_json::from_str(&run_codeint_stdout(dir, &full, expected_code)).expect("valid JSON output")
+}
+
 pub(crate) fn init_git_repo_with(base: &[(&str, &str)], extra: &[(&str, &str)]) -> TempDir {
     let mut files = base.to_vec();
     files.extend_from_slice(extra);
