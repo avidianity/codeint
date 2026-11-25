@@ -239,6 +239,26 @@ fn a_trap_on_the_exclude_selection_fails_framework_profiles() {
 }
 
 #[test]
+fn a_framework_profile_entry_point_outside_the_repository_fails_framework_profiles() {
+    assert_fails(
+        "language",
+        "framework_entry_language_plugin.wasm",
+        &[],
+        "framework-profiles",
+    );
+}
+
+#[test]
+fn an_import_resolved_outside_the_repository_under_an_active_profile_fails_resolve_imports() {
+    assert_fails(
+        "language",
+        "profile_imports_language_plugin.wasm",
+        &[],
+        "resolve-imports",
+    );
+}
+
+#[test]
 fn per_function_findings_with_an_empty_id_fail_the_check() {
     assert_fails(
         "metric",

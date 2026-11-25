@@ -6,8 +6,8 @@ use codeint_model::language::{FlaggedLine, Function, HazardLine, Token, TokenKin
 use codeint_model::{
     CodeModel, FileModel, FrameworkProfileSelection, ImportResolution, LanguageFacts,
     LanguagePlugin, LanguagePluginError, LowerError, Manifest, Metric, MetricPlugin,
-    MetricPluginError, RepoPath, ResolveError, RuntimeImport, SourceFile, SourceSet, Workspace,
-    WorkspaceError, choose_manifests, validate_hazard_lines,
+    MetricPluginError, Package, RepoPath, ResolveError, RuntimeImport, SourceFile, SourceSet,
+    Workspace, WorkspaceError, choose_manifests, validate_hazard_lines,
 };
 
 use crate::{PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, verify_plugin_component};
@@ -380,8 +380,22 @@ fn run_language(
     check_extensions(report, &extensions);
     let hazard_rules = plugin.hazard_rules();
     check_hazard_rules(report, &plugin, &hazard_rules);
-    check_framework_profiles(report, &plugin, &mut watch);
     let probe_extensions = probe_extensions(&extensions);
+    let repository = probe_repository(&probe_extensions);
+    let chosen = if plugin.has_imports() {
+        check_manifest_paths(report, &plugin, &repository, &mut watch)
+    } else {
+        Vec::new()
+    };
+    check_framework_profiles(
+        report,
+        &plugin,
+        FrameworkProbeInputs {
+            repository: &repository,
+            chosen: &chosen,
+        },
+        &mut watch,
+    );
     check_lower(
         report,
         &plugin,
@@ -393,7 +407,16 @@ fn run_language(
         },
         &mut watch,
     );
-    check_repository_queries(report, &plugin, &probe_extensions[0], &mut watch);
+    check_repository_queries(
+        report,
+        &plugin,
+        RepositoryProbe {
+            repository: &repository,
+            chosen,
+            importers: probe_importers(&probe_extensions),
+        },
+        &mut watch,
+    );
     watch.settle(report, plugin.peak_memory_bytes(), limits);
 }
 
@@ -467,9 +490,50 @@ fn check_hazard_rules(
     }
 }
 
+struct FrameworkProbeInputs<'a> {
+    repository: &'a [RepoPath],
+    chosen: &'a [RepoPath],
+}
+
+fn probe_workspace() -> Workspace {
+    Workspace::new([repo_path(PROBE_PACKAGE)])
+}
+
+fn package_key(workspace: &Workspace, path: &RepoPath) -> String {
+    match workspace.package_of(path) {
+        Package::Root => String::new(),
+        Package::Member(root) => root.as_str().to_owned(),
+    }
+}
+
+fn package_inputs(
+    inputs: &FrameworkProbeInputs<'_>,
+    workspace: &Workspace,
+    package_root: &str,
+) -> Vec<(&'static str, Vec<RepoPath>, Vec<Manifest>)> {
+    let files: Vec<RepoPath> = inputs
+        .repository
+        .iter()
+        .filter(|path| package_key(workspace, path) == package_root)
+        .cloned()
+        .collect();
+    let in_package = |path: &&RepoPath| package_key(workspace, path) == package_root;
+    let chosen: Vec<RepoPath> = inputs.chosen.iter().filter(in_package).cloned().collect();
+    let probe_manifests: Vec<Manifest> = files.iter().filter_map(probe_manifest).collect();
+    vec![
+        (
+            "the manifests it chose",
+            files.clone(),
+            chosen_manifests(&chosen, true),
+        ),
+        ("every probe manifest", files, probe_manifests),
+    ]
+}
+
 fn check_framework_profiles(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
+    inputs: FrameworkProbeInputs<'_>,
     watch: &mut LimitWatch,
 ) {
     let profiles = plugin.known_framework_profiles();
@@ -488,7 +552,6 @@ fn check_framework_profiles(
         );
         return;
     }
-    let files = vec![repo_path("src/probe.txt")];
     let selections = [
         ("disabled", FrameworkProfileSelection::Disabled),
         ("auto", FrameworkProfileSelection::Auto),
@@ -498,28 +561,46 @@ fn check_framework_profiles(
         ),
         ("only", FrameworkProfileSelection::Only(profiles.clone())),
     ];
-    for (label, selection) in selections {
-        match plugin.resolve_framework_profiles("", &files, Vec::new(), selection) {
-            Ok(result) if label == "disabled" && !result.active_profiles.is_empty() => {
-                report.fail(
-                    "framework-profiles",
-                    format!(
-                        "disabled selection still activated {:?}",
-                        result.active_profiles
-                    ),
-                    "return no active profiles when the selection is disabled",
-                );
-                return;
-            }
-            Ok(_) => {}
-            Err(error) => {
-                watch.note_language(&error);
-                report.fail(
-                    "framework-profiles",
-                    format!("{label} selection failed: {error}"),
-                    "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections without an error",
-                );
-                return;
+    let workspace = probe_workspace();
+    for package_root in ["", PROBE_PACKAGE] {
+        for (manifest_label, files, manifests) in package_inputs(&inputs, &workspace, package_root)
+        {
+            for (label, selection) in &selections {
+                let place = if package_root.is_empty() {
+                    "the root package".to_owned()
+                } else {
+                    format!("package {package_root}")
+                };
+                match plugin.resolve_framework_profiles(
+                    package_root,
+                    &files,
+                    manifests.clone(),
+                    selection.clone(),
+                ) {
+                    Ok(result) if *label == "disabled" && !result.active_profiles.is_empty() => {
+                        report.fail(
+                            "framework-profiles",
+                            format!(
+                                "disabled selection still activated {:?}",
+                                result.active_profiles
+                            ),
+                            "return no active profiles when the selection is disabled",
+                        );
+                        return;
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        watch.note_language(&error);
+                        report.fail(
+                            "framework-profiles",
+                            format!(
+                                "{label} selection failed for {place} with {manifest_label}: {error}"
+                            ),
+                            "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections without an error, and may return only entry points and generated paths that are files it was passed; it is sent the real package files and manifests, as codeint check sends them",
+                        );
+                        return;
+                    }
+                }
             }
         }
     }
@@ -753,18 +834,58 @@ const IMPORT_CHECKS: [&str; 5] = [
     "entry-points",
 ];
 
+const PROBE_PACKAGE: &str = "packages/probe";
+
+fn probe_repository(extensions: &[String]) -> Vec<RepoPath> {
+    let mut repository = Vec::new();
+    for extension in extensions {
+        for prefix in ["src", "packages/probe/src"] {
+            repository.push(repo_path(&format!("{prefix}/main.{extension}")));
+            repository.push(repo_path(&format!("{prefix}/lib.{extension}")));
+        }
+    }
+    for (name, _) in PROBE_MANIFESTS {
+        repository.push(repo_path(name));
+        repository.push(repo_path(&format!("{PROBE_PACKAGE}/{name}")));
+    }
+    repository
+}
+
+fn probe_importers(extensions: &[String]) -> Vec<SourceFile> {
+    let mut importers = Vec::new();
+    for extension in extensions {
+        for prefix in ["src", "packages/probe/src"] {
+            importers.push(SourceFile {
+                path: repo_path(&format!("{prefix}/main.{extension}")),
+                model: FileModel {
+                    runtime_imports: vec![
+                        "./lib".to_owned(),
+                        "./missing".to_owned(),
+                        "left-pad".to_owned(),
+                        "fs".to_owned(),
+                    ],
+                    ..empty_file_model()
+                },
+            });
+        }
+    }
+    importers
+}
+
+struct RepositoryProbe<'a> {
+    repository: &'a [RepoPath],
+    chosen: Vec<RepoPath>,
+    importers: Vec<SourceFile>,
+}
+
 fn check_repository_queries(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
-    extension: &str,
+    probe: RepositoryProbe<'_>,
     watch: &mut LimitWatch,
 ) {
-    let source = repo_path(&format!("src/main.{extension}"));
-    let other = repo_path(&format!("src/lib.{extension}"));
-    let mut repository = vec![source.clone(), other];
-    repository.extend(PROBE_MANIFESTS.iter().map(|(name, _)| repo_path(name)));
     if plugin.has_imports() {
-        check_import_calls(report, plugin, &repository, &source, watch);
+        check_import_calls(report, plugin, probe, watch);
     } else {
         for id in IMPORT_CHECKS {
             report.skip(id, "has-imports is false, so codeint never calls it");
@@ -787,20 +908,26 @@ const PROBE_MANIFESTS: [(&str, &str); 6] = [
 
 const INVALID_MANIFEST_TEXT: &str = "not a valid manifest \u{0}\n[[[";
 
+fn probe_manifest(path: &RepoPath) -> Option<Manifest> {
+    let file_name = path.as_str().rsplit('/').next().unwrap_or_default();
+    PROBE_MANIFESTS
+        .iter()
+        .find(|(name, _)| *name == file_name)
+        .map(|(_, text)| Manifest {
+            path: path.to_string(),
+            text: (*text).to_owned(),
+        })
+}
+
 fn chosen_manifests(chosen: &[RepoPath], valid: bool) -> Vec<Manifest> {
     chosen
         .iter()
         .map(|path| Manifest {
             path: path.to_string(),
-            text: if valid {
-                PROBE_MANIFESTS
-                    .iter()
-                    .find(|(name, _)| *name == path.as_str())
-                    .map_or(INVALID_MANIFEST_TEXT, |(_, text)| text)
-            } else {
-                INVALID_MANIFEST_TEXT
-            }
-            .to_owned(),
+            text: match probe_manifest(path) {
+                Some(manifest) if valid => manifest.text,
+                _ => INVALID_MANIFEST_TEXT.to_owned(),
+            },
         })
         .collect()
 }
@@ -808,18 +935,23 @@ fn chosen_manifests(chosen: &[RepoPath], valid: bool) -> Vec<Manifest> {
 fn check_import_calls(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
-    repository: &[RepoPath],
-    source: &RepoPath,
+    probe: RepositoryProbe<'_>,
     watch: &mut LimitWatch,
 ) {
-    let chosen = check_manifest_paths(report, plugin, repository, watch);
+    let RepositoryProbe {
+        repository,
+        chosen,
+        importers,
+    } = probe;
     check_workspace_packages(report, plugin, &chosen, watch);
     check_imports(
         report,
         plugin,
-        repository,
-        source,
-        chosen_manifests(&chosen, true),
+        ImportProbe {
+            repository,
+            importers: &importers,
+            manifests: chosen_manifests(&chosen, true),
+        },
         watch,
     );
 
@@ -1002,40 +1134,54 @@ fn is_call_error(error: &LanguagePluginError) -> bool {
     matches!(error, LanguagePluginError::Call { .. })
 }
 
+struct ImportProbe<'a> {
+    repository: &'a [RepoPath],
+    importers: &'a [SourceFile],
+    manifests: Vec<Manifest>,
+}
+
 fn check_imports(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
-    repository: &[RepoPath],
-    importer: &RepoPath,
-    manifests: Vec<Manifest>,
+    probe: ImportProbe<'_>,
     watch: &mut LimitWatch,
 ) {
-    let model = FileModel {
-        runtime_imports: vec!["./lib".to_owned(), "left-pad".to_owned(), "fs".to_owned()],
-        ..empty_file_model()
-    };
-    let file = SourceFile {
-        path: importer.clone(),
-        model,
-    };
-    let outcome =
-        codeint_model::resolve_runtime_imports(plugin, repository, manifests, &[&file], &[]);
-    match outcome {
-        Ok(_) => report.pass(
-            "resolve-imports",
-            "answers every import request with repository files, a package, a built-in, or unresolved",
-        ),
-        Err(error) => {
+    let known = plugin.known_framework_profiles();
+    let mut active_sets: Vec<Vec<String>> = vec![Vec::new()];
+    active_sets.extend(known.iter().map(|profile| vec![profile.clone()]));
+    if known.len() > 1 {
+        active_sets.push(known);
+    }
+    let importers: Vec<&SourceFile> = probe.importers.iter().collect();
+    for active in &active_sets {
+        let outcome = codeint_model::resolve_runtime_imports(
+            plugin,
+            probe.repository,
+            probe.manifests.clone(),
+            &importers,
+            active,
+        );
+        if let Err(error) = outcome {
             if let ResolveError::Plugin(inner) = &error {
                 watch.note_language(inner);
             }
+            let context = if active.is_empty() {
+                "with no Framework profile active".to_owned()
+            } else {
+                format!("with Framework profiles {active:?} active")
+            };
             report.fail(
                 "resolve-imports",
-                error.to_string(),
-                "return exactly one resolution per request; a resolved import lists one or more repository files",
+                format!("{context}: {error}"),
+                "return exactly one resolution per request; a resolved import lists one or more repository files, under every set of active Framework profiles",
             );
+            return;
         }
     }
+    report.pass(
+        "resolve-imports",
+        "answers every import request with repository files, a package, a built-in, or unresolved, with and without each Framework profile active",
+    );
 }
 
 fn empty_file_model() -> FileModel {
