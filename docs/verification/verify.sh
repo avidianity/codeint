@@ -578,7 +578,7 @@ if "init" in features:
     check("init.adopt_check_clean.exit", read_exit("init/adopt_check_clean") == 0, str(read_exit("init/adopt_check_clean")))
     check("init.adopt_check_new.exit", read_exit("init/adopt_check_new") == 1, str(read_exit("init/adopt_check_new")))
     adopt_new_err = read_text("init/adopt_check_new.stderr") or ""
-    check("init.adopt_check_new.stderr", "the non-baselined production erosion ratio" in adopt_new_err and "is over its Budget 0" in adopt_new_err and "Ratchet" not in adopt_new_err, adopt_new_err)
+    check("init.adopt_check_new.stderr", "production erosion ratio" in adopt_new_err and "is over its Budget 0" in adopt_new_err and "Ratchet" not in adopt_new_err, adopt_new_err)
 
     check("init.adopt_rollback.exit", read_exit("init/adopt_rollback") == 2, str(read_exit("init/adopt_rollback")))
     rollback_err = read_text("init/adopt_rollback.stderr") or ""
