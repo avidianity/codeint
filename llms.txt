@@ -22,7 +22,8 @@
 
 - [CLI and Configuration Reference](docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and schema key.
 - [Programmatic API](docs/programmatic.md): JavaScript/TypeScript SDK (`codeint` npm package) and Rust library API (`codeint-cli`).
-- [Plugins](docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins against `codeint:plugin@0.4.0`.
+- [Plugins](docs/plugins.md): build external WebAssembly Language and Metric plugins against `codeint:plugin@0.4.0` using `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`, zero WASI imports), pin SHA-256 digests, declare in config, and test.
+- [Plugin SDK HOW-TO](crates/plugin-sdk/HOW-TO.md): call contract and Cargo features for `codeint-plugin-sdk`.
 - [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint.jsonc` and `codeint.json`.
 - [Glossary](GLOSSARY.md): canonical domain terminology.
 

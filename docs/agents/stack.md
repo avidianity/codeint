@@ -14,7 +14,7 @@ A rule that differs between languages, such as decision points, import resolutio
   Change it only in its own pull request.
 - Every crate uses Rust edition 2024.
 - Workspace lints live in the `[workspace.lints]` table of [Cargo.toml](../../Cargo.toml).
-  Each crate opts in with `[lints] workspace = true`.
+  Each crate opts in with `[lints] workspace = true`, except `crates/plugin-sdk`, which repeats every workspace lint except `unsafe_code`; see [ADR 0027](../adr/0027-plugin-sdk-guest-runtime-unsafe.md).
 - Run `cargo fmt --all` before you commit.
   The hook rejects unformatted code.
 
@@ -26,11 +26,13 @@ A rule that differs between languages, such as decision points, import resolutio
 | `plugins/languages/{name}/` | One built-in Language plugin crate per folder (package name `codeint-lang-{name}`) |
 | `crates/config/` | The only crate that reads environment variables, process arguments, or files of configuration |
 | `crates/plugin-host/` | The WebAssembly Plugin host and its capability grants; changes are Tier 3 |
+| `crates/plugin-sdk/` | The Rust guest SDK for external Plugins; it depends on no other workspace crate |
 | `wit/` | The published WIT interface of Plugins |
 | `npm/` | The npm wrapper package and the platform packages |
 | `xtask/` | The Project's own checks, run as `cargo xtask {check}` |
 
 Each crate root declares `#![forbid(unsafe_code)]`; see [ADR 0004](../adr/0004-forbid-unsafe-code.md).
+The only exception is `crates/plugin-sdk`: its crate root holds no `unsafe`, its guest runtime module `src/runtime.rs` holds all of it, and every other module declares `#![forbid(unsafe_code)]`; see [ADR 0027](../adr/0027-plugin-sdk-guest-runtime-unsafe.md).
 
 ## Mandatory: dependencies
 
