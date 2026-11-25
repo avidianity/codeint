@@ -5,6 +5,7 @@ use codeint_model::scan::{find_manifests, resolve_relative_file};
 use serde::Deserialize;
 
 use crate::dependencies::normalize_pub_name;
+use crate::frameworks::{fallback_package_import, is_virtual_generated_import};
 use crate::workspaces::PUBSPEC_MANIFEST;
 
 #[cfg(test)]
@@ -19,16 +20,17 @@ pub(crate) fn find_pubspecs(repository_paths: &[String]) -> Vec<String> {
     find_manifests(repository_paths, PUBSPEC_MANIFEST)
 }
 
-pub(crate) fn resolve_all(
-    repository_paths: &[String],
+pub(crate) fn resolve_dart_imports(
+    paths: &[String],
     manifests: &[Manifest],
     requests: &[ImportRequest],
+    profiles: &[String],
 ) -> Vec<Resolution> {
-    let files: HashSet<String> = repository_paths.iter().cloned().collect();
+    let files: HashSet<String> = paths.iter().cloned().collect();
     let packages = collect_package_roots(manifests);
     requests
         .iter()
-        .map(|req| resolve_one(&files, &packages, req))
+        .map(|req| resolve_one(&files, &packages, req, profiles))
         .collect()
 }
 
@@ -56,16 +58,32 @@ fn resolve_one(
     files: &HashSet<String>,
     packages: &HashMap<String, String>,
     request: &ImportRequest,
+    active_profiles: &[String],
 ) -> Resolution {
     let spec = request.specifier.as_str();
     if spec.starts_with("dart:") {
         return Resolution::Builtin;
     }
     if let Some(pkg_rest) = spec.strip_prefix("package:") {
-        return resolve_package_uri(files, packages, &request.importer, pkg_rest);
+        let resolved = resolve_package_uri(files, packages, &request.importer, pkg_rest);
+        if matches!(resolved, Resolution::External(_))
+            && let Some(fallback) = fallback_package_import(
+                active_profiles,
+                files,
+                packages,
+                &request.importer,
+                pkg_rest,
+            )
+        {
+            return fallback;
+        }
+        return resolved;
     }
     match resolve_relative_file(files, &request.importer, spec, false) {
         Resolution::External(pkg) if pkg.is_empty() => Resolution::Builtin,
+        Resolution::Unresolved(_) if is_virtual_generated_import(active_profiles, spec) => {
+            Resolution::Builtin
+        }
         other => other,
     }
 }
@@ -108,4 +126,13 @@ fn resolve_package_uri(
             "no file of the repository matches package:{pkg_rest:?}"
         ))
     }
+}
+
+#[cfg(test)]
+pub(crate) fn resolve_all(
+    paths: &[String],
+    manifests: &[Manifest],
+    requests: &[ImportRequest],
+) -> Vec<Resolution> {
+    resolve_dart_imports(paths, manifests, requests, &[])
 }

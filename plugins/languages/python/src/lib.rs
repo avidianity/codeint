@@ -2,6 +2,7 @@
 
 mod dependencies;
 mod entry_points;
+mod frameworks;
 mod functions;
 mod imports;
 mod lexer;
@@ -12,15 +13,16 @@ mod stdlib;
 mod workspaces;
 
 use codeint_model::language::{
-    DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
-    Token, TokenKind, WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
+    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token, TokenKind,
+    WorkspaceError,
 };
 use codeint_model::scan::build_reference_ranges;
 use codeint_model::token_text_hash;
 
 use crate::dependencies::extract_declared;
 use crate::entry_points::discover as discover_entry_points;
-use crate::resolution::{find_pyprojects, resolve_all};
+use crate::resolution::{find_python_manifests, resolve_with_profiles};
 
 pub use rules::flagged_line_rules;
 
@@ -44,7 +46,7 @@ impl Guest for Python {
     }
 
     fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        find_pyprojects(&repository_paths)
+        find_python_manifests(&repository_paths)
     }
 
     fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
@@ -55,9 +57,9 @@ impl Guest for Python {
         repository_paths: Vec<String>,
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
+        active_profiles: Vec<String>,
     ) -> Vec<Resolution> {
-        resolve_all(&repository_paths, &manifests, &requests)
+        resolve_with_profiles(&repository_paths, &manifests, &requests, &active_profiles)
     }
 
     fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
@@ -68,7 +70,18 @@ impl Guest for Python {
         discover_entry_points(&repository_paths, &manifests)
     }
 
-    codeint_model::empty_framework_profile_guest_methods!();
+    fn known_framework_profiles() -> Vec<String> {
+        frameworks::known_profiles()
+    }
+
+    fn resolve_framework_profiles(
+        package_root: String,
+        files: Vec<String>,
+        manifests: Vec<Manifest>,
+        selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, String> {
+        frameworks::resolve_framework_profiles(package_root, files, manifests, selection)
+    }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
         if !path.ends_with(".py") {

@@ -21,6 +21,11 @@
 - `src/entry_points.rs` registers public `lib/**/*.dart` libraries outside `lib/src/` (or top-level `lib/*.dart` for `lib/main*.dart` applications), `bin/*.dart`, declared `executables`, and native-asset hooks (`hook/build.dart`, `hook/link.dart`) per `pubspec.yaml`.
 - `src/dependencies.rs` parses `pubspec.yaml` `dependencies` (`Runtime`) and `dev_dependencies` (`Dev`) per Workspace package while excluding local workspace package names.
 
+## Framework profiles
+
+- `src/frameworks/` implements the isolated `flutter` profile (`flutter.rs`), keeping per-file lowering framework-blind.
+- `flutter` activates from a package-local `pubspec.yaml` declaring `dependencies.flutter.sdk: flutter` or a `flutter:` section, distinguishes Flutter apps (`lib/main.dart`, `lib/main_*.dart`, `integration_test/**`) from Flutter plugins and packages (`lib/<package_name>.dart`), marks Flutter-generated paths (`.dart_tool/**`, `build/**`, `.widget_preview/**`, `lib/generated_plugin_registrant.dart`, `lib/l10n/app_localizations*.dart`, and code-gen suffixes including `*.gen.dart`) as `Generated`, and supplies profile-gated fallback import handling for `package:flutter_gen/...` and uncommitted generated parts while keeping `package:flutter/...` external.
+
 ## Reference ranges
 
 - `reference_ranges` returns the 10th to 90th percentile bands from the 20-repository pre-2023 Dart panel recorded in [ADR 0012](../../../docs/adr/0012-dart-reference-ranges.md).

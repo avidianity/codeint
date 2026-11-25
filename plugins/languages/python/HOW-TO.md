@@ -20,7 +20,12 @@
 - `src/imports.rs` and `src/resolution.rs` extract runtime imports while ignoring imports inside `if TYPE_CHECKING:` (or `if typing.TYPE_CHECKING:`) guard blocks and `from __future__ import` directives.
 - Relative imports (`.foo`, `..bar`, and `from . import Symbol`) and repository-root or `src/`-layout package imports resolve to repository `.py` files, standard-library top-level modules are classified as `Builtin`, and third-party modules are classified as `External` with PEP 503 normalized package names.
 - `src/entry_points.rs` discovers top-level package `__init__.py` and `__main__.py` entry points (excluding non-package tooling/test/docs folders) plus `[project.scripts]`, `[project.gui-scripts]`, `[project.entry-points]`, and Poetry script entry points from `pyproject.toml`.
-- `src/dependencies.rs` parses `pyproject.toml` runtime, dev, and optional dependencies (`[project]`, `[dependency-groups]`, `[tool.uv]`, `[tool.pdm]`, and `[tool.poetry]`) per Workspace package using PEP 503 normalization while excluding local workspace package names.
+- `src/dependencies.rs` parses runtime, dev, and optional dependencies from `pyproject.toml` (`[project]`, `[dependency-groups]`, `[tool.uv]`, `[tool.pdm]`, and `[tool.poetry]`), `requirements*.txt`, `setup.cfg`, and `Pipfile` per Workspace package using PEP 503 normalization while excluding local workspace package names.
+
+## Framework profiles
+
+- `src/frameworks/` implements isolated per-framework profiles for `django` (`django.rs`), `fastapi` (`fastapi.rs`), and `flask` (`flask.rs`) without sibling cross-imports, keeping per-file lowering framework-blind.
+- Each profile requires a package-local manifest signal paired with local convention files, contributes framework entry points, framework-generated Source set paths (`**/migrations/[0-9][0-9][0-9][0-9]_*.py` and `staticfiles/` for Django; `instance/` for Flask), and profile-gated fallback import roots in `src/resolution.rs`.
 
 ## Reference ranges
 

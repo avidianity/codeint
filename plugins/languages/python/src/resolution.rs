@@ -1,22 +1,47 @@
 use std::collections::{HashMap, HashSet};
 
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
-use codeint_model::scan::find_manifests;
 
-use crate::dependencies::normalize_pep503;
+use crate::dependencies::{is_requirements_file, normalize_pep503};
+use crate::frameworks::{fallback_import_roots, has_ignored_dir};
 use crate::stdlib::is_stdlib_module;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn find_pyprojects(repository_paths: &[String]) -> Vec<String> {
-    find_manifests(repository_paths, "pyproject.toml")
+pub(crate) fn find_python_manifests(repository_paths: &[String]) -> Vec<String> {
+    repository_paths
+        .iter()
+        .filter(|path| {
+            if has_ignored_dir(path) {
+                return false;
+            }
+            let file_name = path
+                .rsplit_once('/')
+                .map_or(path.as_str(), |(_, name)| name);
+            file_name == "pyproject.toml"
+                || file_name == "setup.cfg"
+                || file_name == "Pipfile"
+                || is_requirements_file(file_name)
+        })
+        .cloned()
+        .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_all(
     repository_paths: &[String],
     manifests: &[Manifest],
     requests: &[ImportRequest],
+) -> Vec<Resolution> {
+    resolve_with_profiles(repository_paths, manifests, requests, &[])
+}
+
+pub(crate) fn resolve_with_profiles(
+    repository_paths: &[String],
+    manifests: &[Manifest],
+    requests: &[ImportRequest],
+    active_profiles: &[String],
 ) -> Vec<Resolution> {
     let py_files: HashSet<String> = repository_paths
         .iter()
@@ -24,9 +49,23 @@ pub(crate) fn resolve_all(
         .cloned()
         .collect();
     let module_map = build_module_map(&py_files, manifests);
+    let fallback_map = if active_profiles.is_empty() {
+        HashMap::new()
+    } else {
+        let extra_roots = fallback_import_roots(active_profiles, repository_paths, manifests);
+        build_module_map_for_roots(&py_files, &extra_roots)
+    };
     requests
         .iter()
-        .map(|req| resolve_one(&py_files, &module_map, &req.importer, &req.specifier))
+        .map(|req| {
+            resolve_one(
+                &py_files,
+                &module_map,
+                &fallback_map,
+                &req.importer,
+                &req.specifier,
+            )
+        })
         .collect()
 }
 
@@ -38,10 +77,17 @@ fn build_module_map(py_files: &HashSet<String>, manifests: &[Manifest]) -> HashM
             roots.push(format!("{dir}/src"));
         }
     }
+    build_module_map_for_roots(py_files, &roots)
+}
+
+fn build_module_map_for_roots(
+    py_files: &HashSet<String>,
+    roots: &[String],
+) -> HashMap<String, String> {
     let mut sorted_files: Vec<&String> = py_files.iter().collect();
     sorted_files.sort();
     let mut map = HashMap::new();
-    for root in &roots {
+    for root in roots {
         let prefix = if root.is_empty() {
             String::new()
         } else {
@@ -72,13 +118,17 @@ fn path_to_module(rel: &str) -> Option<String> {
 fn resolve_one(
     py_files: &HashSet<String>,
     module_map: &HashMap<String, String>,
+    fallback_map: &HashMap<String, String>,
     importer: &str,
     specifier: &str,
 ) -> Resolution {
     if specifier.starts_with('.') {
         return resolve_relative(py_files, importer, specifier);
     }
-    if let Some(target) = module_map.get(specifier) {
+    if let Some(target) = module_map
+        .get(specifier)
+        .or_else(|| fallback_map.get(specifier))
+    {
         if target == importer {
             return Resolution::Builtin;
         }

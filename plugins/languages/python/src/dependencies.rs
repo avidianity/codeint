@@ -40,27 +40,162 @@ pub(crate) fn extract_pep508_name(requirement: &str) -> Option<String> {
     Some(normalize_pep503(raw))
 }
 
-pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
-    let mut parsed = Vec::new();
-    for manifest in manifests {
-        if is_pyproject_manifest(&manifest.path)
-            && let Ok(doc) = toml::from_str::<Value>(&manifest.text)
-        {
-            parsed.push((package_root(&manifest.path), doc));
+pub(crate) fn is_requirements_file(file_name: &str) -> bool {
+    file_name.starts_with("requirements") && file_name.ends_with(".txt")
+}
+
+pub(crate) fn is_dev_requirements_file(file_name: &str) -> bool {
+    let lower = file_name.to_ascii_lowercase();
+    lower.contains("dev") || lower.contains("test")
+}
+
+pub(crate) fn extract_pyproject_runtime_deps(doc: &Value) -> Vec<String> {
+    let mut deps = Vec::new();
+    collect_pep621_runtime_deps(doc, &mut deps);
+    collect_poetry_runtime_deps(doc, &mut deps);
+    deps
+}
+
+fn collect_pep621_runtime_deps(doc: &Value, out: &mut Vec<String>) {
+    let Some(items) = doc
+        .get("project")
+        .and_then(|p| p.get("dependencies"))
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    out.extend(
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(extract_pep508_name),
+    );
+}
+
+fn collect_poetry_runtime_deps(doc: &Value, out: &mut Vec<String>) {
+    let Some(poetry_deps) = doc
+        .get("tool")
+        .and_then(|t| t.get("poetry"))
+        .and_then(|p| p.get("dependencies"))
+        .and_then(Value::as_table)
+    else {
+        return;
+    };
+    for (raw_name, spec) in poetry_deps {
+        if raw_name.eq_ignore_ascii_case("python") || is_optional_table(spec) {
+            continue;
+        }
+        let normalized = normalize_pep503(raw_name.trim());
+        if !normalized.is_empty() {
+            out.push(normalized);
         }
     }
-    let local_packages: HashSet<String> = parsed
+}
+
+pub(crate) fn extract_requirements_deps(text: &str) -> Vec<String> {
+    text.lines()
+        .map(|line| line.split('#').next().unwrap_or("").trim())
+        .filter(|line| !line.is_empty() && !line.starts_with('-'))
+        .filter_map(extract_pep508_name)
+        .collect()
+}
+
+pub(crate) fn extract_setup_cfg_runtime_deps(text: &str) -> Vec<String> {
+    let mut parser = SetupCfgParser::default();
+    for line in text.lines() {
+        parser.feed(line);
+    }
+    parser.deps
+}
+
+#[derive(Default)]
+struct SetupCfgParser {
+    in_options: bool,
+    in_install_requires: bool,
+    deps: Vec<String>,
+}
+
+impl SetupCfgParser {
+    fn feed(&mut self, raw_line: &str) {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
+            return;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            self.in_options = trimmed.eq_ignore_ascii_case("[options]");
+            self.in_install_requires = false;
+            return;
+        }
+        if self.in_options {
+            self.feed_options_line(raw_line, trimmed);
+        }
+    }
+
+    fn feed_options_line(&mut self, raw_line: &str, trimmed: &str) {
+        if raw_line.starts_with(' ') || raw_line.starts_with('\t') {
+            if self.in_install_requires
+                && let Some(name) = extract_pep508_name(trimmed)
+            {
+                self.deps.push(name);
+            }
+            return;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            self.in_install_requires = false;
+            return;
+        };
+        self.in_install_requires = key.trim().eq_ignore_ascii_case("install_requires");
+        if self.in_install_requires
+            && let Some(name) = extract_pep508_name(value.trim())
+        {
+            self.deps.push(name);
+        }
+    }
+}
+
+pub(crate) fn extract_pipfile_runtime_deps(text: &str) -> Vec<String> {
+    extract_pipfile_section(text, "packages")
+}
+
+fn extract_pipfile_section(text: &str, section: &str) -> Vec<String> {
+    let Ok(doc) = toml::from_str::<Value>(text) else {
+        return Vec::new();
+    };
+    let Some(table) = doc.get(section).and_then(Value::as_table) else {
+        return Vec::new();
+    };
+    table
+        .keys()
+        .map(|raw| normalize_pep503(raw.trim()))
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
+    let parsed_pyprojects: Vec<(String, Value)> = manifests
+        .iter()
+        .filter(|m| is_pyproject_manifest(&m.path))
+        .filter_map(|m| {
+            toml::from_str::<Value>(&m.text)
+                .ok()
+                .map(|d| (package_root(&m.path), d))
+        })
+        .collect();
+    let local_packages: HashSet<String> = parsed_pyprojects
         .iter()
         .filter_map(|(_, doc)| declared_package_name(doc))
         .collect();
     let mut entries = BTreeSet::new();
-    for (root, doc) in &parsed {
-        let mut collector = DepCollector {
+    for (root, doc) in &parsed_pyprojects {
+        DepCollector {
             root,
             local_packages: &local_packages,
             out: &mut entries,
-        };
-        collector.visit_document(doc);
+        }
+        .visit_document(doc);
+    }
+    for manifest in manifests {
+        collect_auxiliary_manifest(manifest, &local_packages, &mut entries);
     }
     entries
         .into_iter()
@@ -70,6 +205,53 @@ pub(crate) fn extract_declared(manifests: &[Manifest]) -> Vec<DeclaredDep> {
             kind: rank_to_kind(rank),
         })
         .collect()
+}
+
+fn collect_auxiliary_manifest(
+    manifest: &Manifest,
+    local_packages: &HashSet<String>,
+    out: &mut BTreeSet<(String, u8, String)>,
+) {
+    if has_ignored_manifest_dir(&manifest.path) {
+        return;
+    }
+    let (root, file_name) = split_manifest_path(&manifest.path);
+    let mut collector = DepCollector {
+        root,
+        local_packages,
+        out,
+    };
+    if is_requirements_file(file_name) {
+        let kind = if is_dev_requirements_file(file_name) {
+            DepKind::Dev
+        } else {
+            DepKind::Runtime
+        };
+        collector.record_all(extract_requirements_deps(&manifest.text), kind);
+    } else if file_name == "setup.cfg" {
+        collector.record_all(
+            extract_setup_cfg_runtime_deps(&manifest.text),
+            DepKind::Runtime,
+        );
+    } else if file_name == "Pipfile" {
+        collector.record_all(
+            extract_pipfile_section(&manifest.text, "packages"),
+            DepKind::Runtime,
+        );
+        collector.record_all(
+            extract_pipfile_section(&manifest.text, "dev-packages"),
+            DepKind::Dev,
+        );
+    }
+}
+
+fn has_ignored_manifest_dir(path: &str) -> bool {
+    path.split('/')
+        .any(|seg| matches!(seg, "vendor" | "third_party" | ".venv" | "venv"))
+}
+
+fn split_manifest_path(path: &str) -> (&str, &str) {
+    path.rsplit_once('/').unwrap_or(("", path))
 }
 
 struct DepCollector<'a> {
@@ -173,6 +355,12 @@ impl DepCollector<'_> {
         if !self.local_packages.contains(&name) {
             self.out
                 .insert((self.root.to_owned(), kind_to_rank(kind), name));
+        }
+    }
+
+    fn record_all(&mut self, names: Vec<String>, kind: DepKind) {
+        for name in names {
+            self.record(name, kind);
         }
     }
 }
