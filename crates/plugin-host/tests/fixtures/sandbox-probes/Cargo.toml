@@ -28,6 +28,7 @@ members = [
     "reserved-key-metric",
     "zero-version-metric",
     "stale-reference-range-language",
+    "trap-workspace-language",
 ]
 
 [workspace.package]

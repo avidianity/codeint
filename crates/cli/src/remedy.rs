@@ -384,7 +384,7 @@ pub(crate) fn git_remedy(error: &GitError) -> &'static str {
 
 fn workspace_remedy(error: &WorkspaceError) -> &'static str {
     match error {
-        WorkspaceError::Manifest { .. } => {
+        WorkspaceError::Manifest { .. } | WorkspaceError::PluginFailed { .. } => {
             "Fix the manifest that the message names so that your package manager accepts it, then run codeint again."
         }
         WorkspaceError::InvalidPackageRoot(_) => {

@@ -7,6 +7,8 @@ use crate::{InvalidRepoPath, RepoPath, language};
 pub enum WorkspaceError {
     #[error("cannot find the workspace packages from {path}: {message}")]
     Manifest { path: String, message: String },
+    #[error("cannot find the workspace packages from {plugin}: {message}")]
+    PluginFailed { plugin: String, message: String },
     #[error("a Language plugin named an invalid workspace package root")]
     InvalidPackageRoot(#[from] InvalidRepoPath),
 }
