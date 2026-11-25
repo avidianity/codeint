@@ -5,9 +5,6 @@ use codeint_model::{Metric, SourceSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::ConfigProvenance;
-use crate::resolved::resolve_with_provenance;
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct RatioRise(f64);
@@ -128,27 +125,19 @@ impl RegressionLimits {
             .find(|(set_in, set_for, _)| *set_in == source_set && set_for == metric_key)
             .map(|(_, _, setting)| *setting);
         let base = RegressionLimit::default_for_key(metric_key);
-        let (ratio_rise, ratio_rise_source) = resolve_with_provenance(
-            base.ratio_rise,
-            for_this_source_set
-                .and_then(|setting| setting.ratio_rise)
-                .or_else(|| for_every_source_set.and_then(|setting| setting.ratio_rise)),
-            None,
-        );
-        let (new_findings, new_findings_source) = resolve_with_provenance(
-            base.new_findings,
-            for_this_source_set
-                .and_then(|setting| setting.new_findings)
-                .or_else(|| for_every_source_set.and_then(|setting| setting.new_findings)),
-            None,
-        );
+        let ratio_rise_override = for_this_source_set
+            .and_then(|setting| setting.ratio_rise)
+            .or_else(|| for_every_source_set.and_then(|setting| setting.ratio_rise));
+        let new_findings_override = for_this_source_set
+            .and_then(|setting| setting.new_findings)
+            .or_else(|| for_every_source_set.and_then(|setting| setting.new_findings));
         ResolvedRegressionLimit {
             limit: RegressionLimit {
-                ratio_rise,
-                new_findings,
+                ratio_rise: ratio_rise_override.unwrap_or(base.ratio_rise),
+                new_findings: new_findings_override.unwrap_or(base.new_findings),
             },
-            ratio_rise_source,
-            new_findings_source,
+            ratio_rise_from_file: ratio_rise_override.is_some(),
+            new_findings_from_file: new_findings_override.is_some(),
         }
     }
 
@@ -176,23 +165,15 @@ impl RegressionLimits {
             .find(|(set_for, _)| set_for == metric_key)
             .map(|(_, setting)| *setting);
         let base = RegressionLimit::default_for_key(metric_key);
-        let (ratio_rise, ratio_rise_source) = resolve_with_provenance(
-            base.ratio_rise,
-            for_metric.and_then(|setting| setting.ratio_rise),
-            None,
-        );
-        let (new_findings, new_findings_source) = resolve_with_provenance(
-            base.new_findings,
-            for_metric.and_then(|setting| setting.new_findings),
-            None,
-        );
+        let ratio_rise_override = for_metric.and_then(|setting| setting.ratio_rise);
+        let new_findings_override = for_metric.and_then(|setting| setting.new_findings);
         ResolvedRegressionLimit {
             limit: RegressionLimit {
-                ratio_rise,
-                new_findings,
+                ratio_rise: ratio_rise_override.unwrap_or(base.ratio_rise),
+                new_findings: new_findings_override.unwrap_or(base.new_findings),
             },
-            ratio_rise_source,
-            new_findings_source,
+            ratio_rise_from_file: ratio_rise_override.is_some(),
+            new_findings_from_file: new_findings_override.is_some(),
         }
     }
 
@@ -211,6 +192,6 @@ impl RegressionLimits {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ResolvedRegressionLimit {
     pub(crate) limit: RegressionLimit,
-    pub(crate) ratio_rise_source: ConfigProvenance,
-    pub(crate) new_findings_source: ConfigProvenance,
+    pub(crate) ratio_rise_from_file: bool,
+    pub(crate) new_findings_from_file: bool,
 }

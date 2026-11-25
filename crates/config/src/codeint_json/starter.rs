@@ -3,9 +3,8 @@ use std::path::{Path, PathBuf};
 
 use codeint_model::RepoPath;
 
-use super::{
-    CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME, ConfigurationFile, LanguageGlobs,
-};
+use super::schema::{ConfigurationFile, LanguageGlobs};
+use crate::config_error::{CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME};
 
 #[cfg(test)]
 mod tests;
@@ -80,35 +79,24 @@ pub fn write_starter_configuration(
 }
 
 fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
-    let starter = ConfigurationFile {
-        _schema: Some(published_schema_address()),
-        source_sets: Default::default(),
-        budgets: Default::default(),
-        regression_limits: Default::default(),
-        plugins: Vec::new(),
-        plugin_limits: Default::default(),
-        boundaries: None,
-        dependencies: Default::default(),
-        duplication: Default::default(),
-        entry_points: Vec::new(),
-        coverage_reports: Vec::new(),
-        sql: Default::default(),
-        hazards: Default::default(),
-        languages: (!languages.is_empty()).then(|| {
+    let starter = ConfigurationFile::starter(
+        published_schema_address(),
+        (!languages.is_empty()).then(|| {
             languages
                 .iter()
-                .map(|language| LanguageGlobs {
-                    plugin: language.plugin.clone(),
-                    include: language
-                        .include
-                        .iter()
-                        .map(|path| globset::escape(path.as_str()))
-                        .collect(),
-                    exclude: Vec::new(),
+                .map(|language| {
+                    LanguageGlobs::new(
+                        language.plugin.clone(),
+                        language
+                            .include
+                            .iter()
+                            .map(|path| globset::escape(path.as_str()))
+                            .collect(),
+                    )
                 })
                 .collect()
         }),
-    };
+    );
     let mut json = serde_json::to_value(&starter)
         .expect("the configuration types serialize to JSON without fallible keys");
     if let Some(root) = json.as_object_mut() {
