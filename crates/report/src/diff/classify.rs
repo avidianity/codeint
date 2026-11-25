@@ -7,18 +7,15 @@ use super::types::{
     CloneFamilyChanges, DependenciesChanges, DuplicationChanges, ExternalMetricChanges,
     MetricChanges, SourceSetChanges,
 };
+use crate::baseline::Identified;
 use crate::measurement::{DependenciesMeasurement, MetricMeasurement, SourceSetMeasurement};
 use crate::ownership::{OwnedFinding, OwnershipOptions};
 use crate::{
-    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding, Decimal,
+    BoundaryFindingRow, CloneGroupFinding, CognitiveComplexityFinding, Decimal,
     ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow, HazardLineRow,
     ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, UnusedDependencyRow,
     clustered_clone_group_ids, unlisted_clone_family_group_ids,
 };
-
-trait Identified {
-    fn id(&self) -> &str;
-}
 
 trait FileAttributed {
     fn visit_files(&self, visit: &mut dyn FnMut(&str));
@@ -281,78 +278,6 @@ fn missing_from<T: Identified>(
         .filter(|finding| !other_side.contains(finding.id()))
         .collect();
     Findings::worst_first(missing.into_iter(), shown)
-}
-
-impl Identified for ErodedFunctionFinding {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for CognitiveComplexityFinding {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for CloneGroupFinding {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for CloneFamilyFinding {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for FlaggedLineRow {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for ImportCycleFinding {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for ExternalMetricFinding {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for BoundaryFindingRow {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for UnusedDependencyRow {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for ImportedDependencyRow {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for OrphanFileRow {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for HazardLineRow {
-    fn id(&self) -> &str {
-        &self.id
-    }
 }
 
 macro_rules! impl_single_file_attributed {

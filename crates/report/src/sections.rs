@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use codeint_model::Metric;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::baseline::Baselined;
 use crate::dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 use crate::findings::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding,
@@ -358,6 +359,8 @@ impl<'de> Deserialize<'de> for DuplicationSection {
             #[serde(default)]
             findings_left_out: usize,
             #[serde(default)]
+            baselined_findings: usize,
+            #[serde(default)]
             clone_families: Vec<CloneFamilyFinding>,
             #[serde(default)]
             clone_families_left_out: usize,
@@ -375,13 +378,13 @@ impl<'de> Deserialize<'de> for DuplicationSection {
             near_clones: raw.near_clones,
             clone_lines: raw.clone_lines,
             clone_groups: Findings {
-                listed: raw.clone_groups,
-                left_out: raw.findings_left_out,
+                baselined: Baselined {
+                    hidden: raw.baselined_findings,
+                    retained_share: None,
+                },
+                ..Findings::listing(raw.clone_groups, raw.findings_left_out)
             },
-            clone_families: Findings {
-                listed: raw.clone_families,
-                left_out: raw.clone_families_left_out,
-            },
+            clone_families: Findings::listing(raw.clone_families, raw.clone_families_left_out),
             unlisted_clone_family_group_ids: raw.unlisted_clone_family_group_ids,
         })
     }

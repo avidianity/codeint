@@ -1,11 +1,12 @@
 use codeint_config::{
-    AgentFormat, ConfigFormat, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
-    RatchetFormat, TraceFormat,
+    AgentFormat, BaselineFormat, ConfigFormat, DoctorFormat, FindingsShown, GuardFormat,
+    ImpactFormat, RatchetFormat, TraceFormat,
 };
 use codeint_model::{ReferenceRange, ReferenceRanges, SourceSet};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::baseline::{BaselineScope, BaselineWeight, Baselined, BudgetedRatio, Identified};
 use crate::ownership::{OwnedFinding, OwnershipOptions};
 
 const DECIMAL_SCALE: f64 = 10_000.0;
@@ -176,6 +177,7 @@ fn source_set_label(source_set: SourceSet) -> &'static str {
 pub(crate) trait FindingKind: Serialize {
     const LIST_KEY: &'static str;
     const LEFT_OUT_KEY: &'static str = "findings_left_out";
+    const BASELINED_KEY: &'static str = "baselined_findings";
     const SKIP_WHEN_EMPTY: bool = false;
 }
 
@@ -183,6 +185,7 @@ pub(crate) trait FindingKind: Serialize {
 pub(crate) struct Findings<T> {
     pub(crate) listed: Vec<T>,
     pub(crate) left_out: usize,
+    pub(crate) baselined: Baselined,
 }
 
 impl<T> Findings<T> {
@@ -198,6 +201,25 @@ impl<T> Findings<T> {
         Findings {
             left_out: total - listed.len(),
             listed,
+            baselined: Baselined::default(),
+        }
+    }
+
+    pub(crate) fn listing(listed: Vec<T>, left_out: usize) -> Findings<T> {
+        Findings {
+            listed,
+            left_out,
+            baselined: Baselined::default(),
+        }
+    }
+
+    pub(crate) fn budgeted(&self, ratio: Decimal) -> BudgetedRatio {
+        match self.baselined.retained_share {
+            Some(share) => BudgetedRatio {
+                ratio: Decimal::rounded(ratio.0 * share).0,
+                non_baselined: true,
+            },
+            None => BudgetedRatio::from(ratio.0),
         }
     }
 
@@ -223,7 +245,31 @@ impl<T: FindingKind> Serialize for Findings<T> {
         if self.left_out > 0 {
             map.serialize_entry(T::LEFT_OUT_KEY, &self.left_out)?;
         }
+        if self.baselined.hidden > 0 {
+            map.serialize_entry(T::BASELINED_KEY, &self.baselined.hidden)?;
+        }
         map.end()
+    }
+}
+
+impl<'de, T: FindingKind + Deserialize<'de>> Findings<T> {
+    fn read_entry<A: serde::de::MapAccess<'de>>(
+        &mut self,
+        key: &str,
+        map: &mut A,
+    ) -> Result<bool, A::Error> {
+        if key == T::LIST_KEY {
+            self.listed = map.next_value()?;
+            return Ok(true);
+        }
+        if key == T::LEFT_OUT_KEY {
+            self.left_out = map.next_value()?;
+        } else if key == T::BASELINED_KEY {
+            self.baselined.hidden = map.next_value()?;
+        } else {
+            map.next_value::<serde::de::IgnoredAny>()?;
+        }
+        Ok(false)
     }
 }
 
@@ -242,21 +288,16 @@ impl<'de, T: FindingKind + Deserialize<'de>> Deserialize<'de> for Findings<T> {
                 self,
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
-                let mut listed = None;
-                let mut left_out = 0;
+                let mut findings = Findings::listing(Vec::new(), 0);
+                let mut listed_seen = false;
                 while let Some(key) = map.next_key::<String>()? {
-                    if key == T::LIST_KEY {
-                        listed = Some(map.next_value()?);
-                    } else if key == T::LEFT_OUT_KEY {
-                        left_out = map.next_value()?;
-                    } else {
-                        let _ = map.next_value::<serde::de::IgnoredAny>()?;
-                    }
+                    listed_seen |= findings.read_entry(&key, &mut map)?;
                 }
-                let listed = listed
-                    .or_else(|| T::SKIP_WHEN_EMPTY.then(Vec::new))
-                    .ok_or_else(|| serde::de::Error::missing_field(T::LIST_KEY))?;
-                Ok(Findings { listed, left_out })
+                if listed_seen || T::SKIP_WHEN_EMPTY {
+                    Ok(findings)
+                } else {
+                    Err(serde::de::Error::missing_field(T::LIST_KEY))
+                }
             }
         }
 
@@ -268,9 +309,25 @@ impl<'de, T: FindingKind + Deserialize<'de>> Deserialize<'de> for Findings<T> {
 pub(crate) struct FindingsView<'a> {
     pub(crate) shown: FindingsShown,
     pub(crate) ownership: OwnershipOptions<'a>,
+    pub(crate) baseline: Option<BaselineScope<'a>>,
 }
 
 impl FindingsView<'_> {
+    pub(crate) fn map_baselined<'a, T: 'a, R>(self, metric: &str, items: &'a [T]) -> Findings<R>
+    where
+        R: From<&'a T> + OwnedFinding + Identified + BaselineWeight,
+    {
+        let rows: Vec<R> = items.iter().map(R::from).collect();
+        let (visible, baselined) = match self.baseline {
+            Some(scope) => scope.split(metric, rows),
+            None => (rows, Baselined::default()),
+        };
+        Findings {
+            baselined,
+            ..self.select(visible.into_iter())
+        }
+    }
+
     pub(crate) fn select<T: OwnedFinding>(self, items: impl Iterator<Item = T>) -> Findings<T> {
         Findings::worst_first_owned(items, self.ownership, self.shown)
     }
@@ -320,6 +377,7 @@ macro_rules! impl_text_report_format {
 
 impl_text_report_format!(
     AgentFormat,
+    BaselineFormat,
     ConfigFormat,
     DoctorFormat,
     GuardFormat,
