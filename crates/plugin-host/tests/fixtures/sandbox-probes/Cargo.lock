@@ -560,6 +560,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "workspace-always-fails-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "workspace-trap-language-plugin"
 version = "0.1.0"
 dependencies = [

@@ -32,6 +32,7 @@ members = [
     "stale-reference-range-language",
     "invalid-workspace-root-language",
     "workspace-trap-language",
+    "workspace-always-fails-language",
     "manifest-paths-trap-language",
     "exclude-trap-language",
     "backslash-extension-language",

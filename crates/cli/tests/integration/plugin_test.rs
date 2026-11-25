@@ -194,6 +194,23 @@ fn workspace_packages_failures_fail_the_check() {
 }
 
 #[test]
+fn a_workspace_error_on_a_valid_manifest_fails_the_check() {
+    assert_fails(
+        "language",
+        "workspace_always_fails_language_plugin.wasm",
+        &[],
+        "workspace-packages",
+    );
+}
+
+#[test]
+fn a_plugin_without_framework_profiles_skips_the_framework_profile_check() {
+    let (output, report) = json_report("language", "no_imports_language_plugin.wasm", &[]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(check_status(&report, "framework-profiles"), "skipped");
+}
+
+#[test]
 fn a_manifest_paths_trap_fails_the_check() {
     assert_fails(
         "language",
@@ -279,6 +296,7 @@ fn every_report_lists_each_check_once_in_order() {
         "clock_reader_plugin.wasm",
         "invalid_workspace_root_language_plugin.wasm",
         "workspace_trap_language_plugin.wasm",
+        "workspace_always_fails_language_plugin.wasm",
         "manifest_paths_trap_language_plugin.wasm",
         "exclude_trap_language_plugin.wasm",
         "no_imports_language_plugin.wasm",

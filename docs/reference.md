@@ -837,7 +837,8 @@ The runner checks a Language plugin for the following rules:
 - It claims at least one valid, unique extension, and its Hazard rule list matches `has-hazard-rules`.
 - `lower` is deterministic and stateless on built-in probe sources and on every `--source` file, returns lines counted from 1 inside the file, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
 - Its Framework profiles resolve for the disabled, auto, exclude, and only selections.
-- When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts.
+  When `known-framework-profiles` is empty, codeint never resolves Framework profiles, so the runner reports `framework-profiles` as skipped.
+- When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or a valid `package.json`, because `codeint check` stops on any `workspace-error`.
   When `has-imports` is false, codeint never calls these five, so the runner reports them as skipped.
 - It answers `reference-ranges` with valid data.
 - It stays within the memory and time limits of each call; a call that hits a limit fails `limits`.

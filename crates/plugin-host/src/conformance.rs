@@ -472,6 +472,13 @@ fn check_framework_profiles(
     watch: &mut LimitWatch,
 ) {
     let profiles = plugin.known_framework_profiles();
+    if profiles.is_empty() {
+        report.skip(
+            "framework-profiles",
+            "known-framework-profiles is empty, so codeint never resolves Framework profiles",
+        );
+        return;
+    }
     let unique: HashSet<&String> = profiles.iter().collect();
     if profiles.iter().any(String::is_empty) || unique.len() != profiles.len() {
         report.fail(
@@ -851,11 +858,12 @@ fn check_workspace_packages(
     watch: &mut LimitWatch,
 ) {
     let probes = [
-        ("a valid package.json", vec![package_manifest()]),
-        ("an invalid Cargo.toml", vec![cargo_manifest()]),
-        ("both manifests", probe_manifests()),
+        ("no manifests", Vec::new(), true),
+        ("a valid package.json", vec![package_manifest()], true),
+        ("an invalid Cargo.toml", vec![cargo_manifest()], false),
+        ("both manifests", probe_manifests(), false),
     ];
-    for (label, manifests) in probes {
+    for (label, manifests, must_accept) in probes {
         match plugin.workspace_packages_checked(manifests) {
             Err(error) => {
                 watch.note_host(&error);
@@ -863,6 +871,14 @@ fn check_workspace_packages(
                     "workspace-packages",
                     format!("{label}: {error}"),
                     "workspace-packages must never trap; return a workspace-error for a manifest it cannot read",
+                );
+                return;
+            }
+            Ok(Err(error @ WorkspaceError::Manifest { .. })) if must_accept => {
+                report.fail(
+                    "workspace-packages",
+                    format!("{label}: {error}"),
+                    "return a workspace-error only for a manifest it cannot read; codeint check stops on any workspace-error, so never return one for a valid manifest or no manifests",
                 );
                 return;
             }
