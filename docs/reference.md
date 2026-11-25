@@ -31,7 +31,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `init` | Write a starter `codeint.jsonc`; see [`codeint init`](#codeint-init) |
 | `update` | Update a standalone codeint binary in place from GitHub Releases; see [`codeint update`](#codeint-update) |
 | `mcp` | Run a local stdio Model Context Protocol (MCP) server exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling` tools; see [`codeint mcp`](#codeint-mcp) |
-| `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, and allowed importers for a file path; see [`codeint guard`](#codeint-guard) |
+| `guard` | Show the architectural boundary zone, allowed and denied target zones, `public_files` constraints, allowed importers, and external-package rules for a file path; see [`codeint guard`](#codeint-guard) |
 | `schema` | Print a machine-readable capability manifest of CLI commands, flags, built-in Metrics, output formats, MCP tools, and exit codes; see [`codeint schema`](#codeint-schema) |
 | `config` | Inspect the effective active configuration and where each setting came from; see [`codeint config`](#codeint-config) |
 | `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
@@ -652,7 +652,7 @@ codeint mcp
 | `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
 | `-h, --help` | Print the help of `codeint guard` |
 
-`codeint guard <path>` evaluates the architectural boundary rules in `codeint.json` for an existing or planned file path without requiring the file to exist on disk.
+`codeint guard <path>` evaluates the architectural boundary rules (both internal zone rules and `allow_external`/`deny_external` external-package rules) in `codeint.json` or `codeint.jsonc` for an existing or planned file path without requiring the file to exist on disk.
 
 ```sh exit=0
 codeint guard src/route.ts
@@ -908,13 +908,15 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `plugin_limits` | object | Memory cap and time limit enforced on each WebAssembly Plugin; see [Plugins](#plugins) |
 | `plugin_limits.memory_mb` | integer from 1 to 4096 | Maximum linear memory in MiB that a WebAssembly Plugin may allocate; `64` by default |
 | `plugin_limits.timeout_ms` | integer from 1 to 300000 | Maximum wall-clock time in milliseconds for each WebAssembly Plugin call; `5000` by default |
-| `boundaries` | object | Architectural import boundaries defining named zones, optional `public_files` entry points, directional `allow` or `deny` rules, and optional `strict_zones` mode |
-| `boundaries.preset` | string | Optional built-in architecture preset (`layered` or `hexagonal`) providing default zones and rules that can be overridden or extended |
+| `boundaries` | object | Architectural import boundaries defining named zones, optional `public_files` entry points, directional internal `allow` or `deny` rules, external-package `allow_external` or `deny_external` glob rules, and optional `strict_zones` mode |
+| `boundaries.preset` | string | Optional built-in architecture preset (`layered` or `hexagonal`) providing default zones and internal rules that can be overridden or extended |
 | `boundaries.zones` | object | Map of zone name to zone definition (`patterns` globs and optional `public_files` globs) |
-| `boundaries.rules` | list of objects | Directional import rules between architectural zones |
+| `boundaries.rules` | list of objects | Directional import rules between architectural zones and for external packages |
 | `boundaries.rules[].from` | string | Source zone name, or `*` to match any zone without a specific rule |
 | `boundaries.rules[].allow` | list of strings | Target zone names (or `*`) that the source zone is allowed to import; mutually exclusive with `deny` |
 | `boundaries.rules[].deny` | list of strings | Target zone names (or `*`) that the source zone is forbidden to import; mutually exclusive with `allow` |
+| `boundaries.rules[].allow_external` | list of strings | External package name globs that the source zone is allowed to import (use `[]` to forbid all third-party packages while still permitting standard-library built-ins); mutually exclusive with `deny_external` |
+| `boundaries.rules[].deny_external` | list of strings | External package name globs that the source zone is forbidden to import; mutually exclusive with `allow_external` |
 | `boundaries.rules[].reason` | string | Optional human-readable explanation shown in boundary Findings |
 | `boundaries.strict_zones` | boolean | When `true`, report files in evaluated Source sets that do not match any configured zone; `false` by default |
 | `boundaries.source_sets` | list of strings | Source sets evaluated by boundary rules; defaults to `["production"]` when omitted or empty |
@@ -1180,14 +1182,19 @@ codeint check
 
 ### Boundaries
 
-`boundaries` enforces directional import rules and `public_files` encapsulation over resolved runtime imports across every supported Language plugin.
+`boundaries` enforces directional internal zone rules, `public_files` encapsulation, and optional external-package rules (`allow_external` and `deny_external`) over runtime imports across every supported Language plugin.
 When `boundaries` is omitted, boundary evaluation is completely inactive.
-Set `boundaries.preset` to `layered` (`presentation`, `application`, `domain`, `infrastructure`) or `hexagonal` (`domain`, `ports`, `application`, `adapters`) to start from built-in zone globs and directional rules; entries in `boundaries.zones` override matching preset zones or add new ones, and rules in `boundaries.rules` replace preset rules for matching `from` zones.
+Set `boundaries.preset` to `layered` (`presentation`, `application`, `domain`, `infrastructure`) or `hexagonal` (`domain`, `ports`, `application`, `adapters`) to start from built-in zone globs and directional internal rules; built-in presets never include guessed third-party package rules.
+Entries in `boundaries.zones` override matching preset zones or add new ones; rules in `boundaries.rules` with `allow` or `deny` replace preset rules for matching `from` zones, while rules setting only `allow_external` or `deny_external` keep the preset's internal rules intact.
 Each zone in `boundaries.zones` declares repository-relative `patterns` globs and optional `public_files` globs naming the only files external zones may import.
 When a file matches patterns in multiple zones, the most specific pattern (most literal characters, then longest pattern, then zone name alphabetically) wins.
-Each rule in `boundaries.rules` sets `from` (a zone name or `*`), either `allow` or `deny` (mutually exclusive), and an optional `reason`.
+Each rule in `boundaries.rules` sets `from` (a zone name or `*`), at least one of internal (`allow` or `deny`, mutually exclusive) or external (`allow_external` or `deny_external`, mutually exclusive), and an optional `reason`.
+Internal and external directives are independent and may be combined on the same `from` zone; mixing `allow` and `deny` or mixing `allow_external` and `deny_external` for the same `from` zone stops the run with exit code `2`.
+`allow_external` and `deny_external` match third-party package names with globs (such as `prisma` or `@aws-sdk/*`) while always permitting standard-library built-ins, so `allow_external: []` allows pure standard-library code.
+When no rule sets `allow_external` or `deny_external`, `resolved_imports` counts resolved internal imports only; when at least one external-package rule exists, checked external imports are included in `resolved_imports`.
 By default, `boundaries` evaluates the `production` Source set only; set `source_sets` to evaluate additional Source sets, and set `strict_zones` to `true` to report files matching no zone.
 In `codeint diff`, each boundary Finding carries a stable content-based identifier so pre-existing Findings are classified as unchanged while any newly introduced boundary Finding fails by default (`new_findings: "any_new_finding"`).
+See [docs/guide/import-boundaries.md](./guide/import-boundaries.md) for walkthroughs and examples.
 
 ```json codeint.json
 {
@@ -1223,12 +1230,14 @@ In `codeint diff`, each boundary Finding carries a stable content-based identifi
       {
         "from": "app",
         "allow": ["app"],
-        "reason": "App layer stays independent of infrastructure"
+        "allow_external": [],
+        "reason": "App layer stays independent of infrastructure and third-party packages"
       },
       {
         "from": "infra",
         "deny": ["app"],
-        "reason": "Infrastructure must not import application code"
+        "deny_external": ["prisma", "@aws-sdk/*"],
+        "reason": "Infrastructure must not import application code or forbidden SDKs"
       }
     ],
     "strict_zones": false,
@@ -1731,6 +1740,7 @@ Each Finding is an object with an `id`, followed by fields that depend on its ki
 - A Flagged line has `path`, `line`, and `rule`.
 - A Hazard line has `path`, `line`, `rule`, and optional `owners`, and never includes source text.
 - An Import cycle has `modules`, the paths of the modules in the cycle.
+- An Import boundary Finding has `kind` (`zone_rule`, `external_package`, `public_files`, or `unzoned_file`), `importer`, `message`, optional `target` (internal target path), optional `external_package` (canonical third-party package name for `external_package` Findings), optional `specifier`, optional `source_zone`, optional `target_zone`, optional `reason`, and optional `owners`.
 
 The `id` of a Finding is a string of 16 lowercase hexadecimal digits.
 It comes from the Metric, the file or files of the Finding, and their content, never from a line number, so it stays the same when a Finding moves within its file.

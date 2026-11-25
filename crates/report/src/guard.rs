@@ -1,7 +1,8 @@
 use std::fmt::Write as _;
 
 use codeint_config::{
-    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, GuardFormat,
+    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryExternalPolicy,
+    BoundaryRuleDecision, GuardFormat,
 };
 use codeint_model::RepoPath;
 use serde::Serialize;
@@ -24,7 +25,17 @@ pub struct GuardReport {
     denied_targets: Vec<GuardDeniedTarget>,
     allowed_importers: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    external_imports: Option<GuardExternalImports>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GuardExternalImports {
+    directive: &'static str,
+    patterns: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -62,6 +73,7 @@ impl GuardReport {
                 allowed_targets: Vec::new(),
                 denied_targets: Vec::new(),
                 allowed_importers: Vec::new(),
+                external_imports: None,
                 note: Some("No boundaries are configured in codeint.json.".to_owned()),
             };
         };
@@ -84,6 +96,7 @@ impl GuardReport {
                 allowed_targets: Vec::new(),
                 denied_targets: Vec::new(),
                 allowed_importers: Vec::new(),
+                external_imports: None,
                 note: Some(note.to_owned()),
             };
         };
@@ -91,59 +104,18 @@ impl GuardReport {
         let public_files = boundaries.public_file_patterns(matched_zone).to_vec();
         let is_public_file = boundaries.is_public_file(matched_zone, path);
         let all_zones = boundaries.zone_names();
-
-        let mut allowed_targets = Vec::new();
-        let mut denied_targets = Vec::new();
-        for &target_zone in &all_zones {
-            match boundaries.check_import(matched_zone, target_zone) {
-                BoundaryRuleDecision::Allowed => {
-                    let target_public_files = if target_zone == matched_zone {
-                        Vec::new()
-                    } else {
-                        boundaries.public_file_patterns(target_zone).to_vec()
-                    };
-                    let reason = boundaries
-                        .allow_reason(matched_zone, target_zone)
-                        .map(str::to_owned);
-                    allowed_targets.push(GuardAllowedTarget {
-                        zone: target_zone.to_owned(),
-                        public_files: target_public_files,
-                        reason,
-                    });
-                }
-                BoundaryRuleDecision::Denied { directive, reason } => {
-                    denied_targets.push(GuardDeniedTarget {
-                        zone: target_zone.to_owned(),
-                        directive: directive_label(directive),
-                        reason,
-                    });
-                }
-            }
-        }
-
-        let mut allowed_importers = Vec::new();
-        for &importer_zone in &all_zones {
-            if importer_zone == matched_zone {
-                allowed_importers.push(importer_zone.to_owned());
-                continue;
-            }
-            if is_public_file
-                && matches!(
-                    boundaries.check_import(importer_zone, matched_zone),
-                    BoundaryRuleDecision::Allowed
-                )
-            {
-                allowed_importers.push(importer_zone.to_owned());
-            }
-        }
-
-        let note = if !is_public_file {
-            Some(format!(
+        let (allowed_targets, denied_targets) =
+            collect_target_decisions(boundaries, matched_zone, &all_zones);
+        let allowed_importers =
+            collect_allowed_importers(boundaries, matched_zone, is_public_file, &all_zones);
+        let note = (!is_public_file).then(|| {
+            format!(
                 "This file is private to zone \"{matched_zone}\"; other zones may only import files matching public_files."
-            ))
-        } else {
-            None
-        };
+            )
+        });
+        let external_imports = boundaries
+            .external_policy_for(matched_zone)
+            .map(guard_external_imports);
 
         GuardReport {
             path: path.as_str().to_owned(),
@@ -156,6 +128,7 @@ impl GuardReport {
             allowed_targets,
             denied_targets,
             allowed_importers,
+            external_imports,
             note,
         }
     }
@@ -197,6 +170,34 @@ impl GuardReport {
         self.write_allowed_targets(out);
         self.write_denied_targets(out);
         self.write_allowed_importers(out);
+        self.write_external_imports(out);
+    }
+
+    fn write_external_imports(&self, out: &mut String) {
+        let Some(external) = &self.external_imports else {
+            return;
+        };
+        let pattern_list = if external.patterns.is_empty() {
+            "[] (built-ins only)".to_owned()
+        } else {
+            external.patterns.join(", ")
+        };
+        match &external.reason {
+            Some(reason) => {
+                let _ = writeln!(
+                    out,
+                    "external_imports: {} {pattern_list} ({reason})",
+                    external.directive
+                );
+            }
+            None => {
+                let _ = writeln!(
+                    out,
+                    "external_imports: {} {pattern_list}",
+                    external.directive
+                );
+            }
+        }
     }
 
     fn write_public_files(&self, out: &mut String) {
@@ -276,5 +277,74 @@ fn directive_label(directive: BoundaryDirective) -> &'static str {
     match directive {
         BoundaryDirective::Allow => "allow",
         BoundaryDirective::Deny => "deny",
+    }
+}
+
+fn collect_target_decisions(
+    boundaries: &BoundariesConfig,
+    matched_zone: &str,
+    all_zones: &[&str],
+) -> (Vec<GuardAllowedTarget>, Vec<GuardDeniedTarget>) {
+    let mut allowed_targets = Vec::new();
+    let mut denied_targets = Vec::new();
+    for &target_zone in all_zones {
+        match boundaries.check_import(matched_zone, target_zone) {
+            BoundaryRuleDecision::Allowed => {
+                let target_public_files = if target_zone == matched_zone {
+                    Vec::new()
+                } else {
+                    boundaries.public_file_patterns(target_zone).to_vec()
+                };
+                let reason = boundaries
+                    .allow_reason(matched_zone, target_zone)
+                    .map(str::to_owned);
+                allowed_targets.push(GuardAllowedTarget {
+                    zone: target_zone.to_owned(),
+                    public_files: target_public_files,
+                    reason,
+                });
+            }
+            BoundaryRuleDecision::Denied { directive, reason } => {
+                denied_targets.push(GuardDeniedTarget {
+                    zone: target_zone.to_owned(),
+                    directive: directive_label(directive),
+                    reason,
+                });
+            }
+        }
+    }
+    (allowed_targets, denied_targets)
+}
+
+fn collect_allowed_importers(
+    boundaries: &BoundariesConfig,
+    matched_zone: &str,
+    is_public_file: bool,
+    all_zones: &[&str],
+) -> Vec<String> {
+    all_zones
+        .iter()
+        .copied()
+        .filter(|&importer_zone| {
+            importer_zone == matched_zone
+                || (is_public_file
+                    && matches!(
+                        boundaries.check_import(importer_zone, matched_zone),
+                        BoundaryRuleDecision::Allowed
+                    ))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+fn guard_external_imports(policy: BoundaryExternalPolicy) -> GuardExternalImports {
+    let directive = match policy.directive {
+        BoundaryDirective::Allow => "allow_external",
+        BoundaryDirective::Deny => "deny_external",
+    };
+    GuardExternalImports {
+        directive,
+        patterns: policy.patterns,
+        reason: policy.reason,
     }
 }

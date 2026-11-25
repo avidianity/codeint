@@ -13,6 +13,8 @@ struct StubPolicy {
     zones: BTreeMap<String, String>,
     public_files: BTreeMap<String, BTreeSet<String>>,
     decisions: BTreeMap<(String, String), BoundaryEdgeCheck>,
+    external_rules_enabled: bool,
+    external_decisions: BTreeMap<(String, String), BoundaryEdgeCheck>,
 }
 
 impl StubPolicy {
@@ -24,6 +26,8 @@ impl StubPolicy {
                 .collect(),
             public_files: BTreeMap::new(),
             decisions: BTreeMap::new(),
+            external_rules_enabled: false,
+            external_decisions: BTreeMap::new(),
         }
     }
 
@@ -35,6 +39,18 @@ impl StubPolicy {
     ) -> StubPolicy {
         self.decisions
             .insert((source_zone.to_owned(), target_zone.to_owned()), decision);
+        self
+    }
+
+    fn with_external_decision(
+        mut self,
+        source_zone: &str,
+        package: &str,
+        decision: BoundaryEdgeCheck,
+    ) -> StubPolicy {
+        self.external_rules_enabled = true;
+        self.external_decisions
+            .insert((source_zone.to_owned(), package.to_owned()), decision);
         self
     }
 
@@ -65,6 +81,17 @@ impl BoundaryPolicy for StubPolicy {
     fn check_import(&self, source_zone: &str, target_zone: &str) -> BoundaryEdgeCheck {
         self.decisions
             .get(&(source_zone.to_owned(), target_zone.to_owned()))
+            .cloned()
+            .unwrap_or(BoundaryEdgeCheck::Allowed)
+    }
+
+    fn has_external_rules(&self) -> bool {
+        self.external_rules_enabled
+    }
+
+    fn check_external_import(&self, source_zone: &str, package: &str) -> BoundaryEdgeCheck {
+        self.external_decisions
+            .get(&(source_zone.to_owned(), package.to_owned()))
             .cloned()
             .unwrap_or(BoundaryEdgeCheck::Allowed)
     }
@@ -222,4 +249,82 @@ fn duplicate_targets_in_a_single_resolved_import_are_counted_once() {
     assert_eq!(measured.resolved_imports(), 1);
     assert_eq!(measured.findings().len(), 1);
     assert_eq!(measured.findings()[0].target, Some(path("secret/a.fld")));
+}
+
+#[test]
+fn external_imports_are_ignored_when_no_external_rules_exist_and_checked_when_configured() {
+    let model = CodeModel {
+        files: vec![
+            production_file("src/domain/order.ts"),
+            production_file("src/domain/helper.ts"),
+        ],
+        runtime_imports: vec![
+            RuntimeImport {
+                importer: path("src/domain/order.ts"),
+                specifier: "./helper".to_owned(),
+                resolution: ImportResolution::Resolved(vec![path("src/domain/helper.ts")]),
+            },
+            RuntimeImport {
+                importer: path("src/domain/order.ts"),
+                specifier: "node:path".to_owned(),
+                resolution: ImportResolution::Builtin,
+            },
+            RuntimeImport {
+                importer: path("src/domain/order.ts"),
+                specifier: "@aws-sdk/client-s3".to_owned(),
+                resolution: ImportResolution::External("@aws-sdk/client-s3".to_owned()),
+            },
+            RuntimeImport {
+                importer: path("src/domain/order.ts"),
+                specifier: "prisma".to_owned(),
+                resolution: ImportResolution::External("prisma".to_owned()),
+            },
+        ],
+        ..CodeModel::default()
+    };
+
+    let internal_only = StubPolicy::new(&[
+        ("src/domain/order.ts", "domain"),
+        ("src/domain/helper.ts", "domain"),
+    ]);
+    let without_external = Boundaries::measure(&model, &internal_only);
+    assert_eq!(without_external.resolved_imports(), 1);
+    assert!(without_external.findings().is_empty());
+
+    let with_external = [
+        (
+            "prisma",
+            BoundaryEdgeCheck::DeniedByDenyRule {
+                reason: Some("No ORM in domain".to_owned()),
+            },
+        ),
+        (
+            "@aws-sdk/client-s3",
+            BoundaryEdgeCheck::DeniedByAllowRule {
+                reason: Some("No cloud SDK in domain".to_owned()),
+            },
+        ),
+    ]
+    .into_iter()
+    .fold(internal_only, |policy, (pkg, decision)| {
+        policy.with_external_decision("domain", pkg, decision)
+    });
+    let measured = Boundaries::measure(&model, &with_external);
+    assert_eq!(measured.resolved_imports(), 3);
+    let findings = measured.findings();
+    let packages: Vec<(BoundaryFindingKind, Option<&str>)> = findings
+        .iter()
+        .map(|finding| (finding.kind, finding.external_package.as_deref()))
+        .collect();
+    assert_eq!(
+        packages,
+        vec![
+            (
+                BoundaryFindingKind::ExternalPackage,
+                Some("@aws-sdk/client-s3")
+            ),
+            (BoundaryFindingKind::ExternalPackage, Some("prisma")),
+        ]
+    );
+    assert_ne!(findings[0].id, findings[1].id);
 }

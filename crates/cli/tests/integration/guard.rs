@@ -202,3 +202,86 @@ fn guard_resolves_subdirectory_and_absolute_paths_and_rejects_outside_repo() {
         "stderr: {stderr}"
     );
 }
+
+#[test]
+fn guard_surfaces_external_package_rules_in_text_toon_and_json() {
+    let repo = create_guard_repo(
+        Some(json!({
+            "boundaries": {
+                "zones": {
+                    "domain": { "patterns": ["src/domain/**"] },
+                    "app": { "patterns": ["src/app/**"] },
+                    "infra": { "patterns": ["src/infra/**"] }
+                },
+                "rules": [
+                    {
+                        "from": "domain",
+                        "allow": ["domain"],
+                        "allow_external": [],
+                        "reason": "Domain must stay free of third-party packages"
+                    },
+                    {
+                        "from": "app",
+                        "deny_external": ["prisma", "@aws-sdk/*"],
+                        "reason": "Keep persistence and cloud SDKs in infra"
+                    }
+                ]
+            }
+        })),
+        &[
+            ("src/domain/order.ts", "export const order = 1;\n"),
+            ("src/app/service.ts", "export const service = 2;\n"),
+            ("src/infra/db.ts", "export const db = 3;\n"),
+        ],
+    );
+
+    let domain = guard_json(repo.path(), "src/domain/order.ts");
+    assert_eq!(
+        domain["external_imports"],
+        json!({
+            "directive": "allow_external",
+            "patterns": [],
+            "reason": "Domain must stay free of third-party packages"
+        })
+    );
+
+    let app = guard_json(repo.path(), "src/app/service.ts");
+    assert_eq!(
+        app["external_imports"],
+        json!({
+            "directive": "deny_external",
+            "patterns": ["prisma", "@aws-sdk/*"],
+            "reason": "Keep persistence and cloud SDKs in infra"
+        })
+    );
+
+    let infra = guard_json(repo.path(), "src/infra/db.ts");
+    assert!(infra.get("external_imports").is_none());
+
+    let domain_text =
+        String::from_utf8(run_codeint(repo.path(), &["guard", "src/domain/order.ts"]).stdout)
+            .expect("utf8");
+    assert!(domain_text.contains("external_imports:"));
+    assert!(domain_text.contains("allow_external"));
+    assert!(domain_text.contains("Domain must stay free of third-party packages"));
+
+    let app_text =
+        String::from_utf8(run_codeint(repo.path(), &["guard", "src/app/service.ts"]).stdout)
+            .expect("utf8");
+    assert!(app_text.contains("deny_external"));
+    assert!(app_text.contains("prisma"));
+    assert!(app_text.contains("@aws-sdk/*"));
+    assert!(app_text.contains("Keep persistence and cloud SDKs in infra"));
+
+    let app_toon = String::from_utf8(
+        run_codeint(
+            repo.path(),
+            &["guard", "src/app/service.ts", "--format", "toon"],
+        )
+        .stdout,
+    )
+    .expect("utf8");
+    assert!(app_toon.contains("external_imports:"));
+    assert!(app_toon.contains("deny_external"));
+    assert!(app_toon.contains("@aws-sdk/*"));
+}

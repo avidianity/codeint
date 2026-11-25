@@ -49,21 +49,33 @@ impl BoundaryPolicy for ConfigBoundaryPolicy<'_> {
     }
 
     fn check_import(&self, source_zone: &str, target_zone: &str) -> BoundaryEdgeCheck {
-        match self.0.check_import(source_zone, target_zone) {
-            BoundaryRuleDecision::Allowed => BoundaryEdgeCheck::Allowed,
-            BoundaryRuleDecision::Denied {
-                directive: BoundaryDirective::Allow,
-                reason,
-            } => BoundaryEdgeCheck::DeniedByAllowRule { reason },
-            BoundaryRuleDecision::Denied {
-                directive: BoundaryDirective::Deny,
-                reason,
-            } => BoundaryEdgeCheck::DeniedByDenyRule { reason },
-        }
+        map_boundary_decision(self.0.check_import(source_zone, target_zone))
+    }
+
+    fn has_external_rules(&self) -> bool {
+        self.0.has_external_rules()
+    }
+
+    fn check_external_import(&self, source_zone: &str, package: &str) -> BoundaryEdgeCheck {
+        map_boundary_decision(self.0.check_external_import(source_zone, package))
     }
 
     fn strict_zones(&self) -> bool {
         self.0.strict_zones()
+    }
+}
+
+fn map_boundary_decision(decision: BoundaryRuleDecision) -> BoundaryEdgeCheck {
+    match decision {
+        BoundaryRuleDecision::Allowed => BoundaryEdgeCheck::Allowed,
+        BoundaryRuleDecision::Denied {
+            directive: BoundaryDirective::Allow,
+            reason,
+        } => BoundaryEdgeCheck::DeniedByAllowRule { reason },
+        BoundaryRuleDecision::Denied {
+            directive: BoundaryDirective::Deny,
+            reason,
+        } => BoundaryEdgeCheck::DeniedByDenyRule { reason },
     }
 }
 

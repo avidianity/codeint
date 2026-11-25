@@ -52,8 +52,8 @@ const BUILT_IN_METRIC_DESCRIPTORS: [BuiltInMetricDescriptor; 12] = [
     BuiltInMetricDescriptor {
         name: "Boundaries",
         short_description: "An import or file that breaks configured architectural boundaries",
-        full_description: "Boundaries checks resolved runtime imports against configured architectural zones, directional allow or deny rules, public_files encapsulation, and optional strict_zones coverage.",
-        help: "Import through an allowed zone or a target zone's public_files entry point, or assign the file to a configured zone.",
+        full_description: "Boundaries checks runtime imports against configured architectural zones, directional internal allow or deny rules, external-package allow_external or deny_external glob rules, public_files encapsulation, and optional strict_zones coverage.",
+        help: "Import through an allowed zone, a target zone's public_files entry point, or an allowed external package, or assign the file to a configured zone.",
     },
     BuiltInMetricDescriptor {
         name: Metric::OrphanFiles.display_name(),
