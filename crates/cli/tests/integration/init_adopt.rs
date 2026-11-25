@@ -20,6 +20,13 @@ fn legacy_repository() -> tempfile::TempDir {
     ])
 }
 
+fn refused_adoption(existing: &[(&str, &str)]) -> (tempfile::TempDir, String) {
+    let repo = legacy_repository();
+    write_repo_files(repo.path(), existing);
+    let (_, stderr) = run_codeint_text(repo.path(), &["init", "--adopt"], 2);
+    (repo, stderr)
+}
+
 fn stored_json(root: &Path, relative: &str) -> Value {
     let text = fs::read_to_string(root.join(relative)).expect("read the stored file");
     serde_json::from_str(&text).expect("the stored file is JSON")
@@ -139,10 +146,7 @@ fn adopt_enables_per_file_so_diff_fails_a_worsened_legacy_file_even_when_another
 
 #[test]
 fn adopt_never_replaces_an_existing_config_and_writes_nothing_else() {
-    let repo = legacy_repository();
-    write_repo_files(repo.path(), &[("codeint.jsonc", "// keep me\n{}\n")]);
-
-    let (_, stderr) = run_codeint_text(repo.path(), &["init", "--adopt"], 2);
+    let (repo, stderr) = refused_adoption(&[("codeint.jsonc", "// keep me\n{}\n")]);
 
     assert!(
         stderr.contains("already exists, and codeint init never replaces it"),
@@ -166,10 +170,7 @@ fn adopt_never_replaces_an_existing_ratchet_or_baseline_and_writes_nothing() {
         (RATCHET_FILE, "codeint ratchet update"),
         (BASELINE_FILE, "codeint baseline update"),
     ] {
-        let repo = legacy_repository();
-        write_repo_files(repo.path(), &[(existing, "{ \"keep\": \"me\" }\n")]);
-
-        let (_, stderr) = run_codeint_text(repo.path(), &["init", "--adopt"], 2);
+        let (repo, stderr) = refused_adoption(&[(existing, "{ \"keep\": \"me\" }\n")]);
 
         assert!(
             stderr.contains(existing)
@@ -194,10 +195,7 @@ fn adopt_never_replaces_an_existing_ratchet_or_baseline_and_writes_nothing() {
 
 #[test]
 fn adopt_removes_the_config_it_wrote_when_measuring_or_writing_state_fails() {
-    let repo = legacy_repository();
-    write_repo_files(repo.path(), &[(".codeint", "not a folder\n")]);
-
-    let (_, stderr) = run_codeint_text(repo.path(), &["init", "--adopt"], 2);
+    let (repo, stderr) = refused_adoption(&[(".codeint", "not a folder\n")]);
 
     assert!(
         stderr.contains("cannot write Ratchet file"),

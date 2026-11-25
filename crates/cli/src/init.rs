@@ -125,16 +125,18 @@ fn is_absent(error: &std::io::Error) -> bool {
     )
 }
 
+fn removal_failed(result: std::io::Result<()>) -> bool {
+    result.is_err_and(|error| !is_absent(&error))
+}
+
 fn roll_back(files: &[PathBuf], created_folder: Option<&Path>) -> Vec<PathBuf> {
-    let failed_file =
-        |file: &PathBuf| std::fs::remove_file(file).is_err_and(|error| !is_absent(&error));
     let mut leftovers: Vec<PathBuf> = files
         .iter()
-        .filter(|file| failed_file(file))
+        .filter(|file| removal_failed(std::fs::remove_file(file)))
         .cloned()
         .collect();
     if let Some(folder) = created_folder
-        && std::fs::remove_dir(folder).is_err_and(|error| !is_absent(&error))
+        && removal_failed(std::fs::remove_dir(folder))
     {
         leftovers.push(folder.to_path_buf());
     }
