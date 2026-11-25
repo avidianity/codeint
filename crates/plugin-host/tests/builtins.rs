@@ -10,7 +10,7 @@ use codeint_plugin_host::{
 };
 
 #[test]
-fn built_in_language_plugins_register_all_seven_languages_with_descriptors_and_hazard_rules() {
+fn built_in_language_plugins_register_all_eight_languages_with_descriptors_and_hazard_rules() {
     let expected_names = [
         "typescript-javascript",
         "rust",
@@ -19,18 +19,19 @@ fn built_in_language_plugins_register_all_seven_languages_with_descriptors_and_h
         "python",
         "go",
         "sql",
+        "shell",
     ];
     let names = built_in_language_names();
     assert_eq!(names, expected_names);
 
     let plugins = built_in_language_plugins();
-    assert_eq!(plugins.len(), 7);
+    assert_eq!(plugins.len(), 8);
     assert!(built_in_language_plugin(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME).is_some());
     assert!(built_in_language_plugin(SQL_PLUGIN_NAME).is_some());
     assert!(built_in_language_plugin("unknown-language").is_none());
 
     let descriptors = built_in_language_descriptors();
-    assert_eq!(descriptors.len(), 7);
+    assert_eq!(descriptors.len(), 8);
     for (plugin, descriptor) in plugins.iter().zip(&descriptors) {
         assert_eq!(plugin.name, descriptor.name);
         assert_eq!(plugin.plugin.extensions(), descriptor.extensions);
@@ -45,6 +46,16 @@ fn built_in_language_plugins_register_all_seven_languages_with_descriptors_and_h
         sql_rules
             .iter()
             .any(|rule| rule == "filter-on-unindexed-column")
+    );
+    let shell_rules = hazard_rules
+        .get("shell")
+        .expect("shell built-in plugin exposes hazard rules");
+    assert!(shell_rules.iter().any(|rule| rule == "missing-strict-mode"));
+    assert!(
+        descriptors
+            .iter()
+            .any(|descriptor| descriptor.name == "shell"
+                && descriptor.extensions == ["sh", "bash", "zsh"])
     );
     assert!(!hazard_rules.contains_key(TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME));
 }

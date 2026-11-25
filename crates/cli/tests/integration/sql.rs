@@ -3,7 +3,11 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::common::{init_git_repo, run_check_json as check_json, run_codeint_text};
+use crate::common::{
+    assert_doctor_counts_language_files, assert_import_metrics_absent, check_json_with_config,
+    finding_names, init_git_repo, init_git_repo_with, run_check_json as check_json,
+    run_codeint_stdout as run_stdout, run_codeint_text,
+};
 
 const WORKSPACE_FILES: [(&str, &str); 3] = [
     (
@@ -15,13 +19,7 @@ const WORKSPACE_FILES: [(&str, &str); 3] = [
 ];
 
 fn init_workspace_repo(extra: &[(&str, &str)]) -> tempfile::TempDir {
-    let mut files = WORKSPACE_FILES.to_vec();
-    files.extend_from_slice(extra);
-    init_git_repo(&files)
-}
-
-fn run_stdout(dir: &Path, args: &[&str], expected_code: i32) -> String {
-    run_codeint_text(dir, args, expected_code).0
+    init_git_repo_with(&WORKSPACE_FILES, extra)
 }
 
 fn assert_format_contains(dir: &Path, format: &str, needles: &[&str]) {
@@ -128,26 +126,10 @@ fn generic_sql_measures_metrics_object_names_absent_imports_workspaces_and_langu
 
     let report = check_json(repo.path());
     assert_eq!(report["files"], 4, "report: {report}");
-    assert!(
-        report["import_metrics_note"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("no imports"),
-        "report: {report}"
-    );
-    assert!(report.get("dependencies").is_none(), "report: {report}");
+    assert_import_metrics_absent(&report);
 
     let prod = &report["source_sets"]["production"];
-    assert!(prod.get("import_cycles").is_none(), "report: {report}");
-    assert!(prod.get("orphan_files").is_none(), "report: {report}");
-    assert!(prod.get("boundaries").is_none(), "report: {report}");
-
-    let eroded_names: Vec<&str> = prod["erosion"]["findings"]
-        .as_array()
-        .expect("erosion findings")
-        .iter()
-        .filter_map(|f| f["name"].as_str())
-        .collect();
+    let eroded_names = finding_names(&prod["erosion"]["findings"]);
     assert!(
         eroded_names.contains(&"monthly_totals"),
         "expected monthly_totals in erosion findings: {report}"
@@ -186,12 +168,10 @@ fn generic_sql_measures_metrics_object_names_absent_imports_workspaces_and_langu
         [".", "packages/analytics", "packages/billing"]
     );
 
-    fs::write(
-        repo.path().join("codeint.json"),
+    let filtered = check_json_with_config(
+        repo.path(),
         r#"{"languages":[{"plugin":"sql","include":["packages/billing"],"exclude":["packages/billing/queries/dup_a.sql"]}]}"#,
-    )
-    .expect("write codeint.json");
-    let filtered = check_json(repo.path());
+    );
     assert_eq!(filtered["files"], 2, "filtered: {filtered}");
 }
 
@@ -236,12 +216,10 @@ fn sql_source_set_rules_and_overrides_classify_dumps_migrations_tests_and_produc
     assert_eq!(report["source_sets"]["generated"]["files"], 6, "{report}");
     assert_eq!(report["source_sets"]["test"]["files"], 3, "{report}");
 
-    fs::write(
-        repo.path().join("codeint.json"),
+    let overridden = check_json_with_config(
+        repo.path(),
         r#"{"source_sets":{"production":["fixtures/**"]}}"#,
-    )
-    .expect("write codeint.json");
-    let overridden = check_json(repo.path());
+    );
     assert_eq!(
         overridden["source_sets"]["production"]["files"], 2,
         "{overridden}"
@@ -374,22 +352,7 @@ fn sql_dialects_monorepo_handles_all_four_dialects_generic_fallback_and_doctor()
         ["duckdb", "generic SQL", "mysql", "postgresql", "sqlite"]
     );
 
-    let doctor: Value =
-        serde_json::from_str(&run_stdout(repo.path(), &["doctor", "--format", "json"], 0))
-            .expect("valid doctor json");
-    let languages_check = doctor["checks"]
-        .as_array()
-        .expect("checks")
-        .iter()
-        .find(|c| c["id"] == "languages")
-        .expect("languages check");
-    assert!(
-        languages_check["summary"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("sql: 5"),
-        "doctor: {doctor}"
-    );
+    assert_doctor_counts_language_files(repo.path(), "sql: 5");
 }
 
 #[test]

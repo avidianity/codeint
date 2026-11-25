@@ -27,6 +27,7 @@ mod ratchet;
 mod report;
 mod schema;
 mod sdk;
+mod shell;
 mod sql;
 mod test_gap;
 mod trace;

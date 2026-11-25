@@ -5,6 +5,7 @@ use codeint_lang_go::Go;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
+use codeint_lang_shell::Shell;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::LanguagePlugin;
 
@@ -25,7 +26,7 @@ pub struct BuiltInLanguageDescriptor {
     pub extensions: Vec<String>,
 }
 
-const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 7] = [
+const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 8] = [
     NamedLanguagePlugin {
         name: TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME,
         plugin: &TypeScriptAndJavaScript,
@@ -53,6 +54,10 @@ const BUILT_IN_LANGUAGE_PLUGINS: [NamedLanguagePlugin<'static>; 7] = [
     NamedLanguagePlugin {
         name: SQL_PLUGIN_NAME,
         plugin: &BuiltInSql,
+    },
+    NamedLanguagePlugin {
+        name: "shell",
+        plugin: &Shell,
     },
 ];
 

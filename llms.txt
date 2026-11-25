@@ -1,6 +1,6 @@
 # codeint
 
-> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Test gap, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, SQL (generic SQL plus PostgreSQL, MySQL/MariaDB, SQLite, and DuckDB Dialects), and external WebAssembly Language and Metric plugins.
+> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Test gap, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, SQL (generic SQL plus PostgreSQL, MySQL/MariaDB, SQLite, and DuckDB Dialects), Shell (POSIX sh, Bash, and Zsh), and external WebAssembly Language and Metric plugins.
 > CLI commands include `check`, `diff`, `ratchet`, `trend`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `agent`, `mcp`, `init`, and `update`, configured via `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc`, with optional whole-repository ceilings in `.codeint/ratchet.json`.
 
 ## Guide
@@ -12,9 +12,10 @@
 - [Import boundaries](docs/guide/import-boundaries.md): define architectural zones, `public_files` encapsulation, built-in `layered` and `hexagonal` presets, `allow_external` and `deny_external` third-party package glob rules, and pre-edit `codeint guard` checks.
 - [Test gap](docs/guide/test-gap.md): measure untested Production Function mass from LCOV and Cobertura XML Coverage reports, set up each test tool, and enforce a Test gap Budget.
 - [Hazards](docs/guide/hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.
-- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, and SQL rules, function names, cognitive complexity, manifests, and calibrated Reference ranges.
+- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, SQL, and Shell rules, function names, cognitive complexity, manifests, and calibrated Reference ranges.
 - [Go Guide](docs/guide/go.md): Go terminology mapping, Source sets, Flagged line rules, multi-file Go package imports, entry points, and `go.mod` Dependency hygiene.
 - [SQL Guide](docs/guide/sql.md): generic SQL measurement, PostgreSQL/MySQL/SQLite/DuckDB Dialects, Source sets, templated SQL and rejected statements, and automatic SQL Schema rules.
+- [Shell Guide](docs/guide/shell.md): `.sh`, `.bash`, and `.zsh` measurement, shebang flavor detection, named and top-level `<script>` functions, Source sets, Flagged line rules, and 10 secret-free Hazard line rules.
 - [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` `--owner` filtering, `--package` scoping, and SARIF upload.
 - [Coding-Agent Integration (MCP Server)](docs/guide/mcp.md): automatic `codeint agent status`/`install`, `codeint schema`, and local stdio MCP server (`codeint mcp`) exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 

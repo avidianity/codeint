@@ -8,6 +8,7 @@ use codeint_lang_go::Go;
 use codeint_lang_php::Php;
 use codeint_lang_python::Python;
 use codeint_lang_rust::Rust;
+use codeint_lang_shell::Shell;
 use codeint_lang_sql::Sql;
 use codeint_lang_ts::TypeScriptAndJavaScript;
 use codeint_model::language::{ImportRequest, Resolution};
@@ -940,26 +941,74 @@ fn folder_import_external_wasm_plugin_passes_seam_2_conformance() {
     );
 }
 
+struct NoImportsFiles<'a> {
+    production_path: &'a str,
+    test: (&'a str, &'a str),
+    empty_path: &'a str,
+    unparsable: (&'a str, &'a str),
+}
+
+fn run_no_imports_conformance(
+    plugin: &dyn LanguagePlugin,
+    name: &str,
+    src: &str,
+    files: NoImportsFiles<'_>,
+    expect_erosion_reference_range: bool,
+) {
+    let crlf = src.replace('\n', "\r\n");
+    assert_seam_2_conformance(
+        plugin,
+        &ConformanceFixture {
+            name,
+            production_path: files.production_path,
+            production_source: src,
+            production_source_crlf: &crlf,
+            test_path: files.test.0,
+            test_source: files.test.1,
+            empty_path: files.empty_path,
+            declaration_only: None,
+            unparsable_path: files.unparsable.0,
+            unparsable_source: files.unparsable.1,
+            unsupported_path: "scripts/tool.unknown",
+            imports: None,
+            expect_erosion_reference_range,
+        },
+    );
+}
+
 #[test]
 fn built_in_sql_plugin_passes_seam_2_conformance() {
-    let prod = "-- active orders view\nCREATE VIEW active_orders AS\nSELECT id, total\nFROM orders\nWHERE status = 'open' AND total > 0;\n\nSELECT * FROM orders;\n";
-    let prod_crlf = prod.replace('\n', "\r\n");
-    let fixture = ConformanceFixture {
-        name: "sql",
-        production_path: "queries/orders.sql",
-        production_source: prod,
-        production_source_crlf: &prod_crlf,
-        test_path: "tests/orders.sql",
-        test_source: "SELECT id FROM orders WHERE id = 1;\n",
-        empty_path: "queries/empty.sql",
-        declaration_only: None,
-        unparsable_path: "queries/template.sql",
-        unparsable_source: "SELECT id FROM {{ table_name }};\n",
-        unsupported_path: "scripts/tool.unknown",
-        imports: None,
-        expect_erosion_reference_range: true,
-    };
-    assert_seam_2_conformance(&Sql::new(), &fixture);
+    run_no_imports_conformance(
+        &Sql::new(),
+        "sql",
+        "-- active orders view\nCREATE VIEW active_orders AS\nSELECT id, total\nFROM orders\nWHERE status = 'open' AND total > 0;\n\nSELECT * FROM orders;\n",
+        NoImportsFiles {
+            production_path: "queries/orders.sql",
+            test: ("tests/orders.sql", "SELECT id FROM orders WHERE id = 1;\n"),
+            empty_path: "queries/empty.sql",
+            unparsable: ("queries/template.sql", "SELECT id FROM {{ table_name }};\n"),
+        },
+        true,
+    );
+}
+
+#[test]
+fn built_in_shell_plugin_passes_seam_2_conformance() {
+    run_no_imports_conformance(
+        &Shell,
+        "shell",
+        "#!/usr/bin/env bash\nset -euo pipefail\n\n# deploy helper\ndeploy() {\n  if [ -n \"$1\" ]; then\n    echo \"deploying $1\"\n  else\n    return 1\n  fi\n}\n\nfor target in staging production; do\n  deploy \"$target\" || exit 1\ndone\n",
+        NoImportsFiles {
+            production_path: "scripts/deploy.sh",
+            test: (
+                "tests/deploy_test.sh",
+                "#!/usr/bin/env bash\nset -euo pipefail\n\ntest_deploy() {\n  echo ok\n}\n",
+            ),
+            empty_path: "scripts/empty.sh",
+            unparsable: ("scripts/broken.sh", "echo 'unterminated\n"),
+        },
+        false,
+    );
 }
 
 #[test]

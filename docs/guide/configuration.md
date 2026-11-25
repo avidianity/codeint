@@ -130,6 +130,7 @@ If your config file pins an official `$schema` tag newer than the running binary
     { "plugin": "python", "include": ["services"], "exclude": [] },
     { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] },
     { "plugin": "sql", "include": ["db", "analytics"], "exclude": [] },
+    { "plugin": "shell", "include": ["scripts"], "exclude": [] },
   ],
 }
 ```
