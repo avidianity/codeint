@@ -143,6 +143,7 @@ pub(crate) fn lex(text: &str) -> Result<LexedFile, LowerError> {
         delim_stack: Vec::new(),
     };
     lexer.run()?;
+    reclassify_contextual_keywords(&mut lexer.tokens);
     Ok(LexedFile {
         tokens: lexer.tokens,
         header_comments: lexer.header_comments,
@@ -170,7 +171,10 @@ impl<'a> Lexer<'a> {
 
     fn step_html(&mut self) {
         let rest = &self.bytes[self.pos..];
-        if rest.starts_with(b"<?php") && rest.get(5).is_none_or(|b| b.is_ascii_whitespace()) {
+        if rest.len() >= 5
+            && rest[..5].eq_ignore_ascii_case(b"<?php")
+            && rest.get(5).is_none_or(|b| b.is_ascii_whitespace())
+        {
             self.in_php = true;
             self.pos += 5;
             return;
@@ -180,7 +184,8 @@ impl<'a> Lexer<'a> {
             self.pos += 3;
             return;
         }
-        if rest.starts_with(b"<?") && !rest.starts_with(b"<?xml") {
+        if rest.starts_with(b"<?") && !(rest.len() >= 5 && rest[..5].eq_ignore_ascii_case(b"<?xml"))
+        {
             self.in_php = true;
             self.pos += 2;
             return;
@@ -211,7 +216,7 @@ impl<'a> Lexer<'a> {
         if rest.starts_with(b"<<<") {
             return self.lex_heredoc();
         }
-        if matches!(rest[0], b'\'' | b'"') {
+        if matches!(rest[0], b'\'' | b'"' | b'`') {
             return self.lex_string();
         }
         self.step_php_atom()
@@ -241,8 +246,7 @@ impl<'a> Lexer<'a> {
             return Ok(());
         }
         if is_ident_start(b) {
-            self.lex_word();
-            return Ok(());
+            return self.lex_word();
         }
         if b.is_ascii_digit() {
             self.lex_number();
@@ -388,6 +392,19 @@ impl<'a> Lexer<'a> {
         let quote = self.bytes[self.pos];
         let start = self.pos;
         let start_line = self.line;
+        self.skip_quoted_body(quote, start_line)?;
+        self.record_lines(start_line, self.line);
+        self.tokens.push(RawToken {
+            kind: RawKind::StringLit,
+            text: self.text[start..self.pos].to_owned(),
+            lower: String::new(),
+            line: start_line,
+        });
+        Ok(())
+    }
+
+    fn skip_quoted_body(&mut self, quote: u8, start_line: u32) -> Result<(), LowerError> {
+        let allows_interp = matches!(quote, b'"' | b'`');
         self.pos += 1;
         while self.pos < self.bytes.len() {
             let b = self.bytes[self.pos];
@@ -398,15 +415,12 @@ impl<'a> Lexer<'a> {
                 self.pos += 2;
                 continue;
             }
+            if allows_interp && self.starts_interpolation() {
+                self.skip_interpolated_braces(start_line)?;
+                continue;
+            }
             if b == quote {
                 self.pos += 1;
-                self.record_lines(start_line, self.line);
-                self.tokens.push(RawToken {
-                    kind: RawKind::StringLit,
-                    text: self.text[start..self.pos].to_owned(),
-                    lower: String::new(),
-                    line: start_line,
-                });
                 return Ok(());
             }
             if b == b'\n' {
@@ -417,6 +431,46 @@ impl<'a> Lexer<'a> {
         Err(LowerError::Unparsable(format!(
             "unterminated string literal at line {start_line}"
         )))
+    }
+
+    fn starts_interpolation(&self) -> bool {
+        matches!(
+            (self.bytes.get(self.pos), self.bytes.get(self.pos + 1)),
+            (Some(b'{'), Some(b'$')) | (Some(b'$'), Some(b'{'))
+        )
+    }
+
+    fn skip_interpolated_braces(&mut self, start_line: u32) -> Result<(), LowerError> {
+        self.pos += 2;
+        let mut depth = 1usize;
+        while self.pos < self.bytes.len() && depth > 0 {
+            self.step_interpolated_token(&mut depth)?;
+        }
+        if depth > 0 {
+            return Err(LowerError::Unparsable(format!(
+                "unterminated string interpolation at line {start_line}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn step_interpolated_token(&mut self, depth: &mut usize) -> Result<(), LowerError> {
+        let rest = &self.bytes[self.pos..];
+        if self.try_skip_comment(rest)? {
+            return Ok(());
+        }
+        let b = rest[0];
+        if matches!(b, b'\'' | b'"' | b'`') {
+            return self.skip_quoted_body(b, self.line);
+        }
+        match b {
+            b'{' => *depth += 1,
+            b'}' => *depth -= 1,
+            b'\n' => self.line += 1,
+            _ => {}
+        }
+        self.pos += 1;
+        Ok(())
     }
 
     fn push_simple_token(&mut self, kind: RawKind, slice: String, lower: String) {
@@ -445,7 +499,7 @@ impl<'a> Lexer<'a> {
         self.push_simple_token(RawKind::Variable, slice.clone(), slice);
     }
 
-    fn lex_word(&mut self) {
+    fn lex_word(&mut self) -> Result<(), LowerError> {
         let slice = self.consume_while(is_ident_continue).to_owned();
         let lower = slice.to_ascii_lowercase();
         let kind = if is_keyword(&lower) {
@@ -453,7 +507,65 @@ impl<'a> Lexer<'a> {
         } else {
             RawKind::Ident
         };
-        self.push_simple_token(kind, slice, lower);
+        self.push_simple_token(kind, slice, lower.clone());
+        if lower == "__halt_compiler" && self.try_consume_halt_compiler()? {
+            self.pos = self.bytes.len();
+        }
+        Ok(())
+    }
+
+    fn try_consume_halt_compiler(&mut self) -> Result<bool, LowerError> {
+        if self.tokens.len() >= 2 {
+            let prev = &self.tokens[self.tokens.len() - 2];
+            if matches!(prev.text.as_str(), "->" | "?->" | "::")
+                || (prev.kind == RawKind::Keyword
+                    && matches!(prev.lower.as_str(), "function" | "const"))
+            {
+                return Ok(false);
+            }
+        }
+        let saved_pos = self.pos;
+        let saved_line = self.line;
+        let mut matched = Vec::with_capacity(3);
+        for expected in *b"();" {
+            self.skip_ws_and_comments()?;
+            if self.bytes.get(self.pos) != Some(&expected) {
+                self.pos = saved_pos;
+                self.line = saved_line;
+                return Ok(false);
+            }
+            matched.push((expected as char, self.line));
+            self.pos += 1;
+        }
+        for (ch, line) in matched {
+            let text = ch.to_string();
+            self.code_lines.insert(line);
+            self.tokens.push(RawToken {
+                kind: RawKind::Punct,
+                text: text.clone(),
+                lower: text,
+                line,
+            });
+        }
+        Ok(true)
+    }
+
+    fn skip_ws_and_comments(&mut self) -> Result<(), LowerError> {
+        while self.pos < self.bytes.len() {
+            let rest = &self.bytes[self.pos..];
+            if rest[0].is_ascii_whitespace() {
+                if rest[0] == b'\n' {
+                    self.line += 1;
+                }
+                self.pos += 1;
+                continue;
+            }
+            if self.try_skip_comment(rest)? {
+                continue;
+            }
+            break;
+        }
+        Ok(())
     }
 
     fn lex_number(&mut self) {
@@ -500,8 +612,72 @@ fn match_multi_punct(bytes: &[u8]) -> Option<&'static str> {
         .find(|candidate| bytes.starts_with(candidate.as_bytes()))
 }
 
+fn reclassify_contextual_keywords(tokens: &mut [RawToken]) {
+    for i in 0..tokens.len() {
+        if tokens[i].kind == RawKind::Keyword && is_contextual_identifier(tokens, i) {
+            tokens[i].kind = RawKind::Ident;
+        }
+    }
+}
+
+fn is_contextual_identifier(tokens: &[RawToken], i: usize) -> bool {
+    let Some(prev) = i.checked_sub(1).and_then(|p| tokens.get(p)) else {
+        return false;
+    };
+    if matches!(prev.text.as_str(), "->" | "?->" | "::") {
+        return true;
+    }
+    let prev2 = i.checked_sub(2).and_then(|p| tokens.get(p));
+    let next_text = tokens.get(i + 1).map(|t| t.text.as_str());
+    is_function_name_position(prev, prev2)
+        || is_named_arg_position(prev, next_text)
+        || is_const_name_position(prev, prev2, next_text)
+}
+
+fn is_keyword_named(token: Option<&RawToken>, name: &str) -> bool {
+    token.is_some_and(|t| t.kind == RawKind::Keyword && t.lower == name)
+}
+
+fn is_function_name_position(prev: &RawToken, prev2: Option<&RawToken>) -> bool {
+    let after_fn = prev.kind == RawKind::Keyword && prev.lower == "function";
+    let after_fn_ref = prev.text == "&" && is_keyword_named(prev2, "function");
+    (after_fn && !is_keyword_named(prev2, "use")) || after_fn_ref
+}
+
+fn is_named_arg_position(prev: &RawToken, next_text: Option<&str>) -> bool {
+    matches!(prev.text.as_str(), "(" | ",") && next_text == Some(":")
+}
+
+fn is_const_name_position(
+    prev: &RawToken,
+    prev2: Option<&RawToken>,
+    next_text: Option<&str>,
+) -> bool {
+    prev.kind == RawKind::Keyword
+        && prev.lower == "const"
+        && !is_keyword_named(prev2, "use")
+        && next_text == Some("=")
+}
+
 pub(crate) fn find_matching_delim(tokens: &[RawToken], open_idx: usize) -> Option<usize> {
     shared_matching_delim(tokens, open_idx)
+}
+
+pub(crate) fn closes_attribute(tokens: &[RawToken], close_idx: usize) -> bool {
+    let mut depth = 0usize;
+    for idx in (0..=close_idx).rev() {
+        match tokens[idx].text.as_str() {
+            "]" => depth += 1,
+            "[" | "#[" => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return tokens[idx].text == "#[";
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 pub(crate) fn find_next_brace(tokens: &[RawToken], mut pos: usize) -> Option<usize> {

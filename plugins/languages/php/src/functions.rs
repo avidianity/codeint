@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use codeint_model::language::Function;
 use codeint_model::scan::{find_arrow_expr_end, paren_then_brace, score_function_spans};
 
-use crate::lexer::{RawKind, RawToken, find_matching_delim};
+use crate::lexer::{RawKind, RawToken, closes_attribute, find_matching_delim};
 
 struct PhpSpan {
     header_idx: usize,
@@ -172,16 +172,42 @@ fn decision_increment(tokens: &[RawToken], idx: usize) -> u32 {
 }
 
 fn is_ternary_question(tokens: &[RawToken], idx: usize) -> bool {
-    let prev = idx.checked_sub(1).and_then(|i| tokens.get(i));
-    match prev {
-        None => false,
-        Some(t) => {
-            matches!(
-                t.kind,
-                RawKind::Variable | RawKind::Ident | RawKind::NumberLit | RawKind::StringLit
-            ) || matches!(t.text.as_str(), ")" | "]" | "true" | "false" | "null")
-        }
+    if tokens.get(idx + 1).is_some_and(|t| t.text == ":") {
+        return true;
     }
+    let Some(prev) = idx.checked_sub(1).and_then(|i| tokens.get(i)) else {
+        return false;
+    };
+    if prev.text == "]" {
+        return !closes_attribute(tokens, idx - 1);
+    }
+    if prev.text == ")" {
+        return !is_asymmetric_visibility_close(tokens, idx - 1);
+    }
+    if prev.kind == RawKind::Keyword && prev.lower == "static" {
+        return idx >= 2
+            && tokens[idx - 2].kind == RawKind::Keyword
+            && tokens[idx - 2].lower == "instanceof";
+    }
+    matches!(
+        prev.kind,
+        RawKind::Variable | RawKind::Ident | RawKind::NumberLit | RawKind::StringLit
+    ) || matches!(prev.text.as_str(), "++" | "--")
+        || matches!(
+            prev.lower.as_str(),
+            "true" | "false" | "null" | "self" | "parent"
+        )
+}
+
+fn is_asymmetric_visibility_close(tokens: &[RawToken], close_idx: usize) -> bool {
+    close_idx >= 3
+        && tokens[close_idx - 1].lower == "set"
+        && tokens[close_idx - 2].text == "("
+        && tokens[close_idx - 3].kind == RawKind::Keyword
+        && matches!(
+            tokens[close_idx - 3].lower.as_str(),
+            "public" | "protected" | "private"
+        )
 }
 
 fn count_match_arms(tokens: &[RawToken], match_idx: usize) -> u32 {

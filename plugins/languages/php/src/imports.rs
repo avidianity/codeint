@@ -13,7 +13,7 @@ pub(crate) struct ExtractedImports {
 pub(crate) fn extract(tokens: &[RawToken]) -> ExtractedImports {
     let mut specifiers = BTreeSet::new();
     let mut import_token_indices = BTreeSet::new();
-    let mut brace_depth = 0usize;
+    let mut brace_stack: Vec<bool> = Vec::new();
     let mut i = 0usize;
 
     while i < tokens.len() {
@@ -21,18 +21,17 @@ pub(crate) fn extract(tokens: &[RawToken]) -> ExtractedImports {
             i = next;
             continue;
         }
-        let token = &tokens[i];
-        brace_depth = update_brace_depth(brace_depth, token.text.as_str());
         if let Some(next) = scan_top_level_import(
             tokens,
             i,
-            brace_depth,
+            &mut brace_stack,
             &mut specifiers,
             &mut import_token_indices,
         ) {
             i = next;
             continue;
         }
+        update_brace_stack(&mut brace_stack, tokens[i].text.as_str());
         extract_require(tokens, i, &mut specifiers);
         i += 1;
     }
@@ -43,11 +42,13 @@ pub(crate) fn extract(tokens: &[RawToken]) -> ExtractedImports {
     }
 }
 
-fn update_brace_depth(depth: usize, text: &str) -> usize {
+fn update_brace_stack(stack: &mut Vec<bool>, text: &str) {
     match text {
-        "{" => depth + 1,
-        "}" => depth.saturating_sub(1),
-        _ => depth,
+        "{" => stack.push(false),
+        "}" => {
+            stack.pop();
+        }
+        _ => {}
     }
 }
 
@@ -62,11 +63,7 @@ fn scan_type_body(
             token.lower.as_str(),
             "class" | "interface" | "trait" | "enum"
         );
-    if !is_type_kw
-        || tokens
-            .get(idx.saturating_sub(1))
-            .is_some_and(|p| p.text == "::")
-    {
+    if !is_type_kw || (idx > 0 && matches!(tokens[idx - 1].text.as_str(), "::" | "->" | "?->")) {
         return None;
     }
     let brace = find_next_brace(tokens, idx + 1)?;
@@ -80,7 +77,7 @@ fn scan_type_body(
 fn scan_top_level_import(
     tokens: &[RawToken],
     idx: usize,
-    brace_depth: usize,
+    brace_stack: &mut Vec<bool>,
     specifiers: &mut BTreeSet<String>,
     marked: &mut BTreeSet<usize>,
 ) -> Option<usize> {
@@ -88,10 +85,15 @@ fn scan_top_level_import(
     if token.kind != RawKind::Keyword {
         return None;
     }
-    if token.lower == "namespace" {
-        return Some(mark_statement(tokens, idx, marked) + 1);
+    if token.lower == "namespace" && tokens.get(idx + 1).is_none_or(|t| t.text != "\\") {
+        let end = mark_statement(tokens, idx, marked);
+        if tokens.get(end).is_some_and(|t| t.text == "{") {
+            brace_stack.push(true);
+        }
+        return Some(end + 1);
     }
-    if token.lower == "use" && brace_depth == 0 && !is_closure_use(tokens, idx) {
+    let at_namespace_level = brace_stack.last().copied().unwrap_or(true);
+    if token.lower == "use" && at_namespace_level && !is_closure_use(tokens, idx) {
         return Some(parse_use_statement(tokens, idx, specifiers, marked) + 1);
     }
     None
@@ -117,6 +119,7 @@ struct UseAccumulator<'a> {
     current: String,
     group_prefix: Option<String>,
     in_alias: bool,
+    skip_item: bool,
     specifiers: &'a mut BTreeSet<String>,
 }
 
@@ -130,15 +133,18 @@ impl UseAccumulator<'_> {
             "{" => {
                 self.group_prefix = Some(std::mem::take(&mut self.current));
                 self.in_alias = false;
+                self.skip_item = false;
             }
             "}" => {
                 self.flush();
                 self.group_prefix = None;
                 self.in_alias = false;
+                self.skip_item = false;
             }
             "," => {
                 self.flush();
                 self.in_alias = false;
+                self.skip_item = false;
             }
             _ => self.append_part(token),
         }
@@ -150,20 +156,19 @@ impl UseAccumulator<'_> {
             self.in_alias = true;
             return;
         }
-        if self.in_alias {
+        if self.current.is_empty() && is_use_modifier(token) {
+            self.skip_item = true;
             return;
         }
-        if token.text == "\\" {
-            if !self.current.is_empty() && !self.current.ends_with('\\') {
-                self.current.push('\\');
-            }
-        } else {
-            self.current.push_str(&token.text);
+        if !self.in_alias && !self.skip_item {
+            append_name_token(&mut self.current, &token.text);
         }
     }
 
     fn flush(&mut self) {
-        push_use_specifier(&self.group_prefix, &self.current, self.specifiers);
+        if !self.skip_item {
+            push_use_specifier(&self.group_prefix, &self.current, self.specifiers);
+        }
         self.current.clear();
     }
 }
@@ -185,6 +190,7 @@ fn parse_use_statement(
         current: String::new(),
         group_prefix: None,
         in_alias: false,
+        skip_item: false,
         specifiers,
     };
     while i < tokens.len() {
@@ -220,6 +226,18 @@ fn push_use_specifier(
     specifiers.insert(format!("{USE_PREFIX}{full}"));
 }
 
+fn is_use_modifier(token: &RawToken) -> bool {
+    token.kind == RawKind::Keyword && matches!(token.lower.as_str(), "function" | "const")
+}
+
+fn append_name_token(buf: &mut String, text: &str) {
+    if text != "\\" {
+        buf.push_str(text);
+    } else if !buf.is_empty() && !buf.ends_with('\\') {
+        buf.push('\\');
+    }
+}
+
 fn extract_require(tokens: &[RawToken], idx: usize, specifiers: &mut BTreeSet<String>) {
     let token = &tokens[idx];
     if token.kind != RawKind::Keyword
@@ -230,26 +248,45 @@ fn extract_require(tokens: &[RawToken], idx: usize, specifiers: &mut BTreeSet<St
     {
         return;
     }
-    let mut cursor = idx + 1;
-    if tokens.get(cursor).is_some_and(|t| t.text == "(") {
-        cursor += 1;
-    }
-    if tokens.get(cursor).is_some_and(|t| t.text == "__DIR__")
-        && tokens.get(cursor + 1).is_some_and(|t| t.text == ".")
-        && let Some(lit) = tokens
-            .get(cursor + 2)
-            .filter(|t| t.kind == RawKind::StringLit)
+    let has_paren = tokens.get(idx + 1).is_some_and(|t| t.text == "(");
+    let cursor = idx + 1 + usize::from(has_paren);
+    if let Some(spec) = extract_dir_require(tokens, cursor, has_paren)
+        .or_else(|| extract_literal_require(tokens, cursor, has_paren))
     {
-        if let Some(unquoted) = unquote_simple(&lit.text) {
-            let rel = unquoted.strip_prefix('/').unwrap_or(unquoted);
-            specifiers.insert(format!("{REQ_PREFIX}./{rel}"));
-        }
-        return;
+        specifiers.insert(spec);
     }
-    if let Some(lit) = tokens.get(cursor).filter(|t| t.kind == RawKind::StringLit)
-        && let Some(unquoted) = unquote_simple(&lit.text)
+}
+
+fn extract_dir_require(tokens: &[RawToken], cursor: usize, has_paren: bool) -> Option<String> {
+    if !tokens.get(cursor).is_some_and(|t| t.lower == "__dir__")
+        || !tokens.get(cursor + 1).is_some_and(|t| t.text == ".")
     {
-        specifiers.insert(format!("{REQ_PREFIX}{unquoted}"));
+        return None;
+    }
+    let lit = tokens
+        .get(cursor + 2)
+        .filter(|t| t.kind == RawKind::StringLit)?;
+    is_static_require_end(tokens, cursor + 3, has_paren).then_some(())?;
+    let unquoted = unquote_simple(&lit.text)?;
+    let rel = unquoted.strip_prefix('/').unwrap_or(unquoted);
+    Some(format!("{REQ_PREFIX}./{rel}"))
+}
+
+fn extract_literal_require(tokens: &[RawToken], cursor: usize, has_paren: bool) -> Option<String> {
+    let lit = tokens
+        .get(cursor)
+        .filter(|t| t.kind == RawKind::StringLit)?;
+    is_static_require_end(tokens, cursor + 1, has_paren).then_some(())?;
+    let unquoted = unquote_simple(&lit.text)?;
+    Some(format!("{REQ_PREFIX}{unquoted}"))
+}
+
+fn is_static_require_end(tokens: &[RawToken], after: usize, has_paren: bool) -> bool {
+    if has_paren {
+        tokens.get(after).is_some_and(|t| t.text == ")")
+            && tokens.get(after + 1).is_none_or(|t| t.text != ".")
+    } else {
+        tokens.get(after).is_none_or(|t| t.text != ".")
     }
 }
 
