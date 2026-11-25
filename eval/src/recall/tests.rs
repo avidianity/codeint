@@ -86,3 +86,42 @@ fn recall_meets_the_bar_at_ninety_eight_percent_with_no_unexpected_unparsable_fi
     assert!(!recall.meets_bar());
     assert_eq!(RecallCount::default().ratio(), 1.0);
 }
+
+#[test]
+fn recall_counts_oracle_items_in_unmeasured_files_as_misses() {
+    let lowered = vec![
+        LoweredFile {
+            path: "latin.php".to_owned(),
+            outcome: LoweredOutcome::NotMeasured,
+        },
+        measured("a.php", vec![[1, 2, 1]], &[]),
+    ];
+    let oracle = vec![
+        oracle_file("latin.php", vec![[3, 5, 2]], &["a"]),
+        oracle_file("a.php", vec![[1, 2, 1]], &[]),
+    ];
+    let recall = LanguageRecall::compare(&oracle, &lowered);
+    assert_eq!(recall.unmeasured_files, vec!["latin.php".to_owned()]);
+    assert_eq!(
+        recall.functions,
+        RecallCount {
+            matched: 1,
+            total: 2
+        }
+    );
+    assert_eq!(
+        recall.decision_points,
+        RecallCount {
+            matched: 1,
+            total: 3
+        }
+    );
+    assert_eq!(
+        recall.imports,
+        RecallCount {
+            matched: 0,
+            total: 1
+        }
+    );
+    assert!(!recall.meets_bar());
+}

@@ -219,3 +219,72 @@ fn evaluation_runner_measures_local_repositories_in_scratch_folders_and_writes_r
         assert!(markdown.contains(name), "{markdown}");
     }
 }
+
+const FAKE_PHP_ORACLE: &str = r#"#!/bin/sh
+while IFS= read -r path; do
+  echo "{\"path\":\"$path\",\"functions\":[[3,5,1]],\"imports\":[]}"
+done < "$1"
+"#;
+
+#[cfg(unix)]
+#[test]
+fn evaluation_runner_counts_files_codeint_did_not_measure_as_recall_misses() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = init_git_repo(&[("README.md", "# latin\n")]);
+    run_git(
+        repo.path(),
+        &["config", "uploadpack.allowAnySHA1InWant", "true"],
+    );
+    let latin = b"<?php\n\nfunction caf\xe9($value) {\n    return $value;\n}\n";
+    std::fs::write(repo.path().join("Latin.php"), latin).expect("write latin-1 file");
+    run_git(repo.path(), &["add", "Latin.php"]);
+    run_git(
+        repo.path(),
+        &["commit", "--quiet", "-m", "add latin-1 file"],
+    );
+    let commit = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(repo.path())
+            .output()
+            .expect("git rev-parse")
+            .stdout,
+    )
+    .expect("utf8")
+    .trim()
+    .to_owned();
+
+    let work = TempDir::new().expect("work folder");
+    let oracle = work.path().join("fake-php-oracle.sh");
+    std::fs::write(&oracle, FAKE_PHP_ORACLE).expect("write fake oracle");
+    std::fs::set_permissions(&oracle, std::fs::Permissions::from_mode(0o755))
+        .expect("make fake oracle executable");
+    let manifest = work.path().join("corpus.json");
+    let corpus = serde_json::json!({
+        "measured_on": "2026-11-25",
+        "repositories": [
+            {"name": "local/latin", "language": "php", "bucket": "small", "url": file_url(repo.path()), "commit": commit}
+        ]
+    });
+    std::fs::write(&manifest, corpus.to_string()).expect("write manifest");
+
+    let summary = run_evaluation(&EvaluationConfig {
+        manifest,
+        codeint: PathBuf::from(env!("CARGO_BIN_EXE_codeint")),
+        output_dir: work.path().join("docs"),
+        codeint_repository: work.path().to_path_buf(),
+        languages: Vec::new(),
+        repositories: Vec::new(),
+        runs: 1,
+        audit_sample_size: 10,
+        oracle_overrides: [("php".to_owned(), oracle)].into_iter().collect(),
+    })
+    .expect("evaluation runs");
+
+    let latin = repository(&summary, "local/latin");
+    let recall = latin.oracle.recall.as_ref().expect("php recall");
+    assert_eq!((recall.functions.matched, recall.functions.total), (0, 1));
+    assert_eq!(recall.unmeasured_files, vec!["Latin.php".to_owned()]);
+    assert!(!latin.passed, "{latin:?}");
+}

@@ -78,15 +78,16 @@ fn write_header(out: &mut String, summary: &EvaluationSummary) {
 
 fn recall_cells(recall: Option<&LanguageRecall>) -> String {
     recall.map_or_else(
-        || "- | - | - | - | -".to_owned(),
+        || "- | - | - | - | - | -".to_owned(),
         |recall| {
             format!(
-                "{} | {} | {} | {} | {}",
+                "{} | {} | {} | {} | {} | {}",
                 percent(&recall.functions),
                 percent(&recall.decision_points),
                 percent(&recall.imports),
                 recall.oracle_unparsable_files.len(),
-                recall.unexpected_unparsable_files.len()
+                recall.unexpected_unparsable_files.len(),
+                recall.unmeasured_files.len()
             )
         },
     )
@@ -104,14 +105,17 @@ fn write_recall(out: &mut String, summary: &EvaluationSummary) {
     let _ = writeln!(out, "## Native-parser recall\n");
     let _ = writeln!(
         out,
-        "Each bar is {:.0}% recall on functions, decision points, and static imports, with no unexpected unparsable files.\n",
+        "Each bar is {:.0}% recall on functions, decision points, and static imports, with no unexpected unparsable files.\nA file that the oracle parses and codeint did not measure counts as a miss on every function, decision point, and import in it.\n",
         summary.recall_bar * 100.0
     );
     let _ = writeln!(
         out,
-        "| Language | Oracle | Functions | Decision points | Static imports | Oracle-unparsable files | Unexpected unparsable files | Result |"
+        "| Language | Oracle | Functions | Decision points | Static imports | Oracle-unparsable files | Unexpected unparsable files | Unmeasured files | Result |"
     );
-    let _ = writeln!(out, "| --- | --- | --- | --- | --- | --- | --- | --- |");
+    let _ = writeln!(
+        out,
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    );
     for language in &summary.languages {
         let _ = writeln!(
             out,
@@ -123,6 +127,28 @@ fn write_recall(out: &mut String, summary: &EvaluationSummary) {
         );
     }
     out.push('\n');
+    write_unmeasured(out, &summary.languages);
+}
+
+fn write_unmeasured(out: &mut String, languages: &[LanguageSummary]) {
+    for language in languages {
+        let Some(recall) = language
+            .recall
+            .as_ref()
+            .filter(|recall| !recall.unmeasured_files.is_empty())
+        else {
+            continue;
+        };
+        let _ = writeln!(
+            out,
+            "Files the {} oracle parses and codeint did not measure count as recall misses:\n",
+            language.language
+        );
+        for path in &recall.unmeasured_files {
+            let _ = writeln!(out, "- `{path}`");
+        }
+        out.push('\n');
+    }
 }
 
 fn write_performance(out: &mut String, summary: &EvaluationSummary) {

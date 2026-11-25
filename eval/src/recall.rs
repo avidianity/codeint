@@ -34,6 +34,7 @@ pub struct LanguageRecall {
     pub imports: RecallCount,
     pub oracle_unparsable_files: Vec<String>,
     pub unexpected_unparsable_files: Vec<String>,
+    pub unmeasured_files: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,7 +84,14 @@ impl LanguageRecall {
             Some(LoweredOutcome::Unparsable) => {
                 self.unexpected_unparsable_files.push(oracle.path.clone());
             }
-            Some(LoweredOutcome::NotMeasured) | None => {}
+            Some(LoweredOutcome::NotMeasured) | None => {
+                self.unmeasured_files.push(oracle.path.clone());
+                self.compare_functions(oracle.functions.as_deref().unwrap_or_default(), &[]);
+                self.compare_imports(
+                    oracle.imports.as_deref().unwrap_or_default(),
+                    &BTreeSet::new(),
+                );
+            }
         }
     }
 
@@ -131,6 +139,8 @@ impl LanguageRecall {
             .extend(prefixed(&other.oracle_unparsable_files));
         self.unexpected_unparsable_files
             .extend(prefixed(&other.unexpected_unparsable_files));
+        self.unmeasured_files
+            .extend(prefixed(&other.unmeasured_files));
     }
 }
 

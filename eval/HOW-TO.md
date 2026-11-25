@@ -52,6 +52,8 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
   functions match by first and last line, decision points count up to the oracle's count per matched function, and static imports match by specifier.
 - The bar is 98% recall on functions, decision points, and static imports, with no file that the oracle parses and codeint cannot.
   Files that the oracle cannot parse leave the recall counts and are listed as oracle-unparsable.
+- A file that the oracle parses and codeint did not measure, such as a file that is not UTF-8 or that is over a limit, counts every oracle function, decision point, and import in it as a miss.
+  The report lists these files as unmeasured.
 
 An oracle program receives one argument: a file that lists one repository-relative path per line.
 It runs in the root of the clone and prints one JSON line per path:
