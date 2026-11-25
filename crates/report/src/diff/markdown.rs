@@ -1,4 +1,4 @@
-use super::{
+use super::types::{
     DependenciesChanges, DiffReport, HeadEntry, MetricChanges, Regression, SourceSetChanges,
 };
 use crate::Findings;
