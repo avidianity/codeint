@@ -90,3 +90,47 @@ fn returns_empty_when_pubspec_has_no_matching_entry_points_or_is_invalid() {
         .expect("valid empty result");
     assert!(no_match.is_empty() && malformed.is_empty());
 }
+
+#[test]
+fn registers_nested_public_libraries_for_packages_but_not_main_apps() {
+    let raw_paths = [
+        "packages/sdk/pubspec.yaml",
+        "packages/sdk/lib/sdk.dart",
+        "packages/sdk/lib/extensions/json.dart",
+        "packages/sdk/lib/experimental/persist.dart",
+        "packages/sdk/lib/src/private.dart",
+        "apps/mobile/pubspec.yaml",
+        "apps/mobile/lib/main.dart",
+        "apps/mobile/lib/features/home/home_page.dart",
+        "apps/flavored/pubspec.yaml",
+        "apps/flavored/lib/main_staging.dart",
+        "apps/flavored/lib/features/login/login_page.dart",
+    ];
+    let paths: Vec<RepoPath> = raw_paths
+        .into_iter()
+        .map(|raw| RepoPath::new(raw).unwrap())
+        .collect();
+    let manifests: Vec<Manifest> = [
+        ("packages/sdk/pubspec.yaml", "name: sdk\n"),
+        ("apps/mobile/pubspec.yaml", "name: mobile\n"),
+        ("apps/flavored/pubspec.yaml", "name: flavored\n"),
+    ]
+    .into_iter()
+    .map(|(path, text)| Manifest {
+        path: path.into(),
+        text: text.into(),
+    })
+    .collect();
+    let found = Dart.entry_points(&paths, manifests).unwrap();
+    let names: Vec<&str> = found.iter().map(RepoPath::as_str).collect();
+    assert_eq!(
+        names,
+        [
+            "apps/flavored/lib/main_staging.dart",
+            "apps/mobile/lib/main.dart",
+            "packages/sdk/lib/experimental/persist.dart",
+            "packages/sdk/lib/extensions/json.dart",
+            "packages/sdk/lib/sdk.dart",
+        ]
+    );
+}

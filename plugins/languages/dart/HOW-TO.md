@@ -11,14 +11,14 @@
 
 ## Functions, tokens, and Flagged lines
 
-- `src/functions.rs` extracts top-level functions, methods, getters, constructors, and closures (block and `=>` expression bodies) and counts decision points (`if`, `for`, `while`, `do`, `case`, Dart 3 `switch` expression arms minus one, `catch`, `&&`, `||`, `??`, and ternary `?`).
+- `src/functions.rs` extracts top-level functions, methods, getters, constructors, and closures (block and `=>` expression bodies) and counts decision points (`if`, `for`, `while`, `do`/`while`, switch `case`, Dart 3 `switch` expression arms minus one, `catch`, `&&`, `||`, `??`, and ternary `?`).
 - `src/imports.rs` marks `library`, `import`, `export`, `part`, and `part of` directives as `TokenKind::ImportOrExport`.
 - `src/rules.rs` implements five zero-false-positive structural Flagged-line rules: `else-after-return`, `if-else-returns-boolean`, `catch-only-rethrows`, `ternary-yields-boolean`, and `trailing-bare-return`.
 
 ## Imports and Pub resolution
 
 - `src/imports.rs` and `src/resolution.rs` extract `import`, `export` (including conditional `if (...)` URIs), and `part` URIs (ignoring `part of` back-references to avoid false cycles), resolving relative URIs and `package:<name>/...` URIs through `pubspec.yaml` `name` -> `lib/`, classifying `dart:*` URIs as `Builtin`, and classifying third-party `package:<name>/...` URIs as `External(<name>)`.
-- `src/entry_points.rs` registers top-level `lib/*.dart` public libraries, `bin/*.dart`, declared `executables`, and native-asset hooks (`hook/build.dart`, `hook/link.dart`) per `pubspec.yaml`.
+- `src/entry_points.rs` registers public `lib/**/*.dart` libraries outside `lib/src/` (or top-level `lib/*.dart` for `lib/main*.dart` applications), `bin/*.dart`, declared `executables`, and native-asset hooks (`hook/build.dart`, `hook/link.dart`) per `pubspec.yaml`.
 - `src/dependencies.rs` parses `pubspec.yaml` `dependencies` (`Runtime`) and `dev_dependencies` (`Dev`) per Workspace package while excluding local workspace package names.
 
 ## Reference ranges

@@ -588,3 +588,269 @@ int ready() => 1;
             .all(|t| t.kind == TokenKind::ImportOrExport)
     );
 }
+
+fn assert_fn_decisions(path: &str, src: &str, expected: &[(Option<&str>, u32)]) {
+    let model = lower(path, src).unwrap();
+    let got: Vec<(Option<&str>, u32)> = model
+        .functions
+        .iter()
+        .map(|f| (f.name.as_deref(), f.decision_points))
+        .collect();
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn dart_string_interpolation_comments_and_nested_strings_parse_cleanly() {
+    let src = "\
+String render(List<int> items) {
+  final summary = '''
+    ${switch (items) {
+      [] => 'none',
+      // don't break on apostrophe or { inside line comment
+      [_] => r'single ($items)',
+      /* nested /* block ' comment with { */ */
+      [_, ...] => 'many',
+    }}
+  ''';
+  return summary;
+}
+";
+    let model = lower("lib/templates.dart", src).unwrap();
+    assert_eq!(model.functions.len(), 1);
+    assert_eq!(
+        (
+            model.functions[0].name.as_deref(),
+            model.functions[0].line,
+            model.functions[0].end_line,
+        ),
+        (Some("render"), 1, 12)
+    );
+}
+
+#[test]
+fn dart_switch_expression_patterns_are_not_functions_while_arm_closures_are() {
+    let src = "\
+sealed class LoadState {}
+final class Loading extends LoadState {}
+final class Loaded extends LoadState {
+  final List<int> items;
+  Loaded(this.items);
+}
+int Function(int) describe(LoadState state, (int, int) pair) {
+  final label = switch (state) {
+    Loading() => 0,
+    Loaded(:final items) => switch (items.length) {
+      0 => 1,
+      1 => 2,
+      _ => 3,
+    },
+  };
+  final sum = switch (pair) {
+    (int a, int b) => a + b,
+  };
+  return switch (label + sum) {
+    0 => (int x) => x + 1,
+    _ => (int x) => x * 2,
+  };
+}
+";
+    assert_fn_decisions(
+        "lib/switch_patterns.dart",
+        src,
+        &[(Some("describe"), 4), (None, 0), (None, 0)],
+    );
+}
+
+#[test]
+fn dart_closures_after_return_arrow_and_yield_are_extracted_and_isolated() {
+    let src = "\
+int Function(int) makeAdder(int base) {
+  return (int x) {
+    if (x > 0 && base > 0) {
+      return x + base;
+    }
+    return base;
+  };
+}
+int Function(int) makeCurried(int k) => (int v) => v > k ? v : k;
+Iterable<int Function(int)> makeSeq() sync* {
+  yield (int v) => v == 0 ? 1 : v;
+}
+";
+    assert_fn_decisions(
+        "lib/closures.dart",
+        src,
+        &[
+            (Some("makeAdder"), 0),
+            (None, 2),
+            (Some("makeCurried"), 0),
+            (None, 1),
+            (Some("makeSeq"), 0),
+            (None, 1),
+        ],
+    );
+}
+
+#[test]
+fn dart_constructor_initializers_with_braces_switch_and_calls_parse_accurately() {
+    let src = "\
+class CacheBox {
+  final Map<String, Object> entries;
+  final int mode;
+  CacheBox() : entries = <String, Object>{}, mode = 0;
+  CacheBox.fromMap(Map<String, Object>? raw) : entries = raw ?? {}, mode = 1;
+  CacheBox.resolved(Object input, bool strict)
+      : entries = <String, Object>{},
+        mode = switch (input) {
+          int n => n,
+          _ => 0,
+        } {
+    if (strict && mode < 0) {
+      entries['err'] = mode;
+    }
+  }
+  CacheBox.wrapped(int seed) : entries = buildEntries(seed), mode = seed {
+    if (seed > 0) {
+      entries['ok'] = seed;
+    }
+  }
+}
+int matchState(Object? value, bool flag) {
+  final fallback = flag ? makeDefault(1) : 0;
+  switch (value) {
+    case CacheBox(:final mode):
+      return mode + fallback;
+    default:
+      return fallback;
+  }
+}
+";
+    assert_fn_decisions(
+        "lib/ctors.dart",
+        src,
+        &[
+            (Some("CacheBox.resolved"), 2),
+            (Some("CacheBox.wrapped"), 1),
+            (Some("matchState"), 2),
+        ],
+    );
+}
+
+#[test]
+fn dart_arrow_generics_multiline_strings_extension_types_and_decisions() {
+    let src = "\
+final part = 'literal';
+extension type const UserId._(int raw) {
+  int get extension => raw;
+  String get operator => '''
+line one
+line two
+line three
+''';
+}
+Map<String, dynamic> toPayload(int a, int b) => <String, dynamic>{
+  'first': a,
+  'second': b,
+};
+int countDown(Object? input, bool flag) {
+  var total = 1..toString();
+  if (input case final int n when flag ? n > 0 : false) {
+    var left = n;
+    do {
+      left -= 1;
+    } while (left > 0);
+    return left + total;
+  }
+  return total;
+}
+";
+    let model = lower("lib/dart3_edges.dart", src).unwrap();
+    assert!(model.runtime_imports.is_empty());
+    assert!(
+        model
+            .tokens
+            .iter()
+            .all(|t| t.kind != TokenKind::ImportOrExport)
+    );
+    let got: Vec<(Option<&str>, u32, u32, u32)> = model
+        .functions
+        .iter()
+        .map(|f| (f.name.as_deref(), f.line, f.end_line, f.decision_points))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (Some("extension"), 3, 3, 0),
+            (Some("operator"), 4, 8, 0),
+            (Some("toPayload"), 10, 13, 0),
+            (Some("countDown"), 14, 24, 3),
+        ]
+    );
+}
+
+#[test]
+fn dart_planted_defects_all_five_verbosity_rules_achieve_full_recall() {
+    let planted = "\
+sealed class Event {}
+final class Ping extends Event {}
+extension type const TokenId(int raw) {}
+int checkElseAfterReturn(int x) {
+  if (x > 0) {
+    return 1;
+  } else {
+    return 2;
+  }
+}
+bool checkIfElseBool(int x) {
+  if (x > 0) {
+    return true;
+  } else {
+    return false;
+  }
+}
+void checkCatchRethrow(void Function() work) {
+  try {
+    work();
+  } catch (err) {
+    rethrow;
+  }
+}
+bool checkTernaryBool(int x) => x > 0 ? true : false;
+void checkTrailingReturn(Event event) {
+  final tag = '''${switch (event) {
+    // don't trip lexer on comment
+    Ping() => 'ping',
+  }}''';
+  if (tag.isNotEmpty) {
+    tag.length;
+  }
+  return;
+}
+";
+    let model = lower("lib/planted.dart", planted).unwrap();
+    let mut seen: Vec<&str> = model
+        .flagged_lines
+        .iter()
+        .map(|fl| fl.rule.as_str())
+        .collect();
+    seen.sort_unstable();
+    seen.dedup();
+    let mut expected: Vec<&str> = flagged_line_rules().collect();
+    expected.sort_unstable();
+    assert_eq!(seen, expected);
+
+    let clean = "\
+sealed class Result {}
+final class Ok extends Result { final int v; Ok(this.v); }
+final class Err extends Result {}
+int evaluate(Result r, bool flag) {
+  return switch (r) {
+    Ok(:final v) when flag ? v > 0 : false => v,
+    Ok() => 0,
+    Err() => -1,
+  };
+}
+";
+    let clean_model = lower("lib/clean.dart", clean).unwrap();
+    assert!(clean_model.flagged_lines.is_empty());
+}

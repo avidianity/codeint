@@ -34,30 +34,63 @@ fn try_directive(
     specifiers: &mut BTreeSet<String>,
     marked: &mut BTreeSet<usize>,
 ) -> Option<usize> {
-    let kw = tokens[idx].text.as_str();
-    match kw {
-        "library" => Some(mark_to_semicolon(tokens, idx, marked) + 1),
-        "import" | "export" => {
-            let end = mark_to_semicolon(tokens, idx, marked);
-            if let Some(uri) = extract_string_uri(tokens.get(idx + 1)) {
-                specifiers.insert(uri);
-                if idx + 2 <= end {
-                    collect_conditional_uris(&tokens[idx + 2..=end], specifiers);
-                }
-            }
-            Some(end + 1)
-        }
-        "part" => {
-            let is_part_of = tokens
-                .get(idx + 1)
-                .is_some_and(|t| t.kind == DartKind::Keyword && t.text == "of");
-            if !is_part_of && let Some(uri) = extract_string_uri(tokens.get(idx + 1)) {
-                specifiers.insert(uri);
-            }
-            Some(mark_to_semicolon(tokens, idx, marked) + 1)
-        }
+    match tokens[idx].text.as_str() {
+        "library" => try_library_directive(tokens, idx, marked),
+        "import" | "export" => try_import_export_directive(tokens, idx, specifiers, marked),
+        "part" => try_part_directive(tokens, idx, specifiers, marked),
         _ => None,
     }
+}
+
+fn try_library_directive(
+    tokens: &[DartToken],
+    idx: usize,
+    marked: &mut BTreeSet<usize>,
+) -> Option<usize> {
+    can_start_directive(tokens, idx).then(|| mark_to_semicolon(tokens, idx, marked) + 1)
+}
+
+fn try_import_export_directive(
+    tokens: &[DartToken],
+    idx: usize,
+    specifiers: &mut BTreeSet<String>,
+    marked: &mut BTreeSet<usize>,
+) -> Option<usize> {
+    let uri = extract_string_uri(tokens.get(idx + 1))?;
+    let end = mark_to_semicolon(tokens, idx, marked);
+    specifiers.insert(uri);
+    if idx + 2 <= end {
+        collect_conditional_uris(&tokens[idx + 2..=end], specifiers);
+    }
+    Some(end + 1)
+}
+
+fn try_part_directive(
+    tokens: &[DartToken],
+    idx: usize,
+    specifiers: &mut BTreeSet<String>,
+    marked: &mut BTreeSet<usize>,
+) -> Option<usize> {
+    let is_part_of = tokens
+        .get(idx + 1)
+        .is_some_and(|t| t.kind == DartKind::Keyword && t.text == "of");
+    if is_part_of {
+        return Some(mark_to_semicolon(tokens, idx, marked) + 1);
+    }
+    let uri = extract_string_uri(tokens.get(idx + 1))?;
+    specifiers.insert(uri);
+    Some(mark_to_semicolon(tokens, idx, marked) + 1)
+}
+
+fn can_start_directive(tokens: &[DartToken], idx: usize) -> bool {
+    if idx == 0 {
+        return true;
+    }
+    let prev = &tokens[idx - 1];
+    !matches!(
+        prev.text.as_str(),
+        "." | "?." | ".." | "=" | "," | "(" | "[" | "get" | "set" | "final" | "var" | "const"
+    )
 }
 
 fn extract_string_uri(token: Option<&DartToken>) -> Option<String> {
