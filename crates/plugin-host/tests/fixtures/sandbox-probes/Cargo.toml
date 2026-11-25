@@ -23,6 +23,7 @@ members = [
     "unlisted-hazard-rule-language",
     "no-imports-language",
     "import-capability-metric",
+    "reserved-key-metric",
 ]
 
 [workspace.package]

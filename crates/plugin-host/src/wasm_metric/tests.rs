@@ -43,3 +43,30 @@ fn accepts_valid_external_metric_keys() {
             .unwrap_or_else(|error| panic!("expected {valid} to be accepted, got: {error}"));
     }
 }
+
+#[test]
+fn rejects_trend_and_config_structural_keys_as_reserved() {
+    for reserved in [
+        "commit",
+        "committed_on",
+        "production",
+        "test",
+        "generated",
+        "vendored",
+        "dependencies",
+    ] {
+        let error = validate_metric_key("custom-metric", reserved)
+            .expect_err("structural report/config key must be rejected");
+        assert!(
+            matches!(
+                error,
+                PluginHostError::InvalidMetricKey {
+                    ref name,
+                    ref key,
+                    ..
+                } if name == "custom-metric" && key == reserved
+            ),
+            "unexpected error for {reserved}: {error}"
+        );
+    }
+}

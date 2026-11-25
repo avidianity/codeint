@@ -160,7 +160,7 @@ Implement all four functions on `Guest`:
 The Plugin host enforces these rules at load and measurement time:
 
 - `key` must be non-empty, start with a lowercase ASCII letter, and contain only lowercase ASCII letters, digits, `_`, or `-`.
-- `key` must not collide with built-in Metric keys (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, `test_gap`, `hazards`), reserved report keys (`files`, `source_lines`, `packages`), or another external Metric plugin's key.
+- `key` must not collide with built-in Metric keys (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, `unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`, `test_gap`, `hazards`), reserved report or configuration keys (`files`, `source_lines`, `packages`, `commit`, `committed_on`, `production`, `test`, `generated`, `vendored`, `dependencies`), or another external Metric plugin's key.
 - `ratio` must be finite and between `0.0` and `1.0`.
 - `numerator` and `denominator` must be finite and `>= 0.0`.
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
