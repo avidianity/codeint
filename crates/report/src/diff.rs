@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use codeint_config::{
     Budgets, FindingsShown, MeasuredRatchetMetric, Ratchet, RatchetVersionMismatch,
     RegressionLimits, ReportFormat,
@@ -16,6 +18,7 @@ mod regressions;
 mod tests;
 mod types;
 
+pub(crate) use types::Regression;
 pub use types::{
     BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit, NewFileBudgetFailure,
 };
@@ -47,6 +50,7 @@ impl DiffReport {
                 budgets,
                 new_file_budgets: &empty_new_file_budgets,
                 new_files: None,
+                changed_files: BTreeSet::new(),
                 limits,
                 ownership: OwnershipOptions::default(),
                 include_test_gap_note: false,
@@ -86,9 +90,16 @@ impl DiffReport {
         }
         let over_new_file_budget_failures =
             regressions::over_new_file_budget(options.new_files, options.new_file_budgets);
-        let mut regression_failures = regressions::regressions(&source_sets, options.limits);
+        let empty_changed_files = BTreeSet::new();
+        let per_file_targets = if options.limits.per_file() {
+            &options.changed_files
+        } else {
+            &empty_changed_files
+        };
+        let mut regression_failures =
+            regressions::regressions(&source_sets, options.limits, per_file_targets);
         if let Some(deps) = &dependencies {
-            regression_failures.extend(deps.regressions(options.limits));
+            regression_failures.extend(deps.regressions(options.limits, per_file_targets));
         }
         DiffReport {
             base: BaseEntry {
@@ -246,6 +257,7 @@ impl DiffReport {
         )
         .with_new_file_budget_failures(&self.over_new_file_budget)
         .with_ratchet_failures(&self.over_ratchet)
+        .with_per_file_regressions(&self.regressions)
     }
 }
 

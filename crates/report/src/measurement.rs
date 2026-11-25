@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
-use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, SourceSet, SourceSets};
+use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, RepoPath, SourceSet, SourceSets};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -75,6 +75,8 @@ pub(crate) struct MetricMeasurement<T> {
     pub(crate) ratio: f64,
     pub(crate) numerator: f64,
     pub(crate) findings_worst_first: Vec<T>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) file_numerators: BTreeMap<String, f64>,
 }
 
 impl<T> Default for MetricMeasurement<T> {
@@ -83,6 +85,7 @@ impl<T> Default for MetricMeasurement<T> {
             ratio: 0.0,
             numerator: 0.0,
             findings_worst_first: Vec::new(),
+            file_numerators: BTreeMap::new(),
         }
     }
 }
@@ -269,19 +272,34 @@ impl DependenciesMeasurement {
                 hygiene.unused().len() as f64,
                 hygiene.unused(),
                 UnusedDependencyRow::from,
-            ),
+            )
+            .with_file_numerators(count_file_numerators(
+                hygiene.unused().iter().map(|finding| &finding.manifest),
+            )),
             unlisted_dependencies: MetricMeasurement::from_items(
                 hygiene.unlisted_ratio(),
                 hygiene.unlisted().len() as f64,
                 hygiene.unlisted(),
                 ImportedDependencyRow::from,
-            ),
+            )
+            .with_file_numerators(count_file_numerators(
+                hygiene
+                    .unlisted()
+                    .iter()
+                    .flat_map(|finding| finding.importers.iter()),
+            )),
             dev_in_production_dependencies: MetricMeasurement::from_items(
                 hygiene.dev_in_production_ratio(),
                 hygiene.dev_in_production().len() as f64,
                 hygiene.dev_in_production(),
                 ImportedDependencyRow::from,
-            ),
+            )
+            .with_file_numerators(count_file_numerators(
+                hygiene
+                    .dev_in_production()
+                    .iter()
+                    .flat_map(|finding| finding.importers.iter()),
+            )),
         })
     }
 }
@@ -304,12 +322,16 @@ impl SourceSetMeasurement {
             options.duplication,
             options.disabled_hazard_rules,
         );
-        let boundaries = measured
-            .boundaries
-            .as_ref()
-            .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
-        let orphan_files = orphan_files
-            .map(|evaluated| finding_measurement(evaluated.ratio(), evaluated.findings()));
+        let boundaries = measured.boundaries.as_ref().map(|evaluated| {
+            finding_measurement(evaluated.ratio(), evaluated.findings()).with_file_numerators(
+                count_file_numerators(evaluated.findings().iter().map(|finding| &finding.importer)),
+            )
+        });
+        let orphan_files = orphan_files.map(|evaluated| {
+            finding_measurement(evaluated.ratio(), evaluated.findings()).with_file_numerators(
+                presence_file_numerators(evaluated.findings().iter().map(|finding| &finding.path)),
+            )
+        });
         let hazards = measured.hazards.as_ref().map(|evaluated| {
             MetricMeasurement::from_items(
                 evaluated.ratio(),
@@ -317,10 +339,18 @@ impl SourceSetMeasurement {
                 evaluated.findings(),
                 HazardLineRow::from,
             )
+            .with_file_numerators(map_file_numerators(
+                evaluated
+                    .lines_by_file()
+                    .iter()
+                    .map(|(path, lines)| (path, lines.hazard_lines as f64)),
+            ))
         });
         let mut external_metrics = BTreeMap::new();
         for plugin in options.metric_plugins {
             let result = plugin.measure(model)?;
+            let file_numerators =
+                count_file_numerators(result.findings.iter().map(|finding| &finding.path));
             external_metrics.insert(
                 plugin.key().to_owned(),
                 ExternalMetricCommitMeasurement {
@@ -335,6 +365,7 @@ impl SourceSetMeasurement {
                             .iter()
                             .map(ExternalMetricFinding::from)
                             .collect(),
+                        file_numerators,
                     },
                 },
             );
@@ -346,19 +377,40 @@ impl SourceSetMeasurement {
                 measured.erosion.eroded_function_mass(),
                 measured.erosion.eroded_functions(),
                 ErodedFunctionFinding::from,
-            ),
+            )
+            .with_file_numerators(map_file_numerators(
+                measured
+                    .erosion
+                    .masses_by_file()
+                    .iter()
+                    .map(|(path, masses)| (path, masses.eroded)),
+            )),
             cognitive_complexity: MetricMeasurement::from_items(
                 measured.cognitive_complexity.ratio(),
                 measured.cognitive_complexity.complex_cognitive_complexity() as f64,
                 measured.cognitive_complexity.complex_functions(),
                 CognitiveComplexityFinding::from,
-            ),
+            )
+            .with_file_numerators(map_file_numerators(
+                measured
+                    .cognitive_complexity
+                    .totals_by_file()
+                    .iter()
+                    .map(|(path, totals)| (path, totals.complex as f64)),
+            )),
             duplication: MetricMeasurement::from_items(
                 measured.duplication.ratio(),
                 measured.duplication.clone_lines.count() as f64,
                 &measured.duplication.clone_groups,
                 CloneGroupFinding::from,
-            ),
+            )
+            .with_file_numerators(map_file_numerators(
+                measured
+                    .duplication
+                    .clone_lines
+                    .count_by_file()
+                    .map(|(path, lines)| (path, lines as f64)),
+            )),
             clone_families: measured
                 .duplication
                 .clone_families
@@ -370,7 +422,14 @@ impl SourceSetMeasurement {
                 measured.verbosity.verbose_lines() as f64,
                 measured.verbosity.flagged_lines(),
                 FlaggedLineRow::from,
-            ),
+            )
+            .with_file_numerators(map_file_numerators(
+                measured
+                    .verbosity
+                    .verbose_lines_by_file()
+                    .iter()
+                    .map(|(path, &lines)| (path, lines as f64)),
+            )),
             import_cycles: measured.import_cycles.as_ref().map(|cycles| {
                 MetricMeasurement::from_items(
                     cycles.ratio(),
@@ -378,6 +437,12 @@ impl SourceSetMeasurement {
                     cycles.cycles(),
                     ImportCycleFinding::from,
                 )
+                .with_file_numerators(presence_file_numerators(
+                    cycles
+                        .cycles()
+                        .iter()
+                        .flat_map(|cycle| cycle.modules().iter()),
+                ))
             }),
             boundaries,
             orphan_files,
@@ -398,8 +463,40 @@ impl<F> MetricMeasurement<F> {
             ratio,
             numerator,
             findings_worst_first: items.iter().map(convert).collect(),
+            file_numerators: BTreeMap::new(),
         }
     }
+
+    fn with_file_numerators(
+        mut self,
+        file_numerators: BTreeMap<String, f64>,
+    ) -> MetricMeasurement<F> {
+        self.file_numerators = file_numerators;
+        self
+    }
+}
+
+fn map_file_numerators<'a>(
+    entries: impl Iterator<Item = (&'a RepoPath, f64)>,
+) -> BTreeMap<String, f64> {
+    entries
+        .filter(|(_, value)| *value > 0.0)
+        .map(|(path, value)| (path.to_string(), value))
+        .collect()
+}
+
+fn count_file_numerators<'a>(paths: impl Iterator<Item = &'a RepoPath>) -> BTreeMap<String, f64> {
+    let mut counts: BTreeMap<String, f64> = BTreeMap::new();
+    for path in paths {
+        *counts.entry(path.to_string()).or_insert(0.0) += 1.0;
+    }
+    counts
+}
+
+fn presence_file_numerators<'a>(
+    paths: impl Iterator<Item = &'a RepoPath>,
+) -> BTreeMap<String, f64> {
+    paths.map(|path| (path.to_string(), 1.0)).collect()
 }
 
 fn finding_measurement<'a, T: 'a, R: From<&'a T>>(
