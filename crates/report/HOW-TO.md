@@ -36,7 +36,7 @@ if !report.over_budget().is_empty() {
 - Every Metric section in `Report` and `DiffReport` (built-in Metrics, Dependency hygiene, and external Metric plugins) records its positive integer `metric_version`, and `TrendReport` records `metric_versions` for the Metrics in the trend.
 - SARIF output emits one result per listed Finding and stores each Finding id in `partialFingerprints.codeintFindingId`.
   When overlapping or transitively related Clone groups form a Clone family across three or more locations, `duplication.clone_families` lists the Clone families worst-first by `duplicated_lines` in JSON, TOON, Markdown, and MCP, and SARIF emits one consolidated result per Clone family instead of duplicate results for its member Clone groups.
-- When `DuplicationConfig::near_clones` is enabled via `Report::summarize_with_config` or `CommitMeasurement::of_with_config`, near-clone `CloneGroupFinding` entries carry their `similarity` ratio (rendered as a percentage in Markdown and SARIF), `duplication.near_clones` records the active `min_similarity`, Duplication omits exact-clone Reference ranges, and Verbosity continues to count only exact clone lines.
+- When `DuplicationConfig::near_clones` is enabled via `Report::summarize_with_config` or `CommitMeasurement::of_with_config`, near-clone `CloneGroupFinding` entries carry their `similarity` ratio (rendered as a percentage in Markdown and SARIF), `duplication.near_clones` records the active `min_similarity`, Duplication omits exact-clone Reference ranges, and Verbosity remains unaffected because it counts Flagged lines only.
 - `over_budget` returns every `BudgetFailure` whose displayed ratio exceeds its configured `Budget`.
 
 ## Measure one commit with `CommitMeasurement`

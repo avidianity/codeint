@@ -1,8 +1,9 @@
 use codeint_model::language::FlaggedLine;
-use codeint_model::{CodeModel, FileModel, RepoPath, SourceFile, SourceSet};
+use codeint_model::{
+    CodeModel, FileModel, RepoPath, SourceFile, SourceSet, Token, TokenKind, token_text_hash,
+};
 
 use super::Verbosity;
-use crate::CloneLines;
 
 fn file(path: &str, source_lines: u32, flagged: &[(u32, &str)]) -> SourceFile {
     SourceFile {
@@ -36,9 +37,10 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
         ..CodeModel::default()
     };
 
-    let verbosity = Verbosity::measure(&model, &CloneLines::default());
+    let verbosity = Verbosity::measure(&model);
 
     assert_eq!(verbosity.verbose_lines(), 2);
+    assert_eq!(verbosity.flagged_line_count(), 2);
     assert_eq!(verbosity.source_lines(), 8);
     assert_eq!(verbosity.ratio(), 0.25);
     let listed: Vec<(&str, u32, &str)> = verbosity
@@ -57,8 +59,33 @@ fn a_line_that_matches_two_rules_counts_once_and_lists_both_rules() {
 }
 
 #[test]
+fn duplicated_tokens_without_flagged_lines_leave_verbosity_at_zero() {
+    let tokens: Vec<Token> = (1..=80)
+        .map(|index| Token {
+            kind: TokenKind::Other,
+            text_hash: token_text_hash(&format!("tok_{index}")),
+            line: (index / 10) + 1,
+        })
+        .collect();
+    let mut first = file("src/a.ts", 9, &[]);
+    first.model.tokens = tokens.clone();
+    let mut second = file("src/b.ts", 9, &[]);
+    second.model.tokens = tokens;
+    let model = CodeModel {
+        files: vec![first, second],
+        ..CodeModel::default()
+    };
+
+    let verbosity = Verbosity::measure(&model);
+
+    assert_eq!(verbosity.verbose_lines(), 0);
+    assert_eq!(verbosity.flagged_line_count(), 0);
+    assert_eq!(verbosity.ratio(), 0.0);
+}
+
+#[test]
 fn a_model_without_source_lines_has_zero_verbosity() {
-    let verbosity = Verbosity::measure(&CodeModel::default(), &CloneLines::default());
+    let verbosity = Verbosity::measure(&CodeModel::default());
 
     assert_eq!(verbosity.ratio(), 0.0);
 }

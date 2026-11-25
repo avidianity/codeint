@@ -399,13 +399,14 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
         "erosion",
         "cognitive_complexity",
         "duplication",
-        "verbosity",
         "import_cycles",
         "test_gap",
         "hazards",
     ] {
         assert_eq!(prod[metric]["metric_version"], 1, "{metric}");
     }
+    assert_eq!(prod["verbosity"]["metric_version"], 2);
+    assert!(prod["verbosity"].get("clone_lines").is_none());
     assert_eq!(prod["custom_depth"]["metric_version"], 3);
     for dep_metric in [
         "unused_dependencies",
@@ -420,5 +421,6 @@ fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_extern
 
     let toon_text = report.render(ReportFormat::Toon).expect("toon");
     assert!(toon_text.contains("metric_version: 1"));
+    assert!(toon_text.contains("metric_version: 2"));
     assert!(toon_text.contains("metric_version: 3"));
 }

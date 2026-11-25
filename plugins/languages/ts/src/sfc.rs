@@ -16,10 +16,10 @@ pub fn react_reference_ranges(manifests: &[Manifest]) -> Option<Vec<ReferenceRan
     Some(build_reference_ranges(
         REACT_REFERENCE_SOURCE,
         [
-            ("erosion", 0.106, 0.544),
-            ("verbosity", 0.047, 0.368),
-            ("duplication", 0.046, 0.368),
-            ("import_cycles", 0.000, 0.144),
+            ("erosion", 1, 0.106, 0.544),
+            ("verbosity", 2, 0.047, 0.368),
+            ("duplication", 1, 0.046, 0.368),
+            ("import_cycles", 1, 0.000, 0.144),
         ],
     ))
 }
@@ -60,19 +60,19 @@ pub fn vue_reference_ranges(manifests: &[Manifest]) -> Option<Vec<ReferenceRange
         2 => Some(build_reference_ranges(
             VUE2_REFERENCE_SOURCE,
             [
-                ("erosion", 0.020, 0.452),
-                ("verbosity", 0.036, 0.192),
-                ("duplication", 0.036, 0.192),
-                ("import_cycles", 0.000, 0.114),
+                ("erosion", 1, 0.020, 0.452),
+                ("verbosity", 2, 0.036, 0.192),
+                ("duplication", 1, 0.036, 0.192),
+                ("import_cycles", 1, 0.000, 0.114),
             ],
         )),
         3 => Some(build_reference_ranges(
             VUE3_REFERENCE_SOURCE,
             [
-                ("erosion", 0.019, 0.388),
-                ("verbosity", 0.024, 0.346),
-                ("duplication", 0.023, 0.345),
-                ("import_cycles", 0.000, 0.077),
+                ("erosion", 1, 0.019, 0.388),
+                ("verbosity", 2, 0.024, 0.346),
+                ("duplication", 1, 0.023, 0.345),
+                ("import_cycles", 1, 0.000, 0.077),
             ],
         )),
         _ => None,

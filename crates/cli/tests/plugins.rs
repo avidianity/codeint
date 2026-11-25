@@ -1200,15 +1200,15 @@ fn stale_reference_range_from_external_language_plugin_hides_stale_range_with_no
 
     let report = run_check_json_report(repo.path());
     let prod = &report["source_sets"]["production"];
-    for (metric, expected_found) in [
-        ("erosion", "Metric version 2"),
-        ("verbosity", "Metric version 0"),
+    for (metric, expected_found, expected_current) in [
+        ("erosion", "Metric version 2", "Metric version 1"),
+        ("verbosity", "Metric version 0", "Metric version 2"),
     ] {
         let note = prod[metric]["reference_range"]
             .as_str()
             .unwrap_or_else(|| panic!("stale {metric} Reference range must be hidden as a note"));
         assert!(
-            note.contains(expected_found) && note.contains("Metric version 1"),
+            note.contains(expected_found) && note.contains(expected_current),
             "unexpected stale {metric} note: {note:?}"
         );
     }

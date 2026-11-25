@@ -58,10 +58,10 @@ impl Guest for Php {
         codeint_model::scan::build_reference_ranges(
             "codeint panel of 20 PHP repositories, ADR 0011, codeint 0.2.1",
             [
-                ("erosion", 0.055, 0.677),
-                ("verbosity", 0.042, 0.292),
-                ("duplication", 0.041, 0.290),
-                ("import_cycles", 0.000, 0.107),
+                ("erosion", 1, 0.055, 0.677),
+                ("verbosity", 2, 0.042, 0.292),
+                ("duplication", 1, 0.041, 0.290),
+                ("import_cycles", 1, 0.000, 0.107),
             ],
         )
     }

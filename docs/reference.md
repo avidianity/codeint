@@ -195,14 +195,13 @@ source_sets:
       clone_groups: []
     verbosity:
       ratio: 0.0256
-      metric_version: 1
+      metric_version: 2
       reference_range:
         low: 0.018
         high: 0.347
         source: "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0"
       verbose_lines: 1
       flagged_lines: 1
-      clone_lines: 0
       findings[1]{id,path,line,rule}:
         2a57800b29941394,src/sign.ts,4,else-after-return
     import_cycles:
@@ -313,7 +312,7 @@ source_sets:
     verbosity:
       base_ratio: 0.0476
       head_ratio: 0.0256
-      metric_version: 1
+      metric_version: 2
       new: []
       resolved: []
       unchanged: 1
@@ -413,7 +412,7 @@ source_sets:
     verbosity:
       base_ratio: 0.0476
       head_ratio: 0.0476
-      metric_version: 1
+      metric_version: 2
       new: []
       resolved: []
       unchanged: 1
@@ -491,7 +490,7 @@ metric_versions:
   duplication: 1
   erosion: 1
   import_cycles: 1
-  verbosity: 1
+  verbosity: 2
 source_sets:
   production[3]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
     2864291867e0e3a3ef91cd050c1893d5ae9eb809,2026-11-02,1,0,0,0,0.1429,0
@@ -514,7 +513,7 @@ metric_versions:
   duplication: 1
   erosion: 1
   import_cycles: 1
-  verbosity: 1
+  verbosity: 2
 source_sets:
   production[2]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
     2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0,0.0476,0
@@ -1352,7 +1351,7 @@ codeint check
 
 By default, Duplication reports exact normalized Clone groups so calibrated Reference ranges stay unchanged.
 Set `duplication.near_clones` to `true` to also detect near-duplicate blocks that differ by small insertions, deletions, or edits using shingle Jaccard similarity at or above `duplication.min_similarity` (`0.85` by default, in `(0, 1]`).
-Near-clone mode honors the same `import-or-export`, minimum token, and minimum distinct token rules as exact Clone groups, clusters overlapping exact and near-clone fragments across three or more locations into Clone families, and keeps Verbosity coupled only to exact Clone groups.
+Near-clone mode honors the same `import-or-export`, minimum token, and minimum distinct token rules as exact Clone groups, clusters overlapping exact and near-clone fragments across three or more locations into Clone families, and leaves Verbosity unaffected because Verbosity counts Flagged lines only ([ADR 0024](./adr/0024-verbosity-decoupling.md)).
 
 ```json codeint.json
 {
@@ -1700,7 +1699,7 @@ codeint check --format json
       },
       "verbosity": {
         "ratio": 0.0256,
-        "metric_version": 1,
+        "metric_version": 2,
         "reference_range": {
           "low": 0.018,
           "high": 0.347,
@@ -1708,7 +1707,6 @@ codeint check --format json
         },
         "verbose_lines": 1,
         "flagged_lines": 1,
-        "clone_lines": 0,
         "findings": [
           {
             "id": "2a57800b29941394",
@@ -1778,7 +1776,7 @@ Each Metric object has these fields:
 - The counts behind the ratio:
   `eroded_function_mass` and `total_function_mass` for Erosion, `complex_cognitive_complexity` and `total_cognitive_complexity` for Cognitive complexity, `untested_function_mass` and `total_function_mass` for Test gap, `clone_lines` for Duplication, `verbose_lines` for Verbosity, `hazard_lines` and `source_lines` for Hazards, and `modules_in_import_cycles` and `modules` for Import cycles.
   Duplication and Verbosity divide by the `source_lines` of the Source set; Hazards divides by the `source_lines` of languages with Hazard line rules in that Source set.
-  Verbosity also splits `verbose_lines` into `flagged_lines` and `clone_lines`; a line that is both counts in each.
+  Verbosity reports both `verbose_lines` and `flagged_lines`, equal to the distinct Flagged lines in that Source set (independent of Duplication, [ADR 0024](./adr/0024-verbosity-decoupling.md)).
 - The Findings, worst first:
   `clone_groups` for Duplication, and `findings` for every other Metric.
 - `near_clones`, optional on `duplication`: present with `min_similarity` when near-clone detection is enabled in `codeint.json`; Duplication's `reference_range` then notes that Reference ranges are calibrated for exact Clone groups.
@@ -1892,7 +1890,7 @@ codeint check --format sarif
                 "text": "A Flagged line: code that can be deleted or collapsed"
               },
               "fullDescription": {
-                "text": "Verbosity is the share of source lines that are Flagged lines, clone lines, or both. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches."
+                "text": "Verbosity is the share of source lines that are Flagged lines. A Flagged line matches a verbose-code pattern of the source language, and the result names the rule it matches."
               },
               "help": {
                 "text": "Delete or collapse the line as its rule describes; the behavior stays the same."
@@ -2041,7 +2039,7 @@ Test gap is not measured because no Coverage report was named.
 | Production | Erosion | 0.7986 | 67.8823 of 85.0032 Function mass in eroded functions | 0.352 to 0.6, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 | Production | Cognitive complexity | 0 | 0 of 20 cognitive complexity in functions over 15 | no published Reference range for this language |
 | Production | Duplication | 0 | 0 clone lines of 39 source lines | 0.017 to 0.346, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
-| Production | Verbosity | 0.0256 | 1 verbose line of 39 source lines: 1 Flagged line, 0 clone lines | 0.018 to 0.347, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
+| Production | Verbosity | 0.0256 | 1 Flagged line of 39 source lines | 0.018 to 0.347, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 | Production | Import cycles | 0 | 0 of 4 modules in an Import cycle | 0 to 0.308, source: codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0 |
 
 ## Production Findings

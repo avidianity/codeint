@@ -285,7 +285,6 @@ crate_structs! {
     struct VerbosityTotals {
         verbose_lines: u64,
         flagged_lines: u64,
-        clone_lines: u64,
     }
 
     #[derive(Debug, Serialize)]

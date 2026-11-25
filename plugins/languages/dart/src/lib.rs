@@ -114,10 +114,10 @@ impl Guest for Dart {
         codeint_model::scan::build_reference_ranges(
             "codeint panel of 20 Dart repositories, ADR 0012, codeint 0.2.1",
             [
-                ("erosion", 0.047, 0.419),
-                ("verbosity", 0.080, 0.259),
-                ("duplication", 0.073, 0.256),
-                ("import_cycles", 0.073, 0.524),
+                ("erosion", 1, 0.047, 0.419),
+                ("verbosity", 2, 0.080, 0.259),
+                ("duplication", 1, 0.073, 0.256),
+                ("import_cycles", 1, 0.073, 0.524),
             ],
         )
     }

@@ -567,7 +567,7 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          | Production | Erosion | 1 | 0.885 | 1 | 1 | 0 |\n\
          | Production | Cognitive complexity | 0 | 0.9 | 1 | 0 | 0 |\n\
          | Production | Duplication | 0 | 0.4324 | 1 | 0 | 0 |\n\
-         | Production | Verbosity | 0 | 0.4324 | 0 | 0 | 0 |\n\
+         | Production | Verbosity | 0 | 0 | 0 | 0 | 0 |\n\
          | Production | Import cycles | 0 | 0 | 0 | 0 | 0 |\n\
          \n\
          ## Regressions\n\
@@ -577,8 +577,6 @@ fn format_markdown_shows_each_metric_on_both_sides_then_the_new_and_resolved_fin
          - The production cognitive\\_complexity numerator `complex_cognitive_complexity` rose from 0 to 18.\n\
          - The production duplication ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
          - The production duplication numerator `clone_lines` rose from 0 to 16.\n\
-         - The production verbosity ratio rose from 0 to 0.4324, more than its Regression limit 0.01.\n\
-         - The production verbosity numerator `verbose_lines` rose from 0 to 16.\n\
          \n\
          ## Production changes\n\
          \n\
@@ -1863,7 +1861,7 @@ fn a_metric_version_change_invalidates_the_commit_cache_and_recomputes() {
     }
 
     poisoned["production"]["verbosity"]["ratio"] = json!(0.9999);
-    settings["metric_versions"]["verbosity"] = json!(2);
+    settings["metric_versions"]["verbosity"] = json!(3);
     let main_commit = codeint_git::Repository::discover(fixture.root())
         .expect("open repo")
         .resolve("main")

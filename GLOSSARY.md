@@ -42,7 +42,7 @@ A file, written by the user's own test run, that records which source lines the 
 _Avoid_: coverage data, test report
 
 **Verbosity**:
-The share of source lines that are Flagged lines, clone lines, or both.
+The share of source lines that are Flagged lines.
 _Avoid_: bloat, wordiness
 
 **Flagged line**:
@@ -144,7 +144,7 @@ _Avoid_: analyzer, detector, rule
 - A **Metric plugin** works on every language that has a **Language plugin**.
 - A **Metric plugin** computes exactly one **Metric**.
 - Every **Metric** except **Hazards** measures **Software entropy**.
-- **Verbosity** counts the lines of every **Clone group** that **Duplication** finds.
+- **Verbosity** counts **Flagged lines** only and is independent of **Duplication**.
 - **Test gap** reads test execution from a **Coverage report**; codeint never runs tests.
 - **Test gap** covers the Production **Source set** only.
 - A **Language plugin** may report **Hazard lines**; **Hazards** counts them without knowing the language.

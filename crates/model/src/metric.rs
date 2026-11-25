@@ -156,7 +156,7 @@ impl Metric {
             MetricDescriptor {
                 key: "verbosity",
                 display_name: "Verbosity",
-                version: 1,
+                version: 2,
                 kind: MetricKind::SoftwareEntropy,
                 scope: MetricScope::AllSourceSets,
                 supports_diff_regression: true,

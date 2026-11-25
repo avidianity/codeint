@@ -149,7 +149,7 @@ impl Measured {
         Measured {
             erosion: Erosion::measure(model),
             cognitive_complexity: CognitiveComplexity::measure(model),
-            verbosity: Verbosity::measure(model, &duplication.exact_clone_lines),
+            verbosity: Verbosity::measure(model),
             duplication,
             import_cycles,
             boundaries,
@@ -476,7 +476,6 @@ impl SourceSetSection {
                 totals: VerbosityTotals {
                     verbose_lines: measured.verbosity.verbose_lines(),
                     flagged_lines: measured.verbosity.flagged_line_count(),
-                    clone_lines: measured.verbosity.clone_line_count(),
                 },
                 findings: view.map(measured.verbosity.flagged_lines()),
             },

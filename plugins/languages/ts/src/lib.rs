@@ -89,15 +89,15 @@ impl Guest for TypeScriptAndJavaScript {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         [
-            ("erosion", 0.352, 0.600),
-            ("verbosity", 0.018, 0.347),
-            ("duplication", 0.017, 0.346),
-            ("import_cycles", 0.000, 0.308),
+            ("erosion", 1, 0.352, 0.600),
+            ("verbosity", 2, 0.018, 0.347),
+            ("duplication", 1, 0.017, 0.346),
+            ("import_cycles", 1, 0.000, 0.308),
         ]
         .into_iter()
-        .map(|(metric, low, high)| ReferenceRange {
+        .map(|(metric, metric_version, low, high)| ReferenceRange {
             metric: metric.to_owned(),
-            metric_version: 1,
+            metric_version,
             low,
             high,
             source: REFERENCE_RANGE_SOURCE.to_owned(),

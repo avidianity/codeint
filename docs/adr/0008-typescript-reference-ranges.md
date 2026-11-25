@@ -194,6 +194,7 @@ The source label reads `codeint panel of 20 TypeScript and JavaScript repositori
   Rejected: the selection rule keeps them, and the percentile band already limits their effect.
 - **Change the Verbosity definition to exclude clone lines (#81).**
   Rejected by Owner Decision (2026-11-21): keep the v1 Verbosity union and record why it tracks Duplication on mature, linted human repositories.
+  Superseded on 2026-11-25 by [ADR 0024](./0024-verbosity-decoupling.md), which decouples Verbosity from Duplication and bumps Verbosity to Metric version `2`.
 
 ## Consequences
 

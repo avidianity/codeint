@@ -47,10 +47,10 @@ impl Guest for Go {
         build_reference_ranges(
             "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0",
             [
-                ("erosion", 0.379, 0.692),
-                ("verbosity", 0.045, 0.183),
-                ("duplication", 0.044, 0.181),
-                ("import_cycles", 0.000, 0.000),
+                ("erosion", 1, 0.379, 0.692),
+                ("verbosity", 2, 0.045, 0.183),
+                ("duplication", 1, 0.044, 0.181),
+                ("import_cycles", 1, 0.000, 0.000),
             ],
         )
     }
