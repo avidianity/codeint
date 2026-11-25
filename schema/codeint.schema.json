@@ -225,17 +225,17 @@
           "minimum": 0,
           "maximum": 1
         },
-        "orphan_files": {
-          "type": "number",
-          "format": "double",
-          "description": "The highest Orphan files ratio, from 0 to 1.",
-          "minimum": 0,
-          "maximum": 1
-        },
         "hazards": {
           "type": "number",
           "format": "double",
           "description": "The highest Hazards ratio, from 0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "orphan_files": {
+          "type": "number",
+          "format": "double",
+          "description": "The highest Orphan files ratio, from 0 to 1. Applies to the Production Source set only.",
           "minimum": 0,
           "maximum": 1
         },
@@ -302,13 +302,6 @@
           "minimum": 0,
           "maximum": 1
         },
-        "orphan_files": {
-          "type": "number",
-          "format": "double",
-          "description": "The highest Orphan files ratio, from 0 to 1.",
-          "minimum": 0,
-          "maximum": 1
-        },
         "hazards": {
           "type": "number",
           "format": "double",
@@ -350,7 +343,7 @@
         },
         "orphan_files": {
           "$ref": "#/$defs/RegressionLimitSetting",
-          "description": "The Regression limit of Orphan files in every Source set."
+          "description": "The Regression limit of Orphan files in the Production Source set."
         },
         "hazards": {
           "$ref": "#/$defs/RegressionLimitSetting",
@@ -369,7 +362,7 @@
           "description": "The Regression limit of dev dependencies imported in production."
         },
         "production": {
-          "$ref": "#/$defs/MetricRegressionLimits",
+          "$ref": "#/$defs/ProductionMetricRegressionLimits",
           "description": "The Regression limits of the Production Source set."
         },
         "test": {
@@ -414,7 +407,7 @@
         "never"
       ]
     },
-    "MetricRegressionLimits": {
+    "ProductionMetricRegressionLimits": {
       "type": "object",
       "properties": {
         "erosion": {
@@ -441,9 +434,45 @@
           "$ref": "#/$defs/RegressionLimitSetting",
           "description": "The Regression limit of Boundaries in this Source set."
         },
+        "hazards": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Hazards in this Source set."
+        },
         "orphan_files": {
           "$ref": "#/$defs/RegressionLimitSetting",
-          "description": "The Regression limit of Orphan files in this Source set."
+          "description": "The Regression limit of Orphan files. Applies to the Production Source set only."
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/RegressionLimitSetting"
+      }
+    },
+    "MetricRegressionLimits": {
+      "type": "object",
+      "properties": {
+        "erosion": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Erosion in this Source set."
+        },
+        "cognitive_complexity": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Cognitive complexity in this Source set."
+        },
+        "duplication": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Duplication in this Source set."
+        },
+        "verbosity": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Verbosity in this Source set."
+        },
+        "import_cycles": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Import cycles in this Source set."
+        },
+        "boundaries": {
+          "$ref": "#/$defs/RegressionLimitSetting",
+          "description": "The Regression limit of Boundaries in this Source set."
         },
         "hazards": {
           "$ref": "#/$defs/RegressionLimitSetting",

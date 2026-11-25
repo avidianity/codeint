@@ -857,7 +857,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets.{source_set}` | object | The Budgets of this Source set; empty by default |
 | `budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric in this Source set |
 | `budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio in this Source set |
-| `budgets.{source_set}.orphan_files` | number from 0 to 1 | The highest Orphan files ratio in this Source set |
+| `budgets.production.orphan_files` | number from 0 to 1 | The highest Orphan files ratio in the Production Source set; setting `orphan_files` under any other Source set stops the run with exit code 2 |
 | `budgets.{source_set}.hazards` | number from 0 to 1 | The highest Hazards ratio in this Source set; passes when Hazards is absent; see [Hazards](#hazards) |
 | `budgets.production.test_gap` | number from 0 to 1 | The highest Test gap ratio in the Production Source set; setting `test_gap` under any other Source set stops the run with exit code 2 |
 | `budgets.{dependency_metric}` | number from 0 to 1 | The highest ratio of this Dependency hygiene Metric across workspace packages |
@@ -868,7 +868,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.boundaries` | object | The Regression limit of Boundaries in every Source set |
 | `regression_limits.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
 | `regression_limits.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
-| `regression_limits.orphan_files` | object | The Regression limit of Orphan files in every Source set |
+| `regression_limits.orphan_files` | object | The Regression limit of Orphan files in the Production Source set |
 | `regression_limits.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
 | `regression_limits.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.hazards` | object | The Regression limit of Hazards in every Source set; see [Hazards](#hazards) |
@@ -884,9 +884,9 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `regression_limits.{source_set}.boundaries` | object | The Regression limit of Boundaries in this Source set |
 | `regression_limits.{source_set}.boundaries.ratio_rise` | number from 0 to 1 | The highest Boundaries ratio rise that passes |
 | `regression_limits.{source_set}.boundaries.new_findings` | string | When new Boundaries Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
-| `regression_limits.{source_set}.orphan_files` | object | The Regression limit of Orphan files in this Source set |
-| `regression_limits.{source_set}.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
-| `regression_limits.{source_set}.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
+| `regression_limits.production.orphan_files` | object | The Regression limit of Orphan files in the Production Source set; setting `orphan_files` under any other Source set stops the run with exit code 2 |
+| `regression_limits.production.orphan_files.ratio_rise` | number from 0 to 1 | The highest Orphan files ratio rise that passes |
+| `regression_limits.production.orphan_files.new_findings` | string | When new Orphan files Findings are a Regression: `any_new_finding` (default), `numerator_rise_with_new_findings`, or `never` |
 | `regression_limits.{source_set}.hazards` | object | The Regression limit of Hazards in this Source set; see [Hazards](#hazards) |
 | `regression_limits.{source_set}.hazards.ratio_rise` | number from 0 to 1 | The highest Hazards ratio rise that passes in this Source set |
 | `regression_limits.{source_set}.hazards.new_findings` | string | When new Hazards Findings are a Regression in this Source set: `numerator_rise_with_new_findings`, `any_new_finding`, or `never` |
@@ -990,6 +990,7 @@ A Budget applies to the total of every language, never to the section of one Lan
 For Import cycles, Orphan files, Import boundaries, and Dependency hygiene, repository totals and Budgets count only languages with imports.
 When no measured language has imports, those repository totals are absent and Budgets on them do not fail.
 For Hazards, repository totals and Budgets count only languages whose Language plugin defines Hazard line rules; when Hazards is absent, a Hazards Budget passes.
+`budgets.production.orphan_files` applies to the Production Source set only; setting `orphan_files` under `budgets.test`, `budgets.generated`, or `budgets.vendored` stops the run with exit code 2 and names the key.
 `budgets.production.test_gap` applies to the Production Source set only; setting `test_gap` under `budgets.test`, `budgets.generated`, or `budgets.vendored` stops the run with exit code 2 and names the key.
 When `budgets.production.test_gap` is set and Test gap is absent (no Coverage report applies), codeint stops the run with exit code 2 and reports that the Budget needs a Coverage report; with no Test gap Budget, an absent Test gap changes no exit code.
 codeint compares each Budget with the ratio as the report shows it, rounded to four decimal places, so a ratio equal to its Budget passes.
@@ -1043,6 +1044,7 @@ Each limit has two settings, and you may set either one or both:
 
 codeint settles each setting on its own: the Source set limit wins, then the Metric limit, then the default.
 So the example above gives production Erosion a ratio rise limit of 0.02 and fails it on any new Finding.
+Setting `orphan_files` under `regression_limits.test`, `regression_limits.generated`, or `regression_limits.vendored` stops the run with exit code 2 and names the key, because Orphan files applies to the Production Source set only (use `regression_limits.orphan_files` or `regression_limits.production.orphan_files`).
 Setting `test_gap` under `regression_limits` (at the top level or under any Source set) stops the run with exit code 2 and names the key, because `codeint diff` leaves Test gap out.
 
 An invalid limit stops the run with exit code 2 and names the key:

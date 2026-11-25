@@ -552,3 +552,92 @@ fn folder_import_language_plugin_marks_all_imported_folder_files_reachable_and_f
         expected
     );
 }
+
+fn assert_exit_2_stderr(dir: &Path, args: &[&str], expected_fragments: &[&str]) {
+    let output = Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("run codeint");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit 2 for {args:?}, got {:?}; stderr: {stderr}",
+        output.status.code()
+    );
+    for fragment in expected_fragments {
+        assert!(
+            stderr.contains(fragment),
+            "expected {fragment:?} in stderr for {args:?}: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn rejects_non_production_orphan_files_budgets_and_regression_limits_while_allowing_production() {
+    let (cache, repo) = init_single_entry_repo(
+        "prod-only-orphans",
+        &[("src/live.ts", "export const live = () => 2;\n")],
+    );
+
+    write_file(
+        repo.path(),
+        "codeint.json",
+        r#"{
+  "budgets": { "production": { "orphan_files": 1 } },
+  "regression_limits": {
+    "orphan_files": { "ratio_rise": 0.05 },
+    "production": { "orphan_files": { "new_findings": "any_new_finding" } }
+  }
+}"#,
+    );
+    let _ = check_json(repo.path(), 0);
+    let _ = diff_main_json(repo.path(), cache.path(), 0);
+    let _ = run_codeint(
+        repo.path(),
+        None,
+        &[
+            "config",
+            "--resolved",
+            "--budget",
+            "production.orphan_files=0.5",
+        ],
+        0,
+    );
+
+    for source_set in ["test", "generated", "vendored"] {
+        write_file(
+            repo.path(),
+            "codeint.json",
+            &format!(r#"{{ "budgets": {{ "{source_set}": {{ "orphan_files": 0.2 }} }} }}"#),
+        );
+        let budget_key = format!("budgets.{source_set}.orphan_files");
+        assert_exit_2_stderr(
+            repo.path(),
+            &["check"],
+            &[&budget_key, "Orphan files", "Production"],
+        );
+
+        write_file(
+            repo.path(),
+            "codeint.json",
+            &format!(
+                r#"{{ "regression_limits": {{ "{source_set}": {{ "orphan_files": {{ "ratio_rise": 0.05 }} }} }} }}"#
+            ),
+        );
+        let limit_key = format!("regression_limits.{source_set}.orphan_files");
+        assert_exit_2_stderr(
+            repo.path(),
+            &["diff", "main"],
+            &[&limit_key, "Orphan files", "Production"],
+        );
+    }
+
+    write_file(repo.path(), "codeint.json", "{}");
+    assert_exit_2_stderr(
+        repo.path(),
+        &["config", "--resolved", "--budget", "test.orphan_files=0.2"],
+        &["test.orphan_files", "Orphan files", "Production"],
+    );
+}

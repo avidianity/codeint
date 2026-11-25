@@ -1,6 +1,6 @@
 use std::fmt;
 
-use codeint_model::SourceSet;
+use codeint_model::{Metric, SourceSet};
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
@@ -273,6 +273,34 @@ pub enum ConfigurationFileError {
     CliTestGapBudgetOutsideProduction { source_set: SourceSet },
     #[error("{file}: {key} is not supported; Test gap has no Regression check")]
     TestGapRegressionLimit { file: ConfigFileKind, key: KeyPath },
+    #[error(
+        "{file}: {key} is not supported; {} applies to the Production Source set only",
+        metric.display_name()
+    )]
+    MetricBudgetOutsideProduction {
+        file: ConfigFileKind,
+        key: KeyPath,
+        metric: Metric,
+    },
+    #[error(
+        "--budget {}.{} is not supported; {} applies to the Production Source set only",
+        source_set.key(),
+        metric.key(),
+        metric.display_name()
+    )]
+    CliMetricBudgetOutsideProduction {
+        source_set: SourceSet,
+        metric: Metric,
+    },
+    #[error(
+        "{file}: {key} is not supported; {} applies to the Production Source set only",
+        metric.display_name()
+    )]
+    MetricRegressionLimitOutsideProduction {
+        file: ConfigFileKind,
+        key: KeyPath,
+        metric: Metric,
+    },
     #[error("{file}: {key} for SQL dialect {dialect:?} must list at least one glob pattern")]
     EmptySqlDialectInclude {
         file: ConfigFileKind,
@@ -319,12 +347,15 @@ impl ConfigurationFileError {
             | ParentTraversalCoverageReportPath { file, .. }
             | TestGapBudgetOutsideProduction { file, .. }
             | TestGapRegressionLimit { file, .. }
+            | MetricBudgetOutsideProduction { file, .. }
+            | MetricRegressionLimitOutsideProduction { file, .. }
             | EmptySqlDialectInclude { file, .. }
             | EmptySqlDialectPattern { file, .. }
             | EmptyHazardRuleName { file, .. } => *file = file_kind,
             AmbiguousConfigFiles
             | UnknownCliBudgetMetric { .. }
             | CliTestGapBudgetOutsideProduction { .. }
+            | CliMetricBudgetOutsideProduction { .. }
             | InvalidCliGlob { .. } => {}
         }
         self
