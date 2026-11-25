@@ -530,6 +530,54 @@ fn package_inputs(
     ]
 }
 
+struct ProfileCall<'a> {
+    plugin: &'a WasmLanguagePlugin,
+    package_root: &'a str,
+    files: &'a [RepoPath],
+    manifests: &'a [Manifest],
+    manifest_label: &'a str,
+}
+
+impl ProfileCall<'_> {
+    fn failure(
+        &self,
+        label: &str,
+        selection: &FrameworkProfileSelection,
+        watch: &mut LimitWatch,
+    ) -> Option<(String, &'static str)> {
+        match self.plugin.resolve_framework_profiles(
+            self.package_root,
+            self.files,
+            self.manifests.to_vec(),
+            selection.clone(),
+        ) {
+            Ok(result) if label == "disabled" && !result.active_profiles.is_empty() => Some((
+                format!(
+                    "disabled selection still activated {:?}",
+                    result.active_profiles
+                ),
+                "return no active profiles when the selection is disabled",
+            )),
+            Ok(_) => None,
+            Err(error) => {
+                watch.note_language(&error);
+                let place = if self.package_root.is_empty() {
+                    "the root package".to_owned()
+                } else {
+                    format!("package {}", self.package_root)
+                };
+                Some((
+                    format!(
+                        "{label} selection failed for {place} with {}: {error}",
+                        self.manifest_label
+                    ),
+                    "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections without an error, and may return only entry points and generated paths that are files it was passed; it is sent the real package files and manifests, as codeint check sends them",
+                ))
+            }
+        }
+    }
+}
+
 fn check_framework_profiles(
     report: &mut ConformanceReport,
     plugin: &WasmLanguagePlugin,
@@ -565,41 +613,17 @@ fn check_framework_profiles(
     for package_root in ["", PROBE_PACKAGE] {
         for (manifest_label, files, manifests) in package_inputs(&inputs, &workspace, package_root)
         {
+            let call = ProfileCall {
+                plugin,
+                package_root,
+                files: &files,
+                manifests: &manifests,
+                manifest_label,
+            };
             for (label, selection) in &selections {
-                let place = if package_root.is_empty() {
-                    "the root package".to_owned()
-                } else {
-                    format!("package {package_root}")
-                };
-                match plugin.resolve_framework_profiles(
-                    package_root,
-                    &files,
-                    manifests.clone(),
-                    selection.clone(),
-                ) {
-                    Ok(result) if *label == "disabled" && !result.active_profiles.is_empty() => {
-                        report.fail(
-                            "framework-profiles",
-                            format!(
-                                "disabled selection still activated {:?}",
-                                result.active_profiles
-                            ),
-                            "return no active profiles when the selection is disabled",
-                        );
-                        return;
-                    }
-                    Ok(_) => {}
-                    Err(error) => {
-                        watch.note_language(&error);
-                        report.fail(
-                            "framework-profiles",
-                            format!(
-                                "{label} selection failed for {place} with {manifest_label}: {error}"
-                            ),
-                            "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections without an error, and may return only entry points and generated paths that are files it was passed; it is sent the real package files and manifests, as codeint check sends them",
-                        );
-                        return;
-                    }
+                if let Some((message, hint)) = call.failure(label, selection, watch) {
+                    report.fail("framework-profiles", message, hint);
+                    return;
                 }
             }
         }

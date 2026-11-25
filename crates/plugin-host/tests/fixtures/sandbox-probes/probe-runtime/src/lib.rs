@@ -311,17 +311,7 @@ macro_rules! capability_probe_language_tail {
 
         $crate::empty_language_metadata_stubs!();
 
-        fn has_hazard_rules() -> bool {
-            false
-        }
-
-        fn hazard_rules() -> ::alloc::vec::Vec<::alloc::string::String> {
-            ::alloc::vec::Vec::new()
-        }
-
-        fn has_imports() -> bool {
-            true
-        }
+        $crate::hazard_free_language_facts!(true);
     };
 }
 
@@ -330,17 +320,7 @@ macro_rules! plain_language_tail {
     () => {
         $crate::empty_language_metadata_stubs!();
 
-        fn has_hazard_rules() -> bool {
-            false
-        }
-
-        fn hazard_rules() -> ::alloc::vec::Vec<::alloc::string::String> {
-            ::alloc::vec::Vec::new()
-        }
-
-        fn has_imports() -> bool {
-            false
-        }
+        $crate::hazard_free_language_facts!(false);
     };
 }
 
@@ -441,17 +421,7 @@ macro_rules! fixture_erosion_ranges {
 
         $crate::empty_framework_profile_stubs!();
 
-        fn has_hazard_rules() -> bool {
-            false
-        }
-
-        fn hazard_rules() -> ::alloc::vec::Vec<::alloc::string::String> {
-            ::alloc::vec::Vec::new()
-        }
-
-        fn has_imports() -> bool {
-            $has_imports
-        }
+        $crate::hazard_free_language_facts!($has_imports);
     };
 }
 
@@ -491,17 +461,7 @@ macro_rules! faulty_import_language {
             $extensions
         }
 
-        fn lower(
-            path: ::alloc::string::String,
-            text: ::alloc::string::String,
-        ) -> ::core::result::Result<FileModel, LowerError> {
-            if path.ends_with(".probe") {
-                let lines = $crate::count_non_empty_lines(&text);
-                ::core::result::Result::Ok($crate::blank_file_model!(SourceSet::Production, lines))
-            } else {
-                ::core::result::Result::Err(LowerError::UnsupportedFile(path))
-            }
-        }
+        $crate::probe_extension_lower!();
 
         fn manifest_paths(
             _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
@@ -564,6 +524,32 @@ macro_rules! faulty_import_language {
             })
         }
 
+        $crate::hazard_free_language_facts!(true);
+    };
+}
+
+#[macro_export]
+macro_rules! probe_claiming_language_stubs {
+    () => {
+        fn extensions() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec![::alloc::string::ToString::to_string("probe")]
+        }
+
+        $crate::probe_extension_lower!();
+
+        $crate::common_empty_language_metadata_stubs!();
+
+        fn known_framework_profiles() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec![::alloc::string::ToString::to_string("alpha")]
+        }
+
+        $crate::hazard_free_language_facts!(true);
+    };
+}
+
+#[macro_export]
+macro_rules! hazard_free_language_facts {
+    ($has_imports:expr) => {
         fn has_hazard_rules() -> bool {
             false
         }
@@ -573,7 +559,24 @@ macro_rules! faulty_import_language {
         }
 
         fn has_imports() -> bool {
-            true
+            $has_imports
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! probe_extension_lower {
+    () => {
+        fn lower(
+            path: ::alloc::string::String,
+            text: ::alloc::string::String,
+        ) -> ::core::result::Result<FileModel, LowerError> {
+            if path.ends_with(".probe") {
+                let lines = $crate::count_non_empty_lines(&text);
+                ::core::result::Result::Ok($crate::blank_file_model!(SourceSet::Production, lines))
+            } else {
+                ::core::result::Result::Err(LowerError::UnsupportedFile(path))
+            }
         }
     };
 }

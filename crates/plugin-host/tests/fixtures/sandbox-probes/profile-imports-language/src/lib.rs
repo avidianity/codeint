@@ -22,54 +22,7 @@ struct Probe;
 export!(Probe);
 
 impl Guest for Probe {
-    fn extensions() -> Vec<String> {
-        vec!["probe".to_string()]
-    }
-
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        if path.ends_with(".probe") {
-            let lines = probe_runtime::count_non_empty_lines(&text);
-            Ok(probe_runtime::blank_file_model!(SourceSet::Production, lines))
-        } else {
-            Err(LowerError::UnsupportedFile(path))
-        }
-    }
-
-    fn manifest_paths(_repository_paths: Vec<String>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn workspace_packages(_manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
-    }
-
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
-    }
-
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        Vec::new()
-    }
-
-    fn known_framework_profiles() -> Vec<String> {
-        vec!["alpha".to_string()]
-    }
-
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports() -> bool {
-        true
-    }
+    probe_runtime::probe_claiming_language_stubs!();
 
     fn resolve_imports(
         _repository_paths: Vec<String>,
