@@ -1,0 +1,651 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use codeint_config::{
+    Boundaries as BoundariesConfig, BoundaryDirective, BoundaryRuleDecision, DuplicationConfig,
+    FindingsShown,
+};
+use codeint_metrics::{
+    Boundaries, BoundaryEdgeCheck, BoundaryPolicy, CognitiveComplexity, DependencyHygiene,
+    Duplication, Erosion, Hazards, ImportCycles, MinimumCloneTokens, MinimumDistinctTokens,
+    NearCloneConfig, OrphanFiles, TestGap, Verbosity,
+};
+use codeint_model::{
+    CodeModel, Metric, MetricPlugin, MetricPluginError, Package, RepoPath, SourceSet, SourceSets,
+};
+
+use crate::findings::{
+    CloneFamilyFinding, clustered_clone_group_ids, unlisted_clone_family_group_ids,
+};
+use crate::ownership::OwnershipOptions;
+use crate::render::{
+    Decimal, Findings, FindingsView, NO_IMPORTS_METRIC_NOTE, NOT_SHOWN_FOR_NEAR_CLONES,
+    ReferenceRangeEntry, ReferenceRangeScope, TEST_GAP_NO_LANGUAGE_COVERAGE_NOTE,
+    TEST_GAP_NO_REPO_COVERAGE_NOTE, TEST_GAP_NO_REPORT_NOTE,
+};
+use crate::sections::{
+    BoundariesSection, CognitiveComplexityTotals, DependenciesSection,
+    DevInProductionDependenciesSection, DuplicationSection, ErosionTotals, ExternalMetricSection,
+    HazardsSection, ImportCyclesSection, MeasuredSection, MetricHeader, MetricSection,
+    NearClonesSummary, OrphanFilesSection, PackageCognitiveComplexity, PackageDuplication,
+    PackageErosion, PackageHazards, PackageImportCycles, PackageSection, PackageTestGap,
+    PackageVerbosity, SourceSetSection, SourceSetSections, TestGapSection,
+    UnlistedDependenciesSection, UnresolvedImportsSection, UnusedDependenciesSection,
+    VerbosityTotals,
+};
+
+struct ConfigBoundaryPolicy<'config>(&'config BoundariesConfig);
+
+impl BoundaryPolicy for ConfigBoundaryPolicy<'_> {
+    fn zone_of(&self, path: &RepoPath) -> Option<&str> {
+        self.0.zone_of(path)
+    }
+
+    fn has_public_files(&self, zone: &str) -> bool {
+        self.0.has_public_files(zone)
+    }
+
+    fn is_public_file(&self, zone: &str, path: &RepoPath) -> bool {
+        self.0.is_public_file(zone, path)
+    }
+
+    fn check_import(&self, source_zone: &str, target_zone: &str) -> BoundaryEdgeCheck {
+        match self.0.check_import(source_zone, target_zone) {
+            BoundaryRuleDecision::Allowed => BoundaryEdgeCheck::Allowed,
+            BoundaryRuleDecision::Denied {
+                directive: BoundaryDirective::Allow,
+                reason,
+            } => BoundaryEdgeCheck::DeniedByAllowRule { reason },
+            BoundaryRuleDecision::Denied {
+                directive: BoundaryDirective::Deny,
+                reason,
+            } => BoundaryEdgeCheck::DeniedByDenyRule { reason },
+        }
+    }
+
+    fn strict_zones(&self) -> bool {
+        self.0.strict_zones()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct SectionOptions<'a> {
+    pub(crate) findings: FindingsShown,
+    pub(crate) metric_plugins: &'a [&'a dyn MetricPlugin],
+    pub(crate) boundaries: Option<&'a BoundariesConfig>,
+    pub(crate) duplication: DuplicationConfig,
+    pub(crate) orphan_files: Option<&'a OrphanFiles>,
+    pub(crate) ownership: OwnershipOptions<'a>,
+    pub(crate) has_imports: bool,
+    pub(crate) has_hazard_rules: bool,
+    pub(crate) disabled_hazard_rules: &'a BTreeSet<String>,
+    pub(crate) coverage_reports_named: bool,
+    pub(crate) per_language_section: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct SectionModels<'a> {
+    pub(crate) model: &'a CodeModel,
+    pub(crate) import_model: Option<&'a CodeModel>,
+    pub(crate) coverage_model: Option<&'a CodeModel>,
+    pub(crate) hazards_model: Option<&'a CodeModel>,
+}
+
+pub(crate) struct MeasuredSectionModels {
+    pub(crate) model: CodeModel,
+    pub(crate) import_model: Option<CodeModel>,
+    pub(crate) coverage_model: Option<CodeModel>,
+    pub(crate) hazards_model: Option<CodeModel>,
+}
+
+pub(crate) struct Measured {
+    pub(crate) erosion: Erosion,
+    pub(crate) cognitive_complexity: CognitiveComplexity,
+    pub(crate) duplication: Duplication,
+    pub(crate) verbosity: Verbosity,
+    pub(crate) import_cycles: Option<ImportCycles>,
+    pub(crate) boundaries: Option<Boundaries>,
+    pub(crate) test_gap: Option<TestGap>,
+    pub(crate) hazards: Option<Hazards>,
+}
+
+impl Measured {
+    pub(crate) fn new(
+        models: SectionModels<'_>,
+        boundaries: Option<&BoundariesConfig>,
+        duplication_config: DuplicationConfig,
+        disabled_hazard_rules: &BTreeSet<String>,
+    ) -> Measured {
+        let model = models.model;
+        let near_clones = duplication_config.near_clones.then(|| {
+            NearCloneConfig::new(duplication_config.min_similarity.ratio())
+                .expect("validated min_similarity is in (0, 1]")
+        });
+        let duplication = Duplication::measure_with_near_clones(
+            model,
+            MinimumCloneTokens::DEFAULT,
+            MinimumDistinctTokens::DEFAULT,
+            near_clones,
+        );
+        let import_cycles = models.import_model.map(ImportCycles::measure);
+        let boundaries = models.import_model.and_then(|imports| {
+            boundaries.map(|config| Boundaries::measure(imports, &ConfigBoundaryPolicy(config)))
+        });
+        let test_gap = models.coverage_model.and_then(TestGap::measure);
+        let hazards = models
+            .hazards_model
+            .and_then(|hazards_model| Hazards::measure(hazards_model, disabled_hazard_rules));
+        Measured {
+            erosion: Erosion::measure(model),
+            cognitive_complexity: CognitiveComplexity::measure(model),
+            verbosity: Verbosity::measure(model, &duplication.exact_clone_lines),
+            duplication,
+            import_cycles,
+            boundaries,
+            test_gap,
+            hazards,
+        }
+    }
+}
+
+impl DependenciesSection {
+    pub(crate) fn from_hygiene(
+        hygiene: &DependencyHygiene,
+        view: FindingsView<'_>,
+    ) -> Option<DependenciesSection> {
+        if !hygiene.has_activity() {
+            return None;
+        }
+        Some(DependenciesSection {
+            unused_dependencies: UnusedDependenciesSection {
+                ratio: Decimal::rounded(hygiene.unused_ratio()),
+                unused: hygiene.unused().len(),
+                declared: hygiene.declared_count(),
+                findings: view.map(hygiene.unused()),
+            },
+            unlisted_dependencies: UnlistedDependenciesSection {
+                ratio: Decimal::rounded(hygiene.unlisted_ratio()),
+                unlisted: hygiene.unlisted().len(),
+                imported: hygiene.imported_count(),
+                findings: view.map(hygiene.unlisted()),
+            },
+            dev_in_production_dependencies: DevInProductionDependenciesSection {
+                ratio: Decimal::rounded(hygiene.dev_in_production_ratio()),
+                dev_in_production: hygiene.dev_in_production().len(),
+                production_imported: hygiene.production_imported_count(),
+                findings: view.map(hygiene.dev_in_production()),
+            },
+        })
+    }
+}
+
+impl BoundariesSection {
+    fn new(boundaries: &Boundaries, view: FindingsView<'_>) -> BoundariesSection {
+        BoundariesSection {
+            ratio: Decimal::rounded(boundaries.ratio()),
+            resolved_imports: boundaries.resolved_imports(),
+            findings: view.map(boundaries.findings()),
+        }
+    }
+}
+
+impl OrphanFilesSection {
+    fn new(orphan_files: &OrphanFiles, view: FindingsView<'_>) -> OrphanFilesSection {
+        let all_findings = orphan_files.findings();
+        let findings = view.map(all_findings);
+        OrphanFilesSection {
+            ratio: Decimal::rounded(orphan_files.ratio()),
+            orphan_files: all_findings.len(),
+            evaluated_files: orphan_files.evaluated_files(),
+            entry_points: orphan_files.entry_points().len(),
+            unreferenced: orphan_files.unreferenced_count(),
+            test_only: orphan_files.test_only_count(),
+            findings,
+        }
+    }
+}
+
+impl TestGapSection {
+    fn new(test_gap: &TestGap, view: FindingsView<'_>) -> TestGapSection {
+        let totals = test_gap.totals();
+        let findings = view.map(test_gap.findings());
+        TestGapSection {
+            ratio: Decimal::rounded(totals.ratio()),
+            untested_function_mass: Decimal::rounded(totals.untested),
+            total_function_mass: Decimal::rounded(totals.total),
+            measured_functions: totals.measured_functions,
+            findings,
+        }
+    }
+}
+
+impl HazardsSection {
+    fn new(hazards: &Hazards, view: FindingsView<'_>) -> HazardsSection {
+        HazardsSection {
+            ratio: Decimal::rounded(hazards.ratio()),
+            hazard_lines: hazards.hazard_lines(),
+            source_lines: hazards.source_lines(),
+            findings: view.map(hazards.findings()),
+        }
+    }
+}
+
+impl DuplicationSection {
+    fn new(
+        duplication: &Duplication,
+        ranges: &ReferenceRangeScope,
+        view: FindingsView<'_>,
+        config: DuplicationConfig,
+    ) -> DuplicationSection {
+        let (reference_range, near_clones) = if config.near_clones {
+            (
+                ReferenceRangeEntry::NotShown(NOT_SHOWN_FOR_NEAR_CLONES.to_owned()),
+                Some(NearClonesSummary {
+                    min_similarity: config.min_similarity.ratio(),
+                }),
+            )
+        } else {
+            (ranges.entry(Metric::Duplication.key()), None)
+        };
+        let all_clone_families = view.ownership.apply(
+            duplication
+                .clone_families
+                .iter()
+                .map(CloneFamilyFinding::from)
+                .collect(),
+        );
+        let all_clustered = clustered_clone_group_ids(&all_clone_families);
+        let clone_groups = view.map(&duplication.clone_groups);
+        let clone_families = Findings::worst_first(all_clone_families.into_iter(), view.shown);
+        let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
+            &clone_groups.listed,
+            &clone_families.listed,
+            &all_clustered,
+        );
+        DuplicationSection {
+            header: MetricHeader {
+                ratio: Decimal::rounded(duplication.ratio()),
+                reference_range,
+            },
+            near_clones,
+            clone_lines: duplication.clone_lines.count(),
+            clone_groups,
+            clone_families,
+            unlisted_clone_family_group_ids,
+        }
+    }
+}
+
+impl UnresolvedImportsSection {
+    fn new(import_cycles: &ImportCycles, view: FindingsView<'_>) -> UnresolvedImportsSection {
+        let imports = view.map(import_cycles.unresolved_imports());
+        UnresolvedImportsSection {
+            count: imports.listed.len() + imports.left_out,
+            imports,
+        }
+    }
+}
+
+impl SourceSetSections {
+    fn new(
+        source_sets: &SourceSets,
+        import_source_sets: Option<&SourceSets>,
+        coverage_source_sets: Option<&SourceSets>,
+        hazards_source_sets: Option<&SourceSets>,
+        ranges: &ReferenceRangeScope,
+        options: SectionOptions<'_>,
+    ) -> Result<SourceSetSections, MetricPluginError> {
+        let mut sections = SourceSetSections::default();
+        for (source_set, model) in source_sets.iter() {
+            if !model.files.is_empty() {
+                let import_model = select_non_empty(import_source_sets, source_set);
+                let coverage_model = select_coverage_model(source_set, model, coverage_source_sets);
+                let hazards_model = select_non_empty(hazards_source_sets, source_set);
+                let source_set_options = SectionOptions {
+                    boundaries: options.boundaries.filter(|config| {
+                        import_model.is_some() && config.applies_to_source_set(source_set)
+                    }),
+                    orphan_files: options
+                        .orphan_files
+                        .filter(|_| import_model.is_some() && source_set == SourceSet::Production),
+                    ..options
+                };
+                *sections.slot(source_set) = Some(SourceSetSection::new(
+                    SectionModels {
+                        model,
+                        import_model,
+                        coverage_model,
+                        hazards_model,
+                    },
+                    ranges,
+                    source_set_options,
+                )?);
+            }
+        }
+        Ok(sections)
+    }
+}
+
+fn select_non_empty(source_sets: Option<&SourceSets>, source_set: SourceSet) -> Option<&CodeModel> {
+    source_sets
+        .map(|sets| sets.get(source_set))
+        .filter(|model| !model.files.is_empty())
+}
+
+fn select_coverage_model<'a>(
+    source_set: SourceSet,
+    model: &'a CodeModel,
+    coverage_source_sets: Option<&'a SourceSets>,
+) -> Option<&'a CodeModel> {
+    if source_set != SourceSet::Production {
+        return None;
+    }
+    match coverage_source_sets {
+        Some(sets) => select_non_empty(Some(sets), SourceSet::Production),
+        None => Some(model),
+    }
+}
+
+impl SourceSetSection {
+    fn new(
+        models: SectionModels<'_>,
+        ranges: &ReferenceRangeScope,
+        options: SectionOptions<'_>,
+    ) -> Result<SourceSetSection, MetricPluginError> {
+        let model = models.model;
+        let view = FindingsView {
+            shown: options.findings,
+            ownership: options.ownership,
+        };
+        let effective_import_model = models.import_model.filter(|_| options.has_imports);
+        let effective_hazards_model = models.hazards_model.filter(|_| options.has_hazard_rules);
+        let boundaries_config = effective_import_model
+            .is_some()
+            .then_some(options.boundaries)
+            .flatten();
+        let measured = Measured::new(
+            SectionModels {
+                model,
+                import_model: effective_import_model,
+                coverage_model: models.coverage_model,
+                hazards_model: effective_hazards_model,
+            },
+            boundaries_config,
+            options.duplication,
+            options.disabled_hazard_rules,
+        );
+        let boundaries = measured
+            .boundaries
+            .as_ref()
+            .map(|evaluated| BoundariesSection::new(evaluated, view));
+        let orphan_files = effective_import_model
+            .is_some()
+            .then_some(options.orphan_files)
+            .flatten()
+            .map(|measured| OrphanFilesSection::new(measured, view));
+        let test_gap = measured
+            .test_gap
+            .as_ref()
+            .map(|evaluated| TestGapSection::new(evaluated, view));
+        let hazards = measured
+            .hazards
+            .as_ref()
+            .map(|evaluated| HazardsSection::new(evaluated, view));
+        let mut external_metrics = BTreeMap::new();
+        for plugin in options.metric_plugins {
+            let result = plugin.measure(model)?;
+            external_metrics.insert(
+                plugin.key().to_owned(),
+                ExternalMetricSection {
+                    name: plugin.name().to_owned(),
+                    description: plugin.description().to_owned(),
+                    header: MetricHeader::new(result.ratio, ranges, plugin.key()),
+                    numerator: Decimal::rounded(result.numerator),
+                    denominator: Decimal::rounded(result.denominator),
+                    findings: view.map(&result.findings),
+                },
+            );
+        }
+        Ok(SourceSetSection {
+            files: model.files.len(),
+            source_lines: source_lines(model),
+            erosion: MetricSection {
+                header: MetricHeader::new(measured.erosion.ratio(), ranges, Metric::Erosion.key()),
+                totals: ErosionTotals {
+                    eroded_function_mass: Decimal::rounded(measured.erosion.eroded_function_mass()),
+                    total_function_mass: Decimal::rounded(measured.erosion.total_function_mass()),
+                },
+                findings: view.map(measured.erosion.eroded_functions()),
+            },
+            cognitive_complexity: MetricSection {
+                header: MetricHeader::new(
+                    measured.cognitive_complexity.ratio(),
+                    ranges,
+                    Metric::CognitiveComplexity.key(),
+                ),
+                totals: CognitiveComplexityTotals {
+                    complex_cognitive_complexity: measured
+                        .cognitive_complexity
+                        .complex_cognitive_complexity(),
+                    total_cognitive_complexity: measured
+                        .cognitive_complexity
+                        .total_cognitive_complexity(),
+                },
+                findings: view.map(measured.cognitive_complexity.complex_functions()),
+            },
+            duplication: DuplicationSection::new(
+                &measured.duplication,
+                ranges,
+                view,
+                options.duplication,
+            ),
+            verbosity: MetricSection {
+                header: MetricHeader::new(
+                    measured.verbosity.ratio(),
+                    ranges,
+                    Metric::Verbosity.key(),
+                ),
+                totals: VerbosityTotals {
+                    verbose_lines: measured.verbosity.verbose_lines(),
+                    flagged_lines: measured.verbosity.flagged_line_count(),
+                    clone_lines: measured.verbosity.clone_line_count(),
+                },
+                findings: view.map(measured.verbosity.flagged_lines()),
+            },
+            import_cycles: measured
+                .import_cycles
+                .as_ref()
+                .map(|cycles| ImportCyclesSection {
+                    header: MetricHeader::new(cycles.ratio(), ranges, Metric::ImportCycles.key()),
+                    modules_in_import_cycles: cycles.modules_in_import_cycles(),
+                    modules: cycles.modules(),
+                    findings: view.map(cycles.cycles()),
+                    unresolved_imports: UnresolvedImportsSection::new(cycles, view),
+                }),
+            boundaries,
+            orphan_files,
+            test_gap,
+            hazards,
+            external_metrics,
+            packages: package_sections(
+                SectionModels {
+                    model,
+                    import_model: effective_import_model,
+                    coverage_model: models.coverage_model,
+                    hazards_model: effective_hazards_model,
+                },
+                &measured,
+            ),
+        })
+    }
+}
+
+fn source_lines(model: &CodeModel) -> u64 {
+    model
+        .files
+        .iter()
+        .map(|file| u64::from(file.model.source_lines))
+        .sum()
+}
+
+fn package_sections<'a>(models: SectionModels<'a>, measured: &Measured) -> Vec<PackageSection> {
+    let model = models.model;
+    if !model.workspace.has_members() {
+        return Vec::new();
+    }
+    let mut files: BTreeMap<Package<'a>, usize> = BTreeMap::new();
+    for file in &model.files {
+        *files
+            .entry(model.workspace.package_of(&file.path))
+            .or_default() += 1;
+    }
+    let mut cognitive = measured.cognitive_complexity.by_package(model);
+    let mut duplication = measured.duplication.by_package(model);
+    let mut verbosity = measured.verbosity.by_package(model);
+    let mut import_cycles = models
+        .import_model
+        .zip(measured.import_cycles.as_ref())
+        .map(|(imports, cycles)| cycles.by_package(imports));
+    let mut test_gap = models
+        .coverage_model
+        .zip(measured.test_gap.as_ref())
+        .map(|(coverage, gap)| gap.by_package(coverage));
+    let mut hazards = models
+        .hazards_model
+        .zip(measured.hazards.as_ref())
+        .map(|(hazards_model, hazards)| hazards.by_package(hazards_model));
+    measured
+        .erosion
+        .by_package(model)
+        .into_iter()
+        .map(|(package, masses)| {
+            let package_files = files.get(&package).copied().unwrap_or_default();
+            let cognitive_totals = cognitive.remove(&package).unwrap_or_default();
+            let clone_lines = duplication.remove(&package).unwrap_or_default();
+            let verbose_lines = verbosity.remove(&package).unwrap_or_default();
+            let package_import_cycles = import_cycles.as_mut().and_then(|by_package| {
+                let modules = by_package.remove(&package).unwrap_or_default();
+                (modules.modules > 0 || package_files == 0).then(|| PackageImportCycles {
+                    ratio: Decimal::rounded(modules.ratio()),
+                    modules_in_import_cycles: modules.modules_in_import_cycles,
+                })
+            });
+            let package_test_gap = test_gap.as_mut().and_then(|by_package| {
+                let gap = by_package.remove(&package).unwrap_or_default();
+                (gap.files > 0).then(|| PackageTestGap {
+                    ratio: Decimal::rounded(gap.ratio()),
+                    untested_function_mass: Decimal::rounded(gap.untested),
+                    total_function_mass: Decimal::rounded(gap.total),
+                })
+            });
+            let package_hazards = hazards.as_mut().and_then(|by_package| {
+                by_package.remove(&package).map(|lines| PackageHazards {
+                    ratio: Decimal::rounded(lines.ratio()),
+                    hazard_lines: lines.hazard_lines,
+                    source_lines: lines.source_lines,
+                })
+            });
+            PackageSection {
+                path: package.to_string(),
+                files: package_files,
+                source_lines: clone_lines.source_lines,
+                erosion: PackageErosion {
+                    ratio: Decimal::rounded(masses.ratio()),
+                    eroded_function_mass: Decimal::rounded(masses.eroded),
+                    total_function_mass: Decimal::rounded(masses.total),
+                },
+                cognitive_complexity: PackageCognitiveComplexity {
+                    ratio: Decimal::rounded(cognitive_totals.ratio()),
+                    complex_cognitive_complexity: cognitive_totals.complex,
+                    total_cognitive_complexity: cognitive_totals.total,
+                },
+                duplication: PackageDuplication {
+                    ratio: Decimal::rounded(clone_lines.ratio()),
+                    clone_lines: clone_lines.lines,
+                },
+                verbosity: PackageVerbosity {
+                    ratio: Decimal::rounded(verbose_lines.ratio()),
+                    verbose_lines: verbose_lines.lines,
+                },
+                import_cycles: package_import_cycles,
+                test_gap: package_test_gap,
+                hazards: package_hazards,
+            }
+        })
+        .collect()
+}
+
+impl MeasuredSection {
+    pub(crate) fn new(
+        models: MeasuredSectionModels,
+        hygiene: &DependencyHygiene,
+        ranges: &ReferenceRangeScope,
+        options: SectionOptions<'_>,
+    ) -> Result<MeasuredSection, MetricPluginError> {
+        let files = models.model.files.len();
+        let lines = source_lines(&models.model);
+        let view = FindingsView {
+            shown: options.findings,
+            ownership: options.ownership,
+        };
+        let dependencies = options
+            .has_imports
+            .then(|| DependenciesSection::from_hygiene(hygiene, view))
+            .flatten();
+        let import_metrics_note = (!options.has_imports).then(|| NO_IMPORTS_METRIC_NOTE.to_owned());
+        let section_options = if options.has_imports {
+            options
+        } else {
+            SectionOptions {
+                boundaries: None,
+                orphan_files: None,
+                ..options
+            }
+        };
+        let source_sets = models.model.into_source_sets();
+        let separate_import_source_sets = models.import_model.map(CodeModel::into_source_sets);
+        let import_source_sets = if options.has_imports {
+            Some(separate_import_source_sets.as_ref().unwrap_or(&source_sets))
+        } else {
+            None
+        };
+        let separate_coverage_source_sets = models.coverage_model.map(CodeModel::into_source_sets);
+        let separate_hazards_source_sets = models.hazards_model.map(CodeModel::into_source_sets);
+        let hazards_source_sets = if options.has_hazard_rules {
+            Some(
+                separate_hazards_source_sets
+                    .as_ref()
+                    .unwrap_or(&source_sets),
+            )
+        } else {
+            None
+        };
+        let source_sets = SourceSetSections::new(
+            &source_sets,
+            import_source_sets,
+            separate_coverage_source_sets.as_ref(),
+            hazards_source_sets,
+            ranges,
+            section_options,
+        )?;
+        let test_gap_note = source_sets
+            .production()
+            .filter(|prod| prod.test_gap.is_none())
+            .map(|_| {
+                if !options.coverage_reports_named {
+                    TEST_GAP_NO_REPORT_NOTE.to_owned()
+                } else if options.per_language_section {
+                    TEST_GAP_NO_LANGUAGE_COVERAGE_NOTE.to_owned()
+                } else {
+                    TEST_GAP_NO_REPO_COVERAGE_NOTE.to_owned()
+                }
+            });
+        Ok(MeasuredSection {
+            files,
+            source_lines: lines,
+            import_metrics_note,
+            source_sets,
+            test_gap_note,
+            dependencies,
+        })
+    }
+}

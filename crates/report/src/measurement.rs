@@ -330,7 +330,7 @@ impl SourceSetMeasurement {
                         findings_worst_first: result
                             .findings
                             .iter()
-                            .map(ExternalMetricFinding::from_model)
+                            .map(ExternalMetricFinding::from)
                             .collect(),
                     },
                 },
@@ -342,25 +342,25 @@ impl SourceSetMeasurement {
                 measured.erosion.ratio(),
                 measured.erosion.eroded_function_mass(),
                 measured.erosion.eroded_functions(),
-                ErodedFunctionFinding::new,
+                ErodedFunctionFinding::from,
             ),
             cognitive_complexity: MetricMeasurement::from_items(
                 measured.cognitive_complexity.ratio(),
                 measured.cognitive_complexity.complex_cognitive_complexity() as f64,
                 measured.cognitive_complexity.complex_functions(),
-                CognitiveComplexityFinding::new,
+                CognitiveComplexityFinding::from,
             ),
             duplication: MetricMeasurement::from_items(
                 measured.duplication.ratio(),
                 measured.duplication.clone_lines.count() as f64,
                 &measured.duplication.clone_groups,
-                CloneGroupFinding::new,
+                CloneGroupFinding::from,
             ),
             clone_families: measured
                 .duplication
                 .clone_families
                 .iter()
-                .map(CloneFamilyFinding::new)
+                .map(CloneFamilyFinding::from)
                 .collect(),
             verbosity: MetricMeasurement::from_items(
                 measured.verbosity.ratio(),
@@ -373,7 +373,7 @@ impl SourceSetMeasurement {
                     cycles.ratio(),
                     cycles.modules_in_import_cycles() as f64,
                     cycles.cycles(),
-                    ImportCycleFinding::new,
+                    ImportCycleFinding::from,
                 )
             }),
             boundaries,
