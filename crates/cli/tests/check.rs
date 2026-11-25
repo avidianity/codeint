@@ -1,3 +1,5 @@
+mod wasm_fixtures;
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -5546,35 +5548,6 @@ fn plugin_host_error_remedies_name_codeint_jsonc_when_active() {
     );
 }
 
-fn build_sandbox_probes_wasm_dir() -> &'static std::path::PathBuf {
-    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let target_dir = root.join("target/wasm-fixtures");
-        let manifest = root.join("crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml");
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "--workspace",
-                "--locked",
-                "--offline",
-                "--target",
-                "wasm32-wasip2",
-            ])
-            .arg("--manifest-path")
-            .arg(&manifest)
-            .arg("--target-dir")
-            .arg(&target_dir)
-            .status()
-            .expect("build sandbox-probes wasm fixtures");
-        assert!(
-            status.success(),
-            "sandbox-probes build exited with {status}"
-        );
-        target_dir.join("wasm32-wasip2/debug")
-    })
-}
-
 fn sandbox_probe_repo(
     plugin_name: &str,
     wasm_file: &str,
@@ -5583,7 +5556,7 @@ fn sandbox_probe_repo(
     files: &[(&str, &str)],
 ) -> Repository {
     let repository = Repository::new();
-    let wasm = fs::read(build_sandbox_probes_wasm_dir().join(wasm_file))
+    let wasm = fs::read(wasm_fixtures::wasm_fixture_path(wasm_file))
         .unwrap_or_else(|error| panic!("read {wasm_file}: {error}"));
     repository.write_bytes(target_name, &wasm);
     let digest = codeint_plugin_host::sha256_hex(&codeint_plugin_host::sha256(&wasm));

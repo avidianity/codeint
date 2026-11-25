@@ -101,6 +101,12 @@ jobs:
         with:
           prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
           shared-key: "ubuntu-rust-test"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            target/wasm-fixtures/wasm32-wasip2/debug/*.wasm
+            target/wasm-fixtures/wasm32-wasip2/debug/.fixtures-stamp
+          key: v0-wasm-fixtures-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'wit/**', 'crates/plugin-host/tests/fixtures/**') }}
       - run: rustup target add wasm32-wasip2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -241,6 +247,12 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           rust-cache-key: "ubuntu-rust-test"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            target/wasm-fixtures/wasm32-wasip2/debug/*.wasm
+            target/wasm-fixtures/wasm32-wasip2/debug/.fixtures-stamp
+          key: v0-wasm-fixtures-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'wit/**', 'crates/plugin-host/tests/fixtures/**') }}
       - uses: ./.github/actions/gitleaks
       - uses: ./.github/actions/lychee
       - run: rustup target add wasm32-wasip2

@@ -13,46 +13,83 @@ use crate::PluginHostError;
 const EPOCH_TICK_MS: u64 = 10;
 const LIFTED_BYTES_PER_ELEMENT: usize = 32;
 
-pub(crate) struct EpochTicker {
-    stop: Arc<(Mutex<bool>, Condvar)>,
+struct SharedTickerState {
+    active_leases: usize,
+    stop: Option<Arc<(Mutex<bool>, Condvar)>>,
     handle: Option<JoinHandle<()>>,
 }
 
+static SHARED_TICKER: Mutex<SharedTickerState> = Mutex::new(SharedTickerState {
+    active_leases: 0,
+    stop: None,
+    handle: None,
+});
+
+pub(crate) struct EpochTicker {
+    _private: (),
+}
+
 impl EpochTicker {
-    pub(crate) fn start(engine: Engine) -> EpochTicker {
-        let stop = Arc::new((Mutex::new(false), Condvar::new()));
-        let thread_stop = Arc::clone(&stop);
-        let handle = thread::spawn(move || {
-            let (lock, cvar) = &*thread_stop;
-            let mut stopped = lock
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            while !*stopped {
-                let (guard, _) = cvar
-                    .wait_timeout(stopped, Duration::from_millis(EPOCH_TICK_MS))
+    pub(crate) fn acquire(engine: &Engine) -> EpochTicker {
+        let mut state = SHARED_TICKER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.active_leases == 0 {
+            let stop = Arc::new((Mutex::new(false), Condvar::new()));
+            let thread_stop = Arc::clone(&stop);
+            let weak_engine = engine.weak();
+            let handle = thread::spawn(move || {
+                let (lock, cvar) = &*thread_stop;
+                let mut stopped = lock
+                    .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                stopped = guard;
-                if !*stopped {
-                    engine.increment_epoch();
+                while !*stopped {
+                    let (guard, _) = cvar
+                        .wait_timeout(stopped, Duration::from_millis(EPOCH_TICK_MS))
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    stopped = guard;
+                    if !*stopped {
+                        match weak_engine.upgrade() {
+                            Some(engine) => engine.increment_epoch(),
+                            None => break,
+                        }
+                    }
                 }
-            }
-        });
-        EpochTicker {
-            stop,
-            handle: Some(handle),
+            });
+            state.stop = Some(stop);
+            state.handle = Some(handle);
         }
+        state.active_leases += 1;
+        EpochTicker { _private: () }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn snapshot_for_test() -> (usize, bool) {
+        let state = SHARED_TICKER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (state.active_leases, state.handle.is_some())
     }
 }
 
 impl Drop for EpochTicker {
     fn drop(&mut self) {
-        let (lock, cvar) = &*self.stop;
-        if let Ok(mut stopped) = lock.lock() {
-            *stopped = true;
-            cvar.notify_all();
-        }
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+        let mut state = SHARED_TICKER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.active_leases = state.active_leases.saturating_sub(1);
+        if state.active_leases == 0 {
+            if let Some(stop) = state.stop.take() {
+                let (lock, cvar) = &*stop;
+                let mut stopped = lock
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                *stopped = true;
+                cvar.notify_all();
+            }
+            if let Some(handle) = state.handle.take() {
+                let _ = handle.join();
+            }
         }
     }
 }

@@ -1,3 +1,5 @@
+mod wasm_fixtures;
+
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -10,61 +12,18 @@ use tempfile::TempDir;
 
 static BUILT_SAMPLE_PLUGIN: OnceLock<PathBuf> = OnceLock::new();
 static BUILT_SAMPLE_METRIC_PLUGIN: OnceLock<PathBuf> = OnceLock::new();
-static BUILT_SANDBOX_PROBES: OnceLock<PathBuf> = OnceLock::new();
-
-fn build_wasm_fixture(manifest_relative: &str, target_name: &str, workspace: bool) -> PathBuf {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let manifest = root.join(manifest_relative);
-    let target = root.join("target").join(target_name);
-    let mut command = Command::new("cargo");
-    command.arg("build");
-    if workspace {
-        command.arg("--workspace");
-    }
-    let status = command
-        .args(["--locked", "--offline", "--target", "wasm32-wasip2"])
-        .arg("--manifest-path")
-        .arg(&manifest)
-        .arg("--target-dir")
-        .arg(&target)
-        .status()
-        .expect("run cargo build for wasm fixture");
-    assert!(status.success(), "{target_name} build exited with {status}");
-    target.join("wasm32-wasip2/debug")
-}
 
 fn built_sample_plugin() -> &'static Path {
-    BUILT_SAMPLE_PLUGIN.get_or_init(|| {
-        build_wasm_fixture(
-            "crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml",
-            "wasm-fixtures",
-            false,
-        )
-        .join("sample_mini_plugin.wasm")
-    })
+    BUILT_SAMPLE_PLUGIN.get_or_init(|| wasm_fixtures::wasm_fixture_path("sample_mini_plugin.wasm"))
 }
 
 fn built_sample_metric_plugin() -> &'static Path {
-    BUILT_SAMPLE_METRIC_PLUGIN.get_or_init(|| {
-        build_wasm_fixture(
-            "crates/plugin-host/tests/fixtures/sample-metric-plugin/Cargo.toml",
-            "wasm-fixtures",
-            false,
-        )
-        .join("sample_long_functions_plugin.wasm")
-    })
+    BUILT_SAMPLE_METRIC_PLUGIN
+        .get_or_init(|| wasm_fixtures::wasm_fixture_path("sample_long_functions_plugin.wasm"))
 }
 
 fn built_sandbox_probe(file_name: &str) -> PathBuf {
-    BUILT_SANDBOX_PROBES
-        .get_or_init(|| {
-            build_wasm_fixture(
-                "crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml",
-                "wasm-fixtures",
-                true,
-            )
-        })
-        .join(file_name)
+    wasm_fixtures::wasm_fixture_path(file_name)
 }
 
 fn init_repo() -> TempDir {
