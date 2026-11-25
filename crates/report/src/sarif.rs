@@ -8,8 +8,8 @@ use crate::schema::built_in_metric_descriptor;
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
-    HazardLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, Report,
-    SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
+    HazardLineRow, ImportCycleFinding, ImportedDependencyRow, NewFileBudgetFailure, OrphanFileRow,
+    Report, SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -34,6 +34,25 @@ struct Run {
     tool: Tool,
     original_uri_base_ids: OriginalUriBaseIds,
     results: Vec<SarifResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    properties: Option<RunProperties>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunProperties {
+    new_file_budget_failures: Vec<SarifNewFileBudgetFailure>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifNewFileBudgetFailure {
+    source_set: String,
+    metric: String,
+    ratio: f64,
+    budget: f64,
+    files: usize,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,8 +263,31 @@ impl SarifLog {
                     },
                 },
                 results: all_results,
+                properties: None,
             }],
         }
+    }
+
+    pub(crate) fn with_new_file_budget_failures(
+        mut self,
+        failures: &[NewFileBudgetFailure],
+    ) -> SarifLog {
+        if !failures.is_empty() {
+            self.runs[0].properties = Some(RunProperties {
+                new_file_budget_failures: failures
+                    .iter()
+                    .map(|failure| SarifNewFileBudgetFailure {
+                        source_set: failure.source_set.clone(),
+                        metric: failure.metric.clone(),
+                        ratio: failure.ratio.0,
+                        budget: failure.budget,
+                        files: failure.files,
+                        message: failure.to_string(),
+                    })
+                    .collect(),
+            });
+        }
+        self
     }
 }
 

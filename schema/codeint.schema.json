@@ -30,6 +30,10 @@
         "vendored": {}
       }
     },
+    "new_file_budgets": {
+      "$ref": "#/$defs/NewFileBudgetsFile",
+      "description": "The highest ratio each Metric may reach across newly added files in codeint diff, per Source set; a Metric over its new-file Budget fails codeint diff with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
+    },
     "regression_limits": {
       "$ref": "#/$defs/RegressionLimitsFile",
       "description": "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and numerator_rise (direct numerator rise), except for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene, where any_new_finding (plus numerator rise) applies.",
@@ -312,6 +316,32 @@
       },
       "additionalProperties": {
         "$ref": "#/$defs/Budget"
+      }
+    },
+    "NewFileBudgetsFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "production": {
+          "$ref": "#/$defs/ProductionMetricBudgets",
+          "description": "The new-file Budgets of the Production Source set.",
+          "default": {}
+        },
+        "test": {
+          "$ref": "#/$defs/MetricBudgets",
+          "description": "The new-file Budgets of the Test Source set.",
+          "default": {}
+        },
+        "generated": {
+          "$ref": "#/$defs/MetricBudgets",
+          "description": "The new-file Budgets of the Generated Source set.",
+          "default": {}
+        },
+        "vendored": {
+          "$ref": "#/$defs/MetricBudgets",
+          "description": "The new-file Budgets of the Vendored Source set.",
+          "default": {}
+        }
       }
     },
     "RegressionLimitsFile": {

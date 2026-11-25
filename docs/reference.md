@@ -866,6 +866,13 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `budgets.{source_set}.hazards` | number from 0 to 1 | The highest Hazards ratio in this Source set; passes when Hazards is absent; see [Hazards](#hazards) |
 | `budgets.production.test_gap` | number from 0 to 1 | The highest Test gap ratio in the Production Source set; setting `test_gap` under any other Source set stops the run with exit code 2 |
 | `budgets.{dependency_metric}` | number from 0 to 1 | The highest ratio of this Dependency hygiene Metric across workspace packages |
+| `new_file_budgets` | object | The Budgets enforced across newly added files in `codeint diff`, per Source set; see [New-file Budgets](#new-file-budgets) |
+| `new_file_budgets.{source_set}` | object | The new-file Budgets of this Source set; empty by default |
+| `new_file_budgets.{source_set}.{metric}` | number from 0 to 1 | The highest ratio of this Metric across newly added files in this Source set |
+| `new_file_budgets.{source_set}.boundaries` | number from 0 to 1 | The highest Boundaries ratio across newly added files in this Source set |
+| `new_file_budgets.production.orphan_files` | number from 0 to 1 | The highest Orphan files ratio across newly added Production files; setting `orphan_files` under any other Source set stops the run with exit code 2 |
+| `new_file_budgets.{source_set}.hazards` | number from 0 to 1 | The highest Hazards ratio across newly added files in this Source set; passes when Hazards is absent; see [Hazards](#hazards) |
+| `new_file_budgets.production.test_gap` | number from 0 to 1 | The highest Test gap ratio across newly added Production files; setting `test_gap` under any other Source set stops the run with exit code 2 |
 | `regression_limits` | object | How much each Metric may get worse in `codeint diff`; see [Regression limits](#regression-limits) |
 | `regression_limits.{metric}` | object | The Regression limit of this Metric in every Source set |
 | `regression_limits.{metric}.ratio_rise` | number from 0 to 1 | The highest ratio rise that passes |
@@ -948,7 +955,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1019,6 +1026,31 @@ codeint check
 
 ```text stderr
 codeint: the production erosion ratio 0.7986 is over its Budget 0.2
+```
+
+### New-file Budgets
+
+`new_file_budgets` sets stricter per-Source-set Budgets that `codeint diff` enforces solely across files present in the head snapshot and absent at the merge-base.
+When a change adds no new files, `new_file_budgets` stays silent and adds no failures.
+Repository-wide Dependency hygiene keys are not allowed under `new_file_budgets`, and `orphan_files` and `test_gap` are accepted under `new_file_budgets.production` only; setting them under another Source set stops the run with exit code 2.
+When a Metric across the newly added files exceeds its new-file Budget, `codeint diff` writes the full report, lists each failure under `over_new_file_budget` (and under `runs[0].properties.newFileBudgetFailures` in SARIF), names it on standard error, and exits with code 1:
+
+```json codeint.json
+{
+  "new_file_budgets": {
+    "production": {
+      "erosion": 0,
+      "boundaries": 0,
+      "orphan_files": 0,
+      "hazards": 0,
+      "test_gap": 0.2
+    }
+  }
+}
+```
+
+```sh exit=1
+codeint diff main
 ```
 
 ### Regression limits

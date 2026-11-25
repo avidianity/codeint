@@ -57,6 +57,8 @@ if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric
 - A Budget is a ratio from 0 to 1; the shape check rejects any other number with exit code 2.
 - `admits` passes a ratio equal to the Budget.
   Pass the ratio rounded as the report shows it, so that a ratio the user sees as equal to its Budget passes.
+- `configuration.new_file_budgets` uses the same `Budgets` type for per-Source-set ceilings enforced on newly added files in `codeint diff`.
+  It rejects repository-wide Dependency hygiene keys, unknown keys, and Production-only keys (`orphan_files`, `test_gap`) outside `production` with exit code 2, and `is_empty()` returns `true` when unset.
 
 ## Read Regression limits
 

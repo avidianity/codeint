@@ -77,6 +77,11 @@ pub(super) struct ConfigurationFile {
         description = "The highest ratio each Metric may reach in each Source set; a Metric over its Budget fails the run with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
     )]
     budgets: SourceSetBudgets,
+    #[serde(default, skip_serializing_if = "NewFileBudgetsFile::is_unset")]
+    #[schemars(
+        description = "The highest ratio each Metric may reach across newly added files in codeint diff, per Source set; a Metric over its new-file Budget fails codeint diff with exit code 1. A ratio equal to its Budget passes. Codeint compares the ratio as the report shows it, rounded to 4 decimal places."
+    )]
+    new_file_budgets: NewFileBudgetsFile,
     #[serde(default)]
     #[schemars(
         description = "How much each Metric may get worse from the merge-base to the head side before codeint diff reports a Regression and exits with code 1. A key named after a Metric sets its limit in every Source set; a key named after a Source set sets limits for that Source set only. For each setting, the limit of the Source set wins over the limit of the Metric, and a setting left out keeps the default: a ratio rise of 0.01, and numerator_rise (direct numerator rise), except for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene, where any_new_finding (plus numerator rise) applies."
@@ -134,6 +139,7 @@ pub(super) struct ConfigurationFile {
 }
 
 pub(super) struct ConfigurationFileSections {
+    pub(super) new_file_budgets: NewFileBudgetsFile,
     pub(super) regression_limits: RegressionLimitsFile,
     pub(super) languages: Option<Vec<LanguageGlobs>>,
     pub(super) plugins: Vec<PluginEntry>,
@@ -166,6 +172,7 @@ impl ConfigurationFile {
 
     pub(super) fn into_sections(self) -> ConfigurationFileSections {
         ConfigurationFileSections {
+            new_file_budgets: self.new_file_budgets,
             regression_limits: self.regression_limits,
             languages: self.languages,
             plugins: self.plugins,
@@ -555,21 +562,44 @@ fn all_source_set_metric_pairs<T>(values: [T; 7]) -> impl Iterator<Item = (Strin
     .map(|(key, value)| (key.to_owned(), value))
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct SourceSetBudgets {
-    #[serde(default)]
-    #[schemars(description = "The Budgets of the Production Source set.")]
-    production: ProductionMetricBudgets,
-    #[serde(default)]
-    #[schemars(description = "The Budgets of the Test Source set.")]
-    test: MetricBudgets,
-    #[serde(default)]
-    #[schemars(description = "The Budgets of the Generated Source set.")]
-    generated: MetricBudgets,
-    #[serde(default)]
-    #[schemars(description = "The Budgets of the Vendored Source set.")]
-    vendored: MetricBudgets,
+macro_rules! source_set_budgets_struct {
+    (
+        $name:ident,
+        $prod_desc:literal,
+        $test_desc:literal,
+        $gen_desc:literal,
+        $vend_desc:literal
+        $(, $(#[$extra_meta:meta])* $extra_field:ident : $extra_ty:ty )* $(,)?
+    ) => {
+        #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+        #[serde(deny_unknown_fields)]
+        pub(super) struct $name {
+            #[serde(default)]
+            #[schemars(description = $prod_desc)]
+            production: ProductionMetricBudgets,
+            #[serde(default)]
+            #[schemars(description = $test_desc)]
+            test: MetricBudgets,
+            #[serde(default)]
+            #[schemars(description = $gen_desc)]
+            generated: MetricBudgets,
+            #[serde(default)]
+            #[schemars(description = $vend_desc)]
+            vendored: MetricBudgets,
+            $(
+                $(#[$extra_meta])*
+                $extra_field: $extra_ty,
+            )*
+        }
+    };
+}
+
+source_set_budgets_struct!(
+    SourceSetBudgets,
+    "The Budgets of the Production Source set.",
+    "The Budgets of the Test Source set.",
+    "The Budgets of the Generated Source set.",
+    "The Budgets of the Vendored Source set.",
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
@@ -591,7 +621,15 @@ pub(super) struct SourceSetBudgets {
         description = "The highest share of production-imported external packages that may be dev-only, from 0 to 1."
     )]
     dev_in_production_dependencies: Option<Budget>,
-}
+);
+
+source_set_budgets_struct!(
+    NewFileBudgetsFile,
+    "The new-file Budgets of the Production Source set.",
+    "The new-file Budgets of the Test Source set.",
+    "The new-file Budgets of the Generated Source set.",
+    "The new-file Budgets of the Vendored Source set.",
+);
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 struct ProductionMetricBudgets {
@@ -676,9 +714,59 @@ struct SharedMetricBudgets {
     hazards: Option<Budget>,
 }
 
+impl NewFileBudgetsFile {
+    pub(super) fn is_unset(&self) -> bool {
+        self.production.is_unset()
+            && self.test.is_unset()
+            && self.generated.is_unset()
+            && self.vendored.is_unset()
+    }
+
+    pub(super) fn into_entries(self) -> Vec<(SourceSet, String, Budget)> {
+        source_set_budget_entries(self.production, self.test, self.generated, self.vendored)
+    }
+}
+
 pub(super) struct BudgetEntries {
     pub(super) set: Vec<(SourceSet, String, Budget)>,
     pub(super) dependency_set: Vec<(String, Budget)>,
+}
+
+fn source_set_budget_entries(
+    production: ProductionMetricBudgets,
+    test: MetricBudgets,
+    generated: MetricBudgets,
+    vendored: MetricBudgets,
+) -> Vec<(SourceSet, String, Budget)> {
+    let production_entries = production
+        .common
+        .into_pairs()
+        .chain(
+            production
+                .orphan_files
+                .map(|ratio| (Metric::OrphanFiles.key().to_owned(), ratio)),
+        )
+        .chain(
+            production
+                .test_gap
+                .map(|ratio| (Metric::TestGap.key().to_owned(), ratio)),
+        )
+        .chain(production.external)
+        .map(|(metric, ratio)| (SourceSet::Production, metric, ratio));
+    let other_entries = [
+        (SourceSet::Test, test),
+        (SourceSet::Generated, generated),
+        (SourceSet::Vendored, vendored),
+    ]
+    .into_iter()
+    .flat_map(|(source_set, metric_budgets)| {
+        metric_budgets
+            .common
+            .into_pairs()
+            .chain(metric_budgets.external)
+            .map(move |(metric, ratio)| (source_set, metric, ratio))
+    });
+    production_entries.chain(other_entries).collect()
 }
 
 impl SourceSetBudgets {
@@ -708,42 +796,28 @@ impl SourceSetBudgets {
         )
         .filter_map(|(metric, ratio)| Some((metric, ratio?)))
         .collect();
-        let production_entries = production
-            .common
-            .into_pairs()
-            .chain(
-                production
-                    .orphan_files
-                    .map(|ratio| (Metric::OrphanFiles.key().to_owned(), ratio)),
-            )
-            .chain(
-                production
-                    .test_gap
-                    .map(|ratio| (Metric::TestGap.key().to_owned(), ratio)),
-            )
-            .chain(production.external)
-            .map(|(metric, ratio)| (SourceSet::Production, metric, ratio));
-        let other_entries = [
-            (SourceSet::Test, test),
-            (SourceSet::Generated, generated),
-            (SourceSet::Vendored, vendored),
-        ]
-        .into_iter()
-        .flat_map(|(source_set, metric_budgets)| {
-            metric_budgets
-                .common
-                .into_pairs()
-                .chain(metric_budgets.external)
-                .map(move |(metric, ratio)| (source_set, metric, ratio))
-        });
         BudgetEntries {
-            set: production_entries.chain(other_entries).collect(),
+            set: source_set_budget_entries(production, test, generated, vendored),
             dependency_set,
         }
     }
 }
 
 impl SharedMetricBudgets {
+    fn is_unset(&self) -> bool {
+        [
+            self.erosion,
+            self.cognitive_complexity,
+            self.duplication,
+            self.verbosity,
+            self.import_cycles,
+            self.boundaries,
+            self.hazards,
+        ]
+        .into_iter()
+        .all(|entry| entry.is_none())
+    }
+
     fn set_known(&mut self, metric: &str, budget: Budget) -> bool {
         match Metric::from_key(metric) {
             Some(Metric::Erosion) => self.erosion = Some(budget),
@@ -773,6 +847,13 @@ impl SharedMetricBudgets {
 }
 
 impl ProductionMetricBudgets {
+    fn is_unset(&self) -> bool {
+        self.common.is_unset()
+            && self.orphan_files.is_none()
+            && self.test_gap.is_none()
+            && self.external.is_empty()
+    }
+
     fn set(&mut self, metric: &str, budget: Budget) {
         if self.common.set_known(metric, budget) {
             return;
@@ -788,6 +869,10 @@ impl ProductionMetricBudgets {
 }
 
 impl MetricBudgets {
+    fn is_unset(&self) -> bool {
+        self.common.is_unset() && self.external.is_empty()
+    }
+
     fn set(&mut self, metric: &str, budget: Budget) {
         if !self.common.set_known(metric, budget) {
             self.external.insert(metric.to_owned(), budget);

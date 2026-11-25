@@ -5,8 +5,8 @@ use globset::GlobSet;
 use serde::Serialize;
 
 use super::schema::{
-    Budget, ConfigurationFile, DEFAULT_MIN_SIMILARITY, LanguageGlobs, PluginKind, SourceSetBudgets,
-    SourceSetGlobs,
+    Budget, ConfigurationFile, DEFAULT_MIN_SIMILARITY, LanguageGlobs, NewFileBudgetsFile,
+    PluginKind, SourceSetBudgets, SourceSetGlobs,
 };
 use crate::RegressionLimits;
 use crate::boundaries::Boundaries;
@@ -88,6 +88,7 @@ impl PluginLimits {
 pub struct Configuration {
     pub source_set_overrides: SourceSetOverrides,
     pub budgets: Budgets,
+    pub new_file_budgets: Budgets,
     pub languages: Languages,
     pub regression_limits: RegressionLimits,
     pub plugins: Vec<PluginDeclaration>,
@@ -196,6 +197,10 @@ pub struct Budgets {
 }
 
 impl Budgets {
+    pub fn is_empty(&self) -> bool {
+        self.set.is_empty() && self.dependency_set.is_empty()
+    }
+
     pub fn budget(&self, source_set: SourceSet, metric: Metric) -> Option<Budget> {
         self.budget_for_key(source_set, metric.key())
     }
@@ -330,6 +335,13 @@ pub(super) fn budgets(file: SourceSetBudgets) -> Budgets {
     Budgets {
         set: entries.set,
         dependency_set: entries.dependency_set,
+    }
+}
+
+pub(super) fn new_file_budgets(file: NewFileBudgetsFile) -> Budgets {
+    Budgets {
+        set: file.into_entries(),
+        dependency_set: Vec::new(),
     }
 }
 

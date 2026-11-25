@@ -213,3 +213,89 @@ fn trace_omits_program_start_mark_for_non_runtime_tooling_paths() {
     assert!(traced.from_entry_point.is_none());
     assert!(traced.to_entry_point.is_none());
 }
+
+#[test]
+fn diff_report_evaluates_new_file_budgets_and_round_trips_saved_report() {
+    use codeint_config::{
+        Budgets, FindingsShown, RegressionLimits, ReportFormat, ReportRenderFormat,
+        read_configuration,
+    };
+    use codeint_model::{
+        CodeModel, FileModel, LanguageFacts, RepoPath, SourceFile, SourceSet, language::FlaggedLine,
+    };
+
+    use crate::{BaseCommit, CommitMeasurement, DiffReport, DiffReportOptions, Head, SavedReport};
+
+    let dir = std::env::temp_dir().join(format!("codeint-report-nfb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(
+        dir.join("codeint.json"),
+        r#"{ "new_file_budgets": { "production": { "verbosity": 0.1 } } }"#,
+    )
+    .expect("write config");
+    let config = read_configuration(&dir).expect("read config");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let new_file_model = CodeModel {
+        files: vec![SourceFile {
+            path: RepoPath::new("src/new.ts").expect("path"),
+            model: FileModel {
+                source_set: SourceSet::Production,
+                source_lines: 4,
+                functions: Vec::new(),
+                tokens: Vec::new(),
+                flagged_lines: vec![FlaggedLine {
+                    line: 2,
+                    rule: "redundant-else".to_owned(),
+                }],
+                hazard_lines: Vec::new(),
+                runtime_imports: Vec::new(),
+                program_start: false,
+            },
+        }],
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: false,
+            has_hazard_rules: false,
+            has_imports: true,
+        }],
+        ..CodeModel::default()
+    };
+
+    let diff = DiffReport::compare_with_options(
+        BaseCommit {
+            git_ref: "main".to_owned(),
+            merge_base: "abc".to_owned(),
+        },
+        Head::WorkingTree,
+        CommitMeasurement::of(CodeModel::default()),
+        CommitMeasurement::of(new_file_model.clone()),
+        DiffReportOptions {
+            findings: FindingsShown::default(),
+            budgets: &Budgets::default(),
+            new_file_budgets: &config.new_file_budgets,
+            new_files: Some(CommitMeasurement::of(new_file_model)),
+            limits: &RegressionLimits::default(),
+            ownership: crate::OwnershipOptions::default(),
+            include_test_gap_note: false,
+        },
+    );
+    assert_eq!(diff.over_new_file_budget().len(), 1);
+    assert!(
+        diff.failure_messages()
+            .iter()
+            .any(|msg| msg.contains("new-file production verbosity ratio 0.25"))
+    );
+
+    let json_text = diff.render(ReportFormat::Json).expect("json");
+    let saved = SavedReport::from_json(&json_text).expect("parse saved diff");
+    assert_eq!(
+        saved.render(ReportRenderFormat::Markdown).expect("md"),
+        diff.render(ReportFormat::Markdown).expect("direct md")
+    );
+    assert_eq!(
+        saved.render(ReportRenderFormat::Sarif).expect("sarif"),
+        diff.render(ReportFormat::Sarif).expect("direct sarif")
+    );
+}

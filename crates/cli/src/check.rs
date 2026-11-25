@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use codeint_config::{
@@ -263,6 +263,27 @@ pub(crate) fn compute_orphan_files(
     snapshot: &MeasuredSnapshot,
     selected: Option<&SelectedPackage>,
 ) -> (Option<OrphanFiles>, BTreeMap<String, OrphanFiles>) {
+    compute_orphan_files_matching(snapshot, |language, path| {
+        selected.is_none_or(|pkg| pkg.matches(language.model.workspace.package_of(path)))
+    })
+}
+
+pub(crate) fn compute_orphan_files_for_subset(
+    snapshot: &MeasuredSnapshot,
+    selected: Option<&SelectedPackage>,
+    subset: &HashSet<RepoPath>,
+) -> Option<OrphanFiles> {
+    compute_orphan_files_matching(snapshot, |language, path| {
+        subset.contains(path)
+            && selected.is_none_or(|pkg| pkg.matches(language.model.workspace.package_of(path)))
+    })
+    .0
+}
+
+fn compute_orphan_files_matching(
+    snapshot: &MeasuredSnapshot,
+    include: impl Fn(&MeasuredLanguage, &RepoPath) -> bool,
+) -> (Option<OrphanFiles>, BTreeMap<String, OrphanFiles>) {
     let mut by_language = BTreeMap::new();
     for language in &snapshot.languages {
         if !language.has_imports {
@@ -275,7 +296,7 @@ pub(crate) fn compute_orphan_files(
             .unwrap_or(&[]);
         if let Some(measured) =
             OrphanFiles::measure_filtered(&language.model, entry_points, |path| {
-                selected.is_none_or(|pkg| pkg.matches(language.model.workspace.package_of(path)))
+                include(language, path)
             })
         {
             by_language.insert(language.plugin.clone(), measured);

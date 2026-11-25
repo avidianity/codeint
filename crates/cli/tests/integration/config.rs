@@ -588,3 +588,75 @@ fn config_resolved_canonicalizes_deprecated_numerator_rise_alias_and_shows_hazar
         "file",
     );
 }
+
+#[test]
+fn config_resolved_reports_new_file_budgets_and_rejects_invalid_keys_at_exit_code_2() {
+    let default_repo = init_repo_with_config(None);
+    let default_payload = resolved_json(default_repo.path(), &[]);
+    assert_setting(&default_payload, "new_file_budgets", json!({}), "default");
+
+    let configured_repo = init_repo_with_config(Some(json!({
+        "new_file_budgets": {
+            "production": {
+                "erosion": 0.0,
+                "orphan_files": 0.0
+            },
+            "test": {
+                "verbosity": 0.1
+            }
+        }
+    })));
+    let payload = resolved_json(configured_repo.path(), &[]);
+    assert_setting(
+        &payload,
+        "new_file_budgets.production.erosion",
+        json!(0.0),
+        "file",
+    );
+    assert_setting(
+        &payload,
+        "new_file_budgets.production.orphan_files",
+        json!(0.0),
+        "file",
+    );
+    assert_setting(
+        &payload,
+        "new_file_budgets.test.verbosity",
+        json!(0.1),
+        "file",
+    );
+
+    let bad_cases = [
+        (
+            json!({ "new_file_budgets": { "test": { "test_gap": 0.1 } } }),
+            "new_file_budgets.test.test_gap",
+            "new_file_budgets.production.test_gap",
+        ),
+        (
+            json!({ "new_file_budgets": { "generated": { "orphan_files": 0.0 } } }),
+            "new_file_budgets.generated.orphan_files",
+            "new_file_budgets.production",
+        ),
+        (
+            json!({ "new_file_budgets": { "unused_dependencies": 0.0 } }),
+            "new_file_budgets.unused_dependencies",
+            "allowed keys",
+        ),
+        (
+            json!({ "new_file_budgets": { "production": { "bogus_metric": 0.1 } } }),
+            "new_file_budgets.production.bogus_metric",
+            "allowed keys",
+        ),
+    ];
+
+    for (config, expected_key, expected_remedy) in bad_cases {
+        let repo = init_repo_with_config(Some(config));
+        let output = invoke(repo.path(), &["config", "--resolved"]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "stderr: {stderr}");
+        assert!(
+            stderr.contains(expected_key) && stderr.contains(expected_remedy),
+            "missing {expected_key} or {expected_remedy} in stderr: {stderr}"
+        );
+    }
+}

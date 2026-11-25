@@ -4,6 +4,7 @@ use codeint_config::{Budgets, FindingsShown, RegressionLimits};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::measurement::CommitMeasurement;
 use crate::ownership::OwnershipOptions;
 use crate::{
     BoundaryFindingRow, BudgetFailure, CloneFamilyFinding, CloneGroupFinding,
@@ -39,7 +40,28 @@ pub struct DiffReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) over_budget: Vec<BudgetFailure>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) over_new_file_budget: Vec<NewFileBudgetFailure>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) regressions: Vec<Regression>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NewFileBudgetFailure {
+    pub(crate) source_set: String,
+    pub(crate) metric: String,
+    pub(crate) ratio: Decimal,
+    pub(crate) budget: f64,
+    pub(crate) files: usize,
+}
+
+impl std::fmt::Display for NewFileBudgetFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the new-file {} {} ratio {} is over its new-file Budget {}",
+            self.source_set, self.metric, self.ratio.0, self.budget
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -146,6 +168,8 @@ pub(super) struct DependenciesChanges {
 pub struct DiffReportOptions<'a> {
     pub findings: FindingsShown,
     pub budgets: &'a Budgets,
+    pub new_file_budgets: &'a Budgets,
+    pub new_files: Option<CommitMeasurement>,
     pub limits: &'a RegressionLimits,
     pub ownership: OwnershipOptions<'a>,
     pub include_test_gap_note: bool,

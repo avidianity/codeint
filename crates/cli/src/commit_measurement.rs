@@ -1,14 +1,18 @@
+use std::collections::HashSet;
+
 use codeint_config::Configuration;
 use codeint_git::{CommitId, Repository, ResultCache, Snapshot};
+use codeint_metrics::DependencyHygiene;
+use codeint_model::{CodeModel, RepoPath};
 use codeint_plugin_host::{PLUGIN_INTERFACE_VERSION, built_in_language_names};
 use codeint_report::{CommitMeasurement, CommitMeasurementOptions};
 use serde::Serialize;
 
 use crate::check::{
     CheckError, CoverageReportDigest, LoadedPlugins, MeasuredSnapshot, SelectedPackage,
-    compute_dependency_hygiene, compute_orphan_files, filter_languages_to_package,
-    hash_configured_coverage_reports, measure_snapshot, select_workspace_package,
-    workspace_of_languages,
+    compute_dependency_hygiene, compute_orphan_files, compute_orphan_files_for_subset,
+    filter_languages_to_package, hash_configured_coverage_reports, measure_snapshot,
+    select_workspace_package, workspace_of_languages,
 };
 use crate::describe;
 
@@ -140,15 +144,119 @@ pub(crate) fn measure_all_languages_for_package(
 ) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
     let named = plugins.as_named();
     let snapshot = measure_snapshot(tree, &named, configuration)?;
-    let selected = if let Some(requested) = package {
-        let workspace = workspace_of_languages(&snapshot.languages);
-        Some(select_workspace_package(&workspace, requested)?)
-    } else {
-        None
-    };
+    let selected = resolve_package(&snapshot, package)?;
     let measurement =
         measure_snapshot_to_commit(snapshot, plugins, configuration, selected.as_ref())?;
     Ok((selected, measurement))
+}
+
+pub(crate) fn measure_all_languages_with_new_files(
+    tree: &Snapshot,
+    new_files: &HashSet<RepoPath>,
+    plugins: &LoadedPlugins,
+    configuration: &Configuration,
+    package: Option<&str>,
+) -> Result<
+    (
+        Option<SelectedPackage>,
+        CommitMeasurement,
+        Option<CommitMeasurement>,
+    ),
+    CheckError,
+> {
+    let named = plugins.as_named();
+    let snapshot = measure_snapshot(tree, &named, configuration)?;
+    let selected = resolve_package(&snapshot, package)?;
+    let new_files_measurement = measure_new_files_subset(
+        &snapshot,
+        new_files,
+        plugins,
+        configuration,
+        selected.as_ref(),
+    )?;
+    let measurement =
+        measure_snapshot_to_commit(snapshot, plugins, configuration, selected.as_ref())?;
+    Ok((selected, measurement, new_files_measurement))
+}
+
+fn resolve_package(
+    snapshot: &MeasuredSnapshot,
+    package: Option<&str>,
+) -> Result<Option<SelectedPackage>, CheckError> {
+    let Some(requested) = package else {
+        return Ok(None);
+    };
+    let workspace = workspace_of_languages(&snapshot.languages);
+    Ok(Some(select_workspace_package(&workspace, requested)?))
+}
+
+fn measure_new_files_subset(
+    snapshot: &MeasuredSnapshot,
+    new_files: &HashSet<RepoPath>,
+    plugins: &LoadedPlugins,
+    configuration: &Configuration,
+    selected: Option<&SelectedPackage>,
+) -> Result<Option<CommitMeasurement>, CheckError> {
+    let orphan_files = compute_orphan_files_for_subset(snapshot, selected, new_files);
+    let models: Vec<CodeModel> = snapshot
+        .languages
+        .iter()
+        .map(|language| filter_model_to_new_files(&language.model, new_files, selected))
+        .filter(|model| !model.files.is_empty())
+        .collect();
+    if models.is_empty() {
+        return Ok(None);
+    }
+    let metric_plugins = plugins.metric_plugins();
+    let disabled_hazard_rules = configuration.hazards.disabled_rules_set();
+    let empty_hygiene = DependencyHygiene::default();
+    let measurement = CommitMeasurement::of_languages_with_full_options(
+        models,
+        CommitMeasurementOptions {
+            metric_plugins: &metric_plugins,
+            boundaries: configuration.boundaries.as_ref(),
+            dependencies: &configuration.dependencies,
+            duplication: configuration.duplication,
+            orphan_files: orphan_files.as_ref(),
+            dependency_hygiene: Some(&empty_hygiene),
+            disabled_hazard_rules: &disabled_hazard_rules,
+        },
+    )
+    .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))?;
+    Ok(Some(measurement))
+}
+
+fn filter_model_to_new_files(
+    model: &CodeModel,
+    new_files: &HashSet<RepoPath>,
+    selected: Option<&SelectedPackage>,
+) -> CodeModel {
+    let matches = |path: &RepoPath| {
+        new_files.contains(path)
+            && selected.is_none_or(|pkg| pkg.matches(model.workspace.package_of(path)))
+    };
+    let files: Vec<_> = model
+        .files
+        .iter()
+        .filter(|file| matches(&file.path))
+        .cloned()
+        .collect();
+    if files.is_empty() {
+        return CodeModel::default();
+    }
+    let runtime_imports = model
+        .runtime_imports
+        .iter()
+        .filter(|import| matches(&import.importer))
+        .cloned()
+        .collect();
+    CodeModel {
+        files,
+        workspace: model.workspace.clone(),
+        runtime_imports,
+        languages: model.languages.clone(),
+        ..CodeModel::default()
+    }
 }
 
 fn measure_all_languages_selected(

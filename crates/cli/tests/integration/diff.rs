@@ -1656,3 +1656,183 @@ fn a_result_cached_under_plugin_interface_0_4_0_is_reused_on_subsequent_runs() {
         .count();
     assert_eq!(entries, 1);
 }
+
+fn fixture_with_new_file_budgets(files: &[(&str, &str)], new_file_budgets: Value) -> Fixture {
+    let fixture = Fixture::on_main();
+    for &(path, body) in files {
+        fixture.put(path, body);
+    }
+    let permissive = json!({ "ratio_rise": 1, "new_findings": "never" });
+    fixture.put(
+        "codeint.json",
+        &json!({
+            "regression_limits": {
+                "erosion": permissive,
+                "cognitive_complexity": permissive,
+                "verbosity": permissive,
+                "orphan_files": permissive
+            },
+            "new_file_budgets": new_file_budgets
+        })
+        .to_string(),
+    );
+    fixture.commit("base");
+    fixture
+}
+
+fn assert_new_file_budget_failure(
+    report: &Value,
+    metric: &str,
+    ratio: f64,
+    budget: f64,
+    files: u64,
+) {
+    let list = report["over_new_file_budget"]
+        .as_array()
+        .expect("over_new_file_budget array");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["source_set"], "production");
+    assert_eq!(list[0]["metric"], metric);
+    assert_eq!(list[0]["ratio"].as_f64(), Some(ratio));
+    assert_eq!(list[0]["budget"].as_f64(), Some(budget));
+    assert_eq!(list[0]["files"].as_u64(), Some(files));
+}
+
+fn diff_failing_stdout(fixture: &Fixture, format: &str) -> String {
+    let output = fixture.codeint_diff(&["main", "--format", format]);
+    assert_eq!(output.status.code(), Some(1), "format={format}");
+    String::from_utf8(output.stdout).expect("utf8 stdout")
+}
+
+fn legacy_erosion_fixture() -> (Fixture, String) {
+    let legacy = eroded_function("legacy");
+    let fixture = fixture_with_new_file_budgets(
+        &[("src/legacy.ts", &legacy)],
+        json!({ "production": { "erosion": 0.0 } }),
+    );
+    (fixture, legacy)
+}
+
+#[test]
+fn diff_enforces_new_file_budgets_across_formats_while_ignoring_legacy_debt() {
+    let (fixture, _) = legacy_erosion_fixture();
+    fixture.put("src/messy_new.ts", &eroded_function("messyNew"));
+
+    let json_output = fixture.codeint_diff(&["main", "--format", "json"]);
+    let stderr = String::from_utf8(json_output.stderr).expect("utf8 stderr");
+    assert_eq!(json_output.status.code(), Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains("new-file production erosion ratio 1 is over its new-file Budget 0"),
+        "unexpected stderr: {stderr}"
+    );
+    let report: Value = serde_json::from_slice(&json_output.stdout).expect("valid json");
+    assert_eq!(report.get("over_budget"), None);
+    assert_eq!(report.get("regressions"), None);
+    assert_new_file_budget_failure(&report, "erosion", 1.0, 0.0, 1);
+
+    let toon = diff_failing_stdout(&fixture, "toon");
+    assert!(
+        toon.contains("over_new_file_budget"),
+        "missing over_new_file_budget in toon: {toon}"
+    );
+    let decoded_toon: Value = toon_format::decode_default(&toon).expect("valid toon");
+    assert_new_file_budget_failure(&decoded_toon, "erosion", 1.0, 0.0, 1);
+
+    let md = diff_failing_stdout(&fixture, "markdown");
+    assert!(
+        md.contains("## Over New-file Budget")
+            && md
+                .contains("The new-file production erosion ratio 1 is over its new-file Budget 0."),
+        "unexpected markdown: {md}"
+    );
+
+    let sarif: Value =
+        serde_json::from_str(&diff_failing_stdout(&fixture, "sarif")).expect("valid sarif");
+    let failures = sarif["runs"][0]["properties"]["newFileBudgetFailures"]
+        .as_array()
+        .expect("sarif newFileBudgetFailures");
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["sourceSet"], "production");
+    assert_eq!(failures[0]["metric"], "erosion");
+    assert_eq!(failures[0]["budget"], 0.0);
+
+    let saved_path = fixture.root().join("saved-diff.json");
+    fs::write(&saved_path, &json_output.stdout).expect("write saved diff");
+    let rerender_text = Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .args([
+            "report",
+            saved_path.to_str().expect("utf8 path"),
+            "--format",
+            "text",
+        ])
+        .current_dir(fixture.root())
+        .output()
+        .expect("rerender text");
+    assert_eq!(rerender_text.status.code(), Some(0));
+    let text_out = String::from_utf8(rerender_text.stdout).expect("utf8 text");
+    assert!(
+        text_out.contains("over_new_file_budget"),
+        "missing over_new_file_budget in text rerender: {text_out}"
+    );
+}
+
+#[test]
+fn diff_passes_clean_new_files_and_stays_silent_when_only_existing_files_change() {
+    let (fixture, legacy) = legacy_erosion_fixture();
+
+    fixture.put(
+        "src/legacy.ts",
+        &format!("{legacy}\nexport const touched = 1;\n"),
+    );
+    let edit_only = fixture.diff_passing();
+    assert_eq!(edit_only.get("over_new_file_budget"), None);
+
+    fixture.put(
+        "src/clean_new.ts",
+        "export function cleanNew(x: number): number {\n  return x + 1;\n}\n",
+    );
+    let clean_added = fixture.diff_passing();
+    assert_eq!(clean_added.get("over_new_file_budget"), None);
+
+    fixture.commit("add clean new file");
+    let head_check = fixture.codeint_diff(&["main", "--head", "HEAD", "--format", "json"]);
+    assert_eq!(
+        head_check.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&head_check.stderr)
+    );
+    let head_report: Value = serde_json::from_slice(&head_check.stdout).expect("json");
+    assert_eq!(head_report.get("over_new_file_budget"), None);
+}
+
+#[test]
+fn diff_new_file_budgets_checks_orphan_files_with_full_head_reachability() {
+    let fixture = fixture_with_new_file_budgets(
+        &[
+            (
+                "package.json",
+                r#"{ "name": "app", "main": "src/index.ts" }"#,
+            ),
+            ("src/index.ts", "export const app = 1;\n"),
+        ],
+        json!({ "production": { "orphan_files": 0.0 } }),
+    );
+
+    fixture.put("src/used_new.ts", "export const helper = 42;\n");
+    fixture.put(
+        "src/index.ts",
+        "import { helper } from './used_new';\nexport const app = helper;\n",
+    );
+    let wired = fixture.diff_passing();
+    assert_eq!(wired.get("over_new_file_budget"), None);
+
+    fixture.put("src/orphan_new.ts", "export const unused = 7;\n");
+    let (code, report, stderr) = fixture.diff_outcome();
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.contains("new-file production orphan_files ratio 0.5 is over its new-file Budget 0"),
+        "unexpected stderr: {stderr}"
+    );
+    assert_new_file_budget_failure(&report, "orphan_files", 0.5, 0.0, 2);
+}

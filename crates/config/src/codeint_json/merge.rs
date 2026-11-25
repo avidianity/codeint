@@ -12,7 +12,7 @@ use super::shape;
 use super::types::{
     Budgets, Configuration, DEFAULT_PLUGIN_MEMORY_MB, DEFAULT_PLUGIN_TIMEOUT_MS, DuplicationConfig,
     EntryPoints, PluginLimits, SourceSetOverrides, budgets, entry_points, languages,
-    source_set_overrides,
+    new_file_budgets, source_set_overrides,
 };
 use super::validation::{
     allowed_regression_limit_metric_keys, coverage_reports, duplication_config,
@@ -100,6 +100,8 @@ pub(super) fn parse_value_with_overrides(
         &mut settings,
     )?;
     let budgets = merge_budgets(effective.budgets_mut(), &overrides.budgets, &mut settings);
+    let new_file_budgets = new_file_budgets(sections.new_file_budgets);
+    append_new_file_budget_settings(&new_file_budgets, &mut settings);
     let regression_limits = sections.regression_limits.into_regression_limits();
     append_regression_limit_settings(&regression_limits, &mut settings);
     append_languages_setting(effective.languages(), &mut settings);
@@ -123,6 +125,7 @@ pub(super) fn parse_value_with_overrides(
         effective,
         source_set_overrides,
         budgets,
+        new_file_budgets,
         languages,
         regression_limits,
         plugins,
@@ -357,6 +360,33 @@ fn append_budget_settings(
             json!(budget.ratio()),
             ConfigProvenance::File,
         );
+    }
+}
+
+fn append_new_file_budget_settings(budgets: &Budgets, settings: &mut Vec<ResolvedSetting>) {
+    if budgets.is_empty() {
+        push_setting(
+            settings,
+            "new_file_budgets",
+            json!({}),
+            ConfigProvenance::Default,
+        );
+        return;
+    }
+    let resolved: BTreeMap<(SourceSet, &str), Budget> = budgets
+        .set
+        .iter()
+        .map(|(source_set, metric, budget)| ((*source_set, metric.as_str()), *budget))
+        .collect();
+    for source_set in SourceSet::ALL {
+        for ((_, metric), budget) in resolved.iter().filter(|((set, _), _)| *set == source_set) {
+            push_setting(
+                settings,
+                format!("new_file_budgets.{}.{metric}", source_set.key()),
+                json!(budget.ratio()),
+                ConfigProvenance::File,
+            );
+        }
     }
 }
 

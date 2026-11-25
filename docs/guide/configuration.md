@@ -40,6 +40,19 @@ If your config file pins an official `$schema` tag newer than the running binary
     "unlisted_dependencies": 0,
     "dev_in_production_dependencies": 0,
   },
+  // Stricter ceilings enforced on newly added files in `codeint diff`
+  "new_file_budgets": {
+    "production": {
+      "erosion": 0,
+      "cognitive_complexity": 0,
+      "duplication": 0,
+      "verbosity": 0.05,
+      "import_cycles": 0,
+      "boundaries": 0,
+      "orphan_files": 0,
+      "hazards": 0,
+    },
+  },
   // Ratchet rules for `codeint diff`
   "regression_limits": {
     "generated": {
@@ -116,6 +129,9 @@ If your config file pins an official `$schema` tag newer than the running binary
   `codeint check` and `codeint diff` exit `1` when any Budget is exceeded.
   A `hazards` Budget passes when Hazards is absent because no measured language defines Hazard line rules.
   Setting `budgets.production.test_gap` without a matching Coverage report stops the run with exit code `2`; setting `orphan_files` or `test_gap` under another Source set also stops with exit code `2`.
+- **`new_file_budgets`**: per-Source-set maximum ratios (`0` to `1`) enforced by `codeint diff` solely across newly added files (present on the head side and absent at the merge-base), so teams with legacy debt can keep new code clean.
+  Stays silent when no new files were added.
+  Accepts the same per-Source-set keys as `budgets` (`orphan_files` and `test_gap` under `production` only, plus external Metric keys) and rejects repository-wide Dependency hygiene keys or Production-only keys outside `production` with exit code `2`.
 - **`regression_limits`**: per-Metric or per-Source-set tolerances for `codeint diff`.
   `ratio_rise` defaults to `0.01`; `new_findings` accepts `any_new_finding`, `numerator_rise` (with `numerator_rise_with_new_findings` retained as a deprecated 0.x alias), or `never`.
   By default, `erosion`, `cognitive_complexity`, `duplication`, `verbosity`, and external Metrics use `numerator_rise` (failing whenever the numerator rises, rounded to 4 decimal places, while keeping the `0.01` `ratio_rise` buffer when the numerator is flat), whereas `import_cycles`, `boundaries`, `orphan_files`, `hazards`, `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` fail on `any_new_finding` (plus numerator rise).
