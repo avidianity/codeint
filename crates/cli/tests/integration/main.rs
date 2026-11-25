@@ -23,6 +23,7 @@ mod mcp;
 mod npm_packages;
 mod orphan_files;
 mod package_filter;
+mod plugin_test;
 mod ratchet;
 mod report;
 mod schema;

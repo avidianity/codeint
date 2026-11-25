@@ -17,6 +17,7 @@ use crate::config::ConfigCommandError;
 use crate::guard::GuardError;
 use crate::impact::ImpactCommandError;
 use crate::init::InitError;
+use crate::plugin_test::PluginTestError;
 use crate::ratchet::RatchetError;
 use crate::report::RerenderError;
 use crate::trace::TraceCommandError;
@@ -39,6 +40,7 @@ fn tooling_remedy(error: &CliError) -> Cow<'static, str> {
     use CliError::*;
     match error {
         Agent(error) => Cow::Borrowed(agent_remedy(error)),
+        PluginTest(error) => Cow::Borrowed(plugin_test_remedy(error)),
         Ratchet(error) => ratchet_remedy(error),
         Init(error) => init_remedy(error),
         Update(error) => Cow::Borrowed(update_remedy(error)),
@@ -619,6 +621,17 @@ fn framework_profile_config_remedy(error: &ConfigurationFileError) -> Option<Cow
         _ => return None,
     };
     Some(Cow::Owned(message.replace("{file}", file.file_name())))
+}
+
+fn plugin_test_remedy(error: &PluginTestError) -> &'static str {
+    match error {
+        PluginTestError::PluginHost(_) => {
+            "Check that the path names an existing readable WebAssembly component file."
+        }
+        PluginTestError::Source { .. } => {
+            "Check that each --source path names an existing readable UTF-8 text file."
+        }
+    }
 }
 
 fn plugin_host_remedy(error: &PluginHostError, file: ConfigFileKind) -> Cow<'static, str> {

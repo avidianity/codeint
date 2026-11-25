@@ -44,6 +44,23 @@ const TOTAL: &str = "export function total(prices: number[], discount: number): 
 }
 ";
 
+const PLUGIN_SAMPLES: [&str; 4] = [
+    "sample_mini_plugin.wasm",
+    "sample_long_functions_plugin.wasm",
+    "out_of_range_ratio_metric_plugin.wasm",
+    "legacy_v0_3_0_language_plugin.wasm",
+];
+
+fn add_plugin_samples(root: &Path) {
+    let folder = root.join("plugins");
+    fs::create_dir_all(&folder).expect("create the plugins folder");
+    for file_name in PLUGIN_SAMPLES {
+        let source = crate::wasm_fixtures::wasm_fixture_path(file_name);
+        fs::copy(&source, folder.join(file_name)).expect("copy a sample Wasm Plugin");
+    }
+    write(root, "plugins/sample.mini", "alpha\nbeta\n");
+}
+
 pub(crate) struct Template {
     folder: TempDir,
 }
@@ -108,6 +125,7 @@ impl Template {
             "generate sample report.json failed: {}",
             String::from_utf8_lossy(&saved.stderr)
         );
+        add_plugin_samples(root);
         template
     }
 

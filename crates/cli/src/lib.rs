@@ -13,6 +13,7 @@ mod impact;
 mod init;
 mod mcp;
 mod package_scripts;
+mod plugin_test;
 mod ratchet;
 mod remedy;
 mod report;
@@ -27,8 +28,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    AgentCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, RatchetCommand, ReportDestination,
-    ReportInput, ReportRenderFormat, cli_schema, read_invocation,
+    AgentCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, PluginCommand, RatchetCommand,
+    ReportDestination, ReportInput, ReportRenderFormat, cli_schema, read_invocation,
 };
 use codeint_git::ResultCache;
 use codeint_report::{ExitCodeSchema, ReportError};
@@ -331,6 +332,8 @@ enum CliError {
     #[error(transparent)]
     Ratchet(#[from] ratchet::RatchetError),
     #[error(transparent)]
+    PluginTest(#[from] plugin_test::PluginTestError),
+    #[error(transparent)]
     Impact(#[from] impact::ImpactCommandError),
     #[error(transparent)]
     Trace(#[from] trace::TraceCommandError),
@@ -361,12 +364,12 @@ fn exit_codes() -> Vec<ExitCodeSchema> {
         ExitCodeSchema {
             code: SUCCESS,
             name: "success",
-            description: "The run succeeded, and no Budget, Ratchet, Regression, or codeint doctor blocking error failed.",
+            description: "The run succeeded, and no Budget, Ratchet, Regression, codeint doctor blocking error, or codeint plugin test check failed.",
         },
         ExitCodeSchema {
             code: BUDGET_OR_REGRESSION_FAILED,
             name: "budget_or_regression_failed",
-            description: "The run succeeded, and at least one Budget, Ratchet, Regression, or codeint doctor blocking error failed.",
+            description: "The run succeeded, and at least one Budget, Ratchet, Regression, codeint doctor blocking error, or codeint plugin test check failed.",
         },
         ExitCodeSchema {
             code: OPERATIONAL_ERROR,
@@ -556,6 +559,7 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
         } => run_doctor(&folder, format, &plugin_host),
         Command::Agent(command) => run_agent(command),
         Command::Ratchet(command) => run_ratchet(command),
+        Command::Plugin(command) => run_plugin(command),
         other => run_history_command(other),
     }
 }
@@ -593,6 +597,22 @@ fn run_history_command(command: Command) -> Result<Outcome, CliError> {
             &plugin_host,
         ),
         _ => unreachable!("handled by run"),
+    }
+}
+
+fn run_plugin(command: PluginCommand) -> Result<Outcome, CliError> {
+    match command {
+        PluginCommand::Test {
+            path,
+            kind,
+            sources,
+            limits,
+            format,
+        } => {
+            let report = plugin_test::plugin_test(&path, kind, &sources, limits)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::from_failures(report.failure_messages()))
+        }
     }
 }
 

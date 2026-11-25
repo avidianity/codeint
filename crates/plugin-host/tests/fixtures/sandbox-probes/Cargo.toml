@@ -27,6 +27,8 @@ members = [
     "import-capability-metric",
     "reserved-key-metric",
     "zero-version-metric",
+    "out-of-range-ratio-metric",
+    "invalid-finding-path-metric",
     "stale-reference-range-language",
 ]
 

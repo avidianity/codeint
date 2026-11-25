@@ -421,6 +421,36 @@ pub enum LanguagePluginError {
     },
 }
 
+pub fn validate_hazard_lines(
+    plugin_name: &str,
+    path: &RepoPath,
+    line_count: usize,
+    hazard_lines: &[HazardLine],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    for hazard in hazard_lines {
+        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
+        if line_number < 1 || line_number > line_count {
+            return Err(LanguagePluginError::HazardLineOutOfRange {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                line: hazard.line,
+                line_count,
+            });
+        }
+    }
+    for hazard in hazard_lines {
+        if !listed_rules.contains(&hazard.rule) {
+            return Err(LanguagePluginError::UnlistedHazardRule {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                rule: hazard.rule.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_declared_dependencies(
     deps: Vec<DeclaredDep>,
 ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {

@@ -2,13 +2,15 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
+use crate::PluginLimits;
 use crate::agent_home;
 use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnSince, ChurnWindow};
 use crate::command::{
     AgentCommand, Command, ConfigError, ConfigFormat, DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
-    FindingsShown, Invocation, PluginHostConfig, RatchetCommand, ReportDestination, ReportInput,
-    ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange, WORST_FINDINGS_PER_METRIC,
+    FindingsShown, Invocation, PluginCommand, PluginHostConfig, RatchetCommand, ReportDestination,
+    ReportInput, ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange,
+    WORST_FINDINGS_PER_METRIC,
 };
 use crate::coupling::{CouplingRatio, CouplingSettings};
 use crate::resolved::ConfigOverrides;
@@ -20,7 +22,7 @@ pub(crate) use args::Arguments;
 
 use args::{
     AgentSubcommandArguments, CommandArguments, HistoryReportArguments, ImpactArguments,
-    RatchetSubcommandArguments, ReportArguments, TraceArguments,
+    PluginSubcommandArguments, RatchetSubcommandArguments, ReportArguments, TraceArguments,
 };
 
 const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
@@ -112,8 +114,7 @@ fn build_tooling_command(
             format,
             budgets,
             source_sets,
-            plugin_memory_mb,
-            plugin_timeout_ms,
+            plugin_limits,
         } => build_config_command(
             current_folder,
             path,
@@ -121,8 +122,8 @@ fn build_tooling_command(
             ConfigOverrides {
                 budgets,
                 source_sets,
-                plugin_memory_mb,
-                plugin_timeout_ms,
+                plugin_memory_mb: plugin_limits.memory_mb,
+                plugin_timeout_ms: plugin_limits.timeout_ms,
             },
         ),
         CommandArguments::Report {
@@ -137,6 +138,7 @@ fn build_tooling_command(
         }),
         CommandArguments::Agent { command } => build_agent_command(current_folder, command),
         CommandArguments::Ratchet { command } => build_ratchet_command(current_folder, command),
+        CommandArguments::Plugin { command } => Ok(build_plugin_command(current_folder, command)),
         CommandArguments::Check { .. }
         | CommandArguments::Diff { .. }
         | CommandArguments::Trend { .. }
@@ -218,6 +220,33 @@ fn build_agent_command(
             dry_run,
             format,
         })),
+    }
+}
+
+fn build_plugin_command(current_folder: &Path, arguments: PluginSubcommandArguments) -> Command {
+    match arguments {
+        PluginSubcommandArguments::Test {
+            path,
+            kind,
+            sources,
+            plugin_limits,
+            format,
+        } => {
+            let defaults = PluginLimits::default();
+            Command::Plugin(PluginCommand::Test {
+                path: current_folder.join(path),
+                kind,
+                sources: sources
+                    .into_iter()
+                    .map(|source| current_folder.join(source))
+                    .collect(),
+                limits: PluginLimits {
+                    memory_mb: plugin_limits.memory_mb.unwrap_or(defaults.memory_mb),
+                    timeout_ms: plugin_limits.timeout_ms.unwrap_or(defaults.timeout_ms),
+                },
+                format,
+            })
+        }
     }
 }
 

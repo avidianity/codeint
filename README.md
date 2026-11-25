@@ -74,7 +74,7 @@ Beyond static snapshots, codeint helps humans and coding agents understand how f
 
 - **JSONC configuration and `.codeint/` state**: configure codeint in `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` (`codeint init` writes a starter `codeint.jsonc`), and lock in monotonic whole-repository ceilings in `.codeint/ratchet.json` via `codeint ratchet update`.
 - **Single-scan multi-format reporting**: save `codeint check --format json` or `codeint diff --format json` once, then re-render losslessly into `text`, `toon`, `json`, `sarif`, or `markdown` with `codeint report`.
-- **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, and verify repository health offline with `codeint doctor`.
+- **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, verify repository health offline with `codeint doctor`, and check an external Wasm Plugin against the Plugin contract with `codeint plugin test`.
 - **First-class MCP integration**: run `codeint agent status` and `codeint agent install` to register the local stdio MCP server (`codeint mcp`) for Claude Code, Cursor, and Codex, exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 
 ### Built for speed and safety
@@ -129,6 +129,7 @@ codeint diff main
 codeint ratchet update
 codeint guard src/domain/order.ts
 codeint doctor
+codeint plugin test plugins/my-plugin.wasm
 codeint agent install
 ```
 
@@ -138,6 +139,7 @@ codeint agent install
 - `codeint ratchet update` creates or monotonically tightens `.codeint/ratchet.json` ceilings for whole-repository runs.
 - `codeint guard src/domain/order.ts` checks architectural boundary rules for an existing or planned file path.
 - `codeint doctor` runs offline diagnostics on Git status, config validity, detected languages, workspaces, and Plugins.
+- `codeint plugin test plugins/my-plugin.wasm` runs the Conformance runner against an external Wasm Plugin and prints each violated rule with a fix hint.
 - `codeint agent install` registers `codeint mcp` in detected local coding agents.
 
 Or call codeint programmatically from JavaScript/TypeScript (`npm install codeint`) or Rust (`codeint-cli`):

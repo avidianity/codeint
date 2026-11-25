@@ -132,6 +132,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "invalid-finding-path-metric-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -229,6 +237,14 @@ dependencies = [
 
 [[package]]
 name = "no-imports-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "out-of-range-ratio-metric-plugin"
 version = "0.1.0"
 dependencies = [
  "probe-runtime",

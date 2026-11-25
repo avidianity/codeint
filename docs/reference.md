@@ -16,6 +16,7 @@ Branch `main` has two commits:
 Branch `feature` starts at `main` and is checked out.
 Its commit `Simplify parse`, on 2026-11-16, makes `src/parse.ts` simple and adds `src/total.ts`.
 The working tree adds `src/route.ts`, an eroded function that is not committed.
+It also holds a `plugins` folder with four Wasm Plugin files built from the test fixtures: `sample_mini_plugin.wasm` (a valid Language plugin that claims `.mini` files), `sample_long_functions_plugin.wasm` (a valid Metric plugin), `out_of_range_ratio_metric_plugin.wasm` (a Metric plugin that returns a ratio above 1), and `legacy_v0_3_0_language_plugin.wasm` (a Language plugin built against an older contract), plus `plugins/sample.mini`, a source file for the valid Language plugin.
 
 ## Commands
 
@@ -37,6 +38,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
 | `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
 | `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
+| `plugin` | Check an external Wasm Plugin against the codeint Plugin contract; see [`codeint plugin`](#codeint-plugin) |
 | `ratchet` | Manage the repository Ratchet ceilings in `.codeint/ratchet.json`; see [`codeint ratchet`](#codeint-ratchet) |
 | `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
 | `coupling` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports; see [`codeint coupling`](#codeint-coupling) |
@@ -721,8 +723,8 @@ codeint schema --output schema.json
 | `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
 | `--budget <SPEC>` | Override a Budget ratio as `SOURCE_SET.METRIC=RATIO` |
 | `--source-set <SPEC>` | Override a Source set glob as `SOURCE_SET=GLOB` |
-| `--plugin-memory-mb <MB>` | Override `plugin_limits.memory_mb` (1 to 4096) |
-| `--plugin-timeout-ms <MS>` | Override `plugin_limits.timeout_ms` (1 to 300000) |
+| `--plugin-memory-mb <MB>` | Override the memory limit in MiB of each Plugin call, `plugin_limits.memory_mb` (1 to 4096) |
+| `--plugin-timeout-ms <MS>` | Override the time limit in milliseconds of each Plugin call, `plugin_limits.timeout_ms` (1 to 300000) |
 | `-h, --help` | Print the help of `codeint config` |
 
 `codeint config --resolved` prints every effective active setting merged from built-in defaults, `codeint.json`, and CLI overrides alongside its provenance (`default`, `file`, or `cli`).
@@ -811,6 +813,73 @@ CODEINT_AGENT_HOME=.agent-home codeint agent install --dry-run --client claude-c
 codeint agent help
 ```
 
+### `codeint plugin`
+
+| Command | Meaning |
+| ------- | ------- |
+| `test` | Run the Conformance runner against a Wasm Plugin and report each violated rule with a fix hint |
+| `help` | Print the help of `codeint plugin`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint plugin` |
+
+`codeint plugin test <WASM>` loads one Wasm Plugin through the same sandboxed Plugin host that `codeint check` uses and runs the Conformance runner against it.
+It needs no repository, no `codeint.json`, and no network access.
+The runner checks a Language plugin for the following rules:
+
+- It is a valid WebAssembly component that exports `codeint:plugin/language@0.4.0` and imports no WASI or host interface.
+- It claims at least one valid, unique extension, and its Hazard rule list matches `has-hazard-rules`.
+- `lower` is deterministic and stateless on built-in probe sources and on every `--source` file, returns lines counted from 1 inside the file, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
+- Its Framework profiles resolve for the disabled, auto, and only selections, and it answers `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, `entry-points`, and `reference-ranges` with valid data.
+- It stays within the memory and time limits of each call.
+
+The runner checks a Metric plugin for the following rules:
+
+- It is a valid WebAssembly component that exports `codeint:plugin/metric@0.4.0` and imports no WASI or host interface.
+- Its key is a valid snake_case key that collides with no built-in Metric or reserved report key, its version is 1 or higher, and its name and description are not empty.
+- `measure` is deterministic and stateless, and it returns a ratio between 0 and 1, finite and non-negative numbers, Findings with a non-empty id, lines counted from 1, and paths relative to the repository root.
+- It stays within the memory and time limits of each call.
+
+Each check prints as pass, fail, or skipped.
+A fail names the rule and a fix hint.
+A check that needs a Plugin that did not load, or a measurement that an earlier fail stopped, prints as skipped.
+`codeint plugin test` exits with code 0 when no check fails and code 1 when at least one check fails.
+A path that names no readable file stops the run with exit code 2.
+
+| Option of `codeint plugin test` | Meaning |
+| ------------------------------- | ------- |
+| `<WASM>` | The path to the Wasm Plugin to check |
+| `--kind <KIND>` | The kind of Plugin to check: `language`, the default, or `metric` |
+| `--source <FILE>` | A source file for a Language plugin to lower in addition to the built-in probe sources; may repeat |
+| `--plugin-memory-mb <MB>` | The memory limit in MiB for each Plugin call, from 1 to 4096; 64 by default |
+| `--plugin-timeout-ms <MS>` | The time limit in milliseconds for each Plugin call, from 1 to 300000; 5000 by default |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
+
+The built-in probe sources use the first extension that the Plugin claims.
+A Plugin whose Hazard rules or Flagged lines fire only on specific text needs a `--source` file that holds that text, or the runner cannot check those rules.
+
+```sh exit=0
+codeint plugin test plugins/sample_mini_plugin.wasm
+codeint plugin test plugins/sample_mini_plugin.wasm --kind language --source plugins/sample.mini
+codeint plugin test plugins/sample_mini_plugin.wasm --plugin-memory-mb 128 --plugin-timeout-ms 10000
+codeint plugin test plugins/sample_long_functions_plugin.wasm --kind metric
+codeint plugin test plugins/sample_mini_plugin.wasm --format json
+codeint plugin test plugins/sample_long_functions_plugin.wasm --kind metric --format toon
+codeint plugin help
+```
+
+A Plugin that breaks a rule exits with code 1, and the report names the rule and the fix:
+
+```sh exit=1
+codeint plugin test plugins/out_of_range_ratio_metric_plugin.wasm --kind metric
+codeint plugin test plugins/legacy_v0_3_0_language_plugin.wasm --format json
+```
+
+```sh exit=2
+codeint plugin test plugins/missing.wasm
+```
+
 ### `codeint ratchet`
 
 | Command | Meaning |
@@ -886,8 +955,8 @@ codeint coupling --format markdown
 
 | Exit code | Meaning |
 | --------- | ------- |
-| `0` | The run succeeded, and no Budget, Ratchet, Regression, or blocking doctor error failed |
-| `1` | The run succeeded, and at least one Budget, Ratchet, Regression, or blocking doctor error failed; codeint still writes the whole report and names each failure on standard error |
+| `0` | The run succeeded, and no Budget, Ratchet, Regression, blocking doctor error, or failed `codeint plugin test` check occurred |
+| `1` | The run succeeded, and at least one Budget, Ratchet, Regression, blocking doctor error, or `codeint plugin test` check failed; codeint still writes the whole report and names each failure on standard error |
 | `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, a Ratchet Metric version mismatch, or an invalid `codeint.json`; codeint names the error on standard error |
 
 ## `codeint.json`

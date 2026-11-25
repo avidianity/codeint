@@ -137,6 +137,10 @@ _Avoid_: AST, IR, inventory, syntax tree
 A Plugin that owns every rule specific to one language family and lowers its source files into the Code model.
 _Avoid_: parser plugin, language adapter, language provider
 
+**Conformance runner**:
+The built-in `codeint plugin test` command that loads one Wasm **Plugin** through the Plugin host and checks it against the Plugin contract, printing each violated rule with a fix hint.
+_Avoid_: plugin linter, plugin validator, plugin test suite
+
 **Dialect**:
 One variant of a language that its Language plugin reads with different rules, such as PostgreSQL or SQLite within SQL.
 _Avoid_: flavor, variant, engine

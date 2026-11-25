@@ -521,6 +521,28 @@ cargo test --locked -p codeint-plugin-host --test conformance
 cargo test --locked -p codeint-plugin-host --test load
 ```
 
+### Check a Plugin with the Conformance runner
+
+`codeint plugin test <WASM>` runs the built-in Conformance runner against a built `.wasm` file.
+It needs no repository and no `codeint.json`, and it exits with code 0 when every check passes, code 1 when a check fails, and code 2 when the file cannot be read.
+Pass `--kind metric` for a Metric plugin; the default kind is `language`.
+
+```sh
+codeint plugin test target/wasm32-wasip2/release/my_plugin.wasm
+codeint plugin test target/wasm32-wasip2/release/my_metric.wasm --kind metric --format json
+```
+
+Each failed check prints its rule and a fix hint.
+The runner reports these rules:
+
+- Language plugin: a valid WebAssembly component with zero WASI imports, an exact `codeint:plugin@0.4.0` match, valid extensions, Hazard rules and Framework profiles that are consistent, a deterministic and stateless `lower` with 1-based line bounds, sorted functions and tokens, and listed Hazard rules, and valid answers from `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, `entry-points`, and `reference-ranges`.
+- Metric plugin: a valid WebAssembly component with zero WASI imports, an exact `codeint:plugin@0.4.0` match, a valid Metric key that collides with no built-in Metric or reserved report key, a Metric version of 1 or higher, a non-empty name and description, and a deterministic and stateless `measure` that returns a ratio from 0 to 1, finite non-negative numbers, and Findings with non-empty ids, 1-based lines, and repository-relative paths.
+- Both kinds: peak memory and call time within `--plugin-memory-mb` and `--plugin-timeout-ms`.
+
+The built-in probe sources cannot trigger rules that fire only on specific text.
+Pass `--source <FILE>` (repeatable) to lower your own sample files too, such as a file that holds the text of each Hazard rule.
+See [docs/reference.md](./reference.md#codeint-plugin) for every option and output format.
+
 ### Test end to end with the CLI
 
 Copy your built `.wasm` file into a Git repository, compute its SHA-256 digest, declare it in `codeint.jsonc` or `codeint.json`, and run `codeint check` and `codeint diff`:
@@ -584,4 +606,4 @@ Move an existing external Plugin to `0.4.0`:
 3. For Metric plugins: ensure `version() -> u32` returns a positive integer (`>= 1`; `codeint-plugin-sdk` defaults to `1`).
 4. Rebuild the WebAssembly component for `wasm32-wasip2` (or `wasm32-unknown-unknown` plus `wasm-tools component new`) so it exports `codeint:plugin/language@0.4.0` or `codeint:plugin/metric@0.4.0` with zero WASI imports.
 5. Compute the SHA-256 digest of the rebuilt `.wasm` file and update `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
-6. Run `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.
+6. Run `codeint plugin test` and `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.

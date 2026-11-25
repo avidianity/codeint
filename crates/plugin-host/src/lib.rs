@@ -12,6 +12,7 @@ use codeint_model::{
 };
 
 mod builtins;
+mod conformance;
 mod fetch;
 mod limits;
 mod sha256;
@@ -24,6 +25,9 @@ pub use builtins::{
     TYPESCRIPT_JAVASCRIPT_PLUGIN_NAME, built_in_language_descriptors,
     built_in_language_framework_profiles, built_in_language_hazard_rules, built_in_language_names,
     built_in_language_plugin, built_in_language_plugins,
+};
+pub use conformance::{
+    ConformanceCheck, ConformanceReport, ConformanceSource, ConformanceStatus, run_conformance,
 };
 pub use sha256::{format_hex as sha256_hex, sha256};
 pub use sql::{

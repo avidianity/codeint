@@ -85,6 +85,30 @@ let plugin = load_language_plugin(repository.root(), &declaration, &PluginHostCo
 - `sha256` is a pure-Rust, `#![forbid(unsafe_code)]`, std-only FIPS 180-4 SHA-256 implementation.
 - On a hash mismatch, `load_language_plugin` returns `PluginHostError::HashMismatch` (local path) or `PluginHostError::DownloadHashMismatch` (HTTPS URL) naming the plugin, its path or URL, and both expected and actual digests, without caching or passing the bytes to `wasmtime`.
 
+## Run the Conformance runner on one Wasm Plugin
+
+```rust
+use codeint_config::{PluginKind, PluginLimits};
+use codeint_plugin_host::{ConformanceSource, run_conformance};
+
+let sources = [ConformanceSource {
+    file_name: "sample.mini".to_owned(),
+    text: "alpha\nbeta\n".to_owned(),
+}];
+let report = run_conformance(PluginKind::Language, path, PluginLimits::default(), &sources)?;
+if !report.passed() {
+    for check in report.checks.iter().filter(|check| check.hint.is_some()) {
+        eprintln!("{}: {} ({})", check.id, check.message, check.hint.as_deref().unwrap_or_default());
+    }
+}
+```
+
+- `run_conformance` reads the file, loads it through the same zero-capability sandbox as `codeint check`, and returns one `ConformanceCheck` per rule with `ConformanceStatus::{Pass, Fail, Skipped}`, a message, and a fix hint on every fail.
+- It returns `Err(PluginHostError::Read)` only when the file cannot be read; every contract violation is a failed check, never an `Err`.
+- A check that depends on a failed load or an earlier fail is `Skipped`.
+- `sources` adds Language plugin probe sources to the built-in ones; each file name carries the extension that the Plugin claims.
+- `codeint plugin test` is the command-line front end; see [docs/reference.md](../../docs/reference.md#codeint-plugin).
+
 ## Verify WIT contract lockstep
 
 Run `cargo test --locked -p codeint-plugin-host --test wit_lockstep` to verify that `wit/language.wit` and `wit/metric.wit` match `PLUGIN_INTERFACE_VERSION`, the `LanguagePlugin` and `MetricPlugin` traits in `codeint-model`, the host wrappers in `codeint-plugin-host`, and built-in Language plugin registration.
