@@ -73,7 +73,7 @@ pub use coupling::{CouplingHistoryInput, CouplingReport};
 pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use findings::{HazardLineRow, RejectedStatementEntry, SqlSchemaSummary};
-pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardReport};
+pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardExternalImports, GuardReport};
 pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::{CommitMeasurement, CommitMeasurementOptions};
 pub use ownership::OwnershipOptions;

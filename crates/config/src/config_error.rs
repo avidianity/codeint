@@ -234,7 +234,17 @@ pub enum ConfigurationFileError {
         key: KeyPath,
         from: String,
     },
-    #[error("{file}: {key} for boundary zone {from:?} must set either allow or deny")]
+    #[error(
+        "{file}: {key} for boundary zone {from:?} must set either allow_external or deny_external, not both"
+    )]
+    ConflictingExternalBoundaryRule {
+        file: ConfigFileKind,
+        key: KeyPath,
+        from: String,
+    },
+    #[error(
+        "{file}: {key} for boundary zone {from:?} must set at least one of allow, deny, allow_external, or deny_external"
+    )]
     MissingBoundaryRuleDirective {
         file: ConfigFileKind,
         key: KeyPath,
@@ -246,6 +256,16 @@ pub enum ConfigurationFileError {
         key: KeyPath,
         from: String,
     },
+    #[error(
+        "{file}: {key} mixes allow_external and deny_external directives for boundary zone {from:?}"
+    )]
+    ConflictingExternalBoundaryDirectives {
+        file: ConfigFileKind,
+        key: KeyPath,
+        from: String,
+    },
+    #[error("{file}: {key} must not be empty")]
+    EmptyBoundaryExternalPattern { file: ConfigFileKind, key: KeyPath },
     #[error("{file}: {key} must not be empty")]
     EmptyDependencyIgnore { file: ConfigFileKind, key: KeyPath },
     #[error("{file}: {key} must not be empty")]
@@ -339,8 +359,11 @@ impl ConfigurationFileError {
             | EmptyBoundaryZonePatterns { file, .. }
             | UnknownBoundaryZone { file, .. }
             | ConflictingBoundaryRule { file, .. }
+            | ConflictingExternalBoundaryRule { file, .. }
             | MissingBoundaryRuleDirective { file, .. }
             | ConflictingBoundaryDirectives { file, .. }
+            | ConflictingExternalBoundaryDirectives { file, .. }
+            | EmptyBoundaryExternalPattern { file, .. }
             | EmptyDependencyIgnore { file, .. }
             | EmptyCoverageReportPath { file, .. }
             | AbsoluteCoverageReportPath { file, .. }

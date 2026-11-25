@@ -251,3 +251,75 @@ fn published_report_schema_matches_generated_and_validates_reports_with_and_with
     );
     assert!(without_gap_json["test_gap_note"].is_string());
 }
+
+#[test]
+fn report_schema_validates_external_package_boundary_findings() {
+    let published =
+        std::fs::read_to_string(published_report_schema_path()).expect("read report schema");
+    let schema: Value = serde_json::from_str(&published).expect("report schema is JSON");
+    let config_dir = std::env::temp_dir().join(format!(
+        "codeint-report-schema-external-boundaries-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&config_dir).expect("create temp config dir");
+    std::fs::write(
+        config_dir.join("codeint.json"),
+        r#"{
+  "boundaries": {
+    "zones": {
+      "domain": { "patterns": ["packages/api/src/**"] }
+    },
+    "rules": [
+      {
+        "from": "domain",
+        "deny_external": ["prisma"],
+        "reason": "Domain must stay persistence-free"
+      }
+    ]
+  }
+}"#,
+    )
+    .expect("write config");
+    let configuration = codeint_config::read_configuration(&config_dir).expect("read config");
+    let _ = std::fs::remove_dir_all(&config_dir);
+    let mut model = sample_model(false, false);
+    model.runtime_imports.push(codeint_model::RuntimeImport {
+        importer: RepoPath::new("packages/api/src/app.ts").expect("path"),
+        specifier: "prisma".to_owned(),
+        resolution: codeint_model::ImportResolution::External("prisma".to_owned()),
+    });
+    let dependencies = DependenciesConfig::default();
+    let budgets = Budgets::default();
+    let report = Report::summarize_with_extras(
+        vec![MeasuredLanguage {
+            plugin: "typescript-javascript".to_owned(),
+            model,
+            reference_ranges: ReferenceRanges::default(),
+            has_imports: true,
+        }],
+        Vec::new(),
+        ReportOptions {
+            findings: FindingsShown::default(),
+            budgets: &budgets,
+            metric_plugins: &[],
+            boundaries: configuration.boundaries.as_ref(),
+            dependencies: &dependencies,
+            dependency_hygiene: None,
+            dependency_hygiene_by_language: None,
+            duplication: DuplicationConfig::default(),
+            orphan_files: None,
+            orphan_files_by_language: None,
+            ownership: OwnershipOptions::default(),
+            coverage_reports_named: false,
+            unmatched_coverage_paths: &[],
+        },
+        ReportExtras::default(),
+    )
+    .expect("report with external boundary finding");
+    let report_json: Value =
+        serde_json::from_str(&report.render(ReportFormat::Json).expect("json")).expect("json");
+    validate_against_schema(&report_json, &schema, &schema, "$");
+    let finding = &report_json["source_sets"]["production"]["boundaries"]["findings"][0];
+    assert_eq!(finding["kind"], "external_package");
+    assert_eq!(finding["external_package"], "prisma");
+}

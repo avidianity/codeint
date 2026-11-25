@@ -8,13 +8,14 @@ Each page below focuses on one topic and links to [docs/reference.md](../referen
 1. [Philosophy and Architecture](./philosophy-and-architecture.md): why codeint measures Software entropy, how its independent Metrics (including Hazards) and structural checks work, and how the codebase is structured.
 2. [Getting Started](./getting-started.md): install codeint, initialize `codeint.jsonc`, and run `check`, `diff`, `trend`, `doctor`, `config`, `report`, `guard`, `trace`, `impact`, `churn`, and `coupling`.
 3. [Configuration (`codeint.jsonc` / `codeint.json`)](./configuration.md): configure JSONC files, Budgets, Regression limits, Source-set globs, architectural boundaries, near-clone detection, entry points, dependency hygiene, Coverage reports, SQL Dialects, Hazards disabled rules, and multi-language folders.
-4. [Test gap](./test-gap.md): measure untested Production Function mass from LCOV and Cobertura XML Coverage reports, set up each test tool, and enforce a Test gap Budget.
-5. [Hazards](./hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.
-6. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, Python, Go, and SQL are measured, plus their calibrated Reference ranges.
-7. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
-8. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.
-9. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
-10. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
+4. [Import boundaries](./import-boundaries.md): define architectural zones, `public_files` encapsulation, built-in `layered` and `hexagonal` presets, `allow_external` / `deny_external` third-party package globs, and pre-edit `codeint guard` checks.
+5. [Test gap](./test-gap.md): measure untested Production Function mass from LCOV and Cobertura XML Coverage reports, set up each test tool, and enforce a Test gap Budget.
+6. [Hazards](./hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.
+7. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, Python, Go, and SQL are measured, plus their calibrated Reference ranges.
+8. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
+9. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.
+10. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
+11. [Plugins](../plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
 
 ## Reference and domain docs
 

@@ -847,7 +847,10 @@ fn unresolved_import_row(row: &UnresolvedImportRow) -> Vec<String> {
 pub(crate) fn boundary_finding_row(row: &BoundaryFindingRow) -> Vec<String> {
     vec![
         code(&row.importer),
-        row.target.as_deref().map_or_else(|| "-".to_owned(), code),
+        row.target
+            .as_deref()
+            .or(row.external_package.as_deref())
+            .map_or_else(|| "-".to_owned(), code),
         row.source_zone
             .as_deref()
             .map_or_else(|| "-".to_owned(), prose),

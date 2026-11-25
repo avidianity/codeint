@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::{RepoPath, SourceSet};
-use globset::{GlobBuilder, GlobMatcher, GlobSet};
+use globset::{GlobBuilder, GlobMatcher, GlobSet, GlobSetBuilder};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +82,13 @@ pub enum BoundaryRuleDecision {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundaryExternalPolicy {
+    pub directive: BoundaryDirective,
+    pub patterns: Vec<String>,
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BoundarySourceSet {
@@ -118,7 +125,7 @@ pub(crate) struct BoundariesFile {
     zones: BTreeMap<String, BoundaryZoneFile>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
-        description = "Directional allow or deny import rules between architectural zones."
+        description = "Directional allow or deny import rules between architectural zones and for external packages."
     )]
     rules: Vec<BoundaryRuleFile>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -168,6 +175,18 @@ struct BoundaryRuleFile {
     deny: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
+        with = "Vec<String>",
+        description = "External package name globs that the source zone is allowed to import (use [] to forbid all third-party packages while still permitting standard-library built-ins). Mutually exclusive with deny_external."
+    )]
+    allow_external: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "Vec<String>",
+        description = "External package name globs that the source zone is forbidden to import. Mutually exclusive with allow_external."
+    )]
+    deny_external: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
         with = "String",
         description = "Optional human-readable explanation shown in boundary Findings."
     )]
@@ -201,12 +220,22 @@ struct CompiledRule {
 }
 
 #[derive(Debug, Clone)]
+struct CompiledExternalRule {
+    from: String,
+    directive: BoundaryDirective,
+    patterns: Vec<String>,
+    matcher: GlobSet,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Boundaries {
     preset: Option<BoundaryPreset>,
     resolved_zones: BTreeMap<String, BoundaryZoneFile>,
     resolved_rules: Vec<BoundaryRuleFile>,
     zones: BTreeMap<String, CompiledZone>,
     rules: Vec<CompiledRule>,
+    external_rules: Vec<CompiledExternalRule>,
     strict_zones: bool,
     source_sets: Vec<SourceSet>,
 }
@@ -219,7 +248,7 @@ impl Boundaries {
         let resolved_rules = merged_rules.clone();
         let boundaries_key = KeyPath::default().child(KeySegment::Key("boundaries".to_owned()));
         let zones = compile_zones(&boundaries_key, merged_zones)?;
-        let rules = compile_rules(&boundaries_key, &zones, merged_rules)?;
+        let (rules, external_rules) = compile_rules(&boundaries_key, &zones, merged_rules)?;
         let source_sets = resolve_source_sets(file.source_sets);
         Ok(Boundaries {
             preset,
@@ -227,6 +256,7 @@ impl Boundaries {
             resolved_rules,
             zones,
             rules,
+            external_rules,
             strict_zones: file.strict_zones,
             source_sets,
         })
@@ -286,19 +316,7 @@ impl Boundaries {
     }
 
     fn applicable_rules(&self, source_zone: &str) -> Vec<&CompiledRule> {
-        let specific: Vec<&CompiledRule> = self
-            .rules
-            .iter()
-            .filter(|rule| rule.from == source_zone)
-            .collect();
-        if specific.is_empty() {
-            self.rules
-                .iter()
-                .filter(|rule| rule.from == WILDCARD_ZONE)
-                .collect()
-        } else {
-            specific
-        }
+        select_applicable_rules(&self.rules, source_zone, |rule| &rule.from)
     }
 
     pub fn zone_of(&self, path: &RepoPath) -> Option<&str> {
@@ -341,45 +359,119 @@ impl Boundaries {
         }
     }
 
+    pub fn has_external_rules(&self) -> bool {
+        !self.external_rules.is_empty()
+    }
+
+    pub fn external_policy_for(&self, source_zone: &str) -> Option<BoundaryExternalPolicy> {
+        let applicable = self.applicable_external_rules(source_zone);
+        let first = applicable.first()?;
+        let mut patterns = Vec::new();
+        let mut reasons = Vec::new();
+        for rule in &applicable {
+            for pattern in &rule.patterns {
+                if !patterns.contains(pattern) {
+                    patterns.push(pattern.clone());
+                }
+            }
+            if let Some(reason) = &rule.reason
+                && !reasons.contains(reason)
+            {
+                reasons.push(reason.clone());
+            }
+        }
+        let reason = (!reasons.is_empty()).then(|| reasons.join("; "));
+        Some(BoundaryExternalPolicy {
+            directive: first.directive,
+            patterns,
+            reason,
+        })
+    }
+
+    fn applicable_external_rules(&self, source_zone: &str) -> Vec<&CompiledExternalRule> {
+        select_applicable_rules(&self.external_rules, source_zone, |rule| &rule.from)
+    }
+
+    pub fn check_external_import(&self, source_zone: &str, package: &str) -> BoundaryRuleDecision {
+        let applicable = self.applicable_external_rules(source_zone);
+        evaluate_directive_rules(
+            &applicable,
+            |rule| rule.directive,
+            |rule| rule.reason.as_deref(),
+            |rule| rule.matcher.is_match(package),
+        )
+    }
+
     pub fn check_import(&self, source_zone: &str, target_zone: &str) -> BoundaryRuleDecision {
         if source_zone == target_zone {
             return BoundaryRuleDecision::Allowed;
         }
         let applicable = self.applicable_rules(source_zone);
-        let Some(first) = applicable.first() else {
-            return BoundaryRuleDecision::Allowed;
-        };
-        match first.directive {
-            BoundaryDirective::Allow => {
-                let permitted = applicable.iter().any(|rule| {
-                    rule.targets
-                        .iter()
-                        .any(|target| target == target_zone || target == WILDCARD_ZONE)
-                });
-                if permitted {
-                    BoundaryRuleDecision::Allowed
-                } else {
-                    let reason = applicable.iter().find_map(|rule| rule.reason.clone());
-                    BoundaryRuleDecision::Denied {
-                        directive: BoundaryDirective::Allow,
-                        reason,
-                    }
+        evaluate_directive_rules(
+            &applicable,
+            |rule| rule.directive,
+            |rule| rule.reason.as_deref(),
+            |rule| {
+                rule.targets
+                    .iter()
+                    .any(|target| target == target_zone || target == WILDCARD_ZONE)
+            },
+        )
+    }
+}
+
+fn select_applicable_rules<'a, T>(
+    rules: &'a [T],
+    source_zone: &str,
+    from_of: impl Fn(&T) -> &str,
+) -> Vec<&'a T> {
+    let specific: Vec<&T> = rules
+        .iter()
+        .filter(|rule| from_of(rule) == source_zone)
+        .collect();
+    if specific.is_empty() {
+        rules
+            .iter()
+            .filter(|rule| from_of(rule) == WILDCARD_ZONE)
+            .collect()
+    } else {
+        specific
+    }
+}
+
+fn evaluate_directive_rules<T>(
+    applicable: &[&T],
+    directive_of: impl Fn(&T) -> BoundaryDirective,
+    reason_of: impl Fn(&T) -> Option<&str>,
+    matches_rule: impl Fn(&T) -> bool,
+) -> BoundaryRuleDecision {
+    let Some(&first) = applicable.first() else {
+        return BoundaryRuleDecision::Allowed;
+    };
+    match directive_of(first) {
+        BoundaryDirective::Allow => {
+            if applicable.iter().copied().any(matches_rule) {
+                BoundaryRuleDecision::Allowed
+            } else {
+                let reason = applicable
+                    .iter()
+                    .find_map(|rule| reason_of(rule).map(str::to_owned));
+                BoundaryRuleDecision::Denied {
+                    directive: BoundaryDirective::Allow,
+                    reason,
                 }
             }
-            BoundaryDirective::Deny => {
-                let denied_by = applicable.iter().find(|rule| {
-                    rule.targets
-                        .iter()
-                        .any(|target| target == target_zone || target == WILDCARD_ZONE)
-                });
-                match denied_by {
-                    Some(rule) => BoundaryRuleDecision::Denied {
+        }
+        BoundaryDirective::Deny => {
+            for &rule in applicable {
+                if matches_rule(rule) {
+                    return BoundaryRuleDecision::Denied {
                         directive: BoundaryDirective::Deny,
-                        reason: rule.reason.clone(),
-                    },
-                    None => BoundaryRuleDecision::Allowed,
+                        reason: reason_of(rule).map(str::to_owned),
+                    };
                 }
             }
+            BoundaryRuleDecision::Allowed
         }
     }
 }
@@ -440,22 +532,31 @@ fn compile_rules(
     boundaries_key: &KeyPath,
     zones: &BTreeMap<String, CompiledZone>,
     merged_rules: Vec<BoundaryRuleFile>,
-) -> Result<Vec<CompiledRule>, ConfigurationFileError> {
+) -> Result<(Vec<CompiledRule>, Vec<CompiledExternalRule>), ConfigurationFileError> {
     let known_zones: Vec<String> = zones.keys().cloned().collect();
     let rules_key = boundaries_key.child(KeySegment::Key("rules".to_owned()));
-    let mut rules = Vec::with_capacity(merged_rules.len());
-    let mut directive_by_from: BTreeMap<String, BoundaryDirective> = BTreeMap::new();
+    let mut rules = Vec::new();
+    let mut external_rules = Vec::new();
+    let mut internal_by_from: BTreeMap<String, BoundaryDirective> = BTreeMap::new();
+    let mut external_by_from: BTreeMap<String, BoundaryDirective> = BTreeMap::new();
     for (index, rule) in merged_rules.into_iter().enumerate() {
         let rule_key = rules_key.child(KeySegment::Index(index));
-        rules.push(compile_rule(
+        let (internal, external) = compile_rule(
             &rule_key,
             rule,
             zones,
             &known_zones,
-            &mut directive_by_from,
-        )?);
+            &mut internal_by_from,
+            &mut external_by_from,
+        )?;
+        if let Some(compiled) = internal {
+            rules.push(compiled);
+        }
+        if let Some(compiled) = external {
+            external_rules.push(compiled);
+        }
     }
-    Ok(rules)
+    Ok((rules, external_rules))
 }
 
 fn compile_rule(
@@ -463,58 +564,206 @@ fn compile_rule(
     rule: BoundaryRuleFile,
     zones: &BTreeMap<String, CompiledZone>,
     known_zones: &[String],
-    directive_by_from: &mut BTreeMap<String, BoundaryDirective>,
-) -> Result<CompiledRule, ConfigurationFileError> {
-    if rule.from != WILDCARD_ZONE && !zones.contains_key(&rule.from) {
-        return Err(ConfigurationFileError::UnknownBoundaryZone {
+    internal_by_from: &mut BTreeMap<String, BoundaryDirective>,
+    external_by_from: &mut BTreeMap<String, BoundaryDirective>,
+) -> Result<(Option<CompiledRule>, Option<CompiledExternalRule>), ConfigurationFileError> {
+    validate_source_zone(rule_key, &rule.from, zones, known_zones)?;
+    let internal = extract_directive_pair(
+        rule_key,
+        &rule.from,
+        rule.allow,
+        rule.deny,
+        ("allow", "deny"),
+        |key, from| ConfigurationFileError::ConflictingBoundaryRule {
             file: ConfigFileKind::Json,
-            key: rule_key.child(KeySegment::Key("from".to_owned())),
-            zone: rule.from,
-            known: known_zones.to_vec(),
-        });
-    }
-    let (directive, targets, targets_key_name) =
-        extract_rule_directive(rule_key, &rule.from, rule.allow, rule.deny)?;
-    if let Some(&previous) = directive_by_from.get(&rule.from)
-        && previous != directive
-    {
-        return Err(ConfigurationFileError::ConflictingBoundaryDirectives {
+            key,
+            from,
+        },
+    )?;
+    let external = extract_directive_pair(
+        rule_key,
+        &rule.from,
+        rule.allow_external,
+        rule.deny_external,
+        ("allow_external", "deny_external"),
+        |key, from| ConfigurationFileError::ConflictingExternalBoundaryRule {
+            file: ConfigFileKind::Json,
+            key,
+            from,
+        },
+    )?;
+    if internal.is_none() && external.is_none() {
+        return Err(ConfigurationFileError::MissingBoundaryRuleDirective {
             file: ConfigFileKind::Json,
             key: rule_key.clone(),
             from: rule.from,
         });
     }
-    directive_by_from.insert(rule.from.clone(), directive);
-    let targets_key = rule_key.child(KeySegment::Key(targets_key_name.to_owned()));
-    validate_rule_targets(&targets_key, &targets, zones, known_zones)?;
+    let reason = rule.reason.filter(|text| !text.trim().is_empty());
+    let compiled_internal = internal
+        .map(|entry| {
+            compile_internal_rule(
+                rule_key,
+                &rule.from,
+                entry,
+                reason.clone(),
+                zones,
+                known_zones,
+                internal_by_from,
+            )
+        })
+        .transpose()?;
+    let compiled_external = external
+        .map(|entry| compile_external_rule(rule_key, rule.from, entry, reason, external_by_from))
+        .transpose()?;
+    Ok((compiled_internal, compiled_external))
+}
+
+fn validate_source_zone(
+    rule_key: &KeyPath,
+    from: &str,
+    zones: &BTreeMap<String, CompiledZone>,
+    known_zones: &[String],
+) -> Result<(), ConfigurationFileError> {
+    if from != WILDCARD_ZONE && !zones.contains_key(from) {
+        return Err(ConfigurationFileError::UnknownBoundaryZone {
+            file: ConfigFileKind::Json,
+            key: rule_key.child(KeySegment::Key("from".to_owned())),
+            zone: from.to_owned(),
+            known: known_zones.to_vec(),
+        });
+    }
+    Ok(())
+}
+
+fn compile_internal_rule(
+    rule_key: &KeyPath,
+    from: &str,
+    entry: RuleDirectiveValues,
+    reason: Option<String>,
+    zones: &BTreeMap<String, CompiledZone>,
+    known_zones: &[String],
+    by_from: &mut BTreeMap<String, BoundaryDirective>,
+) -> Result<CompiledRule, ConfigurationFileError> {
+    record_rule_directive(rule_key, from, entry.directive, by_from, |key, zone| {
+        ConfigurationFileError::ConflictingBoundaryDirectives {
+            file: ConfigFileKind::Json,
+            key,
+            from: zone,
+        }
+    })?;
+    let targets_key = rule_key.child(KeySegment::Key(entry.key_name.to_owned()));
+    validate_rule_targets(&targets_key, &entry.values, zones, known_zones)?;
     Ok(CompiledRule {
-        from: rule.from,
-        directive,
-        targets,
-        reason: rule.reason.filter(|text| !text.trim().is_empty()),
+        from: from.to_owned(),
+        directive: entry.directive,
+        targets: entry.values,
+        reason,
     })
 }
 
-fn extract_rule_directive(
+fn compile_external_rule(
+    rule_key: &KeyPath,
+    from: String,
+    entry: RuleDirectiveValues,
+    reason: Option<String>,
+    by_from: &mut BTreeMap<String, BoundaryDirective>,
+) -> Result<CompiledExternalRule, ConfigurationFileError> {
+    record_rule_directive(rule_key, &from, entry.directive, by_from, |key, zone| {
+        ConfigurationFileError::ConflictingExternalBoundaryDirectives {
+            file: ConfigFileKind::Json,
+            key,
+            from: zone,
+        }
+    })?;
+    let patterns_key = rule_key.child(KeySegment::Key(entry.key_name.to_owned()));
+    let matcher = compile_external_globs(&patterns_key, &entry.values)?;
+    Ok(CompiledExternalRule {
+        from,
+        directive: entry.directive,
+        patterns: entry.values,
+        matcher,
+        reason,
+    })
+}
+
+struct RuleDirectiveValues {
+    directive: BoundaryDirective,
+    values: Vec<String>,
+    key_name: &'static str,
+}
+
+fn record_rule_directive(
+    rule_key: &KeyPath,
+    from: &str,
+    directive: BoundaryDirective,
+    by_from: &mut BTreeMap<String, BoundaryDirective>,
+    conflict_error: impl FnOnce(KeyPath, String) -> ConfigurationFileError,
+) -> Result<(), ConfigurationFileError> {
+    if let Some(&previous) = by_from.get(from)
+        && previous != directive
+    {
+        return Err(conflict_error(rule_key.clone(), from.to_owned()));
+    }
+    by_from.insert(from.to_owned(), directive);
+    Ok(())
+}
+
+fn extract_directive_pair(
     rule_key: &KeyPath,
     from: &str,
     allow: Option<Vec<String>>,
     deny: Option<Vec<String>>,
-) -> Result<(BoundaryDirective, Vec<String>, &'static str), ConfigurationFileError> {
+    key_names: (&'static str, &'static str),
+    conflict_error: impl FnOnce(KeyPath, String) -> ConfigurationFileError,
+) -> Result<Option<RuleDirectiveValues>, ConfigurationFileError> {
     match (allow, deny) {
-        (Some(allow), None) => Ok((BoundaryDirective::Allow, allow, "allow")),
-        (None, Some(deny)) => Ok((BoundaryDirective::Deny, deny, "deny")),
-        (Some(_), Some(_)) => Err(ConfigurationFileError::ConflictingBoundaryRule {
-            file: ConfigFileKind::Json,
-            key: rule_key.clone(),
-            from: from.to_owned(),
-        }),
-        (None, None) => Err(ConfigurationFileError::MissingBoundaryRuleDirective {
-            file: ConfigFileKind::Json,
-            key: rule_key.clone(),
-            from: from.to_owned(),
-        }),
+        (Some(values), None) => Ok(Some(RuleDirectiveValues {
+            directive: BoundaryDirective::Allow,
+            values,
+            key_name: key_names.0,
+        })),
+        (None, Some(values)) => Ok(Some(RuleDirectiveValues {
+            directive: BoundaryDirective::Deny,
+            values,
+            key_name: key_names.1,
+        })),
+        (Some(_), Some(_)) => Err(conflict_error(rule_key.clone(), from.to_owned())),
+        (None, None) => Ok(None),
     }
+}
+
+fn compile_external_globs(
+    key: &KeyPath,
+    patterns: &[String],
+) -> Result<GlobSet, ConfigurationFileError> {
+    let mut builder = GlobSetBuilder::new();
+    for (index, pattern) in patterns.iter().enumerate() {
+        let pattern_key = key.child(KeySegment::Index(index));
+        if pattern.trim().is_empty() {
+            return Err(ConfigurationFileError::EmptyBoundaryExternalPattern {
+                file: ConfigFileKind::Json,
+                key: pattern_key,
+            });
+        }
+        let compiled = GlobBuilder::new(pattern)
+            .literal_separator(false)
+            .backslash_escape(true)
+            .build()
+            .map_err(|source| ConfigurationFileError::InvalidGlob {
+                file: ConfigFileKind::Json,
+                key: pattern_key,
+                source,
+            })?;
+        builder.add(compiled);
+    }
+    builder
+        .build()
+        .map_err(|source| ConfigurationFileError::InvalidGlob {
+            file: ConfigFileKind::Json,
+            key: key.clone(),
+            source,
+        })
 }
 
 fn validate_rule_targets(
@@ -589,8 +838,11 @@ fn merge_preset(
     for (name, zone) in user_zones {
         zones.insert(name, zone);
     }
-    let overridden_from: BTreeSet<String> =
-        user_rules.iter().map(|rule| rule.from.clone()).collect();
+    let overridden_from: BTreeSet<String> = user_rules
+        .iter()
+        .filter(|rule| rule.allow.is_some() || rule.deny.is_some())
+        .map(|rule| rule.from.clone())
+        .collect();
     let mut rules: Vec<BoundaryRuleFile> = preset_rules
         .into_iter()
         .filter(|rule| !overridden_from.contains(&rule.from))
@@ -623,6 +875,8 @@ fn allow_rule(from: &str, allow: &[&str], reason: &str) -> BoundaryRuleFile {
         from: from.to_owned(),
         allow: Some(allow.iter().map(|target| (*target).to_owned()).collect()),
         deny: None,
+        allow_external: None,
+        deny_external: None,
         reason: Some(reason.to_owned()),
     }
 }

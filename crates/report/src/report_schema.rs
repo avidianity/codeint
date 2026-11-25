@@ -92,7 +92,7 @@ fn report_schema_value() -> Value {
                     "duplication": { "type": "object" },
                     "verbosity": { "type": "object" },
                     "import_cycles": { "type": "object" },
-                    "boundaries": { "type": "object" },
+                    "boundaries": { "$ref": "#/$defs/BoundariesSection" },
                     "orphan_files": { "type": "object" },
                     "test_gap": { "$ref": "#/$defs/TestGapSection" },
                     "hazards": { "$ref": "#/$defs/HazardsSection" },
@@ -113,7 +113,7 @@ fn report_schema_value() -> Value {
                     "duplication": { "type": "object" },
                     "verbosity": { "type": "object" },
                     "import_cycles": { "type": "object" },
-                    "boundaries": { "type": "object" },
+                    "boundaries": { "$ref": "#/$defs/BoundariesSection" },
                     "test_gap": false,
                     "hazards": { "$ref": "#/$defs/HazardsSection" },
                     "packages": {
@@ -121,6 +121,39 @@ fn report_schema_value() -> Value {
                         "items": { "$ref": "#/$defs/PackageSection" }
                     }
                 }
+            },
+            "BoundariesSection": {
+                "type": "object",
+                "description": "Import boundaries for this Source set; omitted when boundaries are not configured or do not apply to this Source set.",
+                "required": ["ratio", "resolved_imports", "findings"],
+                "properties": {
+                    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "resolved_imports": { "type": "integer", "minimum": 0 },
+                    "findings": {
+                        "type": "array",
+                        "items": { "$ref": "#/$defs/BoundaryFinding" }
+                    },
+                    "findings_left_out": { "type": "integer", "minimum": 1 }
+                },
+                "additionalProperties": false
+            },
+            "BoundaryFinding": {
+                "type": "object",
+                "required": ["id", "kind", "importer", "message"],
+                "properties": {
+                    "id": { "type": "string" },
+                    "kind": { "type": "string", "enum": ["zone_rule", "external_package", "public_files", "unzoned_file"] },
+                    "importer": { "type": "string" },
+                    "target": { "type": "string" },
+                    "external_package": { "type": "string" },
+                    "specifier": { "type": "string" },
+                    "source_zone": { "type": "string" },
+                    "target_zone": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "message": { "type": "string" },
+                    "owners": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
             },
             "TestGapSection": {
                 "type": "object",

@@ -72,7 +72,7 @@ The Import cycles Metric is the share of modules that belong to at least one Imp
 _Avoid_: circular dependency, dependency loop
 
 **Import boundary**:
-A directional rule or public-file constraint governing which architectural zones may import modules from another zone.
+A directional rule or public-file constraint governing which architectural zones may import modules from another zone or which third-party external packages a zone may import.
 _Avoid_: layer rule, module fence
 
 **Orphan file**:

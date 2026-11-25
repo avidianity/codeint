@@ -90,7 +90,8 @@ If your config file pins an official `$schema` tag newer than the running binary
       {
         "from": "domain",
         "allow": ["domain"],
-        "reason": "Domain stays independent of infrastructure",
+        "allow_external": [],
+        "reason": "Domain stays independent of infrastructure and third-party packages",
       },
     ],
     "strict_zones": false,
@@ -126,7 +127,8 @@ If your config file pins an official `$schema` tag newer than the running binary
   See [Hazards](./hazards.md).
 - **`coverage_reports`**: repository-relative paths to LCOV or Cobertura XML Coverage reports used to compute **Test gap**; overridden when `--coverage-report` is passed on `codeint check`.
   See [Test gap](./test-gap.md).
-- **`boundaries`**: architectural import zones, optional `preset` (`layered` or `hexagonal`), `public_files` encapsulation, directional `allow` or `deny` rules with optional `reason`, `strict_zones`, and `source_sets` (default `["production"]`).
+- **`boundaries`**: architectural import zones, optional `preset` (`layered` or `hexagonal`), `public_files` encapsulation, directional internal `allow` or `deny` rules, external package `allow_external` or `deny_external` globs with optional `reason`, `strict_zones`, and `source_sets` (default `["production"]`).
+  See [Import boundaries](./import-boundaries.md).
 - **`duplication`**: set `near_clones: true` to enable shingle-based near-duplicate detection alongside exact Clone groups, and tune `min_similarity` in `(0, 1]` (default `0.85`).
 - **`entry_points`**: repository-relative globs treated as additional Production entry points for Orphan files detection, combined with manifest-discovered entry points.
 - **`dependencies.ignore`**: canonical external package names excluded from `unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies` Findings.

@@ -100,7 +100,7 @@ pub(super) struct ConfigurationFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "BoundariesFile",
-        description = "Architectural import boundaries defining named zones, optional public_files entry points, directional allow or deny rules, and optional strict_zones mode."
+        description = "Architectural import boundaries defining named zones, optional public_files entry points, directional internal allow or deny rules, external package allow_external or deny_external glob rules, and optional strict_zones mode."
     )]
     boundaries: Option<BoundariesFile>,
     #[serde(default, skip_serializing_if = "DependenciesFile::is_unset")]

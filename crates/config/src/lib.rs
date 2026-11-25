@@ -19,7 +19,8 @@ mod result_cache_folder;
 mod sql;
 
 pub use boundaries::{
-    Boundaries, BoundaryDirective, BoundaryPreset, BoundaryRuleDecision, BoundarySourceSet,
+    Boundaries, BoundaryDirective, BoundaryExternalPolicy, BoundaryPreset, BoundaryRuleDecision,
+    BoundarySourceSet,
 };
 pub use calendar_day::{CalendarDay, CalendarDayError};
 pub use churn::{ChurnFormat, ChurnSince, ChurnSinceError, ChurnWindow, DEFAULT_CHURN_DAYS};

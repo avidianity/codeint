@@ -112,15 +112,17 @@ crate_structs! {
         id: String,
         kind: String,
         importer: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        external_package: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         specifier: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         source_zone: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         target_zone: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
         message: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -420,6 +422,7 @@ impl From<&BoundaryFinding> for BoundaryFindingRow {
             kind: finding.kind.key().to_owned(),
             importer: finding.importer.to_string(),
             target: finding.target.as_ref().map(RepoPath::to_string),
+            external_package: finding.external_package.clone(),
             specifier: finding.specifier.clone(),
             source_zone: finding.source_zone.clone(),
             target_zone: finding.target_zone.clone(),

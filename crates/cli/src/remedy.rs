@@ -423,12 +423,23 @@ fn boundary_config_remedy(error: &ConfigurationFileError) -> Option<&'static str
         ConflictingBoundaryRule { .. } => {
             Some("Set either allow or deny on each rule in boundaries.rules, not both.")
         }
-        MissingBoundaryRuleDirective { .. } => {
-            Some("Set either allow or deny on each rule in boundaries.rules.")
-        }
+        ConflictingExternalBoundaryRule { .. } => Some(
+            "Set either allow_external or deny_external on each rule in boundaries.rules, not both.",
+        ),
+        MissingBoundaryRuleDirective { .. } => Some(
+            "Set at least one of allow, deny, allow_external, or deny_external on each rule in boundaries.rules.",
+        ),
         ConflictingBoundaryDirectives { .. } => Some(
             "Use either allow rules or deny rules for a given source zone in boundaries.rules, not both.",
         ),
+        ConflictingExternalBoundaryDirectives { .. } => Some(
+            "Use either allow_external rules or deny_external rules for a given source zone in boundaries.rules, not both.",
+        ),
+        EmptyBoundaryExternalPattern { file, .. } => Some(choose_file_remedy(
+            *file,
+            "Set non-empty package globs in allow_external or deny_external in codeint.json, or remove the empty entry.",
+            "Set non-empty package globs in allow_external or deny_external in codeint.jsonc, or remove the empty entry.",
+        )),
         _ => None,
     }
 }

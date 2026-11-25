@@ -905,3 +905,418 @@ fn check_multi_file_import_flags_each_forbidden_target_with_distinct_ids() {
     assert!(markdown.contains("`secret/beta.fld`"));
     assert!(!markdown.contains("`public/ok.fld`"));
 }
+
+#[test]
+fn check_enforces_allow_external_deny_external_globs_builtins_and_source_sets_across_formats() {
+    let fixture = BoundaryFixture::init(&[
+        (
+            "codeint.json",
+            r#"{
+  "boundaries": {
+    "zones": {
+      "domain": { "patterns": ["src/domain/**"] },
+      "app": { "patterns": ["src/app/**"] },
+      "infra": { "patterns": ["src/infra/**"] }
+    },
+    "rules": [
+      {
+        "from": "domain",
+        "allow": ["domain"],
+        "allow_external": [],
+        "reason": "Domain must stay free of third-party packages"
+      },
+      {
+        "from": "app",
+        "allow_external": ["zod", "@acme/*"],
+        "reason": "App may only use approved schema helpers"
+      },
+      {
+        "from": "infra",
+        "deny_external": ["prisma", "@aws-sdk/*"],
+        "reason": "Use repository adapters instead of direct ORM or AWS SDK imports"
+      }
+    ]
+  }
+}
+"#,
+        ),
+        (
+            "src/domain/pure.ts",
+            "import path from 'node:path';\nexport const base = path.basename('a/b');\n",
+        ),
+        (
+            "src/domain/bad.ts",
+            "import { PrismaClient } from 'prisma';\nexport const client = PrismaClient;\n",
+        ),
+        (
+            "src/domain/bad.test.ts",
+            "import { PrismaClient } from 'prisma';\nexport const tested = PrismaClient;\n",
+        ),
+        (
+            "src/app/ok.ts",
+            "import { z } from 'zod';\nimport { fmt } from '@acme/utils';\nexport const ok = [z, fmt];\n",
+        ),
+        (
+            "src/app/bad.ts",
+            "import axios from 'axios';\nexport const bad = axios;\n",
+        ),
+        (
+            "src/infra/client.ts",
+            "import { S3Client } from '@aws-sdk/client-s3';\nimport { z } from 'zod';\nexport const out = [S3Client, z];\n",
+        ),
+    ]);
+
+    let json = fixture.check_json(0);
+    assert!(json["source_sets"]["test"].get("boundaries").is_none());
+    let boundaries = &json["source_sets"]["production"]["boundaries"];
+    assert_eq!(boundaries["resolved_imports"], 6);
+    let findings = boundary_findings(&json, "production");
+    assert_eq!(findings.len(), 3, "got: {findings:?}");
+
+    let domain_prisma = findings
+        .iter()
+        .find(|f| f["importer"] == "src/domain/bad.ts")
+        .expect("domain -> prisma finding");
+    assert_eq!(domain_prisma["kind"], "external_package");
+    assert!(domain_prisma.get("target").is_none());
+    assert_eq!(domain_prisma["external_package"], "prisma");
+    assert_eq!(domain_prisma["specifier"], "prisma");
+    assert_eq!(domain_prisma["source_zone"], "domain");
+    assert!(domain_prisma.get("target_zone").is_none());
+    assert_eq!(
+        domain_prisma["reason"],
+        "Domain must stay free of third-party packages"
+    );
+
+    let app_axios = findings
+        .iter()
+        .find(|f| f["importer"] == "src/app/bad.ts")
+        .expect("app -> axios finding");
+    assert_eq!(app_axios["kind"], "external_package");
+    assert_eq!(app_axios["external_package"], "axios");
+    assert_eq!(app_axios["source_zone"], "app");
+
+    let infra_aws = findings
+        .iter()
+        .find(|f| f["importer"] == "src/infra/client.ts")
+        .expect("infra -> @aws-sdk/client-s3 finding");
+    assert_eq!(infra_aws["kind"], "external_package");
+    assert_eq!(infra_aws["external_package"], "@aws-sdk/client-s3");
+    assert_eq!(infra_aws["source_zone"], "infra");
+    assert_eq!(
+        infra_aws["reason"],
+        "Use repository adapters instead of direct ORM or AWS SDK imports"
+    );
+
+    let sarif_results = fixture.sarif_boundary_results(None, &["check", "--format", "sarif"], 0);
+    assert_eq!(sarif_results.len(), 3);
+    let sarif_messages: Vec<&str> = sarif_results
+        .iter()
+        .filter_map(|result| result["message"]["text"].as_str())
+        .collect();
+    assert!(sarif_messages.iter().any(|text| {
+        text.contains("@aws-sdk/client-s3")
+            && text.contains("Use repository adapters instead of direct ORM or AWS SDK imports")
+    }));
+
+    for (args, expected) in [
+        (
+            &["check"][..],
+            &[
+                "external_package",
+                "@aws-sdk/client-s3",
+                "Domain must stay free of third-party packages",
+            ][..],
+        ),
+        (
+            &["check", "--format", "markdown"][..],
+            &["`@aws-sdk/client-s3`", "`prisma`", r"external\_package"][..],
+        ),
+    ] {
+        let rendered = fixture.run_stdout(None, args, 0);
+        for snippet in expected {
+            assert!(
+                rendered.contains(snippet),
+                "missing {snippet:?} in {rendered}"
+            );
+        }
+    }
+
+    let report_path = fixture.0.path().join("saved-check.json");
+    fs::write(
+        &report_path,
+        fixture.run_stdout(None, &["check", "--format", "json"], 0),
+    )
+    .expect("write saved report");
+    let rerendered_text =
+        fixture.run_stdout(None, &["report", "saved-check.json", "--format", "text"], 0);
+    assert!(rerendered_text.contains("@aws-sdk/client-s3"));
+    assert!(rerendered_text.contains("external_package"));
+
+    fixture.write(
+        "codeint.json",
+        r#"{
+  "boundaries": {
+    "zones": {
+      "domain": { "patterns": ["src/domain/**"] }
+    },
+    "rules": [
+      {
+        "from": "domain",
+        "allow_external": [],
+        "reason": "Domain must stay free of third-party packages"
+      }
+    ],
+    "source_sets": ["production", "test"]
+  }
+}
+"#,
+    );
+    let scoped_json = fixture.check_json(0);
+    let test_findings = boundary_findings(&scoped_json, "test");
+    assert_eq!(test_findings.len(), 1, "got: {test_findings:?}");
+    assert_eq!(test_findings[0]["importer"], "src/domain/bad.test.ts");
+    assert_eq!(test_findings[0]["external_package"], "prisma");
+}
+
+#[test]
+fn check_preserves_resolved_imports_denominator_when_no_external_rules_exist() {
+    let fixture = BoundaryFixture::init(&[
+        (
+            "codeint.json",
+            r#"{
+  "boundaries": {
+    "zones": {
+      "domain": { "patterns": ["src/domain/**"] },
+      "infra": { "patterns": ["src/infra/**"] }
+    },
+    "rules": [
+      { "from": "domain", "deny": ["infra"] }
+    ]
+  }
+}
+"#,
+        ),
+        ("src/infra/db.ts", "export const db = 1;\n"),
+        (
+            "src/domain/service.ts",
+            "import { db } from '../infra/db';\nimport { z } from 'zod';\nimport axios from 'axios';\nexport const out = [db, z, axios];\n",
+        ),
+    ]);
+
+    let without_external = fixture.check_json(0);
+    let boundaries = &without_external["source_sets"]["production"]["boundaries"];
+    assert_eq!(boundaries["resolved_imports"], 1);
+    assert_eq!(boundaries["ratio"], 1.0);
+
+    fixture.write(
+        "codeint.json",
+        r#"{
+  "boundaries": {
+    "zones": {
+      "domain": { "patterns": ["src/domain/**"] },
+      "infra": { "patterns": ["src/infra/**"] }
+    },
+    "rules": [
+      { "from": "domain", "deny": ["infra"], "deny_external": ["axios"] }
+    ]
+  }
+}
+"#,
+    );
+
+    let with_external = fixture.check_json(0);
+    let boundaries_ext = &with_external["source_sets"]["production"]["boundaries"];
+    assert_eq!(boundaries_ext["resolved_imports"], 3);
+    assert_eq!(boundary_findings(&with_external, "production").len(), 2);
+}
+
+fn assert_invalid_external_rule(name: &str, rules_json: &str, expected_substring: &str) {
+    let config = format!(
+        r#"{{"boundaries":{{"zones":{{"domain":{{"patterns":["src/domain/**"]}}}},"rules":{rules_json}}}}}"#
+    );
+    let fixture = BoundaryFixture::init(&[
+        ("codeint.json", &config),
+        ("src/domain/a.ts", "export const a = 1;\n"),
+    ]);
+    let output = fixture.run(&["check"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "case {name}: {stderr}");
+    assert!(
+        stderr.contains(expected_substring),
+        "case {name}: expected {expected_substring:?} in {stderr}"
+    );
+}
+
+#[test]
+fn check_rejects_invalid_external_boundary_configurations_with_exit_code_two() {
+    assert_invalid_external_rule(
+        "conflicting_allow_external_and_deny_external_on_same_rule",
+        r#"[{"from":"domain","allow_external":["zod"],"deny_external":["prisma"]}]"#,
+        "allow_external",
+    );
+    assert_invalid_external_rule(
+        "conflicting_allow_external_and_deny_external_across_rules_for_same_from",
+        r#"[{"from":"domain","allow_external":["zod"]},{"from":"domain","deny_external":["prisma"]}]"#,
+        "domain",
+    );
+    assert_invalid_external_rule(
+        "invalid_glob_in_allow_external",
+        r#"[{"from":"domain","allow_external":["@aws-sdk/[unclosed"]}]"#,
+        "glob",
+    );
+    assert_invalid_external_rule(
+        "invalid_glob_in_deny_external",
+        r#"[{"from":"domain","deny_external":["[unclosed"]}]"#,
+        "glob",
+    );
+    assert_invalid_external_rule(
+        "empty_glob_in_deny_external",
+        r#"[{"from":"domain","deny_external":["   "]}]"#,
+        "empty",
+    );
+}
+
+#[test]
+fn diff_classifies_external_package_boundary_findings_across_formats() {
+    let cache = tempfile::tempdir().expect("cache tempdir");
+    let fixture = BoundaryFixture::init(&[
+        (
+            "codeint.json",
+            r#"{
+  "boundaries": {
+    "zones": {
+      "domain": { "patterns": ["src/domain/**"] }
+    },
+    "rules": [
+      {
+        "from": "domain",
+        "deny_external": ["prisma", "@aws-sdk/*"],
+        "reason": "Domain must not import persistence or cloud SDKs"
+      }
+    ]
+  }
+}
+"#,
+        ),
+        (
+            "src/domain/legacy.ts",
+            "import { PrismaClient } from 'prisma';\nexport const legacy = PrismaClient;\n",
+        ),
+    ]);
+    fixture.commit("base with legacy external violation");
+
+    fixture.write(
+        "src/domain/legacy.ts",
+        "\nimport { PrismaClient } from 'prisma';\nexport const legacy = PrismaClient;\n",
+    );
+    let unchanged_json = fixture.diff_json(cache.path(), 0);
+    assert_diff_counts(
+        &unchanged_json["source_sets"]["production"]["boundaries"],
+        0,
+        0,
+        1,
+    );
+
+    fixture.write(
+        "src/domain/upload.ts",
+        "import { S3Client } from '@aws-sdk/client-s3';\nexport const s3 = S3Client;\n",
+    );
+    let reg_json = fixture.diff_json(cache.path(), 1);
+    let prod_diff = &reg_json["source_sets"]["production"]["boundaries"];
+    assert_diff_counts(prod_diff, 1, 0, 1);
+    assert_eq!(prod_diff["new"][0]["kind"], "external_package");
+    assert_eq!(prod_diff["new"][0]["importer"], "src/domain/upload.ts");
+    assert_eq!(
+        prod_diff["new"][0]["external_package"],
+        "@aws-sdk/client-s3"
+    );
+
+    let md = fixture.run_stdout(
+        Some(cache.path()),
+        &["diff", "main", "--format", "markdown"],
+        1,
+    );
+    assert!(md.contains("`src/domain/upload.ts`"));
+    assert!(md.contains("`@aws-sdk/client-s3`"));
+    assert!(md.contains(r"external\_package"));
+
+    let sarif = fixture.sarif_boundary_results(
+        Some(cache.path()),
+        &["diff", "main", "--format", "sarif"],
+        1,
+    );
+    assert_eq!(sarif.len(), 1);
+    assert!(
+        sarif[0]["message"]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("@aws-sdk/client-s3")
+    );
+
+    let toon = fixture.run_stdout(Some(cache.path()), &["diff", "main"], 1);
+    assert!(toon.contains("@aws-sdk/client-s3"));
+    assert!(toon.contains("external_package"));
+
+    fixture.write("src/domain/legacy.ts", "export const legacy = 1;\n");
+    fixture.write("src/domain/upload.ts", "export const s3 = 2;\n");
+    let resolved_json = fixture.diff_json(cache.path(), 0);
+    assert_diff_counts(
+        &resolved_json["source_sets"]["production"]["boundaries"],
+        0,
+        1,
+        0,
+    );
+}
+
+#[test]
+fn presets_have_no_external_rules_and_keep_internal_rules_when_adding_external_only_rule() {
+    for preset in ["layered", "hexagonal"] {
+        let config = format!(r#"{{"boundaries":{{"preset":"{preset}"}}}}"#);
+        let fixture = BoundaryFixture::init(&[
+            ("codeint.json", &config),
+            (
+                "src/domain/order.ts",
+                "import { PrismaClient } from 'prisma';\nexport const order = PrismaClient;\n",
+            ),
+        ]);
+        let resolved = fixture.run_json(None, &["config", "--resolved", "--format", "json"], 0);
+        let rules = resolved["settings"]
+            .as_array()
+            .expect("settings")
+            .iter()
+            .find(|entry| entry["key"] == "boundaries.rules")
+            .expect("boundaries.rules")["value"]
+            .as_array()
+            .expect("rules array");
+        for rule in rules {
+            assert!(
+                rule.get("allow_external").is_none(),
+                "preset {preset}: {rule}"
+            );
+            assert!(
+                rule.get("deny_external").is_none(),
+                "preset {preset}: {rule}"
+            );
+        }
+        assert!(boundary_findings(&fixture.check_json(0), "production").is_empty());
+    }
+
+    let fixture = BoundaryFixture::init(&[
+        (
+            "codeint.json",
+            r#"{"boundaries":{"preset":"hexagonal","rules":[{"from":"domain","allow_external":[],"reason":"Domain must stay dependency-free"}]}}"#,
+        ),
+        ("src/adapters/db.ts", "export const db = 1;\n"),
+        (
+            "src/domain/order.ts",
+            "import { db } from '../adapters/db';\nimport { PrismaClient } from 'prisma';\nexport const order = [db, PrismaClient];\n",
+        ),
+    ]);
+    let findings = boundary_findings(&fixture.check_json(0), "production");
+    let kinds: Vec<&str> = findings
+        .iter()
+        .filter_map(|finding| finding["kind"].as_str())
+        .collect();
+    assert_eq!(kinds, vec!["external_package", "zone_rule"]);
+}
