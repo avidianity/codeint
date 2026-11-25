@@ -106,7 +106,11 @@ wasm-tools component new \
 
 Do not pass `--adapt` to `wasm-tools component new`, because codeint's empty `Linker` rejects WASI adapters.
 Pin the SHA-256 digest of the component that `wasm-tools component new` writes, not of the core module in `target/wasm32-unknown-unknown/`, as [Compute the SHA-256 hash](#compute-the-sha-256-hash) shows.
-Enabling `features = ["std"]` on `wasm32-wasip2` fails at compile time to stop accidental WASI imports early.
+Enabling the SDK `std` feature on `wasm32-wasip2` fails at compile time.
+That is the only compile-time stop.
+A plugin crate that uses `std` on `wasm32-wasip2` without that feature, for example with `default-features = false` and no `no_std` attribute, still compiles and produces a component with `wasi:*` imports.
+codeint rejects any such component when it loads it, with an error such as `component imports instance wasi:io/poll@0.2.12, but a matching implementation was not found in the linker`.
+Check a build with `wasm-tools component wit my_plugin.wasm` and expect no `import wasi:` lines.
 
 ### Safe Rust and `no_std` tips
 
