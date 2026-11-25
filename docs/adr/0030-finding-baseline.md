@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Finding Baseline in `.codeint/baseline.json`
