@@ -95,6 +95,12 @@ fn is_single_file_cat_arg(arg: &ShellToken) -> bool {
     if arg.text == "-" || arg.text.starts_with('-') {
         return false;
     }
+    if ["$@", "$*", "${@", "${*", "[@]", "[*]"]
+        .iter()
+        .any(|expansion| arg.text.contains(expansion))
+    {
+        return false;
+    }
     if !arg.has_quotes && arg.text.bytes().any(|b| matches!(b, b'*' | b'?' | b'[')) {
         return false;
     }

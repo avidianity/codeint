@@ -104,13 +104,8 @@ fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
     let source_lines = u32::try_from(lexed.code_lines.len()).map_err(|_| LowerError::TooLarge)?;
     let extracted = functions::extract(&lexed.tokens, &lexed.code_lines, dialect);
     let flagged_lines = flagged::evaluate(&lexed.tokens, &lexed.code_lines);
-    let hazard_lines = hazards::evaluate(
-        &lexed.tokens,
-        &lexed.code_lines,
-        &extracted.spans,
-        dialect,
-        text,
-    );
+    let hazard_lines =
+        hazards::evaluate(&lexed.tokens, &lexed.code_lines, &extracted, dialect, text);
     let mut tokens = Vec::new();
     append_duplication_tokens(&lexed.tokens, &mut tokens);
     let source_set = source_set::classify(path, &lexed.header_comments);

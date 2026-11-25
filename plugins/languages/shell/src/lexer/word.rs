@@ -13,7 +13,9 @@ struct WordAcc {
     has_backtick: bool,
     has_unquoted_var: bool,
     has_var_expansion: bool,
+    has_param_expansion: bool,
     unquoted_var_lines: Vec<u32>,
+    zsh_split_lines: Vec<u32>,
     backtick_lines: Vec<u32>,
     sub_tokens: Vec<Vec<ShellToken>>,
 }
@@ -30,7 +32,9 @@ impl WordAcc {
             has_backtick: false,
             has_unquoted_var: false,
             has_var_expansion: false,
+            has_param_expansion: false,
             unquoted_var_lines: Vec::new(),
+            zsh_split_lines: Vec::new(),
             backtick_lines: Vec::new(),
             sub_tokens: Vec::new(),
         }
@@ -41,6 +45,12 @@ impl WordAcc {
         self.has_var_expansion = true;
         if self.unquoted_var_lines.last() != Some(&line) {
             self.unquoted_var_lines.push(line);
+        }
+    }
+
+    fn record_zsh_split(&mut self, line: u32) {
+        if self.zsh_split_lines.last() != Some(&line) {
+            self.zsh_split_lines.push(line);
         }
     }
 
@@ -67,7 +77,10 @@ impl WordAcc {
             has_backtick: self.has_backtick,
             has_unquoted_var: self.has_unquoted_var,
             has_var_expansion: self.has_var_expansion,
+            has_param_expansion: self.has_param_expansion,
+            is_heredoc_delimiter: false,
             unquoted_var_lines: self.unquoted_var_lines,
+            zsh_split_lines: self.zsh_split_lines,
             backtick_lines: self.backtick_lines,
             sub_tokens: self.sub_tokens,
         }
@@ -181,6 +194,7 @@ fn scan_word_piece(scanner: &mut Scanner<'_>, ch: u8, acc: &mut WordAcc) -> Resu
             let bt_line = scanner.line;
             acc.record_backtick(bt_line);
             acc.record_unquoted_var(bt_line);
+            acc.record_zsh_split(bt_line);
             skip_backtick(scanner, false)
         }
         _ => {
@@ -223,11 +237,20 @@ fn scan_dollar_unquoted(scanner: &mut Scanner<'_>, acc: &mut WordAcc) -> Result<
         }
         Some(b'{') => {
             acc.other_segments += 1;
+            if scanner.dialect == ShellDialect::Zsh && scanner.peek_at(2) == Some(b'=') {
+                acc.record_zsh_split(scanner.line);
+            }
             scan_param_expansion(scanner, acc, false)
         }
         Some(next) if is_var_start(next) => {
             acc.other_segments += 1;
             scan_simple_var(scanner, acc, false);
+            Ok(())
+        }
+        Some(b'~') if scanner.dialect == ShellDialect::Zsh => {
+            acc.other_segments += 1;
+            acc.record_zsh_split(scanner.line);
+            scanner.pos += 1;
             Ok(())
         }
         _ => {
@@ -248,6 +271,7 @@ fn scan_dollar_paren(
     if scanner.peek_at(2) == Some(b'(') {
         acc.has_var_expansion = true;
         if skip_arith_expansion(scanner)? {
+            acc.has_param_expansion = true;
             return Ok(());
         }
         scanner.pos = start_pos;
@@ -255,6 +279,7 @@ fn scan_dollar_paren(
     }
     if !in_double_quotes {
         acc.record_unquoted_var(start_line);
+        acc.record_zsh_split(start_line);
     } else {
         acc.has_var_expansion = true;
     }
@@ -271,6 +296,8 @@ fn scan_param_expansion(
     in_double_quotes: bool,
 ) -> Result<(), LowerError> {
     let start_line = scanner.line;
+    scanner.enter_nesting()?;
+    acc.has_param_expansion = true;
     let is_length = scanner.peek_at(2) == Some(b'#')
         && scanner.peek_at(3).is_some_and(|b| b != b'}' && b != b':');
     if !in_double_quotes && !is_length {
@@ -282,6 +309,7 @@ fn scan_param_expansion(
     let mut depth = 1usize;
     while scanner.pos < scanner.bytes.len() {
         if step_param_expansion(scanner, acc, in_double_quotes, &mut depth)? {
+            scanner.leave_nesting();
             return Ok(());
         }
     }
@@ -347,6 +375,7 @@ fn scan_simple_var(scanner: &mut Scanner<'_>, acc: &mut WordAcc, in_double_quote
         }
     }
     let is_always_numeric = matches!(next, b'?' | b'$' | b'!' | b'#');
+    acc.has_param_expansion = true;
     if !in_double_quotes && !is_always_numeric {
         acc.record_unquoted_var(start_line);
     } else {

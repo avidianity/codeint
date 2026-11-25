@@ -3,9 +3,10 @@ use std::collections::BTreeSet;
 use codeint_model::path_file_name;
 
 use crate::commands::{SimpleCommand, parse_commands};
+use crate::dialect::ShellDialect;
 use crate::lexer::{ShellToken, is_assignment_word};
 
-use super::emit_line;
+use super::{ErrexitScope, emit_line};
 
 const ASSIGNMENT_BUILTINS: &[&str] = &["declare", "env", "export", "local", "readonly", "typeset"];
 
@@ -18,14 +19,15 @@ const READ_VALUE_SHORT_FLAGS: &[u8] = b"adinNptu";
 pub(super) fn check_stream(
     tokens: &[ShellToken],
     code_lines: &BTreeSet<u32>,
-    has_errexit: bool,
+    scope: ErrexitScope<'_>,
+    dialect: ShellDialect,
     hits: &mut BTreeSet<(u32, &'static str)>,
 ) {
     let parsed = parse_commands(tokens);
     for cmd in &parsed.commands {
-        check_unquoted_vars(tokens, cmd, code_lines, hits);
+        check_unquoted_vars(tokens, cmd, dialect, code_lines, hits);
         check_eval(tokens, cmd, code_lines, hits);
-        check_unchecked_cd(tokens, cmd, has_errexit, code_lines, hits);
+        check_unchecked_cd(tokens, cmd, scope, code_lines, hits);
         check_unguarded_rm_rf(tokens, cmd, code_lines, hits);
         check_read_without_r(tokens, cmd, code_lines, hits);
         check_insecure_tls(tokens, cmd, code_lines, hits);
@@ -43,6 +45,7 @@ pub(super) fn check_stream(
 fn check_unquoted_vars(
     tokens: &[ShellToken],
     cmd: &SimpleCommand,
+    dialect: ShellDialect,
     code_lines: &BTreeSet<u32>,
     hits: &mut BTreeSet<(u32, &'static str)>,
 ) {
@@ -50,29 +53,37 @@ fn check_unquoted_vars(
         !tokens[i].has_quotes && ASSIGNMENT_BUILTINS.contains(&tokens[i].text.as_str())
     });
     if let Some(cmd_idx) = cmd.cmd_idx {
-        emit_unquoted_token(&tokens[cmd_idx], code_lines, hits);
+        emit_unquoted_token(&tokens[cmd_idx], dialect, code_lines, hits);
     }
     for &idx in &cmd.arg_indices {
         let tok = &tokens[idx];
         if is_assign_builtin && is_assignment_word(&tok.text) {
             continue;
         }
-        emit_unquoted_token(tok, code_lines, hits);
+        emit_unquoted_token(tok, dialect, code_lines, hits);
     }
     for &idx in &cmd.redir_targets {
-        emit_unquoted_token(&tokens[idx], code_lines, hits);
+        emit_unquoted_token(&tokens[idx], dialect, code_lines, hits);
     }
 }
 
 fn emit_unquoted_token(
     tok: &ShellToken,
+    dialect: ShellDialect,
     code_lines: &BTreeSet<u32>,
     hits: &mut BTreeSet<(u32, &'static str)>,
 ) {
-    if !tok.has_unquoted_var {
+    if tok.is_heredoc_delimiter {
         return;
     }
-    for &line in &tok.unquoted_var_lines {
+    let lines = if dialect == ShellDialect::Zsh {
+        &tok.zsh_split_lines
+    } else if tok.has_unquoted_var {
+        &tok.unquoted_var_lines
+    } else {
+        return;
+    };
+    for &line in lines {
         emit_line(line, "unquoted-variable", code_lines, hits);
     }
 }
@@ -89,24 +100,37 @@ fn check_eval(
     if !tokens[cmd_idx].is_word("eval") {
         return;
     }
-    if cmd.arg_indices.iter().any(|&i| tokens[i].has_var_expansion) {
+    if cmd
+        .arg_indices
+        .iter()
+        .any(|&i| references_variable(&tokens[i]))
+    {
         emit_line(tokens[cmd_idx].line, "eval-with-variable", code_lines, hits);
     }
+}
+
+fn references_variable(tok: &ShellToken) -> bool {
+    tok.has_param_expansion
+        || tok.has_backtick
+        || tok
+            .sub_tokens
+            .iter()
+            .any(|stream| stream.iter().any(references_variable))
 }
 
 fn check_unchecked_cd(
     tokens: &[ShellToken],
     cmd: &SimpleCommand,
-    has_errexit: bool,
+    scope: ErrexitScope<'_>,
     code_lines: &BTreeSet<u32>,
     hits: &mut BTreeSet<(u32, &'static str)>,
 ) {
-    if has_errexit || cmd.in_condition {
-        return;
-    }
     let Some(cmd_idx) = cmd.cmd_idx else {
         return;
     };
+    if scope.at(cmd_idx) || cmd.in_condition {
+        return;
+    }
     if !tokens[cmd_idx].is_word("cd") {
         return;
     }

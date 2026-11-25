@@ -1,6 +1,6 @@
 use crate::lexer::{ShellToken, ShellTokenKind};
 
-use super::{FunctionSpan, child_span_end};
+use super::SpanIndex;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LogicalOp {
@@ -17,8 +17,7 @@ enum NestKind {
 
 struct CognitiveScorer<'a> {
     tokens: &'a [ShellToken],
-    spans: &'a [FunctionSpan],
-    owner: Option<usize>,
+    index: &'a SpanIndex,
     fn_name: Option<&'a str>,
     score: u32,
     nesting: u32,
@@ -31,14 +30,12 @@ pub(super) fn score_range(
     tokens: &[ShellToken],
     start: usize,
     end: usize,
-    spans: &[FunctionSpan],
-    owner: Option<usize>,
+    index: &SpanIndex,
     fn_name: Option<&str>,
 ) -> u32 {
     let mut scorer = CognitiveScorer {
         tokens,
-        spans,
-        owner,
+        index,
         fn_name,
         score: 0,
         nesting: 0,
@@ -55,7 +52,7 @@ impl CognitiveScorer<'_> {
         let mut at_cmd_pos = true;
         let mut idx = start;
         while idx < end {
-            if let Some(skip_end) = child_span_end(self.spans, self.owner, idx) {
+            if let Some(skip_end) = self.index.skip_end(idx) {
                 idx = skip_end + 1;
                 at_cmd_pos = true;
                 self.current_logical = None;
@@ -89,7 +86,7 @@ impl CognitiveScorer<'_> {
             self.visit_cmd_word(idx, end, &tok.text);
         }
         for sub in &tok.sub_tokens {
-            let sub_score = score_range(sub, 0, sub.len(), &[], None, None);
+            let sub_score = score_range(sub, 0, sub.len(), &SpanIndex::empty(), None);
             self.score = self.score.saturating_add(sub_score);
         }
     }

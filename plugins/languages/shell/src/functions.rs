@@ -20,6 +20,110 @@ pub(crate) struct FunctionSpan {
 pub(crate) struct ExtractedFunctions {
     pub(crate) functions: Vec<Function>,
     pub(crate) spans: Vec<FunctionSpan>,
+    pub(crate) index: SpanIndex,
+}
+
+pub(crate) struct SpanIndex {
+    skip_end: Vec<Option<usize>>,
+}
+
+impl SpanIndex {
+    pub(crate) fn new(spans: &[FunctionSpan], token_count: usize) -> Self {
+        let mut skip_end = vec![None; token_count];
+        for span in spans {
+            if let Some(slot) = skip_end.get_mut(span.decl_start) {
+                *slot = (*slot).max(Some(span.body_end));
+            }
+        }
+        Self { skip_end }
+    }
+
+    pub(crate) fn empty() -> Self {
+        Self {
+            skip_end: Vec::new(),
+        }
+    }
+
+    pub(crate) fn skip_end(&self, idx: usize) -> Option<usize> {
+        self.skip_end.get(idx).copied().flatten()
+    }
+}
+
+struct HeredocEnds {
+    ends: Vec<(usize, u32)>,
+}
+
+impl HeredocEnds {
+    fn new(tokens: &[ShellToken]) -> Self {
+        let mut ends = Vec::new();
+        let mut pending = Vec::new();
+        for (idx, tok) in tokens.iter().enumerate() {
+            if tok.is_op("<<") || tok.is_op("<<-") {
+                pending.push(idx);
+            } else if tok.is_newline() {
+                ends.extend(pending.drain(..).map(|op| (op, tok.end_line)));
+            }
+        }
+        Self { ends }
+    }
+
+    fn end_for(&self, idx: usize) -> Option<u32> {
+        self.ends
+            .binary_search_by_key(&idx, |&(op, _)| op)
+            .ok()
+            .map(|pos| self.ends[pos].1)
+    }
+
+    fn max_in(&self, first: usize, last: usize) -> Option<u32> {
+        let from = self.ends.partition_point(|&(op, _)| op < first);
+        let to = self.ends.partition_point(|&(op, _)| op <= last);
+        self.ends[from..to].iter().map(|&(_, end)| end).max()
+    }
+}
+
+struct LineCounter {
+    lines: Vec<u32>,
+}
+
+impl LineCounter {
+    fn new(code_lines: &BTreeSet<u32>) -> Self {
+        Self {
+            lines: code_lines.iter().copied().collect(),
+        }
+    }
+
+    fn count(&self, first: u32, last: u32) -> u32 {
+        let from = self.lines.partition_point(|&line| line < first);
+        let to = self.lines.partition_point(|&line| line <= last);
+        to.saturating_sub(from) as u32
+    }
+
+    fn count_outside(&self, first: u32, last: u32, mut excluded: Vec<(u32, u32)>) -> u32 {
+        let total = self.count(first, last);
+        excluded.sort_unstable();
+        let mut covered = 0u32;
+        let mut current: Option<(u32, u32)> = None;
+        for (start, end) in excluded {
+            let (start, end) = (start.max(first), end.min(last));
+            if start > end {
+                continue;
+            }
+            current = match current {
+                Some((cur_start, cur_end)) if start <= cur_end => {
+                    Some((cur_start, cur_end.max(end)))
+                }
+                Some((cur_start, cur_end)) => {
+                    covered += self.count(cur_start, cur_end);
+                    Some((start, end))
+                }
+                None => Some((start, end)),
+            };
+        }
+        if let Some((cur_start, cur_end)) = current {
+            covered += self.count(cur_start, cur_end);
+        }
+        total - covered
+    }
 }
 
 fn is_reserved_word(word: &str) -> bool {
@@ -54,44 +158,51 @@ pub(crate) fn extract(
     code_lines: &BTreeSet<u32>,
     dialect: ShellDialect,
 ) -> ExtractedFunctions {
-    let spans = find_named_functions(tokens, dialect);
+    let mut spans = find_named_functions(tokens, dialect);
+    let index = SpanIndex::new(&spans, tokens.len());
+    let heredocs = HeredocEnds::new(tokens);
+    for span in &mut spans {
+        if let Some(end) = heredocs.max_in(span.decl_start, span.body_end) {
+            span.end_line = span.end_line.max(end);
+        }
+    }
+    let counter = LineCounter::new(code_lines);
+    let children = child_line_ranges(&spans);
     let mut functions: Vec<Function> = spans
         .iter()
-        .enumerate()
-        .map(|(owner, span)| build_named_function(tokens, code_lines, &spans, owner, span))
+        .zip(children)
+        .map(|(span, child_ranges)| {
+            build_named_function(tokens, &counter, &index, span, child_ranges)
+        })
         .collect();
-    if let Some(script_fn) = build_top_level_script_function(tokens, code_lines, &spans) {
+    if let Some(script_fn) =
+        build_top_level_script_function(tokens, &counter, &spans, &index, &heredocs)
+    {
         functions.push(script_fn);
     }
     functions.sort_by_key(|f| (f.line, f.end_line));
-    ExtractedFunctions { functions, spans }
+    ExtractedFunctions {
+        functions,
+        spans,
+        index,
+    }
 }
 
 fn build_named_function(
     tokens: &[ShellToken],
-    code_lines: &BTreeSet<u32>,
-    spans: &[FunctionSpan],
-    owner: usize,
+    counter: &LineCounter,
+    index: &SpanIndex,
     span: &FunctionSpan,
+    child_ranges: Vec<(u32, u32)>,
 ) -> Function {
-    let excluded_lines = collect_child_lines(spans, owner);
-    let source_lines = code_lines
-        .range(span.start_line..=span.end_line)
-        .filter(|line| !excluded_lines.contains(line))
-        .count() as u32;
-    let decision_points = count_decisions_in_range(
-        tokens,
-        span.body_start,
-        span.body_end + 1,
-        spans,
-        Some(owner),
-    );
+    let source_lines = counter.count_outside(span.start_line, span.end_line, child_ranges);
+    let decision_points =
+        count_decisions_in_range(tokens, span.body_start, span.body_end + 1, index);
     let cognitive_complexity = cognitive::score_range(
         tokens,
         span.body_start,
         span.body_end + 1,
-        spans,
-        Some(owner),
+        index,
         Some(span.name.as_str()),
     );
     Function {
@@ -107,17 +218,19 @@ fn build_named_function(
 
 fn build_top_level_script_function(
     tokens: &[ShellToken],
-    code_lines: &BTreeSet<u32>,
+    counter: &LineCounter,
     spans: &[FunctionSpan],
+    index: &SpanIndex,
+    heredocs: &HeredocEnds,
 ) -> Option<Function> {
-    let (first_line, last_line) = top_level_line_bounds(tokens, spans)?;
-    let fn_lines = collect_all_function_lines(spans);
-    let source_lines = code_lines
+    let (first_line, last_line) = top_level_line_bounds(tokens, index, heredocs)?;
+    let function_ranges = spans
         .iter()
-        .filter(|line| !fn_lines.contains(line))
-        .count() as u32;
-    let decision_points = count_decisions_in_range(tokens, 0, tokens.len(), spans, None);
-    let cognitive_complexity = cognitive::score_range(tokens, 0, tokens.len(), spans, None, None);
+        .map(|span| (span.start_line, span.end_line))
+        .collect();
+    let source_lines = counter.count_outside(0, u32::MAX, function_ranges);
+    let decision_points = count_decisions_in_range(tokens, 0, tokens.len(), index);
+    let cognitive_complexity = cognitive::score_range(tokens, 0, tokens.len(), index, None);
     Some(Function {
         line: first_line,
         end_line: last_line,
@@ -129,12 +242,16 @@ fn build_top_level_script_function(
     })
 }
 
-fn top_level_line_bounds(tokens: &[ShellToken], spans: &[FunctionSpan]) -> Option<(u32, u32)> {
+fn top_level_line_bounds(
+    tokens: &[ShellToken],
+    index: &SpanIndex,
+    heredocs: &HeredocEnds,
+) -> Option<(u32, u32)> {
     let mut first: Option<u32> = None;
     let mut last = 0u32;
     let mut idx = 0usize;
     while idx < tokens.len() {
-        if let Some(end) = child_span_end(spans, None, idx) {
+        if let Some(end) = index.skip_end(idx) {
             idx = end + 1;
             continue;
         }
@@ -142,43 +259,35 @@ fn top_level_line_bounds(tokens: &[ShellToken], spans: &[FunctionSpan]) -> Optio
         if !tok.is_newline() {
             first.get_or_insert(tok.line);
             last = last.max(tok.end_line);
+            if let Some(heredoc_end) = heredocs.end_for(idx) {
+                last = last.max(heredoc_end);
+            }
         }
         idx += 1;
     }
     first.map(|start| (start, last.max(start)))
 }
 
-fn collect_child_lines(spans: &[FunctionSpan], owner: usize) -> BTreeSet<u32> {
-    let parent = &spans[owner];
-    let mut lines = BTreeSet::new();
+fn child_line_ranges(spans: &[FunctionSpan]) -> Vec<Vec<(u32, u32)>> {
+    let mut children = vec![Vec::new(); spans.len()];
+    let mut open: Vec<usize> = Vec::new();
     for (idx, span) in spans.iter().enumerate() {
-        if idx != owner && span.decl_start >= parent.body_start && span.body_end <= parent.body_end
+        while open
+            .last()
+            .is_some_and(|&top| spans[top].body_end < span.decl_start)
         {
-            lines.extend(span.start_line..=span.end_line);
+            open.pop();
         }
+        let parent = open.iter().rev().copied().find(|&candidate| {
+            span.decl_start >= spans[candidate].body_start
+                && span.body_end <= spans[candidate].body_end
+        });
+        if let Some(parent) = parent {
+            children[parent].push((span.start_line, span.end_line));
+        }
+        open.push(idx);
     }
-    lines
-}
-
-fn collect_all_function_lines(spans: &[FunctionSpan]) -> BTreeSet<u32> {
-    let mut lines = BTreeSet::new();
-    for span in spans {
-        lines.extend(span.start_line..=span.end_line);
-    }
-    lines
-}
-
-pub(crate) fn child_span_end(
-    spans: &[FunctionSpan],
-    owner: Option<usize>,
-    idx: usize,
-) -> Option<usize> {
-    spans
-        .iter()
-        .enumerate()
-        .filter(|&(i, span)| Some(i) != owner && span.decl_start == idx)
-        .map(|(_, span)| span.body_end)
-        .max()
+    children
 }
 
 fn find_named_functions(tokens: &[ShellToken], dialect: ShellDialect) -> Vec<FunctionSpan> {
@@ -428,15 +537,14 @@ fn count_decisions_in_range(
     tokens: &[ShellToken],
     start: usize,
     end: usize,
-    spans: &[FunctionSpan],
-    owner: Option<usize>,
+    index: &SpanIndex,
 ) -> u32 {
     let mut total = 0u32;
     let mut at_cmd_pos = true;
     let mut case_stack: Vec<CaseTracker> = Vec::new();
     let mut idx = start;
     while idx < end {
-        if let Some(skip_end) = child_span_end(spans, owner, idx) {
+        if let Some(skip_end) = index.skip_end(idx) {
             idx = skip_end + 1;
             at_cmd_pos = true;
             continue;
@@ -444,7 +552,7 @@ fn count_decisions_in_range(
         let tok = &tokens[idx];
         total += count_token_decisions(tok, at_cmd_pos, &mut case_stack);
         for sub in &tok.sub_tokens {
-            total += count_decisions_in_range(sub, 0, sub.len(), &[], None);
+            total += count_decisions_in_range(sub, 0, sub.len(), &SpanIndex::empty());
         }
         at_cmd_pos = tok.next_is_cmd_pos();
         idx += 1;

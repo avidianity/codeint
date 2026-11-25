@@ -40,7 +40,7 @@ fn step_delimiter_char(
 pub(super) fn consume_body(
     scanner: &mut Scanner<'_>,
     pending: &PendingHeredoc,
-) -> Result<(), LowerError> {
+) -> Result<u32, LowerError> {
     while scanner.pos < scanner.bytes.len() {
         let line_start = scanner.pos;
         let line_num = scanner.line;
@@ -63,7 +63,7 @@ pub(super) fn consume_body(
             scanner.mark_code_line(line_num);
         }
         if candidate == pending.delimiter {
-            return Ok(());
+            return Ok(line_num);
         }
     }
     Err(LowerError::Unparsable(format!(

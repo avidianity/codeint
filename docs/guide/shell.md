@@ -9,7 +9,7 @@ The `shell` plugin uses a hand-written lexer and adds no external parser depende
 
 The `shell` plugin detects the flavor of each file from its first-line shebang, then from its extension:
 
-- **Shebang**: `#!/bin/sh`, `#!/bin/bash`, `#!/bin/zsh`, `#!/usr/bin/env bash`, and equivalent interpreter paths select POSIX `sh`, Bash, or Zsh.
+- **Shebang**: `#!/bin/sh`, `#!/bin/bash`, `#!/bin/zsh`, `#!/usr/bin/env bash`, `#!/bin/busybox sh`, and equivalent interpreter paths select POSIX `sh`, Bash, or Zsh.
   `ash` and `dash` count as POSIX `sh`.
 - **Extension**: without a recognized shebang, `.bash` selects Bash, `.zsh` selects Zsh, and `.sh` selects POSIX `sh`.
 
@@ -30,7 +30,7 @@ The flavor decides which strict-mode flags `missing-strict-mode` expects, and wh
 After checking any `source_sets` globs in `codeint.jsonc` or `codeint.json` (which always override built-in rules), the `shell` plugin classifies each file as follows:
 
 - **Vendored**: any file under a `vendor/` or `third_party/` folder.
-- **Generated**: Autotools helper scripts such as `ltmain.sh` and `configure.sh`, and any file whose header comment contains a generated-file marker such as `Code generated ... DO NOT EDIT.`, `do not modify`, or `this file is generated`.
+- **Generated**: Autotools helper scripts such as `ltmain.sh` and `configure.sh`, and any file whose header comment contains a generated-file marker such as `Code generated ... DO NOT EDIT.`, `do not modify by hand`, or `this file is generated`.
 - **Test**: any file under a `test/`, `tests/`, or `spec/` folder, or any file named `test_*.sh`, `*_test.sh`, or `*.test.sh` (and the same names with `.bash` or `.zsh`).
 - **Production**: every other `.sh`, `.bash`, or `.zsh` file.
 
@@ -55,13 +55,13 @@ Select one Workspace package with `--package <path>`.
 
 | Rule | Matches |
 | ---- | ------- |
-| `missing-strict-mode` | A script with top-level commands but no `set -eu` (POSIX `sh`) or `set -euo pipefail` (Bash and Zsh), from `set`, `setopt` in Zsh, or shebang flags |
-| `unquoted-variable` | An unquoted `$VAR` or `${VAR}` expansion in a command name, argument, or redirection target |
-| `eval-with-variable` | `eval` with an argument that expands a variable |
+| `missing-strict-mode` | A script with top-level commands but no `set -eu` (POSIX `sh`) or `set -euo pipefail` (Bash and Zsh), from `set`, `setopt` in Zsh, or shebang flags. A function that a top-level command calls counts when its leading `set` or `setopt` commands (before any other command) enable strict mode |
+| `unquoted-variable` | An unquoted `$VAR` or `${VAR}` expansion in a command name, argument, or redirection target. In Zsh, only `${=var}`, `$~var`, and command substitutions split, so plain `$VAR` is not reported. A heredoc delimiter is never reported |
+| `eval-with-variable` | `eval` with an argument that expands a variable, including a variable inside a command substitution. `eval "$(ssh-agent -s)"` with no variable is not reported |
 | `pipe-download-to-shell` | `curl` or `wget` piped into a shell interpreter, or a shell reading `<(curl ...)` |
-| `unchecked-cd` | `cd` without `&&`, `\|\|`, an `if` condition, or `set -e` |
+| `unchecked-cd` | `cd` without `&&`, `\|\|`, an `if` condition, or `set -e`. A `set -e` at the start of a function covers its own `cd` commands from that point |
 | `unguarded-rm-rf` | `rm -rf "$VAR/..."` where the variable has no `${VAR:?}` guard |
-| `hardcoded-secret` | A non-placeholder literal assigned to a name containing `password`, `secret`, `token`, `api_key`, or a similar word, or a literal with a known secret shape such as an AWS access key, a `ghp_` token, or a private key block |
+| `hardcoded-secret` | A non-placeholder literal assigned to a name containing `password`, `secret`, `token`, `api_key`, or a similar word, or a literal with a known secret shape such as an AWS access key, a `ghp_` token, or a private key block. Names ending in `_type`, `_label`, `_cmd`, `_endpoint`, and similar, and values that are URLs, absolute paths, all digits, or contain spaces, are not reported. A token prefix must start at a word boundary, and `sk-` needs a 20-character tail or an `sk-proj-` style shape |
 | `read-without-r` | `read` without `-r` |
 | `posix-sh-bashism` | Bash-only syntax in a POSIX `sh` script, such as `[[`, `function`, `source`, `((`, arrays, `<<<`, `&>`, or `<(...)` |
 | `insecure-tls-download` | `curl -k`, `curl --insecure`, or `wget --no-check-certificate` |

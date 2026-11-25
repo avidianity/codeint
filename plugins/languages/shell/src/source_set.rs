@@ -19,8 +19,11 @@ const GENERATED_FILENAMES: &[&str] = &[
     "ylwrap",
 ];
 
-const EXTRA_GENERATED_MARKERS: &[&str] =
-    &["code generated", "do not modify", "this file is generated"];
+const EXTRA_GENERATED_MARKERS: &[&str] = &[
+    "code generated",
+    "do not modify by hand",
+    "this file is generated",
+];
 
 const TEST_FOLDERS: &[&str] = &["test", "tests", "spec"];
 

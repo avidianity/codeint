@@ -130,6 +130,10 @@ pub fn built_in_language_flagged_line_rules() -> BTreeMap<String, Vec<String>> {
             SQL_PLUGIN_NAME.to_owned(),
             owned(codeint_lang_sql::flagged_line_rules()),
         ),
+        (
+            "shell".to_owned(),
+            owned(codeint_lang_shell::flagged_line_rules()),
+        ),
     ])
 }
 

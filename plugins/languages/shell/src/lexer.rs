@@ -31,7 +31,10 @@ pub(crate) struct ShellToken {
     pub(crate) has_backtick: bool,
     pub(crate) has_unquoted_var: bool,
     pub(crate) has_var_expansion: bool,
+    pub(crate) has_param_expansion: bool,
+    pub(crate) is_heredoc_delimiter: bool,
     pub(crate) unquoted_var_lines: Vec<u32>,
+    pub(crate) zsh_split_lines: Vec<u32>,
     pub(crate) backtick_lines: Vec<u32>,
     pub(crate) sub_tokens: Vec<Vec<ShellToken>>,
 }
@@ -77,12 +80,17 @@ impl ShellToken {
             has_backtick: false,
             has_unquoted_var: false,
             has_var_expansion: false,
+            has_param_expansion: false,
+            is_heredoc_delimiter: false,
             unquoted_var_lines: Vec::new(),
+            zsh_split_lines: Vec::new(),
             backtick_lines: Vec::new(),
             sub_tokens: Vec::new(),
         }
     }
 }
+
+pub(crate) const MAX_NESTING_DEPTH: usize = 256;
 
 pub(crate) struct LexedShell {
     pub(crate) tokens: Vec<ShellToken>,
@@ -124,6 +132,7 @@ pub(crate) struct Scanner<'a> {
     pub(crate) saw_code: bool,
     pub(crate) pending_heredocs: Vec<PendingHeredoc>,
     pub(crate) dialect: ShellDialect,
+    nesting: usize,
 }
 
 struct StreamState {
@@ -222,7 +231,23 @@ impl<'a> Scanner<'a> {
             saw_code: false,
             pending_heredocs: Vec::new(),
             dialect,
+            nesting: 0,
         }
+    }
+
+    pub(crate) fn enter_nesting(&mut self) -> Result<(), LowerError> {
+        self.nesting += 1;
+        if self.nesting > MAX_NESTING_DEPTH {
+            return Err(LowerError::Unparsable(format!(
+                "substitutions and expansions nested deeper than {MAX_NESTING_DEPTH} levels at line {}",
+                self.line
+            )));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn leave_nesting(&mut self) {
+        self.nesting -= 1;
     }
 
     pub(crate) fn peek(&self) -> Option<u8> {
@@ -273,6 +298,19 @@ impl<'a> Scanner<'a> {
     }
 
     pub(crate) fn scan_stream(
+        &mut self,
+        stop_on_close_paren: bool,
+    ) -> Result<Vec<ShellToken>, LowerError> {
+        if !stop_on_close_paren {
+            return self.scan_stream_items(false);
+        }
+        self.enter_nesting()?;
+        let tokens = self.scan_stream_items(true)?;
+        self.leave_nesting();
+        Ok(tokens)
+    }
+
+    fn scan_stream_items(
         &mut self,
         stop_on_close_paren: bool,
     ) -> Result<Vec<ShellToken>, LowerError> {
@@ -370,7 +408,12 @@ impl<'a> Scanner<'a> {
         ));
         state.expect_heredoc = None;
         state.at_cmd_pos = true;
-        self.consume_pending_heredocs()
+        if let Some(last_body_line) = self.consume_pending_heredocs()?
+            && let Some(newline) = state.tokens.last_mut()
+        {
+            newline.end_line = last_body_line;
+        }
+        Ok(())
     }
 
     fn try_close_paren(&mut self, state: &mut StreamState) -> bool {
@@ -550,8 +593,9 @@ impl<'a> Scanner<'a> {
     }
 
     fn scan_word_token(&mut self, state: &mut StreamState) -> Result<(), LowerError> {
-        let token = word::scan_word(self)?;
+        let mut token = word::scan_word(self)?;
         if let Some(strip_tabs) = state.expect_heredoc.take() {
+            token.is_heredoc_delimiter = true;
             let delimiter = heredoc::unquote_delimiter(&token.text);
             self.pending_heredocs.push(PendingHeredoc {
                 delimiter,
@@ -576,12 +620,13 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
-    fn consume_pending_heredocs(&mut self) -> Result<(), LowerError> {
+    fn consume_pending_heredocs(&mut self) -> Result<Option<u32>, LowerError> {
         let pending = std::mem::take(&mut self.pending_heredocs);
+        let mut last_body_line = None;
         for item in pending {
-            heredoc::consume_body(self, &item)?;
+            last_body_line = Some(heredoc::consume_body(self, &item)?);
         }
-        Ok(())
+        Ok(last_body_line)
     }
 }
 

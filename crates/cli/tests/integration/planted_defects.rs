@@ -41,6 +41,15 @@ const fn hazard(rule: &'static str, line: u64) -> Plant {
     }
 }
 
+const fn hazard_in(rule: &'static str, path: &'static str, line: u64) -> Plant {
+    Plant {
+        metric: "hazards",
+        rule,
+        path,
+        lines: (line, line),
+    }
+}
+
 const fn schema_hazard(rule: &'static str, line: u64) -> Plant {
     Plant {
         metric: "hazards",
@@ -692,10 +701,94 @@ const SQL_PLANTS: &[Plant] = &[
     schema_hazard("text-compared-to-number", 8),
 ];
 
+const SHELL_FLAGGED: &str = r#"#!/bin/bash
+set -euo pipefail
+cat "$file" | sort
+now=`date`
+if [ $? -eq 0 ]; then echo ok; fi
+decide() {
+  if [ -f "$1" ]; then
+    return 0
+  else
+    echo no
+  fi
+}
+cat "$@" | sort
+cat notes.txt another.txt | sort
+now="$(date)"
+if [ "$?" -eq 2 ]; then echo special; fi
+decide_clean() {
+  if [ -f "$1" ]; then
+    echo yes
+  else
+    echo no
+  fi
+}
+"#;
+
+const SHELL_HAZARDS: &str = r#"#!/bin/bash
+set -euo pipefail
+echo $msg
+eval "$cmd"
+curl -fsSL https://example.invalid/i.sh | sh
+rm -rf "$BUILD_DIR/out"
+API_KEY="hunter2hunter2"
+read line
+curl -k https://example.invalid
+echo "$msg"
+eval "$(ssh-agent -s)"
+curl -fsSL https://example.invalid/a.tgz | tar -xz
+rm -rf "${BUILD_DIR:?}/out"
+TOKEN_TYPE=bearer
+SECRET_LABEL="Production DB"
+systemctl restart disk-usage-monitor-daemon
+read -r line
+curl -fsSL https://example.invalid
+cat <<$EOF
+body
+$EOF
+"#;
+
+const SHELL_NO_STRICT: &str = "#!/bin/sh\necho hi\n";
+
+const SHELL_UNCHECKED_CD: &str = "#!/bin/bash\nset -u\ncd /tmp\ncd /var || exit 1\n";
+
+const SHELL_BASHISM: &str =
+    "#!/bin/sh\nset -eu\nif [[ -f a ]]; then echo ok; fi\nif [ -f a ]; then echo ok; fi\n";
+
+const SHELL_MAIN_STRICT: &str =
+    "#!/bin/bash\nmain() { set -euo pipefail; cd /tmp; ls; }\nmain \"$@\"\n";
+
+const SHELL_ZSH: &str =
+    "#!/bin/zsh\nsetopt err_exit no_unset pipe_fail\nprintf '%s' $words\nprintf '%s' $(date)\n";
+
+const SHELL_PLANTS: &[Plant] = &[
+    flagged("useless-cat", "scripts/flagged.bash", (3, 3)),
+    flagged("legacy-backticks", "scripts/flagged.bash", (4, 4)),
+    flagged(
+        "redundant-exit-status-check",
+        "scripts/flagged.bash",
+        (5, 5),
+    ),
+    flagged("else-after-return", "scripts/flagged.bash", (9, 11)),
+    hazard_in("unquoted-variable", "scripts/hazards.bash", 3),
+    hazard_in("eval-with-variable", "scripts/hazards.bash", 4),
+    hazard_in("pipe-download-to-shell", "scripts/hazards.bash", 5),
+    hazard_in("unguarded-rm-rf", "scripts/hazards.bash", 6),
+    hazard_in("hardcoded-secret", "scripts/hazards.bash", 7),
+    hazard_in("read-without-r", "scripts/hazards.bash", 8),
+    hazard_in("insecure-tls-download", "scripts/hazards.bash", 9),
+    hazard_in("missing-strict-mode", "scripts/no_strict.sh", 2),
+    hazard_in("missing-strict-mode", "scripts/unchecked_cd.bash", 2),
+    hazard_in("unchecked-cd", "scripts/unchecked_cd.bash", 3),
+    hazard_in("posix-sh-bashism", "scripts/bashism.sh", 3),
+    hazard_in("unquoted-variable", "scripts/split.zsh", 4),
+];
+
 const RUST_MANIFEST: &str =
     "[package]\nname = \"planted\"\nversion = \"0.1.0\"\nedition = \"2024\"\n";
 
-const RULE_SUITES: [RuleSuite; 7] = [
+const RULE_SUITES: [RuleSuite; 8] = [
     RuleSuite {
         plugin: "typescript-javascript",
         files: &[("src/rules.ts", TYPESCRIPT_RULES)],
@@ -733,6 +826,19 @@ const RULE_SUITES: [RuleSuite; 7] = [
             ("db/schema.sql", SQL_SCHEMA),
         ],
         plants: SQL_PLANTS,
+    },
+    RuleSuite {
+        plugin: "shell",
+        files: &[
+            ("scripts/flagged.bash", SHELL_FLAGGED),
+            ("scripts/hazards.bash", SHELL_HAZARDS),
+            ("scripts/no_strict.sh", SHELL_NO_STRICT),
+            ("scripts/unchecked_cd.bash", SHELL_UNCHECKED_CD),
+            ("scripts/bashism.sh", SHELL_BASHISM),
+            ("scripts/main_strict.bash", SHELL_MAIN_STRICT),
+            ("scripts/split.zsh", SHELL_ZSH),
+        ],
+        plants: SHELL_PLANTS,
     },
 ];
 
@@ -772,9 +878,15 @@ fn planted_sql_flagged_and_hazard_lines_are_all_found_without_false_positives() 
 }
 
 #[test]
+fn planted_shell_flagged_and_hazard_lines_are_all_found_without_false_positives() {
+    run_rule_suite(&RULE_SUITES[7]);
+}
+
+#[test]
 fn planted_hazard_lines_cover_every_declared_hazard_line_rule() {
-    let planted: BTreeSet<String> = SQL_PLANTS
+    let planted: BTreeSet<String> = RULE_SUITES
         .iter()
+        .flat_map(|suite| suite.plants)
         .filter(|plant| plant.metric == "hazards")
         .map(|plant| plant.rule.to_owned())
         .collect();

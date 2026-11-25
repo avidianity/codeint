@@ -1,0 +1,241 @@
+use std::time::{Duration, Instant};
+
+use codeint_lang_shell::{Shell, ShellDialect, detect_dialect};
+use codeint_model::{FileModel, LanguagePlugin, LowerError, RepoPath, SourceSet};
+
+const NESTING_LIMIT: usize = 256;
+const LARGE_INPUT_BOUND: Duration = Duration::from_secs(30);
+
+fn try_lower(path: &str, src: &str) -> Result<FileModel, LowerError> {
+    Shell.lower(&RepoPath::new(path).unwrap(), src)
+}
+
+fn lower(path: &str, src: &str) -> FileModel {
+    try_lower(path, src).unwrap_or_else(|err| panic!("failed to lower {path}: {err}"))
+}
+
+fn nest(open: &str, close: &str, inner: &str, depth: usize) -> String {
+    format!(
+        "#!/bin/sh\nset -eu\necho {}{inner}{}\n",
+        open.repeat(depth),
+        close.repeat(depth)
+    )
+}
+
+fn assert_unparsable_for_nesting(src: &str, label: &str) {
+    match try_lower("deep.sh", src) {
+        Err(LowerError::Unparsable { message: reason }) => assert!(
+            reason.contains("nested deeper than 256"),
+            "{label}: unexpected reason {reason}"
+        ),
+        other => panic!("{label}: expected Unparsable, got {:?}", other.map(|_| ())),
+    }
+}
+
+#[test]
+fn command_substitution_nesting_at_the_limit_lowers_and_one_past_it_is_unparsable() {
+    let at_limit = nest("$(echo ", ")", "x", NESTING_LIMIT);
+    lower("at_limit.sh", &at_limit);
+    assert_unparsable_for_nesting(
+        &nest("$(echo ", ")", "x", NESTING_LIMIT + 1),
+        "command substitution",
+    );
+}
+
+#[test]
+fn very_deep_nesting_is_unparsable_instead_of_overflowing_the_stack() {
+    assert_unparsable_for_nesting(&nest("$(echo ", ")", "x", 8_000), "command substitution");
+    assert_unparsable_for_nesting(&nest("<(cat ", ")", "x", 8_000), "process substitution");
+    assert_unparsable_for_nesting(
+        &nest("\"$(echo ", ")\"", "x", 8_000),
+        "quoted command substitution",
+    );
+    assert_unparsable_for_nesting(
+        &nest("${v:-$(echo ", ")}", "x", 8_000),
+        "command substitution inside parameter expansion",
+    );
+    assert_unparsable_for_nesting(
+        &nest("\"${v:-", "}\"", "x", 8_000),
+        "quoted parameter expansion",
+    );
+}
+
+#[test]
+fn process_and_parameter_nesting_share_the_same_limit() {
+    lower(
+        "proc_at_limit.bash",
+        &nest("<(cat ", ")", "x", NESTING_LIMIT).replace("#!/bin/sh", "#!/bin/bash"),
+    );
+    assert_unparsable_for_nesting(
+        &nest("<(cat ", ")", "x", NESTING_LIMIT + 1),
+        "process substitution",
+    );
+    assert_unparsable_for_nesting(
+        &nest("${v:-$(echo ", ")}", "x", NESTING_LIMIT),
+        "mixed nesting",
+    );
+}
+
+fn sequential_functions(count: usize) -> String {
+    let mut src = String::from("#!/bin/sh\nset -eu\n");
+    for index in 0..count {
+        src.push_str(&format!(
+            "f{index}() {{ echo {index} alpha beta gamma delta epsilon zeta; }}\n"
+        ));
+    }
+    src
+}
+
+fn nested_functions(depth: usize) -> String {
+    let mut src = String::from("#!/bin/sh\nset -eu\n");
+    for index in 0..depth {
+        src.push_str(&format!("f{index}() {{\n"));
+    }
+    src.push_str("echo leaf\n");
+    for _ in 0..depth {
+        src.push_str("}\n");
+    }
+    src
+}
+
+#[test]
+fn forty_thousand_sequential_functions_lower_within_the_bound() {
+    let src = sequential_functions(40_000);
+    let started = Instant::now();
+    let model = lower("many.sh", &src);
+    let elapsed = started.elapsed();
+    assert_eq!(model.functions.len(), 40_001);
+    assert!(
+        elapsed < LARGE_INPUT_BOUND,
+        "lowering 40,000 sequential functions took {elapsed:?}"
+    );
+    let first = model
+        .functions
+        .iter()
+        .find(|f| f.name.as_deref() == Some("f0"))
+        .unwrap();
+    assert_eq!((first.line, first.end_line, first.source_lines), (3, 3, 1));
+}
+
+#[test]
+fn two_thousand_nested_functions_lower_within_the_bound() {
+    let src = nested_functions(2_000);
+    let started = Instant::now();
+    let model = lower("nested.sh", &src);
+    let elapsed = started.elapsed();
+    assert_eq!(model.functions.len(), 2_001);
+    assert!(
+        elapsed < LARGE_INPUT_BOUND,
+        "lowering 2,000 nested functions took {elapsed:?}"
+    );
+    let outer = model
+        .functions
+        .iter()
+        .find(|f| f.name.as_deref() == Some("f0"))
+        .unwrap();
+    assert_eq!(
+        (outer.line, outer.end_line, outer.source_lines),
+        (3, 4_003, 2)
+    );
+    let innermost = model
+        .functions
+        .iter()
+        .find(|f| f.name.as_deref() == Some("f1999"))
+        .unwrap();
+    assert_eq!(innermost.source_lines, 3);
+}
+
+#[test]
+fn heredoc_bodies_belong_to_the_function_that_starts_them() {
+    let src = "#!/bin/sh\nset -eu\ng() { cat <<EOF; }\nbody one\nbody two\nEOF\necho done\n";
+    let model = lower("g.sh", src);
+    let g = model
+        .functions
+        .iter()
+        .find(|f| f.name.as_deref() == Some("g"))
+        .unwrap();
+    assert_eq!((g.line, g.end_line, g.source_lines), (3, 6, 4));
+    let script = model
+        .functions
+        .iter()
+        .find(|f| f.name.as_deref() == Some("<script>"))
+        .unwrap();
+    assert_eq!(
+        (script.line, script.end_line, script.source_lines),
+        (2, 7, 2)
+    );
+}
+
+#[test]
+fn heredoc_at_the_end_of_the_script_extends_the_top_level_function() {
+    let src = "#!/bin/sh\ncat <<EOF\na\nb\nEOF\n";
+    let model = lower("tail.sh", src);
+    assert_eq!(model.functions.len(), 1);
+    let script = &model.functions[0];
+    assert_eq!(script.name.as_deref(), Some("<script>"));
+    assert_eq!(
+        (script.line, script.end_line, script.source_lines),
+        (2, 5, 4)
+    );
+}
+
+#[test]
+fn a_function_heredoc_does_not_stretch_the_top_level_range() {
+    let src = "#!/bin/sh\necho a\ng() { cat <<EOF; }\nbody\nEOF\n";
+    let model = lower("fn_last.sh", src);
+    let script = model
+        .functions
+        .iter()
+        .find(|f| f.name.as_deref() == Some("<script>"))
+        .unwrap();
+    assert_eq!(
+        (script.line, script.end_line, script.source_lines),
+        (2, 2, 1)
+    );
+}
+
+#[test]
+fn a_hand_written_do_not_modify_sentence_is_not_a_generated_marker() {
+    let prose = "#!/bin/sh\n# Please do not modify without asking the platform team.\necho ok\n";
+    assert_eq!(lower("deploy.sh", prose).source_set, SourceSet::Production);
+    for marker in [
+        "# DO NOT MODIFY BY HAND",
+        "# Do not edit this file",
+        "# Code generated by tool. DO NOT EDIT.",
+        "# This file is generated",
+        "# @generated",
+    ] {
+        let src = format!("#!/bin/sh\n{marker}\necho ok\n");
+        assert_eq!(
+            lower("gen.sh", &src).source_set,
+            SourceSet::Generated,
+            "marker {marker}"
+        );
+    }
+}
+
+#[test]
+fn busybox_shebang_selects_the_applet_dialect() {
+    assert_eq!(
+        detect_dialect("run.sh", "#!/bin/busybox sh\necho hi\n"),
+        ShellDialect::PosixSh
+    );
+    assert_eq!(
+        detect_dialect("run.bash", "#!/usr/bin/busybox ash\necho hi\n"),
+        ShellDialect::PosixSh
+    );
+    assert_eq!(
+        detect_dialect("run.bash", "#!/bin/busybox\necho hi\n"),
+        ShellDialect::Bash
+    );
+    let model = lower(
+        "busy.bash",
+        "#!/bin/busybox sh\nset -eu\nif [[ -f a ]]; then :; fi\n",
+    );
+    assert!(
+        model
+            .hazard_lines
+            .iter()
+            .any(|h| h.rule == "posix-sh-bashism" && h.line == 3)
+    );
+}

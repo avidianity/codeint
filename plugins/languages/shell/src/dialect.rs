@@ -47,7 +47,7 @@ pub(crate) fn parse_shebang_flags(source: &str) -> Vec<String> {
     let Some(first) = parts.next() else {
         return Vec::new();
     };
-    if path_file_name(first) != "env" {
+    if !is_launcher(path_file_name(first)) {
         return parts.map(str::to_owned).collect();
     }
     extract_env_shell_flags(parts)
@@ -76,7 +76,7 @@ fn parse_shebang_dialect(first_line: &str) -> Option<ShellDialect> {
     let mut parts = rest.split_ascii_whitespace();
     let first = parts.next()?;
     let cmd = path_file_name(first);
-    if cmd != "env" {
+    if !is_launcher(cmd) {
         return dialect_from_interpreter(cmd);
     }
     for part in parts {
@@ -86,6 +86,10 @@ fn parse_shebang_dialect(first_line: &str) -> Option<ShellDialect> {
         return dialect_from_interpreter(path_file_name(part));
     }
     None
+}
+
+fn is_launcher(name: &str) -> bool {
+    matches!(name, "env" | "busybox")
 }
 
 fn dialect_from_interpreter(name: &str) -> Option<ShellDialect> {

@@ -21,12 +21,19 @@ const SENSITIVE_NAME_SUBSTRINGS: &[&str] = &[
 ];
 
 const NON_SECRET_SUFFIXES: &[&str] = &[
+    "_cmd",
+    "_command",
+    "_count",
     "_dir",
+    "_directory",
     "_enabled",
+    "_endpoint",
     "_env",
     "_file",
     "_header",
+    "_hint",
     "_host",
+    "_label",
     "_len",
     "_length",
     "_message",
@@ -34,14 +41,17 @@ const NON_SECRET_SUFFIXES: &[&str] = &[
     "_name",
     "_path",
     "_pattern",
+    "_policy",
     "_port",
     "_prefix",
     "_prompt",
     "_regex",
     "_required",
+    "_scope",
     "_suffix",
     "_timeout",
     "_ttl",
+    "_type",
     "_uri",
     "_url",
     "_var",
@@ -156,6 +166,13 @@ fn is_secret_literal(value: &str) -> bool {
     if trimmed.starts_with('<') && trimmed.ends_with('>') {
         return false;
     }
+    if trimmed.starts_with('/')
+        || trimmed.contains("://")
+        || trimmed.bytes().all(|b| b.is_ascii_digit())
+        || trimmed.contains(char::is_whitespace)
+    {
+        return false;
+    }
     let lower = trimmed.to_ascii_lowercase();
     if lower.starts_with("your_") || lower.starts_with("your-") || lower.contains("xxx") {
         return false;
@@ -201,14 +218,36 @@ fn has_aws_access_key(text: &str) -> bool {
     })
 }
 
+const PROJECT_KEY_SHAPES: &[&str] = &["proj-", "svcacct-", "admin-", "ant-"];
+
 fn has_prefixed_token(text: &str, prefix: &str, min_tail: usize) -> bool {
-    let Some(pos) = text.find(prefix) else {
-        return false;
-    };
-    let tail = &text[pos + prefix.len()..];
+    text.match_indices(prefix).any(|(pos, _)| {
+        starts_at_boundary(text, pos)
+            && tail_is_token(prefix, &text[pos + prefix.len()..], min_tail)
+    })
+}
+
+fn starts_at_boundary(text: &str, pos: usize) -> bool {
+    pos == 0 || {
+        let before = text.as_bytes()[pos - 1];
+        !before.is_ascii_alphanumeric() && !matches!(before, b'_' | b'-')
+    }
+}
+
+fn tail_is_token(prefix: &str, tail: &str, min_tail: usize) -> bool {
     let count = tail
         .bytes()
         .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
         .count();
-    count >= min_tail
+    if count < min_tail {
+        return false;
+    }
+    if prefix != "sk-" {
+        return true;
+    }
+    let leading_alphanumerics = tail.bytes().take_while(u8::is_ascii_alphanumeric).count();
+    leading_alphanumerics >= min_tail
+        || PROJECT_KEY_SHAPES
+            .iter()
+            .any(|shape| tail.starts_with(shape))
 }

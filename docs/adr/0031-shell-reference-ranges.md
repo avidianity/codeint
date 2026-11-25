@@ -118,7 +118,7 @@ Decision points from the tree are `if`, each `elif`, `for` and `select`, `while`
 Recall is the matched count over the tree's count per function, and the false-positive rate is codeint's surplus over its own count.
 An unexpected unparsable file is one codeint rejects while `bash -n` (or `zsh -n` for Zsh files) accepts it.
 
-Before the fixes below, on 23,767 files: function recall `0.9979` (81,811 of 81,987), decision-point recall `0.9946` (431,368 of 433,725), decision-point false positives `0.0041`, and 5 unexpected unparsable files.
+The audit file set held 23,767 shell files, which includes files outside the 22,202 Production files of the panel. Before the fixes below, on those 23,767 files: function recall `0.9979` (81,811 of 81,987), decision-point recall `0.9946` (431,368 of 433,725), decision-point false positives `0.0041`, and 5 unexpected unparsable files.
 After the fixes: function recall `0.9983` (82,485 of 82,626), decision-point recall `0.9980` (440,317 of 441,207), decision-point false positives `0.0014`, function false positives `0`, and 0 unexpected unparsable files.
 
 A seeded sample of 100 Flagged lines and 100 Hazard lines from the panel's Production files had no line that contradicts its rule's documented match.

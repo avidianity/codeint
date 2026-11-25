@@ -1007,7 +1007,7 @@ fn built_in_shell_plugin_passes_seam_2_conformance() {
             empty_path: "scripts/empty.sh",
             unparsable: ("scripts/broken.sh", "echo 'unterminated\n"),
         },
-        false,
+        true,
     );
 }
 

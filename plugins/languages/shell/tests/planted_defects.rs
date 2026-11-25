@@ -466,3 +466,280 @@ TOKEN=\"ghp_1234567890abcdef1234567890\"
         ],
     );
 }
+
+#[test]
+fn planted_defects_secret_prefixes_need_a_word_boundary() {
+    assert_hazard_rule(
+        "hardcoded-secret",
+        &[
+            (
+                "a.sh",
+                "#!/bin/sh\nset -eu\nOPENAI=\"sk-abcdefghijklmnopqrstuvwx\"\n",
+                &[3],
+            ),
+            (
+                "b.sh",
+                "#!/bin/sh\nset -eu\nexport KEY=sk-proj-abcdefghijklmnop_qrstuv\n",
+                &[3],
+            ),
+        ],
+        &[
+            (
+                "m1.sh",
+                "#!/bin/sh\nset -eu\nsystemctl restart disk-usage-monitor-daemon\n",
+            ),
+            (
+                "m2.sh",
+                "#!/bin/sh\nset -eu\npip install flask-sqlalchemy-utils-extra\n",
+            ),
+            (
+                "m3.sh",
+                "#!/bin/sh\nset -eu\ndocker run --name task-scheduler-worker-main app\n",
+            ),
+            (
+                "m4.sh",
+                "#!/bin/sh\nset -eu\nkubectl rollout restart deployment/risk-assessment-api-server\n",
+            ),
+            (
+                "m5.sh",
+                "#!/bin/sh\nset -eu\nname=sk-learn-pipeline-runner-tool\n",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn planted_defects_secret_names_need_a_secret_looking_value() {
+    assert_hazard_rule(
+        "hardcoded-secret",
+        &[
+            (
+                "a.sh",
+                "#!/bin/sh\nset -eu\nAPI_TOKEN=\"abcd-1234-efgh\"\n",
+                &[3],
+            ),
+            (
+                "b.sh",
+                "#!/bin/sh\nset -eu\nDB_PASSWORD=hunter2hunter2\n",
+                &[3],
+            ),
+        ],
+        &[
+            ("m1.sh", "#!/bin/sh\nset -eu\nTOKEN_TYPE=bearer\n"),
+            (
+                "m2.sh",
+                "#!/bin/sh\nset -eu\nSECRET_LABEL=\"Production DB\"\n",
+            ),
+            (
+                "m3.sh",
+                "#!/bin/sh\nset -eu\nTOKEN_ENDPOINT=https://auth.example.invalid/token\n",
+            ),
+            (
+                "m4.sh",
+                "#!/bin/sh\nset -eu\nPASSWORD_CMD=\"pass show db\"\n",
+            ),
+            (
+                "m5.sh",
+                "#!/bin/sh\nset -eu\nSECRETS_DIRECTORY=/etc/secrets\n",
+            ),
+            (
+                "m6.sh",
+                "#!/bin/sh\nset -eu\npassword_hint=\"Enter password\"\n",
+            ),
+            ("m7.sh", "#!/bin/sh\nset -eu\nsecret_count=100000\n"),
+            ("m8.sh", "#!/bin/sh\nset -eu\nTOKEN_SCOPE=\"read:org\"\n"),
+            (
+                "m9.sh",
+                "#!/bin/sh\nset -eu\nTOKEN_POLICY=rotate-quarterly\nAUTH_TOKEN=https://example.invalid/t\nAUTH_SECRET=/run/secrets/db\nAUTH_PASSWORD=12345678\n",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn planted_defects_zsh_splits_only_command_substitutions_and_explicit_forms() {
+    assert_hazard_rule(
+        "unquoted-variable",
+        &[
+            ("a.zsh", "#!/bin/zsh\nset -eu\nprintf '%s' $(date)\n", &[3]),
+            (
+                "b.zsh",
+                "#!/bin/zsh\nset -eu\nprintf '%s' ${=words}\n",
+                &[3],
+            ),
+            (
+                "c.zsh",
+                "#!/bin/zsh\nset -eu\nprintf '%s' $~pattern\n",
+                &[3],
+            ),
+            ("d.zsh", "#!/bin/zsh\nset -eu\nprintf '%s' `date`\n", &[3]),
+            ("e.sh", "#!/bin/sh\nset -eu\nprintf '%s' $words\n", &[3]),
+        ],
+        &[
+            ("m1.zsh", "#!/bin/zsh\nset -eu\nprintf '%s' $words\n"),
+            ("m2.zsh", "#!/bin/zsh\nset -eu\nrm ${target} > $log\n"),
+            (
+                "m3.zsh",
+                "#!/bin/zsh\nset -eu\nfor x in $items; do echo \"$x\"; done\n",
+            ),
+            ("m4.zsh", "#!/bin/zsh\nset -eu\nprintf '%s' \"${=words}\"\n"),
+        ],
+    );
+}
+
+#[test]
+fn planted_defects_eval_needs_a_variable_not_just_a_command_substitution() {
+    assert_hazard_rule(
+        "eval-with-variable",
+        &[
+            (
+                "a.sh",
+                "#!/bin/sh\nset -eu\neval \"$(echo \"$cmd\")\"\n",
+                &[3],
+            ),
+            (
+                "b.sh",
+                "#!/bin/sh\nset -eu\neval \"$(ssh-agent -s)\" \"$extra\"\n",
+                &[3],
+            ),
+            (
+                "c.sh",
+                "#!/bin/sh\nset -eu\neval \"$((1 + count))\"\n",
+                &[3],
+            ),
+            (
+                "d.sh",
+                "#!/bin/sh\nset -eu\neval \"`ssh-agent -s`\"\n",
+                &[3],
+            ),
+        ],
+        &[
+            ("m1.sh", "#!/bin/sh\nset -eu\neval \"$(ssh-agent -s)\"\n"),
+            (
+                "m2.sh",
+                "#!/bin/sh\nset -eu\neval \"$(direnv hook bash)\"\n",
+            ),
+            ("m3.sh", "#!/bin/sh\nset -eu\neval \"$(brew shellenv)\"\n"),
+            ("m4.sh", "#!/bin/sh\nset -eu\neval $(brew shellenv)\n"),
+        ],
+    );
+}
+
+#[test]
+fn planted_defects_useless_cat_ignores_argument_list_operands() {
+    assert_flagged_rule(
+        "useless-cat",
+        &[("a.sh", "#!/bin/sh\nset -eu\ncat \"$file\" | sort\n", &[3])],
+        &[
+            ("m1.sh", "#!/bin/sh\nset -eu\ncat \"$@\" | sort\n"),
+            ("m2.sh", "#!/bin/sh\nset -eu\ncat $* | sort\n"),
+            (
+                "m3.bash",
+                "#!/bin/bash\nset -euo pipefail\ncat \"${files[@]}\" | sort\n",
+            ),
+            ("m4.sh", "#!/bin/sh\nset -eu\ncat \"${@}\" | sort\n"),
+        ],
+    );
+}
+
+#[test]
+fn planted_defects_strict_mode_set_inside_a_called_function_counts() {
+    assert_hazard_rule(
+        "missing-strict-mode",
+        &[
+            (
+                "a.bash",
+                "#!/bin/bash\nmain() {\n  echo hi\n}\nmain \"$@\"\n",
+                &[2],
+            ),
+            (
+                "b.bash",
+                "#!/bin/bash\nmain() {\n  set -euo pipefail\n  echo hi\n}\nother\n",
+                &[2],
+            ),
+            (
+                "c.bash",
+                "#!/bin/bash\nmain() {\n  echo first\n  set -euo pipefail\n}\nmain\n",
+                &[2],
+            ),
+            (
+                "d.bash",
+                "#!/bin/bash\nmain() {\n  set -eu\n  echo hi\n}\nmain\n",
+                &[2],
+            ),
+        ],
+        &[
+            (
+                "m1.bash",
+                "#!/bin/bash\nmain() {\n  set -euo pipefail\n  cd /tmp\n}\nmain \"$@\"\n",
+            ),
+            (
+                "m2.bash",
+                "#!/bin/bash\nmain() { set -euo pipefail; cd /tmp; ls; }\nmain \"$@\"\n",
+            ),
+            (
+                "m3.bash",
+                "#!/bin/bash\nmain() {\n\n  set -e\n  set -u\n  set -o pipefail\n  echo hi\n}\nmain\n",
+            ),
+            (
+                "m4.zsh",
+                "#!/bin/zsh\nmain() {\n  setopt err_exit no_unset pipe_fail\n  echo hi\n}\nmain\n",
+            ),
+        ],
+    );
+    assert_hazard_rule(
+        "unchecked-cd",
+        &[
+            (
+                "a.bash",
+                "#!/bin/bash\nmain() {\n  echo hi\n  cd /tmp\n}\nmain\n",
+                &[4],
+            ),
+            (
+                "b.bash",
+                "#!/bin/bash\nmain() {\n  set -u\n  cd /tmp\n}\nmain\n",
+                &[4],
+            ),
+            (
+                "c.bash",
+                "#!/bin/bash\nmain() {\n  echo hi\n  set -e\n  cd /tmp\n}\nmain\n",
+                &[5],
+            ),
+            (
+                "d.bash",
+                "#!/bin/bash\nhelper() {\n  set -e\n  cd /a\n}\ncd /b\nhelper\n",
+                &[6],
+            ),
+        ],
+        &[
+            (
+                "m1.bash",
+                "#!/bin/bash\nmain() {\n  set -euo pipefail\n  cd /tmp\n}\nmain \"$@\"\n",
+            ),
+            (
+                "m2.bash",
+                "#!/bin/bash\nhelper() {\n  set -e\n  cd /tmp\n}\n",
+            ),
+            (
+                "m3.bash",
+                "#!/bin/bash\nhelper() {\n  set -e\n  echo \"$(cd /tmp && pwd)\"\n}\n",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn planted_defects_heredoc_delimiters_are_not_unquoted_variables() {
+    assert_hazard_rule(
+        "unquoted-variable",
+        &[(
+            "a.sh",
+            "#!/bin/sh\nset -eu\ncat <<EOF\nvalue $x\nEOF\necho $y\n",
+            &[6],
+        )],
+        &[
+            ("m1.sh", "#!/bin/sh\nset -eu\ncat <<$EOF\nbody\n$EOF\n"),
+            ("m2.sh", "#!/bin/sh\nset -eu\ncat <<-$END\nbody\n$END\n"),
+        ],
+    );
+}
