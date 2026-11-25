@@ -106,8 +106,8 @@ jobs:
           path: |
             target/wasm-fixtures/wasm32-wasip2/debug/*.wasm
             target/wasm-fixtures/wasm32-wasip2/debug/.fixtures-stamp
-          key: v0-wasm-fixtures-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'wit/**', 'crates/plugin-host/tests/fixtures/**') }}
-      - run: rustup target add wasm32-wasip2
+          key: v0-wasm-fixtures-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', '.cargo/config.toml', 'wit/**', 'crates/plugin-sdk/**', 'crates/plugin-host/tests/fixtures/**') }}
+      - run: rustup target add wasm32-wasip2 wasm32-unknown-unknown
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked --no-run
@@ -252,10 +252,10 @@ jobs:
           path: |
             target/wasm-fixtures/wasm32-wasip2/debug/*.wasm
             target/wasm-fixtures/wasm32-wasip2/debug/.fixtures-stamp
-          key: v0-wasm-fixtures-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'wit/**', 'crates/plugin-host/tests/fixtures/**') }}
+          key: v0-wasm-fixtures-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml', '.cargo/config.toml', 'wit/**', 'crates/plugin-sdk/**', 'crates/plugin-host/tests/fixtures/**') }}
       - uses: ./.github/actions/gitleaks
       - uses: ./.github/actions/lychee
-      - run: rustup target add wasm32-wasip2
+      - run: rustup target add wasm32-wasip2 wasm32-unknown-unknown
       - run: cargo build --locked --package xtask
       - name: Git hook loop
         run: |

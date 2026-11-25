@@ -37,6 +37,9 @@
       "plugin_host": {
         "patterns": ["crates/plugin-host/**"]
       },
+      "plugin_sdk": {
+        "patterns": ["crates/plugin-sdk/**"]
+      },
       "cli": {
         "patterns": ["crates/cli/**"]
       },
@@ -204,6 +207,11 @@
           "lang_ts"
         ],
         "reason": "codeint-plugin-host is the sole host boundary for built-in Language plugins and depends only on codeint-model, codeint-config, and built-in Language plugins."
+      },
+      {
+        "from": "plugin_sdk",
+        "allow": [],
+        "reason": "codeint-plugin-sdk is a standalone guest SDK crate and imports no other workspace crate."
       },
       {
         "from": "cli",

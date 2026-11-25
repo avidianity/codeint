@@ -1,177 +1,20 @@
-#![no_std]
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"),
+    no_std
+)]
 
-extern crate alloc;
-
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec;
-use alloc::vec::Vec;
-use core::alloc::{GlobalAlloc, Layout};
-use core::arch::wasm32;
-use core::cell::UnsafeCell;
-
-struct BumpAllocator {
-    offset: UnsafeCell<usize>,
-    limit: UnsafeCell<usize>,
-}
-
-unsafe impl Sync for BumpAllocator {}
-
-impl BumpAllocator {
-    const fn new() -> BumpAllocator {
-        BumpAllocator {
-            offset: UnsafeCell::new(0),
-            limit: UnsafeCell::new(0),
-        }
-    }
-}
-
-unsafe impl GlobalAlloc for BumpAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let align = layout.align().max(8);
-        let size = layout.size();
-        let current = unsafe { *self.offset.get() };
-        let limit = unsafe { *self.limit.get() };
-        let aligned = (current + align - 1) & !(align - 1);
-        let end = match aligned.checked_add(size) {
-            Some(end) => end,
-            None => return core::ptr::null_mut(),
-        };
-        if end <= limit && current != 0 {
-            unsafe { *self.offset.get() = end };
-            return aligned as *mut u8;
-        }
-        let needed = size + align;
-        let pages = needed.div_ceil(65536).max(1);
-        let prev_pages = wasm32::memory_grow(0, pages);
-        if prev_pages == usize::MAX {
-            return core::ptr::null_mut();
-        }
-        let base = prev_pages * 65536;
-        let new_limit = base + pages * 65536;
-        let start = (base + align - 1) & !(align - 1);
-        unsafe {
-            *self.offset.get() = start + size;
-            *self.limit.get() = new_limit;
-        }
-        start as *mut u8
-    }
-
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
-}
-
-#[global_allocator]
-static ALLOCATOR: BumpAllocator = BumpAllocator::new();
-
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
-    wasm32::unreachable()
-}
-
-#[unsafe(export_name = "cabi_realloc")]
-pub unsafe extern "C" fn cabi_realloc(
-    old_ptr: *mut u8,
-    old_size: usize,
-    align: usize,
-    new_size: usize,
-) -> *mut u8 {
-    if new_size == 0 {
-        return align as *mut u8;
-    }
-    let layout = match Layout::from_size_align(new_size, align) {
-        Ok(layout) => layout,
-        Err(_) => wasm32::unreachable(),
-    };
-    let ptr = if old_size == 0 {
-        unsafe { alloc::alloc::alloc(layout) }
-    } else {
-        let old_layout = match Layout::from_size_align(old_size, align) {
-            Ok(layout) => layout,
-            Err(_) => wasm32::unreachable(),
-        };
-        unsafe { alloc::alloc::realloc(old_ptr, old_layout, new_size) }
-    };
-    if ptr.is_null() {
-        wasm32::unreachable()
-    }
-    ptr
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn memcmp(left: *const u8, right: *const u8, count: usize) -> i32 {
-    let mut index = 0;
-    while index < count {
-        let a = unsafe { *left.add(index) };
-        let b = unsafe { *right.add(index) };
-        if a != b {
-            return i32::from(a) - i32::from(b);
-        }
-        index += 1;
-    }
-    0
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn memcpy(dest: *mut u8, src: *const u8, count: usize) -> *mut u8 {
-    let mut index = 0;
-    while index < count {
-        unsafe { *dest.add(index) = *src.add(index) };
-        index += 1;
-    }
-    dest
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn memmove(dest: *mut u8, src: *const u8, count: usize) -> *mut u8 {
-    if (dest as usize) < (src as usize) {
-        let mut index = 0;
-        while index < count {
-            unsafe { *dest.add(index) = *src.add(index) };
-            index += 1;
-        }
-    } else {
-        let mut index = count;
-        while index > 0 {
-            index -= 1;
-            unsafe { *dest.add(index) = *src.add(index) };
-        }
-    }
-    dest
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn memset(dest: *mut u8, value: i32, count: usize) -> *mut u8 {
-    let byte = value as u8;
-    let mut index = 0;
-    while index < count {
-        unsafe { *dest.add(index) = byte };
-        index += 1;
-    }
-    dest
-}
-
-wit_bindgen::generate!({
-    world: "language-plugin",
-    path: "../../../../../wit",
-});
-
-use exports::codeint::plugin::language::{
+use codeint_plugin_sdk::fnv1a_64;
+use codeint_plugin_sdk::language::{
     DeclaredDep, DepKind, FileModel, FlaggedLine, FrameworkProfileResult,
-    FrameworkProfileSelection, Function, Guest, ImportRequest, LowerError, Manifest,
+    FrameworkProfileSelection, Function, ImportRequest, LanguagePlugin, LowerError, Manifest,
     ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
 };
+use codeint_plugin_sdk::prelude::*;
 
 struct SampleMiniPlugin;
 
-export!(SampleMiniPlugin);
-
-fn fnv1a_64(text: &str) -> u64 {
-    const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0100_0000_01b3;
-    text.as_bytes().iter().fold(OFFSET_BASIS, |hash, byte| {
-        (hash ^ u64::from(*byte)).wrapping_mul(PRIME)
-    })
-}
+codeint_plugin_sdk::export_language_plugin!(SampleMiniPlugin);
 
 fn strip_comment(line: &str) -> &str {
     let mut in_string = false;
@@ -194,6 +37,59 @@ fn source_set_of(path: &str) -> SourceSet {
     }
 }
 
+fn scan_string_end(bytes: &[u8], start: usize) -> usize {
+    let mut index = start + 1;
+    while index < bytes.len() && bytes[index] != b'"' {
+        index += 1;
+    }
+    if index < bytes.len() {
+        index + 1
+    } else {
+        index
+    }
+}
+
+fn scan_while(bytes: &[u8], start: usize, predicate: fn(u8) -> bool) -> usize {
+    let mut index = start;
+    while index < bytes.len() && predicate(bytes[index]) {
+        index += 1;
+    }
+    index
+}
+
+fn is_ident_continue(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn classify_ident_kind(text: &str) -> TokenKind {
+    if matches!(
+        text,
+        "fn" | "if" | "else" | "while" | "return" | "let" | "pass"
+    ) {
+        TokenKind::Other
+    } else {
+        TokenKind::Identifier
+    }
+}
+
+fn push_token(
+    tokens: &mut Vec<Token>,
+    text: &str,
+    default_kind: TokenKind,
+    is_import: bool,
+    line: u32,
+) {
+    tokens.push(Token {
+        kind: if is_import {
+            TokenKind::ImportOrExport
+        } else {
+            default_kind
+        },
+        text_hash: fnv1a_64(text),
+        line,
+    });
+}
+
 fn tokenize_line(code: &str, line_number: u32, is_import: bool, tokens: &mut Vec<Token>) {
     let bytes = code.as_bytes();
     let mut index = 0;
@@ -203,80 +99,21 @@ fn tokenize_line(code: &str, line_number: u32, is_import: bool, tokens: &mut Vec
             index += 1;
             continue;
         }
-        if byte == b'"' {
-            let start = index;
-            index += 1;
-            while index < bytes.len() && bytes[index] != b'"' {
-                index += 1;
-            }
-            if index < bytes.len() {
-                index += 1;
-            }
-            let text = &code[start..index];
-            tokens.push(Token {
-                kind: if is_import {
-                    TokenKind::ImportOrExport
-                } else {
-                    TokenKind::Literal
-                },
-                text_hash: fnv1a_64(text),
-                line: line_number,
-            });
-            continue;
-        }
-        if byte.is_ascii_digit() {
-            let start = index;
-            while index < bytes.len() && bytes[index].is_ascii_digit() {
-                index += 1;
-            }
-            let text = &code[start..index];
-            tokens.push(Token {
-                kind: if is_import {
-                    TokenKind::ImportOrExport
-                } else {
-                    TokenKind::Literal
-                },
-                text_hash: fnv1a_64(text),
-                line: line_number,
-            });
-            continue;
-        }
-        if byte.is_ascii_alphabetic() || byte == b'_' {
-            let start = index;
-            while index < bytes.len()
-                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
-            {
-                index += 1;
-            }
-            let text = &code[start..index];
-            let kind = if is_import {
-                TokenKind::ImportOrExport
-            } else if matches!(
-                text,
-                "fn" | "if" | "else" | "while" | "return" | "let" | "pass"
-            ) {
-                TokenKind::Other
-            } else {
-                TokenKind::Identifier
-            };
-            tokens.push(Token {
-                kind,
-                text_hash: fnv1a_64(text),
-                line: line_number,
-            });
-            continue;
-        }
-        let text = &code[index..index + 1];
-        tokens.push(Token {
-            kind: if is_import {
-                TokenKind::ImportOrExport
-            } else {
-                TokenKind::Other
-            },
-            text_hash: fnv1a_64(text),
-            line: line_number,
-        });
-        index += 1;
+        let (end, kind) = if byte == b'"' {
+            (scan_string_end(bytes, index), TokenKind::Literal)
+        } else if byte.is_ascii_digit() {
+            (
+                scan_while(bytes, index, |b| b.is_ascii_digit()),
+                TokenKind::Literal,
+            )
+        } else if byte.is_ascii_alphabetic() || byte == b'_' {
+            let end = scan_while(bytes, index, is_ident_continue);
+            (end, classify_ident_kind(&code[index..end]))
+        } else {
+            (index + 1, TokenKind::Other)
+        };
+        push_token(tokens, &code[index..end], kind, is_import, line_number);
+        index = end;
     }
 }
 
@@ -521,9 +358,10 @@ fn select_active_profiles(
             .filter(|profile| !excluded.contains(profile))
             .collect()),
         FrameworkProfileSelection::Only(only) => {
-            if let Some(unknown) = only.iter().find(|profile| {
-                !matches!(profile.as_str(), "mini-web" | "mini-cli" | "mini-app")
-            }) {
+            if let Some(unknown) = only
+                .iter()
+                .find(|profile| !matches!(profile.as_str(), "mini-web" | "mini-cli" | "mini-app"))
+            {
                 return Err(format!("unknown Framework profile {unknown:?}"));
             }
             Ok(only)
@@ -576,7 +414,7 @@ fn select_profile_ranges(
     }
 }
 
-impl Guest for SampleMiniPlugin {
+impl LanguagePlugin for SampleMiniPlugin {
     fn extensions() -> Vec<String> {
         vec!["mini".to_string()]
     }
@@ -602,14 +440,12 @@ impl Guest for SampleMiniPlugin {
             ));
         }
         Ok(FileModel {
-            source_set: source_set_of(&path),
             source_lines: state.source_lines,
             functions: state.functions,
             tokens: state.tokens,
             flagged_lines: state.flagged_lines,
-            hazard_lines: Vec::new(),
             runtime_imports: state.runtime_imports,
-            program_start: false,
+            ..FileModel::empty(source_set_of(&path))
         })
     }
 
@@ -757,14 +593,6 @@ impl Guest for SampleMiniPlugin {
             reference_ranges,
             reference_range_note,
         })
-    }
-
-    fn has_hazard_rules() -> bool {
-        false
-    }
-
-    fn hazard_rules() -> Vec<String> {
-        Vec::new()
     }
 
     fn has_imports() -> bool {

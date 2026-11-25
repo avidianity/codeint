@@ -18,5 +18,8 @@ codeint-model = { workspace = true }
 thiserror = { workspace = true }
 wasmtime = { workspace = true }
 
+[dev-dependencies]
+wit-component = { workspace = true }
+
 [lints]
 workspace = true
