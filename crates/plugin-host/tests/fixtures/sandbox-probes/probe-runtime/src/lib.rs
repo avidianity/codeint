@@ -326,6 +326,25 @@ macro_rules! capability_probe_language_tail {
 }
 
 #[macro_export]
+macro_rules! plain_language_tail {
+    () => {
+        $crate::empty_language_metadata_stubs!();
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn has_imports() -> bool {
+            false
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! panic_no_imports_stubs {
     () => {
         fn manifest_paths(
