@@ -1,0 +1,250 @@
+{
+  "measured_on": "2026-11-25",
+  "repositories": [
+    {
+      "name": "pmndrs/jotai",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/pmndrs/jotai",
+      "commit": "facce0d4dda47a1ebb36a04266aee546efc55bd0"
+    },
+    {
+      "name": "immerjs/immer",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/immerjs/immer",
+      "commit": "784c86bb234e805566481c9425fcb2a3897e8bcc"
+    },
+    {
+      "name": "honojs/hono",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/honojs/hono",
+      "commit": "9c2f2948498434506f9ebc77a213bf67a2da5603"
+    },
+    {
+      "name": "trpc/trpc",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/trpc/trpc",
+      "commit": "f6d113b3aa64ac07533a727fbf81774e8de81e67"
+    },
+    {
+      "name": "excalidraw/excalidraw",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/excalidraw/excalidraw",
+      "commit": "eaa7fa32a6645ae9da57eda548e838d0e2a024a1"
+    },
+    {
+      "name": "dtolnay/anyhow",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/dtolnay/anyhow",
+      "commit": "c89c9b82b155f701a20eb4a9d3609ad09df5a62f"
+    },
+    {
+      "name": "sharkdp/fd",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/sharkdp/fd",
+      "commit": "2e8648f10fe55af6258ab90ab889eb8b96033379"
+    },
+    {
+      "name": "sharkdp/bat",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/sharkdp/bat",
+      "commit": "4bd5c5b602950ea8fe62ea16d851d6a26eccfb76"
+    },
+    {
+      "name": "tokio-rs/axum",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/tokio-rs/axum",
+      "commit": "8d8944e6db1a74e671e298aa9bbbd98f8c5e7022"
+    },
+    {
+      "name": "tokio-rs/tokio",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/tokio-rs/tokio",
+      "commit": "854013a8cb7d1397e9d037315592dc1d2d55187d"
+    },
+    {
+      "name": "ramsey/uuid",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/ramsey/uuid",
+      "commit": "7a16331da5bbcade32198a18b25f937f2cf3c4b1"
+    },
+    {
+      "name": "thephpleague/csv",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/thephpleague/csv",
+      "commit": "1296832ba75e67df936df8d428e56307b72c3ad4"
+    },
+    {
+      "name": "guzzle/guzzle",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/guzzle/guzzle",
+      "commit": "ba6574fd975ab16f87dc356729a36777c03851e8"
+    },
+    {
+      "name": "Seldaek/monolog",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/Seldaek/monolog",
+      "commit": "6d4cf3a1199b8fa9e38fdb540569579354242fc7"
+    },
+    {
+      "name": "laravel/framework",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/laravel/framework",
+      "commit": "64de808fe0f46db3279c6b3f348d61ac1459b8c3"
+    },
+    {
+      "name": "rrousselGit/provider",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/rrousselGit/provider",
+      "commit": "3ed4c6d6b1700c08256f25a034bb93f943bd7236"
+    },
+    {
+      "name": "dart-lang/shelf",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/dart-lang/shelf",
+      "commit": "2856b69e67726aa646dc786fa3d6d6dbf42877f4"
+    },
+    {
+      "name": "cfug/dio",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/cfug/dio",
+      "commit": "f1bef462289b40992d625d4eb2a2f42321217573"
+    },
+    {
+      "name": "felangel/bloc",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/felangel/bloc",
+      "commit": "654f15a566fe26a5c5d499c2b75a955d81eb8bca"
+    },
+    {
+      "name": "flutter/packages",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/flutter/packages",
+      "commit": "105a874612c2061d472da518d0d060c6e8839552"
+    },
+    {
+      "name": "psf/requests",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/psf/requests",
+      "commit": "3c7baaa05ab4aa49cc819ce3a819d260de19c157"
+    },
+    {
+      "name": "fastapi/typer",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/fastapi/typer",
+      "commit": "2517edde5a1292a712e2f16e600754c52c6f00d9"
+    },
+    {
+      "name": "fastapi/fastapi",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/fastapi/fastapi",
+      "commit": "05e6df7e906c3decba377c37548019973f40bf15"
+    },
+    {
+      "name": "psf/black",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/psf/black",
+      "commit": "1e4ab756e6fa080d98b15776b713a9756022f2fa"
+    },
+    {
+      "name": "django/django",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/django/django",
+      "commit": "f14af5a88472ca10e2e94b37d6c17ee48cbdeb4d"
+    },
+    {
+      "name": "spf13/cobra",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/spf13/cobra",
+      "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e"
+    },
+    {
+      "name": "go-chi/chi",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/go-chi/chi",
+      "commit": "c64ed7d6635f33a8b2feaff7dcfa55677023ac7d"
+    },
+    {
+      "name": "junegunn/fzf",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/junegunn/fzf",
+      "commit": "ed173e71e44b2a5fa6264ecf232a153dee6994d0"
+    },
+    {
+      "name": "hashicorp/raft",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/hashicorp/raft",
+      "commit": "dd4346dbb127604c840301273c1441db09728bad"
+    },
+    {
+      "name": "gohugoio/hugo",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/gohugoio/hugo",
+      "commit": "7f0b4416ba85844078be57903eec62f61b5ddeb5"
+    },
+    {
+      "name": "NikolayS/postgres_dba",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/NikolayS/postgres_dba",
+      "commit": "d5c63fd11784058be81756eec28f3ea2cd006c1d"
+    },
+    {
+      "name": "olahallengren/sql-server-maintenance-solution",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/olahallengren/sql-server-maintenance-solution",
+      "commit": "41617578643e722b790ea4d57ef80f8de38ae747"
+    },
+    {
+      "name": "pgpartman/pg_partman",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/pgpartman/pg_partman",
+      "commit": "e0a6c384a6c77846d2560f9251089339c9637814"
+    },
+    {
+      "name": "timescale/timescaledb",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/timescale/timescaledb",
+      "commit": "0905a7638d4cff33f0fdb84c8aa0b6ef9ee5c6f9"
+    },
+    {
+      "name": "BrentOzarULTD/SQL-Server-First-Responder-Kit",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit",
+      "commit": "5d3a6811a44e4aef1115aee75254e930e2e60938"
+    }
+  ]
+}

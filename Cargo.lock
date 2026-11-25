@@ -293,6 +293,7 @@ name = "codeint-cli"
 version = "0.6.0"
 dependencies = [
  "codeint-config",
+ "codeint-eval",
  "codeint-git",
  "codeint-metrics",
  "codeint-model",
@@ -318,6 +319,19 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "codeint-eval"
+version = "0.6.0"
+dependencies = [
+ "clap",
+ "codeint-model",
+ "codeint-plugin-host",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
 ]
 
