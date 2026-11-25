@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use codeint_config::FindingsShown;
+use codeint_model::Metric;
 
 use super::types::{
     CloneFamilyChanges, DependenciesChanges, DuplicationChanges, ExternalMetricChanges,
@@ -35,11 +36,13 @@ pub(super) fn source_set_changes(
     for key in keys {
         let base_entry = base.external_metrics.remove(&key);
         let head_entry = head.external_metrics.remove(&key);
-        let (name, description) = match (&head_entry, &base_entry) {
-            (Some(entry), _) | (None, Some(entry)) => {
-                (entry.name.clone(), entry.description.clone())
-            }
-            (None, None) => (key.clone(), String::new()),
+        let (name, description, metric_version) = match (&head_entry, &base_entry) {
+            (Some(entry), _) | (None, Some(entry)) => (
+                entry.name.clone(),
+                entry.description.clone(),
+                entry.metric_version,
+            ),
+            (None, None) => (key.clone(), String::new(), 1),
         };
         let base_measurement =
             base_entry.map_or_else(MetricMeasurement::default, |e| e.measurement);
@@ -50,15 +53,51 @@ pub(super) fn source_set_changes(
             ExternalMetricChanges {
                 name,
                 description,
-                changes: classify(base_measurement, head_measurement, shown, ownership),
+                changes: classify(
+                    metric_version,
+                    base_measurement,
+                    head_measurement,
+                    shown,
+                    ownership,
+                ),
             },
         );
     }
-    let import_cycles = classify_optional(base.import_cycles, head.import_cycles, shown, ownership);
-    let boundaries = classify_optional(base.boundaries, head.boundaries, shown, ownership);
-    let orphan_files = classify_optional(base.orphan_files, head.orphan_files, shown, ownership);
-    let hazards = classify_optional(base.hazards, head.hazards, shown, ownership);
-    let duplication_groups = classify(base.duplication, head.duplication, shown, ownership);
+    let import_cycles = classify_optional(
+        Metric::ImportCycles.version(),
+        base.import_cycles,
+        head.import_cycles,
+        shown,
+        ownership,
+    );
+    let boundaries = classify_optional(
+        Metric::Boundaries.version(),
+        base.boundaries,
+        head.boundaries,
+        shown,
+        ownership,
+    );
+    let orphan_files = classify_optional(
+        Metric::OrphanFiles.version(),
+        base.orphan_files,
+        head.orphan_files,
+        shown,
+        ownership,
+    );
+    let hazards = classify_optional(
+        Metric::Hazards.version(),
+        base.hazards,
+        head.hazards,
+        shown,
+        ownership,
+    );
+    let duplication_groups = classify(
+        Metric::Duplication.version(),
+        base.duplication,
+        head.duplication,
+        shown,
+        ownership,
+    );
     let base_families = ownership.apply(base.clone_families);
     let head_families = ownership.apply(head.clone_families);
     let clone_families = if base_families.is_empty() && head_families.is_empty() {
@@ -82,8 +121,15 @@ pub(super) fn source_set_changes(
         })
     };
     SourceSetChanges {
-        erosion: classify(base.erosion, head.erosion, shown, ownership),
+        erosion: classify(
+            Metric::Erosion.version(),
+            base.erosion,
+            head.erosion,
+            shown,
+            ownership,
+        ),
         cognitive_complexity: classify(
+            Metric::CognitiveComplexity.version(),
             base.cognitive_complexity,
             head.cognitive_complexity,
             shown,
@@ -93,7 +139,13 @@ pub(super) fn source_set_changes(
             groups: duplication_groups,
             clone_families,
         },
-        verbosity: classify(base.verbosity, head.verbosity, shown, ownership),
+        verbosity: classify(
+            Metric::Verbosity.version(),
+            base.verbosity,
+            head.verbosity,
+            shown,
+            ownership,
+        ),
         import_cycles,
         boundaries,
         orphan_files,
@@ -115,18 +167,21 @@ pub(super) fn dependencies_changes(
     let head = head.unwrap_or_default();
     Some(DependenciesChanges {
         unused_dependencies: classify(
+            Metric::UnusedDependencies.version(),
             base.unused_dependencies,
             head.unused_dependencies,
             shown,
             ownership,
         ),
         unlisted_dependencies: classify(
+            Metric::UnlistedDependencies.version(),
             base.unlisted_dependencies,
             head.unlisted_dependencies,
             shown,
             ownership,
         ),
         dev_in_production_dependencies: classify(
+            Metric::DevInProductionDependencies.version(),
             base.dev_in_production_dependencies,
             head.dev_in_production_dependencies,
             shown,
@@ -136,6 +191,7 @@ pub(super) fn dependencies_changes(
 }
 
 fn classify<T: Identified + OwnedFinding>(
+    metric_version: u32,
     base: MetricMeasurement<T>,
     head: MetricMeasurement<T>,
     shown: FindingsShown,
@@ -146,6 +202,7 @@ fn classify<T: Identified + OwnedFinding>(
     let base_ids = ids(&base_findings);
     let head_ids = ids(&head_findings);
     MetricChanges {
+        metric_version,
         base_ratio: Decimal::rounded(base.ratio),
         head_ratio: Decimal::rounded(head.ratio),
         base_numerator: Decimal::rounded(base.numerator),
@@ -157,6 +214,7 @@ fn classify<T: Identified + OwnedFinding>(
 }
 
 fn classify_optional<T: Identified + OwnedFinding>(
+    metric_version: u32,
     base: Option<MetricMeasurement<T>>,
     head: Option<MetricMeasurement<T>>,
     shown: FindingsShown,
@@ -165,6 +223,7 @@ fn classify_optional<T: Identified + OwnedFinding>(
     match (base, head) {
         (None, None) => None,
         (base_metric, head_metric) => Some(classify(
+            metric_version,
             base_metric.unwrap_or_default(),
             head_metric.unwrap_or_default(),
             shown,

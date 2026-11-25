@@ -138,6 +138,7 @@ struct LanguageSchemaEntry {
 pub struct MetricSchema {
     key: &'static str,
     name: &'static str,
+    metric_version: u32,
     short_description: &'static str,
     description: &'static str,
     unit: &'static str,
@@ -259,6 +260,7 @@ fn metric_schema(
     MetricSchema {
         key: metric.key(),
         name: descriptor.name,
+        metric_version: metric.version(),
         short_description: descriptor.short_description,
         description: descriptor.full_description,
         unit: "ratio",
@@ -274,6 +276,7 @@ fn metric_schema_without_regression(
     MetricSchema {
         key: metric.key(),
         name: descriptor.name,
+        metric_version: metric.version(),
         short_description: descriptor.short_description,
         description: descriptor.full_description,
         unit: "ratio",

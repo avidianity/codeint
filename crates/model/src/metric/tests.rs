@@ -265,3 +265,70 @@ fn metric_scope_applies_to_expected_source_sets() {
         assert!(!MetricScope::RepositoryWide.applies_to_source_set(source_set));
     }
 }
+
+struct StubMetricPlugin {
+    key: &'static str,
+    version: u32,
+}
+
+impl super::MetricPlugin for StubMetricPlugin {
+    fn key(&self) -> &str {
+        self.key
+    }
+
+    fn name(&self) -> &str {
+        self.key
+    }
+
+    fn description(&self) -> &str {
+        self.key
+    }
+
+    fn version(&self) -> u32 {
+        self.version
+    }
+
+    fn measure(
+        &self,
+        _model: &crate::CodeModel,
+    ) -> Result<super::ExternalMetricMeasurement, super::MetricPluginError> {
+        Ok(super::ExternalMetricMeasurement {
+            ratio: 0.0,
+            numerator: 0.0,
+            denominator: 0.0,
+            findings: Vec::new(),
+        })
+    }
+}
+
+#[test]
+fn metric_version_helpers_return_sorted_positive_versions_for_built_ins_and_plugins() {
+    let built_in = Metric::built_in_versions();
+    assert_eq!(built_in.len(), Metric::ALL.len());
+    for metric in Metric::ALL {
+        let version = built_in.get(metric.key()).copied();
+        assert_eq!(version, Some(metric.version()));
+        assert!(version.is_some_and(|value| value >= 1));
+    }
+
+    let zeta = StubMetricPlugin {
+        key: "zeta_metric",
+        version: 4,
+    };
+    let alpha = StubMetricPlugin {
+        key: "alpha_metric",
+        version: 2,
+    };
+    let plugins: [&dyn super::MetricPlugin; 2] = [&zeta, &alpha];
+    let combined = Metric::versions_with_plugins(&plugins);
+    assert_eq!(combined.len(), Metric::ALL.len() + 2);
+    assert_eq!(combined.get("alpha_metric"), Some(&2));
+    assert_eq!(combined.get("zeta_metric"), Some(&4));
+    for metric in Metric::ALL {
+        assert_eq!(combined.get(metric.key()), Some(&metric.version()));
+    }
+    let keys: Vec<&String> = combined.keys().collect();
+    let mut sorted_keys = keys.clone();
+    sorted_keys.sort();
+    assert_eq!(keys, sorted_keys);
+}

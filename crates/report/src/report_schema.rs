@@ -25,7 +25,7 @@ fn report_schema_value() -> Value {
                 "type": "string",
                 "description": "One-line note listing every Coverage report path that matched no repository file unambiguously."
             },
-            "dependencies": { "type": "object" },
+            "dependencies": { "$ref": "#/$defs/DependenciesSection" },
             "languages": {
                 "type": "object",
                 "additionalProperties": { "$ref": "#/$defs/MeasuredSection" }
@@ -68,8 +68,30 @@ fn report_schema_value() -> Value {
                     "import_metrics_note": { "type": "string" },
                     "source_sets": { "$ref": "#/$defs/SourceSetSections" },
                     "test_gap_note": { "type": "string" },
-                    "dependencies": { "type": "object" }
+                    "dependencies": { "$ref": "#/$defs/DependenciesSection" }
                 }
+            },
+            "VersionedMetricSection": {
+                "type": "object",
+                "required": ["ratio", "metric_version"],
+                "properties": {
+                    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "metric_version": { "type": "integer", "minimum": 1 }
+                }
+            },
+            "DependenciesSection": {
+                "type": "object",
+                "required": [
+                    "unused_dependencies",
+                    "unlisted_dependencies",
+                    "dev_in_production_dependencies"
+                ],
+                "properties": {
+                    "unused_dependencies": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "unlisted_dependencies": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "dev_in_production_dependencies": { "$ref": "#/$defs/VersionedMetricSection" }
+                },
+                "additionalProperties": false
             },
             "SourceSetSections": {
                 "type": "object",
@@ -87,20 +109,21 @@ fn report_schema_value() -> Value {
                 "properties": {
                     "files": { "type": "integer", "minimum": 0 },
                     "source_lines": { "type": "integer", "minimum": 0 },
-                    "erosion": { "type": "object" },
-                    "cognitive_complexity": { "type": "object" },
-                    "duplication": { "type": "object" },
-                    "verbosity": { "type": "object" },
-                    "import_cycles": { "type": "object" },
+                    "erosion": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "cognitive_complexity": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "duplication": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "verbosity": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "import_cycles": { "$ref": "#/$defs/VersionedMetricSection" },
                     "boundaries": { "$ref": "#/$defs/BoundariesSection" },
-                    "orphan_files": { "type": "object" },
+                    "orphan_files": { "$ref": "#/$defs/VersionedMetricSection" },
                     "test_gap": { "$ref": "#/$defs/TestGapSection" },
                     "hazards": { "$ref": "#/$defs/HazardsSection" },
                     "packages": {
                         "type": "array",
                         "items": { "$ref": "#/$defs/PackageSection" }
                     }
-                }
+                },
+                "additionalProperties": { "$ref": "#/$defs/VersionedMetricSection" }
             },
             "NonProductionSourceSetSection": {
                 "type": "object",
@@ -108,11 +131,11 @@ fn report_schema_value() -> Value {
                 "properties": {
                     "files": { "type": "integer", "minimum": 0 },
                     "source_lines": { "type": "integer", "minimum": 0 },
-                    "erosion": { "type": "object" },
-                    "cognitive_complexity": { "type": "object" },
-                    "duplication": { "type": "object" },
-                    "verbosity": { "type": "object" },
-                    "import_cycles": { "type": "object" },
+                    "erosion": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "cognitive_complexity": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "duplication": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "verbosity": { "$ref": "#/$defs/VersionedMetricSection" },
+                    "import_cycles": { "$ref": "#/$defs/VersionedMetricSection" },
                     "boundaries": { "$ref": "#/$defs/BoundariesSection" },
                     "test_gap": false,
                     "hazards": { "$ref": "#/$defs/HazardsSection" },
@@ -120,14 +143,16 @@ fn report_schema_value() -> Value {
                         "type": "array",
                         "items": { "$ref": "#/$defs/PackageSection" }
                     }
-                }
+                },
+                "additionalProperties": { "$ref": "#/$defs/VersionedMetricSection" }
             },
             "BoundariesSection": {
                 "type": "object",
                 "description": "Import boundaries for this Source set; omitted when boundaries are not configured or do not apply to this Source set.",
-                "required": ["ratio", "resolved_imports", "findings"],
+                "required": ["ratio", "metric_version", "resolved_imports", "findings"],
                 "properties": {
                     "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "metric_version": { "type": "integer", "minimum": 1 },
                     "resolved_imports": { "type": "integer", "minimum": 0 },
                     "findings": {
                         "type": "array",
@@ -158,9 +183,10 @@ fn report_schema_value() -> Value {
             "TestGapSection": {
                 "type": "object",
                 "description": "Test gap for the Production Source set; omitted when no Coverage report applies.",
-                "required": ["ratio", "untested_function_mass", "total_function_mass", "measured_functions", "findings"],
+                "required": ["ratio", "metric_version", "untested_function_mass", "total_function_mass", "measured_functions", "findings"],
                 "properties": {
                     "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "metric_version": { "type": "integer", "minimum": 1 },
                     "untested_function_mass": { "type": "number", "minimum": 0 },
                     "total_function_mass": { "type": "number", "minimum": 0 },
                     "measured_functions": { "type": "integer", "minimum": 0 },
@@ -217,9 +243,10 @@ fn report_schema_value() -> Value {
             "HazardsSection": {
                 "type": "object",
                 "description": "Hazards for this Source set; omitted when no measured language has Hazard line rules.",
-                "required": ["ratio", "hazard_lines", "source_lines", "findings"],
+                "required": ["ratio", "metric_version", "hazard_lines", "source_lines", "findings"],
                 "properties": {
                     "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "metric_version": { "type": "integer", "minimum": 1 },
                     "hazard_lines": { "type": "integer", "minimum": 0 },
                     "source_lines": { "type": "integer", "minimum": 0 },
                     "findings": {

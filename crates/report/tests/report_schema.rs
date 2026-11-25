@@ -323,3 +323,102 @@ fn report_schema_validates_external_package_boundary_findings() {
     assert_eq!(finding["kind"], "external_package");
     assert_eq!(finding["external_package"], "prisma");
 }
+
+struct VersionedExternalMetricPlugin;
+
+impl codeint_model::MetricPlugin for VersionedExternalMetricPlugin {
+    fn key(&self) -> &str {
+        "custom_depth"
+    }
+
+    fn name(&self) -> &str {
+        "Custom depth"
+    }
+
+    fn description(&self) -> &str {
+        "Sample external Metric with version 3"
+    }
+
+    fn version(&self) -> u32 {
+        3
+    }
+
+    fn measure(
+        &self,
+        _model: &CodeModel,
+    ) -> Result<codeint_model::ExternalMetricMeasurement, codeint_model::MetricPluginError> {
+        Ok(codeint_model::ExternalMetricMeasurement {
+            ratio: 0.25,
+            numerator: 1.0,
+            denominator: 4.0,
+            findings: Vec::new(),
+        })
+    }
+}
+
+#[test]
+fn report_schema_validates_metric_versions_for_built_ins_dependencies_and_external_plugins() {
+    let schema: Value = serde_json::from_str(&report_schema()).expect("report schema is JSON");
+    let mut model = sample_model(true, true);
+    model
+        .dependency_manifests
+        .push(codeint_model::DependencyManifest {
+            package_root: "packages/api".to_owned(),
+            path: RepoPath::new("packages/api/package.json").expect("manifest path"),
+        });
+    model
+        .declared_dependencies
+        .push(codeint_model::DeclaredDep {
+            package_root: "packages/api".to_owned(),
+            name: "lodash".to_owned(),
+            kind: codeint_model::DepKind::Runtime,
+        });
+    let plugin = VersionedExternalMetricPlugin;
+    let metric_plugins: [&dyn codeint_model::MetricPlugin; 1] = [&plugin];
+    let budgets = Budgets::default();
+    let report = Report::summarize_with_metrics(
+        vec![MeasuredLanguage {
+            plugin: "typescript-javascript".to_owned(),
+            model,
+            reference_ranges: ReferenceRanges::default(),
+            has_imports: true,
+        }],
+        Vec::new(),
+        FindingsShown::default(),
+        &budgets,
+        &metric_plugins,
+    )
+    .expect("report with external metric plugin");
+
+    let json_text = report.render(ReportFormat::Json).expect("json");
+    let report_json: Value = serde_json::from_str(&json_text).expect("valid JSON");
+    validate_against_schema(&report_json, &schema, &schema, "$");
+
+    let prod = &report_json["source_sets"]["production"];
+    for metric in [
+        "erosion",
+        "cognitive_complexity",
+        "duplication",
+        "verbosity",
+        "import_cycles",
+        "test_gap",
+        "hazards",
+    ] {
+        assert_eq!(prod[metric]["metric_version"], 1, "{metric}");
+    }
+    assert_eq!(prod["custom_depth"]["metric_version"], 3);
+    for dep_metric in [
+        "unused_dependencies",
+        "unlisted_dependencies",
+        "dev_in_production_dependencies",
+    ] {
+        assert_eq!(
+            report_json["dependencies"][dep_metric]["metric_version"], 1,
+            "{dep_metric}"
+        );
+    }
+
+    let toon_text = report.render(ReportFormat::Toon).expect("toon");
+    assert!(toon_text.contains("metric_version: 1"));
+    assert!(toon_text.contains("metric_version: 3"));
+}

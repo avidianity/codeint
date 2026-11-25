@@ -65,6 +65,8 @@ pub struct CommitMeasurementOptions<'a> {
 pub(crate) struct ExternalMetricCommitMeasurement {
     pub(crate) name: String,
     pub(crate) description: String,
+    #[serde(default = "crate::sections::default_metric_version")]
+    pub(crate) metric_version: u32,
     pub(crate) measurement: MetricMeasurement<ExternalMetricFinding>,
 }
 
@@ -324,6 +326,7 @@ impl SourceSetMeasurement {
                 ExternalMetricCommitMeasurement {
                     name: plugin.name().to_owned(),
                     description: plugin.description().to_owned(),
+                    metric_version: plugin.version(),
                     measurement: MetricMeasurement {
                         ratio: result.ratio,
                         numerator: result.numerator,

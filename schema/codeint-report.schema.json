@@ -32,7 +32,7 @@
       "description": "One-line note listing every Coverage report path that matched no repository file unambiguously."
     },
     "dependencies": {
-      "type": "object"
+      "$ref": "#/$defs/DependenciesSection"
     },
     "languages": {
       "type": "object",
@@ -118,9 +118,47 @@
           "type": "string"
         },
         "dependencies": {
-          "type": "object"
+          "$ref": "#/$defs/DependenciesSection"
         }
       }
+    },
+    "VersionedMetricSection": {
+      "type": "object",
+      "required": [
+        "ratio",
+        "metric_version"
+      ],
+      "properties": {
+        "ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "DependenciesSection": {
+      "type": "object",
+      "required": [
+        "unused_dependencies",
+        "unlisted_dependencies",
+        "dev_in_production_dependencies"
+      ],
+      "properties": {
+        "unused_dependencies": {
+          "$ref": "#/$defs/VersionedMetricSection"
+        },
+        "unlisted_dependencies": {
+          "$ref": "#/$defs/VersionedMetricSection"
+        },
+        "dev_in_production_dependencies": {
+          "$ref": "#/$defs/VersionedMetricSection"
+        }
+      },
+      "additionalProperties": false
     },
     "SourceSetSections": {
       "type": "object",
@@ -160,25 +198,25 @@
           "minimum": 0
         },
         "erosion": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "cognitive_complexity": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "duplication": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "verbosity": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "import_cycles": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "boundaries": {
           "$ref": "#/$defs/BoundariesSection"
         },
         "orphan_files": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "test_gap": {
           "$ref": "#/$defs/TestGapSection"
@@ -192,6 +230,9 @@
             "$ref": "#/$defs/PackageSection"
           }
         }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/VersionedMetricSection"
       }
     },
     "NonProductionSourceSetSection": {
@@ -214,19 +255,19 @@
           "minimum": 0
         },
         "erosion": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "cognitive_complexity": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "duplication": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "verbosity": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "import_cycles": {
-          "type": "object"
+          "$ref": "#/$defs/VersionedMetricSection"
         },
         "boundaries": {
           "$ref": "#/$defs/BoundariesSection"
@@ -241,6 +282,9 @@
             "$ref": "#/$defs/PackageSection"
           }
         }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/VersionedMetricSection"
       }
     },
     "BoundariesSection": {
@@ -248,6 +292,7 @@
       "description": "Import boundaries for this Source set; omitted when boundaries are not configured or do not apply to this Source set.",
       "required": [
         "ratio",
+        "metric_version",
         "resolved_imports",
         "findings"
       ],
@@ -256,6 +301,10 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
         },
         "resolved_imports": {
           "type": "integer",
@@ -333,6 +382,7 @@
       "description": "Test gap for the Production Source set; omitted when no Coverage report applies.",
       "required": [
         "ratio",
+        "metric_version",
         "untested_function_mass",
         "total_function_mass",
         "measured_functions",
@@ -343,6 +393,10 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
         },
         "untested_function_mass": {
           "type": "number",
@@ -491,6 +545,7 @@
       "description": "Hazards for this Source set; omitted when no measured language has Hazard line rules.",
       "required": [
         "ratio",
+        "metric_version",
         "hazard_lines",
         "source_lines",
         "findings"
@@ -500,6 +555,10 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "metric_version": {
+          "type": "integer",
+          "minimum": 1
         },
         "hazard_lines": {
           "type": "integer",

@@ -2035,3 +2035,79 @@ fn codeint_check_refuses_external_metric_plugin_using_built_in_key() {
         "expected stderr to reject cognitive_complexity collision, got: {stderr}"
     );
 }
+
+fn run_diff_head_json(repo: &Path, cache: &Path) -> Value {
+    let out = run_codeint_with_env(
+        repo,
+        &["diff", "HEAD", "--format", "json"],
+        &[("CODEINT_CACHE_DIR", cache)],
+    );
+    assert!(out.status.success());
+    serde_json::from_slice(&out.stdout).expect("diff json")
+}
+
+#[test]
+fn external_metric_plugin_records_metric_version_in_reports_and_commit_cache_keys() {
+    let repo = init_repo();
+    let cache = tempfile::tempdir().expect("cache dir");
+    let hash = copy_metric_plugin_into(repo.path(), "plugins/long_functions.wasm");
+    write_metric_plugin_config(repo.path(), &hash, "");
+    write_file(
+        repo.path(),
+        "src/app.ts",
+        &format!(
+            "{}\n{}",
+            short_ts_function("brief"),
+            long_ts_function("verbose", 10)
+        ),
+    );
+    commit_all(repo.path(), "base");
+
+    let check_report = run_check_json_report(repo.path());
+    assert_eq!(
+        check_report["source_sets"]["production"]["long_functions"]["metric_version"],
+        1
+    );
+
+    let diff_report = run_diff_head_json(repo.path(), cache.path());
+    assert_eq!(
+        diff_report["source_sets"]["production"]["long_functions"]["metric_version"],
+        1
+    );
+
+    #[derive(serde::Deserialize)]
+    struct StoredCache {
+        settings: String,
+        result: Value,
+    }
+
+    let only_file = fs::read_dir(cache.path())
+        .expect("read cache dir")
+        .map(|item| item.expect("item").path())
+        .collect::<Vec<_>>();
+    assert_eq!(only_file.len(), 1);
+    let stored: StoredCache =
+        serde_json::from_slice(&fs::read(&only_file[0]).expect("read bytes")).expect("stored");
+    let mut cfg: Value = serde_json::from_str(&stored.settings).expect("cfg");
+    assert_eq!(cfg["metric_versions"]["long_functions"], 1);
+    cfg["metric_versions"]["long_functions"] = serde_json::json!(2);
+    let mut poisoned = stored.result;
+    poisoned["production"]["external_metrics"]["long_functions"]["measurement"]["ratio"] =
+        serde_json::json!(0.9999);
+
+    let seeded_cache = tempfile::tempdir().expect("seeded cache");
+    let head_commit = codeint_git::Repository::discover(repo.path())
+        .expect("discover")
+        .resolve("HEAD")
+        .expect("head");
+    codeint_git::ResultCache::in_folder(seeded_cache.path().to_path_buf())
+        .write(head_commit, &cfg, &poisoned)
+        .expect("write poisoned");
+
+    let fresh = run_diff_head_json(repo.path(), seeded_cache.path());
+    assert_eq!(
+        fresh["source_sets"]["production"]["long_functions"]["base_ratio"],
+        0.5
+    );
+    assert_eq!(fs::read_dir(seeded_cache.path()).expect("list").count(), 2);
+}

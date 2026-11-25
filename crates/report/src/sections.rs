@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use codeint_model::Metric;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::dependencies::{ImportedDependencyRow, UnusedDependencyRow};
@@ -13,6 +14,10 @@ use crate::render::{
 };
 
 pub(crate) type SourceSetSections = PerSourceSet<SourceSetSection>;
+
+pub(crate) fn default_metric_version() -> u32 {
+    1
+}
 
 crate_structs! {
     #[derive(Debug, Serialize, Deserialize)]
@@ -50,8 +55,16 @@ crate_structs! {
     }
 
     #[derive(Debug, Serialize, Deserialize)]
-    struct UnusedDependenciesSection {
+    struct MetricRatioHeader {
         ratio: Decimal,
+        #[serde(default = "default_metric_version")]
+        metric_version: u32,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct UnusedDependenciesSection {
+        #[serde(flatten)]
+        header: MetricRatioHeader,
         unused: usize,
         declared: usize,
         #[serde(flatten)]
@@ -60,7 +73,8 @@ crate_structs! {
 
     #[derive(Debug, Serialize, Deserialize)]
     struct UnlistedDependenciesSection {
-        ratio: Decimal,
+        #[serde(flatten)]
+        header: MetricRatioHeader,
         unlisted: usize,
         imported: usize,
         #[serde(flatten)]
@@ -69,7 +83,8 @@ crate_structs! {
 
     #[derive(Debug, Serialize, Deserialize)]
     struct DevInProductionDependenciesSection {
-        ratio: Decimal,
+        #[serde(flatten)]
+        header: MetricRatioHeader,
         dev_in_production: usize,
         production_imported: usize,
         #[serde(flatten)]
@@ -102,7 +117,8 @@ crate_structs! {
 
     #[derive(Debug, Serialize, Deserialize)]
     struct HazardsSection {
-        ratio: Decimal,
+        #[serde(flatten)]
+        header: MetricRatioHeader,
         hazard_lines: u64,
         source_lines: u64,
         #[serde(flatten)]
@@ -111,7 +127,8 @@ crate_structs! {
 
     #[derive(Debug, Serialize, Deserialize)]
     struct TestGapSection {
-        ratio: Decimal,
+        #[serde(flatten)]
+        header: MetricRatioHeader,
         untested_function_mass: Decimal,
         total_function_mass: Decimal,
         measured_functions: usize,
@@ -121,7 +138,8 @@ crate_structs! {
 
     #[derive(Debug, Serialize, Deserialize)]
     struct OrphanFilesSection {
-        ratio: Decimal,
+        #[serde(flatten)]
+        header: MetricRatioHeader,
         orphan_files: usize,
         evaluated_files: usize,
         entry_points: usize,
@@ -133,7 +151,8 @@ crate_structs! {
 
     #[derive(Debug, Serialize, Deserialize)]
     struct BoundariesSection {
-        ratio: Decimal,
+        #[serde(flatten)]
+        header: MetricRatioHeader,
         resolved_imports: usize,
         #[serde(flatten)]
         findings: Findings<BoundaryFindingRow>,
@@ -142,7 +161,18 @@ crate_structs! {
     #[derive(Debug, Serialize, Deserialize)]
     struct MetricHeader {
         ratio: Decimal,
+        #[serde(default = "default_metric_version")]
+        metric_version: u32,
         reference_range: ReferenceRangeEntry,
+    }
+}
+
+impl MetricRatioHeader {
+    pub(crate) fn new(ratio: f64, metric: Metric) -> MetricRatioHeader {
+        MetricRatioHeader {
+            ratio: Decimal::rounded(ratio),
+            metric_version: metric.version(),
+        }
     }
 }
 
@@ -155,6 +185,7 @@ impl MetricHeader {
     ) -> MetricHeader {
         MetricHeader {
             ratio: Decimal::rounded(ratio),
+            metric_version,
             reference_range: ranges.entry(key, metric_version),
         }
     }
@@ -312,6 +343,8 @@ impl<'de> Deserialize<'de> for DuplicationSection {
         #[derive(Deserialize)]
         struct RawDuplicationSection {
             ratio: Decimal,
+            #[serde(default = "default_metric_version")]
+            metric_version: u32,
             reference_range: ReferenceRangeEntry,
             #[serde(default)]
             near_clones: Option<NearClonesSummary>,
@@ -331,6 +364,7 @@ impl<'de> Deserialize<'de> for DuplicationSection {
         Ok(DuplicationSection {
             header: MetricHeader {
                 ratio: raw.ratio,
+                metric_version: raw.metric_version,
                 reference_range: raw.reference_range,
             },
             near_clones: raw.near_clones,

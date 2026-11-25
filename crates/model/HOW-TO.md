@@ -323,6 +323,7 @@ assert!(is_reserved_report_key(STRUCTURAL_REPORT_KEYS[0]));
 ```
 
 - `Metric` enumerates all twelve built-in Metrics, backed by one ordered table (`Metric::DESCRIPTORS`) and `Metric::ALL`.
-- Each `MetricDescriptor` carries nine fields: machine key, Glossary display name, initial integer Metric version (`1`), kind (`MetricKind::SoftwareEntropy` or `MetricKind::Hazards`), Source-set scope (`MetricScope`), whether `codeint diff` supports Regression checks, default Regression rule (`NewFindingsRule`), required capability (`MetricCapability`), and report numerator field name.
+- Each `MetricDescriptor` carries nine fields: machine key, Glossary display name, positive integer Metric version (starting at `1`), kind (`MetricKind::SoftwareEntropy` or `MetricKind::Hazards`), Source-set scope (`MetricScope`), whether `codeint diff` supports Regression checks, default Regression rule (`NewFindingsRule`), required capability (`MetricCapability`), and report numerator field name.
+- Call `Metric::built_in_versions()` for the sorted map of all built-in Metric versions, or `Metric::versions_with_plugins(&metric_plugins)` to include loaded external Metric plugins.
 - `STRUCTURAL_REPORT_KEYS` lists the three structural JSON report keys (`files`, `source_lines`, `packages`), and `is_reserved_report_key` checks both `Metric::BUILT_IN_KEYS` and `STRUCTURAL_REPORT_KEYS`.
 - Read built-in keys, default Regression rules, scopes, capabilities, and numerator field names from `Metric` instead of keeping duplicate partial tables in downstream crates.

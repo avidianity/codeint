@@ -24,3 +24,151 @@ fn rejects_unsupported_schema_version_values() {
         SavedReportError::UnsupportedSchemaVersion { .. }
     ));
 }
+
+fn rerender_saved_json(raw: &str) -> (SavedReport, serde_json::Value) {
+    let parsed = SavedReport::from_json(raw).expect("parse saved report");
+    let rendered = parsed
+        .render(codeint_config::ReportRenderFormat::Json)
+        .expect("render saved json");
+    let value: serde_json::Value = serde_json::from_str(&rendered).expect("valid json");
+    (parsed, value)
+}
+
+#[test]
+fn saved_check_and_diff_reports_preserve_metric_versions_across_json_and_toon_round_trips() {
+    use codeint_config::{
+        Budgets, FindingsShown, RegressionLimits, ReportFormat, ReportRenderFormat,
+    };
+    use codeint_model::{
+        CodeModel, ExternalMetricMeasurement, FileModel, MetricPlugin, MetricPluginError,
+        ReferenceRanges, RepoPath, SourceFile, SourceSet,
+    };
+
+    use crate::{BaseCommit, CommitMeasurement, DiffReport, Head, MeasuredLanguage, Report};
+
+    struct VersionFourMetric;
+
+    impl MetricPlugin for VersionFourMetric {
+        fn key(&self) -> &str {
+            "custom_v4"
+        }
+
+        fn name(&self) -> &str {
+            "Custom v4"
+        }
+
+        fn description(&self) -> &str {
+            "Test Metric plugin at version 4"
+        }
+
+        fn version(&self) -> u32 {
+            4
+        }
+
+        fn measure(
+            &self,
+            _model: &CodeModel,
+        ) -> Result<ExternalMetricMeasurement, MetricPluginError> {
+            Ok(ExternalMetricMeasurement {
+                ratio: 0.5,
+                numerator: 1.0,
+                denominator: 2.0,
+                findings: Vec::new(),
+            })
+        }
+    }
+
+    let mut model = CodeModel::default();
+    model.files.push(SourceFile {
+        path: RepoPath::new("src/app.ts").expect("path"),
+        model: FileModel {
+            source_set: SourceSet::Production,
+            source_lines: 4,
+            functions: Vec::new(),
+            tokens: Vec::new(),
+            flagged_lines: Vec::new(),
+            hazard_lines: Vec::new(),
+            runtime_imports: Vec::new(),
+            program_start: false,
+        },
+    });
+    let plugin = VersionFourMetric;
+    let plugins: [&dyn MetricPlugin; 1] = [&plugin];
+    let budgets = Budgets::default();
+
+    let check = Report::summarize_with_metrics(
+        vec![MeasuredLanguage {
+            plugin: "typescript-javascript".to_owned(),
+            model: model.clone(),
+            reference_ranges: ReferenceRanges::default(),
+            has_imports: true,
+        }],
+        Vec::new(),
+        FindingsShown::default(),
+        &budgets,
+        &plugins,
+    )
+    .expect("check report");
+    let check_json = check.render(ReportFormat::Json).expect("check json");
+    let (saved_check, rerendered_check_json) = rerender_saved_json(&check_json);
+    assert_eq!(
+        rerendered_check_json["source_sets"]["production"]["erosion"]["metric_version"],
+        1
+    );
+    assert_eq!(
+        rerendered_check_json["source_sets"]["production"]["custom_v4"]["metric_version"],
+        4
+    );
+    let rerendered_check_toon = saved_check
+        .render(ReportRenderFormat::Toon)
+        .expect("render saved check toon");
+    assert!(rerendered_check_toon.contains("metric_version: 4"));
+
+    let mut legacy_check: serde_json::Value =
+        serde_json::from_str(&check_json).expect("parse check json");
+    for metric in [
+        "erosion",
+        "cognitive_complexity",
+        "duplication",
+        "verbosity",
+        "import_cycles",
+        "custom_v4",
+    ] {
+        legacy_check["source_sets"]["production"][metric]
+            .as_object_mut()
+            .expect("metric object")
+            .remove("metric_version");
+    }
+    let (_, legacy_rerendered) = rerender_saved_json(&legacy_check.to_string());
+    assert_eq!(
+        legacy_rerendered["source_sets"]["production"]["erosion"]["metric_version"],
+        1
+    );
+
+    let base_measurement =
+        CommitMeasurement::of_with_metrics(model.clone(), &plugins).expect("base measurement");
+    let head_measurement =
+        CommitMeasurement::of_with_metrics(model, &plugins).expect("head measurement");
+    let diff = DiffReport::compare(
+        BaseCommit {
+            git_ref: "main".to_owned(),
+            merge_base: "abc".to_owned(),
+        },
+        Head::WorkingTree,
+        base_measurement,
+        head_measurement,
+        FindingsShown::default(),
+        &budgets,
+        &RegressionLimits::default(),
+    );
+    let diff_json = diff.render(ReportFormat::Json).expect("diff json");
+    let (_, rerendered_diff) = rerender_saved_json(&diff_json);
+    assert_eq!(
+        rerendered_diff["source_sets"]["production"]["erosion"]["metric_version"],
+        1
+    );
+    assert_eq!(
+        rerendered_diff["source_sets"]["production"]["custom_v4"]["metric_version"],
+        4
+    );
+}

@@ -1,9 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use codeint_config::Configuration;
 use codeint_git::{CommitId, Repository, ResultCache, Snapshot};
 use codeint_metrics::DependencyHygiene;
-use codeint_model::{CodeModel, RepoPath};
+use codeint_model::{CodeModel, Metric, RepoPath};
 use codeint_plugin_host::{PLUGIN_INTERFACE_VERSION, built_in_language_names};
 use codeint_report::{CommitMeasurement, CommitMeasurementOptions};
 use serde::Serialize;
@@ -24,6 +24,7 @@ struct MeasurementSettings<'configuration> {
     codeint_version: &'static str,
     cache_version: u32,
     plugin_interface_version: String,
+    metric_versions: BTreeMap<String, u32>,
     language_plugins: Vec<PluginIdentity>,
     configuration: &'configuration Configuration,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -78,6 +79,8 @@ impl<'run> CommitMeasurer<'run> {
         }
         let coverage_report_digests =
             hash_configured_coverage_reports(repository.root(), &configuration.coverage_reports);
+        let metric_plugins = plugins.metric_plugins();
+        let metric_versions = Metric::versions_with_plugins(&metric_plugins);
         CommitMeasurer {
             repository,
             configuration,
@@ -86,6 +89,7 @@ impl<'run> CommitMeasurer<'run> {
                 codeint_version: CODEINT_VERSION,
                 cache_version: MEASUREMENT_CACHE_VERSION,
                 plugin_interface_version: PLUGIN_INTERFACE_VERSION.to_owned(),
+                metric_versions,
                 language_plugins,
                 configuration,
                 coverage_report_digests,

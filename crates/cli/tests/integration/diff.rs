@@ -1836,3 +1836,45 @@ fn diff_new_file_budgets_checks_orphan_files_with_full_head_reachability() {
     );
     assert_new_file_budget_failure(&report, "orphan_files", 0.5, 0.0, 2);
 }
+
+fn assert_cached_diff_matches(fixture: &Fixture, cache: &Path, expected: &Value, entries: usize) {
+    let output = fixture.codeint_diff_with_result_cache(cache, &["main", "--format", "json"]);
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).expect("valid diff json");
+    assert_eq!(&actual, expected);
+    assert_eq!(fs::read_dir(cache).expect("cache dir").count(), entries);
+}
+
+#[test]
+fn a_metric_version_change_invalidates_the_commit_cache_and_recomputes() {
+    let fixture = Fixture::on_main();
+    fixture.put(
+        "src/value.ts",
+        "export const value = (n: number) => n + 1;\n",
+    );
+    fixture.commit("add value helper");
+    let baseline = fixture.diff_json("main");
+    let (mut settings, mut poisoned) = read_cached_settings_and_result(fixture.result_cache.path());
+    let recorded = settings["metric_versions"]
+        .as_object()
+        .expect("cache settings must include metric_versions");
+    for (key, version) in codeint_model::Metric::built_in_versions() {
+        assert_eq!(recorded.get(key), Some(&json!(version)), "Metric {key}");
+    }
+
+    poisoned["production"]["verbosity"]["ratio"] = json!(0.9999);
+    settings["metric_versions"]["verbosity"] = json!(2);
+    let main_commit = codeint_git::Repository::discover(fixture.root())
+        .expect("open repo")
+        .resolve("main")
+        .expect("resolve main");
+    let cache = tempfile::tempdir().expect("seeded cache");
+    let store = codeint_git::ResultCache::in_folder(cache.path().to_path_buf());
+    store
+        .write(main_commit, &settings, &poisoned)
+        .expect("write bumped cache entry");
+
+    assert_cached_diff_matches(&fixture, cache.path(), &baseline, 2);
+    fixture.forget_committed_file("main:src/value.ts");
+    assert_cached_diff_matches(&fixture, cache.path(), &baseline, 2);
+}

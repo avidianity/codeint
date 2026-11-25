@@ -16,6 +16,10 @@ _Avoid_: structural debt, tech debt, code quality
 One named measurement of a codebase, reported on its own and never blended with other Metrics into a combined score.
 _Avoid_: score, index, grade, rating
 
+**Metric version**:
+A positive integer that identifies the calculation rules of one Metric and increases whenever those rules change.
+_Avoid_: formula revision, schema version
+
 **Erosion**:
 The share of total Function mass held by functions whose cyclomatic complexity is greater than 10.
 _Avoid_: complexity score, hotspot ratio
@@ -147,6 +151,7 @@ _Avoid_: analyzer, detector, rule
 - A **Metric** may have one or more **Reference ranges**, each for one language family.
 - Everything that differs between languages belongs to a **Language plugin**: decision points, imports, workspaces, **Source set** rules, **Flagged line** rules, and **Hazard line** rules.
 - A **Metric** value is backed by zero or more **Findings**.
+- Every **Metric** carries a positive integer **Metric version** that increases whenever its calculation rules change.
 - A **Budget** applies to one **Metric** in one **Source set**.
 - Every source file belongs to exactly one **Source set**.
 

@@ -184,6 +184,7 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          source_lines: {source_lines}\n    \
          erosion:\n      \
          ratio: 0\n      \
+         metric_version: 1\n      \
          reference_range:\n        \
          low: 0.352\n        \
          high: 0.6\n        \
@@ -193,12 +194,14 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          findings: []\n    \
          cognitive_complexity:\n      \
          ratio: 0\n      \
+         metric_version: 1\n      \
          reference_range: no published Reference range for this language\n      \
          complex_cognitive_complexity: 0\n      \
          total_cognitive_complexity: 0\n      \
          findings: []\n    \
          duplication:\n      \
          ratio: 0\n      \
+         metric_version: 1\n      \
          reference_range:\n        \
          low: 0.017\n        \
          high: 0.346\n        \
@@ -207,6 +210,7 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          clone_groups: []\n    \
          verbosity:\n      \
          ratio: 0\n      \
+         metric_version: 1\n      \
          reference_range:\n        \
          low: 0.018\n        \
          high: 0.347\n        \
@@ -217,6 +221,7 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          findings: []\n    \
          import_cycles:\n      \
          ratio: 0\n      \
+         metric_version: 1\n      \
          reference_range:\n        \
          low: 0\n        \
          high: 0.308\n        \
@@ -273,6 +278,7 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
         production_section(&output, "verbosity"),
         "verbosity:\n  \
          ratio: 0.15\n  \
+         metric_version: 1\n  \
          reference_range:\n    \
          low: 0.018\n    \
          high: 0.347\n    \
@@ -323,6 +329,7 @@ fn verbosity_counts_a_line_that_is_both_flagged_and_a_clone_line_once() {
         concat!(
             "verbosity:\n",
             "  ratio: 0.7143\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.018\n",
             "    high: 0.347\n",
@@ -597,6 +604,7 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
         concat!(
             "erosion:\n",
             "  ratio: 0.8889\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -626,6 +634,7 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
         concat!(
             "erosion:\n",
             "  ratio: 0.7094\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -654,6 +663,7 @@ fn a_repository_without_functions_reports_erosion_0() {
         concat!(
             "erosion:\n",
             "  ratio: 0\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -719,6 +729,7 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
         concat!(
             "erosion:\n",
             "  ratio: 0.9683\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -864,6 +875,7 @@ fn every_kind_of_decision_point_counts_toward_erosion() {
         concat!(
             "erosion:\n",
             "  ratio: 1\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -904,6 +916,7 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
         concat!(
             "erosion:\n",
             "  ratio: 0.5338\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -919,6 +932,7 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
         concat!(
             "erosion:\n",
             "  ratio: 1\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -1049,6 +1063,7 @@ fn a_source_set_without_files_is_left_out_of_the_report() {
         concat!(
             "erosion:\n",
             "  ratio: 0\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.352\n",
             "    high: 0.6\n",
@@ -1356,7 +1371,7 @@ fn assert_unwritable_output(output: &Output, path: &str) {
     );
 }
 
-const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  reference_range:\n    low: 0.017\n    high: 0.346\n    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n  clone_lines: 0\n  clone_groups: []\n";
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  metric_version: 1\n  reference_range:\n    low: 0.017\n    high: 0.346\n    source: \"codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0\"\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
     "export function total(items: { price: number; discount: number; quantity: number }[]): number {\n",
@@ -1389,6 +1404,7 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
         concat!(
             "duplication:\n",
             "  ratio: 0.9\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.017\n",
             "    high: 0.346\n",
@@ -1443,6 +1459,7 @@ fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
         concat!(
             "duplication:\n",
             "  ratio: 1\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.017\n",
             "    high: 0.346\n",
@@ -1522,6 +1539,7 @@ fn a_copy_of_74_tokens_is_not_a_clone_group_and_a_copy_of_75_tokens_is() {
         concat!(
             "duplication:\n",
             "  ratio: 1\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.017\n",
             "    high: 0.346\n",
@@ -1674,6 +1692,7 @@ fn a_copied_function_after_a_shared_import_list_forms_a_clone_group_of_the_funct
         concat!(
             "duplication:\n",
             "  ratio: 0.4737\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0.017\n",
             "    high: 0.346\n",
@@ -1714,6 +1733,7 @@ fn no_import_cycles(modules: usize) -> String {
     format!(
         "import_cycles:\n\
          \x20 ratio: 0\n\
+         \x20 metric_version: 1\n\
          \x20 reference_range:\n\
          \x20   low: 0\n\
          \x20   high: 0.308\n\
@@ -1727,25 +1747,32 @@ fn no_import_cycles(modules: usize) -> String {
     )
 }
 
+fn check_committed(files: &[(&str, &str)]) -> Output {
+    let repository = Repository::new();
+    for &(path, contents) in files {
+        repository.write(path, contents);
+    }
+    repository.commit_all();
+    repository.codeint(&["check"])
+}
+
 #[test]
 fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
-    let repository = Repository::new();
-    repository.write(
-        "src/a.ts",
-        "import { b } from './b';\nexport const a = () => b();\n",
-    );
-    repository.write(
-        "src/b.ts",
-        "import { c } from './c.ts';\nexport const b = () => c();\n",
-    );
-    repository.write(
-        "src/c.ts",
-        "import { a } from './a.js';\nexport const c = () => a();\n",
-    );
-    repository.write("src/main.ts", "import { a } from './a';\na();\n");
-    repository.commit_all();
-
-    let output = repository.codeint(&["check"]);
+    let output = check_committed(&[
+        (
+            "src/a.ts",
+            "import { b } from './b';\nexport const a = () => b();\n",
+        ),
+        (
+            "src/b.ts",
+            "import { c } from './c.ts';\nexport const b = () => c();\n",
+        ),
+        (
+            "src/c.ts",
+            "import { a } from './a.js';\nexport const c = () => a();\n",
+        ),
+        ("src/main.ts", "import { a } from './a';\na();\n"),
+    ]);
 
     assert_success(&output);
     assert_eq!(
@@ -1753,6 +1780,7 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.75\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -1771,30 +1799,28 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
 
 #[test]
 fn a_cycle_through_a_tsconfig_path_alias_is_an_import_cycle() {
-    let repository = Repository::new();
-    repository.write(
-        "tsconfig.base.json",
-        "{\n  \"compilerOptions\": {\n    \"baseUrl\": \".\",\n    \"paths\": { \"@app/*\": [\"src/app/*\"] }\n  }\n}\n",
-    );
-    repository.write(
-        "tsconfig.json",
-        "{ \"extends\": \"./tsconfig.base.json\", \"include\": [\"src\"] }\n",
-    );
-    repository.write(
-        "src/app/orders.ts",
-        "import { users } from '@app/users';\nexport const orders = () => users();\n",
-    );
-    repository.write(
-        "src/app/users.ts",
-        "import { orders } from 'src/app/orders';\nexport const users = () => orders();\n",
-    );
-    repository.write(
-        "src/main.ts",
-        "import { orders } from '@app/orders';\norders();\n",
-    );
-    repository.commit_all();
-
-    let output = repository.codeint(&["check"]);
+    let output = check_committed(&[
+        (
+            "tsconfig.base.json",
+            "{\n  \"compilerOptions\": {\n    \"baseUrl\": \".\",\n    \"paths\": { \"@app/*\": [\"src/app/*\"] }\n  }\n}\n",
+        ),
+        (
+            "tsconfig.json",
+            "{ \"extends\": \"./tsconfig.base.json\", \"include\": [\"src\"] }\n",
+        ),
+        (
+            "src/app/orders.ts",
+            "import { users } from '@app/users';\nexport const orders = () => users();\n",
+        ),
+        (
+            "src/app/users.ts",
+            "import { orders } from 'src/app/orders';\nexport const users = () => orders();\n",
+        ),
+        (
+            "src/main.ts",
+            "import { orders } from '@app/orders';\norders();\n",
+        ),
+    ]);
 
     assert_success(&output);
     assert_eq!(
@@ -1802,6 +1828,7 @@ fn a_cycle_through_a_tsconfig_path_alias_is_an_import_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.6667\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -1820,46 +1847,44 @@ fn a_cycle_through_a_tsconfig_path_alias_is_an_import_cycle() {
 
 #[test]
 fn a_cycle_through_the_exports_of_a_workspace_package_is_an_import_cycle() {
-    let repository = Repository::new();
-    repository.write(
-        "package.json",
-        "{ \"name\": \"shop\", \"private\": true, \"workspaces\": [\"packages/*\"] }\n",
-    );
-    repository.write(
-        "packages/billing/package.json",
-        concat!(
-            "{\n",
-            "  \"name\": \"@shop/billing\",\n",
-            "  \"exports\": {\n",
-            "    \".\": { \"types\": \"./src/index.ts\", \"import\": \"./dist/index.js\" },\n",
-            "    \"./invoices\": \"./src/invoices/public.ts\"\n",
-            "  }\n",
-            "}\n",
+    let output = check_committed(&[
+        (
+            "package.json",
+            "{ \"name\": \"shop\", \"private\": true, \"workspaces\": [\"packages/*\"] }\n",
         ),
-    );
-    repository.write(
-        "packages/billing/src/index.ts",
-        "import { customer } from '@shop/accounts';\nexport const bill = () => customer();\n",
-    );
-    repository.write(
-        "packages/billing/src/invoices/public.ts",
-        "export const invoice = () => 1;\n",
-    );
-    repository.write(
-        "packages/accounts/package.json",
-        "{ \"name\": \"@shop/accounts\", \"exports\": \"./lib/accounts.ts\" }\n",
-    );
-    repository.write(
-        "packages/accounts/lib/accounts.ts",
-        concat!(
-            "import { bill } from '@shop/billing';\n",
-            "import { invoice } from '@shop/billing/invoices';\n",
-            "export const customer = () => bill() + invoice();\n",
+        (
+            "packages/billing/package.json",
+            concat!(
+                "{\n",
+                "  \"name\": \"@shop/billing\",\n",
+                "  \"exports\": {\n",
+                "    \".\": { \"types\": \"./src/index.ts\", \"import\": \"./dist/index.js\" },\n",
+                "    \"./invoices\": \"./src/invoices/public.ts\"\n",
+                "  }\n",
+                "}\n",
+            ),
         ),
-    );
-    repository.commit_all();
-
-    let output = repository.codeint(&["check"]);
+        (
+            "packages/billing/src/index.ts",
+            "import { customer } from '@shop/accounts';\nexport const bill = () => customer();\n",
+        ),
+        (
+            "packages/billing/src/invoices/public.ts",
+            "export const invoice = () => 1;\n",
+        ),
+        (
+            "packages/accounts/package.json",
+            "{ \"name\": \"@shop/accounts\", \"exports\": \"./lib/accounts.ts\" }\n",
+        ),
+        (
+            "packages/accounts/lib/accounts.ts",
+            concat!(
+                "import { bill } from '@shop/billing';\n",
+                "import { invoice } from '@shop/billing/invoices';\n",
+                "export const customer = () => bill() + invoice();\n",
+            ),
+        ),
+    ]);
 
     assert_success(&output);
     assert_eq!(
@@ -1867,6 +1892,7 @@ fn a_cycle_through_the_exports_of_a_workspace_package_is_an_import_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.6667\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -1915,26 +1941,24 @@ fn a_diamond_of_imports_without_a_cycle_reports_no_import_cycle() {
 
 #[test]
 fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
-    let repository = Repository::new();
-    repository.write(
-        "lib/loader.js",
-        "export const load = () => import(`./plugin.js`);\n",
-    );
-    repository.write(
-        "lib/plugin.js",
-        "const helpers = require('./helpers');\nexport default helpers;\n",
-    );
-    repository.write(
-        "lib/helpers.js",
-        "const { load } = require('./loader');\nmodule.exports = { load };\n",
-    );
-    repository.write(
-        "lib/standalone.js",
-        "const path = require('node:path');\nexport const join = path.join;\n",
-    );
-    repository.commit_all();
-
-    let output = repository.codeint(&["check"]);
+    let output = check_committed(&[
+        (
+            "lib/loader.js",
+            "export const load = () => import(`./plugin.js`);\n",
+        ),
+        (
+            "lib/plugin.js",
+            "const helpers = require('./helpers');\nexport default helpers;\n",
+        ),
+        (
+            "lib/helpers.js",
+            "const { load } = require('./loader');\nmodule.exports = { load };\n",
+        ),
+        (
+            "lib/standalone.js",
+            "const path = require('node:path');\nexport const join = path.join;\n",
+        ),
+    ]);
 
     assert_success(&output);
     assert_eq!(
@@ -1942,6 +1966,8 @@ fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.75\n",
+            "  metric_version: ",
+            "1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -1990,22 +2016,20 @@ fn type_only_imports_and_exports_do_not_form_an_import_cycle() {
 
 #[test]
 fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() {
-    let repository = Repository::new();
-    repository.write(
-        "src/shape.ts",
-        "import { type Unit, scale } from './unit';\nexport interface Shape { unit: Unit }\nconst area = (side: number) => scale(side * side);\nexport default area;\n",
-    );
-    repository.write(
-        "src/unit.ts",
-        "export { type Ratio, ratio } from './ratio';\nexport type Unit = 'cm';\nexport const scale = (value: number) => value;\n",
-    );
-    repository.write(
-        "src/ratio.ts",
-        "import area, { type Shape } from './shape';\nexport type Ratio = number;\nexport const ratio = (shape: Shape) => area(1) / shape.unit.length;\n",
-    );
-    repository.commit_all();
-
-    let output = repository.codeint(&["check"]);
+    let output = check_committed(&[
+        (
+            "src/shape.ts",
+            "import { type Unit, scale } from './unit';\nexport interface Shape { unit: Unit }\nconst area = (side: number) => scale(side * side);\nexport default area;\n",
+        ),
+        (
+            "src/unit.ts",
+            "export { type Ratio, ratio } from './ratio';\nexport type Unit = 'cm';\nexport const scale = (value: number) => value;\n",
+        ),
+        (
+            "src/ratio.ts",
+            "import area, { type Shape } from './shape';\nexport type Ratio = number;\nexport const ratio = (shape: Shape) => area(1) / shape.unit.length;\n",
+        ),
+    ]);
 
     assert_success(&output);
     assert_eq!(
@@ -2013,6 +2037,7 @@ fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() 
         concat!(
             "import_cycles:\n",
             "  ratio: 1\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -2057,6 +2082,7 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
         concat!(
             "import_cycles:\n",
             "  ratio: 0.7143\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -2138,22 +2164,20 @@ fn all_lists_every_import_cycle() {
 
 #[test]
 fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
-    let repository = Repository::new();
-    repository.write(
-        "src/greet.ts",
-        "import { check } from './greet.test';\nexport const greet = () => check;\n",
-    );
-    repository.write(
-        "src/greet.test.ts",
-        "import { greet } from './greet';\nimport { helper } from './helper.test';\nexport const check = greet;\nexport const used = helper;\n",
-    );
-    repository.write(
-        "src/helper.test.ts",
-        "import { used } from './greet.test';\nexport const helper = () => used;\n",
-    );
-    repository.commit_all();
-
-    let output = repository.codeint(&["check"]);
+    let output = check_committed(&[
+        (
+            "src/greet.ts",
+            "import { check } from './greet.test';\nexport const greet = () => check;\n",
+        ),
+        (
+            "src/greet.test.ts",
+            "import { greet } from './greet';\nimport { helper } from './helper.test';\nexport const check = greet;\nexport const used = helper;\n",
+        ),
+        (
+            "src/helper.test.ts",
+            "import { used } from './greet.test';\nexport const helper = () => used;\n",
+        ),
+    ]);
 
     assert_success(&output);
     assert_eq!(
@@ -2165,6 +2189,7 @@ fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
         concat!(
             "import_cycles:\n",
             "  ratio: 1\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -2183,22 +2208,20 @@ fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
 
 #[test]
 fn unresolved_imports_are_counted_and_listed_and_the_import_cycle_is_still_found() {
-    let repository = Repository::new();
-    repository.write(
-        "src/a.ts",
-        "import { b } from './b';\nimport { gone } from './gone';\nexport const a = () => b(gone);\n",
-    );
-    repository.write(
-        "src/b.ts",
-        "import { a } from './a';\nexport const b = (value: unknown) => a() ?? value;\n",
-    );
-    repository.write(
-        "src/c.ts",
-        "const outside = require('../../outside');\nexport const c = outside;\n",
-    );
-    repository.commit_all();
-
-    let output = repository.codeint(&["check"]);
+    let output = check_committed(&[
+        (
+            "src/a.ts",
+            "import { b } from './b';\nimport { gone } from './gone';\nexport const a = () => b(gone);\n",
+        ),
+        (
+            "src/b.ts",
+            "import { a } from './a';\nexport const b = (value: unknown) => a() ?? value;\n",
+        ),
+        (
+            "src/c.ts",
+            "const outside = require('../../outside');\nexport const c = outside;\n",
+        ),
+    ]);
 
     assert_success(&output);
     assert_eq!(
@@ -2206,6 +2229,7 @@ fn unresolved_imports_are_counted_and_listed_and_the_import_cycle_is_still_found
         concat!(
             "import_cycles:\n",
             "  ratio: 0.6667\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -2336,6 +2360,7 @@ fn an_unresolved_import_of_a_test_file_is_reported_in_the_test_source_set_only()
         concat!(
             "import_cycles:\n",
             "  ratio: 0\n",
+            "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
             "    high: 0.308\n",
@@ -3314,6 +3339,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       "source_lines": 7,
       "erosion": {
         "ratio": 0.0,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.352,
           "high": 0.6,
@@ -3325,6 +3351,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       },
       "cognitive_complexity": {
         "ratio": 0.0,
+        "metric_version": 1,
         "reference_range": "no published Reference range for this language",
         "complex_cognitive_complexity": 0,
         "total_cognitive_complexity": 2,
@@ -3332,6 +3359,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       },
       "duplication": {
         "ratio": 0.0,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.017,
           "high": 0.346,
@@ -3342,6 +3370,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       },
       "verbosity": {
         "ratio": 0.1429,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.018,
           "high": 0.347,
@@ -3361,6 +3390,7 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       },
       "import_cycles": {
         "ratio": 0.0,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.0,
           "high": 0.308,
@@ -3635,6 +3665,7 @@ fn write_two_package_workspace(repository: &Repository, root_manifest: &str) {
 const TWO_PACKAGE_EROSION: &str = concat!(
     "erosion:\n",
     "  ratio: 0.8209\n",
+    "  metric_version: 1\n",
     "  reference_range:\n",
     "    low: 0.352\n",
     "    high: 0.6\n",

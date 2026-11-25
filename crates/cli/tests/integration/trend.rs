@@ -291,7 +291,7 @@ fn trend_prints_toon_by_default_with_one_table_per_source_set() {
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     let columns = "{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}";
     let expected = format!(
-        "commits: 3\nsource_sets:\n  production[3]{columns}:\n    {first},2026-03-01,1,0,0,0,0,0\n    {second},2026-03-01,2,0,0,0,0,0\n    {third},2026-03-02,2,0,0,0,0,0\n  test[3]{columns}:\n    {first},2026-03-01,0,0,0,0,0,0\n    {second},2026-03-01,0,0,0,0,0,0\n    {third},2026-03-02,1,0,0,0,0,0\n"
+        "commits: 3\nmetric_versions:\n  cognitive_complexity: 1\n  duplication: 1\n  erosion: 1\n  import_cycles: 1\n  verbosity: 1\nsource_sets:\n  production[3]{columns}:\n    {first},2026-03-01,1,0,0,0,0,0\n    {second},2026-03-01,2,0,0,0,0,0\n    {third},2026-03-02,2,0,0,0,0,0\n  test[3]{columns}:\n    {first},2026-03-01,0,0,0,0,0,0\n    {second},2026-03-01,0,0,0,0,0,0\n    {third},2026-03-02,1,0,0,0,0,0\n"
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
@@ -391,4 +391,46 @@ fn trend_leaves_the_working_tree_the_index_and_head_untouched() {
 
     assert_eq!(trend["commits"], 2);
     assert_eq!((status(), index()), before);
+}
+
+#[test]
+fn a_metric_version_change_invalidates_the_trend_commit_cache_and_recomputes() {
+    let history = History::with_commits(1);
+    let initial = history.trend_json(&[]);
+    assert_eq!(initial["metric_versions"]["erosion"], 1);
+    assert_eq!(initial["metric_versions"]["verbosity"], 1);
+
+    let cache_file = fs::read_dir(history.cache.path())
+        .expect("list cache")
+        .next()
+        .expect("one entry")
+        .expect("entry")
+        .path();
+    let stored: Value = serde_json::from_slice(&fs::read(cache_file).expect("read")).expect("json");
+    let mut settings: Value =
+        serde_json::from_str(stored["settings"].as_str().expect("settings")).expect("settings");
+    assert_eq!(settings["metric_versions"]["verbosity"], 1);
+    settings["metric_versions"]["verbosity"] = serde_json::json!(2);
+    let mut stale = stored["result"].clone();
+    stale["production"]["verbosity"]["ratio"] = serde_json::json!(0.9999);
+
+    let head = codeint_git::Repository::discover(history.folder())
+        .expect("repo")
+        .resolve("HEAD")
+        .expect("HEAD");
+    let fresh_dir = tempfile::tempdir().expect("fresh cache");
+    codeint_git::ResultCache::in_folder(fresh_dir.path().to_path_buf())
+        .write(head, &settings, &stale)
+        .expect("seed trend cache");
+
+    let run = Command::new(env!("CARGO_BIN_EXE_codeint"))
+        .args(["trend", "--format", "json"])
+        .current_dir(history.folder())
+        .env("CODEINT_CACHE_DIR", fresh_dir.path())
+        .output()
+        .expect("run trend");
+    assert!(run.status.success(), "{}", stderr_of(&run));
+    let recomputed: Value = serde_json::from_slice(&run.stdout).expect("trend json");
+    assert_eq!(recomputed["source_sets"]["production"][0]["verbosity"], 0.0);
+    assert_eq!(fs::read_dir(fresh_dir.path()).expect("dir").count(), 2);
 }

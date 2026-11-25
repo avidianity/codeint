@@ -25,10 +25,10 @@ use crate::render::{
 use crate::sections::{
     BoundariesSection, CognitiveComplexityTotals, DependenciesSection,
     DevInProductionDependenciesSection, DuplicationSection, ErosionTotals, ExternalMetricSection,
-    HazardsSection, ImportCyclesSection, MeasuredSection, MetricHeader, MetricSection,
-    NearClonesSummary, OrphanFilesSection, PackageCognitiveComplexity, PackageDuplication,
-    PackageErosion, PackageHazards, PackageImportCycles, PackageSection, PackageTestGap,
-    PackageVerbosity, SourceSetSection, SourceSetSections, TestGapSection,
+    HazardsSection, ImportCyclesSection, MeasuredSection, MetricHeader, MetricRatioHeader,
+    MetricSection, NearClonesSummary, OrphanFilesSection, PackageCognitiveComplexity,
+    PackageDuplication, PackageErosion, PackageHazards, PackageImportCycles, PackageSection,
+    PackageTestGap, PackageVerbosity, SourceSetSection, SourceSetSections, TestGapSection,
     UnlistedDependenciesSection, UnresolvedImportsSection, UnusedDependenciesSection,
     VerbosityTotals,
 };
@@ -169,19 +169,25 @@ impl DependenciesSection {
         }
         Some(DependenciesSection {
             unused_dependencies: UnusedDependenciesSection {
-                ratio: Decimal::rounded(hygiene.unused_ratio()),
+                header: MetricRatioHeader::new(hygiene.unused_ratio(), Metric::UnusedDependencies),
                 unused: hygiene.unused().len(),
                 declared: hygiene.declared_count(),
                 findings: view.map(hygiene.unused()),
             },
             unlisted_dependencies: UnlistedDependenciesSection {
-                ratio: Decimal::rounded(hygiene.unlisted_ratio()),
+                header: MetricRatioHeader::new(
+                    hygiene.unlisted_ratio(),
+                    Metric::UnlistedDependencies,
+                ),
                 unlisted: hygiene.unlisted().len(),
                 imported: hygiene.imported_count(),
                 findings: view.map(hygiene.unlisted()),
             },
             dev_in_production_dependencies: DevInProductionDependenciesSection {
-                ratio: Decimal::rounded(hygiene.dev_in_production_ratio()),
+                header: MetricRatioHeader::new(
+                    hygiene.dev_in_production_ratio(),
+                    Metric::DevInProductionDependencies,
+                ),
                 dev_in_production: hygiene.dev_in_production().len(),
                 production_imported: hygiene.production_imported_count(),
                 findings: view.map(hygiene.dev_in_production()),
@@ -193,7 +199,7 @@ impl DependenciesSection {
 impl BoundariesSection {
     fn new(boundaries: &Boundaries, view: FindingsView<'_>) -> BoundariesSection {
         BoundariesSection {
-            ratio: Decimal::rounded(boundaries.ratio()),
+            header: MetricRatioHeader::new(boundaries.ratio(), Metric::Boundaries),
             resolved_imports: boundaries.resolved_imports(),
             findings: view.map(boundaries.findings()),
         }
@@ -205,7 +211,7 @@ impl OrphanFilesSection {
         let all_findings = orphan_files.findings();
         let findings = view.map(all_findings);
         OrphanFilesSection {
-            ratio: Decimal::rounded(orphan_files.ratio()),
+            header: MetricRatioHeader::new(orphan_files.ratio(), Metric::OrphanFiles),
             orphan_files: all_findings.len(),
             evaluated_files: orphan_files.evaluated_files(),
             entry_points: orphan_files.entry_points().len(),
@@ -221,7 +227,7 @@ impl TestGapSection {
         let totals = test_gap.totals();
         let findings = view.map(test_gap.findings());
         TestGapSection {
-            ratio: Decimal::rounded(totals.ratio()),
+            header: MetricRatioHeader::new(totals.ratio(), Metric::TestGap),
             untested_function_mass: Decimal::rounded(totals.untested),
             total_function_mass: Decimal::rounded(totals.total),
             measured_functions: totals.measured_functions,
@@ -233,7 +239,7 @@ impl TestGapSection {
 impl HazardsSection {
     fn new(hazards: &Hazards, view: FindingsView<'_>) -> HazardsSection {
         HazardsSection {
-            ratio: Decimal::rounded(hazards.ratio()),
+            header: MetricRatioHeader::new(hazards.ratio(), Metric::Hazards),
             hazard_lines: hazards.hazard_lines(),
             source_lines: hazards.source_lines(),
             findings: view.map(hazards.findings()),
@@ -279,6 +285,7 @@ impl DuplicationSection {
         DuplicationSection {
             header: MetricHeader {
                 ratio: Decimal::rounded(duplication.ratio()),
+                metric_version: Metric::Duplication.version(),
                 reference_range,
             },
             near_clones,

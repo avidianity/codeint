@@ -149,6 +149,7 @@ pub(super) struct ExternalMetricChanges {
 
 #[derive(Debug)]
 pub(super) struct MetricChanges<T> {
+    pub(super) metric_version: u32,
     pub(super) base_ratio: Decimal,
     pub(super) head_ratio: Decimal,
     pub(super) base_numerator: Decimal,
@@ -214,6 +215,7 @@ fn serialize_metric_changes_fields<M: SerializeMap, T: Serialize>(
 ) -> Result<(), M::Error> {
     map.serialize_entry("base_ratio", &changes.base_ratio)?;
     map.serialize_entry("head_ratio", &changes.head_ratio)?;
+    map.serialize_entry("metric_version", &changes.metric_version)?;
     serialize_diff_findings(map, &changes.new, &changes.resolved, changes.unchanged)
 }
 
@@ -265,6 +267,8 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct RawMetricChanges<T> {
+            #[serde(default = "crate::sections::default_metric_version")]
+            metric_version: u32,
             base_ratio: Decimal,
             head_ratio: Decimal,
             #[serde(flatten)]
@@ -274,6 +278,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
         let raw = RawMetricChanges::<T>::deserialize(deserializer)?;
         let (new, resolved, unchanged) = raw.findings.into_parts();
         Ok(MetricChanges {
+            metric_version: raw.metric_version,
             base_ratio: raw.base_ratio,
             head_ratio: raw.head_ratio,
             base_numerator: Decimal(0.0),
@@ -310,6 +315,8 @@ impl<'de> Deserialize<'de> for DuplicationChanges {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct RawDuplicationChanges {
+            #[serde(default = "crate::sections::default_metric_version")]
+            metric_version: u32,
             base_ratio: Decimal,
             head_ratio: Decimal,
             #[serde(default)]
@@ -322,6 +329,7 @@ impl<'de> Deserialize<'de> for DuplicationChanges {
         let (new, resolved, unchanged) = raw.findings.into_parts();
         Ok(DuplicationChanges {
             groups: MetricChanges {
+                metric_version: raw.metric_version,
                 base_ratio: raw.base_ratio,
                 head_ratio: raw.head_ratio,
                 base_numerator: Decimal(0.0),

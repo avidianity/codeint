@@ -314,6 +314,7 @@ fn a_reference_range_that_the_only_measured_language_supplies_is_shown_with_its_
             "    source_lines: 2\n",
             "    erosion:\n",
             "      ratio: 0\n",
+            "      metric_version: 1\n",
             "      reference_range:\n",
             "        low: 0.12\n",
             "        high: 0.56\n",

@@ -33,6 +33,7 @@ if !report.over_budget().is_empty() {
 - When `MeasuredLanguage::has_imports` is `false`, TOON, JSON, and Markdown reports omit `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` for that language and emit a one-line `import_metrics_note`, and SARIF emits no import Findings for files of that language.
 - Repository totals and Budgets for `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` (including Workspace package `import_cycles`) count only languages with `has_imports: true` on both sides of each ratio, and stay absent when no measured language has imports.
 - `render` formats the report as `Toon`, `Json`, `Sarif`, or `Markdown`.
+- Every Metric section in `Report` and `DiffReport` (built-in Metrics, Dependency hygiene, and external Metric plugins) records its positive integer `metric_version`, and `TrendReport` records `metric_versions` for the Metrics in the trend.
 - SARIF output emits one result per listed Finding and stores each Finding id in `partialFingerprints.codeintFindingId`.
   When overlapping or transitively related Clone groups form a Clone family across three or more locations, `duplication.clone_families` lists the Clone families worst-first by `duplicated_lines` in JSON, TOON, Markdown, and MCP, and SARIF emits one consolidated result per Clone family instead of duplicate results for its member Clone groups.
 - When `DuplicationConfig::near_clones` is enabled via `Report::summarize_with_config` or `CommitMeasurement::of_with_config`, near-clone `CloneGroupFinding` entries carry their `similarity` ratio (rendered as a percentage in Markdown and SARIF), `duplication.near_clones` records the active `min_similarity`, Duplication omits exact-clone Reference ranges, and Verbosity continues to count only exact clone lines.
@@ -107,6 +108,6 @@ let saved = SavedReport::from_json(&json_text)?;
 let sarif = saved.render(ReportRenderFormat::Sarif)?;
 ```
 
-- `SavedReport::from_json` accepts JSON produced by `Report::render(ReportFormat::Json)` or `DiffReport::render(ReportFormat::Json)`.
+- `SavedReport::from_json` accepts JSON produced by `Report::render(ReportFormat::Json)` or `DiffReport::render(ReportFormat::Json)`, preserving `metric_version` values (and defaulting missing `metric_version` fields in older saved reports to `1`).
 - It rejects malformed JSON, non-object JSON, unsupported schema versions, and unrecognized payloads with `SavedReportError`.
 - `render` formats the saved report as `Toon`, `Json`, `Sarif`, `Markdown`, or `Text` without re-running analysis.

@@ -481,7 +481,7 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         rows.push(vec![
             source_set.to_string(),
             "Boundaries".to_string(),
-            boundaries.ratio.0.to_string(),
+            boundaries.header.ratio.0.to_string(),
             format!(
                 "{} across {} resolved imports",
                 FINDING.counted(total_findings as u64),
@@ -494,7 +494,7 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         rows.push(vec![
             source_set.to_string(),
             "Orphan files".to_string(),
-            orphan_files.ratio.0.to_string(),
+            orphan_files.header.ratio.0.to_string(),
             format!(
                 "{} of {} evaluated files unreachable ({} unreferenced, {} test-only)",
                 orphan_files.orphan_files,
@@ -509,7 +509,7 @@ fn metric_rows(source_set: &str, section: &SourceSetSection) -> Vec<Vec<String>>
         rows.push(vec![
             source_set.to_string(),
             "Test gap".to_string(),
-            test_gap.ratio.0.to_string(),
+            test_gap.header.ratio.0.to_string(),
             format!(
                 "{} of {} Function mass untested across {}",
                 test_gap.untested_function_mass.0,
@@ -536,7 +536,7 @@ fn hazards_metric_row(source_set: &str, hazards: &HazardsSection) -> Vec<String>
     vec![
         source_set.to_string(),
         "Hazards".to_string(),
-        hazards.ratio.0.to_string(),
+        hazards.header.ratio.0.to_string(),
         format!(
             "{} of {} Hazard lines",
             hazards.hazard_lines, hazards.source_lines
@@ -871,7 +871,7 @@ fn dependencies_summary_table(dependencies: &DependenciesSection) -> String {
         vec![
             vec![
                 "Unused dependencies".to_string(),
-                unused.ratio.0.to_string(),
+                unused.header.ratio.0.to_string(),
                 format!(
                     "{} of {} declared dependencies unused",
                     unused.unused, unused.declared
@@ -879,7 +879,7 @@ fn dependencies_summary_table(dependencies: &DependenciesSection) -> String {
             ],
             vec![
                 "Unlisted dependencies".to_string(),
-                unlisted.ratio.0.to_string(),
+                unlisted.header.ratio.0.to_string(),
                 format!(
                     "{} of {} imported external packages unlisted",
                     unlisted.unlisted, unlisted.imported
@@ -887,7 +887,7 @@ fn dependencies_summary_table(dependencies: &DependenciesSection) -> String {
             ],
             vec![
                 "Dev dependencies in production".to_string(),
-                dev_in_prod.ratio.0.to_string(),
+                dev_in_prod.header.ratio.0.to_string(),
                 format!(
                     "{} of {} production-imported external packages dev-only",
                     dev_in_prod.dev_in_production, dev_in_prod.production_imported
