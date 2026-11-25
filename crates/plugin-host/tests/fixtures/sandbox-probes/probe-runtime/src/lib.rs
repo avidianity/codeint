@@ -529,6 +529,90 @@ macro_rules! faulty_import_language {
 }
 
 #[macro_export]
+macro_rules! profile_resolving_language {
+    (
+        manifest_paths: $manifest_paths:expr,
+        profiles: $profiles:expr,
+        resolve: |$manifests:ident, $selection:ident| $resolve:expr $(,)?
+    ) => {
+        fn extensions() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec![::alloc::string::ToString::to_string("probe")]
+        }
+
+        $crate::probe_extension_lower!();
+
+        fn manifest_paths(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            $manifest_paths
+        }
+
+        fn workspace_packages(
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::core::result::Result<::alloc::vec::Vec<::alloc::string::String>, WorkspaceError> {
+            ::core::result::Result::Ok(::alloc::vec::Vec::new())
+        }
+
+        fn declared_dependencies(
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<DeclaredDep> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn entry_points(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn reference_ranges() -> ::alloc::vec::Vec<ReferenceRange> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn resolve_imports(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+            requests: ::alloc::vec::Vec<ImportRequest>,
+            _active_profiles: ::alloc::vec::Vec<::alloc::string::String>,
+        ) -> ::alloc::vec::Vec<Resolution> {
+            requests
+                .iter()
+                .map(|_| Resolution::Unresolved(::alloc::string::ToString::to_string("probe")))
+                .collect()
+        }
+
+        fn known_framework_profiles() -> ::alloc::vec::Vec<::alloc::string::String> {
+            $profiles
+                .iter()
+                .map(|name| ::alloc::string::ToString::to_string(name))
+                .collect()
+        }
+
+        fn resolve_framework_profiles(
+            _package_root: ::alloc::string::String,
+            _files: ::alloc::vec::Vec<::alloc::string::String>,
+            $manifests: ::alloc::vec::Vec<Manifest>,
+            $selection: FrameworkProfileSelection,
+        ) -> ::core::result::Result<FrameworkProfileResult, ::alloc::string::String> {
+            let rejection: ::core::option::Option<::alloc::string::String> = $resolve;
+            if let ::core::option::Option::Some(message) = rejection {
+                return ::core::result::Result::Err(message);
+            }
+            ::core::result::Result::Ok(FrameworkProfileResult {
+                active_profiles: ::alloc::vec::Vec::new(),
+                entry_points: ::alloc::vec::Vec::new(),
+                generated_paths: ::alloc::vec::Vec::new(),
+                reference_ranges: ::alloc::vec::Vec::new(),
+                reference_range_note: ::core::option::Option::None,
+            })
+        }
+
+        $crate::hazard_free_language_facts!(true);
+    };
+}
+
+#[macro_export]
 macro_rules! probe_claiming_language_stubs {
     () => {
         fn extensions() -> ::alloc::vec::Vec<::alloc::string::String> {
