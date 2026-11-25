@@ -1,11 +1,9 @@
 use std::collections::BTreeSet;
 
 use codeint_model::language::Function;
-use codeint_model::scan::{
-    find_arrow_expr_end, find_matching_delim, paren_then_brace, score_function_spans,
-};
+use codeint_model::scan::{find_matching_delim, paren_then_brace, score_function_spans};
 
-use crate::lexer::{DartKind, DartToken};
+use crate::lexer::{DartKind, DartToken, is_ident_or_contextual_kw, matching_open_paren};
 
 struct DartFunctionSpan {
     header_start: usize,
@@ -17,23 +15,35 @@ struct DartFunctionSpan {
     is_block: bool,
 }
 
+struct TokenContext {
+    enclosing_delim: Vec<Option<u8>>,
+    switch_expr_arrows: Vec<bool>,
+    switch_expr_arm_counts: Vec<u32>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DartBoolOp {
     And,
     Or,
 }
 
-const NON_FN_PAREN_KEYWORDS: [&str; 17] = [
-    "if", "for", "while", "switch", "catch", "assert", "return", "throw", "new", "const", "await",
-    "yield", "case", "super", "this", "on", "when",
+const NON_FN_PAREN_KEYWORDS: [&str; 13] = [
+    "if", "for", "while", "switch", "catch", "assert", "new", "const", "case", "super", "this",
+    "on", "when",
 ];
 
 pub(crate) fn extract(tokens: &[DartToken], code_lines: &BTreeSet<u32>) -> Vec<Function> {
+    let ctx = analyze_token_context(tokens);
     let mut spans = Vec::new();
+    let mut claimed_block_bodies = BTreeSet::new();
     for (idx, tok) in tokens.iter().enumerate() {
         let found = match (tok.kind, tok.text.as_str()) {
-            (DartKind::Punct, "(") => try_paren_function(tokens, idx),
-            (DartKind::Keyword, "get") => try_getter_function(tokens, idx),
+            (DartKind::Punct, "(") => {
+                try_paren_function(tokens, idx, &ctx, &mut claimed_block_bodies)
+            }
+            (DartKind::Keyword, "get") => {
+                try_getter_function(tokens, idx, &ctx, &mut claimed_block_bodies)
+            }
             _ => None,
         };
         if let Some(span) = found {
@@ -45,9 +55,9 @@ pub(crate) fn extract(tokens: &[DartToken], code_lines: &BTreeSet<u32>) -> Vec<F
         .iter()
         .map(|s| (s.body_start, s.body_end, s.start_line, s.end_line))
         .collect();
-    let ternary_mask = compute_ternary_mask(tokens);
+    let ternary_mask = compute_ternary_mask(tokens, &ctx);
     let mut functions = score_function_spans(tokens, code_lines, &raw_spans, |toks, idx| {
-        decision_weight(toks, idx, &ternary_mask)
+        decision_weight(toks, idx, &ternary_mask, &ctx)
     });
     for (owner, func) in functions.iter_mut().enumerate() {
         func.name = spans[owner].name.clone();
@@ -56,28 +66,241 @@ pub(crate) fn extract(tokens: &[DartToken], code_lines: &BTreeSet<u32>) -> Vec<F
     functions
 }
 
-fn try_paren_function(tokens: &[DartToken], open_paren: usize) -> Option<DartFunctionSpan> {
+fn analyze_token_context(tokens: &[DartToken]) -> TokenContext {
+    let enclosing_delim = compute_enclosing_delims(tokens);
+    let mut switch_expr_arrows = vec![false; tokens.len()];
+    let mut switch_expr_arm_counts = vec![0u32; tokens.len()];
+    for (idx, tok) in tokens.iter().enumerate() {
+        if is_kw(tok, "switch")
+            && !is_dart_member_access(tokens, idx)
+            && let Some((_, _, open_brace, close_brace)) = paren_then_brace(tokens, idx)
+        {
+            switch_expr_arm_counts[idx] =
+                scan_switch_expr_arms(tokens, open_brace, close_brace, &mut switch_expr_arrows);
+        }
+    }
+    TokenContext {
+        enclosing_delim,
+        switch_expr_arrows,
+        switch_expr_arm_counts,
+    }
+}
+
+fn compute_enclosing_delims(tokens: &[DartToken]) -> Vec<Option<u8>> {
+    let mut out = Vec::with_capacity(tokens.len());
+    let mut stack: Vec<u8> = Vec::new();
+    for tok in tokens {
+        let text = tok.text.as_str();
+        if is_close_delim(text) {
+            stack.pop();
+        }
+        out.push(stack.last().copied());
+        match text {
+            "(" => stack.push(b'('),
+            "[" => stack.push(b'['),
+            "{" => stack.push(b'{'),
+            _ => {}
+        }
+    }
+    out
+}
+
+struct SwitchArmScan {
+    arm_arrows: Vec<usize>,
+    level: usize,
+    seen_arrow_in_arm: bool,
+}
+
+enum SwitchArmStep {
+    Advance(usize),
+    NotSwitchExpr,
+}
+
+fn scan_switch_expr_arms(
+    tokens: &[DartToken],
+    open_brace: usize,
+    close_brace: usize,
+    switch_expr_arrows: &mut [bool],
+) -> u32 {
+    let mut scan = SwitchArmScan {
+        arm_arrows: Vec::new(),
+        level: 0,
+        seen_arrow_in_arm: false,
+    };
+    let mut idx = open_brace + 1;
+    while idx < close_brace {
+        match step_switch_expr_token(tokens, idx, close_brace, &mut scan) {
+            SwitchArmStep::Advance(next) => idx = next,
+            SwitchArmStep::NotSwitchExpr => return 0,
+        }
+    }
+    for arrow_idx in &scan.arm_arrows {
+        switch_expr_arrows[*arrow_idx] = true;
+    }
+    u32::try_from(scan.arm_arrows.len())
+        .unwrap_or(u32::MAX)
+        .saturating_sub(1)
+}
+
+fn step_switch_expr_token(
+    tokens: &[DartToken],
+    idx: usize,
+    close_brace: usize,
+    scan: &mut SwitchArmScan,
+) -> SwitchArmStep {
+    let tok = &tokens[idx];
+    let text = tok.text.as_str();
+    if is_open_delim(text) {
+        scan.level += 1;
+        return SwitchArmStep::Advance(idx + 1);
+    }
+    if is_close_delim(text) {
+        scan.level = scan.level.saturating_sub(1);
+        return SwitchArmStep::Advance(idx + 1);
+    }
+    if scan.level > 0 {
+        return SwitchArmStep::Advance(idx + 1);
+    }
+    step_switch_expr_top_level(tokens, idx, close_brace, scan)
+}
+
+fn step_switch_expr_top_level(
+    tokens: &[DartToken],
+    idx: usize,
+    close_brace: usize,
+    scan: &mut SwitchArmScan,
+) -> SwitchArmStep {
+    let tok = &tokens[idx];
+    let text = tok.text.as_str();
+    if is_switch_stmt_label(tokens, idx, tok) {
+        return SwitchArmStep::NotSwitchExpr;
+    }
+    if text == "<"
+        && let Some(after) = match_expr_type_args(tokens, idx)
+    {
+        return SwitchArmStep::Advance(after.min(close_brace));
+    }
+    if text == "=>" && !scan.seen_arrow_in_arm {
+        scan.arm_arrows.push(idx);
+        scan.seen_arrow_in_arm = true;
+    } else if text == "," {
+        scan.seen_arrow_in_arm = false;
+    }
+    SwitchArmStep::Advance(idx + 1)
+}
+
+fn is_switch_stmt_label(tokens: &[DartToken], idx: usize, tok: &DartToken) -> bool {
+    (is_kw(tok, "case") || is_kw(tok, "default")) && !is_dart_member_access(tokens, idx)
+}
+
+fn try_paren_function(
+    tokens: &[DartToken],
+    open_paren: usize,
+    ctx: &TokenContext,
+    claimed_block_bodies: &mut BTreeSet<usize>,
+) -> Option<DartFunctionSpan> {
     if open_paren > 0 {
         let prev = &tokens[open_paren - 1];
         if prev.kind == DartKind::Keyword && NON_FN_PAREN_KEYWORDS.contains(&prev.text.as_str()) {
             return None;
         }
-        if prev.text == "=>" {
-            return None;
-        }
+    }
+    if is_extension_type_header(tokens, open_paren) {
+        return None;
     }
     let close_paren = find_matching_delim(tokens, open_paren)?;
-    let (body_start, body_end, is_block) = locate_body_after_params(tokens, close_paren + 1)?;
     let (name, header_start) = extract_paren_name(tokens, open_paren);
+    let can_have_initializer = name.as_deref().is_some_and(|n| !n.starts_with("operator "))
+        && is_valid_ctor_prefix(tokens, header_start);
+    let (body_start, body_end, is_block) =
+        locate_body_after_params(tokens, close_paren + 1, can_have_initializer, ctx)?;
+    if is_block && !claimed_block_bodies.insert(body_start) {
+        return None;
+    }
     Some(DartFunctionSpan {
         header_start,
         body_start,
         body_end,
         start_line: tokens[open_paren].line,
-        end_line: tokens[body_end].line,
+        end_line: tokens[body_end].end_line,
         name,
         is_block,
     })
+}
+
+fn is_extension_type_header(tokens: &[DartToken], open_paren: usize) -> bool {
+    let cursor = strip_named_ctor_suffix(tokens, skip_trailing_type_params(tokens, open_paren));
+    let Some(before_name) = cursor
+        .checked_sub(1)
+        .filter(|&pos| is_ident_or_contextual_kw(&tokens[pos]))
+    else {
+        return false;
+    };
+    let prefix_end = strip_optional_kw_before(tokens, before_name, "const");
+    has_extension_type_prefix(tokens, prefix_end)
+}
+
+fn strip_named_ctor_suffix(tokens: &[DartToken], cursor: usize) -> usize {
+    if cursor >= 2
+        && is_ident_or_contextual_kw(&tokens[cursor - 1])
+        && tokens[cursor - 2].text == "."
+    {
+        return skip_trailing_type_params(tokens, cursor - 2);
+    }
+    cursor
+}
+
+fn strip_optional_kw_before(tokens: &[DartToken], cursor: usize, kw: &str) -> usize {
+    if cursor > 0 && is_kw(&tokens[cursor - 1], kw) {
+        return cursor - 1;
+    }
+    cursor
+}
+
+fn has_extension_type_prefix(tokens: &[DartToken], cursor: usize) -> bool {
+    cursor >= 2
+        && tokens[cursor - 1].kind == DartKind::Ident
+        && tokens[cursor - 1].text == "type"
+        && is_kw(&tokens[cursor - 2], "extension")
+}
+
+fn is_valid_ctor_prefix(tokens: &[DartToken], header_start: usize) -> bool {
+    let mut start = header_start;
+    if start > 0 && is_kw(&tokens[start - 1], "const") {
+        start -= 1;
+    }
+    if start == 0 {
+        return true;
+    }
+    let prev = &tokens[start - 1];
+    if matches!(
+        prev.text.as_str(),
+        "." | "?."
+            | ".."
+            | "="
+            | "=>"
+            | "?"
+            | ":"
+            | ","
+            | "("
+            | "["
+            | "&&"
+            | "||"
+            | "??"
+            | "+"
+            | "-"
+            | "*"
+            | "/"
+            | "=="
+            | "!="
+    ) {
+        return false;
+    }
+    !(prev.kind == DartKind::Keyword
+        && matches!(
+            prev.text.as_str(),
+            "case" | "return" | "throw" | "yield" | "await" | "new" | "in" | "is" | "as"
+        ))
 }
 
 fn extract_paren_name(tokens: &[DartToken], open_paren: usize) -> (Option<String>, usize) {
@@ -126,14 +349,27 @@ fn ends_with_operator_tokens(tokens: &[DartToken], cursor: usize, expected: &[&s
 }
 
 fn extract_ident_name(tokens: &[DartToken], cursor: usize) -> Option<(Option<String>, usize)> {
-    if cursor == 0 || tokens[cursor - 1].kind != DartKind::Ident {
+    if cursor == 0 {
         return None;
     }
-    if cursor >= 3 && tokens[cursor - 2].text == "." && tokens[cursor - 3].kind == DartKind::Ident {
+    if cursor >= 3
+        && tokens[cursor - 2].text == "."
+        && is_ident_or_contextual_kw(&tokens[cursor - 1])
+        && is_ident_or_contextual_kw(&tokens[cursor - 3])
+    {
         let full = format!("{}.{}", tokens[cursor - 3].text, tokens[cursor - 1].text);
         return Some((Some(full), cursor - 3));
     }
-    Some((Some(tokens[cursor - 1].text.clone()), cursor - 1))
+    let tok = &tokens[cursor - 1];
+    if is_callable_name_token(tok) {
+        return Some((Some(tok.text.clone()), cursor - 1));
+    }
+    None
+}
+
+fn is_callable_name_token(tok: &DartToken) -> bool {
+    is_ident_or_contextual_kw(tok)
+        && !matches!(tok.text.as_str(), "await" | "yield" | "as" | "when" | "on")
 }
 
 fn skip_trailing_type_params(tokens: &[DartToken], open_paren: usize) -> usize {
@@ -168,38 +404,66 @@ fn angle_close_count(text: &str) -> usize {
     }
 }
 
-fn try_getter_function(tokens: &[DartToken], get_idx: usize) -> Option<DartFunctionSpan> {
-    let name_tok = tokens.get(get_idx + 1)?;
-    if name_tok.kind != DartKind::Ident {
+fn try_getter_function(
+    tokens: &[DartToken],
+    get_idx: usize,
+    ctx: &TokenContext,
+    claimed_block_bodies: &mut BTreeSet<usize>,
+) -> Option<DartFunctionSpan> {
+    if is_dart_member_access(tokens, get_idx) {
         return None;
     }
-    let (body_start, body_end, is_block) = locate_body_after_params(tokens, get_idx + 2)?;
+    let name_tok = tokens.get(get_idx + 1)?;
+    if !is_ident_or_contextual_kw(name_tok) {
+        return None;
+    }
+    let (body_start, body_end, is_block) =
+        locate_body_after_params(tokens, get_idx + 2, false, ctx)?;
+    if is_block && !claimed_block_bodies.insert(body_start) {
+        return None;
+    }
     Some(DartFunctionSpan {
         header_start: get_idx,
         body_start,
         body_end,
         start_line: tokens[get_idx].line,
-        end_line: tokens[body_end].line,
+        end_line: tokens[body_end].end_line,
         name: Some(name_tok.text.clone()),
         is_block,
     })
 }
 
-fn locate_body_after_params(tokens: &[DartToken], start: usize) -> Option<(usize, usize, bool)> {
-    let pos = skip_modifiers_and_initializers(tokens, start)?;
+fn locate_body_after_params(
+    tokens: &[DartToken],
+    start: usize,
+    can_have_initializer: bool,
+    ctx: &TokenContext,
+) -> Option<(usize, usize, bool)> {
+    let pos = skip_modifiers_and_initializers(tokens, start, can_have_initializer)?;
     let tok = tokens.get(pos)?;
     if tok.text == "{" {
         return Some((pos, find_matching_delim(tokens, pos)?, true));
     }
-    if tok.text == "=>" {
+    if tok.text == "=>" && !ctx.switch_expr_arrows[pos] {
         let body_start = pos + 1;
-        return Some((body_start, find_arrow_expr_end(tokens, body_start), false));
+        return Some((
+            body_start,
+            find_dart_arrow_expr_end(tokens, body_start),
+            false,
+        ));
     }
     None
 }
 
-fn skip_modifiers_and_initializers(tokens: &[DartToken], mut pos: usize) -> Option<usize> {
+fn skip_modifiers_and_initializers(
+    tokens: &[DartToken],
+    mut pos: usize,
+    can_have_initializer: bool,
+) -> Option<usize> {
     if tokens.get(pos).is_some_and(|t| t.text == ":") {
+        if !can_have_initializer || !looks_like_initializer_list_start(tokens, pos + 1) {
+            return None;
+        }
         pos = skip_initializer_list(tokens, pos + 1)?;
     }
     while tokens
@@ -211,13 +475,30 @@ fn skip_modifiers_and_initializers(tokens: &[DartToken], mut pos: usize) -> Opti
     Some(pos)
 }
 
+fn looks_like_initializer_list_start(tokens: &[DartToken], pos: usize) -> bool {
+    let Some(first) = tokens.get(pos) else {
+        return false;
+    };
+    if first.kind == DartKind::Keyword && matches!(first.text.as_str(), "super" | "this" | "assert")
+    {
+        return true;
+    }
+    is_ident_or_contextual_kw(first) && tokens.get(pos + 1).is_some_and(|t| t.text == "=")
+}
+
 fn skip_initializer_list(tokens: &[DartToken], mut pos: usize) -> Option<usize> {
     let mut depth = 0usize;
     while pos < tokens.len() {
         match tokens[pos].text.as_str() {
             "(" | "[" => depth += 1,
             ")" | "]" => depth = depth.saturating_sub(1),
-            "{" | "=>" if depth == 0 => return Some(pos),
+            "{" if depth == 0 => {
+                if is_embedded_initializer_brace(tokens, pos) {
+                    pos = find_matching_delim(tokens, pos)? + 1;
+                    continue;
+                }
+                return Some(pos);
+            }
             ";" if depth == 0 => return None,
             _ => {}
         }
@@ -226,11 +507,196 @@ fn skip_initializer_list(tokens: &[DartToken], mut pos: usize) -> Option<usize> 
     None
 }
 
-fn decision_weight(tokens: &[DartToken], idx: usize, ternary_mask: &[bool]) -> u32 {
+fn is_embedded_initializer_brace(tokens: &[DartToken], brace_idx: usize) -> bool {
+    if brace_idx > 0 && is_expr_brace_prefix(tokens, brace_idx) {
+        return true;
+    }
+    let Some(close_idx) = find_matching_delim(tokens, brace_idx) else {
+        return true;
+    };
+    tokens.get(close_idx + 1).is_some_and(|next| {
+        matches!(
+            next.text.as_str(),
+            "," | ";"
+                | "."
+                | "?."
+                | ".."
+                | ")"
+                | "]"
+                | "??"
+                | "as"
+                | "is"
+                | "=="
+                | "!="
+                | "&&"
+                | "||"
+                | "?"
+                | ":"
+        )
+    })
+}
+
+fn is_expr_brace_prefix(tokens: &[DartToken], brace_idx: usize) -> bool {
+    let prev = &tokens[brace_idx - 1];
+    if matches!(
+        prev.text.as_str(),
+        "=" | "??" | "?" | ":" | "," | "(" | "[" | "=>" | "const" | ">" | ">>" | ">>>"
+    ) {
+        return true;
+    }
+    prev.text == ")"
+        && matching_open_paren(tokens, brace_idx - 1)
+            .is_some_and(|open| open > 0 && is_kw(&tokens[open - 1], "switch"))
+}
+
+enum ArrowExprStep {
+    Advance(usize),
+    End(usize),
+}
+
+fn find_dart_arrow_expr_end(tokens: &[DartToken], start: usize) -> usize {
+    let mut depth = 0usize;
+    let mut idx = start;
+    while idx < tokens.len() {
+        match step_arrow_expr_token(tokens, idx, &mut depth) {
+            ArrowExprStep::Advance(next) => idx = next,
+            ArrowExprStep::End(end) => return end,
+        }
+    }
+    tokens.len().saturating_sub(1)
+}
+
+fn step_arrow_expr_token(tokens: &[DartToken], idx: usize, depth: &mut usize) -> ArrowExprStep {
+    let text = tokens[idx].text.as_str();
+    if is_open_delim(text) {
+        *depth += 1;
+        return ArrowExprStep::Advance(idx + 1);
+    }
+    if is_close_delim(text) {
+        if *depth == 0 {
+            return ArrowExprStep::End(idx.saturating_sub(1));
+        }
+        *depth -= 1;
+        return ArrowExprStep::Advance(idx + 1);
+    }
+    if *depth > 0 {
+        return ArrowExprStep::Advance(idx + 1);
+    }
+    if matches!(text, ";" | ",") {
+        return ArrowExprStep::End(idx.saturating_sub(1));
+    }
+    if text == "<"
+        && let Some(after) = match_expr_type_args(tokens, idx)
+    {
+        return ArrowExprStep::Advance(after);
+    }
+    ArrowExprStep::Advance(idx + 1)
+}
+
+enum TypeArgStep {
+    Continue,
+    Done(usize),
+    Invalid,
+}
+
+fn match_expr_type_args(tokens: &[DartToken], open_angle: usize) -> Option<usize> {
+    let mut angle_depth = 1usize;
+    let mut group_depth = 0usize;
+    for idx in (open_angle + 1)..tokens.len() {
+        match step_type_arg_token(tokens, idx, &mut angle_depth, &mut group_depth) {
+            TypeArgStep::Continue => {}
+            TypeArgStep::Done(after) => return Some(after),
+            TypeArgStep::Invalid => return None,
+        }
+    }
+    None
+}
+
+fn step_type_arg_token(
+    tokens: &[DartToken],
+    idx: usize,
+    angle_depth: &mut usize,
+    group_depth: &mut usize,
+) -> TypeArgStep {
+    let tok = &tokens[idx];
+    let text = tok.text.as_str();
+    if matches!(text, "(" | "{") {
+        *group_depth += 1;
+        return TypeArgStep::Continue;
+    }
+    if matches!(text, ")" | "}") {
+        if *group_depth == 0 {
+            return TypeArgStep::Invalid;
+        }
+        *group_depth -= 1;
+        return TypeArgStep::Continue;
+    }
+    if text == "<" {
+        *angle_depth += 1;
+        return TypeArgStep::Continue;
+    }
+    let closes = angle_close_count(text);
+    if closes > 0 {
+        return step_type_arg_angle_close(tokens, idx, closes, angle_depth, *group_depth);
+    }
+    if is_type_arg_token(tok) {
+        return TypeArgStep::Continue;
+    }
+    TypeArgStep::Invalid
+}
+
+fn step_type_arg_angle_close(
+    tokens: &[DartToken],
+    idx: usize,
+    closes: usize,
+    angle_depth: &mut usize,
+    group_depth: usize,
+) -> TypeArgStep {
+    if closes < *angle_depth {
+        *angle_depth -= closes;
+        return TypeArgStep::Continue;
+    }
+    if group_depth == 0 && is_valid_after_type_args(tokens.get(idx + 1)) {
+        return TypeArgStep::Done(idx + 1);
+    }
+    TypeArgStep::Invalid
+}
+
+fn is_type_arg_token(tok: &DartToken) -> bool {
+    match tok.kind {
+        DartKind::Ident => true,
+        DartKind::Keyword => {
+            matches!(
+                tok.text.as_str(),
+                "dynamic" | "void" | "Function" | "required" | "covariant" | "extends"
+            ) || is_ident_or_contextual_kw(tok)
+        }
+        DartKind::Punct => matches!(tok.text.as_str(), "." | "," | "?" | "[" | "]"),
+        DartKind::StringLit | DartKind::NumberLit => false,
+    }
+}
+
+fn is_valid_after_type_args(next: Option<&DartToken>) -> bool {
+    let Some(tok) = next else {
+        return true;
+    };
+    !matches!(
+        tok.kind,
+        DartKind::Ident | DartKind::StringLit | DartKind::NumberLit
+    )
+}
+
+fn decision_weight(
+    tokens: &[DartToken],
+    idx: usize,
+    ternary_mask: &[bool],
+    ctx: &TokenContext,
+) -> u32 {
     let tok = &tokens[idx];
     match (tok.kind, tok.text.as_str()) {
-        (DartKind::Keyword, "if" | "for" | "while" | "do" | "case" | "catch") => 1,
-        (DartKind::Keyword, "switch") => count_switch_expr_arms(tokens, idx),
+        (DartKind::Keyword, "if" | "for" | "while" | "catch") => 1,
+        (DartKind::Keyword, "case") => u32::from(ctx.enclosing_delim[idx] == Some(b'{')),
+        (DartKind::Keyword, "switch") => ctx.switch_expr_arm_counts[idx],
         (DartKind::Punct, "&&" | "||" | "??") => 1,
         (DartKind::Punct, "?") if ternary_mask[idx] => 1,
         _ => 0,
@@ -244,21 +710,26 @@ enum CaseHeaderContext {
     Guard,
 }
 
-fn compute_ternary_mask(tokens: &[DartToken]) -> Vec<bool> {
+fn compute_ternary_mask(tokens: &[DartToken], ctx: &TokenContext) -> Vec<bool> {
     let mut mask = vec![false; tokens.len()];
     for idx in (0..tokens.len()).rev() {
         if tokens[idx].kind == DartKind::Punct && tokens[idx].text == "?" {
-            mask[idx] = is_ternary_operator(tokens, idx, &mask);
+            mask[idx] = is_ternary_operator(tokens, idx, &mask, ctx);
         }
     }
     mask
 }
 
-fn is_ternary_operator(tokens: &[DartToken], q_idx: usize, ternary_mask: &[bool]) -> bool {
+fn is_ternary_operator(
+    tokens: &[DartToken],
+    q_idx: usize,
+    ternary_mask: &[bool],
+    ctx: &TokenContext,
+) -> bool {
     if tokens.get(q_idx + 1).is_some_and(|tok| tok.text == ":") {
         return false;
     }
-    match case_header_context(tokens, q_idx) {
+    match case_header_context(tokens, q_idx, ctx) {
         CaseHeaderContext::Pattern => false,
         CaseHeaderContext::Guard => {
             has_required_ternary_colons(tokens, q_idx, 2, true, ternary_mask)
@@ -269,13 +740,17 @@ fn is_ternary_operator(tokens: &[DartToken], q_idx: usize, ternary_mask: &[bool]
     }
 }
 
-fn case_header_context(tokens: &[DartToken], q_idx: usize) -> CaseHeaderContext {
+fn case_header_context(
+    tokens: &[DartToken],
+    q_idx: usize,
+    ctx: &TokenContext,
+) -> CaseHeaderContext {
     let mut depth = 0usize;
     let mut saw_when = false;
     let mut idx = q_idx;
     while idx > 0 {
         idx -= 1;
-        if let Some(found) = step_case_header_back(tokens, idx, &mut depth, &mut saw_when) {
+        if let Some(found) = step_case_header_back(tokens, idx, &mut depth, &mut saw_when, ctx) {
             return found;
         }
     }
@@ -287,6 +762,7 @@ fn step_case_header_back(
     idx: usize,
     depth: &mut usize,
     saw_when: &mut bool,
+    ctx: &TokenContext,
 ) -> Option<CaseHeaderContext> {
     let tok = &tokens[idx];
     let text = tok.text.as_str();
@@ -304,19 +780,34 @@ fn step_case_header_back(
     if *depth > 0 {
         return None;
     }
-    if matches!(text, ";" | ":") {
+    classify_case_header_token(tokens, idx, tok, saw_when, ctx)
+}
+
+fn classify_case_header_token(
+    tokens: &[DartToken],
+    idx: usize,
+    tok: &DartToken,
+    saw_when: &mut bool,
+    ctx: &TokenContext,
+) -> Option<CaseHeaderContext> {
+    if matches!(tok.text.as_str(), ";" | ":") {
         return Some(CaseHeaderContext::Outside);
     }
     if is_kw(tok, "when") {
         *saw_when = true;
-    } else if is_kw(tok, "case") && !is_dart_member_access(tokens, idx) {
-        return Some(if *saw_when {
-            CaseHeaderContext::Guard
-        } else {
-            CaseHeaderContext::Pattern
-        });
+        return None;
     }
-    None
+    if !is_kw(tok, "case") || is_dart_member_access(tokens, idx) {
+        return None;
+    }
+    if !*saw_when {
+        return Some(CaseHeaderContext::Pattern);
+    }
+    Some(if ctx.enclosing_delim[idx] == Some(b'{') {
+        CaseHeaderContext::Guard
+    } else {
+        CaseHeaderContext::Outside
+    })
 }
 
 struct TernaryColonScan<'a> {
@@ -426,32 +917,6 @@ fn is_case_body_boundary_kw(tok: &DartToken) -> bool {
                 | "rethrow"
                 | "assert"
         )
-}
-
-fn count_switch_expr_arms(tokens: &[DartToken], switch_idx: usize) -> u32 {
-    let Some((_, _, open_brace, close_brace)) = paren_then_brace(tokens, switch_idx) else {
-        return 0;
-    };
-    let mut arms = 0u32;
-    let mut level = 0usize;
-    let mut idx = open_brace + 1;
-    while idx < close_brace {
-        let text = tokens[idx].text.as_str();
-        if matches!(text, "(" | "[" | "{") {
-            level += 1;
-        } else if matches!(text, ")" | "]" | "}") {
-            level = level.saturating_sub(1);
-        } else if level == 0 {
-            if text == "case" {
-                return 0;
-            }
-            if text == "=>" {
-                arms += 1;
-            }
-        }
-        idx += 1;
-    }
-    arms.saturating_sub(1)
 }
 
 fn is_kw(tok: &DartToken, kw: &str) -> bool {

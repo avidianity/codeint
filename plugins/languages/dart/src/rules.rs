@@ -5,7 +5,7 @@ use codeint_model::scan::{
     check_c_style_if_else, check_ternary_bool, finalize_flagged, flag_range, paren_then_brace,
 };
 
-use crate::lexer::{DartKind, DartToken};
+use crate::lexer::{DartKind, DartToken, matching_open_paren};
 
 pub fn flagged_line_rules() -> impl Iterator<Item = &'static str> {
     [
@@ -130,21 +130,4 @@ fn looks_like_function_open(tokens: &[DartToken], open_brace: usize) -> bool {
             );
     }
     false
-}
-
-fn matching_open_paren(tokens: &[DartToken], close_paren: usize) -> Option<usize> {
-    let mut depth = 0usize;
-    for idx in (0..=close_paren).rev() {
-        match tokens[idx].text.as_str() {
-            ")" => depth += 1,
-            "(" => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(idx);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }

@@ -15,6 +15,7 @@ pub(crate) enum DartKind {
 #[derive(Debug, Clone)]
 pub(crate) struct DartToken {
     pub(crate) line: u32,
+    pub(crate) end_line: u32,
     pub(crate) text: String,
     pub(crate) kind: DartKind,
 }
@@ -39,77 +40,38 @@ pub(crate) struct ScannedDart {
     pub(crate) tokens: Vec<DartToken>,
 }
 
+const DART_RESERVED_WORDS: &str = "assert break case catch class const continue default do else enum extends false final finally for if in is new null rethrow return super switch this throw true try var void while with";
+
+const DART_CONTEXTUAL_KEYWORDS: &str = "abstract as async await base covariant deferred dynamic export extension external factory Function get hide implements import interface late library mixin of on operator part required sealed set show static sync typedef when yield";
+
+fn contains_word(words: &str, candidate: &str) -> bool {
+    words.split(' ').any(|kw| kw == candidate)
+}
+
+pub(crate) fn is_ident_or_contextual_kw(tok: &DartToken) -> bool {
+    tok.kind == DartKind::Ident
+        || (tok.kind == DartKind::Keyword && !contains_word(DART_RESERVED_WORDS, &tok.text))
+}
+
+pub(crate) fn matching_open_paren(tokens: &[DartToken], close_paren: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for idx in (0..=close_paren).rev() {
+        match tokens[idx].text.as_str() {
+            ")" => depth += 1,
+            "(" => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(idx);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn is_dart_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "abstract"
-            | "as"
-            | "assert"
-            | "async"
-            | "await"
-            | "base"
-            | "break"
-            | "case"
-            | "catch"
-            | "class"
-            | "const"
-            | "continue"
-            | "covariant"
-            | "default"
-            | "deferred"
-            | "do"
-            | "dynamic"
-            | "else"
-            | "enum"
-            | "export"
-            | "extends"
-            | "extension"
-            | "external"
-            | "factory"
-            | "false"
-            | "final"
-            | "finally"
-            | "for"
-            | "Function"
-            | "get"
-            | "hide"
-            | "if"
-            | "implements"
-            | "import"
-            | "in"
-            | "interface"
-            | "is"
-            | "late"
-            | "library"
-            | "mixin"
-            | "new"
-            | "null"
-            | "of"
-            | "on"
-            | "operator"
-            | "part"
-            | "required"
-            | "rethrow"
-            | "return"
-            | "sealed"
-            | "set"
-            | "show"
-            | "static"
-            | "super"
-            | "switch"
-            | "sync"
-            | "this"
-            | "throw"
-            | "true"
-            | "try"
-            | "typedef"
-            | "var"
-            | "void"
-            | "when"
-            | "while"
-            | "with"
-            | "yield"
-    )
+    contains_word(DART_RESERVED_WORDS, word) || contains_word(DART_CONTEXTUAL_KEYWORDS, word)
 }
 
 struct Scanner<'a> {
@@ -211,7 +173,7 @@ impl<'a> Scanner<'a> {
     fn read_line_comment(&mut self) {
         let start = self.idx;
         self.skip_to_eol();
-        if self.tokens.is_empty() {
+        if self.tokens.is_empty() && !self.bytes[start..].starts_with(b"///") {
             self.header_comments
                 .extend([&self.src[start..self.idx], "\n"]);
         }
@@ -219,6 +181,15 @@ impl<'a> Scanner<'a> {
 
     fn read_block_comment(&mut self) -> Result<(), LowerError> {
         let start = self.idx;
+        self.skip_block_comment()?;
+        if self.tokens.is_empty() && !self.bytes[start..].starts_with(b"/**") {
+            self.header_comments.push_str(&self.src[start..self.idx]);
+            self.header_comments.push('\n');
+        }
+        Ok(())
+    }
+
+    fn skip_block_comment(&mut self) -> Result<(), LowerError> {
         let start_line = self.line;
         self.idx += 2;
         let mut depth = 1usize;
@@ -231,10 +202,6 @@ impl<'a> Scanner<'a> {
                 depth -= 1;
                 self.idx += 2;
                 if depth == 0 {
-                    if self.tokens.is_empty() {
-                        self.header_comments.push_str(&self.src[start..self.idx]);
-                        self.header_comments.push('\n');
-                    }
                     return Ok(());
                 }
             } else {
@@ -251,6 +218,7 @@ impl<'a> Scanner<'a> {
 
     fn is_raw_string_start(&self) -> bool {
         self.bytes[self.idx] == b'r'
+            && (self.idx == 0 || !is_id_continue(self.bytes[self.idx - 1]))
             && self
                 .bytes
                 .get(self.idx + 1)
@@ -345,6 +313,7 @@ impl<'a> Scanner<'a> {
             kind: DartKind::StringLit,
             text: self.src[start..self.idx].to_owned(),
             line: start_line,
+            end_line: self.line,
         });
     }
 
@@ -367,32 +336,45 @@ impl<'a> Scanner<'a> {
         depth: usize,
         start_line: u32,
     ) -> Result<usize, LowerError> {
-        let b = self.bytes[self.idx];
-        match b {
-            b'{' => {
-                self.idx += 1;
-                Ok(depth + 1)
-            }
-            b'}' => {
-                self.idx += 1;
-                Ok(depth - 1)
-            }
-            b'\'' | b'"' => {
-                self.skip_embedded_string(start_line, false)?;
-                Ok(depth)
-            }
-            _ if self.is_raw_string_start() => {
-                self.skip_embedded_string(start_line, true)?;
-                Ok(depth)
-            }
-            _ => {
-                if b == b'\n' {
-                    self.line += 1;
-                }
-                self.idx += 1;
-                Ok(depth)
-            }
+        if self.try_skip_interp_comment()? || self.try_skip_interp_string(start_line)? {
+            return Ok(depth);
         }
+        let b = self.bytes[self.idx];
+        self.idx += 1;
+        match b {
+            b'{' => Ok(depth + 1),
+            b'}' => Ok(depth - 1),
+            b'\n' => {
+                self.line += 1;
+                Ok(depth)
+            }
+            _ => Ok(depth),
+        }
+    }
+
+    fn try_skip_interp_string(&mut self, start_line: u32) -> Result<bool, LowerError> {
+        if matches!(self.bytes[self.idx], b'\'' | b'"') {
+            self.skip_embedded_string(start_line, false)?;
+            return Ok(true);
+        }
+        if self.is_raw_string_start() {
+            self.skip_embedded_string(start_line, true)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn try_skip_interp_comment(&mut self) -> Result<bool, LowerError> {
+        let rest = &self.bytes[self.idx..];
+        if rest.starts_with(b"//") {
+            self.skip_to_eol();
+            return Ok(true);
+        }
+        if rest.starts_with(b"/*") {
+            self.skip_block_comment()?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn skip_embedded_string(&mut self, start_line: u32, raw: bool) -> Result<(), LowerError> {
@@ -422,12 +404,57 @@ impl<'a> Scanner<'a> {
 
     fn read_number(&mut self) {
         let start = self.idx;
-        self.idx += 1;
-        while self.idx < self.bytes.len() && is_number_char(self.bytes[self.idx]) {
-            self.idx += 1;
+        if self.bytes[self.idx] == b'0'
+            && self
+                .bytes
+                .get(self.idx + 1)
+                .is_some_and(|b| matches!(b, b'x' | b'X'))
+        {
+            self.idx += 2;
+            while self.idx < self.bytes.len() && is_hex_or_sep(self.bytes[self.idx]) {
+                self.idx += 1;
+            }
+        } else {
+            self.consume_digits();
+            if self.bytes.get(self.idx) == Some(&b'.')
+                && self.bytes.get(self.idx + 1).is_some_and(u8::is_ascii_digit)
+            {
+                self.idx += 1;
+                self.consume_digits();
+            }
+            if self
+                .bytes
+                .get(self.idx)
+                .is_some_and(|b| matches!(b, b'e' | b'E'))
+            {
+                self.consume_exponent();
+            }
         }
         let slice = &self.src[start..self.idx];
         self.push_tok(DartKind::NumberLit, slice);
+    }
+
+    fn consume_digits(&mut self) {
+        while self.idx < self.bytes.len()
+            && (self.bytes[self.idx].is_ascii_digit() || self.bytes[self.idx] == b'_')
+        {
+            self.idx += 1;
+        }
+    }
+
+    fn consume_exponent(&mut self) {
+        let mut look = self.idx + 1;
+        if self
+            .bytes
+            .get(look)
+            .is_some_and(|b| matches!(b, b'+' | b'-'))
+        {
+            look += 1;
+        }
+        if self.bytes.get(look).is_some_and(u8::is_ascii_digit) {
+            self.idx = look;
+            self.consume_digits();
+        }
     }
 
     fn read_punct(&mut self) -> Result<(), LowerError> {
@@ -445,6 +472,7 @@ impl<'a> Scanner<'a> {
             kind,
             text: text.to_owned(),
             line: self.line,
+            end_line: self.line,
         });
     }
 }
@@ -457,8 +485,8 @@ fn is_id_continue(b: u8) -> bool {
     is_id_start(b) || b.is_ascii_digit()
 }
 
-fn is_number_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.')
+fn is_hex_or_sep(b: u8) -> bool {
+    b.is_ascii_hexdigit() || b == b'_'
 }
 
 fn match_dart_op(bytes: &[u8]) -> Option<&'static str> {

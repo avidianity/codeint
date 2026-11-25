@@ -43,12 +43,45 @@ impl PubspecEntryPoints {
         dart_files: &HashSet<&str>,
         out: &mut BTreeSet<String>,
     ) {
-        collect_top_level_dart_files(base_dir, "lib", repository_paths, out);
+        collect_public_lib_files(base_dir, repository_paths, out);
         if let Some(executables) = self.executables.as_ref() {
             collect_declared_executables(base_dir, executables, dart_files, out);
         }
         collect_top_level_dart_files(base_dir, "bin", repository_paths, out);
         collect_hook_entries(base_dir, dart_files, out);
+    }
+}
+
+fn collect_public_lib_files(
+    base_dir: &str,
+    repository_paths: &[String],
+    out: &mut BTreeSet<String>,
+) {
+    let prefix = if base_dir.is_empty() {
+        "lib/".to_owned()
+    } else {
+        format!("{base_dir}/lib/")
+    };
+    let is_app = repository_paths.iter().any(|path| {
+        path.strip_prefix(&prefix).is_some_and(|rest| {
+            rest == "main.dart"
+                || (rest.starts_with("main_") && !rest.contains('/') && rest.ends_with(".dart"))
+        })
+    });
+    for path in repository_paths {
+        let Some(rest) = path.strip_prefix(&prefix) else {
+            continue;
+        };
+        if !rest.ends_with(".dart") {
+            continue;
+        }
+        if is_app {
+            if !rest.contains('/') {
+                out.insert(path.clone());
+            }
+        } else if !rest.starts_with("src/") {
+            out.insert(path.clone());
+        }
     }
 }
 
