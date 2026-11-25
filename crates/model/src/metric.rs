@@ -283,8 +283,6 @@ impl Metric {
         Metric::DESCRIPTORS[11].1.key,
     ];
 
-    pub const ALL_BUILT_IN_KEYS: [&'static str; 12] = Metric::BUILT_IN_KEYS;
-
     pub const fn descriptor(self) -> &'static MetricDescriptor {
         &Metric::DESCRIPTORS[self.index()].1
     }

@@ -2,8 +2,8 @@ use std::path::Path;
 
 use codeint_config::PluginLimits;
 use codeint_model::{
-    CodeModel, ExternalFinding, ExternalMetricMeasurement, FileModel, ImportResolution, Metric,
-    MetricPluginError, RepoPath, SourceSet, TokenKind,
+    CodeModel, ExternalFinding, ExternalMetricMeasurement, FileModel, ImportResolution,
+    MetricPluginError, RepoPath, SourceSet, TokenKind, is_reserved_report_key,
 };
 use wasmtime::Store;
 
@@ -44,18 +44,7 @@ mod bindings {
 use bindings::codeint::plugin::language as guest_language;
 use bindings::exports::codeint::plugin::metric as guest_metric;
 
-const RESERVED_REPORT_AND_CONFIG_KEYS: [&str; 10] = [
-    "files",
-    "source_lines",
-    "packages",
-    "commit",
-    "committed_on",
-    "production",
-    "test",
-    "generated",
-    "vendored",
-    "dependencies",
-];
+const RESERVED_TREND_AND_CONFIG_KEYS: [&str; 3] = ["commit", "committed_on", "dependencies"];
 
 #[cfg(test)]
 mod tests;
@@ -222,12 +211,20 @@ pub fn validate_metric_key(plugin_name: &str, key: &str) -> Result<(), PluginHos
             "the Metric key must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, underscores, or hyphens",
         ));
     }
-    if Metric::ALL_BUILT_IN_KEYS.contains(&key) || RESERVED_REPORT_AND_CONFIG_KEYS.contains(&key) {
+    if is_reserved_metric_key(key) {
         return Err(invalid(
             "the Metric key collides with a built-in report key",
         ));
     }
     Ok(())
+}
+
+fn is_reserved_metric_key(key: &str) -> bool {
+    is_reserved_report_key(key)
+        || SourceSet::ALL
+            .iter()
+            .any(|source_set| source_set.key() == key)
+        || RESERVED_TREND_AND_CONFIG_KEYS.contains(&key)
 }
 
 fn to_guest_code_model(model: &CodeModel) -> guest_metric::CodeModel {

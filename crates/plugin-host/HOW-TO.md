@@ -76,7 +76,7 @@ let external = load_language_plugins(repository.root(), &configuration.plugins, 
 - `verify_plugin_component` compiles component bytes and checks the exported WIT contract version and zero-capability sandbox requirements without instantiating or running untrusted guest code.
 - Every `WasmLanguagePlugin` and `WasmMetricPlugin` enforces `codeint_config::PluginLimits` (linear memory cap via `wasmtime::ResourceLimiter` and wall-clock time limit via `wasmtime` epoch interruption).
   Use `load_language_plugins_with_limits` and `load_metric_plugins_with_limits` to pass configured limits from `codeint.json`.
-- `validate_metric_key` enforces external Metric key syntax and rejects every built-in Metric key (`Metric::ALL_BUILT_IN_KEYS`) as well as reserved report and configuration keys (`files`, `source_lines`, `packages`, `commit`, `committed_on`, `production`, `test`, `generated`, `vendored`, `dependencies`).
+- `validate_metric_key` enforces external Metric key syntax and rejects every reserved report key from `codeint_model::is_reserved_report_key` (`Metric::ALL` and `STRUCTURAL_REPORT_KEYS`), every `SourceSet::ALL` key (`production`, `test`, `generated`, `vendored`), and the trend and top-level configuration keys (`commit`, `committed_on`, `dependencies`).
 - `WasmLanguagePlugin` implements `codeint_model::LanguagePlugin: Sync` using an internal pool of pre-instantiated component instances, so callers can invoke `lower` concurrently across threads.
 
 ## Verify a single plugin or compute a digest
