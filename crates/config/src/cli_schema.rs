@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use clap::{Arg, Command as ClapCommand, CommandFactory};
 use serde::Serialize;
 
-use crate::Arguments;
+use crate::cli::Arguments;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CliSchema {
