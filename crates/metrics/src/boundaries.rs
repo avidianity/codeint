@@ -1,14 +1,12 @@
 use std::collections::HashSet;
 
-use codeint_model::{CodeModel, ImportResolution, RepoPath, token_text_hash};
+use codeint_model::{CodeModel, ImportResolution, Metric, RepoPath, token_text_hash};
 
 use crate::FindingId;
 use crate::finding_id::FindingIds;
 
 #[cfg(test)]
 mod tests;
-
-const BOUNDARIES_METRIC_KEY: &str = "boundaries";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BoundaryEdgeCheck {
@@ -256,7 +254,7 @@ fn assign_finding_ids(mut pending: Vec<PendingFinding>) -> Vec<BoundaryFinding> 
             .then_with(|| left.kind.cmp(&right.kind))
             .then_with(|| left.specifier.cmp(&right.specifier))
     });
-    let mut ids = FindingIds::for_key(BOUNDARIES_METRIC_KEY);
+    let mut ids = FindingIds::new(Metric::Boundaries);
     pending
         .into_iter()
         .map(|item| {

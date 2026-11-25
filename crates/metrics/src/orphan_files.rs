@@ -1,14 +1,12 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-use codeint_model::{CodeModel, ImportResolution, Package, RepoPath, SourceSet};
+use codeint_model::{CodeModel, ImportResolution, Metric, Package, RepoPath, SourceSet};
 
 use crate::finding_id::{FindingId, FindingIds};
 use crate::tooling_paths::ToolingPaths;
 
 #[cfg(test)]
 mod tests;
-
-const ORPHAN_FILES_METRIC_KEY: &str = "orphan_files";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OrphanFileKind {
@@ -403,7 +401,7 @@ fn build_pending_orphan(
 
 fn assign_finding_ids(mut pending: Vec<PendingOrphan>) -> Vec<OrphanFileFinding> {
     pending.sort_by(|left, right| left.path.cmp(&right.path));
-    let mut ids = FindingIds::for_key(ORPHAN_FILES_METRIC_KEY);
+    let mut ids = FindingIds::new(Metric::OrphanFiles);
     pending
         .into_iter()
         .map(|item| {

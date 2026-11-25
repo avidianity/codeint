@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use codeint_model::{Metric, RepoPath, SourceSet};
+use codeint_model::{Metric, MetricScope, RepoPath, SourceSet};
 
 use crate::RegressionLimits;
 use crate::boundaries::{Boundaries, BoundariesFile};
@@ -27,13 +27,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
-    "unused_dependencies",
-    "unlisted_dependencies",
-    "dev_in_production_dependencies",
+    Metric::UnusedDependencies.key(),
+    Metric::UnlistedDependencies.key(),
+    Metric::DevInProductionDependencies.key(),
 ];
 
-pub const TEST_GAP_METRIC_KEY: &str = "test_gap";
-pub const HAZARDS_METRIC_KEY: &str = "hazards";
+pub const TEST_GAP_METRIC_KEY: &str = Metric::TestGap.key();
+pub const HAZARDS_METRIC_KEY: &str = Metric::Hazards.key();
 
 mod shape;
 mod starter;
@@ -291,7 +291,8 @@ fn validate_regression_limit_keys(
             });
         }
         let allowed_here = is_known_metric(metric_key, external_metric_keys)
-            || (source_set.is_none() && DEPENDENCY_METRIC_KEYS.contains(&metric_key));
+            || (source_set.is_none()
+                && Metric::from_key(metric_key).is_some_and(is_repository_wide_diff_metric));
         if !allowed_here {
             let mut path =
                 KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
@@ -299,12 +300,13 @@ fn validate_regression_limit_keys(
             if let Some(source_set) = source_set {
                 path = path.child(KeySegment::Key(source_set.key().to_owned()));
             } else {
-                allowed.extend(DEPENDENCY_METRIC_KEYS.into_iter().map(str::to_owned));
                 allowed.extend(
-                    ["production", "test", "generated", "vendored"]
+                    Metric::ALL
                         .into_iter()
-                        .map(str::to_owned),
+                        .filter(|metric| is_repository_wide_diff_metric(*metric))
+                        .map(|metric| metric.key().to_owned()),
                 );
+                allowed.extend(SourceSet::ALL.map(|set| set.key().to_owned()));
             }
             return Err(ConfigurationFileError::UnknownKey {
                 file: config_file,
@@ -316,34 +318,49 @@ fn validate_regression_limit_keys(
     Ok(())
 }
 
+fn is_source_set_diff_metric(metric: Metric) -> bool {
+    metric.scope() != MetricScope::RepositoryWide && metric.supports_diff_regression()
+}
+
+fn is_repository_wide_diff_metric(metric: Metric) -> bool {
+    metric.scope() == MetricScope::RepositoryWide && metric.supports_diff_regression()
+}
+
 fn allowed_budget_metric_keys(source_set: SourceSet, external_metric_keys: &[&str]) -> Vec<String> {
     let mut allowed = allowed_metric_keys(external_metric_keys);
     if source_set == SourceSet::Production {
         let insert_at = allowed.len() - external_metric_keys.len();
-        allowed.insert(insert_at, TEST_GAP_METRIC_KEY.to_owned());
+        allowed.insert(insert_at, Metric::TestGap.key().to_owned());
     }
     allowed
 }
 
-const EXTRA_BUILT_IN_METRIC_KEYS: [&str; 4] = [
-    "cognitive_complexity",
-    "boundaries",
-    "orphan_files",
-    HAZARDS_METRIC_KEY,
-];
-
 fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
-    Metric::BUILT_IN_KEYS
-        .iter()
-        .chain(EXTRA_BUILT_IN_METRIC_KEYS.iter())
-        .chain(external_metric_keys.iter())
-        .map(|key| (*key).to_owned())
+    let mut built_in: Vec<Metric> = Metric::ALL
+        .into_iter()
+        .filter(|metric| is_source_set_diff_metric(*metric))
+        .collect();
+    if let (Some(cog), Some(cycles)) = (
+        built_in
+            .iter()
+            .position(|metric| *metric == Metric::CognitiveComplexity),
+        built_in
+            .iter()
+            .position(|metric| *metric == Metric::ImportCycles),
+    ) && cog < cycles
+    {
+        let metric = built_in.remove(cog);
+        built_in.insert(cycles, metric);
+    }
+    built_in
+        .into_iter()
+        .map(|metric| metric.key().to_owned())
+        .chain(external_metric_keys.iter().map(|key| (*key).to_owned()))
         .collect()
 }
 
 fn is_known_metric(key: &str, external_metric_keys: &[&str]) -> bool {
-    Metric::BUILT_IN_KEYS.contains(&key)
-        || EXTRA_BUILT_IN_METRIC_KEYS.contains(&key)
+    Metric::from_key(key).is_some_and(is_source_set_diff_metric)
         || external_metric_keys.contains(&key)
 }
 
@@ -799,13 +816,13 @@ impl MetricRegressionLimits {
 fn built_in_metric_pairs<T>(values: [T; 8]) -> impl Iterator<Item = (String, T)> {
     [
         Metric::Erosion.key(),
-        "cognitive_complexity",
+        Metric::CognitiveComplexity.key(),
         Metric::Duplication.key(),
         Metric::Verbosity.key(),
         Metric::ImportCycles.key(),
-        "boundaries",
-        "orphan_files",
-        HAZARDS_METRIC_KEY,
+        Metric::Boundaries.key(),
+        Metric::OrphanFiles.key(),
+        Metric::Hazards.key(),
     ]
     .into_iter()
     .zip(values)
@@ -1591,13 +1608,6 @@ fn append_duplication_settings(
     );
 }
 
-const ORDERED_SOURCE_SETS: [SourceSet; 4] = [
-    SourceSet::Production,
-    SourceSet::Test,
-    SourceSet::Generated,
-    SourceSet::Vendored,
-];
-
 fn has_json_path(raw: Option<&Value>, path: &[&str]) -> bool {
     let mut current = match raw {
         Some(value) => value,
@@ -1711,7 +1721,7 @@ fn append_budget_settings(
         push_setting(settings, "budgets", json!({}), ConfigProvenance::Default);
         return;
     }
-    for source_set in ORDERED_SOURCE_SETS {
+    for source_set in SourceSet::ALL {
         for ((_, metric), (budget, source)) in
             resolved.iter().filter(|((set, _), _)| *set == source_set)
         {
@@ -1758,14 +1768,18 @@ fn append_regression_limit_settings(
 ) {
     let mut metric_keys = allowed_metric_keys(&[]);
     metric_keys.extend(limits.extra_metric_keys());
-    for source_set in ORDERED_SOURCE_SETS {
+    for source_set in SourceSet::ALL {
         for metric_key in &metric_keys {
             let resolved = limits.resolved_limit_for_key(source_set, metric_key);
             let prefix = format!("regression_limits.{}.{metric_key}", source_set.key());
             push_resolved_regression_limit(settings, &prefix, resolved);
         }
     }
-    for metric_key in DEPENDENCY_METRIC_KEYS {
+    for metric in Metric::ALL
+        .into_iter()
+        .filter(|metric| is_repository_wide_diff_metric(*metric))
+    {
+        let metric_key = metric.key();
         let resolved = limits.resolved_limit_for_dependency(metric_key);
         let prefix = format!("regression_limits.{metric_key}");
         push_resolved_regression_limit(settings, &prefix, resolved);
@@ -1938,15 +1952,15 @@ impl SourceSetBudgets {
 
 impl SharedMetricBudgets {
     fn set_known(&mut self, metric: &str, budget: Budget) -> bool {
-        match metric {
-            "erosion" => self.erosion = Some(budget),
-            "cognitive_complexity" => self.cognitive_complexity = Some(budget),
-            "duplication" => self.duplication = Some(budget),
-            "verbosity" => self.verbosity = Some(budget),
-            "import_cycles" => self.import_cycles = Some(budget),
-            "boundaries" => self.boundaries = Some(budget),
-            "orphan_files" => self.orphan_files = Some(budget),
-            "hazards" => self.hazards = Some(budget),
+        match Metric::from_key(metric) {
+            Some(Metric::Erosion) => self.erosion = Some(budget),
+            Some(Metric::CognitiveComplexity) => self.cognitive_complexity = Some(budget),
+            Some(Metric::Duplication) => self.duplication = Some(budget),
+            Some(Metric::Verbosity) => self.verbosity = Some(budget),
+            Some(Metric::ImportCycles) => self.import_cycles = Some(budget),
+            Some(Metric::Boundaries) => self.boundaries = Some(budget),
+            Some(Metric::OrphanFiles) => self.orphan_files = Some(budget),
+            Some(Metric::Hazards) => self.hazards = Some(budget),
             _ => return false,
         }
         true
@@ -1955,13 +1969,13 @@ impl SharedMetricBudgets {
     fn into_pairs(self) -> impl Iterator<Item = (String, Budget)> {
         [
             (Metric::Erosion.key(), self.erosion),
-            ("cognitive_complexity", self.cognitive_complexity),
+            (Metric::CognitiveComplexity.key(), self.cognitive_complexity),
             (Metric::Duplication.key(), self.duplication),
             (Metric::Verbosity.key(), self.verbosity),
             (Metric::ImportCycles.key(), self.import_cycles),
-            ("boundaries", self.boundaries),
-            ("orphan_files", self.orphan_files),
-            (HAZARDS_METRIC_KEY, self.hazards),
+            (Metric::Boundaries.key(), self.boundaries),
+            (Metric::OrphanFiles.key(), self.orphan_files),
+            (Metric::Hazards.key(), self.hazards),
         ]
         .into_iter()
         .filter_map(|(metric, ratio)| Some((metric.to_owned(), ratio?)))
@@ -2094,10 +2108,16 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         external,
     } = file;
     let dependency_limits = [
-        ("unused_dependencies".to_owned(), unused_dependencies),
-        ("unlisted_dependencies".to_owned(), unlisted_dependencies),
         (
-            "dev_in_production_dependencies".to_owned(),
+            Metric::UnusedDependencies.key().to_owned(),
+            unused_dependencies,
+        ),
+        (
+            Metric::UnlistedDependencies.key().to_owned(),
+            unlisted_dependencies,
+        ),
+        (
+            Metric::DevInProductionDependencies.key().to_owned(),
             dev_in_production_dependencies,
         ),
     ]
@@ -2154,10 +2174,16 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
         dev_in_production_dependencies,
     } = file;
     let dependency_set = [
-        ("unused_dependencies".to_owned(), unused_dependencies),
-        ("unlisted_dependencies".to_owned(), unlisted_dependencies),
         (
-            "dev_in_production_dependencies".to_owned(),
+            Metric::UnusedDependencies.key().to_owned(),
+            unused_dependencies,
+        ),
+        (
+            Metric::UnlistedDependencies.key().to_owned(),
+            unlisted_dependencies,
+        ),
+        (
+            Metric::DevInProductionDependencies.key().to_owned(),
             dev_in_production_dependencies,
         ),
     ]

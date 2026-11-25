@@ -1,44 +1,351 @@
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 use crate::{CodeModel, RepoPath, SourceSet};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Metric {
-    Erosion,
-    Duplication,
-    Verbosity,
-    ImportCycles,
+#[cfg(test)]
+mod tests;
+
+pub const STRUCTURAL_REPORT_KEYS: [&str; 3] = ["files", "source_lines", "packages"];
+
+pub fn is_reserved_report_key(key: &str) -> bool {
+    Metric::from_key(key).is_some() || STRUCTURAL_REPORT_KEYS.contains(&key)
 }
 
-impl Metric {
-    pub const BUILT_IN_KEYS: [&'static str; 4] =
-        ["erosion", "duplication", "verbosity", "import_cycles"];
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MetricKind {
+    SoftwareEntropy,
+    Hazards,
+}
 
-    pub const ALL_BUILT_IN_KEYS: [&'static str; 12] = [
-        "erosion",
-        "cognitive_complexity",
-        "duplication",
-        "verbosity",
-        "import_cycles",
-        "boundaries",
-        "orphan_files",
-        "unused_dependencies",
-        "unlisted_dependencies",
-        "dev_in_production_dependencies",
-        "test_gap",
-        "hazards",
-    ];
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MetricScope {
+    AllSourceSets,
+    ProductionOnly,
+    RepositoryWide,
+}
 
-    pub fn key(self) -> &'static str {
+impl MetricScope {
+    pub const fn applies_to_source_set(self, source_set: SourceSet) -> bool {
         match self {
-            Metric::Erosion => "erosion",
-            Metric::Duplication => "duplication",
-            Metric::Verbosity => "verbosity",
-            Metric::ImportCycles => "import_cycles",
+            MetricScope::AllSourceSets => true,
+            MetricScope::ProductionOnly => matches!(source_set, SourceSet::Production),
+            MetricScope::RepositoryWide => false,
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NewFindingsRule {
+    AnyNewFinding,
+    NumeratorRiseWithNewFindings,
+    Never,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MetricCapability {
+    None,
+    Imports,
+    HazardLines,
+    CoverageReport,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MetricDescriptor {
+    pub key: &'static str,
+    pub display_name: &'static str,
+    pub version: u32,
+    pub kind: MetricKind,
+    pub scope: MetricScope,
+    pub supports_diff_regression: bool,
+    pub default_new_findings_rule: NewFindingsRule,
+    pub required_capability: MetricCapability,
+    pub numerator_field: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(usize)]
+pub enum Metric {
+    Erosion = 0,
+    CognitiveComplexity = 1,
+    Duplication = 2,
+    Verbosity = 3,
+    ImportCycles = 4,
+    Boundaries = 5,
+    OrphanFiles = 6,
+    TestGap = 7,
+    Hazards = 8,
+    UnusedDependencies = 9,
+    UnlistedDependencies = 10,
+    DevInProductionDependencies = 11,
+}
+
+impl Metric {
+    pub const DESCRIPTORS: [(Metric, MetricDescriptor); 12] = [
+        (
+            Metric::Erosion,
+            MetricDescriptor {
+                key: "erosion",
+                display_name: "Erosion",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::AllSourceSets,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                required_capability: MetricCapability::None,
+                numerator_field: "eroded_function_mass",
+            },
+        ),
+        (
+            Metric::CognitiveComplexity,
+            MetricDescriptor {
+                key: "cognitive_complexity",
+                display_name: "Cognitive complexity",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::AllSourceSets,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                required_capability: MetricCapability::None,
+                numerator_field: "complex_cognitive_complexity",
+            },
+        ),
+        (
+            Metric::Duplication,
+            MetricDescriptor {
+                key: "duplication",
+                display_name: "Duplication",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::AllSourceSets,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                required_capability: MetricCapability::None,
+                numerator_field: "clone_lines",
+            },
+        ),
+        (
+            Metric::Verbosity,
+            MetricDescriptor {
+                key: "verbosity",
+                display_name: "Verbosity",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::AllSourceSets,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                required_capability: MetricCapability::None,
+                numerator_field: "verbose_lines",
+            },
+        ),
+        (
+            Metric::ImportCycles,
+            MetricDescriptor {
+                key: "import_cycles",
+                display_name: "Import cycles",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::AllSourceSets,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::AnyNewFinding,
+                required_capability: MetricCapability::Imports,
+                numerator_field: "modules_in_import_cycles",
+            },
+        ),
+        (
+            Metric::Boundaries,
+            MetricDescriptor {
+                key: "boundaries",
+                display_name: "Import boundaries",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::AllSourceSets,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::AnyNewFinding,
+                required_capability: MetricCapability::Imports,
+                numerator_field: "boundary_findings",
+            },
+        ),
+        (
+            Metric::OrphanFiles,
+            MetricDescriptor {
+                key: "orphan_files",
+                display_name: "Orphan files",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::ProductionOnly,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::AnyNewFinding,
+                required_capability: MetricCapability::Imports,
+                numerator_field: "orphan_files",
+            },
+        ),
+        (
+            Metric::TestGap,
+            MetricDescriptor {
+                key: "test_gap",
+                display_name: "Test gap",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::ProductionOnly,
+                supports_diff_regression: false,
+                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                required_capability: MetricCapability::CoverageReport,
+                numerator_field: "untested_function_mass",
+            },
+        ),
+        (
+            Metric::Hazards,
+            MetricDescriptor {
+                key: "hazards",
+                display_name: "Hazards",
+                version: 1,
+                kind: MetricKind::Hazards,
+                scope: MetricScope::AllSourceSets,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::NumeratorRiseWithNewFindings,
+                required_capability: MetricCapability::HazardLines,
+                numerator_field: "hazard_lines",
+            },
+        ),
+        (
+            Metric::UnusedDependencies,
+            MetricDescriptor {
+                key: "unused_dependencies",
+                display_name: "Unused dependencies",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::RepositoryWide,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::AnyNewFinding,
+                required_capability: MetricCapability::Imports,
+                numerator_field: "unused",
+            },
+        ),
+        (
+            Metric::UnlistedDependencies,
+            MetricDescriptor {
+                key: "unlisted_dependencies",
+                display_name: "Unlisted dependencies",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::RepositoryWide,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::AnyNewFinding,
+                required_capability: MetricCapability::Imports,
+                numerator_field: "unlisted",
+            },
+        ),
+        (
+            Metric::DevInProductionDependencies,
+            MetricDescriptor {
+                key: "dev_in_production_dependencies",
+                display_name: "Dev dependencies in production",
+                version: 1,
+                kind: MetricKind::SoftwareEntropy,
+                scope: MetricScope::RepositoryWide,
+                supports_diff_regression: true,
+                default_new_findings_rule: NewFindingsRule::AnyNewFinding,
+                required_capability: MetricCapability::Imports,
+                numerator_field: "dev_in_production",
+            },
+        ),
+    ];
+
+    pub const ALL: [Metric; 12] = [
+        Metric::DESCRIPTORS[0].0,
+        Metric::DESCRIPTORS[1].0,
+        Metric::DESCRIPTORS[2].0,
+        Metric::DESCRIPTORS[3].0,
+        Metric::DESCRIPTORS[4].0,
+        Metric::DESCRIPTORS[5].0,
+        Metric::DESCRIPTORS[6].0,
+        Metric::DESCRIPTORS[7].0,
+        Metric::DESCRIPTORS[8].0,
+        Metric::DESCRIPTORS[9].0,
+        Metric::DESCRIPTORS[10].0,
+        Metric::DESCRIPTORS[11].0,
+    ];
+
+    pub const BUILT_IN_KEYS: [&'static str; 12] = [
+        Metric::DESCRIPTORS[0].1.key,
+        Metric::DESCRIPTORS[1].1.key,
+        Metric::DESCRIPTORS[2].1.key,
+        Metric::DESCRIPTORS[3].1.key,
+        Metric::DESCRIPTORS[4].1.key,
+        Metric::DESCRIPTORS[5].1.key,
+        Metric::DESCRIPTORS[6].1.key,
+        Metric::DESCRIPTORS[7].1.key,
+        Metric::DESCRIPTORS[8].1.key,
+        Metric::DESCRIPTORS[9].1.key,
+        Metric::DESCRIPTORS[10].1.key,
+        Metric::DESCRIPTORS[11].1.key,
+    ];
+
+    pub const ALL_BUILT_IN_KEYS: [&'static str; 12] = Metric::BUILT_IN_KEYS;
+
+    pub const fn descriptor(self) -> &'static MetricDescriptor {
+        &Metric::DESCRIPTORS[self.index()].1
+    }
+
+    pub const fn key(self) -> &'static str {
+        self.descriptor().key
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        self.descriptor().display_name
+    }
+
+    pub const fn version(self) -> u32 {
+        self.descriptor().version
+    }
+
+    pub const fn kind(self) -> MetricKind {
+        self.descriptor().kind
+    }
+
+    pub const fn scope(self) -> MetricScope {
+        self.descriptor().scope
+    }
+
+    pub const fn supports_diff_regression(self) -> bool {
+        self.descriptor().supports_diff_regression
+    }
+
+    pub const fn default_new_findings_rule(self) -> NewFindingsRule {
+        self.descriptor().default_new_findings_rule
+    }
+
+    pub const fn required_capability(self) -> MetricCapability {
+        self.descriptor().required_capability
+    }
+
+    pub const fn numerator_field(self) -> &'static str {
+        self.descriptor().numerator_field
+    }
+
+    pub fn from_key(key: &str) -> Option<Metric> {
+        Metric::DESCRIPTORS
+            .iter()
+            .find(|(_, descriptor)| descriptor.key == key)
+            .map(|(metric, _)| *metric)
+    }
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
 impl SourceSet {
-    pub fn key(self) -> &'static str {
+    pub const ALL: [SourceSet; 4] = [
+        SourceSet::Production,
+        SourceSet::Test,
+        SourceSet::Generated,
+        SourceSet::Vendored,
+    ];
+
+    pub const fn key(self) -> &'static str {
         match self {
             SourceSet::Production => "production",
             SourceSet::Test => "test",

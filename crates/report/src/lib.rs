@@ -9,12 +9,10 @@ use codeint_config::{
 };
 use codeint_metrics::{
     Boundaries, BoundaryEdgeCheck, BoundaryFinding, BoundaryPolicy, CloneFamily, CloneGroup,
-    CognitiveComplexity, ComplexFunction, DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
-    DependencyHygiene, Duplication, ErodedFunction, Erosion, FlaggedLineFinding, Fragment,
-    HAZARDS_METRIC_KEY, HazardLineFinding, Hazards, ImportCycle, ImportCycles, MinimumCloneTokens,
-    MinimumDistinctTokens, NearCloneConfig, OrphanFileFinding, OrphanFiles, TEST_GAP_METRIC_KEY,
-    TestGap, TestGapFinding, UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
-    UnresolvedImport, Verbosity,
+    CognitiveComplexity, ComplexFunction, DependencyHygiene, Duplication, ErodedFunction, Erosion,
+    FlaggedLineFinding, Fragment, HazardLineFinding, Hazards, ImportCycle, ImportCycles,
+    MinimumCloneTokens, MinimumDistinctTokens, NearCloneConfig, OrphanFileFinding, OrphanFiles,
+    TestGap, TestGapFinding, UnresolvedImport, Verbosity,
 };
 use codeint_model::{
     CodeModel, ExternalFinding, Metric, MetricPlugin, MetricPluginError, Package, ReferenceRange,
@@ -69,7 +67,6 @@ use dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 use ownership::OwnedFinding;
 
 const DECIMAL_SCALE: f64 = 10_000.0;
-const COGNITIVE_COMPLEXITY_KEY: &str = "cognitive_complexity";
 const NOT_PUBLISHED_FOR_THIS_LANGUAGE: &str = "no published Reference range for this language";
 const NOT_SHOWN_FOR_SEVERAL_LANGUAGES: &str =
     "not shown, because the measured files are in more than one language";
@@ -1017,40 +1014,35 @@ impl DependenciesSection {
     fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
         dependency_over_budget(
             budgets,
-            [
-                (
-                    UNUSED_DEPENDENCIES_METRIC_KEY,
-                    self.unused_dependencies.ratio.0,
-                ),
-                (
-                    UNLISTED_DEPENDENCIES_METRIC_KEY,
-                    self.unlisted_dependencies.ratio.0,
-                ),
-                (
-                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
-                    self.dev_in_production_dependencies.ratio.0,
-                ),
-            ],
+            self.unused_dependencies.ratio.0,
+            self.unlisted_dependencies.ratio.0,
+            self.dev_in_production_dependencies.ratio.0,
         )
     }
 }
 
 pub(crate) fn dependency_over_budget(
     budgets: &Budgets,
-    displayed_ratios: [(&'static str, f64); 3],
+    unused: f64,
+    unlisted: f64,
+    dev_in_production: f64,
 ) -> Vec<BudgetFailure> {
-    displayed_ratios
-        .into_iter()
-        .filter_map(|(metric, ratio)| {
-            let budget = budgets.dependency_budget(metric)?;
-            (!budget.admits(ratio)).then(|| BudgetFailure {
-                source_set: None,
-                metric: metric.to_owned(),
-                ratio: Decimal(ratio),
-                budget: budget.ratio(),
-            })
+    [
+        (Metric::UnusedDependencies, unused),
+        (Metric::UnlistedDependencies, unlisted),
+        (Metric::DevInProductionDependencies, dev_in_production),
+    ]
+    .into_iter()
+    .filter_map(|(metric, ratio)| {
+        let budget = budgets.dependency_budget(metric.key())?;
+        (!budget.admits(ratio)).then(|| BudgetFailure {
+            source_set: None,
+            metric: metric.key().to_owned(),
+            ratio: Decimal(ratio),
+            budget: budget.ratio(),
         })
-        .collect()
+    })
+    .collect()
 }
 struct ConfigBoundaryPolicy<'config>(&'config BoundariesConfig);
 
@@ -1309,7 +1301,7 @@ impl SourceSetSections {
                     ),
                     (
                         source_set,
-                        COGNITIVE_COMPLEXITY_KEY,
+                        Metric::CognitiveComplexity.key(),
                         section.cognitive_complexity.header.ratio.0,
                     ),
                     (
@@ -1331,29 +1323,25 @@ impl SourceSetSections {
                         import_cycles.header.ratio.0,
                     )
                 }))
+                .chain(section.boundaries.iter().map(move |boundaries| {
+                    (source_set, Metric::Boundaries.key(), boundaries.ratio.0)
+                }))
                 .chain(
-                    section
-                        .boundaries
-                        .iter()
-                        .map(move |boundaries| (source_set, "boundaries", boundaries.ratio.0)),
-                )
-                .chain(
-                    section
-                        .orphan_files
-                        .iter()
-                        .map(move |orphans| (source_set, "orphan_files", orphans.ratio.0)),
+                    section.orphan_files.iter().map(move |orphans| {
+                        (source_set, Metric::OrphanFiles.key(), orphans.ratio.0)
+                    }),
                 )
                 .chain(
                     section
                         .test_gap
                         .iter()
-                        .map(move |test_gap| (source_set, TEST_GAP_METRIC_KEY, test_gap.ratio.0)),
+                        .map(move |test_gap| (source_set, Metric::TestGap.key(), test_gap.ratio.0)),
                 )
                 .chain(
                     section
                         .hazards
                         .iter()
-                        .map(move |hazards| (source_set, HAZARDS_METRIC_KEY, hazards.ratio.0)),
+                        .map(move |hazards| (source_set, Metric::Hazards.key(), hazards.ratio.0)),
                 )
                 .chain(
                     section.external_metrics.iter().map(move |(key, metric)| {
@@ -1471,7 +1459,7 @@ impl SourceSetSection {
                 header: MetricHeader::new(
                     measured.cognitive_complexity.ratio(),
                     ranges,
-                    COGNITIVE_COMPLEXITY_KEY,
+                    Metric::CognitiveComplexity.key(),
                 ),
                 totals: CognitiveComplexityTotals {
                     complex_cognitive_complexity: measured

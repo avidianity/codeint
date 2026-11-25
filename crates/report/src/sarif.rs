@@ -2,23 +2,14 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use serde::Serialize;
 
-use codeint_metrics::{
-    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY, TEST_GAP_METRIC_KEY,
-    UNLISTED_DEPENDENCIES_METRIC_KEY, UNUSED_DEPENDENCIES_METRIC_KEY,
-};
 use codeint_model::{Metric, SourceSet};
 
-use crate::schema::{
-    BUILT_IN_METRICS, BuiltInMetricDescriptor, COGNITIVE_COMPLEXITY_DESCRIPTOR,
-    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR, HAZARDS_DESCRIPTOR, ORPHAN_FILES_DESCRIPTOR,
-    TEST_GAP_DESCRIPTOR, UNLISTED_DEPENDENCIES_DESCRIPTOR, UNUSED_DEPENDENCIES_DESCRIPTOR,
-    built_in_metric_descriptor,
-};
+use crate::schema::built_in_metric_descriptor;
 use crate::{
-    BoundaryFindingRow, COGNITIVE_COMPLEXITY_KEY, CloneFamilyFinding, CloneGroupFinding,
-    CloneLocation, CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding,
-    FlaggedLineRow, HazardLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow,
-    Report, SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
+    CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
+    HazardLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, Report,
+    SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -205,28 +196,19 @@ impl SarifLog {
         dependencies: ListedDependencies<'findings>,
     ) -> SarifLog {
         let collected: Vec<(SourceSet, ListedFindings<'findings>)> = findings.collect();
-        let mut rules: Vec<Rule> = RULES.map(descriptor).into();
-        rules.push(rule_from_descriptor(
-            COGNITIVE_COMPLEXITY_KEY,
-            COGNITIVE_COMPLEXITY_DESCRIPTOR,
-        ));
+        let mut rules: Vec<Rule> = CORE_SARIF_RULES.map(descriptor).into();
         let boundaries_rule_index = collected
             .iter()
             .any(|(_, listed)| !listed.boundaries.is_empty())
-            .then(|| push_rule(&mut rules, boundaries_descriptor()));
+            .then(|| push_rule(&mut rules, descriptor(Metric::Boundaries)));
         let orphan_files_rule_index = collected
             .iter()
             .any(|(_, listed)| !listed.orphan_files.is_empty())
-            .then(|| push_rule(&mut rules, orphan_files_descriptor()));
+            .then(|| push_rule(&mut rules, descriptor(Metric::OrphanFiles)));
         let test_gap_rule_index = collected
             .iter()
             .any(|(_, listed)| !listed.test_gap.is_empty())
-            .then(|| {
-                push_rule(
-                    &mut rules,
-                    rule_from_descriptor(TEST_GAP_METRIC_KEY, TEST_GAP_DESCRIPTOR),
-                )
-            });
+            .then(|| push_rule(&mut rules, descriptor(Metric::TestGap)));
         let dependency_rules = register_dependency_rules(&mut rules, &dependencies);
         let hazard_rule_indices = register_hazard_rules(&mut rules, &collected);
         let external_rule_indices = register_external_rules(&mut rules, &collected);
@@ -273,16 +255,6 @@ fn push_rule(rules: &mut Vec<Rule>, rule: Rule) -> usize {
     index
 }
 
-fn rule_from_descriptor(id: &str, info: BuiltInMetricDescriptor) -> Rule {
-    Rule {
-        id: id.to_owned(),
-        name: info.name.to_owned(),
-        short_description: Text::from(info.short_description),
-        full_description: Text::from(info.full_description),
-        help: Text::from(info.help),
-    }
-}
-
 struct OptionalRuleIndices<'a> {
     boundaries: Option<usize>,
     orphan_files: Option<usize>,
@@ -309,7 +281,7 @@ fn register_hazard_rules(
                 name: rule_name.to_owned(),
                 short_description: Text::from(description.as_str()),
                 full_description: Text::from(description.as_str()),
-                help: Text::from(HAZARDS_DESCRIPTOR.help),
+                help: Text::from(built_in_metric_descriptor(Metric::Hazards).help),
             },
         );
         indices.insert(rule_name.to_owned(), index);
@@ -357,33 +329,12 @@ fn register_dependency_rules(
     dependencies: &ListedDependencies<'_>,
 ) -> DependencyRuleIndices {
     DependencyRuleIndices {
-        unused: (!dependencies.unused.is_empty()).then(|| {
-            push_rule(
-                rules,
-                rule_from_descriptor(
-                    UNUSED_DEPENDENCIES_METRIC_KEY,
-                    UNUSED_DEPENDENCIES_DESCRIPTOR,
-                ),
-            )
-        }),
-        unlisted: (!dependencies.unlisted.is_empty()).then(|| {
-            push_rule(
-                rules,
-                rule_from_descriptor(
-                    UNLISTED_DEPENDENCIES_METRIC_KEY,
-                    UNLISTED_DEPENDENCIES_DESCRIPTOR,
-                ),
-            )
-        }),
-        dev_in_production: (!dependencies.dev_in_production.is_empty()).then(|| {
-            push_rule(
-                rules,
-                rule_from_descriptor(
-                    DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
-                    DEV_IN_PRODUCTION_DEPENDENCIES_DESCRIPTOR,
-                ),
-            )
-        }),
+        unused: (!dependencies.unused.is_empty())
+            .then(|| push_rule(rules, descriptor(Metric::UnusedDependencies))),
+        unlisted: (!dependencies.unlisted.is_empty())
+            .then(|| push_rule(rules, descriptor(Metric::UnlistedDependencies))),
+        dev_in_production: (!dependencies.dev_in_production.is_empty())
+            .then(|| push_rule(rules, descriptor(Metric::DevInProductionDependencies))),
     }
 }
 
@@ -392,7 +343,7 @@ fn dependency_results(
     indices: &DependencyRuleIndices,
 ) -> Vec<SarifResult> {
     let unused = dependencies.unused.iter().map(|finding| SarifResult {
-        rule_id: UNUSED_DEPENDENCIES_METRIC_KEY.to_owned(),
+        rule_id: Metric::UnusedDependencies.key().to_owned(),
         rule_index: indices.unused.unwrap_or_default(),
         level: "note",
         message: Text {
@@ -413,7 +364,7 @@ fn dependency_results(
     });
     let unlisted = dependencies.unlisted.iter().map(|finding| {
         imported_dependency_sarif_result(
-            UNLISTED_DEPENDENCIES_METRIC_KEY,
+            Metric::UnlistedDependencies.key(),
             indices.unlisted.unwrap_or_default(),
             finding,
             format!(
@@ -427,7 +378,7 @@ fn dependency_results(
     });
     let dev_in_production = dependencies.dev_in_production.iter().map(|finding| {
         imported_dependency_sarif_result(
-            DEV_IN_PRODUCTION_DEPENDENCIES_METRIC_KEY,
+            Metric::DevInProductionDependencies.key(),
             indices.dev_in_production.unwrap_or_default(),
             finding,
             format!(
@@ -473,8 +424,13 @@ fn imported_dependency_sarif_result(
     }
 }
 
-const RULES: [Metric; 4] = BUILT_IN_METRICS;
-const COGNITIVE_COMPLEXITY_RULE_INDEX: usize = RULES.len();
+const CORE_SARIF_RULES: [Metric; 5] = [
+    Metric::Erosion,
+    Metric::Duplication,
+    Metric::Verbosity,
+    Metric::ImportCycles,
+    Metric::CognitiveComplexity,
+];
 
 fn descriptor(metric: Metric) -> Rule {
     let info = built_in_metric_descriptor(metric);
@@ -497,7 +453,7 @@ fn metric_result(
 ) -> SarifResult {
     SarifResult {
         rule_id: metric.key().to_owned(),
-        rule_index: RULES
+        rule_index: CORE_SARIF_RULES
             .iter()
             .position(|rule| *rule == metric)
             .unwrap_or_default(),
@@ -545,32 +501,6 @@ impl Location {
             id: Some(id),
             ..self
         }
-    }
-}
-
-fn boundaries_descriptor() -> Rule {
-    Rule {
-        id: "boundaries".to_owned(),
-        name: "Boundaries".to_owned(),
-        short_description: Text::from(
-            "An import or file that breaks configured architectural boundaries",
-        ),
-        full_description: Text::from(
-            "Boundaries checks resolved runtime imports against configured architectural zones, directional allow or deny rules, public_files encapsulation, and optional strict_zones coverage.",
-        ),
-        help: Text::from(
-            "Import through an allowed zone or a target zone's public_files entry point, or assign the file to a configured zone.",
-        ),
-    }
-}
-
-fn orphan_files_descriptor() -> Rule {
-    Rule {
-        id: "orphan_files".to_owned(),
-        name: ORPHAN_FILES_DESCRIPTOR.name.to_owned(),
-        short_description: Text::from(ORPHAN_FILES_DESCRIPTOR.short_description),
-        full_description: Text::from(ORPHAN_FILES_DESCRIPTOR.full_description),
-        help: Text::from(ORPHAN_FILES_DESCRIPTOR.help),
     }
 }
 
@@ -632,14 +562,13 @@ fn results(
         )
     });
     let cognitive_complexity = listed.cognitive_complexity.iter().map(|function| {
-        function_metric_result(
-            COGNITIVE_COMPLEXITY_KEY,
-            COGNITIVE_COMPLEXITY_RULE_INDEX,
+        metric_result(
+            Metric::CognitiveComplexity,
             source_set,
             &function.id,
             complex_function_message(function),
-            &function.path,
-            function.line,
+            Location::in_repository(&function.path, function.line, None),
+            Vec::new(),
         )
     });
     let clustered_group_ids: HashSet<&str> = listed
@@ -678,7 +607,7 @@ fn results(
             .map(|target| vec![Location::in_repository(target, 1, None).related(1)])
             .unwrap_or_default();
         SarifResult {
-            rule_id: "boundaries".to_owned(),
+            rule_id: Metric::Boundaries.key().to_owned(),
             rule_index: indices.boundaries.unwrap_or_default(),
             level: "note",
             message: Text {
@@ -696,7 +625,7 @@ fn results(
         }
     });
     let orphan_files = listed.orphan_files.iter().map(|finding| SarifResult {
-        rule_id: "orphan_files".to_owned(),
+        rule_id: Metric::OrphanFiles.key().to_owned(),
         rule_index: indices.orphan_files.unwrap_or_default(),
         level: "note",
         message: Text {
@@ -719,7 +648,7 @@ fn results(
     });
     let test_gap = listed.test_gap.iter().map(|finding| {
         function_metric_result(
-            TEST_GAP_METRIC_KEY,
+            Metric::TestGap.key(),
             indices.test_gap.unwrap_or_default(),
             source_set,
             &finding.id,

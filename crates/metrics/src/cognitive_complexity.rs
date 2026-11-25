@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 
-use codeint_model::{CodeModel, Package, RepoPath, SourceFile};
+use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile};
 
 use crate::finding_id::{FindingId, FindingIds, function_finding_id, group_by_package};
 
 #[cfg(test)]
 mod tests;
 
-const COGNITIVE_COMPLEXITY_METRIC_KEY: &str = "cognitive_complexity";
 const HIGH_COGNITIVE_COMPLEXITY_ABOVE: u32 = 15;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,7 +53,7 @@ impl CognitiveComplexity {
         let mut totals = CognitiveComplexityTotals::default();
         let mut totals_by_file = BTreeMap::new();
         let mut complex_functions = Vec::new();
-        let mut ids = FindingIds::for_key(COGNITIVE_COMPLEXITY_METRIC_KEY);
+        let mut ids = FindingIds::new(Metric::CognitiveComplexity);
         for file in &model.files {
             let file_totals = measure_file(file, &mut ids, &mut complex_functions);
             merge_totals(&mut totals, file_totals);

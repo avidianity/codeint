@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_model::{CodeModel, Package, RepoPath, SourceFile, Token, token_text_hash};
+use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile, Token, token_text_hash};
 
 use crate::FindingId;
 use crate::finding_id::FindingIds;
@@ -8,7 +8,7 @@ use crate::finding_id::FindingIds;
 #[cfg(test)]
 mod tests;
 
-pub const HAZARDS_METRIC_KEY: &str = "hazards";
+pub const HAZARDS_METRIC_KEY: &str = Metric::Hazards.key();
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HazardLines {
@@ -55,7 +55,7 @@ impl Hazards {
         let mut lines_by_file = BTreeMap::new();
         let mut findings = Vec::new();
         let mut totals = HazardLines::default();
-        let mut ids = FindingIds::for_key(HAZARDS_METRIC_KEY);
+        let mut ids = FindingIds::new(Metric::Hazards);
         for (path, group) in per_file {
             let file_lines =
                 measure_grouped_file(path, &group, disabled_rules, &mut ids, &mut findings);
