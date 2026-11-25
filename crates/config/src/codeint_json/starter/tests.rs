@@ -2,7 +2,7 @@ use codeint_model::RepoPath;
 use serde_json::Value;
 
 use super::{
-    DetectedLanguage, StarterKind, starter_configuration_text,
+    DetectedLanguage, StarterKind, ZeroBudgetKeys, starter_configuration_text,
     starter_configuration_text_with_boundaries,
 };
 use crate::codeint_json::{configuration_schema, parse, parse_jsonc, shape};
@@ -216,6 +216,7 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
             &detected,
             Some(&boundaries),
             StarterKind::Standard,
+            &ZeroBudgetKeys::none(),
         );
         assert!(text.contains("sql.dialects"), "{text}");
         let starter: Value = parse_jsonc(&text).expect("starter with boundaries is valid JSONC");
@@ -236,7 +237,12 @@ fn starter_configuration_with_commented_boundaries_stays_valid_jsonc_and_activat
 fn the_adoption_starter_enables_per_file_and_keeps_new_file_budgets_commented_and_valid() {
     let schema = published_schema();
 
-    let text = starter_configuration_text_with_boundaries(&[], None, StarterKind::Adoption);
+    let text = starter_configuration_text_with_boundaries(
+        &[],
+        None,
+        StarterKind::Adoption,
+        &ZeroBudgetKeys::none(),
+    );
 
     assert!(text.contains("// \"new_file_budgets\": {"), "{text}");
     let starter: Value = parse_jsonc(&text).expect("the adoption starter is valid JSONC");
@@ -246,4 +252,30 @@ fn the_adoption_starter_enables_per_file_and_keeps_new_file_budgets_commented_an
     );
     assert!(starter.get("new_file_budgets").is_none());
     shape::check_shape(&starter, &schema).expect("the adoption starter fits the schema");
+}
+
+#[test]
+fn the_adoption_starter_writes_zero_budgets_for_recorded_metrics_and_keeps_test_gap_commented() {
+    let schema = published_schema();
+    let zero_budgets = ZeroBudgetKeys {
+        production: vec!["erosion", "hazards"],
+        dependencies: vec!["unused_dependencies"],
+    };
+
+    let text =
+        starter_configuration_text_with_boundaries(&[], None, StarterKind::Adoption, &zero_budgets);
+
+    let starter: Value = parse_jsonc(&text).expect("the adoption starter is valid JSONC");
+    assert_eq!(
+        starter["budgets"]["production"],
+        serde_json::json!({ "erosion": 0, "hazards": 0 })
+    );
+    assert_eq!(
+        starter["budgets"]["unused_dependencies"],
+        serde_json::json!(0)
+    );
+    assert!(text.contains("// \"test_gap\": 0.2,"), "{text}");
+    shape::check_shape(&starter, &schema).expect("the adoption starter fits the schema");
+    let activated = text.replace("// \"test_gap\": 0.2,", "\"test_gap\": 0.2,");
+    parse(&activated).expect("uncommenting test_gap keeps the file valid");
 }

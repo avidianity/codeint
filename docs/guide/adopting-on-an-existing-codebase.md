@@ -11,6 +11,7 @@ It uses four pieces:
 | ----- | ----------- | ------------ |
 | Ratchet | `.codeint/ratchet.json` | Caps each whole-repository Metric ratio at its current value |
 | Baseline | `.codeint/baseline.json` | Hides existing Findings from `codeint check`, so only new Findings count |
+| Zero Budgets | `budgets.production` in `codeint.jsonc` | Fail `codeint check` on any new Finding, because the Baseline hides the legacy Findings from them |
 | New-file Budgets | `new_file_budgets` in `codeint.jsonc` | Holds every file that a pull request adds to a strict bar |
 | Per-file check | `regression_limits.per_file` in `codeint.jsonc` | Fails a pull request when any modified file gets worse |
 
@@ -22,15 +23,17 @@ Run this at the root of your Git repository, or in any folder inside it:
 codeint init --adopt
 ```
 
-The command does four things:
+The command does five things:
 
 1. It writes a starter `codeint.jsonc` with `"regression_limits": { "per_file": true }` and a commented-out `new_file_budgets` block.
 2. It measures the whole repository once.
 3. It writes `.codeint/ratchet.json` and `.codeint/baseline.json` from that measurement.
-4. It prints the next steps, including a pull-request workflow for GitHub Actions.
+4. It adds a zero Budget under `budgets.production` for each Metric that the Baseline records, such as `"erosion": 0`, and a zero Budget for each Dependency hygiene Metric.
+   It adds no Test gap Budget, because Test gap needs a Coverage report that you name.
+5. It prints the next steps, including a pull-request workflow for GitHub Actions.
 
 It never replaces a file.
-When `codeint.jsonc`, `codeint.json`, `.codeint/ratchet.json`, or `.codeint/baseline.json` already exists, it stops with exit code 2 and writes nothing.
+When `codeint.jsonc`, `codeint.json`, `.codeint/config.jsonc`, `.codeint/config.json`, `.codeint/ratchet.json`, or `.codeint/baseline.json` already exists, it stops with exit code 2 and writes nothing.
 In that case, edit the existing file, or use the commands in the sections below.
 When only the configuration file exists, the message names `codeint ratchet update` and `codeint baseline update`, which create the Ratchet and Baseline for it.
 
@@ -42,10 +45,19 @@ codeint check
 ```
 
 The run passes.
-The Baseline hides every existing Finding, and the Ratchet holds each ratio at its current value.
+The Baseline hides every existing Finding, so each zero Budget sees a non-baselined ratio of `0`, and the Ratchet holds each ratio at its current value.
 The report counts the hidden Findings, so the legacy debt stays visible.
 
-Add a new Finding, such as a new eroded function, and `codeint check` fails.
+Add a new Finding, such as a new eroded function, and `codeint check` fails with exit code 1:
+
+```text
+codeint: the non-baselined production erosion ratio 0.4714 is over its Budget 0
+```
+
+The zero Budget for that Metric catches the new Finding, because the Baseline does not hide it.
+The same happens when one change adds a new eroded file and tidies a legacy one: the tidied file leaves the Ratchet ceiling slack, but the new Finding still fails the zero Budget.
+The Ratchet alone would miss that swap; it caps whole-repository ratios, not individual Findings.
+A Metric that the run did not measure has no Budget, and Test gap has none until you add one and name a Coverage report.
 That failure is the point: a coding agent or a developer sees it before the code reaches review.
 
 ## Gate pull requests
@@ -70,9 +82,12 @@ jobs:
         with:
           fetch-depth: 0
       - uses: avidianity/codeint@main
+        with:
+          version: v0.6.0
 ```
 
 `fetch-depth: 0` lets `codeint diff` find the Git merge-base.
+`version` pins CI to the codeint release that wrote your Ratchet and Baseline, so CI and your machine use the same Metric versions; change it when you upgrade codeint and re-run `codeint ratchet update` and `codeint baseline update`.
 See [CI and GitHub Actions](./ci-and-github-actions.md) for the action inputs, SARIF upload, and the single-scan workflow.
 
 ## The Ratchet: `.codeint/ratchet.json`
@@ -95,7 +110,7 @@ See [`codeint ratchet`](../reference.md#codeint-ratchet).
 
 The Baseline stores the identifier of each existing Finding, with the Metric version that produced it.
 `codeint check` hides those Findings and evaluates Budgets on the Findings that remain.
-This lets you set a strict Budget, such as `"erosion": 0`, on day one without failing on legacy code.
+This lets you set a strict Budget, such as `"erosion": 0`, on day one without failing on legacy code; `codeint init --adopt` writes those zero Budgets for you.
 
 Remove fixed Findings after you clean up:
 
@@ -149,7 +164,7 @@ See [Regression limits](../reference.md#regression-limits).
 ## Daily workflow
 
 1. Write code.
-   Run `codeint check` in your editor loop or coding agent loop; it fails on any new Finding.
+   Run `codeint check` in your editor loop or coding agent loop; the zero Budgets fail it on any new Finding of a recorded Metric.
 2. Open a pull request.
    The workflow runs `codeint diff` and blocks Regressions, new-file Budget failures, and per-file Regressions.
 3. When you fix legacy code, run `codeint ratchet update` and `codeint baseline update`, and commit both files in the same pull request.

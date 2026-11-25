@@ -13,7 +13,7 @@ Each page below focuses on one topic and links to [docs/reference.md](../referen
 6. [Hazards](./hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.
 7. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, Python, Go, and SQL are measured, plus their calibrated Reference ranges.
 8. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
-9. [Adopting codeint on an existing codebase](./adopting-on-an-existing-codebase.md): freeze legacy Findings with `codeint init --adopt`, then stop new decay with `.codeint/ratchet.json`, `.codeint/baseline.json`, `new_file_budgets`, and `per_file` checks.
+9. [Adopting codeint on an existing codebase](./adopting-on-an-existing-codebase.md): freeze legacy Findings with `codeint init --adopt`, then stop new decay with `.codeint/ratchet.json`, `.codeint/baseline.json`, zero Budgets, `new_file_budgets`, and `per_file` checks.
 10. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.
 11. [Programmatic API](../programmatic.md): call codeint from JavaScript, TypeScript, or Rust.
 12. [Plugins](../plugins.md): build external WebAssembly Language and Metric plugins with `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`), pin SHA-256 digests, and test them.

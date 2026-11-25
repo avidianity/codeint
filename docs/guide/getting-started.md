@@ -32,7 +32,7 @@ npx codeint check
    ```
 
    On an existing codebase with many Findings, run `codeint init --adopt` instead.
-   It also enables `per_file`, suggests `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json`, and prints a pull-request workflow; see [Adopting codeint on an existing codebase](./adopting-on-an-existing-codebase.md).
+   It also enables `per_file`, writes zero Budgets for each Metric it records in the Baseline, suggests `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json`, and prints a pull-request workflow; see [Adopting codeint on an existing codebase](./adopting-on-an-existing-codebase.md).
 
 2. Verify your repository setup, config validity, detected languages, Workspace packages, and external Plugins offline:
 

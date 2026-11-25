@@ -3,9 +3,10 @@ use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use codeint_model::RepoPath;
+use codeint_model::{Metric, RepoPath, SourceSet};
 
 use super::schema::{ConfigurationFile, LanguageGlobs};
+use crate::baseline::MeasuredBaselineMetric;
 use crate::boundaries::BoundaryPreset;
 use crate::config_error::{CONFIGURATION_JSONC_FILE_NAME, ConfigFileKind};
 
@@ -131,6 +132,95 @@ pub fn write_adoption_starter_configuration(
     )
 }
 
+pub fn write_adoption_zero_budgets(
+    repository_root: &Path,
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+    recorded: &[MeasuredBaselineMetric],
+) -> Result<PathBuf, StarterConfigurationError> {
+    let path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
+    let text = starter_configuration_text_with_boundaries(
+        languages,
+        boundaries,
+        StarterKind::Adoption,
+        &zero_budget_keys(recorded),
+    );
+    std::fs::write(&path, text).map_err(|source| StarterConfigurationError::Unwritable {
+        path: path.clone(),
+        source,
+    })?;
+    Ok(path)
+}
+
+const PRODUCTION_BUDGET_METRICS: [Metric; 8] = [
+    Metric::Erosion,
+    Metric::CognitiveComplexity,
+    Metric::Duplication,
+    Metric::Verbosity,
+    Metric::ImportCycles,
+    Metric::Boundaries,
+    Metric::OrphanFiles,
+    Metric::Hazards,
+];
+
+const DEPENDENCY_BUDGET_METRICS: [Metric; 3] = [
+    Metric::UnusedDependencies,
+    Metric::UnlistedDependencies,
+    Metric::DevInProductionDependencies,
+];
+
+struct ZeroBudgetKeys {
+    production: Vec<&'static str>,
+    dependencies: Vec<&'static str>,
+}
+
+impl ZeroBudgetKeys {
+    fn none() -> ZeroBudgetKeys {
+        ZeroBudgetKeys {
+            production: Vec::new(),
+            dependencies: Vec::new(),
+        }
+    }
+
+    fn insert_into(&self, json: &mut serde_json::Value) {
+        let Some(budgets) = json
+            .get_mut("budgets")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            return;
+        };
+        for key in &self.dependencies {
+            budgets.insert((*key).to_owned(), serde_json::json!(0));
+        }
+        if let Some(production) = budgets
+            .get_mut("production")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            for key in &self.production {
+                production.insert((*key).to_owned(), serde_json::json!(0));
+            }
+        }
+    }
+}
+
+fn zero_budget_keys(recorded: &[MeasuredBaselineMetric]) -> ZeroBudgetKeys {
+    let keys_in = |source_set: Option<SourceSet>, metrics: &[Metric]| -> Vec<&'static str> {
+        metrics
+            .iter()
+            .map(|metric| metric.key())
+            .filter(|key| {
+                recorded
+                    .iter()
+                    .any(|item| item.source_set == source_set && item.metric == *key)
+            })
+            .collect()
+    };
+    ZeroBudgetKeys {
+        production: keys_in(Some(SourceSet::Production), &PRODUCTION_BUDGET_METRICS),
+        dependencies: keys_in(None, &DEPENDENCY_BUDGET_METRICS),
+    }
+}
+
 fn write_starter(
     repository_root: &Path,
     languages: &[DetectedLanguage],
@@ -159,7 +249,12 @@ fn write_starter(
         }
     }
     let path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
-    let text = starter_configuration_text_with_boundaries(languages, boundaries, kind);
+    let text = starter_configuration_text_with_boundaries(
+        languages,
+        boundaries,
+        kind,
+        &ZeroBudgetKeys::none(),
+    );
     let unwritable = |source| StarterConfigurationError::Unwritable {
         path: path.clone(),
         source,
@@ -183,13 +278,19 @@ fn write_starter(
 
 #[cfg(test)]
 fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
-    starter_configuration_text_with_boundaries(languages, None, StarterKind::Standard)
+    starter_configuration_text_with_boundaries(
+        languages,
+        None,
+        StarterKind::Standard,
+        &ZeroBudgetKeys::none(),
+    )
 }
 
 fn starter_configuration_text_with_boundaries(
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
     kind: StarterKind,
+    zero_budgets: &ZeroBudgetKeys,
 ) -> String {
     let schema_address = published_schema_address();
     let detected_languages = (!languages.is_empty()).then(|| {
@@ -218,11 +319,21 @@ fn starter_configuration_text_with_boundaries(
     if let Some(root) = json.as_object_mut() {
         root.insert("coverage_reports".to_owned(), serde_json::json!([]));
     }
-    let rendered = format!("{json:#}\n").replacen(
-        "  \"budgets\": {\n    \"production\": {},",
-        "  \"budgets\": {\n    \"production\": {\n      // \"test_gap\": 0.2\n    },",
-        1,
-    );
+    zero_budgets.insert_into(&mut json);
+    let rendered = format!("{json:#}\n");
+    let rendered = if zero_budgets.production.is_empty() {
+        rendered.replacen(
+            "  \"budgets\": {\n    \"production\": {},",
+            "  \"budgets\": {\n    \"production\": {\n      // \"test_gap\": 0.2\n    },",
+            1,
+        )
+    } else {
+        rendered.replacen(
+            "  \"budgets\": {\n    \"production\": {\n",
+            "  \"budgets\": {\n    \"production\": {\n      // \"test_gap\": 0.2,\n",
+            1,
+        )
+    };
     let mut trailing_hints = String::new();
     if kind == StarterKind::Adoption {
         trailing_hints.push_str(NEW_FILE_BUDGETS_HINT);

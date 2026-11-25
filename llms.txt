@@ -16,7 +16,7 @@
 - [Go Guide](docs/guide/go.md): Go terminology mapping, Source sets, Flagged line rules, multi-file Go package imports, entry points, and `go.mod` Dependency hygiene.
 - [SQL Guide](docs/guide/sql.md): generic SQL measurement, PostgreSQL/MySQL/SQLite/DuckDB Dialects, Source sets, templated SQL and rejected statements, and automatic SQL Schema rules.
 - [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` `--owner` filtering, `--package` scoping, and SARIF upload.
-- [Adopting codeint on an existing codebase](docs/guide/adopting-on-an-existing-codebase.md): run `codeint init --adopt` to write the starter config (`per_file: true`, commented `new_file_budgets`), `.codeint/ratchet.json`, and `.codeint/baseline.json`, then stop new decay locally and in pull requests while legacy debt shrinks.
+- [Adopting codeint on an existing codebase](docs/guide/adopting-on-an-existing-codebase.md): run `codeint init --adopt` to write the starter config (`per_file: true`, zero Budgets for each recorded Metric, commented `new_file_budgets`), `.codeint/ratchet.json`, and `.codeint/baseline.json`, then stop new decay locally and in pull requests while legacy debt shrinks.
 - [Coding-Agent Integration (MCP Server)](docs/guide/mcp.md): automatic `codeint agent status`/`install`, `codeint schema`, and local stdio MCP server (`codeint mcp`) exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 
 ## Reference and APIs

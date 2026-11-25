@@ -35,8 +35,6 @@ where
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RatchetError {
     #[error(transparent)]
-    Check(#[from] CheckError),
-    #[error(transparent)]
     RatchetFile(#[from] RatchetFileError),
     #[error(
         "refusing to loosen Ratchet ceilings in {path:?} for unchanged Metric versions: {}",

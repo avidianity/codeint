@@ -361,7 +361,16 @@ drive_init() {
   fi
   run_case "$work_adopt" "$dir/adopt_check_clean" "$BIN_PATH" check --format json
   write_eroded_ts "$work_adopt/src/fresh.ts" "fresh" 16
+  printf 'export const legacy = 1;\n' > "$work_adopt/src/legacy.ts"
   run_case "$work_adopt" "$dir/adopt_check_new" "$BIN_PATH" check --format json
+
+  local work_adopt_rollback="$RUN_DIR/work-init-adopt-rollback"
+  rm -rf "$work_adopt_rollback"
+  cp -R "$INIT_REPO" "$work_adopt_rollback"
+  write_eroded_ts "$work_adopt_rollback/src/legacy.ts" "legacy" 16
+  printf 'not a folder\n' > "$work_adopt_rollback/.codeint"
+  run_case "$work_adopt_rollback" "$dir/adopt_rollback" "$BIN_PATH" init --adopt
+  find "$work_adopt_rollback" -path "$work_adopt_rollback/.git" -prune -o -type f -print | sed "s|^$work_adopt_rollback/||" | sort > "$dir/adopt_rollback.files"
 
   local work_adopt_cfg="$RUN_DIR/work-init-adopt-config"
   rm -rf "$work_adopt_cfg"
@@ -557,6 +566,8 @@ if "init" in features:
     adopt_cfg_json = read_jsonc("init/adopt_fresh.config.json")
     check("init.adopt_fresh.per_file", isinstance(adopt_cfg_json, dict) and adopt_cfg_json.get("regression_limits", {}).get("per_file") is True, adopt_cfg)
     adopt_ratchet = read_json("init/adopt_fresh.ratchet.json")
+    adopt_budgets = adopt_cfg_json.get("budgets", {}).get("production", {}) if isinstance(adopt_cfg_json, dict) else {}
+    check("init.adopt_fresh.zero_budgets", adopt_budgets.get("erosion") == 0 and "test_gap" not in adopt_budgets, str(adopt_budgets))
     check("init.adopt_fresh.ratchet", isinstance(adopt_ratchet, dict) and "_parse_error" not in adopt_ratchet, str(adopt_ratchet))
     adopt_baseline = read_json("init/adopt_fresh.baseline.json")
     adopt_erosion = []
@@ -566,7 +577,14 @@ if "init" in features:
     check("init.adopt_fresh.stdout", "Next steps" in (read_text("init/adopt_fresh.stdout") or ""), "stdout missing Next steps")
     check("init.adopt_check_clean.exit", read_exit("init/adopt_check_clean") == 0, str(read_exit("init/adopt_check_clean")))
     check("init.adopt_check_new.exit", read_exit("init/adopt_check_new") == 1, str(read_exit("init/adopt_check_new")))
-    check("init.adopt_check_new.stderr", len((read_text("init/adopt_check_new.stderr") or "").strip()) > 0, "stderr empty on new Finding")
+    adopt_new_err = read_text("init/adopt_check_new.stderr") or ""
+    check("init.adopt_check_new.stderr", "the non-baselined production erosion ratio" in adopt_new_err and "is over its Budget 0" in adopt_new_err and "Ratchet" not in adopt_new_err, adopt_new_err)
+
+    check("init.adopt_rollback.exit", read_exit("init/adopt_rollback") == 2, str(read_exit("init/adopt_rollback")))
+    rollback_err = read_text("init/adopt_rollback.stderr") or ""
+    check("init.adopt_rollback.stderr", "cannot write Ratchet file" in rollback_err and "could not remove" not in rollback_err, rollback_err)
+    rollback_files = (read_text("init/adopt_rollback.files") or "").split()
+    check("init.adopt_rollback.no_config", "codeint.jsonc" not in rollback_files and ".codeint" in rollback_files, str(rollback_files))
 
     check("init.adopt_existing_config.exit", read_exit("init/adopt_existing_config") == 2, str(read_exit("init/adopt_existing_config")))
     ac_before = (read_text("init/adopt_existing_config.before.sha256") or "").strip()
@@ -584,7 +602,7 @@ if "init" in features:
     as_files = (read_text("init/adopt_existing_state.files") or "").split()
     check("init.adopt_existing_state.no_config", "codeint.jsonc" not in as_files and ".codeint/ratchet.json" not in as_files, str(as_files))
     as_err = read_text("init/adopt_existing_state.stderr") or ""
-    check("init.adopt_existing_state.stderr", "already exists" in as_err and "codeint baseline update" in as_err, as_err)
+    check("init.adopt_existing_state.stderr", "already exists" in as_err and "codeint baseline update" in as_err and "codeint baseline update --reset" in as_err, as_err)
 
 verdict = "PASS" if not failures else "FAIL"
 summary = {

@@ -15,3 +15,5 @@ jobs:
         with:
           fetch-depth: 0
       - uses: avidianity/codeint@main
+        with:
+          version: v{version}

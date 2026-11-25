@@ -61,6 +61,7 @@ fn adopt_writes_the_config_ratchet_and_baseline_then_check_passes_and_a_new_find
         BASELINE_FILE,
         "pull_request",
         "avidianity/codeint@main",
+        concat!("version: v", env!("CARGO_PKG_VERSION")),
         "fetch-depth: 0",
         "codeint ratchet update",
         "codeint baseline update",
@@ -71,11 +72,47 @@ fn adopt_writes_the_config_ratchet_and_baseline_then_check_passes_and_a_new_find
         );
     }
 
+    assert!(!stdout.contains("version: latest"), "got:\n{stdout}");
     run_codeint_text(repo.path(), &["config", "--resolved"], 0);
     run_codeint_text(repo.path(), &["check"], 0);
 
     write_repo_files(repo.path(), &[("src/fresh.ts", &eroded_ts("fresh", 11))]);
     run_codeint_text(repo.path(), &["check"], 1);
+}
+
+#[test]
+fn adopt_writes_zero_budgets_for_recorded_metrics_so_a_new_finding_fails_check_even_when_a_legacy_file_is_tidied()
+ {
+    let repo = legacy_repository();
+    run_codeint_text(repo.path(), &["init", "--adopt"], 0);
+    let config = fs::read_to_string(repo.path().join("codeint.jsonc")).expect("read config");
+    assert!(
+        config.contains("\"erosion\": 0"),
+        "expected a zero erosion Budget, got:\n{config}"
+    );
+    assert!(
+        !config
+            .lines()
+            .any(|line| line.trim_start().starts_with("\"test_gap\"")),
+        "no Test gap Budget without a Coverage report, got:\n{config}"
+    );
+    run_codeint_text(repo.path(), &["check"], 0);
+
+    write_repo_files(
+        repo.path(),
+        &[
+            ("src/fresh.ts", &eroded_ts("fresh", 11)),
+            ("src/older.ts", &tidy_ts("older")),
+        ],
+    );
+    let (_, stderr) = run_codeint_text(repo.path(), &["check"], 1);
+
+    assert!(
+        stderr.contains("the non-baselined production erosion ratio")
+            && stderr.contains("is over its Budget 0"),
+        "expected an Erosion Budget failure, got: {stderr}"
+    );
+    assert!(!stderr.contains("Ratchet"), "got: {stderr}");
 }
 
 #[test]
@@ -137,7 +174,8 @@ fn adopt_never_replaces_an_existing_ratchet_or_baseline_and_writes_nothing() {
         assert!(
             stderr.contains(existing)
                 && stderr.contains("already exists, and codeint init --adopt never replaces it")
-                && stderr.contains(update_command),
+                && stderr.contains(update_command)
+                && stderr.contains(&format!("{update_command} --reset")),
             "got: {stderr}"
         );
         assert_eq!(
@@ -152,6 +190,25 @@ fn adopt_never_replaces_an_existing_ratchet_or_baseline_and_writes_nothing() {
         };
         assert!(!repo.path().join(other).exists());
     }
+}
+
+#[test]
+fn adopt_removes_the_config_it_wrote_when_measuring_or_writing_state_fails() {
+    let repo = legacy_repository();
+    write_repo_files(repo.path(), &[(".codeint", "not a folder\n")]);
+
+    let (_, stderr) = run_codeint_text(repo.path(), &["init", "--adopt"], 2);
+
+    assert!(
+        stderr.contains("cannot write Ratchet file"),
+        "got: {stderr}"
+    );
+    assert!(!stderr.contains("could not remove"), "got: {stderr}");
+    assert!(!repo.path().join("codeint.jsonc").exists());
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".codeint")).expect("read the blocking file"),
+        "not a folder\n"
+    );
 }
 
 #[test]

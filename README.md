@@ -136,7 +136,7 @@ codeint agent install
 ```
 
 - `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema`.
-- `codeint init --adopt` onboards an existing codebase in one step: it writes the starter `codeint.jsonc` with `per_file: true` and commented `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json` from the current state, and prints a pull-request workflow, without replacing any existing file ([adoption guide](./docs/guide/adopting-on-an-existing-codebase.md)).
+- `codeint init --adopt` onboards an existing codebase in one step: it writes the starter `codeint.jsonc` with `per_file: true`, zero Budgets for each recorded Metric, and commented `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json` from the current state, and prints a pull-request workflow, without replacing any existing file ([adoption guide](./docs/guide/adopting-on-an-existing-codebase.md)).
 - `codeint check` measures the working tree and prints each Metric with its Findings.
 - `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget, Ratchet, or Regression failure.
 - `codeint ratchet update` creates or monotonically tightens `.codeint/ratchet.json` ceilings for whole-repository runs.
