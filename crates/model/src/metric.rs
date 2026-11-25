@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
@@ -353,6 +354,24 @@ impl Metric {
             .iter()
             .find(|(_, descriptor)| descriptor.key == key)
             .map(|(metric, _)| *metric)
+    }
+
+    pub fn built_in_versions() -> BTreeMap<&'static str, u32> {
+        Metric::DESCRIPTORS
+            .iter()
+            .map(|(_, descriptor)| (descriptor.key, descriptor.version))
+            .collect()
+    }
+
+    pub fn versions_with_plugins(metric_plugins: &[&dyn MetricPlugin]) -> BTreeMap<String, u32> {
+        let mut versions: BTreeMap<String, u32> = Metric::DESCRIPTORS
+            .iter()
+            .map(|(_, descriptor)| (descriptor.key.to_owned(), descriptor.version))
+            .collect();
+        for plugin in metric_plugins {
+            versions.insert(plugin.key().to_owned(), plugin.version());
+        }
+        versions
     }
 
     pub const fn index(self) -> usize {

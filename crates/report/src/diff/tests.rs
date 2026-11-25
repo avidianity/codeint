@@ -5,6 +5,7 @@ use crate::{Decimal, Findings};
 
 fn ratio_changes(base_ratio: f64, head_ratio: f64) -> MetricChanges<()> {
     MetricChanges {
+        metric_version: 1,
         base_ratio: Decimal::rounded(base_ratio),
         head_ratio: Decimal::rounded(head_ratio),
         base_numerator: Decimal(1.0),

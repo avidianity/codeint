@@ -168,6 +168,7 @@ source_sets:
     source_lines: 39
     erosion:
       ratio: 0.7986
+      metric_version: 1
       reference_range:
         low: 0.352
         high: 0.6
@@ -178,12 +179,14 @@ source_sets:
         f0740d06c0975d68,src/route.ts,1,18,route,16,15,18,67.8823
     cognitive_complexity:
       ratio: 0
+      metric_version: 1
       reference_range: no published Reference range for this language
       complex_cognitive_complexity: 0
       total_cognitive_complexity: 20
       findings: []
     duplication:
       ratio: 0
+      metric_version: 1
       reference_range:
         low: 0.017
         high: 0.346
@@ -192,6 +195,7 @@ source_sets:
       clone_groups: []
     verbosity:
       ratio: 0.0256
+      metric_version: 1
       reference_range:
         low: 0.018
         high: 0.347
@@ -203,6 +207,7 @@ source_sets:
         2a57800b29941394,src/sign.ts,4,else-after-return
     import_cycles:
       ratio: 0
+      metric_version: 1
       reference_range:
         low: 0
         high: 0.308
@@ -285,6 +290,7 @@ source_sets:
     erosion:
       base_ratio: 0.8946
       head_ratio: 0.7986
+      metric_version: 1
       new[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
         f0740d06c0975d68,src/route.ts,1,18,route,16,15,18,67.8823
       resolved[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
@@ -293,24 +299,28 @@ source_sets:
     cognitive_complexity:
       base_ratio: 0
       head_ratio: 0
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 0
     duplication:
       base_ratio: 0
       head_ratio: 0
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 0
     verbosity:
       base_ratio: 0.0476
       head_ratio: 0.0256
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 1
     import_cycles:
       base_ratio: 0
       head_ratio: 0
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 0
@@ -381,6 +391,7 @@ source_sets:
     erosion:
       base_ratio: 0.8946
       head_ratio: 0
+      metric_version: 1
       new: []
       resolved[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:
         1b3d7d358ce8632e,src/parse.ts,1,14,parse,12,11,14,44.8999
@@ -388,24 +399,28 @@ source_sets:
     cognitive_complexity:
       base_ratio: 0
       head_ratio: 0
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 0
     duplication:
       base_ratio: 0
       head_ratio: 0
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 0
     verbosity:
       base_ratio: 0.0476
       head_ratio: 0.0476
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 1
     import_cycles:
       base_ratio: 0
       head_ratio: 0
+      metric_version: 1
       new: []
       resolved: []
       unchanged: 0
@@ -471,6 +486,12 @@ codeint trend
 
 ```text stdout
 commits: 3
+metric_versions:
+  cognitive_complexity: 1
+  duplication: 1
+  erosion: 1
+  import_cycles: 1
+  verbosity: 1
 source_sets:
   production[3]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
     2864291867e0e3a3ef91cd050c1893d5ae9eb809,2026-11-02,1,0,0,0,0.1429,0
@@ -488,6 +509,12 @@ codeint trend --since 2026-11-05
 
 ```text stdout
 commits: 2
+metric_versions:
+  cognitive_complexity: 1
+  duplication: 1
+  erosion: 1
+  import_cycles: 1
+  verbosity: 1
 source_sets:
   production[2]{commit,committed_on,files,erosion,cognitive_complexity,duplication,verbosity,import_cycles}:
     2ef203655bd71559d3e54d1ab60a2390fb90674c,2026-11-09,2,0.8946,0,0,0.0476,0
@@ -1564,8 +1591,8 @@ codeint check
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
 That covers the merge-base, the head ref of `--head`, and each commit of `codeint trend`.
-An entry belongs to one commit and to the settings that shape a measurement: the codeint version, each Language plugin and its version, the effective `codeint.json`, and (when Coverage reports are named) the list and content of those Coverage reports.
-Any change to `codeint.json` other than its `$schema` address, or any change to the named Coverage reports, measures again instead of serving a stale cached result.
+An entry belongs to one commit and to the settings that shape a measurement: the codeint version, the Plugin interface version, every Metric version (all built-in Metrics and every loaded external Metric plugin), each Language plugin and its version, the effective `codeint.json`, and (when Coverage reports are named) the list and content of those Coverage reports.
+Any change to `codeint.json` other than its `$schema` address, any bump to a Metric version, or any change to the named Coverage reports measures again instead of serving a stale cached result.
 The working tree is never cached, because it has no commit.
 
 The cache lives in the `codeint` folder of your user cache folder:
@@ -1630,6 +1657,7 @@ codeint check --format json
       "source_lines": 39,
       "erosion": {
         "ratio": 0.7986,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.352,
           "high": 0.6,
@@ -1653,6 +1681,7 @@ codeint check --format json
       },
       "cognitive_complexity": {
         "ratio": 0.0,
+        "metric_version": 1,
         "reference_range": "no published Reference range for this language",
         "complex_cognitive_complexity": 0,
         "total_cognitive_complexity": 20,
@@ -1660,6 +1689,7 @@ codeint check --format json
       },
       "duplication": {
         "ratio": 0.0,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.017,
           "high": 0.346,
@@ -1670,6 +1700,7 @@ codeint check --format json
       },
       "verbosity": {
         "ratio": 0.0256,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.018,
           "high": 0.347,
@@ -1689,6 +1720,7 @@ codeint check --format json
       },
       "import_cycles": {
         "ratio": 0.0,
+        "metric_version": 1,
         "reference_range": {
           "low": 0.0,
           "high": 0.308,
@@ -1739,6 +1771,7 @@ A Source set section has `files` and `source_lines` for that Source set, and one
 Each Metric object has these fields:
 
 - `ratio`: the Metric value, a number from 0 to 1, rounded to four decimal places.
+- `metric_version`: positive integer Metric version identifying the calculation rules of this Metric (`codeint diff` includes `metric_version` on each Metric change object, and `codeint trend` includes a top-level `metric_versions` map).
 - `reference_range`: either an object with `low`, `high`, and `source`, or a string that says why no Reference range is shown.
   The top-level Source sets show a Reference range only when one Language plugin measured every file; a section under `languages` always shows its own plugin's ranges.
   `test_gap` and `hazards` have no published Reference range.

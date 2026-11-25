@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use codeint_config::{CalendarDay, TrendFormat};
-use codeint_model::SourceSet;
+use codeint_model::{Metric, SourceSet};
 use serde::Serialize;
 
 use crate::measurement::{CommitMeasurement, SourceSetMeasurement};
@@ -18,6 +18,8 @@ pub struct TrendPoint {
 #[derive(Debug, Serialize)]
 pub struct TrendReport {
     commits: usize,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    metric_versions: BTreeMap<String, u32>,
     source_sets: SourceSetTrends,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     test_gap_note: Option<String>,
@@ -63,9 +65,13 @@ impl TrendReport {
     ) -> TrendReport {
         let commits = points_oldest_first.len();
         let mut source_sets = SourceSetTrends::default();
+        let mut external_versions = BTreeMap::new();
         for point in points_oldest_first {
             let committed_on = point.committed_on.to_string();
             for (source_set, measured) in point.measurement.into_source_sets() {
+                for (key, entry) in &measured.external_metrics {
+                    external_versions.insert(key.clone(), entry.metric_version);
+                }
                 source_sets.rows_of(source_set).push(TrendRow::of(
                     &point.commit,
                     &committed_on,
@@ -74,8 +80,10 @@ impl TrendReport {
             }
         }
         source_sets.leave_out_source_sets_without_files();
+        let metric_versions = trend_metric_versions(&source_sets, &external_versions);
         TrendReport {
             commits,
+            metric_versions,
             source_sets,
             test_gap_note: include_test_gap_note.then(|| TEST_GAP_TREND_NOTE.to_owned()),
         }
@@ -124,6 +132,46 @@ impl SourceSetTrends {
         .filter(|(_, rows)| !rows.is_empty())
         .collect()
     }
+}
+
+fn trend_metric_versions(
+    source_sets: &SourceSetTrends,
+    external_versions: &BTreeMap<String, u32>,
+) -> BTreeMap<String, u32> {
+    let mut versions = BTreeMap::new();
+    let all_rows = source_sets.named();
+    if all_rows.is_empty() {
+        return versions;
+    }
+    for metric in [
+        Metric::Erosion,
+        Metric::CognitiveComplexity,
+        Metric::Duplication,
+        Metric::Verbosity,
+    ] {
+        versions.insert(metric.key().to_owned(), metric.version());
+    }
+    let has_import_cycles = all_rows
+        .iter()
+        .flat_map(|(_, rows)| rows.iter())
+        .any(|row| row.import_cycles.is_some());
+    if has_import_cycles {
+        versions.insert(
+            Metric::ImportCycles.key().to_owned(),
+            Metric::ImportCycles.version(),
+        );
+    }
+    let has_hazards = all_rows
+        .iter()
+        .flat_map(|(_, rows)| rows.iter())
+        .any(|row| row.hazards.is_some());
+    if has_hazards {
+        versions.insert(Metric::Hazards.key().to_owned(), Metric::Hazards.version());
+    }
+    for (key, version) in external_versions {
+        versions.insert(key.clone(), *version);
+    }
+    versions
 }
 
 impl TrendRow {

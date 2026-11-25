@@ -195,9 +195,9 @@ impl DependenciesSection {
     fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
         dependency_over_budget(
             budgets,
-            self.unused_dependencies.ratio.0,
-            self.unlisted_dependencies.ratio.0,
-            self.dev_in_production_dependencies.ratio.0,
+            self.unused_dependencies.header.ratio.0,
+            self.unlisted_dependencies.header.ratio.0,
+            self.dev_in_production_dependencies.header.ratio.0,
         )
     }
 }
@@ -238,25 +238,25 @@ impl SourceSetSections {
                     )
                 }))
                 .chain(section.boundaries.iter().map(move |boundaries| {
-                    (source_set, Metric::Boundaries.key(), boundaries.ratio.0)
+                    (
+                        source_set,
+                        Metric::Boundaries.key(),
+                        boundaries.header.ratio.0,
+                    )
                 }))
-                .chain(
-                    section.orphan_files.iter().map(move |orphans| {
-                        (source_set, Metric::OrphanFiles.key(), orphans.ratio.0)
-                    }),
-                )
-                .chain(
-                    section
-                        .test_gap
-                        .iter()
-                        .map(move |test_gap| (source_set, Metric::TestGap.key(), test_gap.ratio.0)),
-                )
-                .chain(
-                    section
-                        .hazards
-                        .iter()
-                        .map(move |hazards| (source_set, Metric::Hazards.key(), hazards.ratio.0)),
-                )
+                .chain(section.orphan_files.iter().map(move |orphans| {
+                    (
+                        source_set,
+                        Metric::OrphanFiles.key(),
+                        orphans.header.ratio.0,
+                    )
+                }))
+                .chain(section.test_gap.iter().map(move |test_gap| {
+                    (source_set, Metric::TestGap.key(), test_gap.header.ratio.0)
+                }))
+                .chain(section.hazards.iter().map(move |hazards| {
+                    (source_set, Metric::Hazards.key(), hazards.header.ratio.0)
+                }))
                 .chain(
                     section.external_metrics.iter().map(move |(key, metric)| {
                         (source_set, key.as_str(), metric.header.ratio.0)
