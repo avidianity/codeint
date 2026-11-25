@@ -44,16 +44,7 @@ pub(super) fn render(report: &DiffReport) -> String {
         blocks.push("## Dependencies".to_string());
         blocks.push(dependency_table(dependencies));
     }
-    if !report.over_budget.is_empty() {
-        blocks.push("## Over Budget".to_string());
-        blocks.push(list(report.over_budget.iter().map(sentence_item)));
-    }
-    if !report.regressions.is_empty() {
-        blocks.push("## Regressions".to_string());
-        blocks.push(list(
-            report.regressions.iter().map(Regression::markdown_item),
-        ));
-    }
+    push_failure_blocks(&mut blocks, report);
     for (name, changes) in &sections {
         let findings = findings_blocks(changes);
         if !findings.is_empty() {
@@ -69,6 +60,23 @@ pub(super) fn render(report: &DiffReport) -> String {
         }
     }
     blocks.join("\n\n")
+}
+
+fn push_failure_blocks(blocks: &mut Vec<String>, report: &DiffReport) {
+    if !report.over_budget.is_empty() {
+        blocks.push("## Over Budget".to_string());
+        blocks.push(list(report.over_budget.iter().map(sentence_item)));
+    }
+    if !report.over_new_file_budget.is_empty() {
+        blocks.push("## Over New-file Budget".to_string());
+        blocks.push(list(report.over_new_file_budget.iter().map(sentence_item)));
+    }
+    if !report.regressions.is_empty() {
+        blocks.push("## Regressions".to_string());
+        blocks.push(list(
+            report.regressions.iter().map(Regression::markdown_item),
+        ));
+    }
 }
 
 fn comparison_sentence(report: &DiffReport) -> String {

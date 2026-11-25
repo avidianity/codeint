@@ -76,8 +76,8 @@ for message in diff.failure_messages() {
 
 - Use `Head::WorkingTree` when comparing against the working tree, or `Head::Commit(HeadCommit { git_ref, commit })` when comparing two commits.
 - `DiffReport::compare` matches Findings by id to classify each one as `new`, `resolved`, or `unchanged`.
-- `failure_messages` returns every `BudgetFailure` on the head side followed by every `Regression` that exceeds `RegressionLimits` (`ratio_rise`, direct `numerator_rise` rounded to four decimal places, and `new_findings` on Metrics configured with `any_new_finding`, which is the default for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene).
-- `render` formats the diff as `Toon`, `Json`, `Sarif` (new Findings only), or `Markdown`.
+- `failure_messages` returns every `BudgetFailure` on the head side, followed by every `NewFileBudgetFailure` evaluated from `DiffReportOptions::new_files` against `DiffReportOptions::new_file_budgets`, followed by every `Regression` that exceeds `RegressionLimits` (`ratio_rise`, direct `numerator_rise` rounded to four decimal places, and `new_findings` on Metrics configured with `any_new_finding`, which is the default for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene).
+- `render` formats the diff as `Toon`, `Json`, `Sarif` (new Findings only, plus `runs[0].properties.newFileBudgetFailures` when any new-file Budget fails), or `Markdown` (including `## Over New-file Budget` when any new-file Budget fails).
 
 ## Summarize history with `TrendReport`
 

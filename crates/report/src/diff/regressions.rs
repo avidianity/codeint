@@ -2,9 +2,10 @@ use codeint_config::{Budgets, NewFindingsRule, RegressionLimit, RegressionLimits
 use codeint_model::{Metric, SourceSet};
 
 use super::types::{
-    DependenciesChanges, MetricChanges, Regression, RegressionRule, SourceSetChanges,
-    SourceSetChangesSections,
+    DependenciesChanges, MetricChanges, NewFileBudgetFailure, Regression, RegressionRule,
+    SourceSetChanges, SourceSetChangesSections,
 };
+use crate::measurement::{CommitMeasurement, SourceSetMeasurement};
 use crate::{BudgetFailure, Decimal, dependency_over_budget};
 
 const REGRESSION_RULES: [RegressionRule; 3] = [
@@ -73,6 +74,67 @@ pub(super) fn over_budget(
             )
         }),
     )
+}
+
+pub(super) fn over_new_file_budget(
+    new_files: Option<CommitMeasurement>,
+    budgets: &Budgets,
+) -> Vec<NewFileBudgetFailure> {
+    let Some(measurement) = new_files else {
+        return Vec::new();
+    };
+    if budgets.is_empty() {
+        return Vec::new();
+    }
+    let mut failures = Vec::new();
+    for (source_set, set_measurement) in measurement.into_source_sets() {
+        if set_measurement.files == 0 {
+            continue;
+        }
+        for (metric, ratio) in source_set_measurement_ratios(&set_measurement) {
+            let rounded = Decimal::rounded(ratio);
+            if let Some(budget) = budgets.budget_for_key(source_set, metric)
+                && !budget.admits(rounded.0)
+            {
+                failures.push(NewFileBudgetFailure {
+                    source_set: source_set.key().to_owned(),
+                    metric: metric.to_owned(),
+                    ratio: rounded,
+                    budget: budget.ratio(),
+                    files: set_measurement.files,
+                });
+            }
+        }
+    }
+    failures
+}
+
+fn source_set_measurement_ratios(measurement: &SourceSetMeasurement) -> Vec<(&str, f64)> {
+    let mut ratios = vec![
+        (Metric::Erosion.key(), measurement.erosion.ratio),
+        (
+            Metric::CognitiveComplexity.key(),
+            measurement.cognitive_complexity.ratio,
+        ),
+        (Metric::Duplication.key(), measurement.duplication.ratio),
+        (Metric::Verbosity.key(), measurement.verbosity.ratio),
+    ];
+    if let Some(cycles) = &measurement.import_cycles {
+        ratios.push((Metric::ImportCycles.key(), cycles.ratio));
+    }
+    if let Some(boundaries) = &measurement.boundaries {
+        ratios.push((Metric::Boundaries.key(), boundaries.ratio));
+    }
+    if let Some(orphans) = &measurement.orphan_files {
+        ratios.push((Metric::OrphanFiles.key(), orphans.ratio));
+    }
+    if let Some(hazards) = &measurement.hazards {
+        ratios.push((Metric::Hazards.key(), hazards.ratio));
+    }
+    for (key, external) in &measurement.external_metrics {
+        ratios.push((key.as_str(), external.measurement.ratio));
+    }
+    ratios
 }
 
 pub(super) fn regressions(

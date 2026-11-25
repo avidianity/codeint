@@ -5,7 +5,8 @@ use serde_json::Value;
 
 use super::schema::{DuplicationConfigFile, PluginEntry};
 use super::types::{
-    Configuration, DuplicationConfig, MinSimilarity, PluginDeclaration, PluginSource, Sha256Digest,
+    Budgets, Configuration, DuplicationConfig, MinSimilarity, PluginDeclaration, PluginSource,
+    Sha256Digest,
 };
 use crate::RegressionLimits;
 use crate::config_error::{ConfigFileKind, ConfigurationFileError, KeyPath, KeySegment};
@@ -41,27 +42,18 @@ impl Configuration {
         &self,
         external_metric_keys: &[&str],
     ) -> Result<(), ConfigurationFileError> {
-        for (source_set, metric_key, _) in &self.budgets.set {
-            if let Some(metric) = Metric::from_key(metric_key) {
-                if is_production_only_outside_production(metric, *source_set) {
-                    return Err(production_only_budget_error(
-                        self.config_file,
-                        *source_set,
-                        metric,
-                    ));
-                }
-                if metric.scope().applies_to_source_set(*source_set) {
-                    continue;
-                }
-            } else if external_metric_keys.contains(&metric_key.as_str()) {
-                continue;
-            }
-            return Err(ConfigurationFileError::UnknownKey {
-                file: self.config_file,
-                key: budget_key_path(*source_set, metric_key),
-                allowed: allowed_budget_metric_keys(*source_set, external_metric_keys),
-            });
-        }
+        validate_source_set_budgets(
+            self.config_file,
+            "budgets",
+            &self.budgets,
+            external_metric_keys,
+        )?;
+        validate_source_set_budgets(
+            self.config_file,
+            "new_file_budgets",
+            &self.new_file_budgets,
+            external_metric_keys,
+        )?;
         validate_regression_limit_keys(
             self.config_file,
             &self.regression_limits,
@@ -70,14 +62,45 @@ impl Configuration {
     }
 }
 
+fn validate_source_set_budgets(
+    config_file: ConfigFileKind,
+    section: &str,
+    budgets: &Budgets,
+    external_metric_keys: &[&str],
+) -> Result<(), ConfigurationFileError> {
+    for (source_set, metric_key, _) in &budgets.set {
+        if let Some(metric) = Metric::from_key(metric_key) {
+            if is_production_only_outside_production(metric, *source_set) {
+                return Err(production_only_budget_error(
+                    config_file,
+                    section,
+                    *source_set,
+                    metric,
+                ));
+            }
+            if metric.scope().applies_to_source_set(*source_set) {
+                continue;
+            }
+        } else if external_metric_keys.contains(&metric_key.as_str()) {
+            continue;
+        }
+        return Err(ConfigurationFileError::UnknownKey {
+            file: config_file,
+            key: budget_key_path(section, *source_set, metric_key),
+            allowed: allowed_budget_metric_keys(*source_set, external_metric_keys),
+        });
+    }
+    Ok(())
+}
+
 fn is_production_only_outside_production(metric: Metric, source_set: SourceSet) -> bool {
     metric.scope() == MetricScope::ProductionOnly
         && !metric.scope().applies_to_source_set(source_set)
 }
 
-fn budget_key_path(source_set: SourceSet, metric_key: &str) -> KeyPath {
+fn budget_key_path(section: &str, source_set: SourceSet, metric_key: &str) -> KeyPath {
     KeyPath::default()
-        .child(KeySegment::Key("budgets".to_owned()))
+        .child(KeySegment::Key(section.to_owned()))
         .child(KeySegment::Key(source_set.key().to_owned()))
         .child(KeySegment::Key(metric_key.to_owned()))
 }
@@ -92,10 +115,11 @@ fn regression_limit_key_path(source_set: Option<SourceSet>, metric_key: &str) ->
 
 fn production_only_budget_error(
     file: ConfigFileKind,
+    section: &str,
     source_set: SourceSet,
     metric: Metric,
 ) -> ConfigurationFileError {
-    let key = budget_key_path(source_set, metric.key());
+    let key = budget_key_path(section, source_set, metric.key());
     match metric {
         Metric::TestGap => ConfigurationFileError::TestGapBudgetOutsideProduction { file, key },
         other => ConfigurationFileError::MetricBudgetOutsideProduction {
@@ -239,7 +263,10 @@ pub(super) fn reject_unsupported_metric_keys(root: &Value) -> Result<(), Configu
         return Ok(());
     };
     if let Some(budgets) = root.get("budgets").and_then(Value::as_object) {
-        reject_unsupported_budget_keys(budgets)?;
+        reject_unsupported_budget_keys("budgets", budgets)?;
+    }
+    if let Some(new_file_budgets) = root.get("new_file_budgets").and_then(Value::as_object) {
+        reject_unsupported_budget_keys("new_file_budgets", new_file_budgets)?;
     }
     if let Some(limits) = root.get("regression_limits").and_then(Value::as_object) {
         reject_unsupported_regression_limit_keys(limits)?;
@@ -248,6 +275,7 @@ pub(super) fn reject_unsupported_metric_keys(root: &Value) -> Result<(), Configu
 }
 
 fn reject_unsupported_budget_keys(
+    section_name: &str,
     budgets: &serde_json::Map<String, Value>,
 ) -> Result<(), ConfigurationFileError> {
     for source_set in SourceSet::ALL {
@@ -255,14 +283,23 @@ fn reject_unsupported_budget_keys(
             continue;
         };
         for metric in Metric::ALL {
-            if is_production_only_outside_production(metric, source_set)
-                && section.contains_key(metric.key())
-            {
+            if !section.contains_key(metric.key()) {
+                continue;
+            }
+            if is_production_only_outside_production(metric, source_set) {
                 return Err(production_only_budget_error(
                     ConfigFileKind::Json,
+                    section_name,
                     source_set,
                     metric,
                 ));
+            }
+            if metric.scope() == MetricScope::RepositoryWide {
+                return Err(ConfigurationFileError::UnknownKey {
+                    file: ConfigFileKind::Json,
+                    key: budget_key_path(section_name, source_set, metric.key()),
+                    allowed: allowed_budget_metric_keys(source_set, &[]),
+                });
             }
         }
     }

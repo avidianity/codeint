@@ -70,7 +70,7 @@ pub use churn::{ChurnHistoryInput, ChurnReport};
 pub use codeint_metrics::TraceError;
 pub use config::ConfigReport;
 pub use coupling::{CouplingHistoryInput, CouplingReport};
-pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
+pub use diff::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit, NewFileBudgetFailure};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use findings::{HazardLineRow, RejectedStatementEntry, SqlSchemaSummary};
 pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardExternalImports, GuardReport};

@@ -425,6 +425,13 @@ impl KeyPath {
         segments.push(segment);
         KeyPath(segments)
     }
+
+    pub fn first_key(&self) -> Option<&str> {
+        match self.0.first() {
+            Some(KeySegment::Key(key)) => Some(key.as_str()),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for KeyPath {

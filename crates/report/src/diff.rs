@@ -12,7 +12,9 @@ mod regressions;
 mod tests;
 mod types;
 
-pub use types::{BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit};
+pub use types::{
+    BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit, NewFileBudgetFailure,
+};
 
 use types::{BaseEntry, HeadEntry, SourceSetChangesSections};
 #[cfg(test)]
@@ -30,6 +32,7 @@ impl DiffReport {
         budgets: &Budgets,
         limits: &RegressionLimits,
     ) -> DiffReport {
+        let empty_new_file_budgets = Budgets::default();
         DiffReport::compare_with_options(
             base,
             head,
@@ -38,6 +41,8 @@ impl DiffReport {
             DiffReportOptions {
                 findings,
                 budgets,
+                new_file_budgets: &empty_new_file_budgets,
+                new_files: None,
                 limits,
                 ownership: OwnershipOptions::default(),
                 include_test_gap_note: false,
@@ -75,6 +80,8 @@ impl DiffReport {
         if let Some(deps) = &dependencies {
             over_budget_failures.extend(deps.over_budget(options.budgets));
         }
+        let over_new_file_budget_failures =
+            regressions::over_new_file_budget(options.new_files, options.new_file_budgets);
         let mut regression_failures = regressions::regressions(&source_sets, options.limits);
         if let Some(deps) = &dependencies {
             regression_failures.extend(deps.regressions(options.limits));
@@ -86,6 +93,7 @@ impl DiffReport {
             },
             head: head_entry(head),
             over_budget: over_budget_failures,
+            over_new_file_budget: over_new_file_budget_failures,
             regressions: regression_failures,
             source_sets,
             test_gap_note: options
@@ -95,10 +103,15 @@ impl DiffReport {
         }
     }
 
+    pub fn over_new_file_budget(&self) -> &[NewFileBudgetFailure] {
+        &self.over_new_file_budget
+    }
+
     pub fn failure_messages(&self) -> Vec<String> {
         self.over_budget
             .iter()
             .map(ToString::to_string)
+            .chain(self.over_new_file_budget.iter().map(ToString::to_string))
             .chain(self.regressions.iter().map(ToString::to_string))
             .collect()
     }
@@ -185,6 +198,7 @@ impl DiffReport {
             }),
             dependencies,
         )
+        .with_new_file_budget_failures(&self.over_new_file_budget)
     }
 }
 

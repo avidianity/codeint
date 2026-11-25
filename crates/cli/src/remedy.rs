@@ -499,11 +499,9 @@ fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<&'static str
             "Use repository-relative paths without \"..\" in coverage_reports in codeint.json.",
             "Use repository-relative paths without \"..\" in coverage_reports in codeint.jsonc.",
         ),
-        TestGapBudgetOutsideProduction { file, .. } => choose_file_remedy(
-            *file,
-            "Move the test_gap Budget to budgets.production.test_gap in codeint.json, or remove it.",
-            "Move the test_gap Budget to budgets.production.test_gap in codeint.jsonc, or remove it.",
-        ),
+        TestGapBudgetOutsideProduction { file, key } => {
+            test_gap_outside_production_remedy(*file, key.first_key())
+        }
         CliTestGapBudgetOutsideProduction { .. } => {
             "Pass --budget production.test_gap=RATIO; Test gap covers only the Production Source set."
         }
@@ -512,11 +510,9 @@ fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<&'static str
             "Remove test_gap from regression_limits in codeint.json; Test gap is checked with budgets.production.test_gap only.",
             "Remove test_gap from regression_limits in codeint.jsonc; Test gap is checked with budgets.production.test_gap only.",
         ),
-        MetricBudgetOutsideProduction { file, .. } => choose_file_remedy(
-            *file,
-            "Move this Budget to budgets.production in codeint.json, or remove it.",
-            "Move this Budget to budgets.production in codeint.jsonc, or remove it.",
-        ),
+        MetricBudgetOutsideProduction { file, key, .. } => {
+            metric_budget_outside_production_remedy(*file, key.first_key())
+        }
         CliMetricBudgetOutsideProduction { .. } => {
             "Pass --budget production.<metric>=RATIO; this Metric applies to the Production Source set only."
         }
@@ -527,6 +523,41 @@ fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<&'static str
         ),
         _ => return None,
     })
+}
+
+fn test_gap_outside_production_remedy(file: ConfigFileKind, section: Option<&str>) -> &'static str {
+    if section == Some("new_file_budgets") {
+        choose_file_remedy(
+            file,
+            "Move the test_gap Budget to new_file_budgets.production.test_gap in codeint.json, or remove it.",
+            "Move the test_gap Budget to new_file_budgets.production.test_gap in codeint.jsonc, or remove it.",
+        )
+    } else {
+        choose_file_remedy(
+            file,
+            "Move the test_gap Budget to budgets.production.test_gap in codeint.json, or remove it.",
+            "Move the test_gap Budget to budgets.production.test_gap in codeint.jsonc, or remove it.",
+        )
+    }
+}
+
+fn metric_budget_outside_production_remedy(
+    file: ConfigFileKind,
+    section: Option<&str>,
+) -> &'static str {
+    if section == Some("new_file_budgets") {
+        choose_file_remedy(
+            file,
+            "Move this Budget to new_file_budgets.production in codeint.json, or remove it.",
+            "Move this Budget to new_file_budgets.production in codeint.jsonc, or remove it.",
+        )
+    } else {
+        choose_file_remedy(
+            file,
+            "Move this Budget to budgets.production in codeint.json, or remove it.",
+            "Move this Budget to budgets.production in codeint.jsonc, or remove it.",
+        )
+    }
 }
 
 fn sql_and_hazards_config_remedy(error: &ConfigurationFileError) -> Option<&'static str> {
