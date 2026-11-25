@@ -5,7 +5,7 @@ use codeint_model::scan::{
     check_c_style_if_else, check_ternary_bool, finalize_flagged, flag_range, paren_then_brace,
 };
 
-use crate::lexer::{RawKind, RawToken, find_matching_delim, find_next_brace};
+use crate::lexer::{RawKind, RawToken, closes_attribute, find_matching_delim, find_next_brace};
 
 const RULE_IDS: [&str; 6] = [
     "else-after-return",
@@ -48,6 +48,11 @@ fn check_catch(
     let Some((paren_open, paren_close, open, close)) = paren_then_brace(tokens, catch_idx) else {
         return;
     };
+    if tokens.get(close + 1).is_some_and(|t| {
+        t.kind == RawKind::Keyword && matches!(t.lower.as_str(), "catch" | "finally")
+    }) {
+        return;
+    }
     let Some(var_name) = tokens[paren_open + 1..paren_close]
         .iter()
         .rev()
@@ -117,7 +122,10 @@ fn check_function_rules(
         return;
     };
     check_trailing_bare_return(parts.body, code_lines, out);
-    if parts.name == Some("__construct") && constructor_forwards_only(parts.params, parts.body) {
+    if parts.name == Some("__construct")
+        && !has_semantic_constructor_modifiers(tokens, fn_idx)
+        && constructor_forwards_only(parts.params, parts.body)
+    {
         flag_range(
             tokens[fn_idx].line,
             parts.close_line,
@@ -126,6 +134,26 @@ fn check_function_rules(
             out,
         );
     }
+}
+
+fn has_semantic_constructor_modifiers(tokens: &[RawToken], fn_idx: usize) -> bool {
+    let mut cursor = fn_idx;
+    while cursor > 0 {
+        cursor -= 1;
+        let tok = &tokens[cursor];
+        if tok.text == "]" {
+            return closes_attribute(tokens, cursor);
+        }
+        if tok.kind == RawKind::Keyword {
+            match tok.lower.as_str() {
+                "private" | "protected" | "final" => return true,
+                "public" | "static" => continue,
+                _ => break,
+            }
+        }
+        break;
+    }
+    false
 }
 
 fn check_trailing_bare_return(
@@ -152,14 +180,22 @@ fn check_trailing_bare_return(
     }
 }
 
-fn has_promoted_property(params_slice: &[RawToken]) -> bool {
-    params_slice.iter().any(|t| {
-        t.kind == RawKind::Keyword
-            && matches!(
-                t.lower.as_str(),
-                "public" | "protected" | "private" | "readonly"
-            )
-    })
+fn plain_forwarding_vars(slice: &[RawToken]) -> Option<Vec<&str>> {
+    if slice.is_empty() {
+        return Some(Vec::new());
+    }
+    let mut vars = Vec::new();
+    let chunks: Vec<&[RawToken]> = slice.split(|t| t.text == ",").collect();
+    for (idx, chunk) in chunks.iter().enumerate() {
+        if chunk.is_empty() && idx + 1 == chunks.len() {
+            continue;
+        }
+        if chunk.len() != 1 || chunk[0].kind != RawKind::Variable {
+            return None;
+        }
+        vars.push(chunk[0].text.as_str());
+    }
+    Some(vars)
 }
 
 fn parent_construct_args(body: &[RawToken]) -> Option<&[RawToken]> {
@@ -178,26 +214,14 @@ fn parent_construct_args(body: &[RawToken]) -> Option<&[RawToken]> {
 }
 
 fn constructor_forwards_only(params_slice: &[RawToken], body: &[RawToken]) -> bool {
-    if has_promoted_property(params_slice) {
+    let Some(params) = plain_forwarding_vars(params_slice) else {
         return false;
-    }
+    };
     let Some(args_slice) = parent_construct_args(body) else {
         return false;
     };
-    let params: Vec<&str> = params_slice
-        .iter()
-        .filter(|t| t.kind == RawKind::Variable)
-        .map(|t| t.text.as_str())
-        .collect();
-    if args_slice.is_empty() {
-        return params.is_empty();
-    }
-    let mut args = Vec::new();
-    for chunk in args_slice.split(|t| t.text == ",") {
-        if chunk.len() != 1 || chunk[0].kind != RawKind::Variable {
-            return false;
-        }
-        args.push(chunk[0].text.as_str());
-    }
+    let Some(args) = plain_forwarding_vars(args_slice) else {
+        return false;
+    };
     args == params
 }
