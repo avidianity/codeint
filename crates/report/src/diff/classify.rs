@@ -1,0 +1,265 @@
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+use codeint_config::FindingsShown;
+
+use super::types::{
+    CloneFamilyChanges, DependenciesChanges, DuplicationChanges, ExternalMetricChanges,
+    MetricChanges, SourceSetChanges,
+};
+use crate::measurement::{DependenciesMeasurement, MetricMeasurement, SourceSetMeasurement};
+use crate::ownership::{OwnedFinding, OwnershipOptions};
+use crate::{
+    BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding, Decimal,
+    ErodedFunctionFinding, ExternalMetricFinding, Findings, FlaggedLineRow, HazardLineRow,
+    ImportCycleFinding, ImportedDependencyRow, OrphanFileRow, UnusedDependencyRow,
+    clustered_clone_group_ids, unlisted_clone_family_group_ids,
+};
+
+trait Identified {
+    fn id(&self) -> &str;
+}
+
+pub(super) fn source_set_changes(
+    mut base: SourceSetMeasurement,
+    mut head: SourceSetMeasurement,
+    shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
+) -> SourceSetChanges {
+    let keys: BTreeSet<String> = base
+        .external_metrics
+        .keys()
+        .chain(head.external_metrics.keys())
+        .cloned()
+        .collect();
+    let mut external_metrics = BTreeMap::new();
+    for key in keys {
+        let base_entry = base.external_metrics.remove(&key);
+        let head_entry = head.external_metrics.remove(&key);
+        let (name, description) = match (&head_entry, &base_entry) {
+            (Some(entry), _) | (None, Some(entry)) => {
+                (entry.name.clone(), entry.description.clone())
+            }
+            (None, None) => (key.clone(), String::new()),
+        };
+        let base_measurement =
+            base_entry.map_or_else(MetricMeasurement::default, |e| e.measurement);
+        let head_measurement =
+            head_entry.map_or_else(MetricMeasurement::default, |e| e.measurement);
+        external_metrics.insert(
+            key,
+            ExternalMetricChanges {
+                name,
+                description,
+                changes: classify(base_measurement, head_measurement, shown, ownership),
+            },
+        );
+    }
+    let import_cycles = classify_optional(base.import_cycles, head.import_cycles, shown, ownership);
+    let boundaries = classify_optional(base.boundaries, head.boundaries, shown, ownership);
+    let orphan_files = classify_optional(base.orphan_files, head.orphan_files, shown, ownership);
+    let hazards = classify_optional(base.hazards, head.hazards, shown, ownership);
+    let duplication_groups = classify(base.duplication, head.duplication, shown, ownership);
+    let base_families = ownership.apply(base.clone_families);
+    let head_families = ownership.apply(head.clone_families);
+    let clone_families = if base_families.is_empty() && head_families.is_empty() {
+        None
+    } else {
+        let base_ids = ids(&base_families);
+        let head_ids = ids(&head_families);
+        let all_clustered = clustered_clone_group_ids(&head_families);
+        let new = missing_from(head_families, &base_ids, shown);
+        let resolved = missing_from(base_families, &head_ids, shown);
+        let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
+            &duplication_groups.new.listed,
+            &new.listed,
+            &all_clustered,
+        );
+        Some(CloneFamilyChanges {
+            unchanged: head_ids.intersection(&base_ids).count(),
+            new,
+            resolved,
+            unlisted_clone_family_group_ids,
+        })
+    };
+    SourceSetChanges {
+        erosion: classify(base.erosion, head.erosion, shown, ownership),
+        cognitive_complexity: classify(
+            base.cognitive_complexity,
+            head.cognitive_complexity,
+            shown,
+            ownership,
+        ),
+        duplication: DuplicationChanges {
+            groups: duplication_groups,
+            clone_families,
+        },
+        verbosity: classify(base.verbosity, head.verbosity, shown, ownership),
+        import_cycles,
+        boundaries,
+        orphan_files,
+        hazards,
+        external_metrics,
+    }
+}
+
+pub(super) fn dependencies_changes(
+    base: Option<DependenciesMeasurement>,
+    head: Option<DependenciesMeasurement>,
+    shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
+) -> Option<DependenciesChanges> {
+    if base.is_none() && head.is_none() {
+        return None;
+    }
+    let base = base.unwrap_or_default();
+    let head = head.unwrap_or_default();
+    Some(DependenciesChanges {
+        unused_dependencies: classify(
+            base.unused_dependencies,
+            head.unused_dependencies,
+            shown,
+            ownership,
+        ),
+        unlisted_dependencies: classify(
+            base.unlisted_dependencies,
+            head.unlisted_dependencies,
+            shown,
+            ownership,
+        ),
+        dev_in_production_dependencies: classify(
+            base.dev_in_production_dependencies,
+            head.dev_in_production_dependencies,
+            shown,
+            ownership,
+        ),
+    })
+}
+
+fn classify<T: Identified + OwnedFinding>(
+    base: MetricMeasurement<T>,
+    head: MetricMeasurement<T>,
+    shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
+) -> MetricChanges<T> {
+    let base_findings = ownership.apply(base.findings_worst_first);
+    let head_findings = ownership.apply(head.findings_worst_first);
+    let base_ids = ids(&base_findings);
+    let head_ids = ids(&head_findings);
+    MetricChanges {
+        base_ratio: Decimal::rounded(base.ratio),
+        head_ratio: Decimal::rounded(head.ratio),
+        base_numerator: Decimal::rounded(base.numerator),
+        head_numerator: Decimal::rounded(head.numerator),
+        unchanged: head_ids.intersection(&base_ids).count(),
+        new: missing_from(head_findings, &base_ids, shown),
+        resolved: missing_from(base_findings, &head_ids, shown),
+    }
+}
+
+fn classify_optional<T: Identified + OwnedFinding>(
+    base: Option<MetricMeasurement<T>>,
+    head: Option<MetricMeasurement<T>>,
+    shown: FindingsShown,
+    ownership: OwnershipOptions<'_>,
+) -> Option<MetricChanges<T>> {
+    match (base, head) {
+        (None, None) => None,
+        (base_metric, head_metric) => Some(classify(
+            base_metric.unwrap_or_default(),
+            head_metric.unwrap_or_default(),
+            shown,
+            ownership,
+        )),
+    }
+}
+
+fn ids<T: Identified>(findings: &[T]) -> HashSet<String> {
+    findings
+        .iter()
+        .map(|finding| finding.id().to_owned())
+        .collect()
+}
+
+fn missing_from<T: Identified>(
+    findings_worst_first: Vec<T>,
+    other_side: &HashSet<String>,
+    shown: FindingsShown,
+) -> Findings<T> {
+    let missing: Vec<T> = findings_worst_first
+        .into_iter()
+        .filter(|finding| !other_side.contains(finding.id()))
+        .collect();
+    Findings::worst_first(missing.into_iter(), shown)
+}
+
+impl Identified for ErodedFunctionFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for CognitiveComplexityFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for CloneGroupFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for CloneFamilyFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for FlaggedLineRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for ImportCycleFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for ExternalMetricFinding {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for BoundaryFindingRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for UnusedDependencyRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for ImportedDependencyRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for OrphanFileRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Identified for HazardLineRow {
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
