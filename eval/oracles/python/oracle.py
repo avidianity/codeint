@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import sys
 
 FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
@@ -96,16 +97,16 @@ def imports(tree):
 
 def describe(path):
     try:
-        with open(path, encoding="utf-8") as handle:
+        with open(path, "rb") as handle:
             tree = ast.parse(handle.read(), filename=path)
-    except (SyntaxError, UnicodeDecodeError, ValueError) as error:
+    except (SyntaxError, ValueError) as error:
         return {"path": path, "error": str(error)}
     return {"path": path, "functions": functions(tree), "imports": imports(tree)}
 
 
 def main():
-    with open(sys.argv[1], encoding="utf-8") as listing:
-        paths = [line.rstrip("\n") for line in listing if line.strip()]
+    with open(sys.argv[1], "rb") as listing:
+        paths = [os.fsdecode(path) for path in listing.read().split(b"\0") if path]
     for path in paths:
         print(json.dumps(describe(path)))
 

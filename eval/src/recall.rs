@@ -96,22 +96,32 @@ impl LanguageRecall {
     }
 
     fn compare_functions(&mut self, oracle: &[[u32; 3]], codeint: &[[u32; 3]]) {
-        let mut available: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
-        for [line, end_line, decisions] in codeint {
-            available
+        let mut oracle_spans: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
+        for [line, end_line, decisions] in oracle {
+            self.functions.total += 1;
+            self.decision_points.total += u64::from(*decisions);
+            oracle_spans
                 .entry((*line, *end_line))
                 .or_default()
                 .push(*decisions);
         }
-        for [line, end_line, decisions] in oracle {
-            self.functions.total += 1;
-            self.decision_points.total += u64::from(*decisions);
-            let Some(codeint_decisions) = available.get_mut(&(*line, *end_line)).and_then(Vec::pop)
-            else {
+        let mut codeint_spans: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
+        for [line, end_line, decisions] in codeint {
+            codeint_spans
+                .entry((*line, *end_line))
+                .or_default()
+                .push(*decisions);
+        }
+        for (span, mut expected) in oracle_spans {
+            let Some(mut actual) = codeint_spans.remove(&span) else {
                 continue;
             };
-            self.functions.matched += 1;
-            self.decision_points.matched += u64::from(codeint_decisions.min(*decisions));
+            expected.sort_unstable_by(|left, right| right.cmp(left));
+            actual.sort_unstable_by(|left, right| right.cmp(left));
+            for (expected, actual) in expected.iter().zip(&actual) {
+                self.functions.matched += 1;
+                self.decision_points.matched += u64::from(*actual.min(expected));
+            }
         }
     }
 

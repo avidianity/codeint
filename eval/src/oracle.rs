@@ -199,9 +199,9 @@ pub(crate) fn run_oracle(
 ) -> Result<Vec<OracleFile>, EvaluationError> {
     let listing = scratch.join("oracle-files.txt");
     let mut text = String::new();
-    for path in paths.iter().filter(|path| !path.contains('\n')) {
+    for path in paths {
         text.push_str(path);
-        text.push('\n');
+        text.push('\0');
     }
     std::fs::write(&listing, text).map_err(io_error(&listing))?;
     let output = run_checked(

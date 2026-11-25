@@ -342,6 +342,6 @@ function describe(string $path): array
     return ['path' => $path, 'functions' => functions($tokens), 'imports' => (new ImportScanner($tokens))->scan()];
 }
 
-foreach (file($argv[1], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $path) {
+foreach (array_filter(explode("\0", (string) file_get_contents($argv[1])), fn (string $path) => $path !== '') as $path) {
     echo json_encode(describe($path), JSON_FLAGS), "\n";
 }

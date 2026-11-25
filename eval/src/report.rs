@@ -25,9 +25,15 @@ fn seconds(value: Option<f64>) -> String {
 }
 
 fn percent(count: &RecallCount) -> String {
+    let hundredths = if count.total == 0 {
+        10_000
+    } else {
+        u128::from(count.matched) * 10_000 / u128::from(count.total)
+    };
     format!(
-        "{:.2}% ({}/{})",
-        count.ratio() * 100.0,
+        "{}.{:02}% ({}/{})",
+        hundredths / 100,
+        hundredths % 100,
         count.matched,
         count.total
     )
@@ -246,3 +252,6 @@ fn write_audit(out: &mut String, audit: &[AuditSample]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

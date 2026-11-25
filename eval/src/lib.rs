@@ -19,6 +19,7 @@ pub use corpus::{Corpus, CorpusEntry, SizeBucket, load_corpus};
 pub use error::EvaluationError;
 pub use recall::{LanguageRecall, RECALL_BAR, RecallCount};
 pub use run::{EvaluationConfig, run_evaluation};
+pub use scratch::{StaleSweep, sweep_stale_scratch_folders};
 pub use summary::{
     EvaluationSummary, LanguageSummary, MachineProfile, OracleReport, OracleStatus,
     PerformanceSummary, RepositoryResult,

@@ -75,25 +75,34 @@ fn toplevel(folder: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(text.trim_end_matches(['\r', '\n'])))
 }
 
-fn repository_root(manifest: &Path, current: PathBuf) -> PathBuf {
-    let manifest_folder = manifest
+fn codeint_checkout() -> PathBuf {
+    let manifest_folder = Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest_folder
+        .parent()
+        .unwrap_or(manifest_folder)
+        .to_path_buf()
+}
+
+fn protected_repositories(manifest: &Path, current: &Path) -> Vec<PathBuf> {
+    let manifest_repository = manifest
         .canonicalize()
         .ok()
-        .and_then(|path| path.parent().map(Path::to_path_buf));
-    manifest_folder
-        .and_then(|folder| toplevel(&folder))
-        .or_else(|| toplevel(&current))
-        .unwrap_or(current)
+        .and_then(|path| path.parent().and_then(toplevel));
+    let mut repositories = vec![codeint_checkout()];
+    repositories.extend(manifest_repository);
+    repositories.extend(toplevel(current));
+    repositories
 }
 
 pub(crate) fn evaluation_config() -> Result<EvaluationConfig, std::io::Error> {
     let arguments = Arguments::parse();
-    let codeint_repository = repository_root(&arguments.manifest, std::env::current_dir()?);
+    let protected_repositories =
+        protected_repositories(&arguments.manifest, &std::env::current_dir()?);
     Ok(EvaluationConfig {
         manifest: arguments.manifest,
         codeint: arguments.codeint,
         output_dir: arguments.output_dir,
-        codeint_repository,
+        protected_repositories,
         scratch_root: arguments.scratch_root,
         languages: arguments.language,
         repositories: arguments.repository,

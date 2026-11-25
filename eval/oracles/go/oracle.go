@@ -1,13 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type fileReport struct {
@@ -77,15 +77,13 @@ func describe(path string) fileReport {
 }
 
 func main() {
-	listing, err := os.Open(os.Args[1])
+	listing, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		os.Exit(2)
 	}
-	defer listing.Close()
 	encoder := json.NewEncoder(os.Stdout)
-	scanner := bufio.NewScanner(listing)
-	for scanner.Scan() {
-		if path := scanner.Text(); path != "" {
+	for _, path := range strings.Split(string(listing), "\x00") {
+		if path != "" {
 			_ = encoder.Encode(describe(path))
 		}
 	}

@@ -13,7 +13,7 @@ pub enum EvaluationError {
     #[error("{command} failed: {detail}")]
     Command { command: String, detail: String },
     #[error(
-        "the scratch folder {scratch} is inside the codeint repository {repository}; point --scratch-root or the system temporary folder outside the repository"
+        "the scratch folder {scratch} is inside the codeint repository or a repository the run reads, {repository}; point --scratch-root or the system temporary folder outside every repository"
     )]
     ScratchInsideRepository {
         scratch: PathBuf,

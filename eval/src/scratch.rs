@@ -6,32 +6,40 @@ use tempfile::TempDir;
 use crate::command::{run_checked, stdout_text};
 use crate::error::{EvaluationError, io_error};
 
+const FOLDER_PREFIX: &str = "codeint-eval-";
+
+fn scratch_base(scratch_root: Option<&Path>) -> PathBuf {
+    scratch_root.map_or_else(std::env::temp_dir, Path::to_path_buf)
+}
+
 pub(crate) struct ScratchFolder {
     folder: TempDir,
 }
 
 impl ScratchFolder {
     pub(crate) fn outside(
-        codeint_repository: &Path,
+        protected_repositories: &[PathBuf],
         scratch_root: Option<&Path>,
     ) -> Result<ScratchFolder, EvaluationError> {
-        let root = scratch_root.map_or_else(std::env::temp_dir, Path::to_path_buf);
+        let root = scratch_base(scratch_root);
         let folder = tempfile::Builder::new()
-            .prefix("codeint-eval-")
+            .prefix(&format!("{FOLDER_PREFIX}{}-", std::process::id()))
             .tempdir_in(&root)
             .map_err(io_error(root))?;
         let scratch = folder
             .path()
             .canonicalize()
             .map_err(io_error(folder.path()))?;
-        let repository = codeint_repository
-            .canonicalize()
-            .map_err(io_error(codeint_repository))?;
-        if scratch.starts_with(&repository) {
-            return Err(EvaluationError::ScratchInsideRepository {
-                scratch,
-                repository,
-            });
+        for repository in protected_repositories {
+            let Ok(repository) = repository.canonicalize() else {
+                continue;
+            };
+            if scratch.starts_with(&repository) {
+                return Err(EvaluationError::ScratchInsideRepository {
+                    scratch,
+                    repository,
+                });
+            }
         }
         Ok(ScratchFolder { folder })
     }
@@ -76,3 +84,77 @@ pub(crate) fn tracked_files(checkout: &Path) -> Result<Vec<String>, EvaluationEr
         .map(str::to_owned)
         .collect())
 }
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct StaleSweep {
+    pub removed: u64,
+    pub failures: Vec<String>,
+}
+
+fn owner_process(folder_name: &str) -> Option<u32> {
+    let (owner, suffix) = folder_name.strip_prefix(FOLDER_PREFIX)?.split_once('-')?;
+    if suffix.is_empty() || owner.is_empty() || !owner.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    owner.parse().ok()
+}
+
+fn listing_names_process(listing: &str, process_id: u32) -> bool {
+    listing.contains(&format!("\"{process_id}\""))
+}
+
+fn process_is_alive(process_id: u32) -> bool {
+    let identifier = process_id.to_string();
+    let output = if cfg!(windows) {
+        Command::new("tasklist")
+            .args(["/NH", "/FO", "CSV", "/FI"])
+            .arg(format!("PID eq {identifier}"))
+            .output()
+    } else {
+        Command::new("ps")
+            .args(["-o", "pid=", "-p"])
+            .arg(&identifier)
+            .output()
+    };
+    match output {
+        Err(_) => true,
+        Ok(output) if cfg!(windows) => {
+            listing_names_process(&String::from_utf8_lossy(&output.stdout), process_id)
+        }
+        Ok(output) => output.status.success(),
+    }
+}
+
+pub fn sweep_stale_scratch_folders(scratch_root: Option<&Path>) -> StaleSweep {
+    let root = scratch_base(scratch_root);
+    let mut sweep = StaleSweep::default();
+    let entries = match std::fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return sweep,
+        Err(error) => {
+            sweep
+                .failures
+                .push(format!("cannot read {}: {error}", root.display()));
+            return sweep;
+        }
+    };
+    for entry in entries.flatten() {
+        let Some(owner) = entry.file_name().to_str().and_then(owner_process) else {
+            continue;
+        };
+        let is_folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        if !is_folder || owner == std::process::id() || process_is_alive(owner) {
+            continue;
+        }
+        match std::fs::remove_dir_all(entry.path()) {
+            Ok(()) => sweep.removed += 1,
+            Err(error) => sweep
+                .failures
+                .push(format!("cannot remove {}: {error}", entry.path().display())),
+        }
+    }
+    sweep
+}
+
+#[cfg(test)]
+mod tests;

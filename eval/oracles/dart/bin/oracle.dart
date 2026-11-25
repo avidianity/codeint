@@ -156,6 +156,8 @@ Map<String, Object> describe(String path) {
     content = File(path).readAsStringSync();
   } on FileSystemException catch (error) {
     return {'path': path, 'error': error.message};
+  } on FormatException catch (error) {
+    return {'path': path, 'error': error.message};
   }
   final result = parseString(
     content: content,
@@ -171,7 +173,7 @@ Map<String, Object> describe(String path) {
 }
 
 void main(List<String> arguments) {
-  final paths = File(arguments.first).readAsLinesSync().where((line) => line.isNotEmpty);
+  final paths = File(arguments.first).readAsStringSync().split('\u0000').where((path) => path.isNotEmpty);
   for (final path in paths) {
     stdout.writeln(jsonEncode(describe(path)));
   }

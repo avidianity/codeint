@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -26,13 +27,13 @@ const PYTHON_UNCLOSED: &str = "def unclosed(value):\n    return [value,\n";
 const SQL_REPORT: &str = "SELECT r.id FROM reports AS r WHERE r.id = 1 LIMIT 5;\n";
 
 const FAKE_PYTHON_ORACLE: &str = r#"#!/bin/sh
-while IFS= read -r path; do
+tr '\0' '\n' < "$1" | while IFS= read -r path; do
   case "$path" in
     app/calc.py) echo '{"path":"app/calc.py","functions":[[4,8,2],[20,22,1]],"imports":["os"]}' ;;
     app/broken.py) echo '{"path":"app/broken.py","error":"invalid syntax"}' ;;
     *) echo "{\"path\":\"$path\",\"functions\":[],\"imports\":[]}" ;;
   esac
-done < "$1"
+done
 "#;
 
 fn source_repository(files: &[(&str, &str)]) -> (TempDir, String) {
@@ -41,15 +42,7 @@ fn source_repository(files: &[(&str, &str)]) -> (TempDir, String) {
         repo.path(),
         &["config", "uploadpack.allowAnySHA1InWant", "true"],
     );
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo.path())
-        .output()
-        .expect("git rev-parse");
-    let commit = String::from_utf8(output.stdout)
-        .expect("utf8")
-        .trim()
-        .to_owned();
+    let commit = head_commit(repo.path());
     (repo, commit)
 }
 
@@ -104,7 +97,7 @@ fn evaluation_runner_measures_local_repositories_in_scratch_folders_and_writes_r
         manifest,
         codeint: PathBuf::from(env!("CARGO_BIN_EXE_codeint")),
         output_dir: output_dir.clone(),
-        codeint_repository: work.path().to_path_buf(),
+        protected_repositories: vec![work.path().to_path_buf()],
         scratch_root: Some(scratch_root.path().to_path_buf()),
         languages: Vec::new(),
         repositories: Vec::new(),
@@ -209,9 +202,9 @@ fn evaluation_runner_measures_local_repositories_in_scratch_folders_and_writes_r
 }
 
 const FAKE_PHP_ORACLE: &str = r#"#!/bin/sh
-while IFS= read -r path; do
+tr '\0' '\n' < "$1" | while IFS= read -r path; do
   echo "{\"path\":\"$path\",\"functions\":[[3,5,1]],\"imports\":[]}"
-done < "$1"
+done
 "#;
 
 #[test]
@@ -219,60 +212,182 @@ fn evaluation_runner_counts_files_codeint_did_not_measure_as_recall_misses() {
     use std::os::unix::fs::PermissionsExt;
 
     let repo = init_git_repo(&[("README.md", "# latin\n")]);
-    run_git(
-        repo.path(),
-        &["config", "uploadpack.allowAnySHA1InWant", "true"],
-    );
     let latin = b"<?php\n\nfunction caf\xe9($value) {\n    return $value;\n}\n";
     std::fs::write(repo.path().join("Latin.php"), latin).expect("write latin-1 file");
-    run_git(repo.path(), &["add", "Latin.php"]);
-    run_git(
-        repo.path(),
-        &["commit", "--quiet", "-m", "add latin-1 file"],
-    );
-    let commit = String::from_utf8(
-        Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(repo.path())
-            .output()
-            .expect("git rev-parse")
-            .stdout,
-    )
-    .expect("utf8")
-    .trim()
-    .to_owned();
-
+    let commit = commit_all(repo.path());
     let work = TempDir::new().expect("work folder");
     let oracle = work.path().join("fake-php-oracle.sh");
     std::fs::write(&oracle, FAKE_PHP_ORACLE).expect("write fake oracle");
     std::fs::set_permissions(&oracle, std::fs::Permissions::from_mode(0o755))
         .expect("make fake oracle executable");
+
+    let latin = evaluate_one(
+        repo.path(),
+        &commit,
+        "php",
+        [("php".to_owned(), oracle)].into_iter().collect(),
+    );
+
+    let recall = latin.oracle.recall.as_ref().expect("php recall");
+    assert_eq!((recall.functions.matched, recall.functions.total), (0, 1));
+    assert_eq!(recall.unmeasured_files, vec!["Latin.php".to_owned()]);
+    assert!(!latin.passed, "{latin:?}");
+}
+
+fn python_is_new_enough() -> bool {
+    Command::new("python3")
+        .args(["-c", "import sys; assert sys.version_info >= (3, 12)"])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+fn head_commit(repo: &Path) -> String {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo)
+        .output()
+        .expect("git rev-parse");
+    String::from_utf8(output.stdout)
+        .expect("utf8")
+        .trim()
+        .to_owned()
+}
+
+fn commit_all(repo: &Path) -> String {
+    run_git(repo, &["add", "."]);
+    run_git(
+        repo,
+        &[
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            "add special files",
+        ],
+    );
+    run_git(repo, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
+    head_commit(repo)
+}
+
+fn evaluate_one(
+    repo: &Path,
+    commit: &str,
+    language: &str,
+    oracle_overrides: BTreeMap<String, PathBuf>,
+) -> RepositoryResult {
+    let work = TempDir::new().expect("work folder");
     let manifest = work.path().join("corpus.json");
     let corpus = serde_json::json!({
         "measured_on": "2026-11-25",
         "repositories": [
-            {"name": "local/latin", "language": "php", "bucket": "small", "url": file_url(repo.path()), "commit": commit}
+            {"name": "local/special", "language": language, "bucket": "small", "url": file_url(repo), "commit": commit}
         ]
     });
     std::fs::write(&manifest, corpus.to_string()).expect("write manifest");
-
     let summary = run_evaluation(&EvaluationConfig {
         manifest,
         codeint: PathBuf::from(env!("CARGO_BIN_EXE_codeint")),
         output_dir: work.path().join("docs"),
-        codeint_repository: work.path().to_path_buf(),
+        protected_repositories: vec![work.path().to_path_buf()],
         scratch_root: None,
         languages: Vec::new(),
         repositories: Vec::new(),
         runs: 1,
         audit_sample_size: 10,
-        oracle_overrides: [("php".to_owned(), oracle)].into_iter().collect(),
+        oracle_overrides,
     })
     .expect("evaluation runs");
+    repository(&summary, "local/special").clone()
+}
 
-    let latin = repository(&summary, "local/latin");
-    let recall = latin.oracle.recall.as_ref().expect("php recall");
-    assert_eq!((recall.functions.matched, recall.functions.total), (0, 1));
-    assert_eq!(recall.unmeasured_files, vec!["Latin.php".to_owned()]);
-    assert!(!latin.passed, "{latin:?}");
+fn evaluate_with_built_in_python_oracle(repo: &Path, commit: &str) -> RepositoryResult {
+    evaluate_one(repo, commit, "python", BTreeMap::new())
+}
+
+#[test]
+fn evaluation_runner_counts_a_tracked_symlink_as_unmeasured_and_keeps_it_out_of_the_audit_sample() {
+    if !python_is_new_enough() {
+        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+        return;
+    }
+    let repo = init_git_repo(&[("app.py", "def f(x):\n    return x\n")]);
+    std::os::unix::fs::symlink("app.py", repo.path().join("link.py")).expect("symlink");
+    let commit = commit_all(repo.path());
+
+    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+
+    let recall = result.oracle.recall.as_ref().expect("python recall");
+    assert_eq!(recall.unmeasured_files, vec!["link.py".to_owned()]);
+    assert_eq!((recall.functions.matched, recall.functions.total), (1, 2));
+    assert!(!result.passed, "{result:?}");
+}
+
+#[test]
+fn evaluation_runner_counts_a_non_utf8_python_file_as_unmeasured_not_oracle_unparsable() {
+    if !python_is_new_enough() {
+        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+        return;
+    }
+    let repo = init_git_repo(&[("ok.py", "def f(x):\n    return x\n")]);
+    std::fs::write(
+        repo.path().join("latin.py"),
+        b"# -*- coding: latin-1 -*-\n\n\ndef g():\n    return \"caf\xe9\"\n",
+    )
+    .expect("write latin-1 file");
+    let commit = commit_all(repo.path());
+
+    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+
+    let recall = result.oracle.recall.as_ref().expect("python recall");
+    assert!(recall.oracle_unparsable_files.is_empty(), "{recall:?}");
+    assert_eq!(recall.unmeasured_files, vec!["latin.py".to_owned()]);
+    assert_eq!((recall.functions.matched, recall.functions.total), (1, 2));
+}
+
+#[test]
+fn evaluation_runner_compares_a_tracked_file_whose_name_contains_a_newline() {
+    if !python_is_new_enough() {
+        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+        return;
+    }
+    let repo = init_git_repo(&[("ok.py", "def f(x):\n    return x\n")]);
+    std::fs::write(
+        repo.path().join("odd\nname.py"),
+        "def g(x):\n    return x\n",
+    )
+    .expect("write odd file");
+    let commit = commit_all(repo.path());
+
+    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+
+    let recall = result.oracle.recall.as_ref().expect("python recall");
+    assert_eq!(recall.functions.total, 2, "{recall:?}");
+    assert_eq!(
+        recall.files_compared + recall.unmeasured_files.len() as u64,
+        2,
+        "{recall:?}"
+    );
+}
+
+#[test]
+fn evaluation_runner_scores_identical_functions_that_share_a_line_span_at_full_recall() {
+    if !python_is_new_enough() {
+        eprintln!("SKIPPED: python3 3.12 or newer is not available");
+        return;
+    }
+    let repo = init_git_repo(&[(
+        "shared.py",
+        "def outer(x): return lambda y: y if y else x\n",
+    )]);
+    let commit = commit_all(repo.path());
+
+    let result = evaluate_with_built_in_python_oracle(repo.path(), &commit);
+
+    let recall = result.oracle.recall.as_ref().expect("python recall");
+    assert_eq!((recall.functions.matched, recall.functions.total), (2, 2));
+    assert_eq!(
+        (recall.decision_points.matched, recall.decision_points.total),
+        (1, 1)
+    );
+    assert!(result.passed, "{result:?}");
 }

@@ -4,7 +4,7 @@ mod config;
 
 use std::process::ExitCode;
 
-use codeint_eval::{EvaluationSummary, run_evaluation};
+use codeint_eval::{EvaluationSummary, run_evaluation, sweep_stale_scratch_folders};
 
 fn print_results(summary: &EvaluationSummary) {
     for result in &summary.repositories {
@@ -26,6 +26,14 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let sweep = sweep_stale_scratch_folders(config.scratch_root.as_deref());
+    eprintln!(
+        "codeint-eval: removed {} stale scratch folders of ended runs",
+        sweep.removed
+    );
+    for failure in &sweep.failures {
+        eprintln!("codeint-eval: {failure}");
+    }
     match run_evaluation(&config) {
         Ok(summary) => {
             print_results(&summary);

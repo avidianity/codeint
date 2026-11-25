@@ -125,3 +125,41 @@ fn recall_counts_oracle_items_in_unmeasured_files_as_misses() {
     );
     assert!(!recall.meets_bar());
 }
+
+#[test]
+fn functions_that_share_a_line_span_pair_without_losing_decision_points() {
+    let shared = vec![[1, 1, 0], [1, 1, 1]];
+    let lowered = vec![measured("a.py", shared.clone(), &[])];
+    let oracle = vec![oracle_file("a.py", shared, &[])];
+
+    let recall = LanguageRecall::compare(&oracle, &lowered);
+
+    assert_eq!(recall.functions.matched, 2);
+    assert_eq!(recall.functions.total, 2);
+    assert_eq!(recall.decision_points.matched, 1);
+    assert_eq!(recall.decision_points.total, 1);
+}
+
+#[test]
+fn functions_that_share_a_line_span_never_earn_more_than_the_oracle_decision_points() {
+    let lowered = vec![measured("a.py", vec![[1, 1, 3], [1, 1, 0]], &[])];
+    let oracle = vec![oracle_file("a.py", vec![[1, 1, 1], [1, 1, 0]], &[])];
+
+    let recall = LanguageRecall::compare(&oracle, &lowered);
+
+    assert_eq!(recall.functions.matched, 2);
+    assert_eq!(recall.decision_points.matched, 1);
+    assert_eq!(recall.decision_points.total, 1);
+}
+
+#[test]
+fn a_shared_span_with_fewer_codeint_functions_matches_only_what_codeint_has() {
+    let lowered = vec![measured("a.py", vec![[1, 1, 1]], &[])];
+    let oracle = vec![oracle_file("a.py", vec![[1, 1, 0], [1, 1, 1]], &[])];
+
+    let recall = LanguageRecall::compare(&oracle, &lowered);
+
+    assert_eq!(recall.functions.matched, 1);
+    assert_eq!(recall.functions.total, 2);
+    assert_eq!(recall.decision_points.matched, 1);
+}
