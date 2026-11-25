@@ -71,30 +71,8 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_UPLOAD_SARIF: ${{ inputs.upload-sarif }}
         GITHUB_BASE_REF: ${{ github.base_ref }}
-      run: |
-        set -euo pipefail
-        BASE="$INPUT_BASE_REF"
-        if [ -z "$BASE" ]; then
-          if [ -n "$GITHUB_BASE_REF" ]; then
-            BASE="origin/$GITHUB_BASE_REF"
-          else
-            BASE="HEAD~1"
-          fi
-        fi
-        MD_FILE="codeint-report.md"
-        SARIF_FILE="codeint.sarif"
-        set +e
-        codeint diff "$BASE" "$INPUT_PATH" --format markdown --output "$MD_FILE"
-        EXIT_CODE=$?
-        set -e
-        echo "exit-code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-        echo "markdown-file=$MD_FILE" >> "$GITHUB_OUTPUT"
-        if [ "$INPUT_UPLOAD_SARIF" = "true" ]; then
-          set +e
-          codeint diff "$BASE" "$INPUT_PATH" --format sarif --output "$SARIF_FILE"
-          set -e
-          echo "sarif-file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
-        fi
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/scripts/action-diff.sh"
 
     - name: Post or update sticky pull-request comment
       if: inputs.comment == 'true' && github.event_name == 'pull_request'
