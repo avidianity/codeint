@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod agent;
+mod baseline;
 mod check;
 mod churn;
 mod commit_measurement;
@@ -27,17 +28,18 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    AgentCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, RatchetCommand, ReportDestination,
-    ReportInput, ReportRenderFormat, cli_schema, read_invocation,
+    AgentCommand, BaselineCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, RatchetCommand,
+    ReportDestination, ReportInput, ReportRenderFormat, cli_schema, read_invocation,
 };
 use codeint_git::ResultCache;
-use codeint_report::{ExitCodeSchema, ReportError};
+use codeint_report::{ExitCodeSchema, ReportError, render_baseline_update};
 
 pub use codeint_config::{
-    AgentClient, AgentFormat, BudgetOverride, CalendarDay, ChurnFormat, ChurnSince, ChurnWindow,
-    ConfigFormat, ConfigOverrides, CouplingRatio, CouplingRatioError, CouplingSettings,
-    DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig, RatchetFormat,
-    ReportFormat, SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat, TrendRange,
+    AgentClient, AgentFormat, BaselineFormat, BudgetOverride, CalendarDay, ChurnFormat, ChurnSince,
+    ChurnWindow, ConfigFormat, ConfigOverrides, CouplingRatio, CouplingRatioError,
+    CouplingSettings, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig,
+    RatchetFormat, ReportFormat, SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat,
+    TrendRange,
 };
 pub use codeint_report::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
@@ -52,7 +54,20 @@ pub struct CheckOptions {
     pub package: Option<String>,
     pub owner: Option<String>,
     pub coverage_reports: Vec<PathBuf>,
+    pub ignore_baseline: bool,
     pub plugin_host: PluginHostConfig,
+}
+
+impl CheckOptions {
+    fn scope(&self) -> check::CheckScope<'_> {
+        check::CheckScope {
+            findings: self.findings,
+            package: self.package.as_deref(),
+            owner: self.owner.as_deref(),
+            coverage_reports: &self.coverage_reports,
+            ignore_baseline: self.ignore_baseline,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -157,15 +172,8 @@ impl fmt::Display for CodeintError {
 impl Error for CodeintError {}
 
 pub fn check(folder: &Path, options: &CheckOptions) -> Result<CheckOutcome, CodeintError> {
-    let report = check::check(
-        folder,
-        options.findings,
-        options.package.as_deref(),
-        options.owner.as_deref(),
-        &options.coverage_reports,
-        &options.plugin_host,
-    )
-    .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
+    let report = check::check(folder, options.scope(), &options.plugin_host)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)))?;
     let failures = report.failure_messages();
     let passed = failures.is_empty();
     Ok(CheckOutcome {
@@ -421,6 +429,7 @@ fn run_command(command: Command) -> Result<Outcome, CliError> {
             package,
             owner,
             coverage_reports,
+            ignore_baseline,
             plugin_host,
         } => {
             let options = CheckOptions {
@@ -428,6 +437,7 @@ fn run_command(command: Command) -> Result<Outcome, CliError> {
                 package,
                 owner,
                 coverage_reports,
+                ignore_baseline,
                 plugin_host,
             };
             run_check(&folder, &destination, format, &options)
@@ -556,6 +566,7 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
         } => run_doctor(&folder, format, &plugin_host),
         Command::Agent(command) => run_agent(command),
         Command::Ratchet(command) => run_ratchet(command),
+        Command::Baseline(command) => run_baseline(command),
         other => run_history_command(other),
     }
 }
@@ -631,6 +642,22 @@ fn run_ratchet(command: RatchetCommand) -> Result<Outcome, CliError> {
         } => {
             let report = ratchet::update(&folder, reset, &coverage_reports, &plugin_host)?;
             print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::Passed)
+        }
+    }
+}
+
+fn run_baseline(command: BaselineCommand) -> Result<Outcome, CliError> {
+    match command {
+        BaselineCommand::Update {
+            folder,
+            reset,
+            coverage_reports,
+            format,
+            plugin_host,
+        } => {
+            let summary = baseline::update(&folder, reset, &coverage_reports, &plugin_host)?;
+            print_report(&format!("{}\n", render_baseline_update(&summary, format)?))?;
             Ok(Outcome::Passed)
         }
     }
@@ -735,14 +762,7 @@ fn run_check(
     format: ReportFormat,
     options: &CheckOptions,
 ) -> Result<Outcome, CliError> {
-    let report = check::check(
-        folder,
-        options.findings,
-        options.package.as_deref(),
-        options.owner.as_deref(),
-        &options.coverage_reports,
-        &options.plugin_host,
-    )?;
+    let report = check::check(folder, options.scope(), &options.plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::from_failures(report.failure_messages()))
 }

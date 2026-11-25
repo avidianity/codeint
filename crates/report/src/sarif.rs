@@ -10,7 +10,8 @@ use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
     HazardLineRow, ImportCycleFinding, ImportedDependencyRow, NewFileBudgetFailure, OrphanFileRow,
-    RatchetFailure, Report, SourceSetSection, TestGapFindingRow, UnusedDependencyRow,
+    RatchetFailure, Report, ReportBaseline, SourceSetSection, TestGapFindingRow,
+    UnusedDependencyRow,
 };
 
 #[cfg(test)]
@@ -42,12 +43,21 @@ struct Run {
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RunProperties {
+    #[serde(flatten)]
+    baseline: SarifBaselineProperties,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     new_file_budget_failures: Vec<SarifNewFileBudgetFailure>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     ratchet_failures: Vec<SarifRatchetFailure>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     per_file_regressions: Vec<SarifPerFileRegression>,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SarifBaselineProperties {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    baseline_hidden_findings: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -240,6 +250,7 @@ impl SarifLog {
             dependencies,
         )
         .with_ratchet_failures(&report.over_ratchet)
+        .with_baseline(report.baseline.as_ref())
     }
 
     pub(crate) fn listing<'findings>(
@@ -323,6 +334,14 @@ impl SarifLog {
         if !failures.is_empty() {
             self.run_properties_mut().ratchet_failures =
                 failures.iter().map(SarifRatchetFailure::from).collect();
+        }
+        self
+    }
+
+    fn with_baseline(mut self, baseline: Option<&ReportBaseline>) -> SarifLog {
+        if let Some(baseline) = baseline {
+            self.run_properties_mut().baseline.baseline_hidden_findings =
+                Some(baseline.hidden_findings);
         }
         self
     }

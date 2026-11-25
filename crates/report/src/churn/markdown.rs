@@ -130,29 +130,29 @@ mod tests {
                     ratio: Decimal(0.5),
                     eroded_function_mass: Decimal(10.0),
                     total_function_mass: Decimal(20.0),
-                    findings: Findings {
-                        listed: vec![ErodedChurnFile {
+                    findings: Findings::listing(
+                        vec![ErodedChurnFile {
                             path: "src/hot.ts".to_owned(),
                             commits: 4,
                             eroded_functions: 1,
                             eroded_function_mass: Decimal(10.0),
                             max_cyclomatic_complexity: 12,
                         }],
-                        left_out: 1,
-                    },
+                        1,
+                    ),
                 },
                 duplication: DuplicationChurnSection {
                     ratio: Decimal(0.25),
                     clone_lines: 30,
-                    findings: Findings {
-                        listed: vec![DuplicatedChurnFile {
+                    findings: Findings::listing(
+                        vec![DuplicatedChurnFile {
                             path: "src/dup.ts".to_owned(),
                             commits: 3,
                             clone_lines: 15,
                             clone_groups: 1,
                         }],
-                        left_out: 2,
-                    },
+                        2,
+                    ),
                 },
             },
         );

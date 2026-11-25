@@ -308,6 +308,7 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
         package: parse_package(args),
         owner: None,
         coverage_reports,
+        ignore_baseline: false,
         plugin_host: ctx.plugin_host.clone(),
     };
     Ok(match check(&folder, &options) {

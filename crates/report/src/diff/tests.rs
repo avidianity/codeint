@@ -15,14 +15,8 @@ fn ratio_changes(base_ratio: f64, head_ratio: f64) -> MetricChanges<()> {
         base_file_numerators: BTreeMap::new(),
         head_file_numerators: BTreeMap::new(),
         new_findings_by_file: BTreeMap::new(),
-        new: Findings {
-            listed: Vec::new(),
-            left_out: 0,
-        },
-        resolved: Findings {
-            listed: Vec::new(),
-            left_out: 0,
-        },
+        new: Findings::listing(Vec::new(), 0),
+        resolved: Findings::listing(Vec::new(), 0),
         unchanged: 0,
     }
 }
@@ -44,10 +38,7 @@ fn a_displayed_rise_of_0_0101_is_a_regression() {
 #[test]
 fn new_findings_saturates_when_left_out_is_usize_max() {
     let mut changes = ratio_changes(0.0, 0.0);
-    changes.new = Findings {
-        listed: vec![()],
-        left_out: usize::MAX,
-    };
+    changes.new = Findings::listing(vec![()], usize::MAX);
 
     assert_eq!(changes.new_findings(), usize::MAX);
 }

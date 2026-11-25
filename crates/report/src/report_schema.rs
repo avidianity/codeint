@@ -38,6 +38,16 @@ fn report_schema_value() -> Value {
                 "type": "string",
                 "description": "One-line note shown when Ratchet enforcement is skipped, such as on --package runs."
             },
+            "baseline": {
+                "type": "object",
+                "description": "The Baseline in effect; present when .codeint/baseline.json exists and codeint check runs without --ignore-baseline.",
+                "required": ["path", "hidden_findings"],
+                "properties": {
+                    "path": { "type": "string" },
+                    "hidden_findings": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": false
+            },
             "dependencies": { "$ref": "#/$defs/DependenciesSection" },
             "languages": {
                 "type": "object",
@@ -98,7 +108,12 @@ fn report_schema_value() -> Value {
                 "required": ["ratio", "metric_version"],
                 "properties": {
                     "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
-                    "metric_version": { "type": "integer", "minimum": 1 }
+                    "metric_version": { "type": "integer", "minimum": 1 },
+                    "baselined_findings": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Findings of this Metric hidden by the Baseline."
+                    }
                 }
             },
             "DependenciesSection": {
@@ -180,7 +195,8 @@ fn report_schema_value() -> Value {
                         "type": "array",
                         "items": { "$ref": "#/$defs/BoundaryFinding" }
                     },
-                    "findings_left_out": { "type": "integer", "minimum": 1 }
+                    "findings_left_out": { "type": "integer", "minimum": 1 },
+                    "baselined_findings": { "type": "integer", "minimum": 1 }
                 },
                 "additionalProperties": false
             },
@@ -216,7 +232,8 @@ fn report_schema_value() -> Value {
                         "type": "array",
                         "items": { "$ref": "#/$defs/TestGapFinding" }
                     },
-                    "findings_left_out": { "type": "integer", "minimum": 1 }
+                    "findings_left_out": { "type": "integer", "minimum": 1 },
+                    "baselined_findings": { "type": "integer", "minimum": 1 }
                 },
                 "additionalProperties": false
             },
@@ -279,7 +296,8 @@ fn report_schema_value() -> Value {
                         "type": "array",
                         "items": { "$ref": "#/$defs/HazardLineFinding" }
                     },
-                    "findings_left_out": { "type": "integer", "minimum": 1 }
+                    "findings_left_out": { "type": "integer", "minimum": 1 },
+                    "baselined_findings": { "type": "integer", "minimum": 1 }
                 },
                 "additionalProperties": false
             },
@@ -332,7 +350,11 @@ fn report_schema_value() -> Value {
                     "source_set": { "type": "string" },
                     "metric": { "type": "string" },
                     "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
-                    "budget": { "type": "number", "minimum": 0, "maximum": 1 }
+                    "budget": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "non_baselined": {
+                        "type": "boolean",
+                        "description": "True when ratio counts only Findings that the Baseline does not hide."
+                    }
                 },
                 "additionalProperties": false
             },

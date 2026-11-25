@@ -1204,10 +1204,13 @@ const REACT_RANGE: &str =
 fn package_reference_range_source(repo: &std::path::Path, pkg: &str) -> String {
     let report = super::check(
         repo,
-        FindingsShown::All,
-        Some(pkg),
-        None,
-        &[],
+        super::CheckScope {
+            findings: FindingsShown::All,
+            package: Some(pkg),
+            owner: None,
+            coverage_reports: &[],
+            ignore_baseline: false,
+        },
         &codeint_config::PluginHostConfig::default(),
     )
     .expect("package check succeeds");

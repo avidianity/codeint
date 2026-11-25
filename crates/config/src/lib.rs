@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod agent_home;
+mod baseline;
 mod boundaries;
 mod calendar_day;
 mod churn;
@@ -16,10 +17,15 @@ mod framework_profiles;
 mod hazards;
 mod ratchet;
 mod regression_limits;
+mod repo_state;
 mod resolved;
 mod result_cache_folder;
 mod sql;
 
+pub use baseline::{
+    BASELINE_PATH, BASELINE_SCHEMA_VERSION, Baseline, BaselineEntry, BaselineFileError,
+    BaselineUpdateSummary, MeasuredBaselineMetric,
+};
 pub use boundaries::{
     Boundaries, BoundaryDirective, BoundaryExternalPolicy, BoundaryPreset, BoundaryRuleDecision,
     BoundarySourceSet,
@@ -42,10 +48,10 @@ pub use codeint_json::{
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{
-    AgentClient, AgentCommand, AgentFormat, Command, ConfigError, ConfigFormat,
-    DEFAULT_MAX_TRACE_PATHS, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, Invocation,
-    PluginHostConfig, RatchetCommand, RatchetFormat, ReportDestination, ReportFormat, ReportInput,
-    ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat, TrendRange,
+    AgentClient, AgentCommand, AgentFormat, BaselineCommand, BaselineFormat, Command, ConfigError,
+    ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
+    Invocation, PluginHostConfig, RatchetCommand, RatchetFormat, ReportDestination, ReportFormat,
+    ReportInput, ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat, TrendRange,
 };
 pub use config_error::{
     ConfigFileKind, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,
@@ -63,6 +69,7 @@ pub use ratchet::{
     RatchetVersionMismatch, RatchetViolation, round_ratchet_ratio,
 };
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
+pub use repo_state::{MetricVersionMismatch, RepoStateFile, SourceSetEntries, StateFileError};
 pub use resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
     SourceSetOverride,

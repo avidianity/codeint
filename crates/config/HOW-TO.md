@@ -130,8 +130,23 @@ for declaration in &configuration.plugins {
 
 - `configuration.ratchet.path` holds the repository-relative Ratchet file path (`".codeint/ratchet.json"` by default) and rejects empty, absolute, and `..` paths with `ConfigurationFileError` (exit code 2).
 - `Ratchet::exists` and `Ratchet::load_optional` verify repository containment (including symlinks) before reading, returning `Ok(None)` when the Ratchet file is absent.
-- `Ratchet::check` compares each measured Metric's `metric_version` first (returning `Err(Vec<RatchetVersionMismatch>)` on any mismatch) and then checks each rounded 4-decimal ratio against its stored ceiling.
+- `Ratchet::check` compares each measured Metric's `metric_version` first (returning `Err(Vec<RatchetVersionMismatch>)`, an alias of `MetricVersionMismatch`, on any mismatch) and then checks each rounded 4-decimal ratio against its stored ceiling.
 - `Ratchet::update` creates on first run, monotonically lowers ceilings on improvement, auto-refreshes version-changed Metrics, and refuses to loosen unchanged-version Metrics unless `reset` is `true`; `Ratchet::write_atomic` creates parent directories and writes via a sibling temporary file rename.
+
+## Read and update the Baseline
+
+```rust
+use codeint_config::Baseline;
+
+let baseline = Baseline::load_optional(repository.root())?;
+let (updated, summary) = Baseline::update(baseline.as_ref(), &report.baseline_metrics(), reset);
+updated.write_atomic(repository.root())?;
+```
+
+- The Baseline always lives at `BASELINE_PATH` (`.codeint/baseline.json`); `Baseline::load_optional` returns `Ok(None)` when it is absent and shares the Ratchet's repository-containment rules.
+- `Baseline::is_baselined(source_set, metric, id)` says whether a Finding is hidden; pass `None` as the Source set for Dependency hygiene Metrics.
+- `Baseline::version_mismatches` returns a `MetricVersionMismatch` for each measured Metric whose stored Metric version differs.
+- `Baseline::update` records every Finding on the first run, later only removes fixed Findings (counting new ones in `skipped_new`), refreshes Metrics whose Metric version changed, replaces every measured Metric's Findings when `reset` is `true`, and keeps entries of unmeasured Metrics.
 
 ## Add a setting
 

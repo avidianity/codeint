@@ -43,6 +43,9 @@ if !report.over_budget().is_empty() {
 - `over_budget` returns every `BudgetFailure` whose displayed ratio exceeds its configured `Budget`.
 - `over_ratchet` returns every `RatchetFailure` recorded by `apply_ratchet`, `set_ratchet_note` sets the optional `ratchet_note` emitted on `--package` runs, and `failure_messages` combines `over_budget` and `over_ratchet`.
 - `ratchet_metrics` returns every measured Metric's rounded ratio and `metric_version` for Ratchet checking or updating.
+- Set `ReportOptions::baseline` to a loaded `codeint_config::Baseline` to leave out baselined Findings before ownership filtering and truncation; each Metric then records `baselined_findings`, the report records `baseline` (`path`, `hidden_findings`), and each Budget compares with the non-baselined ratio (measured ratio times the unhidden share of Finding weight), marking such failures `non_baselined`.
+- `baseline_metrics` returns each measured Metric's `metric_version` and the ids of its listed Findings; build the report with `FindingsShown::All`, no ownership filter, and no Baseline before passing them to `Baseline::update`.
+- `render_baseline_update(&summary, format)` prints the `codeint baseline update` summary as `text`, `toon`, or `json`.
 
 ## Measure one commit with `CommitMeasurement`
 
