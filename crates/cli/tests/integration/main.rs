@@ -3,6 +3,8 @@ mod history_support;
 #[path = "../wasm_fixtures/mod.rs"]
 mod wasm_fixtures;
 
+#[cfg(unix)]
+mod action;
 mod agent;
 mod baseline;
 mod boundaries;
@@ -20,6 +22,7 @@ mod guard;
 mod hazards;
 mod impact;
 mod init;
+mod init_adopt;
 #[cfg(unix)]
 mod install;
 mod mcp;

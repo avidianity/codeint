@@ -93,7 +93,13 @@ pub(super) enum CommandArguments {
     #[command(
         about = "Write a starter codeint.jsonc at the root of the Git repository that contains the current folder"
     )]
-    Init,
+    Init {
+        #[arg(
+            long,
+            help = "Also enable per-file Regression checks, suggest new-file Budgets, write .codeint/ratchet.json and .codeint/baseline.json from the current state, and print pull-request CI instructions"
+        )]
+        adopt: bool,
+    },
     #[command(about = "Update a standalone codeint binary in place from GitHub Releases")]
     Update {
         #[arg(

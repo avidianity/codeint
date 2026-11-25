@@ -323,6 +323,8 @@ pub enum Command {
     },
     Init {
         folder: PathBuf,
+        adopt: bool,
+        plugin_host: PluginHostConfig,
     },
     Update {
         check_only: bool,

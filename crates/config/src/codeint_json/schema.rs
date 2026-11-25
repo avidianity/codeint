@@ -185,6 +185,15 @@ impl ConfigurationFile {
         }
     }
 
+    pub(super) fn adoption_starter(
+        schema_address: String,
+        languages: Option<Vec<LanguageGlobs>>,
+    ) -> ConfigurationFile {
+        let mut starter = ConfigurationFile::starter(schema_address, languages);
+        starter.regression_limits.per_file = Some(true);
+        starter
+    }
+
     pub(super) fn without_schema_address(&self) -> ConfigurationFile {
         ConfigurationFile {
             _schema: None,
