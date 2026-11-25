@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-use super::{ConfigFileKind, ConfigurationFileError, JsonType, KeyPath, KeySegment};
+use crate::config_error::{ConfigFileKind, ConfigurationFileError, JsonType, KeyPath, KeySegment};
 
 #[cfg(test)]
 mod tests;

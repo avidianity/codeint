@@ -125,7 +125,7 @@ for declaration in &configuration.plugins {
 
 ## Add a setting
 
-- Add a field to `ConfigurationFile` in `src/codeint_json.rs`, with `#[serde(default)]` and a `#[schemars(description = ...)]` that tells the user what it does.
+- Add a field to `ConfigurationFile` in `src/codeint_json/schema.rs`, with `#[serde(default)]` and a `#[schemars(description = ...)]` that tells the user what it does.
 - Convert it into a typed field of `Configuration`; never hand the raw JSON to another crate.
 - Run `cargo test -p codeint-config`.
   The schema test rewrites `schema/codeint.schema.json` when it drifts from the types and fails once; review and commit the rewritten file.
