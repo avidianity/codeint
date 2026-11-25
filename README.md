@@ -80,9 +80,9 @@ Beyond static snapshots, codeint helps humans and coding agents understand how f
 
 ### Built for speed and safety
 
-codeint is written in safe Rust (`#![forbid(unsafe_code)]`, [ADR 0004](./docs/adr/0004-forbid-unsafe-code.md)) around two clean seams: Language plugins lower source files into a language-neutral Code model, and Metric plugins compute Metrics and Findings over that model.
+codeint is written in safe Rust (`#![forbid(unsafe_code)]` on every host, core, CLI, and built-in Plugin crate, [ADR 0004](./docs/adr/0004-forbid-unsafe-code.md)) around two clean seams: Language plugins lower source files into a language-neutral Code model, and Metric plugins compute Metrics and Findings over that model.
 It reads tracked files and commit history directly from Git objects without modifying your working tree, scanning `laravel/framework` (132k Production lines) in `0.47s` and `flutter/packages` (434k Production lines) in `3.68s` on Apple Silicon.
-External WebAssembly Plugins implement the versioned `codeint:plugin@0.4.0` WIT contract with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps.
+External WebAssembly Plugins implement the versioned `codeint:plugin@0.4.0` WIT contract with mandatory SHA-256 verification, zero host capabilities, and configurable memory and time caps, using `codeint-plugin-sdk` for safe Rust builds on `wasm32-wasip2` (`no_std`, zero extra tools) or `wasm32-unknown-unknown` (`std` plus `wasm-tools component new`) with zero WASI imports ([ADR 0027](./docs/adr/0027-plugin-sdk-guest-runtime-unsafe.md)).
 
 Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-architecture.md) for the full architecture diagram and design rationale.
 
@@ -165,7 +165,7 @@ let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 - [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Import boundaries](./docs/guide/import-boundaries.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
-- [Plugins](./docs/plugins.md): build, hash, declare, and test external WebAssembly Language and Metric plugins.
+- [Plugins](./docs/plugins.md): build external WebAssembly Language and Metric plugins with `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`), pin SHA-256 digests, and test them.
 - [Glossary](./GLOSSARY.md): canonical definitions of every domain term on this page.
 - [llms.txt](./llms.txt): compact documentation index for coding agents and LLM tools.
 

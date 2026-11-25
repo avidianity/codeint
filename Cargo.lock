@@ -437,6 +437,15 @@ dependencies = [
  "codeint-model",
  "thiserror",
  "wasmtime",
+ "wit-component 0.263.0",
+]
+
+[[package]]
+name = "codeint-plugin-sdk"
+version = "0.6.0"
+dependencies = [
+ "dlmalloc",
+ "wit-bindgen",
 ]
 
 [[package]]
@@ -774,6 +783,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.10",
+]
+
+[[package]]
+name = "dlmalloc"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-sys",
 ]
 
 [[package]]
