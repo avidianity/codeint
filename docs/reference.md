@@ -1267,7 +1267,7 @@ Calibrated SQL Reference ranges come from a panel of 20 pre-2023 public SQL repo
 See [SQL](#sql) below and [docs/guide/sql.md](./guide/sql.md) for details.
 
 For Shell (`shell`), codeint reads every `.sh`, `.bash`, and `.zsh` file with a hand-written lexer, detects POSIX `sh`, Bash, or Zsh from the first-line shebang and then from the extension, measures each named function plus one `<script>` function for top-level commands, defines 4 Flagged line rules and 10 Hazard line rules, and leaves import Metrics absent because shell scripts have no imports.
-The `shell` plugin publishes no Reference ranges yet.
+Calibrated Shell Reference ranges come from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md), source `codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0`): Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` (Import cycles is absent because shell scripts have no imports).
 See [Shell](#shell) below and [docs/guide/shell.md](./guide/shell.md) for details.
 
 ```json codeint.json
@@ -1676,7 +1676,7 @@ See [docs/guide/shell.md](./guide/shell.md) for a walkthrough.
   - `legacy-backticks`: command substitution written with backticks instead of `$(...)`.
   - `redundant-exit-status-check`: a `[ ... ]`, `[[ ... ]]`, or `test` comparison of `$?` with `0`.
   - `else-after-return`: an `else` after an `if` branch that always ends in `return` or `exit`.
-- **Reference ranges**: none published yet.
+- **Reference ranges**: Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md)).
 
 All 10 built-in Shell Hazard line rules:
 

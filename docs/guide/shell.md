@@ -79,5 +79,12 @@ Turn off any rule in `hazards.disabled_rules`:
 
 ## Reference ranges
 
-The `shell` plugin publishes no Reference ranges yet.
-Reports show `no published Reference range for this language` for shell Metrics.
+Calibrated Shell Reference ranges come from a stratified panel of 50 current public Shell repositories ([ADR 0031](../adr/0031-shell-reference-ranges.md)), with source `codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0`:
+
+| Metric | Reference range |
+| ------ | --------------- |
+| Erosion | 41.6% to 92.7% |
+| Duplication | 0.8% to 75.1% |
+| Verbosity | 0.0% to 2.5% |
+
+Import cycles has no Reference range because shell scripts have no imports.

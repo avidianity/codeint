@@ -15,7 +15,7 @@
 - [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, SQL, and Shell rules, function names, cognitive complexity, manifests, and calibrated Reference ranges.
 - [Go Guide](docs/guide/go.md): Go terminology mapping, Source sets, Flagged line rules, multi-file Go package imports, entry points, and `go.mod` Dependency hygiene.
 - [SQL Guide](docs/guide/sql.md): generic SQL measurement, PostgreSQL/MySQL/SQLite/DuckDB Dialects, Source sets, templated SQL and rejected statements, and automatic SQL Schema rules.
-- [Shell Guide](docs/guide/shell.md): `.sh`, `.bash`, and `.zsh` measurement, shebang flavor detection, named and top-level `<script>` functions, Source sets, Flagged line rules, and 10 secret-free Hazard line rules.
+- [Shell Guide](docs/guide/shell.md): `.sh`, `.bash`, and `.zsh` measurement, shebang flavor detection, named and top-level `<script>` functions, Source sets, Flagged line rules, 10 secret-free Hazard line rules, and calibrated Reference ranges.
 - [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` `--owner` filtering, `--package` scoping, and SARIF upload.
 - [Coding-Agent Integration (MCP Server)](docs/guide/mcp.md): automatic `codeint agent status`/`install`, `codeint schema`, and local stdio MCP server (`codeint mcp`) exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 
@@ -58,3 +58,4 @@
 - [ADR 0028: Stratified 50-repository current-codebase Reference panels](docs/adr/0028-stratified-reference-panels.md)
 - [ADR 0029: Hand-written lexers for PHP, Dart, Python, and Go Language plugins](docs/adr/0029-hand-written-lexers.md)
 - [ADR 0030: Finding Baseline in `.codeint/baseline.json`](docs/adr/0030-finding-baseline.md)
+- [ADR 0031: Shell Reference ranges](docs/adr/0031-shell-reference-ranges.md)

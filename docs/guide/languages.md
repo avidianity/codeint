@@ -30,7 +30,7 @@ See [Shell](./shell.md) for shell flavor detection, top-level `<script>` functio
 
 ## Calibrated Reference ranges
 
-Measured across 20 pre-2023 public repositories per language (10th to 90th percentile):
+Measured across 20 pre-2023 public repositories per language, or a stratified panel of 50 current public repositories for Shell (10th to 90th percentile):
 
 | Language | Erosion | Duplication | Verbosity | Import cycles | Record |
 | -------- | ------- | ----------- | --------- | ------------- | ------ |
@@ -44,6 +44,7 @@ Measured across 20 pre-2023 public repositories per language (10th to 90th perce
 | Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% | [ADR 0013](../adr/0013-python-reference-ranges.md) |
 | Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% | [ADR 0021](../adr/0021-go-reference-ranges.md) |
 | SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | N/A | [ADR 0022](../adr/0022-sql-reference-ranges.md) |
+| Shell | 41.6% to 92.7% | 0.8% to 75.1% | 0.0% to 2.5% | N/A | [ADR 0031](../adr/0031-shell-reference-ranges.md) |
 
 To add another language as an external WebAssembly plugin, see [docs/plugins.md](../plugins.md).
 

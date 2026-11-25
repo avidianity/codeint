@@ -88,7 +88,7 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 
 ## Calibrated Reference ranges
 
-10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework:
+10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework, or 50 current repositories for Shell:
 
 | Language | Erosion | Duplication | Verbosity | Import cycles | Docs |
 | -------- | ------- | ----------- | --------- | ------------- | ---- |
@@ -102,6 +102,7 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 | Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% | [ADR 0013](./docs/adr/0013-python-reference-ranges.md) |
 | Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% | [ADR 0021](./docs/adr/0021-go-reference-ranges.md) |
 | SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | N/A | [ADR 0022](./docs/adr/0022-sql-reference-ranges.md) |
+| Shell | 41.6% to 92.7% | 0.8% to 75.1% | 0.0% to 2.5% | N/A | [ADR 0031](./docs/adr/0031-shell-reference-ranges.md) |
 
 See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings.
 

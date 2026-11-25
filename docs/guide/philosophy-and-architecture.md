@@ -47,6 +47,7 @@ Test fixtures, generated code (`*.g.dart`, `*.pb.dart`, `@generated`), and third
 
 Raw ratios are hard to interpret without context.
 For each built-in language, codeint measures a panel of 20 public repositories pinned before `2023-01-01` (predating widespread coding-agent adoption) and publishes the 10th to 90th percentile as its **Reference range** ([ADR 0008](../adr/0008-typescript-reference-ranges.md), [ADR 0010](../adr/0010-rust-reference-ranges.md), [ADR 0011](../adr/0011-php-reference-ranges.md), [ADR 0012](../adr/0012-dart-reference-ranges.md), [ADR 0013](../adr/0013-python-reference-ranges.md), [ADR 0014](../adr/0014-vue2-reference-ranges.md), [ADR 0015](../adr/0015-vue3-reference-ranges.md), [ADR 0020](../adr/0020-react-reference-ranges.md)).
+Shell uses the stratified 50-repository current-codebase panel of [ADR 0028](../adr/0028-stratified-reference-panels.md) instead ([ADR 0031](../adr/0031-shell-reference-ranges.md)).
 
 ### 4. Budgets and Regressions
 

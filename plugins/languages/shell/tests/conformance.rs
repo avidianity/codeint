@@ -46,7 +46,29 @@ fn plugin_metadata_capabilities_and_no_imports_contract() {
     assert_eq!(Shell.extensions(), ["sh", "bash", "zsh"]);
     assert!(!Shell.has_imports());
     assert!(Shell.has_hazard_rules());
-    assert!(Shell.reference_ranges().unwrap().iter().next().is_none());
+    let ranges: Vec<_> = Shell
+        .reference_ranges()
+        .unwrap()
+        .iter()
+        .map(|range| {
+            (
+                range.metric.clone(),
+                range.metric_version,
+                range.low,
+                range.high,
+                range.source.clone(),
+            )
+        })
+        .collect();
+    let source = "codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0".to_owned();
+    assert_eq!(
+        ranges,
+        [
+            ("duplication".to_owned(), 1, 0.008, 0.751, source.clone()),
+            ("erosion".to_owned(), 1, 0.416, 0.927, source.clone()),
+            ("verbosity".to_owned(), 2, 0.000, 0.025, source),
+        ]
+    );
     assert!(Shell.known_framework_profiles().is_empty());
     let fp = Shell
         .resolve_framework_profiles("", &[], Vec::new(), FrameworkProfileSelection::Auto)
