@@ -9,6 +9,9 @@ Without either file, codeint measures every supported language with default sett
 
 Run `codeint init` to generate a starter `codeint.jsonc` with a versioned `$schema` URL for editor autocomplete.
 `codeint init` never replaces an existing `codeint.json` or `codeint.jsonc`.
+When built-in Language plugins discover two or more Workspace packages, `codeint init` appends commented-out starter `boundaries.zones` entries for each package.
+In a single-package repository whose Production source folders match at least two zones of the `layered` or `hexagonal` preset, `codeint init` appends a commented-out `boundaries.preset` suggestion.
+In flat or custom repositories without those signals, `codeint init` emits no guessed boundary zones.
 When you upgrade via `codeint update`, codeint updates that `$schema` tag automatically.
 If your config file pins an official `$schema` tag newer than the running binary, codeint stops with exit code `2` and instructs you to upgrade.
 

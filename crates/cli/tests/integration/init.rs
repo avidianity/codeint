@@ -247,3 +247,124 @@ fn init_outside_a_git_repository_names_the_folder_and_exits_2_without_writing() 
     assert!(!canonical.join("codeint.jsonc").exists());
     assert!(!canonical.join("codeint.json").exists());
 }
+
+fn assert_init_starter_boundaries(files: &[(&str, &str)], expected: &[&str], forbidden: &[&str]) {
+    let repository = Repository::new();
+    for (relative, body) in files {
+        repository.add(relative, body);
+    }
+    assert_exit_code(&codeint(&repository.root(), &["init"]), 0);
+    let configuration = repository.configuration();
+    for snippet in expected {
+        assert!(configuration.contains(snippet), "{configuration}");
+    }
+    for snippet in forbidden {
+        assert!(!configuration.contains(snippet), "{configuration}");
+    }
+    assert_exit_code(&codeint(&repository.root(), &["check"]), 0);
+    assert_exit_code(&codeint(&repository.root(), &["config", "--resolved"]), 0);
+}
+
+#[test]
+fn init_suggests_commented_out_workspace_package_zones_for_multi_package_repository_and_check_passes()
+ {
+    assert_init_starter_boundaries(
+        &[
+            (
+                "package.json",
+                "{\"name\": \"mono\", \"private\": true, \"workspaces\": [\"packages/*\"]}\n",
+            ),
+            ("packages/core/package.json", "{\"name\": \"@mono/core\"}\n"),
+            ("packages/core/src/model.ts", "export const answer = 42;\n"),
+            ("packages/web/package.json", "{\"name\": \"@mono/web\"}\n"),
+            (
+                "packages/web/src/app.ts",
+                "import { answer } from '../../core/src/model';\nexport const shown = answer;\n",
+            ),
+        ],
+        &[
+            "// \"boundaries\": {\n",
+            "//     \"core\": { \"patterns\": [\"packages/core/**\"] }",
+            "//     \"web\": { \"patterns\": [\"packages/web/**\"] }",
+            "//   \"rules\": []\n",
+        ],
+        &[],
+    );
+}
+
+#[test]
+fn init_disambiguates_colliding_workspace_package_basenames_in_starter_zones() {
+    assert_init_starter_boundaries(
+        &[
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"apps/web\", \"packages/web\"]\nresolver = \"2\"\n",
+            ),
+            (
+                "apps/web/Cargo.toml",
+                "[package]\nname = \"apps-web\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            ),
+            ("apps/web/src/lib.rs", "pub fn app() -> i32 { 1 }\n"),
+            (
+                "packages/web/Cargo.toml",
+                "[package]\nname = \"packages-web\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            ),
+            ("packages/web/src/lib.rs", "pub fn pkg() -> i32 { 2 }\n"),
+        ],
+        &[
+            "//     \"apps/web\": { \"patterns\": [\"apps/web/**\"] }",
+            "//     \"packages/web\": { \"patterns\": [\"packages/web/**\"] }",
+        ],
+        &[],
+    );
+}
+
+#[test]
+fn init_suggests_commented_out_layered_preset_for_single_package_layered_repository() {
+    assert_init_starter_boundaries(
+        &[
+            ("package.json", "{\"name\": \"shop\"}\n"),
+            (
+                "src/presentation/http.ts",
+                "export const route = '/orders';\n",
+            ),
+            (
+                "src/domain/order.ts",
+                "import { pool } from '../infrastructure/db';\nexport const order = pool;\n",
+            ),
+            ("src/infrastructure/db.ts", "export const pool = 1;\n"),
+        ],
+        &["// \"boundaries\": { \"preset\": \"layered\" }\n"],
+        &[],
+    );
+}
+
+#[test]
+fn init_suggests_commented_out_hexagonal_preset_for_single_package_hexagonal_repository() {
+    assert_init_starter_boundaries(
+        &[
+            ("package.json", "{\"name\": \"billing\"}\n"),
+            ("src/domain/invoice.ts", "export const invoice = 1;\n"),
+            ("src/ports/ledger.ts", "export const ledger = 2;\n"),
+            ("src/adapters/postgres.ts", "export const pg = 3;\n"),
+        ],
+        &["// \"boundaries\": { \"preset\": \"hexagonal\" }\n"],
+        &[],
+    );
+}
+
+#[test]
+fn init_emits_no_boundary_zones_for_flat_or_single_matching_folder_repository() {
+    assert_init_starter_boundaries(
+        &[
+            ("package.json", "{\"name\": \"flat\"}\n"),
+            ("src/domain/order.ts", "export const order = 1;\n"),
+            ("src/helpers/format.ts", "export const format = 2;\n"),
+            ("src/main.ts", "export const main = 3;\n"),
+            ("docs/api/spec.md", "# API\n"),
+            ("docs/models/erd.md", "# ERD\n"),
+        ],
+        &[],
+        &["\"boundaries\""],
+    );
+}

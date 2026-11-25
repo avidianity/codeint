@@ -33,8 +33,8 @@ pub use discovery::{
 };
 pub use schema::{Budget, PluginKind, configuration_schema};
 pub use starter::{
-    DetectedLanguage, StarterConfigurationError, published_schema_address,
-    write_starter_configuration,
+    DetectedLanguage, StarterBoundaries, StarterBoundaryZone, StarterConfigurationError,
+    published_schema_address, write_starter_configuration,
 };
 pub use types::{
     Budgets, Configuration, DEPENDENCY_METRIC_KEYS, DuplicationConfig, EntryPoints,

@@ -16,6 +16,57 @@ pub enum BoundaryPreset {
     Hexagonal,
 }
 
+impl BoundaryPreset {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BoundaryPreset::Layered => "layered",
+            BoundaryPreset::Hexagonal => "hexagonal",
+        }
+    }
+
+    pub fn detect(paths: &[RepoPath]) -> Option<BoundaryPreset> {
+        let layered = preset_match_score(BoundaryPreset::Layered, paths);
+        let hexagonal = preset_match_score(BoundaryPreset::Hexagonal, paths);
+        match (layered.0 >= 2, hexagonal.0 >= 2) {
+            (false, false) => None,
+            (true, false) => Some(BoundaryPreset::Layered),
+            (false, true) => Some(BoundaryPreset::Hexagonal),
+            (true, true) => {
+                if hexagonal > layered {
+                    Some(BoundaryPreset::Hexagonal)
+                } else {
+                    Some(BoundaryPreset::Layered)
+                }
+            }
+        }
+    }
+}
+
+fn preset_match_score(preset: BoundaryPreset, paths: &[RepoPath]) -> (usize, usize) {
+    let boundaries = Boundaries::from_file(BoundariesFile {
+        preset: Some(preset),
+        ..Default::default()
+    })
+    .expect("built-in boundary presets compile without error");
+    let mut matched_zones: BTreeSet<&str> = BTreeSet::new();
+    let mut canonical_zones: BTreeSet<&str> = BTreeSet::new();
+    for path in paths {
+        if let Some(zone) = boundaries.zone_of(path) {
+            matched_zones.insert(zone);
+            if path_has_folder_segment(path, zone) {
+                canonical_zones.insert(zone);
+            }
+        }
+    }
+    (matched_zones.len(), canonical_zones.len())
+}
+
+fn path_has_folder_segment(path: &RepoPath, folder: &str) -> bool {
+    let mut segments = path.as_str().split('/');
+    let _file = segments.next_back();
+    segments.any(|segment| segment == folder)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoundaryDirective {
     Allow,
