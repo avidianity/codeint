@@ -5,9 +5,9 @@ use codeint_config::{PluginKind, PluginLimits};
 use codeint_model::language::{FlaggedLine, Function, HazardLine, Token, TokenKind};
 use codeint_model::{
     CodeModel, FileModel, FrameworkProfileSelection, ImportResolution, LanguageFacts,
-    LanguagePlugin, LanguagePluginError, LowerError, Manifest, MetricPlugin, MetricPluginError,
-    RepoPath, ResolveError, RuntimeImport, SourceFile, SourceSet, Workspace, WorkspaceError,
-    choose_manifests, validate_hazard_lines,
+    LanguagePlugin, LanguagePluginError, LowerError, Manifest, Metric, MetricPlugin,
+    MetricPluginError, RepoPath, ResolveError, RuntimeImport, SourceFile, SourceSet, Workspace,
+    WorkspaceError, choose_manifests, validate_hazard_lines,
 };
 
 use crate::{PluginHostError, WasmLanguagePlugin, WasmMetricPlugin, verify_plugin_component};
@@ -908,17 +908,47 @@ fn check_workspace_packages(
 }
 
 fn check_reference_ranges(report: &mut ConformanceReport, plugin: &WasmLanguagePlugin) {
-    match plugin.reference_ranges() {
-        Ok(ranges) => report.pass(
+    let ranges = match plugin.reference_ranges() {
+        Ok(ranges) => ranges,
+        Err(error) => {
+            report.fail(
+                "reference-ranges",
+                error.to_string(),
+                "return at most one Reference range per Metric with 0 <= low <= high <= 1",
+            );
+            return;
+        }
+    };
+    let stale: Vec<String> = ranges
+        .iter()
+        .filter_map(|range| {
+            let current = Metric::from_key(&range.metric)?.version();
+            range.is_stale_for(current).then(|| {
+                format!(
+                    "{} has version {}, current version is {current}",
+                    range.metric, range.metric_version
+                )
+            })
+        })
+        .collect();
+    if stale.is_empty() {
+        report.pass(
             "reference-ranges",
-            format!("{} Reference ranges within 0..=1", ranges.iter().count()),
-        ),
-        Err(error) => report.fail(
-            "reference-ranges",
-            error.to_string(),
-            "return at most one Reference range per Metric with 0 <= low <= high <= 1",
-        ),
+            format!(
+                "{} Reference ranges within 0..=1, each at its Metric's current version",
+                ranges.iter().count()
+            ),
+        );
+        return;
     }
+    let summary = stale.join("; ");
+    report.fail(
+        "reference-ranges",
+        format!("stale Reference ranges: {summary}"),
+        format!(
+            "codeint check hides a Reference range whose metric_version differs from the current Metric version; recalibrate the range or update its metric_version ({summary})"
+        ),
+    );
 }
 
 fn is_call_error(error: &LanguagePluginError) -> bool {

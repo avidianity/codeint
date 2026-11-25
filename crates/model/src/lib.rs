@@ -315,6 +315,12 @@ impl From<language::LowerError> for LowerError {
     }
 }
 
+impl ReferenceRange {
+    pub fn is_stale_for(&self, current_metric_version: u32) -> bool {
+        self.metric_version != current_metric_version
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ReferenceRanges {
     by_metric: BTreeMap<String, ReferenceRange>,

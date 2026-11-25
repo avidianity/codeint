@@ -510,7 +510,9 @@ The suite verifies:
   - `resolve-imports` returning one `Resolved` (non-empty list of paths from `repository-paths`), `External`, `Builtin`, or `Unresolved` result per request in request order.
   - `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
 - When `has-imports` returns `false`, empty `runtime-imports` and no calls to `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`.
-- `reference-ranges` returning valid ranges.
+- `reference-ranges` returning valid ranges (at most one per Metric, bounds within `0..=1`), each at the current version of its built-in Metric.
+  A range with `metric_version` 0 or a version that differs from the current Metric version fails the check, because `codeint check` hides it; the hint names the Metric, the range's version, and the current version.
+  Ranges for keys that are not built-in Metrics are not version-checked, because `codeint check` never looks them up.
 - `has-hazard-rules`, `hazard-rules`, and `hazard-lines` staying consistent (empty `hazard-rules` and empty `hazard-lines` when `false`, non-empty list of non-empty rule names when `true`, every `hazard-line.line` within `1..=line_count`, and every `hazard-line.rule` listed in `hazard-rules`).
 - Safe concurrent `lower` calls across threads.
 
@@ -535,7 +537,7 @@ codeint plugin test target/wasm32-wasip2/release/my_metric.wasm --kind metric --
 Each failed check prints its rule and a fix hint.
 The runner reports these rules:
 
-- Language plugin: a valid WebAssembly component with zero WASI imports, an exact `codeint:plugin@0.4.0` match, valid extensions, Hazard rules and Framework profiles that are consistent and resolve under every selection (disabled, auto, exclude, and only; skipped when the plugin lists no Framework profiles), a deterministic and stateless `lower` with 1-based line bounds, sorted functions and tokens, and listed Hazard rules, valid answers from `reference-ranges`, and, when `has-imports` is true, valid answers from `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` (skipped when `has-imports` is false).
+- Language plugin: a valid WebAssembly component with zero WASI imports, an exact `codeint:plugin@0.4.0` match, valid extensions, Hazard rules and Framework profiles that are consistent and resolve under every selection (disabled, auto, exclude, and only; skipped when the plugin lists no Framework profiles), a deterministic and stateless `lower` with 1-based line bounds, sorted functions and tokens, and listed Hazard rules, valid, current-version answers from `reference-ranges`, and, when `has-imports` is true, valid answers from `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` (skipped when `has-imports` is false).
 - Metric plugin: a valid WebAssembly component with zero WASI imports, an exact `codeint:plugin@0.4.0` match, a valid Metric key that collides with no built-in Metric or reserved report key, a Metric version of 1 or higher, a non-empty name and description, and a deterministic and stateless `measure` that returns a ratio from 0 to 1, finite non-negative numbers, and Findings with non-empty ids, 1-based lines, and repository-relative paths.
 - Both kinds: peak memory and call time within `--plugin-memory-mb` and `--plugin-timeout-ms`.
 

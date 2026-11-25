@@ -840,7 +840,9 @@ The runner checks a Language plugin for the following rules:
   When `known-framework-profiles` is empty, codeint never resolves Framework profiles, so the runner reports `framework-profiles` as skipped.
 - When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or a valid `package.json`, because `codeint check` stops on any `workspace-error`.
   When `has-imports` is false, codeint never calls these five, so the runner reports them as skipped.
-- It answers `reference-ranges` with valid data.
+- It answers `reference-ranges` with valid data: bounds within `0..=1`, at most one range per Metric, and every range for a built-in Metric at that Metric's current `metric_version`.
+  A stale range (version 0 or a mismatch) fails with a hint to recalibrate or update it, because `codeint check` hides such a range behind a note.
+  Ranges for keys that are not built-in Metrics are not version-checked.
 - It stays within the memory and time limits of each call; a call that hits a limit fails `limits`.
 
 The runner checks a Metric plugin for the following rules:

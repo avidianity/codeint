@@ -357,3 +357,39 @@ fn unreadable_plugin_file_is_an_operational_error() {
         .expect("run codeint plugin test");
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn stale_reference_ranges_fail_reference_ranges_with_a_recalibrate_hint_in_every_format() {
+    let wasm = "stale_reference_range_language_plugin.wasm";
+    let expected = [
+        "erosion has version 2, current version is 1",
+        "verbosity has version 0, current version is 2",
+    ];
+    let (output, report) = json_report("language", wasm, &[]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(check_status(&report, "reference-ranges"), "fail");
+    let hint = failed_checks(&report)
+        .into_iter()
+        .find(|(id, _)| id == "reference-ranges")
+        .map(|(_, hint)| hint)
+        .expect("reference-ranges failure");
+    for needle in expected {
+        assert!(hint.contains(needle), "{needle:?} missing from {hint:?}");
+    }
+    assert!(hint.contains("recalibrate"), "{hint:?}");
+    assert!(!hint.contains("duplication"), "{hint:?}");
+
+    let text = stdout(&run_plugin_test("language", wasm, "text"));
+    assert!(text.contains("[FAIL] reference-ranges:"), "{text}");
+    assert!(text.contains(&format!("fix: {hint}")), "{text}");
+
+    let toon = stdout(&run_plugin_test("language", wasm, "toon"));
+    assert!(toon.contains("reference-ranges"), "{toon}");
+    assert!(toon.contains(&hint), "{toon}");
+}
+
+#[test]
+fn current_reference_ranges_still_pass() {
+    let (_, report) = json_report("language", "sample_mini_plugin.wasm", &[]);
+    assert_eq!(check_status(&report, "reference-ranges"), "pass");
+}
