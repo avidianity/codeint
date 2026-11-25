@@ -121,7 +121,7 @@ impl RatchetUpdateReport {
         if s.removed > 0 {
             details.push(format!("{} removed", s.removed));
         }
-        if details.is_empty() {
+        let mut text = if details.is_empty() {
             format!("{action} {} ({} entries)", s.path, s.total_entries)
         } else {
             format!(
@@ -130,6 +130,13 @@ impl RatchetUpdateReport {
                 s.total_entries,
                 details.join(", ")
             )
+        };
+        if s.replaced_invalid {
+            text.push_str(&format!(
+                "\nReplaced invalid {}; the previous content is recoverable from Git.",
+                s.path
+            ));
         }
+        text
     }
 }

@@ -69,7 +69,9 @@ pub use ratchet::{
     RatchetVersionMismatch, RatchetViolation, round_ratchet_ratio,
 };
 pub use regression_limits::{NewFindingsRule, RatioRise, RegressionLimit, RegressionLimits};
-pub use repo_state::{MetricVersionMismatch, RepoStateFile, SourceSetEntries, StateFileError};
+pub use repo_state::{
+    LoadedForUpdate, MetricVersionMismatch, RepoStateFile, SourceSetEntries, StateFileError,
+};
 pub use resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
     SourceSetOverride,

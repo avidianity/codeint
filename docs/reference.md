@@ -828,6 +828,7 @@ codeint agent help
 `codeint ratchet update` measures the whole repository and writes each measured Metric's ceiling ratio (rounded to 4 decimal places) alongside its positive integer Metric version to `.codeint/ratchet.json` (or the configured `ratchet.path`).
 It creates the Ratchet file on the first run, lowers ceilings whenever a Metric improves, keeps equal ceilings unchanged, and automatically refreshes entries whose Metric version changed.
 When any unchanged-version Metric has risen above its stored ceiling, `codeint ratchet update` stops with exit code 2 without modifying the file unless you pass `--reset`.
+When the existing Ratchet file is not valid JSON or fails validation, `codeint ratchet update --reset` replaces it with a regenerated file and says so; without `--reset` it stops with exit code 2.
 `codeint ratchet update` accepts an optional `[PATH]` folder inside the repository, `--reset`, `--coverage-report <PATH>` (repeatable), and `--format <text|toon|json>` (`text` by default).
 
 ```sh exit=0

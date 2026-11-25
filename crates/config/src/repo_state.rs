@@ -160,6 +160,17 @@ impl StateFileError {
         }
     }
 
+    pub fn is_invalid_content(&self) -> bool {
+        matches!(
+            self,
+            StateFileError::InvalidJson { .. }
+                | StateFileError::UnsupportedSchemaVersion { .. }
+                | StateFileError::InvalidCeiling { .. }
+                | StateFileError::InvalidMetricVersion { .. }
+                | StateFileError::UnknownDependencyMetric { .. }
+        )
+    }
+
     pub(crate) fn from_fault(
         file: RepoStateFile,
         relative_path: &str,
@@ -172,6 +183,28 @@ impl StateFileError {
             StateFileFault::Unreadable(source) => StateFileError::Unreadable { file, path, source },
             StateFileFault::Write { path, source } => StateFileError::Write { file, path, source },
         }
+    }
+}
+
+pub struct LoadedForUpdate<T> {
+    pub existing: Option<T>,
+    pub replaced_invalid: bool,
+}
+
+pub(crate) fn recover_invalid_for_update<T>(
+    loaded: Result<Option<T>, StateFileError>,
+    reset: bool,
+) -> Result<LoadedForUpdate<T>, StateFileError> {
+    match loaded {
+        Ok(existing) => Ok(LoadedForUpdate {
+            existing,
+            replaced_invalid: false,
+        }),
+        Err(error) if reset && error.is_invalid_content() => Ok(LoadedForUpdate {
+            existing: None,
+            replaced_invalid: true,
+        }),
+        Err(error) => Err(error),
     }
 }
 

@@ -11,8 +11,8 @@ use crate::config_error::{
     is_absolute_repo_path,
 };
 use crate::repo_state::{
-    MetricVersionMismatch, RepoStateFile, SourceSetEntries, StateFileError, metric_label,
-    read_state_file, state_file_exists, write_state_file,
+    LoadedForUpdate, MetricVersionMismatch, RepoStateFile, SourceSetEntries, StateFileError,
+    metric_label, read_state_file, recover_invalid_for_update, state_file_exists, write_state_file,
 };
 
 const RATCHET_DEPENDENCY_KEYS: [&str; 3] = [
@@ -168,6 +168,8 @@ pub struct RatchetUpdateSummary {
     pub path: String,
     pub created: bool,
     pub reset: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub replaced_invalid: bool,
     pub tightened: usize,
     pub loosened: usize,
     pub refreshed: usize,
@@ -196,6 +198,17 @@ impl Ratchet {
             })?
             .map(|text| Ratchet::parse(&text, relative_path))
             .transpose()
+    }
+
+    pub fn load_for_update(
+        repository_root: &Path,
+        relative_path: &str,
+        reset: bool,
+    ) -> Result<LoadedForUpdate<Ratchet>, RatchetFileError> {
+        recover_invalid_for_update(
+            Ratchet::load_optional(repository_root, relative_path),
+            reset,
+        )
     }
 
     pub fn parse(text: &str, path_label: &str) -> Result<Ratchet, RatchetFileError> {
@@ -353,6 +366,7 @@ impl Ratchet {
             path: path_label.to_owned(),
             created: existing.is_none(),
             reset,
+            replaced_invalid: false,
             tightened,
             loosened,
             refreshed,
