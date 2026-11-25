@@ -28,6 +28,20 @@ pub struct HeadCommit {
     pub commit: String,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(super) struct ManifestWarnings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) base: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) head: Vec<String>,
+}
+
+impl ManifestWarnings {
+    fn is_empty(&self) -> bool {
+        self.base.is_empty() && self.head.is_empty()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiffReport {
     pub(super) base: BaseEntry,
@@ -36,6 +50,8 @@ pub struct DiffReport {
     pub(super) test_gap_note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) ratchet_note: Option<String>,
+    #[serde(default, skip_serializing_if = "ManifestWarnings::is_empty")]
+    pub(super) manifest_warnings: ManifestWarnings,
     pub(super) source_sets: SourceSetChangesSections,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) dependencies: Option<DependenciesChanges>,

@@ -531,8 +531,8 @@ impl WasmLanguagePlugin {
             .with_checked_instance("workspace-packages", |api, store| {
                 api.call_workspace_packages(store, &host_manifests)
             })
-            .map_err(|error| WorkspaceError::Manifest {
-                path: self.name.clone(),
+            .map_err(|error| WorkspaceError::PluginFailed {
+                plugin: self.name.clone(),
                 message: error.to_string(),
             })?
             .map_err(|error| WorkspaceError::Manifest {

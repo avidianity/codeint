@@ -125,6 +125,7 @@ Run codeint inside any Git repository:
 
 ```sh
 codeint init
+codeint init --adopt
 codeint check
 codeint diff main
 codeint ratchet update
@@ -135,6 +136,7 @@ codeint agent install
 ```
 
 - `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema`.
+- `codeint init --adopt` onboards an existing codebase in one step: it writes the starter `codeint.jsonc` with `per_file: true`, zero Budgets for each recorded Metric, and commented `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json` from the current state, and prints a pull-request workflow, without replacing any existing file ([adoption guide](./docs/guide/adopting-on-an-existing-codebase.md)).
 - `codeint check` measures the working tree and prints each Metric with its Findings.
 - `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget, Ratchet, or Regression failure.
 - `codeint ratchet update` creates or monotonically tightens `.codeint/ratchet.json` ceilings for whole-repository runs.
@@ -162,7 +164,7 @@ let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 
 ## Documentation
 
-- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Import boundaries](./docs/guide/import-boundaries.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
+- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Import boundaries](./docs/guide/import-boundaries.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), [Adopting codeint on an existing codebase](./docs/guide/adopting-on-an-existing-codebase.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
 - [Plugins](./docs/plugins.md): build external WebAssembly Language and Metric plugins with `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`), pin SHA-256 digests, and test them.

@@ -19,6 +19,11 @@ pub(super) fn render(report: &TrendReport) -> String {
     if let Some(note) = &report.test_gap_note {
         blocks.push(prose(note));
     }
+    for entry in &report.manifest_warnings {
+        for warning in &entry.warnings {
+            blocks.push(prose(&format!("Commit {}: {warning}", entry.commit)));
+        }
+    }
     for (name, rows) in report.source_sets.named() {
         let external_keys: Vec<String> = rows
             .iter()

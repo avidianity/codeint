@@ -67,7 +67,6 @@ fn tooling_remedy(error: &CliError) -> Cow<'static, str> {
 
 fn ratchet_remedy(error: &RatchetError) -> Cow<'static, str> {
     match error {
-        RatchetError::Check(error) => check_remedy(error),
         RatchetError::RatchetFile(error) => state_file_remedy(error),
         RatchetError::LooseningRefused { .. } => Cow::Borrowed(
             "Fix the regressed Metrics, or run codeint ratchet update --reset to intentionally loosen unchanged-version Ratchet ceilings.",
@@ -284,6 +283,20 @@ fn init_remedy(error: &InitError) -> Cow<'static, str> {
         ),
         InitError::Git(error) => Cow::Borrowed(git_remedy(error)),
         InitError::StarterConfiguration(error) => starter_configuration_remedy(error),
+        InitError::AdoptConfigurationExists(_) => Cow::Borrowed(
+            "This repository already has a codeint config; run codeint ratchet update and codeint baseline update to create the Ratchet and Baseline for it.",
+        ),
+        InitError::Check(error) => check_remedy(error),
+        InitError::Ratchet(error) => ratchet_remedy(error),
+        InitError::StateFileExists { update_command, .. } => Cow::Owned(format!(
+            "Keep it and run {update_command} to tighten it, run {update_command} --reset to replace an invalid file, or delete it and run codeint init --adopt again."
+        )),
+        InitError::RollbackIncomplete { .. } => Cow::Borrowed(
+            "Delete the listed files, fix the first error, and run codeint init --adopt again.",
+        ),
+        InitError::Inspect { .. } => Cow::Borrowed(
+            "Check the permissions of the .codeint folder and run codeint init --adopt again.",
+        ),
     }
 }
 
@@ -374,7 +387,7 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
         WorkspaceError::Manifest { .. } => {
             "Fix the manifest that the message names so that your package manager accepts it, then run codeint again."
         }
-        WorkspaceError::InvalidPackageRoot(_) => {
+        WorkspaceError::PluginFailed { .. } | WorkspaceError::InvalidPackageRoot(_) => {
             "This is a defect in the Language plugin; report it to the Plugin's author."
         }
     }

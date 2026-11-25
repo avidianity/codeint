@@ -17,7 +17,7 @@ use crate::check::{
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MEASUREMENT_CACHE_VERSION: u32 = 7;
+const MEASUREMENT_CACHE_VERSION: u32 = 8;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {
@@ -281,6 +281,7 @@ fn measure_snapshot_to_commit(
     selected: Option<&SelectedPackage>,
 ) -> Result<CommitMeasurement, CheckError> {
     let metric_plugins = plugins.metric_plugins();
+    let manifest_warnings = std::mem::take(&mut snapshot.manifest_warnings);
     let (orphan_files, _) = compute_orphan_files(&snapshot, selected);
     let (dependency_hygiene, _) =
         compute_dependency_hygiene(&snapshot, &configuration.dependencies, selected);
@@ -305,5 +306,6 @@ fn measure_snapshot_to_commit(
             disabled_hazard_rules: &disabled_hazard_rules,
         },
     )
+    .map(|measurement| measurement.with_manifest_warnings(manifest_warnings))
     .map_err(|error| CheckError::metric_plugin(configuration.config_file(), error))
 }

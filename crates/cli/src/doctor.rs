@@ -6,6 +6,7 @@ use codeint_config::{
     PluginKind, PluginSource, SchemaVersionStatus, inspect_configuration, is_broken_symlink,
 };
 use codeint_git::{GitError, Repository, Snapshot};
+use codeint_model::Workspace;
 use codeint_plugin_host::{
     PLUGIN_INTERFACE_VERSION, PluginHostError, built_in_language_framework_profiles,
     built_in_language_names, built_in_language_plugins, sha256, sha256_hex,
@@ -301,14 +302,35 @@ fn check_workspace(tree: &Snapshot) -> DoctorCheck {
             return DoctorCheck::error("workspace", describe(&error));
         }
     };
-    let workspace = match find_workspace(plugins, &manifests) {
-        Ok(workspace) => workspace,
+    let (workspace, manifest_warnings) = match find_workspace(plugins, manifests) {
+        Ok(found) => found,
         Err(error) => {
             return DoctorCheck::error("workspace", describe(&error)).with_remedy(
                 "Fix the manifest that the message names so that your package manager accepts it.",
             );
         }
     };
+    let check = workspace_check(&workspace);
+    if manifest_warnings.is_empty() {
+        return check;
+    }
+    DoctorCheck::warn(
+        "workspace",
+        format!(
+            "Skipped {} invalid {}; {}",
+            manifest_warnings.len(),
+            if manifest_warnings.len() == 1 {
+                "manifest"
+            } else {
+                "manifests"
+            },
+            check.summary
+        ),
+    )
+    .with_detail(manifest_warnings.join("\n"))
+}
+
+fn workspace_check(workspace: &Workspace) -> DoctorCheck {
     if !workspace.has_members() {
         return DoctorCheck::pass(
             "workspace",
