@@ -1,6 +1,6 @@
 # CI and GitHub Actions
 
-Run `codeint diff` on every pull request so Software entropy Regressions, Budget failures, boundary violations, orphan files, and dependency hygiene problems are caught before merge.
+Run `codeint diff` on every pull request so Software entropy Regressions, Budget failures, Ratchet violations, boundary violations, orphan files, and dependency hygiene problems are caught before merge.
 
 ## One-line GitHub Action (recommended)
 
@@ -94,11 +94,13 @@ jobs:
   codeint diff origin/main --owner @org/payments
   ```
 
-- Pass `--package <path>` in a monorepo to scope `check`, `diff`, `impact`, or `trace` to one Workspace package:
+- Pass `--package <path>` in a monorepo to scope `check`, `diff`, `impact`, or `trace` to one Workspace package (whole-repository `.codeint/ratchet.json` enforcement is skipped with a `ratchet_note` on `--package` runs):
 
   ```sh
   codeint diff origin/main --package packages/billing
   ```
+
+- Commit `.codeint/ratchet.json` (created and tightened with `codeint ratchet update`) so whole-repository `codeint check` and `codeint diff` runs fail in CI if any Metric rises above its recorded ceiling or if a Metric version upgrade needs re-baselining.
 
 - Pair `codeint diff` in CI with local `codeint guard <path>` checks (or the `guard` MCP tool) so architectural boundary rules are checked before code is even written.
 
@@ -106,4 +108,4 @@ jobs:
 
 - `fetch-depth: 0` fetches full branch history so `codeint diff` can compute the Git merge-base.
 - Grant `pull-requests: write` for sticky pull-request comments, and `security-events: write` when uploading SARIF.
-- To tune Budgets, Regression limits, or boundaries, edit `codeint.jsonc` or `codeint.json`; see [Configuration](./configuration.md).
+- To tune Budgets, Regression limits, Ratchet paths, or boundaries, edit `codeint.jsonc`, `codeint.json`, `.codeint/config.jsonc`, or `.codeint/config.json`; see [Configuration](./configuration.md).

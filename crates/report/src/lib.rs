@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_config::{
     Boundaries as BoundariesConfig, Budgets, DependenciesConfig, DuplicationConfig, FindingsShown,
-    ReportFormat,
+    MeasuredRatchetMetric, Ratchet, RatchetVersionMismatch, ReportFormat,
 };
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{
@@ -51,6 +51,7 @@ mod impact;
 mod markdown;
 mod measurement;
 mod ownership;
+mod ratchet;
 mod render;
 mod report_schema;
 mod sarif;
@@ -77,6 +78,7 @@ pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardExternalImports, Gua
 pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::{CommitMeasurement, CommitMeasurementOptions};
 pub use ownership::OwnershipOptions;
+pub use ratchet::{RATCHET_PACKAGE_SKIPPED_NOTE, RatchetFailure, RatchetUpdateReport};
 pub use render::ReportError;
 pub use report_schema::report_schema;
 pub use saved::{SavedReport, SavedReportError};
@@ -108,6 +110,8 @@ pub struct Report {
     measured: MeasuredSection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     coverage_unmatched_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ratchet_note: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     languages: BTreeMap<String, MeasuredSection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -122,6 +126,8 @@ pub struct Report {
     submodules: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     over_budget: Vec<BudgetFailure>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    over_ratchet: Vec<RatchetFailure>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -544,6 +550,7 @@ impl Report {
         }
         Ok(Report {
             over_budget: failures,
+            over_ratchet: Vec::new(),
             skipped,
             rejected_statements: extras.rejected_statements,
             sql_schemas: extras.sql_schemas,
@@ -553,6 +560,7 @@ impl Report {
             coverage_unmatched_note: format_unmatched_coverage_note(
                 options.unmatched_coverage_paths,
             ),
+            ratchet_note: None,
             languages: sections_per_language,
         })
     }
@@ -575,6 +583,46 @@ impl Report {
         &self.over_budget
     }
 
+    pub fn over_ratchet(&self) -> &[RatchetFailure] {
+        &self.over_ratchet
+    }
+
+    pub fn failure_messages(&self) -> Vec<String> {
+        self.over_budget
+            .iter()
+            .map(ToString::to_string)
+            .chain(self.over_ratchet.iter().map(ToString::to_string))
+            .collect()
+    }
+
+    pub fn set_ratchet_note(&mut self, note: impl Into<String>) {
+        self.ratchet_note = Some(note.into());
+    }
+
+    pub fn ratchet_metrics(&self) -> Vec<MeasuredRatchetMetric> {
+        let mut metrics = Vec::new();
+        for (source_set, section) in self.measured.source_sets.iter() {
+            push_source_set_ratchet_metrics(&mut metrics, source_set, section);
+        }
+        if let Some(deps) = &self.measured.dependencies {
+            let un = &deps.unused_dependencies.header;
+            let ul = &deps.unlisted_dependencies.header;
+            let dp = &deps.dev_in_production_dependencies.header;
+            ratchet::push_dependency_ratchet_metrics(
+                &mut metrics,
+                (un.ratio.0, un.metric_version),
+                (ul.ratio.0, ul.metric_version),
+                (dp.ratio.0, dp.metric_version),
+            );
+        }
+        metrics
+    }
+
+    pub fn apply_ratchet(&mut self, ratchet: &Ratchet) -> Result<(), Vec<RatchetVersionMismatch>> {
+        self.over_ratchet = ratchet::evaluate_ratchet(ratchet, &self.ratchet_metrics())?;
+        Ok(())
+    }
+
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
         match format {
             ReportFormat::Toon => render_toon(self),
@@ -583,6 +631,83 @@ impl Report {
                 .map_err(ReportError::Sarif),
             ReportFormat::Markdown => Ok(markdown::render(self)),
         }
+    }
+}
+
+fn push_source_set_ratchet_metrics(
+    metrics: &mut Vec<MeasuredRatchetMetric>,
+    source_set: SourceSet,
+    section: &SourceSetSection,
+) {
+    let mut push = |key: &str, ratio: Decimal, metric_version: u32| {
+        metrics.push(MeasuredRatchetMetric {
+            source_set: Some(source_set),
+            metric: key.to_owned(),
+            ratio: ratio.0,
+            metric_version,
+        });
+    };
+    push(
+        Metric::Erosion.key(),
+        section.erosion.header.ratio,
+        section.erosion.header.metric_version,
+    );
+    push(
+        Metric::CognitiveComplexity.key(),
+        section.cognitive_complexity.header.ratio,
+        section.cognitive_complexity.header.metric_version,
+    );
+    push(
+        Metric::Duplication.key(),
+        section.duplication.header.ratio,
+        section.duplication.header.metric_version,
+    );
+    push(
+        Metric::Verbosity.key(),
+        section.verbosity.header.ratio,
+        section.verbosity.header.metric_version,
+    );
+    if let Some(import_cycles) = &section.import_cycles {
+        push(
+            Metric::ImportCycles.key(),
+            import_cycles.header.ratio,
+            import_cycles.header.metric_version,
+        );
+    }
+    if let Some(boundaries) = &section.boundaries {
+        push(
+            Metric::Boundaries.key(),
+            boundaries.header.ratio,
+            boundaries.header.metric_version,
+        );
+    }
+    if let Some(orphan_files) = &section.orphan_files {
+        push(
+            Metric::OrphanFiles.key(),
+            orphan_files.header.ratio,
+            orphan_files.header.metric_version,
+        );
+    }
+    if let Some(test_gap) = &section.test_gap {
+        push(
+            Metric::TestGap.key(),
+            test_gap.header.ratio,
+            test_gap.header.metric_version,
+        );
+    }
+    if let Some(hazards) = &section.hazards {
+        push(
+            Metric::Hazards.key(),
+            hazards.header.ratio,
+            hazards.header.metric_version,
+        );
+    }
+    for (key, external) in &section.external_metrics {
+        push(
+            key.as_str(),
+            external.header.ratio,
+            external.header.metric_version,
+        );
     }
 }
 

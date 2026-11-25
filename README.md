@@ -57,7 +57,7 @@ Additional independent Metrics and structural checks run in the same pass:
 - **Hazards**: share of source lines matching AST-only Hazard line rules for patterns likely to cause wrong results, slow execution, or a security exposure, reported next to Software entropy with strict non-leakage (path, line, and rule name only, never source text) and 32 built-in SQL rules including 5 schema-backed rules ([Hazards guide](./docs/guide/hazards.md), [SQL guide](./docs/guide/sql.md), [ADR 0016](./docs/adr/0016-hazards-next-to-software-entropy.md)).
 
 Every file belongs to one **Source set** (`production`, `test`, `generated`, or `vendored`), so fixtures and generated code never distort Production ratios.
-**Budgets** cap absolute ratios in `codeint check`, while `codeint diff <base>` ratchets every pull request against its Git merge-base.
+**Budgets** cap absolute ratios, `.codeint/ratchet.json` (**Ratchet**, managed with `codeint ratchet update`) locks in whole-repository ceilings with Metric version tracking, and `codeint diff <base>` checks every pull request against its Git merge-base ([ADR 0026](./docs/adr/0026-regression-and-ratchet.md)).
 
 ### Codebase navigation, Git history, and ownership
 
@@ -72,7 +72,7 @@ Beyond static snapshots, codeint helps humans and coding agents understand how f
 
 ### Built for CI and coding agents
 
-- **JSONC configuration**: configure codeint in `codeint.jsonc` or `codeint.json` with comments and trailing commas (`codeint init` writes a starter `codeint.jsonc`).
+- **JSONC configuration and `.codeint/` state**: configure codeint in `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` (`codeint init` writes a starter `codeint.jsonc`), and lock in monotonic whole-repository ceilings in `.codeint/ratchet.json` via `codeint ratchet update`.
 - **Single-scan multi-format reporting**: save `codeint check --format json` or `codeint diff --format json` once, then re-render losslessly into `text`, `toon`, `json`, `sarif`, or `markdown` with `codeint report`.
 - **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, and verify repository health offline with `codeint doctor`.
 - **First-class MCP integration**: run `codeint agent status` and `codeint agent install` to register the local stdio MCP server (`codeint mcp`) for Claude Code, Cursor, and Codex, exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
@@ -126,6 +126,7 @@ Run codeint inside any Git repository:
 codeint init
 codeint check
 codeint diff main
+codeint ratchet update
 codeint guard src/domain/order.ts
 codeint doctor
 codeint agent install
@@ -133,7 +134,8 @@ codeint agent install
 
 - `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema`.
 - `codeint check` measures the working tree and prints each Metric with its Findings.
-- `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget failure or Regression.
+- `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget, Ratchet, or Regression failure.
+- `codeint ratchet update` creates or monotonically tightens `.codeint/ratchet.json` ceilings for whole-repository runs.
 - `codeint guard src/domain/order.ts` checks architectural boundary rules for an existing or planned file path.
 - `codeint doctor` runs offline diagnostics on Git status, config validity, detected languages, workspaces, and Plugins.
 - `codeint agent install` registers `codeint mcp` in detected local coding agents.

@@ -34,6 +34,10 @@ fn report_schema_value() -> Value {
                 "type": "string",
                 "description": "One-line note listing every Coverage report path that matched no repository file unambiguously."
             },
+            "ratchet_note": {
+                "type": "string",
+                "description": "One-line note shown when Ratchet enforcement is skipped, such as on --package runs."
+            },
             "dependencies": { "$ref": "#/$defs/DependenciesSection" },
             "languages": {
                 "type": "object",
@@ -65,6 +69,10 @@ fn report_schema_value() -> Value {
             "over_budget": {
                 "type": "array",
                 "items": { "$ref": "#/$defs/BudgetFailure" }
+            },
+            "over_ratchet": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/RatchetFailure" }
             }
         },
         "$defs": {
@@ -325,6 +333,17 @@ fn report_schema_value() -> Value {
                     "metric": { "type": "string" },
                     "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
                     "budget": { "type": "number", "minimum": 0, "maximum": 1 }
+                },
+                "additionalProperties": false
+            },
+            "RatchetFailure": {
+                "type": "object",
+                "required": ["metric", "ratio", "ceiling"],
+                "properties": {
+                    "source_set": { "type": "string" },
+                    "metric": { "type": "string" },
+                    "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "ceiling": { "type": "number", "minimum": 0, "maximum": 1 }
                 },
                 "additionalProperties": false
             }

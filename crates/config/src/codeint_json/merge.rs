@@ -26,6 +26,7 @@ use crate::framework_profiles::{
     FrameworkProfileRuleFile, FrameworkProfilesConfig, PackageConfigFile,
 };
 use crate::hazards::{HazardsConfig, HazardsConfigFile};
+use crate::ratchet::{RatchetConfig, RatchetConfigFile};
 use crate::regression_limits::ResolvedRegressionLimit;
 use crate::resolved::{
     BudgetOverride, ConfigOverrides, ConfigProvenance, ResolvedConfiguration, ResolvedSetting,
@@ -121,8 +122,13 @@ pub(super) fn parse_value_with_overrides(
         effective.coverage_reports(),
         &mut settings,
     )?;
-    let (sql, hazards) =
-        parse_sql_and_hazards(raw.as_ref(), sections.sql, sections.hazards, &mut settings)?;
+    let (sql, hazards, ratchet) = parse_sql_hazards_and_ratchet(
+        raw.as_ref(),
+        sections.sql,
+        sections.hazards,
+        sections.ratchet,
+        &mut settings,
+    )?;
     let framework_profiles = parse_framework_profiles(
         raw.as_ref(),
         sections.framework_profiles,
@@ -147,6 +153,7 @@ pub(super) fn parse_value_with_overrides(
         sql,
         hazards,
         framework_profiles,
+        ratchet,
     };
     Ok(ResolvedConfiguration {
         config_file,
@@ -156,12 +163,13 @@ pub(super) fn parse_value_with_overrides(
     })
 }
 
-fn parse_sql_and_hazards(
+fn parse_sql_hazards_and_ratchet(
     raw: Option<&Value>,
     sql_file: SqlConfigFile,
     hazards_file: HazardsConfigFile,
+    ratchet_file: RatchetConfigFile,
     settings: &mut Vec<ResolvedSetting>,
-) -> Result<(SqlConfig, HazardsConfig), ConfigurationFileError> {
+) -> Result<(SqlConfig, HazardsConfig, RatchetConfig), ConfigurationFileError> {
     let dialects_json = serde_json::to_value(&sql_file.dialects).unwrap_or_else(|_| json!([]));
     let sql = SqlConfig::from_file(sql_file)?;
     let sql_source = if has_json_path(raw, &["sql", "dialects"]) {
@@ -183,7 +191,20 @@ fn parse_sql_and_hazards(
         json!(hazards.disabled_rules),
         hazards_source,
     );
-    Ok((sql, hazards))
+
+    let ratchet = RatchetConfig::from_file(ratchet_file)?;
+    let ratchet_source = if has_json_path(raw, &["ratchet", "path"]) {
+        ConfigProvenance::File
+    } else {
+        ConfigProvenance::Default
+    };
+    push_setting(
+        settings,
+        "ratchet.path",
+        json!(ratchet.path),
+        ratchet_source,
+    );
+    Ok((sql, hazards, ratchet))
 }
 
 fn parse_framework_profiles(

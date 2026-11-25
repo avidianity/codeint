@@ -7,7 +7,7 @@ use codeint_model::RepoPath;
 
 use super::schema::{ConfigurationFile, LanguageGlobs};
 use crate::boundaries::BoundaryPreset;
-use crate::config_error::{CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME};
+use crate::config_error::{CONFIGURATION_JSONC_FILE_NAME, ConfigFileKind};
 
 #[cfg(test)]
 mod tests;
@@ -104,15 +104,19 @@ pub fn write_starter_configuration(
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
 ) -> Result<PathBuf, StarterConfigurationError> {
-    for existing_name in [CONFIGURATION_FILE_NAME, CONFIGURATION_JSONC_FILE_NAME] {
-        let existing_path = repository_root.join(existing_name);
+    for kind in ConfigFileKind::ALL {
+        let existing_path = repository_root.join(kind.file_name());
         match std::fs::symlink_metadata(&existing_path) {
             Ok(_) => {
                 return Err(StarterConfigurationError::AlreadyExists {
                     path: existing_path,
                 });
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) => {}
             Err(source) => {
                 return Err(StarterConfigurationError::Unwritable {
                     path: existing_path,

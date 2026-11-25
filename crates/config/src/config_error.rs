@@ -6,6 +6,8 @@ use serde_json::Value;
 
 pub(crate) const CONFIGURATION_FILE_NAME: &str = "codeint.json";
 pub(crate) const CONFIGURATION_JSONC_FILE_NAME: &str = "codeint.jsonc";
+pub(crate) const DOT_CODEINT_CONFIGURATION_FILE_NAME: &str = ".codeint/config.json";
+pub(crate) const DOT_CODEINT_CONFIGURATION_JSONC_FILE_NAME: &str = ".codeint/config.jsonc";
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message} at line {line} column {column}")]
@@ -20,13 +22,24 @@ pub enum ConfigFileKind {
     #[default]
     Json,
     Jsonc,
+    DotCodeintJson,
+    DotCodeintJsonc,
 }
 
 impl ConfigFileKind {
+    pub const ALL: [ConfigFileKind; 4] = [
+        ConfigFileKind::Json,
+        ConfigFileKind::Jsonc,
+        ConfigFileKind::DotCodeintJson,
+        ConfigFileKind::DotCodeintJsonc,
+    ];
+
     pub fn file_name(self) -> &'static str {
         match self {
             ConfigFileKind::Json => CONFIGURATION_FILE_NAME,
             ConfigFileKind::Jsonc => CONFIGURATION_JSONC_FILE_NAME,
+            ConfigFileKind::DotCodeintJson => DOT_CODEINT_CONFIGURATION_FILE_NAME,
+            ConfigFileKind::DotCodeintJsonc => DOT_CODEINT_CONFIGURATION_JSONC_FILE_NAME,
         }
     }
 }
@@ -59,10 +72,8 @@ pub struct KeyPath(Vec<KeySegment>);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationFileError {
-    #[error(
-        "both {CONFIGURATION_FILE_NAME} and {CONFIGURATION_JSONC_FILE_NAME} exist at the repository root; keep only one"
-    )]
-    AmbiguousConfigFiles,
+    #[error("{}", format_ambiguous_config_files(files))]
+    AmbiguousConfigFiles { files: Vec<ConfigFileKind> },
     #[error("cannot read {file}")]
     Unreadable {
         file: ConfigFileKind,
@@ -356,6 +367,31 @@ pub enum ConfigurationFileError {
         key: KeyPath,
         package: String,
     },
+    #[error("{file}: {key} must not be empty")]
+    EmptyRatchetPath { file: ConfigFileKind, key: KeyPath },
+    #[error(
+        "{file}: {key} must be a path relative to the repository root, not an absolute path ({path:?})"
+    )]
+    AbsoluteRatchetPath {
+        file: ConfigFileKind,
+        key: KeyPath,
+        path: String,
+    },
+    #[error("{file}: {key} must stay inside the repository and must not contain \"..\" ({path:?})")]
+    ParentTraversalRatchetPath {
+        file: ConfigFileKind,
+        key: KeyPath,
+        path: String,
+    },
+}
+
+fn format_ambiguous_config_files(files: &[ConfigFileKind]) -> String {
+    let listed = files
+        .iter()
+        .map(|file| file.file_name())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("multiple configuration files exist ({listed}); keep only one")
 }
 
 impl ConfigurationFileError {
@@ -405,8 +441,11 @@ impl ConfigurationFileError {
             | ConflictingFrameworkProfileRule { file, .. }
             | EmptyFrameworkProfileObject { file, .. }
             | InvalidPackageConfigKey { file, .. }
-            | DuplicatePackageConfigKey { file, .. } => *file = file_kind,
-            AmbiguousConfigFiles
+            | DuplicatePackageConfigKey { file, .. }
+            | EmptyRatchetPath { file, .. }
+            | AbsoluteRatchetPath { file, .. }
+            | ParentTraversalRatchetPath { file, .. } => *file = file_kind,
+            AmbiguousConfigFiles { .. }
             | UnknownCliBudgetMetric { .. }
             | CliTestGapBudgetOutsideProduction { .. }
             | CliMetricBudgetOutsideProduction { .. }
@@ -414,6 +453,18 @@ impl ConfigurationFileError {
         }
         self
     }
+}
+
+pub(crate) fn is_absolute_repo_path(path: &str) -> bool {
+    if std::path::Path::new(path).is_absolute() || path.starts_with('/') || path.starts_with('\\') {
+        return true;
+    }
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+pub(crate) fn contains_parent_traversal(path: &str) -> bool {
+    path.split(['/', '\\']).any(|segment| segment == "..")
 }
 
 pub(crate) fn compile_glob(glob: &str) -> Result<Glob, globset::Error> {

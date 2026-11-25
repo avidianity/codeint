@@ -9,6 +9,7 @@ use crate::boundaries::BoundariesFile;
 use crate::dependencies::DependenciesFile;
 use crate::framework_profiles::{FrameworkProfileRuleFile, PackageConfigFile};
 use crate::hazards::HazardsConfigFile;
+use crate::ratchet::RatchetConfigFile;
 use crate::regression_limits::RegressionLimitSetting;
 use crate::sql::SqlConfigFile;
 
@@ -60,7 +61,7 @@ pub fn configuration_schema() -> String {
 #[serde(deny_unknown_fields)]
 #[schemars(
     title = "codeint.json",
-    description = "The configuration of codeint, read from codeint.json at the root of the repository."
+    description = "The configuration of codeint, read from codeint.json, codeint.jsonc, .codeint/config.json, or .codeint/config.jsonc at the root of the repository."
 )]
 pub(super) struct ConfigurationFile {
     #[serde(rename = "$schema", default)]
@@ -148,6 +149,11 @@ pub(super) struct ConfigurationFile {
         description = "Per-Workspace-package configuration overrides keyed by repository-relative package root (or \".\" for the repository root)."
     )]
     packages: BTreeMap<String, PackageConfigFile>,
+    #[serde(default, skip_serializing_if = "crate::ratchet::is_ratchet_unset")]
+    #[schemars(
+        description = "Ratchet settings, including an optional repository-relative path for the Ratchet file (.codeint/ratchet.json by default)."
+    )]
+    ratchet: RatchetConfigFile,
 }
 
 pub(super) struct ConfigurationFileSections {
@@ -162,6 +168,7 @@ pub(super) struct ConfigurationFileSections {
     pub(super) hazards: HazardsConfigFile,
     pub(super) framework_profiles: Option<FrameworkProfileRuleFile>,
     pub(super) packages: BTreeMap<String, PackageConfigFile>,
+    pub(super) ratchet: RatchetConfigFile,
 }
 
 impl ConfigurationFile {
@@ -197,6 +204,7 @@ impl ConfigurationFile {
             hazards: self.hazards,
             framework_profiles: self.framework_profiles,
             packages: self.packages,
+            ratchet: self.ratchet,
         }
     }
 

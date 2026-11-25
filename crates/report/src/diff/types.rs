@@ -10,7 +10,7 @@ use crate::{
     BoundaryFindingRow, BudgetFailure, CloneFamilyFinding, CloneGroupFinding,
     CognitiveComplexityFinding, Decimal, ErodedFunctionFinding, ExternalMetricFinding, Findings,
     FlaggedLineRow, HazardLineRow, ImportCycleFinding, ImportedDependencyRow, OrphanFileRow,
-    PerSourceSet, UnusedDependencyRow,
+    PerSourceSet, RatchetFailure, UnusedDependencyRow,
 };
 
 pub struct BaseCommit {
@@ -34,6 +34,8 @@ pub struct DiffReport {
     pub(super) head: HeadEntry,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) test_gap_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) ratchet_note: Option<String>,
     pub(super) source_sets: SourceSetChangesSections,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) dependencies: Option<DependenciesChanges>,
@@ -41,6 +43,8 @@ pub struct DiffReport {
     pub(super) over_budget: Vec<BudgetFailure>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) over_new_file_budget: Vec<NewFileBudgetFailure>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) over_ratchet: Vec<RatchetFailure>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) regressions: Vec<Regression>,
 }

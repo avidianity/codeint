@@ -37,6 +37,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
 | `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
 | `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
+| `ratchet` | Manage the repository Ratchet ceilings in `.codeint/ratchet.json`; see [`codeint ratchet`](#codeint-ratchet) |
 | `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
 | `coupling` | Detect pairs of files that repeatedly change together in the same commits and flag direct runtime imports; see [`codeint coupling`](#codeint-coupling) |
 | `help` | Print the help of codeint, or of the command that follows it |
@@ -807,6 +808,29 @@ CODEINT_AGENT_HOME=.agent-home codeint agent install --dry-run --client claude-c
 codeint agent help
 ```
 
+### `codeint ratchet`
+
+| Command | Meaning |
+| ------- | ------- |
+| `update` | Create or monotonically tighten `.codeint/ratchet.json` from the current working tree |
+| `help` | Print the help of `codeint ratchet`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint ratchet` |
+
+`codeint ratchet update` measures the whole repository and writes each measured Metric's ceiling ratio (rounded to 4 decimal places) alongside its positive integer Metric version to `.codeint/ratchet.json` (or the configured `ratchet.path`).
+It creates the Ratchet file on the first run, lowers ceilings whenever a Metric improves, keeps equal ceilings unchanged, and automatically refreshes entries whose Metric version changed.
+When any unchanged-version Metric has risen above its stored ceiling, `codeint ratchet update` stops with exit code 2 without modifying the file unless you pass `--reset`.
+`codeint ratchet update` accepts an optional `[PATH]` folder inside the repository, `--reset`, `--coverage-report <PATH>` (repeatable), and `--format <text|toon|json>` (`text` by default).
+
+```sh exit=0
+codeint ratchet update
+codeint ratchet update --format json
+codeint ratchet update --reset --format toon
+codeint ratchet help
+```
+
 ### `codeint churn`
 
 | Option | Meaning |
@@ -859,17 +883,17 @@ codeint coupling --format markdown
 
 | Exit code | Meaning |
 | --------- | ------- |
-| `0` | The run succeeded, and no Budget, Regression, or blocking doctor error failed |
-| `1` | The run succeeded, and at least one Budget, Regression, or blocking doctor error failed; codeint still writes the whole report and names each failure on standard error |
-| `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, or an invalid `codeint.json`; codeint names the error on standard error |
+| `0` | The run succeeded, and no Budget, Ratchet, Regression, or blocking doctor error failed |
+| `1` | The run succeeded, and at least one Budget, Ratchet, Regression, or blocking doctor error failed; codeint still writes the whole report and names each failure on standard error |
+| `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, a Ratchet Metric version mismatch, or an invalid `codeint.json`; codeint names the error on standard error |
 
 ## `codeint.json`
 
-codeint reads `codeint.json` or `codeint.jsonc` at the root of the Git repository.
-Both files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
-Keep only one of `codeint.json` or `codeint.jsonc` at the repository root; having both stops the run with exit code 2.
-Without either file, codeint uses the default of every key.
-[`codeint init`](#codeint-init) writes a starter `codeint.jsonc` (and never replaces an existing `codeint.json` or `codeint.jsonc`), and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
+codeint reads `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` at the root of the Git repository.
+All four files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
+Keep only one of those four files in the repository; having more than one stops the run with exit code 2 and names every conflicting file.
+Without any configuration file, codeint uses the default of every key.
+[`codeint init`](#codeint-init) writes a starter `codeint.jsonc` (and never replaces an existing configuration file at any of the four paths), and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
 
 In the key paths below, `[]` stands for each item of a list, and a name in braces stands for each of its values:
 
@@ -968,6 +992,8 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | `hazards.disabled_rules` | list of strings | Names of Hazard line rules turned off across the repository; empty by default |
 | `framework_profiles` | boolean, list of strings, or object | Global Framework profile selection (`false` to disable all, `true` for auto-detection, a list of profile names or `{"only": [...]}` to allow-list, or `{"exclude": [...]}` to exclude named profiles); auto-detected by default; see [Framework profiles](#framework-profiles) |
 | `packages` | object | Per-Workspace-package configuration overrides keyed by repository-relative package root (or `"."` for the repository root), such as `packages.<path>.framework_profiles`; empty by default; see [Framework profiles](#framework-profiles) |
+| `ratchet` | object | Ratchet settings; see [Ratchet](#ratchet) |
+| `ratchet.path` | string | Path relative to the repository root of the Ratchet file; `.codeint/ratchet.json` by default |
 
 A key that the schema does not have, or a value of the wrong type, stops the run with exit code 2 and names the key.
 With this `codeint.json`:
@@ -983,7 +1009,7 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards, framework_profiles, packages
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards, framework_profiles, packages, ratchet
 Remove the key, or correct its spelling to one of the allowed keys.
 ```
 
@@ -1616,6 +1642,25 @@ Active Framework profile names appear under `framework_profiles` per language an
 
 ```sh exit=0
 codeint check
+```
+
+### Ratchet
+
+A **Ratchet** file (`.codeint/ratchet.json` by default, or `ratchet.path` in configuration) stores each measured Metric's ceiling ratio (rounded to 4 decimal places) alongside its positive integer Metric version across per-Source-set Metrics, Dependency hygiene, Production Test gap when `coverage_reports` are configured, and loaded external Metric plugins ([ADR 0026](./adr/0026-regression-and-ratchet.md)).
+When the Ratchet file exists, whole-repository `codeint check` and `codeint diff` enforce it automatically, failing with exit code 1 (`over_ratchet`) if any measured Metric rises above its recorded ceiling and failing with exit code 2 on any Metric version mismatch while naming `codeint ratchet update`.
+Single-package runs (`--package`) skip Ratchet enforcement and emit a `ratchet_note` explaining why.
+Paths escaping the repository (absolute paths, `..` traversal, or escaping symlinks) stop the run with exit code 2.
+
+```json codeint.json
+{
+  "ratchet": {
+    "path": ".codeint/ratchet.json"
+  }
+}
+```
+
+```sh exit=0
+codeint ratchet update
 ```
 
 ## Result cache

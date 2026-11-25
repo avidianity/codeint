@@ -138,6 +138,13 @@ pub enum AgentFormat {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum RatchetFormat {
+    Text,
+    Toon,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum DoctorFormat {
     Text,
     Json,
@@ -201,6 +208,17 @@ pub enum AgentCommand {
         client: Option<AgentClient>,
         dry_run: bool,
         format: AgentFormat,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RatchetCommand {
+    Update {
+        folder: PathBuf,
+        reset: bool,
+        coverage_reports: Vec<PathBuf>,
+        format: RatchetFormat,
+        plugin_host: PluginHostConfig,
     },
 }
 
@@ -307,6 +325,7 @@ pub enum Command {
         plugin_host: PluginHostConfig,
     },
     Agent(AgentCommand),
+    Ratchet(RatchetCommand),
     Churn {
         folder: PathBuf,
         window: ChurnWindow,

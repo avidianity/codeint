@@ -9,9 +9,9 @@ let repository = Repository::discover(&folder)?;
 let configuration = read_configuration(repository.root())?;
 ```
 
-- `read_configuration` reads `codeint.json` or `codeint.jsonc` at the root of the repository, so pass the root of the working tree, never the folder the user named.
-  Both files accept JSONC syntax (`//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`).
-  Having both `codeint.json` and `codeint.jsonc` at the repository root fails with `ConfigurationFileError::AmbiguousConfigFiles` (exit code 2).
+- `read_configuration` reads `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` at the root of the repository, so pass the root of the working tree, never the folder the user named.
+  All four files accept JSONC syntax (`//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`).
+  Having more than one of those four files present fails with `ConfigurationFileError::AmbiguousConfigFiles` (exit code 2) naming every conflicting file.
 - `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
 - It returns `Configuration::default()` when neither file is present; codeint runs with defaults.
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
@@ -122,8 +122,15 @@ for declaration in &configuration.plugins {
 
 ## Read Coverage report paths
 
-- `configuration.coverage_reports` holds the repository-relative paths declared under `coverage_reports` in `codeint.json` or `codeint.jsonc`, and defaults to an empty list.
+- `configuration.coverage_reports` holds the repository-relative paths declared under `coverage_reports` in configuration, and defaults to an empty list.
 - Empty entries, absolute paths, and `..` parent traversal segments fail `read_configuration` with `ConfigurationFileError` (exit code 2) naming `coverage_reports[i]`.
+
+## Read and update a Ratchet file
+
+- `configuration.ratchet.path` holds the repository-relative Ratchet file path (`".codeint/ratchet.json"` by default) and rejects empty, absolute, and `..` paths with `ConfigurationFileError` (exit code 2).
+- `Ratchet::exists` and `Ratchet::load_optional` verify repository containment (including symlinks) before reading, returning `Ok(None)` when the Ratchet file is absent.
+- `Ratchet::check` compares each measured Metric's `metric_version` first (returning `Err(Vec<RatchetVersionMismatch>)` on any mismatch) and then checks each rounded 4-decimal ratio against its stored ceiling.
+- `Ratchet::update` creates on first run, monotonically lowers ceilings on improvement, auto-refreshes version-changed Metrics, and refuses to loosen unchanged-version Metrics unless `reset` is `true`; `Ratchet::write_atomic` creates parent directories and writes via a sibling temporary file rename.
 
 ## Add a setting
 
@@ -148,7 +155,7 @@ let written = write_starter_configuration(tree.root(), &languages, None)?;
 ```
 
 - Pass the root of the working tree; the file lands at `{root}/codeint.jsonc`.
-- It fails with `StarterConfigurationError::AlreadyExists` when either `codeint.json` or `codeint.jsonc` already exists, and never replaces it.
+- It fails with `StarterConfigurationError::AlreadyExists` when any of `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` already exists, and never replaces it.
 - `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
 - An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.
 - Pass `Some(&StarterBoundaries::WorkspaceZones(...))` (from `StarterBoundaries::from_workspace_packages`) or `Some(&StarterBoundaries::Preset(...))` (from `BoundaryPreset::detect`) to append commented-out starter `boundaries` hints that keep `boundaries` inactive until uncommented.
