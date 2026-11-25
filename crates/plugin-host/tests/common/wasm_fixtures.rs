@@ -36,6 +36,14 @@ const STD_CORE_MODULE_BUILDS: [(&str, &str, &str); 2] = [
     ),
 ];
 
+const STAMP_INPUT_FILES: [&str; 3] = ["rust-toolchain.toml", "Cargo.toml", ".cargo/config.toml"];
+
+const STAMP_INPUT_DIRS: [&str; 3] = [
+    "wit",
+    "crates/plugin-sdk",
+    "crates/plugin-host/tests/fixtures",
+];
+
 static FIXTURES_DIR: OnceLock<PathBuf> = OnceLock::new();
 static IN_PROCESS_LOCK: Mutex<()> = Mutex::new(());
 
@@ -144,16 +152,14 @@ fn write_stamp_atomically(output_dir: &Path, stamp: &str) {
 
 fn compute_fixtures_stamp(root: &Path) -> String {
     let mut relative_paths = Vec::new();
-    if root.join("rust-toolchain.toml").is_file() {
-        relative_paths.push(PathBuf::from("rust-toolchain.toml"));
+    for file in STAMP_INPUT_FILES {
+        if root.join(file).is_file() {
+            relative_paths.push(PathBuf::from(file));
+        }
     }
-    collect_input_files(root, &root.join("wit"), &mut relative_paths);
-    collect_input_files(root, &root.join("crates/plugin-sdk"), &mut relative_paths);
-    collect_input_files(
-        root,
-        &root.join("crates/plugin-host/tests/fixtures"),
-        &mut relative_paths,
-    );
+    for dir in STAMP_INPUT_DIRS {
+        collect_input_files(root, &root.join(dir), &mut relative_paths);
+    }
     relative_paths.sort();
 
     let mut buffer = Vec::new();
@@ -191,4 +197,88 @@ fn collect_input_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
 fn workspace_root() -> PathBuf {
     let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     candidate.canonicalize().unwrap_or(candidate)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BUILD_INPUT_FILES: [&str; 3] =
+        ["rust-toolchain.toml", "Cargo.toml", ".cargo/config.toml"];
+
+    fn scratch_workspace(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "codeint-fixtures-stamp-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        for file in BUILD_INPUT_FILES {
+            let path = root.join(file);
+            fs::create_dir_all(path.parent().expect("input file has a parent")).expect("mkdir");
+            fs::write(path, file).expect("write input file");
+        }
+        for dir in STAMP_INPUT_DIRS {
+            fs::create_dir_all(root.join(dir)).expect("mkdir input dir");
+            fs::write(root.join(dir).join("input.txt"), dir).expect("write dir input");
+        }
+        root
+    }
+
+    #[test]
+    fn stamp_changes_when_any_fixture_build_input_changes() {
+        let root = scratch_workspace("inputs");
+        let baseline = compute_fixtures_stamp(&root);
+        let mut touched: Vec<PathBuf> = BUILD_INPUT_FILES.iter().map(PathBuf::from).collect();
+        touched.extend(
+            STAMP_INPUT_DIRS
+                .iter()
+                .map(|dir| PathBuf::from(dir).join("input.txt")),
+        );
+        for relative in touched {
+            let path = root.join(&relative);
+            let original = fs::read(&path).expect("read input");
+            fs::write(&path, [original.as_slice(), b"changed"].concat()).expect("edit input");
+            assert_ne!(
+                compute_fixtures_stamp(&root),
+                baseline,
+                "editing {} must change the fixtures stamp",
+                relative.display()
+            );
+            fs::write(&path, original).expect("restore input");
+        }
+        fs::remove_dir_all(&root).expect("remove scratch workspace");
+    }
+
+    #[test]
+    fn ci_cache_keys_hash_exactly_the_stamp_inputs() {
+        let workflow = fs::read_to_string(workspace_root().join(".github/workflows/ci.yml"))
+            .expect("read ci workflow");
+        let mut expected: Vec<String> = STAMP_INPUT_FILES
+            .iter()
+            .map(|file| (*file).to_owned())
+            .chain(STAMP_INPUT_DIRS.iter().map(|dir| format!("{dir}/**")))
+            .collect();
+        expected.sort();
+        let keys: Vec<&str> = workflow
+            .lines()
+            .filter(|line| line.contains("v0-wasm-fixtures-"))
+            .collect();
+        assert!(
+            !keys.is_empty(),
+            "ci workflow has no wasm fixtures cache key"
+        );
+        for key in keys {
+            let list = key
+                .split("hashFiles(")
+                .nth(1)
+                .and_then(|rest| rest.split(')').next())
+                .expect("cache key calls hashFiles");
+            let mut actual: Vec<String> = list
+                .split(',')
+                .map(|item| item.trim().trim_matches('\'').to_owned())
+                .collect();
+            actual.sort();
+            assert_eq!(actual, expected, "ci cache key out of sync: {key}");
+        }
+    }
 }
