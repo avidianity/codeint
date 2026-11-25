@@ -23,6 +23,19 @@ const FIXTURE_BUILDS: [(&str, bool); 3] = [
     ),
 ];
 
+const STD_CORE_MODULE_BUILDS: [(&str, &str, &str); 2] = [
+    (
+        "crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml",
+        "sample_mini_plugin.wasm",
+        "sample_mini_plugin_std_core.wasm",
+    ),
+    (
+        "crates/plugin-host/tests/fixtures/sample-metric-plugin/Cargo.toml",
+        "sample_long_functions_plugin.wasm",
+        "sample_long_functions_plugin_std_core.wasm",
+    ),
+];
+
 static FIXTURES_DIR: OnceLock<PathBuf> = OnceLock::new();
 static IN_PROCESS_LOCK: Mutex<()> = Mutex::new(());
 
@@ -76,22 +89,37 @@ fn fixtures_are_fresh(output_dir: &Path, expected_stamp: &str, required_file: &s
 
 fn build_all_fixtures(root: &Path, target_dir: &Path) {
     for (manifest_relative, workspace) in FIXTURE_BUILDS {
-        run_fixture_cargo_build(&root.join(manifest_relative), target_dir, workspace);
+        let extra_args: &[&str] = if workspace { &["--workspace"] } else { &[] };
+        run_fixture_cargo_build(
+            &root.join(manifest_relative),
+            target_dir,
+            "wasm32-wasip2",
+            extra_args,
+        );
+    }
+    let output_dir = target_dir.join("wasm32-wasip2/debug");
+    let std_dir = target_dir.join("wasm32-unknown-unknown/debug");
+    for (manifest_relative, built_file, core_module_file) in STD_CORE_MODULE_BUILDS {
+        run_fixture_cargo_build(
+            &root.join(manifest_relative),
+            target_dir,
+            "wasm32-unknown-unknown",
+            &["--features", "codeint-plugin-sdk/std"],
+        );
+        fs::copy(std_dir.join(built_file), output_dir.join(core_module_file))
+            .expect("copy std core module next to wasm32-wasip2 fixtures");
     }
 }
 
-fn run_fixture_cargo_build(manifest: &Path, target_dir: &Path, workspace: bool) {
-    let mut command = Command::new("cargo");
-    command.arg("build");
-    if workspace {
-        command.arg("--workspace");
-    }
-    let output = command
+fn run_fixture_cargo_build(manifest: &Path, target_dir: &Path, target: &str, extra_args: &[&str]) {
+    let output = Command::new("cargo")
+        .arg("build")
+        .args(extra_args)
         .args([
             "--manifest-path",
             manifest.to_str().expect("UTF-8 manifest path"),
             "--target",
-            "wasm32-wasip2",
+            target,
             "--locked",
             "--offline",
             "--target-dir",
@@ -120,6 +148,7 @@ fn compute_fixtures_stamp(root: &Path) -> String {
         relative_paths.push(PathBuf::from("rust-toolchain.toml"));
     }
     collect_input_files(root, &root.join("wit"), &mut relative_paths);
+    collect_input_files(root, &root.join("crates/plugin-sdk"), &mut relative_paths);
     collect_input_files(
         root,
         &root.join("crates/plugin-host/tests/fixtures"),

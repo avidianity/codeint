@@ -1,8 +1,9 @@
 # Plugin author guide
 
-This guide explains how to build, hash, declare, and test a Language plugin and a Metric plugin for codeint.
+This guide explains how to build, hash, declare, and test a Language plugin and a Metric plugin for codeint using the official Rust SDK (`codeint-plugin-sdk`).
 [GLOSSARY.md](../GLOSSARY.md) defines every term on this page.
 [ADR 0002](./adr/0002-plugins-as-wasm-components.md) records why Plugins are WebAssembly components behind a WIT interface.
+[ADR 0027](./adr/0027-plugin-sdk-guest-runtime-unsafe.md) records why `codeint-plugin-sdk` isolates all guest runtime `unsafe` shims in one module so Plugin authors write 100% safe Rust.
 
 ## Versioned WIT contract
 
@@ -31,13 +32,22 @@ world metric-plugin {
 ```
 
 codeint instantiates every external Plugin with an empty `wasmtime::component::Linker`.
-A Plugin receives no filesystem, network, environment variable, or clock imports.
-Any component that imports a WASI host interface such as `wasi:filesystem/*`, `wasi:sockets/*`, or `wasi:clocks/*` fails to instantiate with exit code 2.
-
-Because standard Rust `wasm32-wasip2` builds pull in WASI imports, the sample plugins in this repository use `#![no_std]` with `extern crate alloc`, a small bump allocator, and an exported `cabi_realloc`.
+A Plugin receives no filesystem, network, environment variable, random, or clock imports.
+Any component that imports a WASI host interface such as `wasi:filesystem/*`, `wasi:sockets/*`, `wasi:clocks/*`, or `wasi:random/*` fails to instantiate with exit code 2.
 Any language or toolchain that produces a WebAssembly component with zero host imports works with codeint.
 
-## Prerequisites
+## Choose a Rust build path
+
+`codeint-plugin-sdk` supports two zero-WASI Rust build paths with the exact same Plugin code.
+
+| Build path | Target | Extra CLI tools | Standard library | When to choose |
+| ---------- | ------ | --------------- | ---------------- | -------------- |
+| Default (`no_std`) | `wasm32-wasip2` | None (`wasm-component-ld` ships with `rustc`) | `core` + `alloc` (`prelude::*`) | Default for new Plugins; one `cargo build` command |
+| `std` escape hatch | `wasm32-unknown-unknown` | `wasm-tools` (`component new`) | Full `std` (OS calls stubbed or error) | When you need `std`-only crates such as `regex` |
+
+Both paths emit zero WASI imports and reuse linear memory cleanly under codeint's 64 MiB default per-Plugin cap.
+
+### Path 1: Zero-tool `wasm32-wasip2` (`no_std`, recommended)
 
 Install the Rust toolchain listed in [rust-toolchain.toml](../rust-toolchain.toml) and add the `wasm32-wasip2` target:
 
@@ -45,72 +55,149 @@ Install the Rust toolchain listed in [rust-toolchain.toml](../rust-toolchain.tom
 rustup target add wasm32-wasip2
 ```
 
-## Build a Language plugin
+`codeint-plugin-sdk` automatically supplies:
 
-[crates/plugin-host/tests/fixtures/sample-plugin/](../crates/plugin-host/tests/fixtures/sample-plugin/src/lib.rs) is a complete Language plugin for a toy `.mini` language.
+- A freeing global allocator (`dlmalloc::GlobalDlmalloc`) so pooled component instances reclaim linear memory between files under codeint's 64 MiB default cap.
+- A `#[panic_handler]` that traps cleanly via `wasm32::unreachable`.
+- The `cabi_realloc` export and C memory intrinsics (`memcmp`, `memcpy`, `memmove`, `memset`) that `wasm32-wasip2` `no_std` targets omit.
+- Bundled `codeint:plugin@0.4.0` WIT bindings behind safe `LanguagePlugin` and `MetricPlugin` traits, plus `export_language_plugin!` and `export_metric_plugin!` macros.
 
-### Crate setup
+Your Plugin crate needs zero `unsafe` code, zero `wit-bindgen` setup, and only one `#![cfg_attr(..., no_std)]` line at the top of `src/lib.rs`, so it can keep `#![forbid(unsafe_code)]`.
+Because that attribute activates only on `wasm32-wasip2`, native `cargo test` runs on your host machine with full `std`.
 
-Configure the crate as a `cdylib` and depend on `wit-bindgen` without default features:
+Build a zero-WASI component with one command:
+
+```sh
+cargo build --target wasm32-wasip2 --release
+```
+
+Disable the default allocator or panic handler with `default-features = false` if you supply your own (`features = ["default-allocator"]` and `features = ["panic-handler"]` are on by default).
+
+### Path 2: `wasm32-unknown-unknown` with `std` and `wasm-tools`
+
+Choose this path when a parser or helper crate requires Rust's `std` (for example `regex`).
+On `wasm32-unknown-unknown`, Rust's `std` imports zero WASI host functions and supplies `dlmalloc`, a panic handler, and memory intrinsics directly.
+
+Install the `wasm32-unknown-unknown` target and `wasm-tools`:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-tools
+```
+
+Enable the `std` feature on `codeint-plugin-sdk` in `Cargo.toml`:
 
 ```toml
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc"] }
+codeint-plugin-sdk = { path = "path/to/codeint/crates/plugin-sdk", default-features = false, features = ["std"] }
 ```
 
-Generate bindings for the `language-plugin` world and export your implementation:
+Build the core WebAssembly module and wrap it into a zero-import component with `wasm-tools component new`:
+
+```sh
+cargo build --target wasm32-unknown-unknown --release
+wasm-tools component new \
+  target/wasm32-unknown-unknown/release/my_plugin.wasm \
+  -o my_plugin.wasm
+```
+
+Do not pass `--adapt` to `wasm-tools component new`, because codeint's empty `Linker` rejects WASI adapters.
+Pin the SHA-256 digest of the component that `wasm-tools component new` writes, not of the core module in `target/wasm32-unknown-unknown/`, as [Compute the SHA-256 hash](#compute-the-sha-256-hash) shows.
+Enabling `features = ["std"]` on `wasm32-wasip2` fails at compile time to stop accidental WASI imports early.
+
+### Safe Rust and `no_std` tips
+
+- Prefer `BTreeMap` and `BTreeSet` from `codeint_plugin_sdk::prelude::*` over `HashMap` or `HashSet`.
+  Crates backed by `getrandom` can pull in `wasi:random` imports, which codeint's empty `Linker` rejects; ordered maps also keep Finding order deterministic.
+- `serde_json` works in `no_std` with `default-features = false, features = ["alloc"]`.
+- Declare `#![forbid(unsafe_code)]` at your Plugin crate root.
+  The `export_language_plugin!` and `export_metric_plugin!` expansions compile under it in both build paths, as both sample Plugins in this repository show.
+
+## Build a Language plugin
+
+[crates/plugin-host/tests/fixtures/sample-plugin/](../crates/plugin-host/tests/fixtures/sample-plugin/src/lib.rs) is a complete Language plugin built on `codeint-plugin-sdk` for a toy `.mini` language.
+
+### Crate setup
+
+Configure the crate as a `cdylib` and depend on `codeint-plugin-sdk`:
+
+```toml
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+codeint-plugin-sdk = { path = "../../../../../crates/plugin-sdk" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+```
+
+Implement `LanguagePlugin` and export it with `export_language_plugin!`:
 
 ```rust
-wit_bindgen::generate!({
-    world: "language-plugin",
-    path: "../../../../../wit",
-});
+#![forbid(unsafe_code)]
+#![cfg_attr(all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"), no_std)]
 
-use exports::codeint::plugin::language::{
-    DeclaredDep, DepKind, FileModel, FlaggedLine, FrameworkProfileResult,
-    FrameworkProfileSelection, Function, Guest, ImportRequest, LowerError, Manifest,
-    ReferenceRange, Resolution, SourceSet, Token, TokenKind, WorkspaceError,
-};
+use codeint_plugin_sdk::fnv1a_64;
+use codeint_plugin_sdk::language::{FileModel, LanguagePlugin, LowerError, SourceSet};
+use codeint_plugin_sdk::prelude::*;
 
 struct SampleMiniPlugin;
 
-export!(SampleMiniPlugin);
+impl LanguagePlugin for SampleMiniPlugin {
+    fn extensions() -> Vec<String> {
+        vec!["mini".to_string()]
+    }
+
+    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+        let _hash = fnv1a_64(&path);
+        Ok(FileModel {
+            source_lines: text.lines().filter(|line| !line.trim().is_empty()).count() as u32,
+            ..FileModel::empty(SourceSet::Production)
+        })
+    }
+}
+
+codeint_plugin_sdk::export_language_plugin!(SampleMiniPlugin);
 ```
 
-### Required functions
+### Trait methods and SDK defaults
 
-Implement all thirteen functions on `Guest`:
+`LanguagePlugin` maps one-to-one onto all thirteen functions of `codeint:plugin/language@0.4.0`.
+Only `extensions` and `lower` are required; the other eleven methods have safe defaults so a minimal Language plugin fits in a few dozen lines.
 
-| Function | Responsibility |
-| -------- | -------------- |
-| `extensions() -> list<string>` | Return file extensions without a leading dot, such as `["mini"]`. |
-| `lower(path, text) -> result<file-model, lower-error>` | Lower one file into its `source-set`, `source-lines`, `functions` (each with optional `name`, nesting-weighted `cognitive-complexity`, and optional `coverage`), `tokens`, `flagged-lines`, `hazard-lines`, `runtime-imports`, and `program-start` mark. Return `declaration-only`, `unparsable`, `unsupported-file`, or `too-large` on error. |
-| `manifest-paths(repository-paths) -> list<string>` | Select manifest paths from `repository-paths` that the host reads once on the Plugin's behalf. Never called when `has-imports` returns `false`. |
-| `workspace-packages(manifests) -> result<list<string>, workspace-error>` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. Never called when `has-imports` returns `false`. |
-| `resolve-imports(repository-paths, manifests, requests, active-profiles) -> list<resolution>` | Return one `resolved(list<string>)` (one or more paths from `repository-paths`; an empty list is a Plugin error), `external(string)` (carrying the canonical package name), `builtin` (for standard-library or runtime built-ins), or `unresolved(string)` entry per request, in request order. Receives the active Framework profile names resolved for this Language plugin. Never called when `has-imports` returns `false`. |
-| `declared-dependencies(manifests) -> list<declared-dep>` | Extract manifest-declared external dependencies (`package-root`, normalized `name`, and `kind` of `runtime`, `dev`, or `optional`). Never called when `has-imports` returns `false`. |
-| `entry-points(repository-paths, manifests) -> list<string>` | Discover standard entry-point source files from `repository-paths` and `manifests`, returning only paths from `repository-paths`. Never called when `has-imports` returns `false`. |
-| `reference-ranges() -> list<reference-range>` | Return published Reference ranges for this language, at most one per Metric, each tagged with its calibrated positive integer `metric-version`. |
-| `known-framework-profiles() -> list<string>` | Return the stable names of the Framework profiles this Language plugin knows; empty when none are defined. |
-| `resolve-framework-profiles(package-root, files, manifests, selection) -> result<framework-profile-result, string>` | Resolve active Framework profiles, convention entry points, generated paths, framework Reference ranges, and optional Reference range note for one Workspace package. |
-| `has-hazard-rules() -> bool` | State whether this Language plugin defines Hazard line rules; when `false`, the Hazards Metric is absent for this language rather than `0`. |
-| `hazard-rules() -> list<string>` | Return the stable names of the Hazard line rules this Language plugin may emit; empty when `has-hazard-rules` returns `false`. |
-| `has-imports() -> bool` | State whether this language has runtime imports, manifests, and entry points; when `false`, codeint never calls `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`. |
+| Function | SDK default | Responsibility |
+| -------- | ----------- | -------------- |
+| `extensions() -> Vec<String>` | Required | Return file extensions without a leading dot, such as `["mini"]`. |
+| `lower(path, text) -> Result<FileModel, LowerError>` | Required | Lower one file into its `source_set`, `source_lines`, `functions`, `tokens`, `flagged_lines`, `hazard_lines`, `runtime_imports`, and `program_start` mark. Return `DeclarationOnly`, `Unparsable`, `UnsupportedFile`, or `TooLarge` on error. |
+| `has_imports() -> bool` | `false` | State whether this language has runtime imports, manifests, and entry points; when `false`, codeint never calls the five import/manifest methods below. |
+| `manifest_paths(repository_paths) -> Vec<String>` | `Vec::new()` | Select manifest paths from `repository_paths` that the host reads once on the Plugin's behalf. |
+| `workspace_packages(manifests) -> Result<Vec<String>, WorkspaceError>` | `Ok(Vec::new())` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
+| `resolve_imports(repository_paths, manifests, requests, active_profiles) -> Vec<Resolution>` | `Vec::new()` | Return one `Resolved(Vec<String>)` (non-empty paths from `repository_paths`), `External(String)`, `Builtin`, or `Unresolved(String)` entry per request in request order. |
+| `declared_dependencies(manifests) -> Vec<DeclaredDep>` | `Vec::new()` | Extract manifest-declared external dependencies (`package_root`, normalized `name`, and `kind` of `Runtime`, `Dev`, or `Optional`). |
+| `entry_points(repository_paths, manifests) -> Vec<String>` | `Vec::new()` | Discover standard entry-point source files from `repository_paths` and `manifests`, returning only paths from `repository_paths`. |
+| `reference_ranges() -> Vec<ReferenceRange>` | `Vec::new()` | Return published Reference ranges for this language, at most one per Metric, each tagged with its calibrated positive integer `metric_version`. |
+| `known_framework_profiles() -> Vec<String>` | `Vec::new()` | Return the stable names of the Framework profiles this Language plugin knows. |
+| `resolve_framework_profiles(package_root, files, manifests, selection) -> Result<FrameworkProfileResult, String>` | `Ok(FrameworkProfileResult::empty())` | Resolve active Framework profiles, convention entry points, generated paths, framework Reference ranges, and optional Reference range note for one Workspace package. |
+| `has_hazard_rules() -> bool` | `false` | State whether this Language plugin defines Hazard line rules; when `false`, the Hazards Metric is absent for this language rather than `0`. |
+| `hazard_rules() -> Vec<String>` | `Vec::new()` | Return the stable names of the Hazard line rules this Language plugin may emit; empty when `has_hazard_rules` returns `false`. |
 
 Follow these invariants in `lower`:
 
-- Keep `functions` sorted by start `line` (`line >= 1` and `line <= end-line`), with `name` set to `none` for anonymous lambdas or closures.
-- Always set `coverage` to `none` on every `function` that `lower` returns.
+- Keep `functions` sorted by start `line` (`line >= 1` and `line <= end_line`), with `name` set to `None` for anonymous lambdas or closures.
+- Always set `coverage` to `None` on every `Function` that `lower` returns.
   codeint fills in `coverage` from Coverage reports after Language plugins run and before Metrics run.
-- Keep `tokens` sorted by 1-based `line`, with 64-bit FNV-1a `text-hash` values of each token's UTF-8 text.
-- Produce identical `source-lines`, `functions`, and `hazard-lines` for LF and CRLF line endings.
+- Keep `tokens` sorted by 1-based `line`, computing `text_hash` with `codeint_plugin_sdk::fnv1a_64`.
+- Produce identical `source_lines`, `functions`, and `hazard_lines` for LF and CRLF line endings.
 - Do not count nested functions' decision points, cognitive complexity, or source lines in their enclosing function.
-- Report every Hazard line in `hazard-lines` with a 1-based `line` inside the file and a `rule` name listed by `hazard-rules`, and never include source text.
-  Leave `hazard-lines` empty when `has-hazard-rules` returns `false`.
-- Set `program-start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
+- Report every Hazard line in `hazard_lines` with a 1-based `line` inside the file and a `rule` name listed by `hazard_rules`, and never include source text.
+  Leave `hazard_lines` empty when `has_hazard_rules` returns `false`.
+- Set `program_start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
   codeint counts every marked Production file as an entry point for Orphan files and names the mark in `codeint trace`; marked files in other Source sets stay out of entry points.
 
 ### Compile the sample Language plugin
@@ -128,49 +215,84 @@ cargo build \
 Cargo writes the WebAssembly component to `crates/plugin-host/tests/fixtures/sample-plugin/target/wasm32-wasip2/release/sample_mini_plugin.wasm`.
 Pass `--target-dir target/wasm-plugins` to place build artifacts under the root `target/` folder instead.
 
+Build the same sample through the `std` path with:
+
+```sh
+cargo build \
+  --manifest-path crates/plugin-host/tests/fixtures/sample-plugin/Cargo.toml \
+  --target wasm32-unknown-unknown \
+  --features codeint-plugin-sdk/std \
+  --release \
+  --locked
+wasm-tools component new \
+  crates/plugin-host/tests/fixtures/sample-plugin/target/wasm32-unknown-unknown/release/sample_mini_plugin.wasm \
+  -o sample_mini_plugin.wasm
+```
+
+codeint's test suite builds both samples through both paths and checks that every component imports only `codeint:plugin/*` types and that both paths produce identical results.
+
 ## Build a Metric plugin
 
-[crates/plugin-host/tests/fixtures/sample-metric-plugin/](../crates/plugin-host/tests/fixtures/sample-metric-plugin/src/lib.rs) is a complete Metric plugin that measures `long_functions`, the share of functions with more than 10 source lines.
+[crates/plugin-host/tests/fixtures/sample-metric-plugin/](../crates/plugin-host/tests/fixtures/sample-metric-plugin/src/lib.rs) is a complete Metric plugin built on `codeint-plugin-sdk` that measures `long_functions`, the share of functions with more than 10 source lines.
 
 ### Crate setup
 
-Use the same `cdylib` and `wit-bindgen` configuration, and generate bindings for the `metric-plugin` world:
+Use the same `cdylib` and `codeint-plugin-sdk` dependency, implement `MetricPlugin`, and export it with `export_metric_plugin!`:
 
 ```rust
-wit_bindgen::generate!({
-    world: "metric-plugin",
-    path: "../../../../../wit",
-});
+#![forbid(unsafe_code)]
+#![cfg_attr(all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"), no_std)]
 
-use exports::codeint::plugin::metric::{CodeModel, Finding, Guest, Measurement};
+use codeint_plugin_sdk::metric::{CodeModel, Measurement, MetricPlugin};
+use codeint_plugin_sdk::prelude::*;
 
 struct SampleLongFunctionsPlugin;
 
-export!(SampleLongFunctionsPlugin);
+impl MetricPlugin for SampleLongFunctionsPlugin {
+    fn key() -> String {
+        "long_functions".to_string()
+    }
+
+    fn name() -> String {
+        "Long functions".to_string()
+    }
+
+    fn description() -> String {
+        "Share of functions with more than 10 source lines".to_string()
+    }
+
+    fn measure(model: CodeModel) -> Measurement {
+        let total = model.files.len() as f64;
+        Measurement::from_counts(0.0, total, Vec::new())
+    }
+}
+
+codeint_plugin_sdk::export_metric_plugin!(SampleLongFunctionsPlugin);
 ```
 
-### Required functions and host validation
+### Trait methods and host validation
 
-Implement all five functions on `Guest`:
+`MetricPlugin` maps one-to-one onto all five functions of `codeint:plugin/metric@0.4.0`.
+`version()` defaults to `1`; override it whenever your Metric's calculation rules change.
 
-| Function | Responsibility |
-| -------- | -------------- |
-| `key() -> string` | Return the Metric key used in reports, Budgets, and Regression limits, such as `long_functions`. |
-| `name() -> string` | Return the display name shown in human-readable reports, such as `Long functions`. |
-| `description() -> string` | Return a short description used in SARIF rule metadata. |
-| `version() -> u32` | Return the positive integer version (`>= 1`) of this Metric's measurement semantics. |
-| `measure(model) -> measurement` | Compute `ratio`, `numerator`, `denominator`, and `findings` for one Source set's Code model. |
+| Function | SDK default | Responsibility |
+| -------- | ----------- | -------------- |
+| `key() -> String` | Required | Return the Metric key used in reports, Budgets, and Regression limits, such as `long_functions`. |
+| `name() -> String` | Required | Return the display name shown in human-readable reports, such as `Long functions`. |
+| `description() -> String` | Required | Return a short description used in SARIF rule metadata. |
+| `version() -> u32` | `1` | Return the positive integer version (`>= 1`) of this Metric's measurement semantics. |
+| `measure(model) -> Measurement` | Required | Compute `ratio`, `numerator`, `denominator`, and `findings` for one Source set's Code model. |
 
 The Plugin host enforces these rules at load and measurement time:
 
 - `key` must be non-empty, start with a lowercase ASCII letter, and contain only lowercase ASCII letters, digits, `_`, or `-`.
 - `key` must not collide with built-in Metric keys (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `orphan_files`, `unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`, `test_gap`, `hazards`), reserved report or configuration keys (`files`, `source_lines`, `packages`, `commit`, `committed_on`, `production`, `test`, `generated`, `vendored`, `dependencies`), or another external Metric plugin's key.
 - `version` must be a positive integer (`>= 1`); returning `0` stops the run at load time with exit code 2.
-- If a Language plugin returns a Reference range whose `metric-version` does not match the current Metric's version (including `0`), codeint hides that stale Reference range from report comparison and shows a note explaining the version mismatch instead of failing the run.
+- If a Language plugin returns a Reference range whose `metric_version` does not match the current Metric's version (including `0`), codeint hides that stale Reference range from report comparison and shows a note explaining the version mismatch instead of failing the run.
 - `ratio` must be finite and between `0.0` and `1.0`.
 - `numerator` and `denominator` must be finite and `>= 0.0`.
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
-- Compute each Finding `id` from file path and content (never from line numbers) so `codeint diff` tracks moved Findings as unchanged.
+- Compute each Finding `id` from file path and content (never from line numbers) using `codeint_plugin_sdk::Fnv1a64` so `codeint diff` tracks moved Findings as unchanged.
 - Order `findings` worst first.
 
 ### Coverage facts in the Code model
@@ -359,6 +481,14 @@ Key rules:
 
 ## Test Plugins
 
+### Run native unit tests on the host
+
+Because `#![cfg_attr(all(target_arch = "wasm32", target_os = "wasi", target_env = "p2"), no_std)]` disables `std` only on `wasm32-wasip2`, run unit tests for your `LanguagePlugin` or `MetricPlugin` directly on your native machine with full `std`:
+
+```sh
+cargo test
+```
+
 ### Run the Seam 2 conformance suite
 
 Every Language plugin (built-in or external) must pass the shared Seam 2 conformance suite in [crates/plugin-host/tests/conformance.rs](../crates/plugin-host/tests/conformance.rs).
@@ -435,7 +565,7 @@ This version identifies the exported interfaces `codeint:plugin/language@0.4.0` 
 At load time, wasmtime checks that the component's exported interface name and version match what the host expects.
 
 - A Plugin built against an incompatible WIT version (such as `codeint:plugin@0.3.0` or `codeint:plugin@0.2.0`) fails at load time with exit code 2, naming the plugin, its found interface version, the required `0.4.0` interface version, and how to rebuild it.
-- Rebuild the Plugin against the updated `wit/` files and update its `sha256` in `codeint.jsonc` or `codeint.json` when upgrading to a breaking WIT version.
+- Rebuild the Plugin against the updated `codeint-plugin-sdk` or `wit/` files and update its `sha256` in `codeint.jsonc` or `codeint.json` when upgrading to a breaking WIT version.
 - Never silently mutate an existing released WIT version in place; every breaking change gets a new version number.
 
 ### Moving a Plugin from 0.3.0 to 0.4.0
@@ -445,9 +575,9 @@ A Plugin built against `codeint:plugin@0.3.0` stops the run with exit code 2.
 
 Move an existing external Plugin to `0.4.0`:
 
-1. Update your copy of [wit/language.wit](../wit/language.wit) and [wit/metric.wit](../wit/metric.wit) to `package codeint:plugin@0.4.0;`.
-2. For Language plugins: add `metric-version` to every `reference-range`, accept `active-profiles: list<string>` in `resolve-imports`, and export `known-framework-profiles` and `resolve-framework-profiles`.
-3. For Metric plugins: export `version() -> u32` returning a positive integer (`>= 1`).
-4. Rebuild the WebAssembly component for `wasm32-wasip2` so it exports `codeint:plugin/language@0.4.0` or `codeint:plugin/metric@0.4.0`.
+1. Depend on `codeint-plugin-sdk` (or update your copy of [wit/language.wit](../wit/language.wit) and [wit/metric.wit](../wit/metric.wit) to `package codeint:plugin@0.4.0;`).
+2. For Language plugins: add `metric_version` to every `ReferenceRange`, accept `active_profiles: Vec<String>` in `resolve_imports`, and implement `known_framework_profiles` and `resolve_framework_profiles` if your Plugin defines Framework profiles (`codeint-plugin-sdk` defaults both to empty).
+3. For Metric plugins: ensure `version() -> u32` returns a positive integer (`>= 1`; `codeint-plugin-sdk` defaults to `1`).
+4. Rebuild the WebAssembly component for `wasm32-wasip2` (or `wasm32-unknown-unknown` plus `wasm-tools component new`) so it exports `codeint:plugin/language@0.4.0` or `codeint:plugin/metric@0.4.0` with zero WASI imports.
 5. Compute the SHA-256 digest of the rebuilt `.wasm` file and update `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
 6. Run `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.
