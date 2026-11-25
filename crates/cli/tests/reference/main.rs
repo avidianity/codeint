@@ -14,6 +14,7 @@ use serde_json::Value;
 
 const CONFIGURATION_HEADING: &str = "## `codeint.json`";
 const EXIT_CODES_HEADING: &str = "## Exit codes";
+const LANGUAGES_HEADING: &str = "### Languages";
 const HELP_TABLE_HEADERS: [&str; 3] = ["Command", "Argument", "Option"];
 
 fn example_set(page: &Page) -> ExampleSet {
@@ -335,5 +336,59 @@ fn the_examples_show_every_exit_code_that_the_reference_lists_and_no_other() {
     assert_eq!(
         shown, listed,
         "the examples of docs/reference.md show exit codes {shown:?}, and its exit code table lists {listed:?}"
+    );
+}
+
+const COUNT_WORDS: [&str; 10] = [
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+];
+
+fn count_word(count: usize) -> Option<&'static str> {
+    count
+        .checked_sub(1)
+        .and_then(|index| COUNT_WORDS.get(index).copied())
+}
+
+#[test]
+fn the_reference_lists_every_built_in_language_plugin_and_extension() {
+    let page = Page::read();
+    let section = page.section(LANGUAGES_HEADING);
+    let documented: BTreeMap<String, BTreeSet<String>> = table_rows(section, "Plugin name")
+        .iter()
+        .map(|row| {
+            let extensions = code_spans(&row[1]).into_iter().collect();
+            (first_code_span(&row[0]), extensions)
+        })
+        .collect();
+    let schema = serde_json::to_value(codeint_cli::schema()).expect("serialize schema");
+    let expected: BTreeMap<String, BTreeSet<String>> = schema["languages"]
+        .as_array()
+        .expect("schema languages array")
+        .iter()
+        .map(|entry| {
+            let name = entry["name"].as_str().expect("language name").to_owned();
+            let extensions = entry["extensions"]
+                .as_array()
+                .expect("language extensions")
+                .iter()
+                .map(|ext| format!(".{}", ext.as_str().expect("extension string")))
+                .collect();
+            (name, extensions)
+        })
+        .collect();
+    assert_eq!(
+        documented, expected,
+        "docs/reference.md ### Languages table drifted from built-in Language plugins"
+    );
+    let expected_sentence = match count_word(expected.len()) {
+        Some(word) => format!("codeint ships {word} built-in Language plugins:"),
+        None => format!(
+            "codeint ships {} built-in Language plugins:",
+            expected.len()
+        ),
+    };
+    assert!(
+        section.iter().any(|line| line.contains(&expected_sentence)),
+        "docs/reference.md ### Languages section must contain {expected_sentence:?}"
     );
 }
