@@ -103,9 +103,7 @@ fn broken_plugins_fail_with_a_fix_hint() {
             "lower",
         ),
     ];
-    let sources = tempfile::tempdir().expect("tempdir");
-    let hazard_source = sources.path().join("probe.uhr");
-    std::fs::write(&hazard_source, "UNLISTED_HAZARD\n").expect("write source");
+    let (_sources, hazard_source) = write_source("probe.uhr", "UNLISTED_HAZARD\n");
     let source_args: [&std::ffi::OsStr; 2] = ["--source".as_ref(), hazard_source.as_os_str()];
     for (kind, wasm, check_id) in cases {
         let extra: &[&std::ffi::OsStr] = if check_id == "lower" {
@@ -143,6 +141,13 @@ fn broken_plugins_fail_with_a_fix_hint() {
             }
         }
     }
+}
+
+fn write_source(file_name: &str, text: &str) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join(file_name);
+    std::fs::write(&path, text).expect("write source");
+    (dir, path)
 }
 
 fn check_ids(report: &Value) -> Vec<String> {
@@ -220,9 +225,7 @@ fn per_function_findings_with_an_empty_id_fail_the_check() {
 
 #[test]
 fn a_memory_cap_hit_in_lower_fails_limits() {
-    let sources = tempfile::tempdir().expect("tempdir");
-    let source = sources.path().join("big.hog");
-    std::fs::write(&source, "HOG_MEMORY\n").expect("write source");
+    let (_sources, source) = write_source("big.hog", "HOG_MEMORY\n");
     let extra: [&std::ffi::OsStr; 4] = [
         "--source".as_ref(),
         source.as_os_str(),
@@ -255,9 +258,7 @@ fn a_plugin_without_imports_skips_every_import_check_and_passes() {
 
 #[test]
 fn a_source_file_name_with_a_backslash_does_not_crash_the_runner() {
-    let sources = tempfile::tempdir().expect("tempdir");
-    let source = sources.path().join("a\\b.noimp");
-    std::fs::write(&source, "fn alpha\n").expect("write source");
+    let (_sources, source) = write_source("a\\b.noimp", "fn alpha\n");
     let extra: [&std::ffi::OsStr; 2] = ["--source".as_ref(), source.as_os_str()];
     let (output, report) = json_report("language", "no_imports_language_plugin.wasm", &extra);
     assert_eq!(output.status.code(), Some(0), "{output:?}");

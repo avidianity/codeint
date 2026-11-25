@@ -459,3 +459,102 @@ pub fn parse_workspace_manifest_lines(
     }
     Ok(packages)
 }
+
+#[macro_export]
+macro_rules! faulty_import_language {
+    (
+        extensions: $extensions:expr,
+        manifest_paths: $manifest_paths:expr,
+        workspace_packages: |$manifests:ident| $workspace_packages:expr,
+        framework_profiles: |$selection:ident| $framework_profiles:expr $(,)?
+    ) => {
+        fn extensions() -> ::alloc::vec::Vec<::alloc::string::String> {
+            $extensions
+        }
+
+        fn lower(
+            path: ::alloc::string::String,
+            text: ::alloc::string::String,
+        ) -> ::core::result::Result<FileModel, LowerError> {
+            if path.ends_with(".probe") {
+                let lines = $crate::count_non_empty_lines(&text);
+                ::core::result::Result::Ok($crate::blank_file_model!(SourceSet::Production, lines))
+            } else {
+                ::core::result::Result::Err(LowerError::UnsupportedFile(path))
+            }
+        }
+
+        fn manifest_paths(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            $manifest_paths
+        }
+
+        fn workspace_packages(
+            $manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::core::result::Result<::alloc::vec::Vec<::alloc::string::String>, WorkspaceError> {
+            $workspace_packages
+        }
+
+        fn resolve_imports(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+            requests: ::alloc::vec::Vec<ImportRequest>,
+            _active_profiles: ::alloc::vec::Vec<::alloc::string::String>,
+        ) -> ::alloc::vec::Vec<Resolution> {
+            requests
+                .iter()
+                .map(|_| Resolution::Unresolved(::alloc::string::ToString::to_string("probe")))
+                .collect()
+        }
+
+        fn declared_dependencies(
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<DeclaredDep> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn entry_points(
+            _repository_paths: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+        ) -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn reference_ranges() -> ::alloc::vec::Vec<ReferenceRange> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn known_framework_profiles() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec![::alloc::string::ToString::to_string("alpha")]
+        }
+
+        fn resolve_framework_profiles(
+            _package_root: ::alloc::string::String,
+            _files: ::alloc::vec::Vec<::alloc::string::String>,
+            _manifests: ::alloc::vec::Vec<Manifest>,
+            $selection: FrameworkProfileSelection,
+        ) -> ::core::result::Result<FrameworkProfileResult, ::alloc::string::String> {
+            $framework_profiles;
+            ::core::result::Result::Ok(FrameworkProfileResult {
+                active_profiles: ::alloc::vec::Vec::new(),
+                entry_points: ::alloc::vec::Vec::new(),
+                generated_paths: ::alloc::vec::Vec::new(),
+                reference_ranges: ::alloc::vec::Vec::new(),
+                reference_range_note: ::core::option::Option::None,
+            })
+        }
+
+        fn has_hazard_rules() -> bool {
+            false
+        }
+
+        fn hazard_rules() -> ::alloc::vec::Vec<::alloc::string::String> {
+            ::alloc::vec::Vec::new()
+        }
+
+        fn has_imports() -> bool {
+            true
+        }
+    };
+}

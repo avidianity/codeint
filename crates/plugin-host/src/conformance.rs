@@ -381,11 +381,7 @@ fn run_language(
     let hazard_rules = plugin.hazard_rules();
     check_hazard_rules(report, &plugin, &hazard_rules);
     check_framework_profiles(report, &plugin, &mut watch);
-    let probe_extension = extensions
-        .iter()
-        .find(|extension| usable_extension(extension))
-        .cloned()
-        .unwrap_or_else(|| "txt".to_owned());
+    let probe_extension = probe_extension(&extensions);
     check_lower(
         report,
         &plugin,
@@ -399,6 +395,15 @@ fn run_language(
     );
     check_repository_queries(report, &plugin, &probe_extension, &mut watch);
     watch.settle(report, plugin.peak_memory_bytes(), limits);
+}
+
+fn probe_extension(extensions: &[String]) -> String {
+    for extension in extensions {
+        if usable_extension(extension) {
+            return extension.clone();
+        }
+    }
+    "txt".to_owned()
 }
 
 fn usable_extension(extension: &str) -> bool {
