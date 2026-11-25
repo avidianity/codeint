@@ -3744,24 +3744,39 @@ fn workspace_packages_of_the_object_form_with_packages_are_reported_like_the_arr
     assert_two_package_report(&output);
 }
 
+fn assert_skipped_manifest_leaves_files_in_the_root_package(
+    repository: &Repository,
+    expected_warning: &str,
+) {
+    let output = repository.codeint(&["check"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains(expected_warning), "{text}");
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("parse json");
+    assert_eq!(report["files"], 1, "{report}");
+    assert!(
+        report.get("packages").is_none(),
+        "files under the skipped manifest must stay in the root package: {report}"
+    );
+}
+
 #[test]
-fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
+fn a_workspaces_field_of_the_wrong_shape_is_skipped_with_a_warning() {
     let repository = Repository::new();
     repository.write("package.json", "{\"workspaces\": \"packages/*\"}\n");
     repository.write("packages/app/package.json", "{}\n");
     repository.write("packages/app/index.ts", "export const app = 1;\n");
     repository.commit_all();
 
-    let output = repository.codeint(&["check"]);
-
-    assert_operational_error(
-        &output,
+    assert_skipped_manifest_leaves_files_in_the_root_package(
+        &repository,
         concat!(
-            "codeint: cannot find the workspace packages from package.json: ",
+            "Skipped the invalid typescript-javascript manifest package.json: ",
             "the workspaces field must be an array of folder patterns, ",
-            "or an object whose packages field is one\n",
-            "Fix the manifest that the message names so that your package manager accepts it, ",
-            "then run codeint again.\n",
+            "or an object whose packages field is one. ",
+            "Files under it count toward the surrounding Workspace package."
         ),
     );
 }
@@ -3790,7 +3805,7 @@ fn pnpm_workspace_packages_each_report_erosion_and_a_negated_pattern_excludes_a_
 }
 
 #[test]
-fn a_pnpm_workspace_yaml_that_is_not_yaml_names_the_manifest_and_exits_2() {
+fn a_pnpm_workspace_yaml_that_is_not_yaml_is_skipped_with_a_warning() {
     let repository = Repository::new();
     repository.write("package.json", "{\"name\": \"shop\"}\n");
     repository.write("pnpm-workspace.yaml", "packages: [packages/*\n");
@@ -3798,15 +3813,12 @@ fn a_pnpm_workspace_yaml_that_is_not_yaml_names_the_manifest_and_exits_2() {
     repository.write("packages/app/index.ts", "export const app = 1;\n");
     repository.commit_all();
 
-    let output = repository.codeint(&["check"]);
-
-    assert_operational_error(
-        &output,
+    assert_skipped_manifest_leaves_files_in_the_root_package(
+        &repository,
         concat!(
-            "codeint: cannot find the workspace packages from pnpm-workspace.yaml: ",
-            "is not valid YAML: unclosed bracket '[' at line 1, column 11\n",
-            "Fix the manifest that the message names so that your package manager accepts it, ",
-            "then run codeint again.\n",
+            "Skipped the invalid typescript-javascript manifest pnpm-workspace.yaml: ",
+            "is not valid YAML: unclosed bracket '[' at line 1, column 11. ",
+            "Files under it count toward the surrounding Workspace package."
         ),
     );
 }

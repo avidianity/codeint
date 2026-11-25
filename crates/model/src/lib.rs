@@ -40,7 +40,7 @@ pub use source_set::{
     has_generated_header_marker, has_generated_header_marker_with_extra, path_file_name,
     settle_source_set,
 };
-pub use workspace::{Package, Workspace, WorkspaceError};
+pub use workspace::{Package, SkippedManifest, Workspace, WorkspaceError};
 
 pub fn token_text_hash(text: &str) -> u64 {
     StableHasher::new().write_bytes(text.as_bytes()).finish()

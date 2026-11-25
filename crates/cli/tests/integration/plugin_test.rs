@@ -195,6 +195,17 @@ fn workspace_packages_failures_fail_the_check() {
 }
 
 #[test]
+fn a_workspace_error_on_a_valid_probe_manifest_also_fails_end_to_end() {
+    let report = assert_fails(
+        "language",
+        "workspace_always_fails_language_plugin.wasm",
+        &[],
+        "end-to-end",
+    );
+    assert_eq!(check_status(&report, "workspace-packages"), "fail");
+}
+
+#[test]
 fn a_plugin_that_chooses_no_manifests_is_never_sent_a_foreign_manifest() {
     let (output, report) =
         json_report("language", "cargo_only_workspace_language_plugin.wasm", &[]);

@@ -1229,7 +1229,7 @@ fn check_workspace_packages(
                 report.fail(
                     "workspace-packages",
                     format!("{label}: {error}"),
-                    "return a workspace-error only for a manifest it cannot read; codeint check stops on any workspace-error, so never return one for a chosen manifest with valid content or for no manifests",
+                    "return a workspace-error only for a manifest it cannot read, naming that manifest's exact path; codeint check skips a manifest that a workspace-error names and warns, and stops on any other workspace-error, so never return one for a chosen manifest with valid content or for no manifests",
                 );
                 return;
             }

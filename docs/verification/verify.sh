@@ -286,6 +286,14 @@ drive_check() {
   printf '{"budget":{}}\n' > "$work_badcfg/codeint.json"
   run_case "$work_badcfg" "$dir/invalid_config" "$BIN_PATH" check
 
+  local work_manifest="$RUN_DIR/work-check-manifest"
+  rm -rf "$work_manifest"
+  cp -R "$FIXTURE_REPO" "$work_manifest"
+  mkdir -p "$work_manifest/fixtures"
+  : > "$work_manifest/fixtures/go.mod"
+  printf 'package fixtures\n\nfunc One() int {\n\treturn 1\n}\n' > "$work_manifest/fixtures/one.go"
+  run_case "$work_manifest" "$dir/invalid_manifest" "$BIN_PATH" check --format json
+
   run_case "$FIXTURE_REPO" "$dir/missing_path" "$BIN_PATH" check missing
   run_case "$NON_REPO" "$dir/non_repo" "$BIN_PATH" check
 }
@@ -502,6 +510,11 @@ if "check" in features:
     ob = read_json("check/over_budget.stdout")
     check("check.over_budget.payload", isinstance(ob, dict) and len(ob.get("over_budget", [])) >= 1, str(ob))
     check("check.over_budget.stderr", "Budget" in (read_text("check/over_budget.stderr") or ""), "stderr missing Budget message")
+
+    check("check.invalid_manifest.exit", read_exit("check/invalid_manifest") == 0, str(read_exit("check/invalid_manifest")))
+    im = read_json("check/invalid_manifest.stdout")
+    im_warnings = im.get("manifest_warnings", []) if isinstance(im, dict) else []
+    check("check.invalid_manifest.warning", len(im_warnings) == 1 and "fixtures/go.mod" in im_warnings[0] and "missing module directive" in im_warnings[0], str(im_warnings))
 
     check("check.invalid_config.exit", read_exit("check/invalid_config") == 2, str(read_exit("check/invalid_config")))
     check("check.missing_path.exit", read_exit("check/missing_path") == 2, str(read_exit("check/missing_path")))

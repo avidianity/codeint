@@ -115,8 +115,12 @@ fn end_to_end(
             configuration.to_string(),
         )
         .map_err(PluginTestError::Scratch)?;
-        if let Err(error) = measure_probe(folder.path()) {
-            return Ok(end_to_end_failure(label, &error));
+        match measure_probe(folder.path()) {
+            Err(error) => return Ok(end_to_end_failure(label, &error)),
+            Ok(warnings) if !warnings.is_empty() => {
+                return Ok(end_to_end_skipped_manifests(label, &warnings));
+            }
+            Ok(_) => {}
         }
     }
     Ok(ConformanceCheck {
@@ -141,6 +145,21 @@ fn write_probe_repository(folder: &Path, probe: &EndToEndProbe) -> Result<(), Pl
     }
     Repository::init(folder)?;
     Ok(())
+}
+
+fn end_to_end_skipped_manifests(label: &str, warnings: &[String]) -> ConformanceCheck {
+    ConformanceCheck {
+        id: END_TO_END_CHECK,
+        status: ConformanceStatus::Fail,
+        message: format!(
+            "codeint check skips a valid probe manifest {label}: {}",
+            warnings.join("; ")
+        ),
+        hint: Some(
+            "return a workspace-error only for a manifest it cannot read; codeint check skips a manifest that a workspace-error names and warns, so never return one for a valid probe manifest"
+                .to_owned(),
+        ),
+    }
 }
 
 fn end_to_end_failure(label: &str, error: &dyn std::error::Error) -> ConformanceCheck {
@@ -192,7 +211,7 @@ fn probe_configuration(
     configuration
 }
 
-fn measure_probe(folder: &Path) -> Result<(), crate::check::CheckError> {
+fn measure_probe(folder: &Path) -> Result<Vec<String>, crate::check::CheckError> {
     check(
         folder,
         CheckScope {
@@ -204,7 +223,7 @@ fn measure_probe(folder: &Path) -> Result<(), crate::check::CheckError> {
         },
         &PluginHostConfig::default(),
     )
-    .map(|_| ())
+    .map(|report| report.manifest_warnings().to_vec())
 }
 
 fn error_chain(error: &dyn std::error::Error) -> String {

@@ -534,8 +534,8 @@ impl WasmLanguagePlugin {
         manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, WorkspaceError> {
         self.workspace_packages_checked(manifests)
-            .map_err(|error| WorkspaceError::Manifest {
-                path: self.name.clone(),
+            .map_err(|error| WorkspaceError::PluginFailed {
+                plugin: self.name.clone(),
                 message: error.to_string(),
             })?
     }

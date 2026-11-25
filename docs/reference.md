@@ -896,7 +896,8 @@ The runner checks a Language plugin for the following rules:
 - `lower` is deterministic and stateless on built-in probe sources, which the runner writes once for every extension the Plugin claims, and on every `--source` file, returns lines counted from 1 inside the file for both LF and CRLF line endings, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
 - Its Framework profiles resolve for the disabled, auto, exclude, and only selections, for the root package and a member package, with every known profile, with each profile alone, and, for three or more profiles, with the first two, sent the real package files and only the manifests `manifest-paths` chose, each with the content of the probe file it names, for the packages of the workspace that `workspace-packages` reports and for a fixed member package, with entry points and generated paths that are files of the repository, the same inputs and checks `codeint check` uses.
   When `known-framework-profiles` is empty, codeint never resolves Framework profiles, so the runner reports `framework-profiles` as skipped.
-- When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports` (with no Framework profile active, with each known profile active, and, for two or more profiles, with every known profile active at once), `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or for a manifest it chose with valid content, and `plugin test` sends it only manifests that `manifest-paths` chose, because `codeint check` stops on any `workspace-error`.
+- When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports` (with no Framework profile active, with each known profile active, and, for two or more profiles, with every known profile active at once), `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or for a manifest it chose with valid content, and `plugin test` sends it only manifests that `manifest-paths` chose, because `codeint check` skips a manifest that a `workspace-error` names, with a warning, and stops on any other `workspace-error`.
+  The `end-to-end` check fails when `codeint check` skips a valid probe manifest with a warning.
   When `has-imports` is false, codeint never calls these five, so the runner reports them as skipped.
 - It answers `reference-ranges` with valid data: bounds within `0..=1`, at most one range per Metric, and every range for a built-in Metric at that Metric's current `metric_version`.
   A stale range (version 0 or a mismatch) fails with a hint to recalibrate or update it, because `codeint check` hides such a range behind a note.
@@ -1876,6 +1877,28 @@ Paths escaping the repository (absolute paths, `..` traversal, or escaping symli
 codeint ratchet update
 ```
 
+## Invalid manifests
+
+When a Language plugin reports that one manifest is invalid, such as an empty `go.mod` or a `pyproject.toml` that is not valid TOML, `codeint check`, `codeint diff`, `codeint trend`, the MCP `check` and `diff` tools, and the other measuring commands skip that manifest and measure the rest.
+codeint asks the plugin again for the Workspace packages without the invalid manifest, and repeats this for each further invalid manifest.
+Files under a skipped manifest count toward the surrounding Workspace package, as if the manifest did not exist.
+A skipped manifest is also left out of dependency, import, and entry-point resolution.
+
+Each skipped manifest adds one entry to `manifest_warnings` in JSON and TOON reports of `codeint check`, and one line in Markdown reports.
+`codeint diff` keeps the two sides apart: `manifest_warnings.base` lists the manifests skipped in the base commit, and `manifest_warnings.head` lists those skipped in the head, so a manifest that you fixed in the head still shows as a base warning.
+The Markdown report of `codeint diff` prefixes each line with `Base commit:` or `Head commit:`.
+`codeint trend` lists the warnings of each commit that skipped a manifest under `manifest_warnings`, as entries with the `commit` and its `warnings`, and prefixes each Markdown line with `Commit {id}:`.
+codeint writes each warning on one line and escapes control characters in it, such as ESC, as `\u{1b}`:
+
+```text illustration
+Skipped the invalid go manifest internal/warpc/genwebp/go.mod: missing module directive. Files under it count toward the surrounding Workspace package.
+```
+
+A warning never changes the exit code by itself.
+`codeint check --package {folder}` names the skipped manifest and the plugin's reason when `{folder}` holds a skipped manifest, because the manifest never made that folder a Workspace package.
+`codeint doctor` reports the `workspace` check as `warn` and lists each skipped manifest.
+A plugin trap, an error that names a path codeint did not pass, and an error that is not about a manifest still stop the run with exit code 2.
+
 ## Result cache
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
@@ -2046,6 +2069,7 @@ The top-level object has these fields:
 | `import_metrics_note` | string, optional | One line explaining why import Metrics are absent when the measured language has no imports |
 | `test_gap_note` | string, optional | One line explaining why Test gap is absent when no Coverage report covers the measured code |
 | `coverage_unmatched_note` | string, optional | One note naming every Coverage report path that matched no repository file or matched several files equally well |
+| `manifest_warnings` | array of strings, optional | One warning for each invalid manifest that codeint skipped, naming the manifest path and the Language plugin's reason |
 | `source_sets` | object | One section per Source set, under the keys `production`, `test`, `generated`, and `vendored` |
 | `dependencies` | object, optional | Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) when manifests are present for a language with imports |
 | `languages` | object, optional | One section per Language plugin, under its name, when files of two or more Language plugins were measured; each section has `files`, `source_lines`, `source_sets`, and optional `import_metrics_note`, `test_gap_note`, and `dependencies` for that plugin's files |

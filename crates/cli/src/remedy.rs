@@ -389,7 +389,7 @@ fn workspace_remedy(error: &WorkspaceError) -> &'static str {
         WorkspaceError::Manifest { .. } => {
             "Fix the manifest that the message names so that your package manager accepts it, then run codeint again."
         }
-        WorkspaceError::InvalidPackageRoot(_) => {
+        WorkspaceError::PluginFailed { .. } | WorkspaceError::InvalidPackageRoot(_) => {
             "This is a defect in the Language plugin; report it to the Plugin's author."
         }
     }
