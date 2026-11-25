@@ -76,10 +76,20 @@ fn assert_alias_honors_profile(
 }
 
 #[test]
-fn known_framework_profiles_lists_react_vue2_vue3_and_svelte() {
+fn known_framework_profiles_lists_all_nine_typescript_javascript_profiles() {
     assert_eq!(
         TypeScriptAndJavaScript.known_framework_profiles(),
-        vec!["react", "vue2", "vue3", "svelte"]
+        vec![
+            "react",
+            "vue2",
+            "vue3",
+            "svelte",
+            "nextjs",
+            "nuxt",
+            "sveltekit",
+            "angular",
+            "nestjs",
+        ]
     );
 }
 
@@ -284,7 +294,17 @@ fn hoisted_monorepo_root_manifest_never_activates_child_package_without_local_si
 #[test]
 fn sibling_framework_modules_do_not_import_each_other() {
     let frameworks_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/frameworks");
-    let siblings = ["react", "vue2", "vue3", "svelte"];
+    let siblings = [
+        "react",
+        "vue2",
+        "vue3",
+        "svelte",
+        "nextjs",
+        "nuxt",
+        "sveltekit",
+        "angular",
+        "nestjs",
+    ];
     for module in siblings {
         let path = frameworks_dir.join(format!("{module}.rs"));
         let source = fs::read_to_string(&path)
@@ -298,6 +318,317 @@ fn sibling_framework_modules_do_not_import_each_other() {
                 );
             }
         }
+    }
+}
+
+fn path_list(spec: &str) -> Vec<&str> {
+    spec.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn resolve_root_pkg(files: &[&str], pkg_json: &str) -> FrameworkProfileResult {
+    resolve_auto("", files, &[("package.json", pkg_json)])
+}
+
+fn assert_profile_layout(
+    resolved: &FrameworkProfileResult,
+    profiles: &[&str],
+    entries_spec: &str,
+    generated: &[&str],
+) {
+    assert_eq!(resolved.active_profiles, profiles);
+    assert_eq!(resolved.entry_points, path_list(entries_spec));
+    assert_eq!(resolved.generated_paths, generated);
+}
+
+fn assert_no_profiles(files: &[&str], pkg_json: &str) {
+    let resolved = resolve_root_pkg(files, pkg_json);
+    assert!(resolved.active_profiles.is_empty());
+    assert!(resolved.entry_points.is_empty());
+}
+
+#[test]
+fn nextjs_profile_detects_conventions_excludes_libraries_and_inherits_react_ranges() {
+    let files = path_list(
+        "package.json
+        next.config.ts
+        src/middleware.ts
+        src/proxy.ts
+        src/instrumentation.ts
+        src/mdx-components.tsx
+        src/app/layout.tsx
+        src/app/page.tsx
+        src/app/api/health/route.ts
+        src/app/_components/Card.tsx
+        src/pages/_app.tsx
+        src/pages/api/ping.ts
+        src/lib/format.ts
+        components/Hero.tsx
+        .next/types/routes.ts
+        next-env.d.ts
+        out/chunk.js",
+    );
+    let app = resolve_root_pkg(
+        &files,
+        r#"{"dependencies":{"next":"^15.0.0","react":"^19.0.0","react-dom":"^19.0.0"}}"#,
+    );
+    assert_profile_layout(
+        &app,
+        &["nextjs", "react"],
+        "next.config.ts
+        src/app/api/health/route.ts
+        src/app/layout.tsx
+        src/app/page.tsx
+        src/instrumentation.ts
+        src/mdx-components.tsx
+        src/middleware.ts
+        src/pages/_app.tsx
+        src/pages/api/ping.ts
+        src/proxy.ts",
+        &[".next/types/routes.ts", "next-env.d.ts", "out/chunk.js"],
+    );
+    assert!(
+        app.reference_ranges
+            .iter()
+            .any(|range| range.source.contains("ADR 0020"))
+    );
+    assert_eq!(app.reference_range_note, None);
+
+    for (specifier, resolved_path, external) in [
+        ("@/lib/format", "src/lib/format.ts", "@/lib"),
+        ("~/components/Hero", "components/Hero.tsx", "~"),
+    ] {
+        assert_alias_honors_profile(
+            &files,
+            "src/app/page.tsx",
+            specifier,
+            "nextjs",
+            resolved_path,
+            external,
+        );
+    }
+
+    assert_no_profiles(
+        &["package.json", "src/index.tsx", "src/app/page.tsx"],
+        r#"{"peerDependencies":{"next":"^15.0.0","react":"^19.0.0"}}"#,
+    );
+}
+
+#[test]
+fn nuxt_profile_handles_v3_v4_conventions_aliases_virtual_modules_and_vue_ranges() {
+    let v4_files = path_list(
+        "package.json
+        nuxt.config.ts
+        app/app.vue
+        app/error.vue
+        app/pages/index.vue
+        app/layouts/default.vue
+        app/middleware/auth.ts
+        app/plugins/init.ts
+        app/composables/useAuth.ts
+        app/utils/format.ts
+        app/lib/orphan.ts
+        server/api/health.ts
+        shared/utils/math.ts
+        .nuxt/types/imports.ts
+        .output/server/index.mjs",
+    );
+    let v4 = resolve_root_pkg(
+        &v4_files,
+        r#"{"dependencies":{"nuxt":"^4.0.0","vue":"^3.5.0"}}"#,
+    );
+    assert_profile_layout(
+        &v4,
+        &["nuxt", "vue3"],
+        "app/app.vue
+        app/composables/useAuth.ts
+        app/error.vue
+        app/layouts/default.vue
+        app/middleware/auth.ts
+        app/pages/index.vue
+        app/plugins/init.ts
+        app/utils/format.ts
+        nuxt.config.ts
+        server/api/health.ts
+        shared/utils/math.ts",
+        &[".nuxt/types/imports.ts", ".output/server/index.mjs"],
+    );
+    assert!(
+        v4.reference_ranges
+            .iter()
+            .any(|range| range.source.contains("ADR 0015"))
+    );
+    assert_eq!(v4.reference_range_note, None);
+
+    for (specifier, resolved_path, external) in [
+        ("~/utils/format", "app/utils/format.ts", "~"),
+        ("@/utils/format", "app/utils/format.ts", "@/utils"),
+        ("~~/shared/utils/math", "shared/utils/math.ts", "~~"),
+        ("@@/shared/utils/math", "shared/utils/math.ts", "@@/shared"),
+    ] {
+        assert_alias_honors_profile(
+            &v4_files,
+            "app/pages/index.vue",
+            specifier,
+            "nuxt",
+            resolved_path,
+            external,
+        );
+    }
+    for virtual_spec in ["#imports", "#components", "#app", "#build/routes"] {
+        assert_eq!(
+            resolve_single_import(&v4_files, "app/pages/index.vue", virtual_spec, &["nuxt"]),
+            Resolution::Builtin,
+            "{virtual_spec}"
+        );
+        assert!(
+            matches!(
+                resolve_single_import(&v4_files, "app/pages/index.vue", virtual_spec, &[]),
+                Resolution::Unresolved(_)
+            ),
+            "{virtual_spec} must not resolve as builtin without nuxt profile"
+        );
+    }
+
+    let v2 = resolve_root_pkg(
+        &[
+            "package.json",
+            "nuxt.config.js",
+            "pages/index.vue",
+            "dist/app.js",
+        ],
+        r#"{"dependencies":{"nuxt":"^2.17.0","vue":"^2.7.16"}}"#,
+    );
+    assert_eq!(v2.active_profiles, vec!["nuxt", "vue2"]);
+    assert!(
+        v2.reference_ranges
+            .iter()
+            .any(|range| range.source.contains("ADR 0014"))
+    );
+
+    assert_no_profiles(
+        &[
+            "package.json",
+            "src/module.ts",
+            "playground/nuxt.config.ts",
+            "playground/app.vue",
+        ],
+        r#"{"dependencies":{"@nuxt/kit":"^3.14.0"},"devDependencies":{"nuxt":"^3.14.0"}}"#,
+    );
+}
+
+#[test]
+fn sveltekit_profile_detects_routes_hooks_generated_paths_and_unions_with_svelte() {
+    let files = path_list(
+        "package.json
+        svelte.config.js
+        vite.config.ts
+        src/app.html
+        src/hooks.server.ts
+        src/service-worker.ts
+        src/routes/+layout.svelte
+        src/routes/+page.svelte
+        src/routes/+page.server.ts
+        src/routes/about/+page@root.svelte
+        src/routes/api/health/+server.ts
+        src/routes/blog/helper.ts
+        src/lib/format.ts
+        .svelte-kit/generated/root.svelte
+        build/index.js",
+    );
+    let resolved = resolve_root_pkg(
+        &files,
+        r#"{"devDependencies":{"@sveltejs/kit":"^2.8.0","svelte":"^5.0.0"}}"#,
+    );
+    assert_profile_layout(
+        &resolved,
+        &["svelte", "sveltekit"],
+        "src/app.html
+        src/hooks.server.ts
+        src/routes/+layout.svelte
+        src/routes/+page.server.ts
+        src/routes/+page.svelte
+        src/routes/about/+page@root.svelte
+        src/routes/api/health/+server.ts
+        src/service-worker.ts
+        svelte.config.js
+        vite.config.ts",
+        &[".svelte-kit/generated/root.svelte", "build/index.js"],
+    );
+    assert_alias_honors_profile(
+        &files,
+        "src/routes/+page.svelte",
+        "$lib/format",
+        "sveltekit",
+        "src/lib/format.ts",
+        "$lib",
+    );
+
+    assert_no_profiles(
+        &["package.json", "src/index.ts", "svelte.config.js"],
+        r#"{"peerDependencies":{"@sveltejs/kit":"^2.0.0"}}"#,
+    );
+}
+
+#[test]
+fn angular_and_nestjs_profiles_detect_conventions_and_guard_peer_only_libraries() {
+    let ng = resolve_root_pkg(
+        &path_list(
+            "package.json
+            angular.json
+            src/main.ts
+            src/main.server.ts
+            src/app/app.config.ts
+            src/app/app.routes.ts
+            src/app/app.module.ts
+            src/app/orphan.service.ts
+            .angular/cache/entry.ts
+            dist/main.js",
+        ),
+        r#"{"dependencies":{"@angular/core":"^19.0.0"}}"#,
+    );
+    assert_profile_layout(
+        &ng,
+        &["angular"],
+        "angular.json
+        src/app/app.config.ts
+        src/app/app.module.ts
+        src/app/app.routes.ts
+        src/main.server.ts
+        src/main.ts",
+        &[".angular/cache/entry.ts", "dist/main.js"],
+    );
+
+    let nest = resolve_root_pkg(
+        &path_list(
+            "package.json
+            nest-cli.json
+            src/main.ts
+            src/app.module.ts
+            src/orphan.service.ts
+            dist/main.js",
+        ),
+        r#"{"dependencies":{"@nestjs/core":"^11.0.0"}}"#,
+    );
+    assert_profile_layout(
+        &nest,
+        &["nestjs"],
+        "nest-cli.json
+        src/app.module.ts
+        src/main.ts",
+        &["dist/main.js"],
+    );
+
+    for peer_manifest in [
+        r#"{"peerDependencies":{"@angular/core":"^19.0.0"}}"#,
+        r#"{"peerDependencies":{"@nestjs/core":"^11.0.0","@nestjs/common":"^11.0.0"}}"#,
+    ] {
+        assert_no_profiles(
+            &["package.json", "src/main.ts", "src/index.ts"],
+            peer_manifest,
+        );
     }
 }
 

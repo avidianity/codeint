@@ -1,5 +1,6 @@
 use super::{
-    PackageContext, ProfileDefinition, empty_paths, no_reference_ranges, prefix_alias_fallback,
+    PackageContext, ProfileDefinition, empty_paths, no_reference_ranges, no_virtual_modules,
+    svelte_lib_fallback,
 };
 
 const SVELTE_CONFIG_FILES: [&str; 4] = [
@@ -16,9 +17,6 @@ fn is_svelte_library(ctx: &PackageContext<'_>) -> bool {
 }
 
 fn detect(ctx: &PackageContext<'_>) -> bool {
-    if ctx.has_runtime_or_dev_dep("@sveltejs/kit") {
-        return false;
-    }
     if ctx.has_runtime_or_dev_dep("svelte") {
         return true;
     }
@@ -34,19 +32,13 @@ fn entry_points(ctx: &PackageContext<'_>) -> Vec<String> {
     })
 }
 
-fn fallback_import(specifier: &str) -> Vec<String> {
-    if specifier == "$lib" {
-        return vec!["./src/lib/index".to_owned()];
-    }
-    prefix_alias_fallback(specifier, "$lib/", "./src/lib/")
-}
-
 pub(super) const PROFILE: ProfileDefinition = ProfileDefinition {
     name: "svelte",
-    parent: None,
+    parents: &[],
     detect,
     entry_points,
     generated_paths: empty_paths,
     reference_ranges: no_reference_ranges,
-    fallback_import,
+    fallback_import: svelte_lib_fallback,
+    is_virtual_module: no_virtual_modules,
 };

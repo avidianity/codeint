@@ -1596,10 +1596,10 @@ codeint check
 ### Framework profiles
 
 A **Framework profile** is a package-level rule set inside a Language plugin that adds framework detection, convention entry points, framework-generated Source set paths, fallback import hints, and optional Reference ranges while keeping per-file lowering framework-blind ([ADR 0025](./adr/0025-framework-profiles.md)).
-`typescript-javascript` ships built-in Framework profiles for `react`, `vue2`, `vue3`, and `svelte`, and external WebAssembly Language plugins may expose their own Framework profiles through `codeint:plugin@0.4.0`.
+`typescript-javascript` ships built-in Framework profiles for `react`, `vue2`, `vue3`, `svelte`, `nextjs`, `nuxt`, `sveltekit`, `angular`, and `nestjs`, and external WebAssembly Language plugins may expose their own Framework profiles through `codeint:plugin@0.4.0`.
 Active Framework profile names appear under `framework_profiles` per language and per Workspace package in TOON, JSON, Markdown, and text reports (omitted when none are active).
 
-- **Automatic detection (default)**: each Workspace package resolves Framework profiles strictly from its own local manifest and files; a monorepo root manifest never activates a profile on a child package without a local signal, and `peerDependencies`-only UI libraries do not activate app-only conventions (`svelte` allows `devDependencies`).
+- **Automatic detection (default)**: each Workspace package resolves Framework profiles strictly from its own local manifest and files; a monorepo root manifest never activates a profile on a child package without a local signal, and `peerDependencies`-only UI libraries do not activate app-only conventions (`svelte`, `sveltekit`, and `nuxt` allow `devDependencies`).
 - **Global override (`framework_profiles`)**: set `false` to disable all profiles, `true` to use automatic detection, a list of profile names (or `{"only": [...]}`) to activate only those profiles, or `{"exclude": [...]}` to exclude named profiles.
 - **Per-package override (`packages.<path>.framework_profiles`)**: override `framework_profiles` for one Workspace package keyed by its repository-relative root (or `"."` for the repository root).
 - **Fail-fast validation**: every configured profile name is validated against the union of `known_framework_profiles()` across all loaded Language plugins; an unknown name stops the run with exit code 2.
