@@ -248,11 +248,15 @@ impl GoLexer<'_> {
         while self.pos < self.bytes.len() {
             let b = self.bytes[self.pos];
             if b == b'\\' {
-                if self.pos + 1 >= self.bytes.len() || self.bytes[self.pos + 1] == b'\n' {
+                let Some(escaped) = self.source[self.pos + 1..].chars().next() else {
+                    break;
+                };
+                if escaped == '\n' {
                     break;
                 }
-                self.pos += 2;
-                body_bytes += 2;
+                let step = 1 + escaped.len_utf8();
+                self.pos += step;
+                body_bytes += step;
                 continue;
             }
             if b == quote {
