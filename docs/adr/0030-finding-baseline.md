@@ -36,9 +36,12 @@ Spec #470 asks for a committed Baseline of existing Finding identifiers that `co
 ### `codeint baseline update`
 
 - The first run records every current Finding of every measured Metric.
-- Later runs remove fixed Findings and never add a new Finding; the command succeeds and names how many new Findings it left out.
+- Later runs remove fixed Findings of a Metric that already has an entry and never add a new Finding to it; the command succeeds and names how many new Findings it left out.
+- A measured Metric that has no entry yet, such as Test gap on the first run with a Coverage report, records its current Findings exactly as the first run would, so its legacy Findings never show as new.
 - A Metric whose Metric version changed takes the current Findings and the new Metric version.
 - `--reset` replaces every measured Metric's Findings with the current Findings.
+- `--reset` also regenerates a Baseline file that is not valid JSON or fails validation, and the command says it replaced an invalid file; the file is committed, so Git keeps the old content. Without `--reset`, an invalid file stops the run with exit code 2.
+- A Baseline file lists only the dependency Metric keys that the Ratchet allows; any other key is invalid.
 - Entries of Metrics that a run does not measure, such as Test gap without a Coverage report, stay unchanged.
 
 ## Considered options

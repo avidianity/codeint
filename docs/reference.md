@@ -666,7 +666,9 @@ codeint 0.6.0 is already up to date (v0.6.0)
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
 It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy and Hazards, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
-The `check` MCP tool uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
+The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, and `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`).
+Its stale-Baseline error names `ignore_baseline: true` as the way to show every Finding.
+It uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
 When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `sql_schemas`, and `rejected_statements`.
 When standard input closes, the server exits with code 0:
 
@@ -856,11 +858,14 @@ A repository without `.codeint/baseline.json` reports exactly as before.
 `codeint baseline update` measures the whole repository and writes `.codeint/baseline.json`:
 
 - On the first run, it records every current Finding of every measured Metric.
-- On later runs, it removes each Finding that is fixed and never adds a new Finding; it names the count of new Findings it left out.
+- When a run measures a Metric that has no entry in the Baseline yet, such as Test gap on the first run with a Coverage report, it records that Metric's current Findings, as the first run would.
+- For a Metric that already has an entry, it removes each Finding that is fixed and never adds a new Finding; it names the count of new Findings it left out.
 - When a Metric's Metric version changed, it replaces that Metric's Findings with the current Findings and records the new Metric version.
 - With `--reset`, it replaces every measured Metric's Findings with the current Findings, so new Findings join the Baseline.
 - It keeps the entries of Metrics that this run does not measure, such as Test gap without a Coverage report.
 
+When the existing Baseline file is not valid JSON or fails validation, `codeint baseline update --reset` replaces it with a regenerated file and says so; without `--reset` it stops with exit code 2.
+The file is committed, so the old content is recoverable from Git.
 `codeint baseline update` accepts an optional `[PATH]` folder inside the repository, `--reset`, `--coverage-report <PATH>` (repeatable), and `--format <text|toon|json>` (`text` by default).
 
 ```sh exit=0

@@ -150,6 +150,12 @@ fn format_update_text(summary: &BaselineUpdateSummary) -> String {
         summary.path,
         counted_findings(summary.total_findings)
     );
+    if summary.replaced_invalid {
+        text.push_str(&format!(
+            "\nReplaced invalid {}; the previous content is recoverable from Git.",
+            summary.path
+        ));
+    }
     if summary.skipped_new > 0 {
         text.push_str(&format!(
             "\n{} not added; codeint check still reports them. Fix them, or run codeint baseline update --reset to add them.",

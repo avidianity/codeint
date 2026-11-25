@@ -35,6 +35,15 @@ pub(crate) fn remedy(error: &CliError) -> Cow<'static, str> {
     }
 }
 
+pub(crate) fn mcp_remedy(error: &CliError) -> Cow<'static, str> {
+    match error {
+        CliError::Check(CheckError::BaselineVersionMismatch { .. }) => Cow::Borrowed(
+            "Run codeint baseline update to refresh the Baseline for the updated Metric versions, or pass ignore_baseline: true to show every Finding.",
+        ),
+        other => remedy(other),
+    }
+}
+
 fn tooling_remedy(error: &CliError) -> Cow<'static, str> {
     use CliError::*;
     match error {

@@ -144,6 +144,7 @@ pub struct DiffOutcome {
 pub struct CodeintError {
     message: String,
     remedy: String,
+    mcp_remedy: String,
 }
 
 impl CodeintError {
@@ -155,10 +156,15 @@ impl CodeintError {
         &self.remedy
     }
 
+    pub(crate) fn mcp_text(&self) -> String {
+        format!("{}\n{}", self.message, self.mcp_remedy)
+    }
+
     fn from_cli_error(error: CliError) -> CodeintError {
         CodeintError {
             message: describe(&error),
             remedy: remedy::remedy(&error).into_owned(),
+            mcp_remedy: remedy::mcp_remedy(&error).into_owned(),
         }
     }
 }

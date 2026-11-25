@@ -5,8 +5,9 @@ use codeint_model::SourceSet;
 use serde::{Deserialize, Serialize};
 
 use crate::repo_state::{
-    MetricVersionMismatch, RepoStateFile, SourceSetEntries, StateFileError, StateFileFault,
-    metric_label, read_state_file, write_state_file,
+    DEPENDENCY_METRIC_KEYS, LoadedForUpdate, MetricVersionMismatch, RepoStateFile,
+    SourceSetEntries, StateFileError, StateFileFault, metric_label, read_state_file,
+    recover_invalid_for_update, write_state_file,
 };
 
 #[cfg(test)]
@@ -56,6 +57,8 @@ pub struct BaselineUpdateSummary {
     pub path: String,
     pub created: bool,
     pub reset: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub replaced_invalid: bool,
     pub added: usize,
     pub removed: usize,
     pub refreshed: usize,
@@ -75,6 +78,13 @@ impl Baseline {
             .map_err(baseline_fault)?
             .map(|text| Baseline::parse(&text))
             .transpose()
+    }
+
+    pub fn load_for_update(
+        repository_root: &Path,
+        reset: bool,
+    ) -> Result<LoadedForUpdate<Baseline>, BaselineFileError> {
+        recover_invalid_for_update(Baseline::load_optional(repository_root), reset)
     }
 
     pub fn parse(text: &str) -> Result<Baseline, BaselineFileError> {
@@ -147,7 +157,7 @@ impl Baseline {
         };
         for item in measured {
             let previous = existing.and_then(|prev| prev.entry(item.source_set, &item.metric));
-            let entry = next_entry(previous, item, existing.is_none() || reset, &mut summary);
+            let entry = next_entry(previous, item, previous.is_none() || reset, &mut summary);
             next.insert(item.source_set, item.metric.clone(), entry);
         }
         summary.total_findings = next.total_findings();
@@ -184,6 +194,16 @@ impl Baseline {
                     .iter()
                     .map(|(metric, entry)| (metric.clone(), entry)),
             );
+        for dependency in self.dependencies.keys() {
+            if !DEPENDENCY_METRIC_KEYS.contains(&dependency.as_str()) {
+                return Err(StateFileError::UnknownDependencyMetric {
+                    file: RepoStateFile::Baseline,
+                    path: BASELINE_PATH.to_owned(),
+                    metric: dependency.clone(),
+                    allowed: DEPENDENCY_METRIC_KEYS.join(", "),
+                });
+            }
+        }
         for (metric, entry) in labelled {
             if entry.metric_version == 0 {
                 return Err(StateFileError::InvalidMetricVersion {

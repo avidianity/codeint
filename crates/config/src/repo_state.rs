@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use codeint_model::SourceSet;
+use codeint_model::{Metric, SourceSet};
 use serde::{Deserialize, Serialize};
 
 use crate::config_error::{contains_parent_traversal, is_absolute_repo_path};
@@ -185,6 +185,12 @@ impl StateFileError {
         }
     }
 }
+
+pub(crate) const DEPENDENCY_METRIC_KEYS: [&str; 3] = [
+    Metric::UnusedDependencies.key(),
+    Metric::UnlistedDependencies.key(),
+    Metric::DevInProductionDependencies.key(),
+];
 
 pub struct LoadedForUpdate<T> {
     pub existing: Option<T>,

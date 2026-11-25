@@ -121,3 +121,19 @@ fn parse_rejects_unknown_schema_versions_and_zero_metric_versions() {
         Some(BTreeSet::from(["x".to_owned()]))
     );
 }
+
+#[test]
+fn a_metric_without_an_entry_records_current_findings_in_a_later_update() {
+    let (first, _) = Baseline::update(None, &[measured("erosion", 1, &["a"])], false);
+    let (second, summary) = Baseline::update(
+        Some(&first),
+        &[
+            measured("erosion", 1, &["a", "b"]),
+            measured("test_gap", 1, &["t"]),
+        ],
+        false,
+    );
+    assert_eq!(stored_ids(&second, "test_gap"), vec!["t"]);
+    assert_eq!(stored_ids(&second, "erosion"), vec!["a"]);
+    assert_eq!((summary.added, summary.skipped_new), (1, 1));
+}

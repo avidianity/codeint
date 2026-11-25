@@ -201,3 +201,96 @@ fn repository_without_baseline_file_reports_exactly_as_before() {
     assert_eq!(plain, ignoring);
     assert!(!plain.contains("baseline"));
 }
+
+fn assert_baseline_reset_regenerates(corrupt: &str, needle: &str) {
+    let repo = legacy_repository();
+    write_repo_files(repo.path(), &[(BASELINE_FILE, corrupt)]);
+
+    let (_, stderr) = run_codeint_text(repo.path(), &["baseline", "update"], 2);
+    assert!(
+        stderr.contains(needle) && stderr.contains("codeint baseline update --reset"),
+        "expected the error to name the fault and --reset, got: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(BASELINE_FILE)).expect("read"),
+        corrupt
+    );
+
+    let (stdout, _) = run_codeint_text(repo.path(), &["baseline", "update", "--reset"], 0);
+    assert!(
+        stdout.contains("Replaced invalid .codeint/baseline.json"),
+        "expected the summary to say the invalid file was replaced, got: {stdout}"
+    );
+    assert_eq!(baselined_erosion_ids(repo.path()).len(), 1);
+    check_json(repo.path(), &[], 0);
+}
+
+#[test]
+fn reset_regenerates_a_baseline_file_that_is_not_json() {
+    assert_baseline_reset_regenerates("{", "not valid JSON");
+}
+
+#[test]
+fn reset_regenerates_a_baseline_file_with_an_unsupported_schema_version() {
+    assert_baseline_reset_regenerates(r#"{"schema_version":2}"#, "schema_version");
+}
+
+#[test]
+fn reset_regenerates_a_baseline_file_with_a_zero_metric_version() {
+    assert_baseline_reset_regenerates(
+        r#"{"schema_version":1,"source_sets":{"production":{"erosion":{"metric_version":0}}}}"#,
+        "metric_version 0",
+    );
+}
+
+#[test]
+fn baseline_with_an_unknown_dependency_metric_key_is_rejected() {
+    let repo = legacy_repository();
+    write_repo_files(
+        repo.path(),
+        &[(
+            BASELINE_FILE,
+            r#"{"schema_version":1,"dependencies":{"mystery":{"metric_version":1}}}"#,
+        )],
+    );
+    let (_, stderr) = run_codeint_text(repo.path(), &["check"], 2);
+    assert!(
+        stderr.contains("unknown dependency Metric \"mystery\"")
+            && stderr.contains("unused_dependencies"),
+        "expected the unknown key and the allowed keys, got: {stderr}"
+    );
+}
+
+#[test]
+fn a_metric_first_measured_after_the_baseline_exists_records_its_current_findings() {
+    let lcov =
+        "SF:src/legacy.ts\nDA:2,0\nDA:3,0\nend_of_record\nSF:src/clean.ts\nDA:2,1\nend_of_record\n";
+    let repo = init_git_repo(&[
+        (
+            "codeint.json",
+            r#"{ "budgets": { "production": { "test_gap": 0 } } }"#,
+        ),
+        ("src/legacy.ts", &tidy_ts("legacy")),
+        ("src/clean.ts", &tidy_ts("clean")),
+        ("lcov.info", lcov),
+    ]);
+    run_codeint_text(repo.path(), &["baseline", "update"], 0);
+    assert!(
+        baseline_file(repo.path())["source_sets"]["production"]
+            .get("test_gap")
+            .is_none()
+    );
+
+    let (updated, _) = run_codeint_text(
+        repo.path(),
+        &["baseline", "update", "--coverage-report", "lcov.info"],
+        0,
+    );
+    assert!(
+        !updated.contains("not added"),
+        "expected no skipped Findings for a first-measured Metric, got: {updated}"
+    );
+    let stored = &baseline_file(repo.path())["source_sets"]["production"]["test_gap"];
+    assert_eq!(stored["findings"].as_array().expect("findings").len(), 1);
+    check_json(repo.path(), &["--coverage-report", "lcov.info"], 0);
+}

@@ -129,7 +129,7 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
     vec![
         McpToolSchema {
             name: "check".to_owned(),
-            description: "Measure Software entropy of a Git repository working tree (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, Test gap, Hazards) and report any Budget failures.".to_owned(),
+            description: "Measure Software entropy of a Git repository working tree (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Dependency hygiene, Test gap, Hazards) and report any Budget failures; Findings listed in .codeint/baseline.json are hidden unless ignore_baseline is true.".to_owned(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -140,7 +140,8 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
                         "items": { "type": "string" },
                         "description": "Optional LCOV or Cobertura XML Coverage report paths; when provided, replaces coverage_reports in codeint.json."
                     },
-                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." }
+                    "all": { "type": "boolean", "description": "Return all Findings instead of the 20 worst per Metric." },
+                    "ignore_baseline": { "type": "boolean", "description": "Ignore .codeint/baseline.json: show every Finding and evaluate Budgets on every Finding (default false)." }
                 }
             }),
         },
@@ -303,12 +304,15 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
         .into_iter()
         .map(PathBuf::from)
         .collect();
+    let ignore_baseline = parse_optional_arg(args, "ignore_baseline", false, |value| {
+        parse_bool_arg(value, "ignore_baseline")
+    })?;
     let options = CheckOptions {
         findings: parse_findings(args)?,
         package: parse_package(args),
         owner: None,
         coverage_reports,
-        ignore_baseline: false,
+        ignore_baseline,
         plugin_host: ctx.plugin_host.clone(),
     };
     Ok(match check(&folder, &options) {
@@ -317,7 +321,7 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
             outcome.failures,
             outcome.report.render(ReportFormat::Json),
         ),
-        Err(err) => tool_err(&err.to_string()),
+        Err(err) => tool_err(&err.mcp_text()),
     })
 }
 

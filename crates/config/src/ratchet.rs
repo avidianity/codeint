@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use codeint_model::{Metric, SourceSet};
+use codeint_model::SourceSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -11,15 +11,10 @@ use crate::config_error::{
     is_absolute_repo_path,
 };
 use crate::repo_state::{
-    LoadedForUpdate, MetricVersionMismatch, RepoStateFile, SourceSetEntries, StateFileError,
-    metric_label, read_state_file, recover_invalid_for_update, state_file_exists, write_state_file,
+    DEPENDENCY_METRIC_KEYS, LoadedForUpdate, MetricVersionMismatch, RepoStateFile,
+    SourceSetEntries, StateFileError, metric_label, read_state_file, recover_invalid_for_update,
+    state_file_exists, write_state_file,
 };
-
-const RATCHET_DEPENDENCY_KEYS: [&str; 3] = [
-    Metric::UnusedDependencies.key(),
-    Metric::UnlistedDependencies.key(),
-    Metric::DevInProductionDependencies.key(),
-];
 
 #[cfg(test)]
 mod tests;
@@ -408,12 +403,12 @@ impl Ratchet {
             }
         }
         for (metric, entry) in &self.dependencies {
-            if !RATCHET_DEPENDENCY_KEYS.contains(&metric.as_str()) {
+            if !DEPENDENCY_METRIC_KEYS.contains(&metric.as_str()) {
                 return Err(StateFileError::UnknownDependencyMetric {
                     file: RepoStateFile::Ratchet,
                     path: path_label.to_owned(),
                     metric: metric.clone(),
-                    allowed: RATCHET_DEPENDENCY_KEYS.join(", "),
+                    allowed: DEPENDENCY_METRIC_KEYS.join(", "),
                 });
             }
             validate_entry(path_label, metric, *entry)?;
