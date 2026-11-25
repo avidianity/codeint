@@ -1585,7 +1585,7 @@ fn read_cached_settings_and_result(cache_folder: &Path) -> (Value, Value) {
 }
 
 #[test]
-fn a_result_cached_under_plugin_interface_0_2_0_is_not_reused_and_recomputes() {
+fn a_result_cached_under_plugin_interface_0_2_0_or_cache_version_7_is_not_reused_and_recomputes() {
     let fixture = Fixture::with_an_eroded_file_removed_since_main();
     let _initial = fixture.diff_json("main");
     let (current_settings, mut stale_result) =
@@ -1609,7 +1609,17 @@ fn a_result_cached_under_plugin_interface_0_2_0_is_not_reused_and_recomputes() {
     let repository = codeint_git::Repository::discover(fixture.root()).expect("open fixture repo");
     let commit = repository.resolve("main").expect("resolve main commit");
 
-    for legacy_settings in [pre_step_v0_2_0_settings, explicit_v0_2_0_settings] {
+    let mut version_7_settings = current_settings.clone();
+    version_7_settings
+        .as_object_mut()
+        .expect("settings is a JSON object")
+        .insert("cache_version".to_owned(), json!(7));
+
+    for legacy_settings in [
+        pre_step_v0_2_0_settings,
+        explicit_v0_2_0_settings,
+        version_7_settings,
+    ] {
         let seeded_cache = tempfile::tempdir().expect("create seeded result cache folder");
         codeint_git::ResultCache::in_folder(seeded_cache.path().to_path_buf())
             .write(commit, &legacy_settings, &stale_result)
@@ -1635,7 +1645,7 @@ fn a_result_cached_under_plugin_interface_0_2_0_is_not_reused_and_recomputes() {
     }
 
     assert_eq!(current_settings["plugin_interface_version"], json!("0.4.0"));
-    assert_eq!(current_settings["cache_version"], json!(7));
+    assert_eq!(current_settings["cache_version"], json!(8));
 }
 
 #[test]
