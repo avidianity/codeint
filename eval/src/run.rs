@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::audit::AuditPopulation;
-use crate::corpus::{Corpus, CorpusEntry, SizeBucket, load_corpus};
+use crate::corpus::{CaseStudy, Corpus, CorpusEntry, SizeBucket, load_corpus};
 use crate::error::{EvaluationError, io_error};
 use crate::lowering::{LoweredFile, lower_language_files};
 use crate::machine::{codeint_version, machine_profile};
@@ -12,10 +12,12 @@ use crate::measure::{CheckMeasurement, measure_check, median};
 use crate::oracle::{PreparedOracle, prepare_oracles, run_oracle};
 use crate::recall::{LanguageRecall, RECALL_BAR};
 use crate::report::render_markdown;
+use crate::review::{load_verdicts, review_samples};
 use crate::scratch::{ScratchFolder, clone_at_commit};
+use crate::stats::Distribution;
 use crate::summary::{
-    EvaluationSummary, LanguageSummary, OracleReport, OracleStatus, PerformanceSummary,
-    RepositoryResult,
+    CaseSnapshot, CaseStudyResult, EvaluationSummary, LanguageSummary, MetricReading, OracleReport,
+    OracleStatus, PanelMetric, PanelSummary, PerformanceSummary, RepositoryResult,
 };
 
 pub(crate) const SUMMARY_FILE: &str = "evaluation-summary.json";
@@ -33,6 +35,8 @@ pub struct EvaluationConfig {
     pub runs: u32,
     pub audit_sample_size: usize,
     pub oracle_overrides: BTreeMap<String, PathBuf>,
+    pub audit_verdicts: Option<PathBuf>,
+    pub case_studies: bool,
 }
 
 fn absolute(path: &Path) -> Result<PathBuf, EvaluationError> {
@@ -68,8 +72,18 @@ pub fn run_evaluation(config: &EvaluationConfig) -> Result<EvaluationSummary, Ev
         .map(|entry| evaluate_repository(entry, config, &oracles, &mut population))
         .collect();
     drop(oracle_workspace);
+    let case_studies = if config.case_studies {
+        measure_case_studies(&corpus.case_studies, config)
+    } else {
+        Vec::new()
+    };
+    let audit = population.draw(config.audit_sample_size);
+    let audit_review = match &config.audit_verdicts {
+        Some(path) => Some(review_samples(&audit, &load_verdicts(path)?)),
+        None => None,
+    };
     let summary = EvaluationSummary {
-        schema_version: 1,
+        schema_version: 2,
         measured_on: corpus.measured_on.clone(),
         codeint_version,
         machine: machine_profile(),
@@ -78,8 +92,11 @@ pub fn run_evaluation(config: &EvaluationConfig) -> Result<EvaluationSummary, Ev
         passed: repositories.iter().all(|result| result.passed),
         languages: summarize_languages(&repositories, &oracles),
         performance: summarize_performance(&repositories),
+        panels: summarize_panels(&repositories),
         repositories,
-        audit: population.draw(config.audit_sample_size),
+        case_studies,
+        audit,
+        audit_review,
     };
     write_outputs(&config.output_dir, &summary)?;
     Ok(summary)
@@ -143,14 +160,47 @@ fn measure_repository(
         scratch.path(),
         &lowered,
     )?;
-    population.add_repository(&entry.name, &entry.commit, &check.report, &lowered);
+    if entry.panel.is_none() {
+        population.add_repository(&entry.name, &entry.commit, &check.report, &lowered);
+    }
     Ok(())
 }
 
-fn production_lines(report: &Value, language: &str) -> Option<u64> {
+fn language_section<'report>(report: &'report Value, language: &str) -> &'report Value {
     let section = &report["languages"][language];
-    let measured = if section.is_null() { report } else { section };
-    measured["source_sets"]["production"]["source_lines"].as_u64()
+    if section.is_null() { report } else { section }
+}
+
+fn production_lines(report: &Value, language: &str) -> Option<u64> {
+    language_section(report, language)["source_sets"]["production"]["source_lines"].as_u64()
+}
+
+pub(crate) const RANGE_METRICS: [&str; 4] =
+    ["erosion", "verbosity", "duplication", "import_cycles"];
+
+pub(crate) fn metric_readings(production: &Value) -> BTreeMap<String, MetricReading> {
+    RANGE_METRICS
+        .iter()
+        .filter_map(|key| {
+            let metric = &production[*key];
+            Some((
+                (*key).to_owned(),
+                MetricReading {
+                    ratio: metric["ratio"].as_f64()?,
+                    version: u32::try_from(metric["metric_version"].as_u64()?).ok()?,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn framework_profiles(report: &Value, language: &str) -> Vec<String> {
+    language_section(report, language)["framework_profiles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|name| name.as_str().map(str::to_owned))
+        .collect()
 }
 
 fn record_check(result: &mut RepositoryResult, check: &CheckMeasurement) {
@@ -163,6 +213,10 @@ fn record_check(result: &mut RepositoryResult, check: &CheckMeasurement) {
             .as_array()
             .map_or(0, |skipped| skipped.len() as u64),
     );
+    result.metrics = metric_readings(
+        &language_section(&check.report, &result.language)["source_sets"]["production"],
+    );
+    result.framework_profiles = framework_profiles(&check.report, &result.language);
     result.exit_code = check.exit_code;
     result.wall_seconds = check.wall_seconds.clone();
     result.median_wall_seconds = median(&check.wall_seconds);
@@ -262,6 +316,96 @@ fn summarize_performance(repositories: &[RepositoryResult]) -> PerformanceSummar
             .max(),
         median_production_lines_per_second: median(&throughputs),
     }
+}
+
+fn summarize_panels(repositories: &[RepositoryResult]) -> Vec<PanelSummary> {
+    let mut groups: BTreeMap<(&str, Option<&str>), Vec<&RepositoryResult>> = BTreeMap::new();
+    for result in repositories.iter().filter(|result| result.error.is_none()) {
+        groups
+            .entry((result.language.as_str(), result.panel.as_deref()))
+            .or_default()
+            .push(result);
+    }
+    groups
+        .into_iter()
+        .map(|((language, panel), results)| {
+            let in_bucket = |bucket| {
+                results
+                    .iter()
+                    .filter(|result| result.measured_bucket == Some(bucket))
+                    .count() as u64
+            };
+            let metrics = RANGE_METRICS
+                .iter()
+                .filter_map(|key| {
+                    let readings: Vec<&MetricReading> = results
+                        .iter()
+                        .filter_map(|result| result.metrics.get(*key))
+                        .collect();
+                    let ratios: Vec<f64> = readings.iter().map(|reading| reading.ratio).collect();
+                    Some((
+                        (*key).to_owned(),
+                        PanelMetric {
+                            version: readings.first()?.version,
+                            distribution: Distribution::of(&ratios)?,
+                        },
+                    ))
+                })
+                .collect();
+            PanelSummary {
+                language: language.to_owned(),
+                panel: panel.map(str::to_owned),
+                repositories: results.len() as u64,
+                small: in_bucket(SizeBucket::Small),
+                medium: in_bucket(SizeBucket::Medium),
+                large: in_bucket(SizeBucket::Large),
+                metrics,
+            }
+        })
+        .collect()
+}
+
+fn snapshot(
+    config: &EvaluationConfig,
+    url: &str,
+    commit: &str,
+) -> Result<CaseSnapshot, EvaluationError> {
+    let scratch = ScratchFolder::outside(
+        &config.protected_repositories,
+        config.scratch_root.as_deref(),
+    )?;
+    let checkout = clone_at_commit(&scratch, url, commit)?;
+    let check = measure_check(&config.codeint, &checkout, scratch.path(), 1)?;
+    let production = &check.report["source_sets"]["production"];
+    Ok(CaseSnapshot {
+        commit: commit.to_owned(),
+        production_lines: production["source_lines"].as_u64(),
+        metrics: metric_readings(production),
+    })
+}
+
+fn measure_case_studies(studies: &[CaseStudy], config: &EvaluationConfig) -> Vec<CaseStudyResult> {
+    studies
+        .iter()
+        .map(|study| {
+            let before = snapshot(config, &study.url, &study.before);
+            let after = snapshot(config, &study.url, &study.after);
+            let error = [&before, &after]
+                .into_iter()
+                .filter_map(|outcome| outcome.as_ref().err())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ");
+            CaseStudyResult {
+                name: study.name.clone(),
+                url: study.url.clone(),
+                change: study.change.clone(),
+                before: before.ok(),
+                after: after.ok(),
+                error: (!error.is_empty()).then_some(error),
+            }
+        })
+        .collect()
 }
 
 fn write_outputs(output_dir: &Path, summary: &EvaluationSummary) -> Result<(), EvaluationError> {

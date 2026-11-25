@@ -32,7 +32,57 @@ fn entry(language: &str, commit: &str) -> CorpusEntry {
         bucket: SizeBucket::Small,
         url: "https://github.com/owner/name".to_owned(),
         commit: commit.to_owned(),
+        panel: None,
     }
+}
+
+fn manifest(repositories: &str, case_studies: &str) -> String {
+    format!(
+        r#"{{"measured_on":"2026-11-25","repositories":[{repositories}],"case_studies":[{case_studies}]}}"#
+    )
+}
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn repository(panel: &str) -> String {
+    format!(
+        r#"{{"name":"owner/name","language":"typescript-javascript","bucket":"small","url":"https://github.com/owner/name","commit":"{SHA}"{panel}}}"#
+    )
+}
+
+fn load(text: &str) -> Result<Corpus, EvaluationError> {
+    let folder = tempfile::tempdir().expect("temporary folder");
+    let path = folder.path().join("panels.json");
+    std::fs::write(&path, text).expect("manifest written");
+    load_corpus(&path)
+}
+
+#[test]
+fn one_repository_may_join_several_panels_but_not_the_same_panel_twice() {
+    let react = repository(r#","panel":"react""#);
+    let vue = repository(r#","panel":"vue3""#);
+    let both = format!("{react},{vue},{}", repository(""));
+    assert_eq!(
+        load(&manifest(&both, ""))
+            .expect("valid")
+            .repositories
+            .len(),
+        3
+    );
+    let twice = format!("{react},{react}");
+    assert!(load(&manifest(&twice, "")).is_err_and(|error| error.to_string().contains("(react)")));
+}
+
+#[test]
+fn case_studies_pin_both_commits() {
+    let study = |after: &str| {
+        format!(
+            r#"{{"name":"study","url":"https://github.com/owner/name","before":"{SHA}","after":"{after}","change":"split a module"}}"#
+        )
+    };
+    let valid = load(&manifest(&repository(""), &study(SHA))).expect("valid");
+    assert_eq!(valid.case_studies.len(), 1);
+    assert!(load(&manifest(&repository(""), &study("main"))).is_err());
 }
 
 #[test]

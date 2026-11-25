@@ -1,9 +1,12 @@
 use std::fmt::Write as _;
 
-use crate::audit::{AuditCategory, AuditSample};
+use crate::audit::AuditCategory;
 use crate::corpus::SizeBucket;
 use crate::recall::{LanguageRecall, RecallCount};
-use crate::summary::{EvaluationSummary, LanguageSummary, OracleStatus, RepositoryResult};
+use crate::summary::{
+    CaseSnapshot, CaseStudyResult, EvaluationSummary, LanguageSummary, OracleStatus, PanelSummary,
+    RepositoryResult,
+};
 
 const MEBIBYTE: f64 = 1024.0 * 1024.0;
 const GIBIBYTE: f64 = 1024.0 * MEBIBYTE;
@@ -50,10 +53,12 @@ fn short_commit(commit: &str) -> &str {
 pub(crate) fn render_markdown(summary: &EvaluationSummary) -> String {
     let mut out = String::new();
     write_header(&mut out, summary);
+    write_panels(&mut out, &summary.panels);
     write_recall(&mut out, summary);
     write_performance(&mut out, summary);
+    write_case_studies(&mut out, &summary.case_studies);
     write_repositories(&mut out, &summary.repositories);
-    write_audit(&mut out, &summary.audit);
+    write_audit(&mut out, summary);
     out
 }
 
@@ -80,6 +85,124 @@ fn write_header(out: &mut String, summary: &EvaluationSummary) {
         "- Runs per repository: {}\n",
         summary.runs_per_repository
     );
+}
+
+const METRIC_TITLES: [(&str, &str); 4] = [
+    ("erosion", "Erosion"),
+    ("verbosity", "Verbosity"),
+    ("duplication", "Duplication"),
+    ("import_cycles", "Import cycles"),
+];
+
+fn panel_title(panel: &PanelSummary) -> String {
+    match &panel.panel {
+        Some(name) => format!("{} ({name} Framework profile)", panel.language),
+        None => panel.language.clone(),
+    }
+}
+
+fn write_panels(out: &mut String, panels: &[PanelSummary]) {
+    if panels.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "## Reference range panels\n");
+    let _ = writeln!(
+        out,
+        "Each Reference range is the 10th to 90th percentile (linear interpolation) of the Production Source set ratios across the panel.\nThe standard deviation is the population standard deviation.\n"
+    );
+    for panel in panels {
+        let _ = writeln!(
+            out,
+            "### {}\n\n{} repositories: {} Small, {} Medium, {} Large.\n",
+            panel_title(panel),
+            panel.repositories,
+            panel.small,
+            panel.medium,
+            panel.large
+        );
+        let _ = writeln!(
+            out,
+            "| Metric | Version | Mean | Median | Standard deviation | 10th percentile | 90th percentile | Lowest | Highest |"
+        );
+        let _ = writeln!(
+            out,
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+        );
+        for (key, title) in METRIC_TITLES {
+            let Some(metric) = panel.metrics.get(key) else {
+                continue;
+            };
+            let d = &metric.distribution;
+            let _ = writeln!(
+                out,
+                "| {title} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} |",
+                metric.version,
+                d.mean,
+                d.median,
+                d.standard_deviation,
+                d.p10,
+                d.p90,
+                d.lowest,
+                d.highest
+            );
+        }
+        out.push('\n');
+    }
+}
+
+fn ratio_cell(snapshot: &CaseSnapshot, key: &str) -> String {
+    or_dash(
+        snapshot
+            .metrics
+            .get(key)
+            .map(|reading| format!("{:.4}", reading.ratio)),
+    )
+}
+
+fn write_case_studies(out: &mut String, studies: &[CaseStudyResult]) {
+    if studies.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "## Before-after case studies\n");
+    let _ = writeln!(
+        out,
+        "Each study measures the Production Source set at two pinned commits with the binary above.\nThe report holds commit references and Metric ratios only, never source excerpts.\n"
+    );
+    for study in studies {
+        let _ = writeln!(
+            out,
+            "### {}\n\n{}\n\nRepository: {}\n",
+            study.name, study.change, study.url
+        );
+        if let Some(error) = &study.error {
+            let _ = writeln!(out, "FAIL: {}\n", error.replace('\n', " "));
+        }
+        let (Some(before), Some(after)) = (&study.before, &study.after) else {
+            continue;
+        };
+        let _ = writeln!(
+            out,
+            "Before: `{}`; after: `{}`.\n",
+            before.commit, after.commit
+        );
+        let _ = writeln!(out, "| Metric | Before | After |");
+        let _ = writeln!(out, "| --- | --- | --- |");
+        let _ = writeln!(
+            out,
+            "| Production lines | {} | {} |",
+            or_dash(before.production_lines),
+            or_dash(after.production_lines)
+        );
+        for (key, title) in METRIC_TITLES {
+            let _ = writeln!(
+                out,
+                "| {title} | {} | {} |",
+                ratio_cell(before, key),
+                ratio_cell(after, key)
+            );
+        }
+        out.push('\n');
+    }
 }
 
 fn recall_cells(recall: Option<&LanguageRecall>) -> String {
@@ -229,13 +352,41 @@ fn category_title(category: AuditCategory) -> &'static str {
     }
 }
 
-fn write_audit(out: &mut String, audit: &[AuditSample]) {
-    let _ = writeln!(out, "## Human audit sample\n");
+fn write_audit_review(out: &mut String, summary: &EvaluationSummary) {
+    let Some(review) = &summary.audit_review else {
+        return;
+    };
+    let _ = writeln!(
+        out,
+        "\nReviewer: {}. These rates are not human-audited; a person can recheck every verdict in the verdicts file.\n",
+        review.reviewer
+    );
+    let _ = writeln!(
+        out,
+        "| Category | Sampled | Reviewed | False positives | False positive rate |"
+    );
+    let _ = writeln!(out, "| --- | --- | --- | --- | --- |");
+    for category in &review.categories {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {:.2}% |",
+            category_title(category.category),
+            category.sampled,
+            category.reviewed,
+            category.false_positives,
+            category.false_positive_percent
+        );
+    }
+}
+
+fn write_audit(out: &mut String, summary: &EvaluationSummary) {
+    let _ = writeln!(out, "## Audit sample\n");
     let _ = writeln!(
         out,
         "Each sample is drawn with a seed derived from the pinned commits, so the same corpus gives the same sample."
     );
-    for sample in audit {
+    write_audit_review(out, summary);
+    for sample in &summary.audit {
         let _ = writeln!(
             out,
             "\n### {}\n\nSeed `{}`; {} of {} Findings.",

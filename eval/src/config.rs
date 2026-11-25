@@ -53,6 +53,11 @@ struct Arguments {
         help = "Create scratch folders under DIR instead of the system temporary folder"
     )]
     scratch_root: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Read the reviewer's verdicts on the audit sample from FILE and report false positive rates"
+    )]
+    audit_verdicts: Option<PathBuf>,
     #[arg(long, value_parser = parse_oracle, help = "Use PROGRAM as the oracle for LANGUAGE, as LANGUAGE=PROGRAM; may repeat")]
     oracle: Vec<(String, PathBuf)>,
 }
@@ -104,10 +109,12 @@ pub(crate) fn evaluation_config() -> Result<EvaluationConfig, std::io::Error> {
         output_dir: arguments.output_dir,
         protected_repositories,
         scratch_root: arguments.scratch_root,
+        case_studies: arguments.language.is_empty() && arguments.repository.is_empty(),
         languages: arguments.language,
         repositories: arguments.repository,
         runs: arguments.runs,
         audit_sample_size: arguments.audit_sample_size,
         oracle_overrides: arguments.oracle.into_iter().collect::<BTreeMap<_, _>>(),
+        audit_verdicts: arguments.audit_verdicts,
     })
 }
