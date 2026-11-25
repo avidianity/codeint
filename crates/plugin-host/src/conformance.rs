@@ -2,7 +2,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use codeint_config::{PluginKind, PluginLimits};
-use codeint_model::language::{FlaggedLine, Function, HazardLine, Token, TokenKind};
+use codeint_model::language::{
+    FlaggedLine, Function, FunctionCoverage, HazardLine, Token, TokenKind,
+};
 use codeint_model::{
     CodeModel, FileModel, FrameworkProfileSelection, ImportResolution, LanguageFacts,
     LanguagePlugin, LanguagePluginError, LowerError, Manifest, Metric, MetricPlugin,
@@ -564,7 +566,7 @@ impl ProfileCall<'_> {
                         "{label} selection failed for {place} with {}: {error}",
                         self.manifest_label
                     ),
-                    "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections, with every known profile and with each profile alone, without an error, and may return only entry points and generated paths that are files it was passed; it is sent the real package files and only the manifests manifest-paths chose, as codeint check sends them",
+                    "resolve-framework-profiles must answer the disabled, auto, exclude, and only selections, with every known profile, with each profile alone, and with the first two of three or more profiles, without an error, and may return only entry points and generated paths that are files it was passed; it is sent the real package files and only the manifests manifest-paths chose, as codeint check sends them",
                 ))
             }
         }
@@ -613,6 +615,17 @@ fn check_framework_profiles(
         selections.push((
             format!("only {profile} alone"),
             FrameworkProfileSelection::Only(vec![profile.clone()]),
+        ));
+    }
+    if profiles.len() >= 3 {
+        let subset: Vec<String> = profiles.iter().take(2).cloned().collect();
+        selections.push((
+            "exclude the first two".to_owned(),
+            FrameworkProfileSelection::Exclude(subset.clone()),
+        ));
+        selections.push((
+            "only the first two".to_owned(),
+            FrameworkProfileSelection::Only(subset),
         ));
     }
     let workspace = probe_workspace();
@@ -938,15 +951,14 @@ const PROBE_MANIFESTS: [(&str, &str); 6] = [
 
 const INVALID_MANIFEST_TEXT: &str = "not a valid manifest \u{0}\n[[[";
 
-fn probe_manifest(path: &RepoPath) -> Option<Manifest> {
+const PROBE_SOURCE_TEXT: &str = "function add(a, b) {\n  return a + b;\n}\n";
+
+fn probe_file_text(path: &RepoPath) -> &'static str {
     let file_name = path.as_str().rsplit('/').next().unwrap_or_default();
     PROBE_MANIFESTS
         .iter()
         .find(|(name, _)| *name == file_name)
-        .map(|(_, text)| Manifest {
-            path: path.to_string(),
-            text: (*text).to_owned(),
-        })
+        .map_or(PROBE_SOURCE_TEXT, |(_, text)| text)
 }
 
 fn chosen_manifests(chosen: &[RepoPath], valid: bool) -> Vec<Manifest> {
@@ -954,9 +966,10 @@ fn chosen_manifests(chosen: &[RepoPath], valid: bool) -> Vec<Manifest> {
         .iter()
         .map(|path| Manifest {
             path: path.to_string(),
-            text: match probe_manifest(path) {
-                Some(manifest) if valid => manifest.text,
-                _ => INVALID_MANIFEST_TEXT.to_owned(),
+            text: if valid {
+                probe_file_text(path).to_owned()
+            } else {
+                INVALID_MANIFEST_TEXT.to_owned()
             },
         })
         .collect()
@@ -1349,7 +1362,49 @@ fn probe_code_models() -> Vec<CodeModel> {
         synthetic_model(production),
         synthetic_model(test),
         synthetic_model(combined),
+        covered_model(),
     ]
+}
+
+fn covered_model() -> CodeModel {
+    let mut files = vec![
+        probe_file("src/app.ts", SourceSet::Production),
+        probe_file("src/generated.ts", SourceSet::Generated),
+        probe_file("vendor/lib.ts", SourceSet::Vendored),
+    ];
+    for (index, file) in files.iter_mut().enumerate() {
+        for function in &mut file.model.functions {
+            function.coverage = Some(FunctionCoverage {
+                listed_lines: function.source_lines,
+                executed_lines: if index == 0 { 0 } else { function.source_lines },
+            });
+        }
+        file.model.functions.push(Function {
+            name: None,
+            coverage: Some(FunctionCoverage {
+                listed_lines: 0,
+                executed_lines: 0,
+            }),
+            ..function("anonymous", 13, 14)
+        });
+        file.model.tokens.push(Token {
+            kind: TokenKind::Other,
+            text_hash: 7,
+            line: 13,
+        });
+        file.model.tokens.push(Token {
+            kind: TokenKind::ImportOrExport,
+            text_hash: 8,
+            line: 14,
+        });
+        file.model.source_lines = 14;
+        file.model.program_start = true;
+    }
+    let mut model = synthetic_model(files);
+    for facts in &mut model.languages {
+        facts.has_coverage = true;
+    }
+    model
 }
 
 fn function(name: &str, line: u32, end_line: u32) -> Function {

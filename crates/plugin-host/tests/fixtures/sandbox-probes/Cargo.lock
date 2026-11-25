@@ -47,6 +47,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "coverage-trap-metric-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "crlf-miscount-language-plugin"
 version = "0.1.0"
 dependencies = [
@@ -316,6 +324,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "multi-profile-only-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "no-imports-language-plugin"
 version = "0.1.0"
 dependencies = [
@@ -461,6 +477,22 @@ dependencies = [
 
 [[package]]
 name = "socket-opener-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "source-manifest-profiles-language-plugin"
+version = "0.1.0"
+dependencies = [
+ "probe-runtime",
+ "wit-bindgen",
+]
+
+[[package]]
+name = "source-manifest-workspace-language-plugin"
 version = "0.1.0"
 dependencies = [
  "probe-runtime",

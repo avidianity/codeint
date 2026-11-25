@@ -894,7 +894,7 @@ The runner checks a Language plugin for the following rules:
 - Its Hazard rule list matches `has-hazard-rules` and holds no empty rule name.
 - Its Framework profile names are not empty, because an empty name can never be selected in config.
 - `lower` is deterministic and stateless on built-in probe sources, which the runner writes once for every extension the Plugin claims, and on every `--source` file, returns lines counted from 1 inside the file for both LF and CRLF line endings, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
-- Its Framework profiles resolve for the disabled, auto, exclude, and only selections, for the root package and a member package, sent the real package files and the manifests it chose (and every probe manifest), with entry points and generated paths that are files of the repository, the same inputs and checks `codeint check` uses.
+- Its Framework profiles resolve for the disabled, auto, exclude, and only selections, for the root package and a member package, with every known profile, with each profile alone, and, for three or more profiles, with the first two, sent the real package files and only the manifests `manifest-paths` chose, each with the content of the probe file it names, with entry points and generated paths that are files of the repository, the same inputs and checks `codeint check` uses.
   When `known-framework-profiles` is empty, codeint never resolves Framework profiles, so the runner reports `framework-profiles` as skipped.
 - When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports` (with no Framework profile active and with each known profile active), `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or for a manifest it chose with valid content, and `plugin test` sends it only manifests that `manifest-paths` chose, because `codeint check` stops on any `workspace-error`.
   When `has-imports` is false, codeint never calls these five, so the runner reports them as skipped.
@@ -907,7 +907,7 @@ The runner checks a Metric plugin for the following rules:
 
 - It is a valid WebAssembly component that exports `codeint:plugin/metric@0.4.0` and imports no WASI or host interface.
 - Its key is a valid snake_case key that collides with no built-in Metric or reserved report key, its version is 1 or higher, and its name and description are not empty.
-- `measure` is deterministic and stateless on an empty Code model and on Code models with functions, tokens, Hazard lines, runtime imports, and several Production and Test files, and it returns a ratio between 0 and 1, finite and non-negative numbers, Findings with a non-empty id, lines counted from 1, and paths relative to the repository root.
+- `measure` is deterministic and stateless on an empty Code model and on Code models with functions, tokens, Hazard lines, runtime imports, several Production and Test files, and a Code model with function Coverage, Generated and Vendored files, anonymous functions, every token kind, and a program start, and it returns a ratio between 0 and 1, finite and non-negative numbers, Findings with a non-empty id, lines counted from 1, and paths relative to the repository root.
 - It stays within the memory and time limits of each call.
 
 Each check prints as pass, fail, or skipped.

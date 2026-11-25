@@ -251,6 +251,39 @@ fn a_plugin_that_rejects_only_manifests_it_did_not_choose_passes() {
 }
 
 #[test]
+fn a_chosen_source_file_is_sent_its_real_content_not_a_labelled_garbage_manifest() {
+    for wasm in [
+        "source_manifest_workspace_language_plugin.wasm",
+        "source_manifest_profiles_language_plugin.wasm",
+    ] {
+        let (output, report) = json_report("language", wasm, &[]);
+        assert_eq!(output.status.code(), Some(0), "{wasm}: {output:?}");
+        assert!(failed_checks(&report).is_empty(), "{wasm}");
+    }
+}
+
+#[test]
+fn a_metric_that_traps_on_function_coverage_fails_measure() {
+    let report = assert_fails(
+        "metric",
+        "coverage_trap_metric_plugin.wasm",
+        &[],
+        "measurement-bounds",
+    );
+    assert_eq!(check_status(&report, "measurement-bounds"), "fail");
+}
+
+#[test]
+fn a_plugin_that_rejects_a_multi_profile_only_selection_fails_framework_profiles() {
+    assert_fails(
+        "language",
+        "multi_profile_only_language_plugin.wasm",
+        &[],
+        "framework-profiles",
+    );
+}
+
+#[test]
 fn a_framework_profile_entry_point_outside_the_repository_fails_framework_profiles() {
     assert_fails(
         "language",
