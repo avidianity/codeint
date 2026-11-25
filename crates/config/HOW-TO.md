@@ -49,6 +49,7 @@ if let Some(budget) = configuration.budgets.budget(SourceSet::Production, Metric
 
 - `budget` returns `None` when `codeint.json` sets no Budget for that Metric in that Source set; that Metric then never fails.
 - `production_test_gap` reads `budgets.production.test_gap` as `Option<f64>`, and `budget_for_key(SourceSet::Production, "test_gap")` returns the corresponding `Option<Budget>`.
+- Setting `orphan_files` under `budgets.test`, `budgets.generated`, or `budgets.vendored` fails with `ConfigurationFileError::MetricBudgetOutsideProduction` (exit code 2), and setting `orphan_files` under `regression_limits.test`, `regression_limits.generated`, or `regression_limits.vendored` fails with `ConfigurationFileError::MetricRegressionLimitOutsideProduction` (exit code 2), because Orphan files applies to the Production Source set only.
 - Setting `test_gap` under `budgets.test`, `budgets.generated`, or `budgets.vendored` fails with `ConfigurationFileError::TestGapBudgetOutsideProduction` (exit code 2), because Test gap covers only the Production Source set.
 - Setting `test_gap` under `regression_limits` (top-level or under any Source set) fails with `ConfigurationFileError::TestGapRegressionLimit` (exit code 2), because Test gap has no Regression check.
 - `dependency_budget` reads top-level Dependency hygiene Budgets (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`).

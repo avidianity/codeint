@@ -218,21 +218,21 @@ impl Configuration {
         external_metric_keys: &[&str],
     ) -> Result<(), ConfigurationFileError> {
         for entry in overrides {
-            if entry.metric == TEST_GAP_METRIC_KEY {
-                if entry.source_set != SourceSet::Production {
-                    return Err(ConfigurationFileError::CliTestGapBudgetOutsideProduction {
-                        source_set: entry.source_set,
-                    });
+            if let Some(metric) = Metric::from_key(&entry.metric) {
+                if is_production_only_outside_production(metric, entry.source_set) {
+                    return Err(cli_production_only_budget_error(entry.source_set, metric));
                 }
+                if metric.scope().applies_to_source_set(entry.source_set) {
+                    continue;
+                }
+            } else if external_metric_keys.contains(&entry.metric.as_str()) {
                 continue;
             }
-            if !is_known_metric(&entry.metric, external_metric_keys) {
-                return Err(ConfigurationFileError::UnknownCliBudgetMetric {
-                    source_set: entry.source_set,
-                    metric: entry.metric.clone(),
-                    allowed: allowed_budget_metric_keys(entry.source_set, external_metric_keys),
-                });
-            }
+            return Err(ConfigurationFileError::UnknownCliBudgetMetric {
+                source_set: entry.source_set,
+                metric: entry.metric.clone(),
+                allowed: allowed_budget_metric_keys(entry.source_set, external_metric_keys),
+            });
         }
         Ok(())
     }
@@ -242,28 +242,25 @@ impl Configuration {
         external_metric_keys: &[&str],
     ) -> Result<(), ConfigurationFileError> {
         for (source_set, metric_key, _) in &self.budgets.set {
-            if metric_key == TEST_GAP_METRIC_KEY {
-                if *source_set != SourceSet::Production {
-                    return Err(ConfigurationFileError::TestGapBudgetOutsideProduction {
-                        file: self.config_file,
-                        key: KeyPath::default()
-                            .child(KeySegment::Key("budgets".to_owned()))
-                            .child(KeySegment::Key(source_set.key().to_owned()))
-                            .child(KeySegment::Key(metric_key.clone())),
-                    });
+            if let Some(metric) = Metric::from_key(metric_key) {
+                if is_production_only_outside_production(metric, *source_set) {
+                    return Err(production_only_budget_error(
+                        self.config_file,
+                        *source_set,
+                        metric,
+                    ));
                 }
+                if metric.scope().applies_to_source_set(*source_set) {
+                    continue;
+                }
+            } else if external_metric_keys.contains(&metric_key.as_str()) {
                 continue;
             }
-            if !is_known_metric(metric_key, external_metric_keys) {
-                return Err(ConfigurationFileError::UnknownKey {
-                    file: self.config_file,
-                    key: KeyPath::default()
-                        .child(KeySegment::Key("budgets".to_owned()))
-                        .child(KeySegment::Key(source_set.key().to_owned()))
-                        .child(KeySegment::Key(metric_key.clone())),
-                    allowed: allowed_budget_metric_keys(*source_set, external_metric_keys),
-                });
-            }
+            return Err(ConfigurationFileError::UnknownKey {
+                file: self.config_file,
+                key: budget_key_path(*source_set, metric_key),
+                allowed: allowed_budget_metric_keys(*source_set, external_metric_keys),
+            });
         }
         validate_regression_limit_keys(
             self.config_file,
@@ -273,95 +270,168 @@ impl Configuration {
     }
 }
 
+fn is_production_only_outside_production(metric: Metric, source_set: SourceSet) -> bool {
+    metric.scope() == MetricScope::ProductionOnly
+        && !metric.scope().applies_to_source_set(source_set)
+}
+
+fn budget_key_path(source_set: SourceSet, metric_key: &str) -> KeyPath {
+    KeyPath::default()
+        .child(KeySegment::Key("budgets".to_owned()))
+        .child(KeySegment::Key(source_set.key().to_owned()))
+        .child(KeySegment::Key(metric_key.to_owned()))
+}
+
+fn regression_limit_key_path(source_set: Option<SourceSet>, metric_key: &str) -> KeyPath {
+    let mut path = KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
+    if let Some(source_set) = source_set {
+        path = path.child(KeySegment::Key(source_set.key().to_owned()));
+    }
+    path.child(KeySegment::Key(metric_key.to_owned()))
+}
+
+fn production_only_budget_error(
+    file: ConfigFileKind,
+    source_set: SourceSet,
+    metric: Metric,
+) -> ConfigurationFileError {
+    let key = budget_key_path(source_set, metric.key());
+    match metric {
+        Metric::TestGap => ConfigurationFileError::TestGapBudgetOutsideProduction { file, key },
+        other => ConfigurationFileError::MetricBudgetOutsideProduction {
+            file,
+            key,
+            metric: other,
+        },
+    }
+}
+
+fn cli_production_only_budget_error(
+    source_set: SourceSet,
+    metric: Metric,
+) -> ConfigurationFileError {
+    match metric {
+        Metric::TestGap => ConfigurationFileError::CliTestGapBudgetOutsideProduction { source_set },
+        other => ConfigurationFileError::CliMetricBudgetOutsideProduction {
+            source_set,
+            metric: other,
+        },
+    }
+}
+
 fn validate_regression_limit_keys(
     config_file: ConfigFileKind,
     limits: &RegressionLimits,
     external_metric_keys: &[&str],
 ) -> Result<(), ConfigurationFileError> {
     for (source_set, metric_key) in limits.metric_keys() {
-        if metric_key == TEST_GAP_METRIC_KEY {
-            let mut path =
-                KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
-            if let Some(source_set) = source_set {
-                path = path.child(KeySegment::Key(source_set.key().to_owned()));
-            }
-            return Err(ConfigurationFileError::TestGapRegressionLimit {
-                file: config_file,
-                key: path.child(KeySegment::Key(metric_key.to_owned())),
-            });
-        }
-        let allowed_here = is_known_metric(metric_key, external_metric_keys)
-            || (source_set.is_none()
-                && Metric::from_key(metric_key).is_some_and(is_repository_wide_diff_metric));
-        if !allowed_here {
-            let mut path =
-                KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
-            let mut allowed = allowed_metric_keys(external_metric_keys);
-            if let Some(source_set) = source_set {
-                path = path.child(KeySegment::Key(source_set.key().to_owned()));
-            } else {
-                allowed.extend(
-                    Metric::ALL
-                        .into_iter()
-                        .filter(|metric| is_repository_wide_diff_metric(*metric))
-                        .map(|metric| metric.key().to_owned()),
-                );
-                allowed.extend(SourceSet::ALL.map(|set| set.key().to_owned()));
-            }
-            return Err(ConfigurationFileError::UnknownKey {
-                file: config_file,
-                key: path.child(KeySegment::Key(metric_key.to_owned())),
-                allowed,
-            });
-        }
+        validate_regression_limit_key(config_file, source_set, metric_key, external_metric_keys)?;
     }
     Ok(())
 }
 
-fn is_source_set_diff_metric(metric: Metric) -> bool {
-    metric.scope() != MetricScope::RepositoryWide && metric.supports_diff_regression()
+fn validate_regression_limit_key(
+    config_file: ConfigFileKind,
+    source_set: Option<SourceSet>,
+    metric_key: &str,
+    external_metric_keys: &[&str],
+) -> Result<(), ConfigurationFileError> {
+    if let Some(metric) = Metric::from_key(metric_key) {
+        if !metric.supports_diff_regression() {
+            return Err(ConfigurationFileError::TestGapRegressionLimit {
+                file: config_file,
+                key: regression_limit_key_path(source_set, metric_key),
+            });
+        }
+        let Some(set) = source_set else {
+            return Ok(());
+        };
+        if is_production_only_outside_production(metric, set) {
+            return Err(
+                ConfigurationFileError::MetricRegressionLimitOutsideProduction {
+                    file: config_file,
+                    key: regression_limit_key_path(Some(set), metric_key),
+                    metric,
+                },
+            );
+        }
+        if metric.scope().applies_to_source_set(set) {
+            return Ok(());
+        }
+    } else if external_metric_keys.contains(&metric_key) {
+        return Ok(());
+    }
+    Err(ConfigurationFileError::UnknownKey {
+        file: config_file,
+        key: regression_limit_key_path(source_set, metric_key),
+        allowed: allowed_regression_limit_metric_keys(source_set, external_metric_keys),
+    })
 }
 
 fn is_repository_wide_diff_metric(metric: Metric) -> bool {
     metric.scope() == MetricScope::RepositoryWide && metric.supports_diff_regression()
 }
 
-fn allowed_budget_metric_keys(source_set: SourceSet, external_metric_keys: &[&str]) -> Vec<String> {
-    let mut allowed = allowed_metric_keys(external_metric_keys);
-    if source_set == SourceSet::Production {
-        let insert_at = allowed.len() - external_metric_keys.len();
-        allowed.insert(insert_at, Metric::TestGap.key().to_owned());
-    }
-    allowed
-}
-
-fn allowed_metric_keys(external_metric_keys: &[&str]) -> Vec<String> {
+fn ordered_built_in_metrics(predicate: impl Fn(Metric) -> bool) -> Vec<Metric> {
     let mut built_in: Vec<Metric> = Metric::ALL
         .into_iter()
-        .filter(|metric| is_source_set_diff_metric(*metric))
+        .filter(|metric| predicate(*metric))
         .collect();
-    if let (Some(cog), Some(cycles)) = (
-        built_in
-            .iter()
-            .position(|metric| *metric == Metric::CognitiveComplexity),
-        built_in
-            .iter()
-            .position(|metric| *metric == Metric::ImportCycles),
-    ) && cog < cycles
-    {
-        let metric = built_in.remove(cog);
-        built_in.insert(cycles, metric);
-    }
+    move_metric_after(
+        &mut built_in,
+        Metric::CognitiveComplexity,
+        Metric::ImportCycles,
+    );
+    move_metric_after(&mut built_in, Metric::TestGap, Metric::Hazards);
     built_in
+}
+
+fn move_metric_after(metrics: &mut Vec<Metric>, target: Metric, anchor: Metric) {
+    if let (Some(target_pos), Some(anchor_pos)) = (
+        metrics.iter().position(|metric| *metric == target),
+        metrics.iter().position(|metric| *metric == anchor),
+    ) && target_pos < anchor_pos
+    {
+        let metric = metrics.remove(target_pos);
+        metrics.insert(anchor_pos, metric);
+    }
+}
+
+fn allowed_budget_metric_keys(source_set: SourceSet, external_metric_keys: &[&str]) -> Vec<String> {
+    ordered_built_in_metrics(|metric| metric.scope().applies_to_source_set(source_set))
         .into_iter()
         .map(|metric| metric.key().to_owned())
         .chain(external_metric_keys.iter().map(|key| (*key).to_owned()))
         .collect()
 }
 
-fn is_known_metric(key: &str, external_metric_keys: &[&str]) -> bool {
-    Metric::from_key(key).is_some_and(is_source_set_diff_metric)
-        || external_metric_keys.contains(&key)
+fn allowed_regression_limit_metric_keys(
+    source_set: Option<SourceSet>,
+    external_metric_keys: &[&str],
+) -> Vec<String> {
+    let built_in = match source_set {
+        Some(source_set) => ordered_built_in_metrics(|metric| {
+            metric.scope().applies_to_source_set(source_set) && metric.supports_diff_regression()
+        }),
+        None => ordered_built_in_metrics(|metric| {
+            metric.scope() != MetricScope::RepositoryWide && metric.supports_diff_regression()
+        }),
+    };
+    let mut allowed: Vec<String> = built_in
+        .into_iter()
+        .map(|metric| metric.key().to_owned())
+        .chain(external_metric_keys.iter().map(|key| (*key).to_owned()))
+        .collect();
+    if source_set.is_none() {
+        allowed.extend(
+            Metric::ALL
+                .into_iter()
+                .filter(|metric| is_repository_wide_diff_metric(*metric))
+                .map(|metric| metric.key().to_owned()),
+        );
+        allowed.extend(SourceSet::ALL.map(|set| set.key().to_owned()));
+    }
+    allowed
 }
 
 impl Serialize for Configuration {
@@ -709,7 +779,7 @@ struct RegressionLimitsFile {
     #[schemars(description = "The Regression limit of Boundaries in every Source set.")]
     boundaries: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
-    #[schemars(description = "The Regression limit of Orphan files in every Source set.")]
+    #[schemars(description = "The Regression limit of Orphan files in the Production Source set.")]
     orphan_files: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Hazards in every Source set.")]
@@ -723,9 +793,12 @@ struct RegressionLimitsFile {
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of dev dependencies imported in production.")]
     dev_in_production_dependencies: RegressionLimitSetting,
-    #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
+    #[serde(
+        default,
+        skip_serializing_if = "ProductionMetricRegressionLimits::is_unset"
+    )]
     #[schemars(description = "The Regression limits of the Production Source set.")]
-    production: MetricRegressionLimits,
+    production: ProductionMetricRegressionLimits,
     #[serde(default, skip_serializing_if = "MetricRegressionLimits::is_unset")]
     #[schemars(description = "The Regression limits of the Test Source set.")]
     test: MetricRegressionLimits,
@@ -737,6 +810,17 @@ struct RegressionLimitsFile {
     vendored: MetricRegressionLimits,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, RegressionLimitSetting>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+struct ProductionMetricRegressionLimits {
+    #[serde(flatten)]
+    shared: MetricRegressionLimits,
+    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
+    #[schemars(
+        description = "The Regression limit of Orphan files. Applies to the Production Source set only."
+    )]
+    orphan_files: RegressionLimitSetting,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -760,13 +844,27 @@ struct MetricRegressionLimits {
     #[schemars(description = "The Regression limit of Boundaries in this Source set.")]
     boundaries: RegressionLimitSetting,
     #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
-    #[schemars(description = "The Regression limit of Orphan files in this Source set.")]
-    orphan_files: RegressionLimitSetting,
-    #[serde(default, skip_serializing_if = "RegressionLimitSetting::is_unset")]
     #[schemars(description = "The Regression limit of Hazards in this Source set.")]
     hazards: RegressionLimitSetting,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     external: BTreeMap<String, RegressionLimitSetting>,
+}
+
+impl ProductionMetricRegressionLimits {
+    fn is_unset(&self) -> bool {
+        self.shared.is_unset() && self.orphan_files.is_unset()
+    }
+
+    fn by_metric(self) -> impl Iterator<Item = (String, RegressionLimitSetting)> {
+        let ProductionMetricRegressionLimits {
+            shared,
+            orphan_files,
+        } = self;
+        shared.by_metric().chain(
+            (!orphan_files.is_unset())
+                .then(|| (Metric::OrphanFiles.key().to_owned(), orphan_files)),
+        )
+    }
 }
 
 impl MetricRegressionLimits {
@@ -778,7 +876,6 @@ impl MetricRegressionLimits {
             &self.verbosity,
             &self.import_cycles,
             &self.boundaries,
-            &self.orphan_files,
             &self.hazards,
         ]
         .into_iter()
@@ -794,18 +891,16 @@ impl MetricRegressionLimits {
             verbosity,
             import_cycles,
             boundaries,
-            orphan_files,
             hazards,
             external,
         } = self;
-        built_in_metric_pairs([
+        all_source_set_metric_pairs([
             erosion,
             cognitive_complexity,
             duplication,
             verbosity,
             import_cycles,
             boundaries,
-            orphan_files,
             hazards,
         ])
         .chain(external)
@@ -813,7 +908,7 @@ impl MetricRegressionLimits {
     }
 }
 
-fn built_in_metric_pairs<T>(values: [T; 8]) -> impl Iterator<Item = (String, T)> {
+fn all_source_set_metric_pairs<T>(values: [T; 7]) -> impl Iterator<Item = (String, T)> {
     [
         Metric::Erosion.key(),
         Metric::CognitiveComplexity.key(),
@@ -821,7 +916,6 @@ fn built_in_metric_pairs<T>(values: [T; 8]) -> impl Iterator<Item = (String, T)>
         Metric::Verbosity.key(),
         Metric::ImportCycles.key(),
         Metric::Boundaries.key(),
-        Metric::OrphanFiles.key(),
         Metric::Hazards.key(),
     ]
     .into_iter()
@@ -871,6 +965,13 @@ struct SourceSetBudgets {
 struct ProductionMetricBudgets {
     #[serde(flatten)]
     common: SharedMetricBudgets,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "f64",
+        range(min = 0, max = 1),
+        description = "The highest Orphan files ratio, from 0 to 1. Applies to the Production Source set only."
+    )]
+    orphan_files: Option<Budget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
@@ -934,13 +1035,6 @@ struct SharedMetricBudgets {
         description = "The highest Boundaries ratio, from 0 to 1."
     )]
     boundaries: Option<Budget>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        with = "f64",
-        range(min = 0, max = 1),
-        description = "The highest Orphan files ratio, from 0 to 1."
-    )]
-    orphan_files: Option<Budget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         with = "f64",
@@ -1294,7 +1388,7 @@ fn parse_configuration_file(
     let Some(value) = raw else {
         return Ok(ConfigurationFile::default());
     };
-    reject_unsupported_test_gap_keys(value)?;
+    reject_unsupported_metric_keys(value)?;
     let schema = schemars::schema_for!(ConfigurationFile);
     shape::check_shape(value, schema.as_value())?;
     serde_json::from_value(value.clone()).map_err(|source| ConfigurationFileError::NotJson {
@@ -1303,48 +1397,83 @@ fn parse_configuration_file(
     })
 }
 
-fn reject_unsupported_test_gap_keys(root: &Value) -> Result<(), ConfigurationFileError> {
+fn reject_unsupported_metric_keys(root: &Value) -> Result<(), ConfigurationFileError> {
     let Some(root) = root.as_object() else {
         return Ok(());
     };
     if let Some(budgets) = root.get("budgets").and_then(Value::as_object) {
-        for source_set in ["test", "generated", "vendored"] {
-            if budgets
-                .get(source_set)
-                .and_then(Value::as_object)
-                .is_some_and(|section| section.contains_key(TEST_GAP_METRIC_KEY))
+        reject_unsupported_budget_keys(budgets)?;
+    }
+    if let Some(limits) = root.get("regression_limits").and_then(Value::as_object) {
+        reject_unsupported_regression_limit_keys(limits)?;
+    }
+    Ok(())
+}
+
+fn reject_unsupported_budget_keys(
+    budgets: &serde_json::Map<String, Value>,
+) -> Result<(), ConfigurationFileError> {
+    for source_set in SourceSet::ALL {
+        let Some(section) = budgets.get(source_set.key()).and_then(Value::as_object) else {
+            continue;
+        };
+        for metric in Metric::ALL {
+            if is_production_only_outside_production(metric, source_set)
+                && section.contains_key(metric.key())
             {
-                return Err(ConfigurationFileError::TestGapBudgetOutsideProduction {
-                    file: ConfigFileKind::Json,
-                    key: KeyPath::default()
-                        .child(KeySegment::Key("budgets".to_owned()))
-                        .child(KeySegment::Key(source_set.to_owned()))
-                        .child(KeySegment::Key(TEST_GAP_METRIC_KEY.to_owned())),
-                });
+                return Err(production_only_budget_error(
+                    ConfigFileKind::Json,
+                    source_set,
+                    metric,
+                ));
             }
         }
     }
-    if let Some(limits) = root.get("regression_limits").and_then(Value::as_object) {
-        let limits_key = KeyPath::default().child(KeySegment::Key("regression_limits".to_owned()));
-        if limits.contains_key(TEST_GAP_METRIC_KEY) {
+    Ok(())
+}
+
+fn reject_unsupported_regression_limit_keys(
+    limits: &serde_json::Map<String, Value>,
+) -> Result<(), ConfigurationFileError> {
+    for metric in Metric::ALL {
+        if !metric.supports_diff_regression() && limits.contains_key(metric.key()) {
             return Err(ConfigurationFileError::TestGapRegressionLimit {
                 file: ConfigFileKind::Json,
-                key: limits_key.child(KeySegment::Key(TEST_GAP_METRIC_KEY.to_owned())),
+                key: regression_limit_key_path(None, metric.key()),
             });
         }
-        for source_set in ["production", "test", "generated", "vendored"] {
-            if limits
-                .get(source_set)
-                .and_then(Value::as_object)
-                .is_some_and(|section| section.contains_key(TEST_GAP_METRIC_KEY))
-            {
-                return Err(ConfigurationFileError::TestGapRegressionLimit {
+    }
+    for source_set in SourceSet::ALL {
+        let Some(section) = limits.get(source_set.key()).and_then(Value::as_object) else {
+            continue;
+        };
+        reject_unsupported_source_set_regression_limit_keys(source_set, section)?;
+    }
+    Ok(())
+}
+
+fn reject_unsupported_source_set_regression_limit_keys(
+    source_set: SourceSet,
+    section: &serde_json::Map<String, Value>,
+) -> Result<(), ConfigurationFileError> {
+    for metric in Metric::ALL {
+        if !section.contains_key(metric.key()) {
+            continue;
+        }
+        if !metric.supports_diff_regression() {
+            return Err(ConfigurationFileError::TestGapRegressionLimit {
+                file: ConfigFileKind::Json,
+                key: regression_limit_key_path(Some(source_set), metric.key()),
+            });
+        }
+        if is_production_only_outside_production(metric, source_set) {
+            return Err(
+                ConfigurationFileError::MetricRegressionLimitOutsideProduction {
                     file: ConfigFileKind::Json,
-                    key: limits_key
-                        .child(KeySegment::Key(source_set.to_owned()))
-                        .child(KeySegment::Key(TEST_GAP_METRIC_KEY.to_owned())),
-                });
-            }
+                    key: regression_limit_key_path(Some(source_set), metric.key()),
+                    metric,
+                },
+            );
         }
     }
     Ok(())
@@ -1766,10 +1895,10 @@ fn append_regression_limit_settings(
     limits: &RegressionLimits,
     settings: &mut Vec<ResolvedSetting>,
 ) {
-    let mut metric_keys = allowed_metric_keys(&[]);
-    metric_keys.extend(limits.extra_metric_keys());
+    let extra_metric_keys = limits.extra_metric_keys();
     for source_set in SourceSet::ALL {
-        for metric_key in &metric_keys {
+        let metric_keys = allowed_regression_limit_metric_keys(Some(source_set), &[]);
+        for metric_key in metric_keys.iter().chain(&extra_metric_keys) {
             let resolved = limits.resolved_limit_for_key(source_set, metric_key);
             let prefix = format!("regression_limits.{}.{metric_key}", source_set.key());
             push_resolved_regression_limit(settings, &prefix, resolved);
@@ -1959,7 +2088,6 @@ impl SharedMetricBudgets {
             Some(Metric::Verbosity) => self.verbosity = Some(budget),
             Some(Metric::ImportCycles) => self.import_cycles = Some(budget),
             Some(Metric::Boundaries) => self.boundaries = Some(budget),
-            Some(Metric::OrphanFiles) => self.orphan_files = Some(budget),
             Some(Metric::Hazards) => self.hazards = Some(budget),
             _ => return false,
         }
@@ -1967,18 +2095,16 @@ impl SharedMetricBudgets {
     }
 
     fn into_pairs(self) -> impl Iterator<Item = (String, Budget)> {
-        [
-            (Metric::Erosion.key(), self.erosion),
-            (Metric::CognitiveComplexity.key(), self.cognitive_complexity),
-            (Metric::Duplication.key(), self.duplication),
-            (Metric::Verbosity.key(), self.verbosity),
-            (Metric::ImportCycles.key(), self.import_cycles),
-            (Metric::Boundaries.key(), self.boundaries),
-            (Metric::OrphanFiles.key(), self.orphan_files),
-            (Metric::Hazards.key(), self.hazards),
-        ]
-        .into_iter()
-        .filter_map(|(metric, ratio)| Some((metric.to_owned(), ratio?)))
+        all_source_set_metric_pairs([
+            self.erosion,
+            self.cognitive_complexity,
+            self.duplication,
+            self.verbosity,
+            self.import_cycles,
+            self.boundaries,
+            self.hazards,
+        ])
+        .filter_map(|(metric, ratio)| Some((metric, ratio?)))
     }
 }
 
@@ -1987,10 +2113,12 @@ impl ProductionMetricBudgets {
         if self.common.set_known(metric, budget) {
             return;
         }
-        if metric == TEST_GAP_METRIC_KEY {
-            self.test_gap = Some(budget);
-        } else {
-            self.external.insert(metric.to_owned(), budget);
+        match Metric::from_key(metric) {
+            Some(Metric::OrphanFiles) => self.orphan_files = Some(budget),
+            Some(Metric::TestGap) => self.test_gap = Some(budget),
+            _ => {
+                self.external.insert(metric.to_owned(), budget);
+            }
         }
     }
 }
@@ -2123,22 +2251,26 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
     ]
     .into_iter()
     .filter(|(_, setting)| !setting.is_unset());
-    let every_source_set = MetricRegressionLimits {
-        erosion,
-        cognitive_complexity,
-        duplication,
-        verbosity,
-        import_cycles,
-        boundaries,
+    let every_source_set = ProductionMetricRegressionLimits {
+        shared: MetricRegressionLimits {
+            erosion,
+            cognitive_complexity,
+            duplication,
+            verbosity,
+            import_cycles,
+            boundaries,
+            hazards,
+            external,
+        },
         orphan_files,
-        hazards,
-        external,
     }
     .by_metric()
     .chain(dependency_limits)
     .collect();
-    let one_source_set = [
-        (SourceSet::Production, production),
+    let production_limits = production
+        .by_metric()
+        .map(|(metric, setting)| (SourceSet::Production, metric, setting));
+    let other_limits = [
         (SourceSet::Test, test),
         (SourceSet::Generated, generated),
         (SourceSet::Vendored, vendored),
@@ -2148,8 +2280,8 @@ fn regression_limits(file: RegressionLimitsFile) -> RegressionLimits {
         limits
             .by_metric()
             .map(move |(metric, setting)| (source_set, metric, setting))
-    })
-    .collect();
+    });
+    let one_source_set = production_limits.chain(other_limits).collect();
     RegressionLimits::new(every_source_set, one_source_set)
 }
 
@@ -2193,6 +2325,11 @@ fn budgets(file: SourceSetBudgets) -> Budgets {
     let production_entries = production
         .common
         .into_pairs()
+        .chain(
+            production
+                .orphan_files
+                .map(|ratio| (Metric::OrphanFiles.key().to_owned(), ratio)),
+        )
         .chain(
             production
                 .test_gap

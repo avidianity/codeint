@@ -501,6 +501,19 @@ fn test_gap_config_remedy(error: &ConfigurationFileError) -> Option<&'static str
             "Remove test_gap from regression_limits in codeint.json; Test gap is checked with budgets.production.test_gap only.",
             "Remove test_gap from regression_limits in codeint.jsonc; Test gap is checked with budgets.production.test_gap only.",
         ),
+        MetricBudgetOutsideProduction { file, .. } => choose_file_remedy(
+            *file,
+            "Move this Budget to budgets.production in codeint.json, or remove it.",
+            "Move this Budget to budgets.production in codeint.jsonc, or remove it.",
+        ),
+        CliMetricBudgetOutsideProduction { .. } => {
+            "Pass --budget production.<metric>=RATIO; this Metric applies to the Production Source set only."
+        }
+        MetricRegressionLimitOutsideProduction { file, .. } => choose_file_remedy(
+            *file,
+            "Move this Regression limit to regression_limits.production or top-level regression_limits in codeint.json, or remove it.",
+            "Move this Regression limit to regression_limits.production or top-level regression_limits in codeint.jsonc, or remove it.",
+        ),
         _ => return None,
     })
 }
