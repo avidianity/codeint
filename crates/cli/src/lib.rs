@@ -574,6 +574,12 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
             format,
             plugin_host,
         } => run_doctor(&folder, format, &plugin_host),
+        other => run_subcommand_group(other),
+    }
+}
+
+fn run_subcommand_group(command: Command) -> Result<Outcome, CliError> {
+    match command {
         Command::Agent(command) => run_agent(command),
         Command::Ratchet(command) => run_ratchet(command),
         Command::Plugin(command) => run_plugin(command),
