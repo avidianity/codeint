@@ -23,6 +23,12 @@
   Multi-segment external namespaces match against the repository's declared `composer.json` dependencies across 2-segment, 3-segment joined, PSR-17 factory and 3-segment class-word forms, framework structural sub-layer (`Component`, `Contracts`, `Bridge`, `Bundle`, `Common`, `UX`), and unique multi-word package-name forms before falling back to `vendor/package` normalization.
 - `src/dependencies.rs` parses `composer.json` `require` (`Runtime`), `require-dev` (`Dev`), and `suggest` (`Optional`) dependencies per Workspace package while excluding platform requirements (`php`, `ext-*`, `lib-*`) and local workspace package names.
 
+## Framework profiles
+
+- `src/frameworks/` implements isolated package-level Framework profiles (`laravel`, `symfony`, `cakephp`, `codeigniter`) with zero sibling cross-imports ([ADR 0025](../../../docs/adr/0025-framework-profiles.md)).
+- Detection requires strict app-level `composer.json` packages plus local bootstrap markers so Laravel's internal `symfony/*` dependencies never trigger Symfony, standalone `illuminate/*` packages never trigger Laravel, and `symfony-bundle` / `cakephp-plugin` libraries never activate app conventions (CodeIgniter also supports manual non-Composer installs with `spark`, `app/Config/Paths.php`, and `system/Boot.php`).
+- Active profiles contribute convention entry points, framework-generated `Source set` paths (`bootstrap/cache/`, `storage/framework/`, `var/cache/`, `tmp/`, `writable/`, and related framework output folders), and PSR-4 fallback import hints scoped to the importer's package root when `composer.json` PSR-4 does not already match.
+
 ## Reference ranges
 
 - `reference_ranges` returns the 10th to 90th percentile bands from the 20-repository pre-2023 PHP panel recorded in [ADR 0011](../../../docs/adr/0011-php-reference-ranges.md).

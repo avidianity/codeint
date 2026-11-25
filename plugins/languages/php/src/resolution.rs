@@ -28,12 +28,22 @@ enum Psr4Match {
     NoMatch,
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_batch(
     repository_paths: &[String],
     manifests: &[Manifest],
     requests: &[ImportRequest],
 ) -> Vec<Resolution> {
-    let resolver = PhpResolver::new(repository_paths, manifests);
+    resolve_batch_with_profiles(repository_paths, manifests, requests, &[])
+}
+
+pub(crate) fn resolve_batch_with_profiles(
+    repository_paths: &[String],
+    manifests: &[Manifest],
+    requests: &[ImportRequest],
+    active_profiles: &[String],
+) -> Vec<Resolution> {
+    let resolver = PhpResolver::new(repository_paths, manifests, active_profiles);
     requests.iter().map(|req| resolver.resolve(req)).collect()
 }
 
@@ -41,10 +51,16 @@ struct PhpResolver {
     files: HashSet<String>,
     rules: Vec<Psr4Rule>,
     declared_packages: HashSet<String>,
+    active_profiles: Vec<String>,
+    manifest_package_roots: Vec<String>,
 }
 
 impl PhpResolver {
-    fn new(repository_paths: &[String], manifests: &[Manifest]) -> PhpResolver {
+    fn new(
+        repository_paths: &[String],
+        manifests: &[Manifest],
+        active_profiles: &[String],
+    ) -> PhpResolver {
         let mut rules = Vec::new();
         for manifest in manifests {
             collect_psr4_rules(manifest, &mut rules);
@@ -54,6 +70,8 @@ impl PhpResolver {
             files: repository_paths.iter().cloned().collect(),
             rules,
             declared_packages: declared_package_names(manifests),
+            active_profiles: active_profiles.to_vec(),
+            manifest_package_roots: composer_package_roots(manifests),
         }
     }
 
@@ -77,8 +95,45 @@ impl PhpResolver {
             Psr4Match::Resolved(resolution) => resolution,
             Psr4Match::LocalNamespace => unresolved_internal_namespace(normalized),
             Psr4Match::PrefixOnly => self.resolve_psr4_prefix_fallback(normalized),
-            Psr4Match::NoMatch => self.resolve_non_psr4_namespace(normalized),
+            Psr4Match::NoMatch => self
+                .resolve_framework_fallback(importer, normalized)
+                .unwrap_or_else(|| self.resolve_non_psr4_namespace(normalized)),
         }
+    }
+
+    fn importer_package_root(&self, importer: &str) -> &str {
+        self.manifest_package_roots
+            .iter()
+            .find(|root| {
+                root.is_empty()
+                    || importer
+                        .strip_prefix(root.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
+            .map_or("", String::as_str)
+    }
+
+    fn resolve_framework_fallback(&self, importer: &str, normalized: &str) -> Option<Resolution> {
+        if self.active_profiles.is_empty() {
+            return None;
+        }
+        let candidates =
+            crate::frameworks::fallback_import_candidates(&self.active_profiles, normalized);
+        if candidates.is_empty() {
+            return None;
+        }
+        let pkg_root = self.importer_package_root(importer);
+        for rel in candidates {
+            let full = join_dir(pkg_root, &rel);
+            if self.files.contains(&full) {
+                return Some(if full == importer {
+                    Resolution::Builtin
+                } else {
+                    Resolution::Resolved(vec![full])
+                });
+            }
+        }
+        None
     }
 
     fn scan_psr4_rules(&self, importer: &str, normalized: &str) -> Psr4Match {
@@ -495,6 +550,26 @@ fn target_dirs(base_dir: &str, target: &Value) -> Vec<String> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+fn composer_package_roots(manifests: &[Manifest]) -> Vec<String> {
+    let suffix = format!("/{COMPOSER_MANIFEST}");
+    let mut roots: Vec<String> = manifests
+        .iter()
+        .filter_map(|manifest| {
+            if manifest.path.split('/').any(|seg| seg == "vendor") {
+                return None;
+            }
+            if manifest.path == COMPOSER_MANIFEST {
+                Some(String::new())
+            } else {
+                manifest.path.strip_suffix(&suffix).map(str::to_owned)
+            }
+        })
+        .collect();
+    roots.sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+    roots.dedup();
+    roots
 }
 
 fn join_dir(base: &str, sub: &str) -> String {
