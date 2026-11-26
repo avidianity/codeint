@@ -22,4 +22,4 @@
 
 ## Reference ranges
 
-- `reference_ranges` returns the 10th to 90th percentile bands from the 20-repository pre-2023 Rust panel recorded in [ADR 0010](../../../docs/adr/0010-rust-reference-ranges.md).
+- `reference_ranges` returns the 10th to 90th percentile bands from the stratified 50-repository current-codebase Rust panel under [ADR 0028](../../../docs/adr/0028-stratified-reference-panels.md).

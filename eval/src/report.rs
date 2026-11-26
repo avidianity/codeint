@@ -172,7 +172,7 @@ fn write_case_studies(out: &mut String, studies: &[CaseStudyResult]) {
     for study in studies {
         let _ = writeln!(
             out,
-            "### {}\n\n{}\n\nRepository: {}\n",
+            "### {}\n\n{}\n\nRepository: <{}>\n",
             study.name, study.change, study.url
         );
         if let Some(error) = &study.error {

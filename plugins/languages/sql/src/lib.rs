@@ -184,12 +184,12 @@ impl LanguagePlugin for Sql {
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        let source = "codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0";
+        let source = "codeint stratified panel of 50 SQL repositories, ADR 0028, codeint 0.6.0";
         ReferenceRanges::new(
             [
-                ("erosion", 1, 0.094, 0.976),
-                ("verbosity", 2, 0.042, 0.921),
-                ("duplication", 1, 0.042, 0.921),
+                ("erosion", 1, 0.000, 0.795),
+                ("verbosity", 2, 0.000, 0.000),
+                ("duplication", 1, 0.001, 0.909),
             ]
             .into_iter()
             .map(|(metric, metric_version, low, high)| ReferenceRange {

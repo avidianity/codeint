@@ -1194,12 +1194,13 @@ fn measure_snapshot_populates_per_language_coverage_and_hazard_rule_statements()
     );
 }
 
-const TS_JS_RANGE: &str =
-    "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
-const VUE2_RANGE: &str = "codeint panel of 20 Vue 2 repositories, ADR 0014, codeint 0.4.0";
-const VUE3_RANGE: &str = "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0";
+const TS_JS_RANGE: &str = "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0";
+const VUE2_RANGE: &str =
+    "codeint stratified panel of 20 Vue 2 repositories, ADR 0028, codeint 0.6.0";
+const VUE3_RANGE: &str =
+    "codeint stratified panel of 20 Vue 3 repositories, ADR 0028, codeint 0.6.0";
 const REACT_RANGE: &str =
-    "codeint panel of 20 React (JSX and TSX) repositories, ADR 0020, codeint 0.6.0";
+    "codeint stratified panel of 20 React repositories, ADR 0028, codeint 0.6.0";
 
 fn package_reference_range_source(repo: &std::path::Path, pkg: &str) -> String {
     let report = super::check(

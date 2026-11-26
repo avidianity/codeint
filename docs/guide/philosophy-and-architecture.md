@@ -17,7 +17,7 @@ codeint measures **Software entropy** directly from the shape of source code so 
 codeint reports every Metric side by side and never collapses them into a single grade or index ([ADR 0003](../adr/0003-no-combined-score.md)).
 A combined score hides regressions when one Metric improves while another worsens.
 
-Four core Metrics are calibrated against pre-2023 human-written repositories:
+Four core Metrics are calibrated against stratified panels of current public repositories ([ADR 0028](../adr/0028-stratified-reference-panels.md)):
 
 - **Erosion**: the share of total **Function mass** (`cyclomatic_complexity * sqrt(source_lines)`) held by functions with cyclomatic complexity over 10, reported with function names.
   Weighting by both complexity and size highlights the few large, tangled functions that hurt maintainability most.
@@ -43,11 +43,10 @@ Additional independent Metrics and structural checks run alongside them:
 Every file belongs to exactly one **Source set**: `production`, `test`, `generated`, or `vendored`.
 Test fixtures, generated code (`*.g.dart`, `*.pb.dart`, `@generated`), and third-party vendor code are measured separately so they never distort Production ratios.
 
-### 3. Pre-2023 human-written Reference ranges
+### 3. Stratified current-codebase Reference ranges
 
 Raw ratios are hard to interpret without context.
-For each built-in language, codeint measures a panel of 20 public repositories pinned before `2023-01-01` (predating widespread coding-agent adoption) and publishes the 10th to 90th percentile as its **Reference range** ([ADR 0008](../adr/0008-typescript-reference-ranges.md), [ADR 0010](../adr/0010-rust-reference-ranges.md), [ADR 0011](../adr/0011-php-reference-ranges.md), [ADR 0012](../adr/0012-dart-reference-ranges.md), [ADR 0013](../adr/0013-python-reference-ranges.md), [ADR 0014](../adr/0014-vue2-reference-ranges.md), [ADR 0015](../adr/0015-vue3-reference-ranges.md), [ADR 0020](../adr/0020-react-reference-ranges.md)).
-Shell uses the stratified 50-repository current-codebase panel of [ADR 0028](../adr/0028-stratified-reference-panels.md) instead ([ADR 0031](../adr/0031-shell-reference-ranges.md)).
+For each built-in language, codeint measures a stratified panel of 50 current public repositories across small, medium, and large codebases (and 20 current public repositories for each calibrated Framework profile) and publishes the 10th to 90th percentile as its **Reference range** ([ADR 0028](../adr/0028-stratified-reference-panels.md); Shell recorded in [ADR 0031](../adr/0031-shell-reference-ranges.md)).
 
 ### 4. Budgets and Regressions
 

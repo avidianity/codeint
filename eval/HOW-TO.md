@@ -118,7 +118,7 @@ Each function is `[first line, last line, decision points]`.
 - The seed comes from the sorted pinned commits, so the same corpus always yields the same sample.
 - Source set items use the Language plugin's Source set with the core Generated and Vendored rules; Framework profile paths are not applied.
 - The audit sample is a list of items for a reviewer to judge, not a verdict.
-  The committed verdicts in `docs/evaluation-audit.json` come from an agent review, so the report labels the rates agent-reviewed.
+  The committed verdicts in [../docs/evaluation-audit.json](../docs/evaluation-audit.json) come from an agent review, so the report labels the rates agent-reviewed.
 - `--audit-verdicts` reads a file of this shape:
 
 ```json

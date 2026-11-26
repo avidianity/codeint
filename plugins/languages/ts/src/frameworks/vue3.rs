@@ -6,7 +6,7 @@ use super::{
 };
 
 const VUE3_REFERENCE_SOURCE: &str =
-    "codeint panel of 20 Vue 3 repositories, ADR 0015, codeint 0.4.0";
+    "codeint stratified panel of 20 Vue 3 repositories, ADR 0028, codeint 0.6.0";
 
 const CONFIG_FILES: [&str; 3] = ["vite.config.js", "vite.config.mjs", "vite.config.ts"];
 const GENERATED_FILES: [&str; 4] = [
@@ -46,9 +46,9 @@ fn reference_ranges(ctx: &PackageContext<'_>) -> Option<Vec<ReferenceRange>> {
     vue_reference_ranges(
         ctx,
         VUE3_REFERENCE_SOURCE,
-        (0.019, 0.388),
-        (0.024, 0.346),
-        (0.023, 0.345),
-        (0.000, 0.077),
+        (0.101, 0.452),
+        (0.000, 0.001),
+        (0.012, 0.194),
+        (0.000, 0.074),
     )
 }

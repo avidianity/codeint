@@ -202,8 +202,13 @@ fn built_in_typescript_plugin_resolves_framework_profiles_and_sibling_fallback()
             );
         };
 
-    assert_profile_adr(&tsx_path, react_manifest.clone(), "react", "ADR 0020");
-    assert_profile_adr(&vue_path, vue_manifest, "vue3", "ADR 0015");
+    assert_profile_adr(
+        &tsx_path,
+        react_manifest.clone(),
+        "react",
+        "20 React repositories",
+    );
+    assert_profile_adr(&vue_path, vue_manifest, "vue3", "20 Vue 3 repositories");
 
     let hybrid = ts_plugin
         .plugin

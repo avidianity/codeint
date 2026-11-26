@@ -52,7 +52,7 @@ fn go_plugin_shell_lexer_literals_comments_and_unparsable_files() {
     assert!(!Go.has_hazard_rules());
     assert!(Go.hazard_rules().is_empty());
     let ranges = Go.reference_ranges().unwrap();
-    let src_label = "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0";
+    let src_label = "codeint stratified panel of 50 Go repositories, ADR 0028, codeint 0.6.0";
     let actual: Vec<(&str, f64, f64, &str)> =
         ["erosion", "verbosity", "duplication", "import_cycles"]
             .into_iter()
@@ -64,9 +64,9 @@ fn go_plugin_shell_lexer_literals_comments_and_unparsable_files() {
     assert_eq!(
         actual,
         [
-            ("erosion", 0.379, 0.692, src_label),
-            ("verbosity", 0.045, 0.183, src_label),
-            ("duplication", 0.044, 0.181, src_label),
+            ("erosion", 0.325, 0.674, src_label),
+            ("verbosity", 0.000, 0.002, src_label),
+            ("duplication", 0.025, 0.181, src_label),
             ("import_cycles", 0.000, 0.000, src_label),
         ]
     );

@@ -28,7 +28,8 @@
 - [Plugin SDK HOW-TO](crates/plugin-sdk/HOW-TO.md): call contract and Cargo features for `codeint-plugin-sdk`.
 - [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint.jsonc` and `codeint.json`.
 - [Glossary](GLOSSARY.md): canonical domain terminology.
-- [Evaluation suite runner](eval/HOW-TO.md): measure the pinned public corpus in `eval/corpus.json` in scratch folders with native-parser recall oracles, 3-run timing, and peak memory.
+- [Evaluation suite runner](eval/HOW-TO.md): measure the pinned public corpus in `eval/corpus.json` or stratified panels in `eval/panels.json` in scratch folders with native-parser recall oracles, 3-run timing, and peak memory.
+- [Evaluation report](docs/evaluation.md): published 410-repository Reference range panels, native-parser recall, 3-run speed and memory benchmarks, agent-reviewed false positive rates ([audit verdicts](docs/evaluation-audit.json)), and pinned before-after case studies ([machine-readable summary](docs/evaluation-summary.json)).
 
 ## Architecture Decision Records
 

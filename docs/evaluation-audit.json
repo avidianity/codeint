@@ -1,0 +1,1805 @@
+{
+  "reviewer": "agent",
+  "verdicts": [
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js packages/next/src/next-devtools/dev-overlay/container/build-error.stories.tsx production",
+      "verdict": "false_positive",
+      "note": "Storybook story file classified as production instead of test or fixture."
+    },
+    {
+      "category": "source_sets",
+      "item": "NousResearch/hermes-agent tests/gateway/test_session_db_handle_sharing.py test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/app-dir/next-config-ts/import-from-node-modules/app/layout.tsx test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "chen08209/FlClash lib/features/form/named_url_form.dart production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "3b1b/manim manimlib/animation/movement.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/workbench/services/search/test/common/folderQuerySearchTree.test.ts test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/app-dir/ensure-static-navigation/app/default/mixed-server-client/connection-and-use-search-params/page.tsx test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Bannerbear/Bannerbear.node.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/packages/process-host/src/bounded-output-sink.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/app-dir/dynamic-css/app/layout.js test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "doctrine/orm src/PersistentCollection.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "openinterpreter/openinterpreter codex-rs/core/src/harness/guidance.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "filamentphp/filament packages/infolists/src/Components/ImageEntry.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "go-gitea/gitea models/issues/dependency.go production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/quality/testing/playwright/tests/e2e/workflows/editor/canvas/canvas-nodes.spec.ts test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "lyswhut/lx-music-desktop src/renderer-lyric/useApp/useLyric.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/renderer/src/components/workspace-cleanup/removal/run/workspace-cleanup-run-physical-start.test.tsx test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "cloudflare/pingora pingora-core/src/connectors/http/custom/mod.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "storytold/photocraft crates/engine-core/src/cmd/table.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "nextcloud/server tests/Core/Command/Log/FileTest.php test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/frontend/editor-ui/src/features/ndv/runData/components/BinaryEntryDataTable.vue production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/main/claude-accounts/profiles/wsl/claude-profile-wsl-router.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "huggingface/transformers tests/models/mistral/__init__.py test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vllm-project/vllm tests/parser/engine/test_minimax_m2.py test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/firecrawl/search.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "anomalyco/opencode packages/app/src/voice/handoff.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "tanelpoder/tpt-oracle mods.sql production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "ente/ente mobile/apps/photos/lib/utils/cache_util.dart production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "briannesbitt/Carbon src/Carbon/Lang/uz_Cyrl.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/TypeScript tsc/internal/checker/symboltracker.go production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "yewstack/yew packages/yew/src/dom_bundle/utils.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node deps/v8/test/mjsunit/regress/regress-3230771.js test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "doctrine/orm tests/Tests/Models/DataTransferObjects/DtoWithArrayOfEnums.php test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "LadybirdBrowser/ladybird Libraries/LibCompress/Rust/src/compressor.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "sebastianbergmann/phpunit tests/end-to-end/error-handler/_files/NoSourceDeprecationTest.php test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/renderer/src/components/native-chat/prompts/NativeChatQuestionCardFocus.fixture.tsx production",
+      "verdict": "false_positive",
+      "note": "Component fixture file classified as production instead of test."
+    },
+    {
+      "category": "source_sets",
+      "item": "morluto/rea tests/boundary/filesystem/cliJsonInputCancellation.test.ts test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/MondayCom/V2/helpers/userLocator.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "grafana/grafana apps/alerting/rules/pkg/apis/alerting/v0alpha1/listrecordingrulesearchrulesv0alpha1_response_body_types_gen.go generated",
+      "verdict": "correct",
+      "note": "File path and header match generated Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/renderer/src/components/bots/items/BotItemsList.tsx production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "chartjs/Chart.js test/fixtures/scale.logarithmic/large-range.js test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/InvoiceNinja/InvoiceNinjaTrigger.node.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js packages/next/src/server/app-render/csrf-protection.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "flutter/flutter dev/integration_tests/flutter_gallery/lib/demo/all.dart production",
+      "verdict": "false_positive",
+      "note": "Integration test app file under plural integration_tests folder classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "langchain-ai/langchain libs/partners/openai/tests/unit_tests/llms/test_azure.py test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/workbench/contrib/chat/browser/widget/chatForkActionViewItem.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "anomalyco/opencode packages/core/test/fixture/v1-config/attachment.ts test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "nextcloud/server lib/public/Mail/Provider/IMessageSend.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "grafana/grafana pkg/registry/apps/playlist/migrator/migrator_test.go test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "matomo-org/matomo tests/PHPUnit/System/TrackerDisallowedIpTest.php test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "prettier/prettier tests/format/js/method-chain/test.js test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "huggingface/transformers src/transformers/utils/constants.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/cli/src/workflows/publication/__tests__/workflow-publication-outbox-consumer.test.ts test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "dokku/dokku plugins/builds/subcommands.go production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "grokability/snipe-it resources/views/vendor/mail/html/header.blade.php vendored",
+      "verdict": "correct",
+      "note": "File path and header match vendored Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/renderer/src/store/slices/runtime-status/views/runtime-status-subscriptions.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node deps/v8/test/mjsunit/regress/regress-v8-10817.js test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/app-dir/scss/basic-module-additional-data/basic-module-additional-data.test.ts test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "binary-husky/gpt_academic crazy_functions/paper_fns/github_search.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/fixtures/es-modules/test-wasm-js-string-builtins.mjs test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "laravel/framework src/Illuminate/Database/Eloquent/PendingHasThroughRelationship.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "lyswhut/lx-music-desktop src/renderer/views/Setting/components/ThemeEditModal/useCloseBtnColor.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "AppFlowy-IO/AppFlowy frontend/appflowy_flutter/lib/plugins/database/widgets/share_button.dart production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "symfony/symfony src/Symfony/Contracts/Service/ServiceSubscriberInterface.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "laravel/framework tests/Redis/PhpRedisConnectorTest.php test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "bcit-ci/CodeIgniter system/libraries/Profiler.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/app-dir/segment-cache/cached-navigations/default/app/complete-prerender-shell/[slug]/page.tsx test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "JuliusBrussee/caveman proxy/internal/store/learn_outcomes.go production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "netdata/netdata src/go/plugin/dem/synthetic/history/store.go production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode build/lib/test/workspaceImage.test.ts generated",
+      "verdict": "false_positive",
+      "note": "Hand-written test file under top-level build directory classified as generated."
+    },
+    {
+      "category": "source_sets",
+      "item": "FoundationAgents/OpenManus app/tool/ask_human.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "coollabsio/coolify app/Notifications/Database/BackupSuccessWithS3Warning.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "louislam/uptime-kuma src/pages/ManageMaintenance.vue production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/sessions/contrib/canvases/browser/pinnedCanvases.contribution.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "ccch1mneyyy/dsh-Go packages/dsh_tavern/test/t16_delete_single_v5_store_test.dart test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/main/runtime/construction/runtime-construction-dependencies.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "koel/koel app/Http/Requests/SpotifyCallbackRequest.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vllm-project/vllm vllm/models/step5/common/csa_tail_ring.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "ccch1mneyyy/dsh-Go packages/dsh_tavern/test/t12_jsonlogic_minmax_coercion_test.dart test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "AUTOMATIC1111/stable-diffusion-webui modules/textual_inversion/image_embedding.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "openinterpreter/openinterpreter codex-rs/sandboxing/src/seatbelt_daemon_socket_tests.rs test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "laravel/framework src/Illuminate/Queue/Events/Looping.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "symfony/symfony src/Symfony/Bridge/Doctrine/Messenger/DoctrineCloseConnectionMiddleware.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "matomo-org/matomo plugins/TwoFactorAuth/API.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "unionlabs/union cosmwasm/cw20-token-minter/src/lib.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/@n8n/nodes-langchain/nodes/vendors/GoogleGemini/actions/file/upload.operation.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/parallel/test-domain-enter-exit.js test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Brevo/AttributeDescription.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "openai/codex codex-rs/tui/src/chatwidget/streaming.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "langflow-ai/langflow src/backend/base/langflow/services/authorization/permissions.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vllm-project/vllm vllm/benchmarks/serve.py production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "prettier/prettier tests/format/js/class/multiple-static.js test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "netdata/netdata src/go/plugin/go.d/collector/redis/init_test.go test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca config/build-plugins/dev-serve-config.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "LadybirdBrowser/ladybird Libraries/LibWeb/Rust/src/css/css_string.rs production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js packages/eslint-plugin-next/src/rules/inline-script-id.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/frontend/editor-ui/src/features/ai/instanceAi/composables/useDraftWorkflowDocument.ts production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "sebastianbergmann/phpunit src/TextUI/Configuration/Value/Source.php production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "axios/axios lib/helpers/AxiosTransformStream.js production",
+      "verdict": "correct",
+      "note": "File path and header match production Source set."
+    },
+    {
+      "category": "source_sets",
+      "item": "openai/codex codex-rs/protocol/src/conversation_start_params_tests.rs test",
+      "verdict": "correct",
+      "note": "File path and header match test Source set."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "binary-husky/gpt_academic shared_utils/nltk_downloader.py:770 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vercel/next.js turbopack/crates/turbopack-tests/tests/execution/webpack/inner-graph/__skipped__/extend-class/input/module9.js:6 constructor-only-forwards",
+      "verdict": "correct",
+      "note": "Line matches the constructor-only-forwards rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_export/utils.py:1287 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "grokability/snipe-it app/Console/Commands/RestoreFromBackup.php:219 constructor-only-forwards",
+      "verdict": "correct",
+      "note": "Line matches the constructor-only-forwards rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "typecho/typecho var/Widget/Archive.php:713 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "flame-engine/flame packages/flame/lib/src/anchor.dart:59 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "matomo-org/matomo node_modules/vue/dist/vue.runtime.global.js:11090 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "zed-industries/zed crates/db/src/db.rs:84 else-after-return",
+      "verdict": "false_positive",
+      "note": "Outer Rust allow attribute scopes the else branch, so removing else changes lint behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/photos/lib/services/memories/photo_selector.dart:611 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Ysurac/FlightAirMap require/class.Spotter.php:3898 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/photos/lib/models/gallery/gallery_groups.dart:541 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "caddyserver/caddy modules/caddyhttp/reverseproxy/reverseproxy.go:2234 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Line matches the if-else-returns-boolean rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_dynamo/backends/debugging.py:415 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/ao/quantization/fx/prepare.py:238 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Shubhamsaboo/awesome-llm-apps ai_agent_framework_crash_course/google_adk_crash_course/6_callbacks/6_3_tool_execution_callbacks/agent.py:28 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "mqttsnet/thinglinks thinglinks-job/thinglinks-job-admin/src/main/resources/static/plugins/codemirror/mode/javascript/javascript.js:295 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/nn/modules/container.py:143 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server lib/private/App/AppManager.php:420 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "react/react packages/eslint-plugin-react-hooks/src/rules/RulesOfHooks.ts:48 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:12065 trailing-return",
+      "verdict": "correct",
+      "note": "Line matches the trailing-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "zed-industries/zed crates/agent/src/tools/evals/fixtures/disable_cursor_blinking/before.rs:4282 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Comfy-Org/ComfyUI comfy/ldm/lightricks/model.py:852 trailing-bare-return",
+      "verdict": "correct",
+      "note": "Line matches the trailing-bare-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "livewire/livewire src/Features/SupportPageComponents/SupportPageComponents.php:204 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "fastapi/fastapi scripts/translate.py:278 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/photos/lib/ui/viewer/location/dynamic_location_gallery_widget.dart:116 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk flutter/lib/common/widgets/peer_card.dart:450 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ultraworkers/claw-code rust/crates/runtime/src/permissions.rs:195 redundant-closure",
+      "verdict": "false_positive",
+      "note": "Rust closure performs required deref coercion from borrowed String to string slice."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/testing/_internal/common_methods_invocations.py:6601 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/fx/experimental/rewriter.py:150 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch .github/scripts/tryrebase.py:187 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rtk-ai/rtk scripts/test-install.sh:505 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "langgenius/dify api/providers/vdb/vdb-clickzetta/src/dify_vdb_clickzetta/clickzetta_vector.py:469 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ytdl-org/youtube-dl youtube_dl/downloader/rtmp.py:213 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "denoland/deno cli/tsc/mod.rs:1272 else-after-return",
+      "verdict": "false_positive",
+      "note": "Else branch belongs to a value-producing Rust if-else expression whose earlier arm yields a value."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "grafana/grafana packages/grafana-data/src/datetime/luxon_moment_compat/luxon.js:4278 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "zed-industries/zed crates/editor/src/edit_prediction.rs:1730 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ankitects/anki qt/aqt/mediasrv.py:1398 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "zed-industries/zed crates/action_log/src/action_log.rs:1169 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vercel/next.js packages/next/src/compiled/babel-packages/packages-bundle.js:185 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nektos/act pkg/runner/step_action_remote.go:294 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Line matches the if-else-returns-boolean rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/vscode extensions/notebook-renderers/src/linkify.ts:47 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk flutter/lib/models/native_model.dart:92 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_dynamo/variables/dicts.py:2044 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "huggingface/transformers src/transformers/core_model_loading.py:370 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch tools/extract_scripts.py:49 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_dynamo/variables/sets.py:1186 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk flutter/lib/desktop/pages/port_forward_page.dart:331 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "flutter/flutter engine/src/flutter/lib/web_ui/lib/src/engine/text_editing/text_editing.dart:1117 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch test/cpython/v3_13/test_itertools.py:1192 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "binary-husky/gpt_academic toolbox.py:907 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/twitter/tweets/like.py:97 except-only-reraises",
+      "verdict": "correct",
+      "note": "Line matches the except-only-reraises rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "huggingface/transformers src/transformers/generation/utils.py:3909 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_export/serde/serialize.py:3184 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/fx/experimental/migrate_gradual_types/transform_to_z3.py:338 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "jquery/jquery src/selector.js:268 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/TypeScript tsc/internal/fourslash/fourslash.go:2286 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Line matches the if-else-returns-boolean rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/vscode src/vs/workbench/api/browser/mainThreadFileSystem.ts:234 catch-only-rethrows",
+      "verdict": "correct",
+      "note": "Line matches the catch-only-rethrows rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "firebase/flutterfire packages/firebase_data_connect/firebase_data_connect/lib/src/any_value.dart:42 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "mylxsw/aidea lib/page/chat/group/chat.dart:236 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk src/core_main.rs:510 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "AppFlowy-IO/AppFlowy frontend/appflowy_flutter/lib/plugins/ai_chat/presentation/chat_editor_style.dart:138 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server tests/lib/User/UserTest.php:142 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Line matches the if-else-returns-boolean rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "astaxie/build-web-application-with-golang th/code/src/apps/ch.2.3/type_function/main.go:13 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Line matches the if-else-returns-boolean rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/photos/lib/ui/viewer/search/result/people_section_all_page.dart:798 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "LadybirdBrowser/ladybird Libraries/LibWeb/Rust/src/render_state/clock/effects.rs:400 else-after-return",
+      "verdict": "false_positive",
+      "note": "Else branch belongs to a value-producing Rust if-else expression bound to a local variable."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Significant-Gravitas/AutoGPT classic/forge/forge/content_processing/text.py:183 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "AppFlowy-IO/AppFlowy frontend/appflowy_flutter/packages/appflowy_ui/script/generate_theme.dart:292 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "matomo-org/matomo plugins/Ecommerce/Reports/BaseItem.php:73 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "casey/just src/lexer.rs:871 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "CarGuo/gsy_github_app_flutter lib/common/repositories/repos_repository.dart:682 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ytdl-org/youtube-dl youtube_dl/extractor/common.py:1353 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "netdata/netdata packaging/installer/netdata-dem-runtime.sh:25 else-after-return",
+      "verdict": "false_positive",
+      "note": "Shell else branch reads the failing condition exit status, which resets to zero after fi if else is removed."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "langgenius/dify api/core/tools/utils/dataset_retriever/dataset_retriever_tool.py:137 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "anomalyco/opencode packages/cli-rs/crates/latex/src/layout.rs:505 redundant-closure",
+      "verdict": "false_positive",
+      "note": "Rust closure performs required double-reference deref coercion to string slice."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/NextCloud/NextCloud.node.ts:1499 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "bilibili/GPT-SoVITS GPT_SoVITS/inference_webui.py:291 conditional-yields-boolean",
+      "verdict": "correct",
+      "note": "Line matches the conditional-yields-boolean rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "syncthing/syncthing gui/default/vendor/moment/moment.js:3355 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk src/core_main.rs:623 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server apps/settings/tests/Controller/UsersControllerTest.php:145 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/vscode src/vs/workbench/contrib/scm/common/quickDiff.ts:169 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "alibaba/flutter-go lib/blocs/industry_main.dart:46 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch benchmarks/inductor_backends/cutlass.py:140 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:9743 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nodejs/node deps/v8/tools/system-analyzer/view/code-panel.mjs:281 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "zed-industries/zed extensions/proto/src/language_servers/protols.rs:55 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vllm-project/vllm tests/reasoning/utils.py:79 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vllm-project/vllm vllm/model_executor/layers/quantization/moe_wna16.py:655 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vercel/next.js turbopack/crates/turbopack-lightningcss-napi/src/transformer.rs:375 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/vscode src/vs/base/browser/dom.ts:764 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/TypeScript tsc/testdata/fixtures/compiler/transformers/classFields.ts:3162 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Ysurac/FlightAirMap require/libs/SimplePie.compiled.php:6831 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "CarGuo/gsy_github_app_flutter lib/widget/pull/gsy_refresh_sliver.dart:475 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "langchain-ai/langchain libs/text-splitters/scripts/lint_imports.sh:17 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/fx/experimental/migrate_gradual_types/constraint_transformation.py:1110 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "langgenius/dify api/services/data_source/website_service.py:445 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/TypeScript tsc/internal/ls/completions.go:4283 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Line matches the if-else-returns-boolean rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_inductor/codegen/cpp.py:3712 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ollama/ollama server/routes_test.go:2191 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "etcd-io/etcd tools/local-tester/faults.sh:73 legacy-backticks",
+      "verdict": "correct",
+      "note": "Line matches the legacy-backticks rule without altering behavior."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "typecho/typecho admin/src/js/tokeninput.js:274 else-after-return",
+      "verdict": "correct",
+      "note": "Line matches the else-after-return rule without altering behavior."
+    },
+    {
+      "category": "orphan_files",
+      "item": "ruvnet/RuView ui/utils/fullscreen.js unreferenced",
+      "verdict": "false_positive",
+      "note": "Browser UI module imported from static HTML entry script."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/lib/agent-session/launch/structured-agent-session-launch-abandon.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/rpc/methods/orchestration/worker/start/placement/explicit-worker-terminal-validation.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/frontend/editor-ui/src/features/core/dataTable/types.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Ambient TypeScript module augmentation with compile-time declarations only."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/codex/history/rollouts/codex-session-source-home.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Xero/GenericFunctions.ts test-only",
+      "verdict": "false_positive",
+      "note": "Node module registered via package manifest custom entry list and loaded dynamically."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Comfy-Org/ComfyUI comfy/ldm/lightricks/vae/causal_conv3d.py test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code or dynamically loaded extension node."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/application/binaryDiagnostics/BinaryLayoutService.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Google/Books/GoogleBooks.node.ts test-only",
+      "verdict": "false_positive",
+      "note": "Node module registered via package manifest custom entry list and loaded dynamically."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/rate-limits/providers/claude/claude-usage-window.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Significant-Gravitas/AutoGPT classic/forge/forge/components/math_utils/math_utils.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/langchain/langchain_classic/tools/requests/tool.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/bots/MobileBotGroupItems.tsx test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "infiniflow/ragflow internal/agent/runtime/numbers.go unreferenced",
+      "verdict": "false_positive",
+      "note": "Active internal Go package imported by production services and tools."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/de-if/admin/labels/general.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/telemetry/schemas/telemetry-onboarding-foundation-schemas.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/browser-host/client-pages/browser-host-client-page-placement.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Comfy-Org/ComfyUI comfy_extras/sam3d_body/export/glb_openpose.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code or dynamically loaded extension node."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/native-chat/agent-session-journal/replay/journal-retained-inputs.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "nodejs/node deps/v8/tools/heap-stats/trace-file-reader.js unreferenced",
+      "verdict": "false_positive",
+      "note": "Browser tool module loaded via script tag from sibling HTML entry page."
+    },
+    {
+      "category": "orphan_files",
+      "item": "NousResearch/hermes-agent apps/desktop/src/plugins/kanban/ui.tsx test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/ssh/legacy-relay/bridge/legacy-relay-bridge-application.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/git/refs/fork-remotes/fork-remote-stale-branch-refspec.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js packages/next-codemod/transforms/__testfixtures__/cache-components-instant-false/basic-default.input.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Test, eval, or Storybook fixture loaded dynamically by runner rather than unused production code."
+    },
+    {
+      "category": "orphan_files",
+      "item": "infiniflow/ragflow internal/agent/tool/arxiv.go unreferenced",
+      "verdict": "false_positive",
+      "note": "Active internal Go package imported by production services and tools."
+    },
+    {
+      "category": "orphan_files",
+      "item": "BookStackApp/BookStack lang/zh_TW/pagination.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/agent-session/journal/journal-connector-reply-turn.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/automations/launch/automation-terminal-launch.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/uk-UA/admin/maintenances/general.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/right-sidebar/source-control/ai/section-agent-placement.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/ur-PK/admin/consumables/general.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "bagisto/bagisto packages/Webkul/Customer/src/Resources/lang/sw/app.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/native-chat/transcript-history/opencode/transcript-opencode2-fork-coverage.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "anomalyco/opencode packages/stories/mocks/gui-plugins/pairing.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Test, eval, or Storybook fixture loaded dynamically by runner rather than unused production code."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/SurveyMonkey/GenericFunctions.ts test-only",
+      "verdict": "false_positive",
+      "note": "Node module registered via package manifest custom entry list and loaded dynamically."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/orchestration/workers/nested-worker-depth.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "commaai/openpilot openpilot/tools/lib/azure_container.py test-only",
+      "verdict": "correct",
+      "note": "Imported only through a helper module used solely by a test script."
+    },
+    {
+      "category": "orphan_files",
+      "item": "monicahq/monica resources/views/components/error.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Blade view or component template rendered dynamically by framework view resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/browser/commands/browser-capture.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/managed-server/activation/orcad-activation-transaction-transitions.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/bots/BotChatRowMenu.tsx test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/terminal/session/pane-layout/mobile-terminal-pane-layout.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/zh-HK/admin/users/table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js packages/next/src/client/add-locale.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "NousResearch/hermes-agent plugins/platforms/ntfy/adapter.py test-only",
+      "verdict": "false_positive",
+      "note": "Platform plugin module discovered dynamically from plugin manifest."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langflow-ai/langflow src/backend/base/langflow/alembic/versions/182e5471b900_add_context_message.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Database migration file loaded dynamically by migration runner."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/hy-AM/pagination.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "ente/ente web/apps/locker/src/components/locker/use-locker-uploads.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "bagisto/bagisto packages/Webkul/Sales/src/Database/Migrations/2024_04_24_102939_add_incl_tax_columns_in_refunds_table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Database migration file loaded dynamically by migration runner."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/tasks/providers/jira/mobile-jira-operations.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/native/pe/PeImportsProvider.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "NousResearch/hermes-agent plugins/platforms/telegram/update_admission.py test-only",
+      "verdict": "false_positive",
+      "note": "Platform plugin module discovered dynamically from plugin manifest."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/startup/deep-link-state.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/native-chat/media/images/native-chat-image-visibility.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js packages/next/src/server/after/after.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "BookStackApp/BookStack resources/views/settings/sort-rules/edit.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Blade view or component template rendered dynamically by framework view resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/home/tabs/MobileHomeAutomationsTab.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/browser/guest-lifecycle/input/browser-guest-context-menu-target.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/langchain_v1/langchain/agents/middleware/human_in_the_loop.py test-only",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js packages/next-codemod/transforms/__testfixtures__/next-image-experimental-loader/wrapped-with-pwa/output/next.config.js unreferenced",
+      "verdict": "false_positive",
+      "note": "Test, eval, or Storybook fixture loaded dynamically by runner rather than unused production code."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/source-control/checks/pr-check-severity-order.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/is-IS/admin/components/table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/github-project/cells/ProjectCellValueEditors.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/cli/bot-automation-eval/bot-automation-eval-owner-linear.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/sidebar/worktree-list/listing/worktree-filter-visibility.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/credentials/credential-file-io.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/updater/lifecycle/updater-setup.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/exa/websets_polling.py test-only",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "ruvnet/RuView archive/v1/src/api/middleware/__init__.py unreferenced",
+      "verdict": "correct",
+      "note": "Archived v1 package with no active production importers."
+    },
+    {
+      "category": "orphan_files",
+      "item": "chartjs/Chart.js src/helpers/helpers.config.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "bagisto/bagisto packages/Webkul/Marketing/src/Database/Migrations/2023_11_09_162805_create_url_rewrites_table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Database migration file loaded dynamically by migration runner."
+    },
+    {
+      "category": "orphan_files",
+      "item": "firefly-iii/firefly-iii app/Http/Controllers/Json/RuleController.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel controller referenced by string action name in application routes."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/session/native-chat/composer/drafts/use-mobile-native-chat-launch-draft-seed.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/ga-IE/auth/general.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/orca-profiles/cloud-console/cloud-console-link.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/ui/dropdown-menu.tsx test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/terminal/wait/terminal-idle-polls.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/agent-session/records/agent-session-rewind-completion.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/core/langchain_core/tracers/__init__.py test-only",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/sidebar/worktree-list/drag/worktree-sidebar-drop-preview.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vllm-project/vllm vllm/models/flint/ops/moe_cute.py test-only",
+      "verdict": "false_positive",
+      "note": "Active production module loaded via dynamic registry string path."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/sidebar/worktree-list/rows/project-group-header-actions.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/lib/terminal/quick-commands/quick-commands-menu-events.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/langchain/langchain_classic/llms/utils.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/application/binary/BinarySessionPort.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Type-only TypeScript interface module imported via type-only imports excluded from runtime graph."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/ur-PK/admin/groups/table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Framework localization file loaded dynamically by translator conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js packages/next/src/trace/shared.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/langchain/langchain_classic/document_loaders/airbyte_json.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "coollabsio/coolify app/Livewire/Project/DeleteEnvironment.php test-only",
+      "verdict": "false_positive",
+      "note": "Livewire component discovered dynamically by framework component conventions."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/domain/analysisView/sourceToBundleView.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js packages/next/src/server/web/spec-extension/revalidate.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/terminal/output/recent-pty-output-buffer.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vllm-project/vllm vllm/distributed/ec_transfer/ec_connector/mooncake_ec_connector.py test-only",
+      "verdict": "false_positive",
+      "note": "Active production module loaded via dynamic registry string path."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/MonicaCrm/descriptions/NoteDescription.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Node module registered via package manifest custom entry list and loaded dynamically."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/@n8n/db/src/migrations/sqlite/1766068346315-AddChatMessageIndices.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Database migration file loaded dynamically by migration runner."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/domain/javascript/javascriptBootstrapIntegrity.ts test-only",
+      "verdict": "false_positive",
+      "note": "Active production module imported by application code whose build or app entry points are not configured."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/BambooHr/v1/actions/file/getAll/description.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Node module registered via package manifest custom entry list and loaded dynamically."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Significant-Gravitas/AutoGPT classic/forge/forge/content_processing/text.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Active sub-package or plugin module outside unconfigured repository root entry points."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js evals/evals/agent-029-use-cache-directive/app/layout.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Test, eval, or Storybook fixture loaded dynamically by runner rather than unused production code."
+    },
+    {
+      "category": "orphan_files",
+      "item": "monicahq/monica resources/views/app/settings/account/preferences/index.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Blade view or component template rendered dynamically by framework view resolution."
+    }
+  ]
+}

@@ -45,3 +45,21 @@ fn the_audit_review_is_labelled_agent_reviewed_with_per_category_rates() {
     write_audit_review(&mut empty, None);
     assert_eq!(empty, "");
 }
+
+#[test]
+fn case_study_repository_urls_are_autolinked_not_bare() {
+    let study = CaseStudyResult {
+        name: "owner/repo abc1234".to_owned(),
+        url: "https://github.com/owner/repo".to_owned(),
+        change: "Refactor module".to_owned(),
+        before: None,
+        after: None,
+        error: None,
+    };
+    let mut out = String::new();
+    write_case_studies(&mut out, &[study]);
+    assert!(
+        out.contains("Repository: <https://github.com/owner/repo>"),
+        "{out}"
+    );
+}

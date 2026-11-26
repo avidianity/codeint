@@ -40,7 +40,7 @@ It ships with eight built-in Language plugins covering TypeScript/JavaScript (wi
 codeint reports every Metric side by side and never collapses them into one grade or index ([ADR 0003](./docs/adr/0003-no-combined-score.md)).
 A single score hides regressions when one Metric improves while another worsens.
 
-Four core Metrics are calibrated against pre-2023 human-written repositories:
+Four core Metrics are calibrated against stratified panels of current public repositories ([ADR 0028](./docs/adr/0028-stratified-reference-panels.md)):
 
 - **Erosion**: share of Function mass (`cyclomatic_complexity * sqrt(source_lines)`) in functions with cyclomatic complexity over 10, reported with function names.
 - **Duplication**: share of source lines in exact Clone groups (at least 75 normalized tokens and 14 distinct normalized tokens, catching renamed copy-paste while ignoring import lists and data tables), grouped into Clone families across three or more locations, with opt-in shingle-based near-clone detection.
@@ -88,23 +88,23 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 
 ## Calibrated Reference ranges
 
-10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework, or 50 current repositories for Shell:
+10th to 90th percentile across stratified panels of 50 current public repositories per built-in language and 20 current public repositories per calibrated Framework profile ([ADR 0028](./docs/adr/0028-stratified-reference-panels.md)):
 
 | Language | Erosion | Duplication | Verbosity | Import cycles | Docs |
 | -------- | ------- | ----------- | --------- | ------------- | ---- |
-| TypeScript / JavaScript | 35.2% to 60.0% | 1.7% to 34.6% | 1.8% to 34.7% | 0.0% to 30.8% | [ADR 0008](./docs/adr/0008-typescript-reference-ranges.md) |
-| React (`.jsx` / `.tsx`) | 10.6% to 54.4% | 4.6% to 36.8% | 4.7% to 36.8% | 0.0% to 14.4% | [ADR 0020](./docs/adr/0020-react-reference-ranges.md) |
-| Vue 2 (`.vue`) | 2.0% to 45.2% | 3.6% to 19.2% | 3.6% to 19.2% | 0.0% to 11.4% | [ADR 0014](./docs/adr/0014-vue2-reference-ranges.md) |
-| Vue 3 (`.vue`) | 1.9% to 38.8% | 2.3% to 34.5% | 2.4% to 34.6% | 0.0% to 7.7% | [ADR 0015](./docs/adr/0015-vue3-reference-ranges.md) |
-| Rust | 38.0% to 64.2% | 5.0% to 32.5% | 6.0% to 32.9% | 2.1% to 50.6% | [ADR 0010](./docs/adr/0010-rust-reference-ranges.md) |
-| PHP | 5.5% to 67.7% | 4.1% to 29.0% | 4.2% to 29.2% | 0.0% to 10.7% | [ADR 0011](./docs/adr/0011-php-reference-ranges.md) |
-| Dart | 4.7% to 41.9% | 7.3% to 25.6% | 8.0% to 25.9% | 7.3% to 52.4% | [ADR 0012](./docs/adr/0012-dart-reference-ranges.md) |
-| Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% | [ADR 0013](./docs/adr/0013-python-reference-ranges.md) |
-| Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% | [ADR 0021](./docs/adr/0021-go-reference-ranges.md) |
-| SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | N/A | [ADR 0022](./docs/adr/0022-sql-reference-ranges.md) |
+| TypeScript / JavaScript | 20.6% to 73.1% | 0.6% to 19.4% | 0.0% to 0.1% | 0.0% to 18.4% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| React (`.jsx` / `.tsx`) | 27.9% to 55.1% | 2.9% to 45.6% | 0.0% to 0.1% | 0.0% to 8.3% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| Vue 2 (`.vue`) | 9.9% to 57.6% | 1.5% to 28.7% | 0.0% to 0.3% | 0.0% to 11.5% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| Vue 3 (`.vue`) | 10.1% to 45.2% | 1.2% to 19.4% | 0.0% to 0.1% | 0.0% to 7.4% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| Rust | 21.2% to 71.6% | 4.1% to 31.4% | 0.0% to 0.5% | 0.0% to 57.4% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| PHP | 8.4% to 63.0% | 1.7% to 18.9% | 0.0% to 0.5% | 0.0% to 14.5% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| Dart | 2.3% to 47.9% | 2.4% to 26.2% | 0.0% to 0.8% | 1.3% to 48.5% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| Python | 33.1% to 73.4% | 0.8% to 17.2% | 0.0% to 0.9% | 0.0% to 43.7% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| Go | 32.5% to 67.4% | 2.5% to 18.1% | 0.0% to 0.2% | 0.0% to 0.0% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
+| SQL | 0.0% to 79.5% | 0.1% to 90.9% | 0.0% to 0.0% | N/A | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
 | Shell | 41.6% to 92.7% | 0.8% to 75.1% | 0.0% to 2.5% | N/A | [ADR 0031](./docs/adr/0031-shell-reference-ranges.md) |
 
-See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings.
+See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings, and [docs/evaluation.md](./docs/evaluation.md) for the full 410-repository Evaluation suite report, native-parser recall, and agent-reviewed audit.
 
 ## Quick start
 
