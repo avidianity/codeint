@@ -77,9 +77,10 @@ fn build_auxiliary_command(
     arguments: CommandArguments,
 ) -> Result<Command, ConfigError> {
     match arguments {
-        CommandArguments::Init { adopt } => Ok(Command::Init {
+        CommandArguments::Init { adopt, format } => Ok(Command::Init {
             folder: current_folder.to_path_buf(),
             adopt,
+            format,
             plugin_host: plugin_host_config_of_this_process(current_folder),
         }),
         CommandArguments::Update { check, version } => Ok(build_update_command(check, version)),

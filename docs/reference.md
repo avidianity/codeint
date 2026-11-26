@@ -71,9 +71,10 @@ codeint help check
 | Option | Meaning |
 | ------ | ------- |
 | `--adopt` | Also enable per-file Regression checks, write a zero Budget for each Production and Test Metric that the Baseline records, suggest new-file Budgets, write `.codeint/ratchet.json` and `.codeint/baseline.json` from the current state, and print pull-request CI instructions |
+| `--format <FORMAT>` | The configuration file format to write: `jsonc` (default, writes `codeint.jsonc`), `json` (strict comment-free `codeint.json`), `toml` (`codeint.toml` with `#:schema`), or `yaml` (`codeint.yaml` with `# yaml-language-server: $schema=`) |
 | `-h, --help` | Print the help of `codeint init` |
 
-`codeint init` writes a starter `codeint.jsonc` at the root of the Git repository that contains the current folder:
+`codeint init` writes a starter `codeint.jsonc` (or `codeint.json`, `codeint.toml`, or `codeint.yaml` with `--format`) at the root of the Git repository that contains the current folder:
 
 ```sh exit=0
 codeint init
@@ -115,6 +116,24 @@ It sets every key to its default, and lists under `languages` each top-level fol
   ],
   "coverage_reports": []
 }
+```
+
+Pass `--format` to choose `jsonc` (the default), `json` (strict comment-free JSON), `toml`, or `yaml`:
+
+```sh exit=0
+codeint init --format jsonc
+```
+
+```sh exit=0
+codeint init --format json
+```
+
+```sh exit=0
+codeint init --format toml
+```
+
+```sh exit=0
+codeint init --format yaml
 ```
 
 When no file belongs to a Language plugin, the file leaves `languages` out, so every Language plugin measures the whole repository.
@@ -1091,11 +1110,13 @@ codeint coupling --format markdown
 
 ## `codeint.json`
 
-codeint reads `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` at the root of the Git repository.
-All four files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
-Keep only one of those four files in the repository; having more than one stops the run with exit code 2 and names every conflicting file.
+codeint reads one dedicated configuration file at the root of the Git repository from ten supported paths: `codeint.json`, `codeint.jsonc`, `codeint.toml`, `codeint.yaml`, `codeint.yml`, `.codeint/config.json`, `.codeint/config.jsonc`, `.codeint/config.toml`, `.codeint/config.yaml`, or `.codeint/config.yml` ([ADR 0034](./adr/0034-config-file-formats.md)).
+JSON and JSONC files accept `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
+TOML and YAML files use the same configuration keys and schema: empty or comment-only files resolve to defaults, while non-mapping top-level values, duplicate keys, multi-document YAML streams, non-string YAML mapping keys, YAML anchors or aliases, YAML merge keys, non-finite floats, and TOML native date-time values stop the run with exit code 2.
+TOML and YAML recognize both a leading schema comment directive (`#:schema <url>` for TOML, `# yaml-language-server: $schema=<url>` for YAML) and a top-level `$schema` key; specifying both with different URLs stops the run with exit code 2.
+Keep only one of those ten files in the repository; having more than one stops the run with exit code 2 and names every conflicting file.
 Without any configuration file, codeint uses the default of every key.
-[`codeint init`](#codeint-init) writes a starter `codeint.jsonc` (and never replaces an existing configuration file at any of the four paths), and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
+[`codeint init`](#codeint-init) writes a starter `codeint.jsonc` by default (or `codeint.json`, `codeint.toml`, or `codeint.yaml` with `--format`, never replacing an existing configuration file at any of the ten paths), and [schema/codeint.schema.json](../schema/codeint.schema.json) is its JSON schema.
 
 In the key paths below, `[]` stands for each item of a list, and a name in braces stands for each of its values:
 

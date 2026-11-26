@@ -2904,7 +2904,7 @@ fn having_both_codeint_json_and_codeint_jsonc_exits_2_with_clear_message() {
     assert_operational_error(
         &output,
         "codeint: multiple configuration files exist (codeint.json, codeint.jsonc); keep only one\n\
-         Keep only one configuration file among codeint.json, codeint.jsonc, .codeint/config.json, and .codeint/config.jsonc, and remove the others.\n",
+         Keep only one configuration file among codeint.{json,jsonc,toml,yaml,yml} and .codeint/config.{json,jsonc,toml,yaml,yml}, and remove the others.\n",
     );
 }
 

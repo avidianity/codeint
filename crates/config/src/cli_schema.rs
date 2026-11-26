@@ -178,7 +178,7 @@ fn record_command_formats(
             format!("{prefix} {}", command.name)
         };
         for flag in &command.flags {
-            if flag.long.as_deref() == Some("--format") {
+            if flag.long.as_deref() == Some("--format") && full_name != "init" {
                 for format in &flag.possible_values {
                     by_format
                         .entry(format.clone())

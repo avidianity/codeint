@@ -89,7 +89,7 @@ fn check_configuration(root: &Path) -> (Vec<DoctorCheck>, Option<ActiveConfigura
         ConfigurationInspection::Missing { .. } => {
             let check = DoctorCheck::warn(
                 "config",
-                "No configuration file found (codeint.json, codeint.jsonc, .codeint/config.json, or .codeint/config.jsonc); using built-in defaults",
+                "No configuration file found (codeint.{json,jsonc,toml,yaml,yml} or .codeint/config.{json,jsonc,toml,yaml,yml}); using built-in defaults",
             )
             .with_remedy("Run codeint init to write a starter codeint.jsonc.");
             (vec![check], None, true)

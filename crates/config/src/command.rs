@@ -182,6 +182,26 @@ pub enum SchemaFormat {
     Toon,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum InitFormat {
+    #[default]
+    Jsonc,
+    Json,
+    Toml,
+    Yaml,
+}
+
+impl InitFormat {
+    pub fn file_name(self) -> &'static str {
+        match self {
+            InitFormat::Jsonc => "codeint.jsonc",
+            InitFormat::Json => "codeint.json",
+            InitFormat::Toml => "codeint.toml",
+            InitFormat::Yaml => "codeint.yaml",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ConfigFormat {
     Text,
@@ -397,6 +417,7 @@ pub enum Command {
     Init {
         folder: PathBuf,
         adopt: bool,
+        format: InitFormat,
         plugin_host: PluginHostConfig,
     },
     Update {

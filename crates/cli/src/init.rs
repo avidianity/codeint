@@ -2,9 +2,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use codeint_config::{
-    BASELINE_PATH, BoundaryPreset, DEFAULT_RATCHET_PATH, DetectedLanguage, PluginHostConfig,
-    StarterBoundaries, StarterConfigurationError, write_adoption_starter_configuration,
-    write_adoption_zero_budgets, write_starter_configuration,
+    BASELINE_PATH, BoundaryPreset, DEFAULT_RATCHET_PATH, DetectedLanguage, InitFormat,
+    PluginHostConfig, StarterBoundaries, StarterConfigurationError,
+    write_adoption_starter_configuration, write_adoption_zero_budgets,
+    write_starter_configuration_in_format,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_model::{InvalidRepoPath, RepoPath, SourceSet, settle_source_set};
@@ -66,18 +67,20 @@ pub(crate) struct AdoptedFiles {
     pub(crate) baselined_findings: usize,
 }
 
-pub(crate) fn init(folder: &Path) -> Result<PathBuf, InitError> {
+pub(crate) fn init(folder: &Path, format: InitFormat) -> Result<PathBuf, InitError> {
     let repository = Repository::discover(folder)?;
     let starter = discover_starter(&repository)?;
-    Ok(write_starter_configuration(
+    Ok(write_starter_configuration_in_format(
         repository.root(),
         &starter.languages,
         starter.boundaries.as_ref(),
+        format,
     )?)
 }
 
 pub(crate) fn adopt(
     folder: &Path,
+    format: InitFormat,
     plugin_host: &PluginHostConfig,
 ) -> Result<AdoptedFiles, InitError> {
     let repository = Repository::discover(folder)?;
@@ -91,6 +94,7 @@ pub(crate) fn adopt(
         &root,
         &starter.languages,
         starter.boundaries.as_ref(),
+        format,
     )
     .map_err(|error| match error {
         StarterConfigurationError::AlreadyExists { .. } => {
@@ -98,24 +102,26 @@ pub(crate) fn adopt(
         }
         other => InitError::StarterConfiguration(other),
     })?;
-    write_adopted_state(&root, plugin_host, &starter, configuration.clone()).map_err(|cause| {
-        let leftovers = roll_back(
-            &[
-                configuration,
-                root.join(DEFAULT_RATCHET_PATH),
-                root.join(BASELINE_PATH),
-            ],
-            (!state_folder_existed).then_some(state_folder.as_path()),
-        );
-        if leftovers.is_empty() {
-            cause
-        } else {
-            InitError::RollbackIncomplete {
-                cause: Box::new(cause),
-                leftovers,
+    write_adopted_state(&root, plugin_host, &starter, format, configuration.clone()).map_err(
+        |cause| {
+            let leftovers = roll_back(
+                &[
+                    configuration,
+                    root.join(DEFAULT_RATCHET_PATH),
+                    root.join(BASELINE_PATH),
+                ],
+                (!state_folder_existed).then_some(state_folder.as_path()),
+            );
+            if leftovers.is_empty() {
+                cause
+            } else {
+                InitError::RollbackIncomplete {
+                    cause: Box::new(cause),
+                    leftovers,
+                }
             }
-        }
-    })
+        },
+    )
 }
 
 fn is_absent(error: &std::io::Error) -> bool {
@@ -147,6 +153,7 @@ fn write_adopted_state(
     root: &Path,
     plugin_host: &PluginHostConfig,
     starter: &Starter,
+    format: InitFormat,
     configuration: PathBuf,
 ) -> Result<AdoptedFiles, InitError> {
     let (context, report) = load_and_measure_whole_repo(root, &[], plugin_host)?;
@@ -157,6 +164,7 @@ fn write_adopted_state(
         &starter.languages,
         starter.boundaries.as_ref(),
         &report.baseline_metrics(),
+        format,
     )?;
     Ok(AdoptedFiles {
         configuration,
@@ -196,19 +204,29 @@ mod tests;
 const PULL_REQUEST_WORKFLOW: &str = include_str!("init_adopt_workflow.yml");
 
 pub(crate) fn render_adoption(adopted: &AdoptedFiles) -> String {
+    let config_name = adopted
+        .configuration
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("codeint.jsonc");
+    let new_file_step = if config_name == "codeint.json" {
+        format!("configure new_file_budgets in {config_name}")
+    } else {
+        format!("uncomment new_file_budgets in {config_name}")
+    };
     format!(
         "Wrote {configuration}\n\
          Wrote {ratchet} ({entries} Metric ceilings)\n\
          Wrote {baseline} ({findings} existing Findings)\n\
          \n\
          Next steps:\n\
-         1. Commit codeint.jsonc and the .codeint folder.\n\
-         2. Run codeint check locally and in your coding agent loop; the Baseline hides the existing Findings, and the zero Budgets in codeint.jsonc (production, test, and dependency Metrics) fail on any new Finding of a Metric the Baseline records; the Ratchet separately caps each whole-repository ratio.\n\
+         1. Commit {config_name} and the .codeint folder.\n\
+         2. Run codeint check locally and in your coding agent loop; the Baseline hides the existing Findings, and the zero Budgets in {config_name} (production, test, and dependency Metrics) fail on any new Finding of a Metric the Baseline records; the Ratchet separately caps each whole-repository ratio.\n\
          3. Save this as .github/workflows/codeint.yml to gate every pull request:\n\
          \n\
          {workflow}\n\
          4. After you fix legacy code, run codeint ratchet update and codeint baseline update, and commit the result.\n\
-         5. To hold every new file to a strict bar, uncomment new_file_budgets in codeint.jsonc.\n\
+         5. To hold every new file to a strict bar, {new_file_step}.\n\
          \n\
          Guide: https://github.com/avidianity/codeint/blob/main/docs/guide/adopting-on-an-existing-codebase.md\n",
         configuration = adopted.configuration.display(),

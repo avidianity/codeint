@@ -45,19 +45,20 @@ pub use codeint_json::{
     SourceSetOverrides, StarterBoundaries, StarterBoundaryZone, StarterConfigurationError,
     TEST_GAP_METRIC_KEY, configuration_schema, discover_config_file, inspect_configuration,
     is_broken_symlink, published_schema_address, read_configuration, read_resolved_configuration,
-    schema_value_span, write_adoption_starter_configuration, write_adoption_zero_budgets,
-    write_starter_configuration,
+    rewrite_schema_tag, schema_value_span, write_adoption_starter_configuration,
+    write_adoption_zero_budgets, write_starter_configuration,
+    write_starter_configuration_in_format,
 };
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{
     AgentClient, AgentCommand, AgentFormat, BaselineCommand, BaselineFormat, Command, ConfigError,
     ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
-    Invocation, PluginCommand, PluginHostConfig, PluginTestFormat, RatchetCommand, RatchetFormat,
-    ReportDestination, ReportFormat, ReportInput, ReportRenderFormat, SchemaFormat, TraceFormat,
-    TrendFormat, TrendRange,
+    InitFormat, Invocation, PluginCommand, PluginHostConfig, PluginTestFormat, RatchetCommand,
+    RatchetFormat, ReportDestination, ReportFormat, ReportInput, ReportRenderFormat, SchemaFormat,
+    TraceFormat, TrendFormat, TrendRange,
 };
 pub use config_error::{
-    ConfigFileKind, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,
+    ConfigFileKind, ConfigSyntax, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,
 };
 pub use coupling::{
     CouplingRatio, CouplingRatioError, CouplingSettings, DEFAULT_MAX_COMMIT_FILES,

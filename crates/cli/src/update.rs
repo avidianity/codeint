@@ -6,8 +6,6 @@ const LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/avidianity/codeint/releases/latest";
 const DEFAULT_RELEASE_DOWNLOAD_BASE: &str =
     "https://github.com/avidianity/codeint/releases/download";
-const SCHEMA_URL_PREFIX: &str = "https://raw.githubusercontent.com/avidianity/codeint/";
-const SCHEMA_URL_SUFFIX: &str = "/schema/codeint.schema.json";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UpdateError {
@@ -93,11 +91,11 @@ fn append_schema_sync(mut message: String, target_tag: &str) -> String {
     message
 }
 
-fn find_codeint_json(start: &Path) -> Option<PathBuf> {
+fn find_config_file(start: &Path) -> Option<codeint_config::DiscoveredConfigFile> {
     let mut dir = Some(start);
     while let Some(current) = dir {
         match codeint_config::discover_config_file(current) {
-            Ok(Some(discovered)) => return discovered.path.is_file().then_some(discovered.path),
+            Ok(Some(discovered)) => return discovered.path.is_file().then_some(discovered),
             Ok(None) => {}
             Err(_) => return None,
         }
@@ -109,34 +107,16 @@ fn find_codeint_json(start: &Path) -> Option<PathBuf> {
     None
 }
 
-fn replace_schema_tag(text: &str, target_tag: &str) -> Option<(String, String)> {
-    let schema = codeint_config::schema_value_span(text)?;
-    let rest = schema.value.strip_prefix(SCHEMA_URL_PREFIX)?;
-    let current_ref = rest.strip_suffix(SCHEMA_URL_SUFFIX)?;
-    if current_ref.is_empty() || current_ref.contains('/') || current_ref == target_tag {
-        return None;
-    }
-    let new_url = format!("{SCHEMA_URL_PREFIX}{target_tag}{SCHEMA_URL_SUFFIX}");
-    let prefix = text.get(..schema.span.start)?;
-    let suffix = text.get(schema.span.end..)?;
-    let mut updated = String::with_capacity(text.len() + target_tag.len());
-    updated.push_str(prefix);
-    updated.push('"');
-    updated.push_str(&new_url);
-    updated.push('"');
-    updated.push_str(suffix);
-    Some((updated, new_url))
-}
-
 fn sync_codeint_json_schema(target_tag: &str) -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    let config_path = find_codeint_json(&cwd)?;
-    let text = fs::read_to_string(&config_path).ok()?;
-    let (updated, new_url) = replace_schema_tag(&text, target_tag)?;
-    fs::write(&config_path, updated).ok()?;
+    let discovered = find_config_file(&cwd)?;
+    let text = fs::read_to_string(&discovered.path).ok()?;
+    let (updated, new_url) =
+        codeint_config::rewrite_schema_tag(discovered.kind, &text, target_tag)?;
+    fs::write(&discovered.path, updated).ok()?;
     Some(format!(
         "Updated $schema in {} to {new_url}",
-        config_path.display()
+        discovered.path.display()
     ))
 }
 

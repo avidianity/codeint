@@ -10,32 +10,35 @@ use crate::config_error::{CONFIGURATION_FILE_NAME, ConfigFileKind, Configuration
 use crate::resolved::ConfigOverrides;
 
 mod discovery;
+mod formats;
 mod merge;
 mod schema;
+mod schema_directive;
 mod shape;
 mod starter;
+mod starter_formats;
 #[cfg(test)]
 mod tests;
 mod types;
 mod validation;
 
 #[cfg(test)]
-use discovery::{
-    OFFICIAL_SCHEMA_PREFIX, OFFICIAL_SCHEMA_SUFFIX, check_schema_version, parse_with_overrides,
-};
+use discovery::{check_schema_version, parse_with_overrides};
+#[cfg(test)]
+use schema_directive::{OFFICIAL_SCHEMA_PREFIX, OFFICIAL_SCHEMA_SUFFIX};
 
 #[cfg(test)]
 pub(crate) use discovery::parse_jsonc;
 pub use discovery::{
-    ConfigurationInspection, DiscoveredConfigFile, SchemaValueSpan, SchemaVersionStatus,
-    discover_config_file, inspect_configuration, is_broken_symlink, read_configuration,
-    read_resolved_configuration, schema_value_span,
+    ConfigurationInspection, DiscoveredConfigFile, SchemaVersionStatus, discover_config_file,
+    inspect_configuration, is_broken_symlink, read_configuration, read_resolved_configuration,
 };
 pub use schema::{Budget, OutputFormat, PluginKind, configuration_schema};
+pub use schema_directive::{SchemaValueSpan, rewrite_schema_tag, schema_value_span};
 pub use starter::{
     DetectedLanguage, StarterBoundaries, StarterBoundaryZone, StarterConfigurationError,
     published_schema_address, write_adoption_starter_configuration, write_adoption_zero_budgets,
-    write_starter_configuration,
+    write_starter_configuration, write_starter_configuration_in_format,
 };
 pub use types::{
     Budgets, Configuration, DEPENDENCY_METRIC_KEYS, DuplicationConfig, EntryPoints,

@@ -86,7 +86,7 @@ pub fn configuration_schema() -> String {
 #[serde(deny_unknown_fields)]
 #[schemars(
     title = "codeint.json",
-    description = "The configuration of codeint, read from codeint.json, codeint.jsonc, .codeint/config.json, or .codeint/config.jsonc at the root of the repository."
+    description = "The configuration of codeint, read from codeint.json, codeint.jsonc, codeint.toml, codeint.yaml, codeint.yml, .codeint/config.json, .codeint/config.jsonc, .codeint/config.toml, .codeint/config.yaml, or .codeint/config.yml at the root of the repository."
 )]
 pub(super) struct ConfigurationFile {
     #[serde(rename = "$schema", default)]

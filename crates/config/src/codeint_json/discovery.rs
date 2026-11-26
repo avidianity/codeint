@@ -1,21 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use jsonc_parser::errors::ParseError;
-use jsonc_parser::{
-    CollectOptions, ParseOptions, parse_to_ast, parse_to_serde_value, parse_to_value,
-};
+use jsonc_parser::{parse_to_serde_value, parse_to_value};
 use serde_json::Value;
 
+use super::formats::{parse_toml_value, parse_yaml_value};
 use super::merge::parse_value_with_overrides;
+use super::schema_directive::{
+    JSONC_PARSE_OPTIONS, OFFICIAL_SCHEMA_PREFIX, OFFICIAL_SCHEMA_SUFFIX, resolve_schema_url,
+};
 use super::types::Configuration;
 use crate::config_error::{
-    CONFIGURATION_FILE_NAME, ConfigFileKind, ConfigurationFileError, JsoncError,
+    CONFIGURATION_FILE_NAME, ConfigFileKind, ConfigSyntax, ConfigurationFileError, JsoncError,
 };
 use crate::resolved::{ConfigOverrides, ResolvedConfiguration};
-
-pub(super) const OFFICIAL_SCHEMA_PREFIX: &str =
-    "https://raw.githubusercontent.com/avidianity/codeint/v";
-pub(super) const OFFICIAL_SCHEMA_SUFFIX: &str = "/schema/codeint.schema.json";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchemaVersionStatus {
@@ -54,12 +52,6 @@ pub enum ConfigurationInspection {
 pub struct DiscoveredConfigFile {
     pub kind: ConfigFileKind,
     pub path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SchemaValueSpan {
-    pub span: std::ops::Range<usize>,
-    pub value: String,
 }
 
 pub fn read_configuration(repository_root: &Path) -> Result<Configuration, ConfigurationFileError> {
@@ -104,31 +96,6 @@ pub fn discover_config_file(
     }
 }
 
-pub fn schema_value_span(text: &str) -> Option<SchemaValueSpan> {
-    let without_bom = text.strip_prefix('\u{FEFF}').unwrap_or(text);
-    let bom_len = text.len() - without_bom.len();
-    let parsed = parse_to_ast(
-        without_bom,
-        &CollectOptions::default(),
-        &JSONC_PARSE_OPTIONS,
-    )
-    .ok()?;
-    let value = parsed.value?;
-    let object = value.as_object()?;
-    let property = object
-        .properties
-        .iter()
-        .rev()
-        .find(|property| property.name.as_str() == "$schema")?;
-    let jsonc_parser::ast::Value::StringLit(schema) = &property.value else {
-        return None;
-    };
-    Some(SchemaValueSpan {
-        span: (schema.range.start + bom_len)..(schema.range.end + bom_len),
-        value: schema.value.to_string(),
-    })
-}
-
 fn read_config_file(discovered: &DiscoveredConfigFile) -> Result<String, ConfigurationFileError> {
     let file = discovered.kind;
     match std::fs::read_to_string(&discovered.path) {
@@ -142,19 +109,6 @@ fn read_config_file(discovered: &DiscoveredConfigFile) -> Result<String, Configu
         Err(source) => Err(ConfigurationFileError::Unreadable { file, source }),
     }
 }
-
-const JSONC_PARSE_OPTIONS: ParseOptions = ParseOptions {
-    allow_comments: true,
-    allow_trailing_commas: true,
-    allow_loose_object_property_names: false,
-    allow_missing_commas: false,
-    allow_single_quoted_strings: false,
-    allow_hexadecimal_numbers: false,
-    allow_unary_plus_numbers: false,
-    allow_bare_decimal_point_numbers: false,
-    allow_non_finite_numbers: false,
-    allow_extended_string_escapes: false,
-};
 
 fn jsonc_error_from_parse_error(error: &ParseError) -> JsoncError {
     JsoncError {
@@ -180,6 +134,17 @@ pub(crate) fn parse_jsonc(input: &str) -> Result<Value, JsoncError> {
         });
     }
     Ok(value)
+}
+
+fn parse_config_document(
+    text: &str,
+    file: ConfigFileKind,
+) -> Result<Value, ConfigurationFileError> {
+    match file.syntax() {
+        ConfigSyntax::Json => parse_jsonc_value(text, file),
+        ConfigSyntax::Toml => parse_toml_value(text, file),
+        ConfigSyntax::Yaml => parse_yaml_value(text, file),
+    }
 }
 
 fn parse_jsonc_value(text: &str, file: ConfigFileKind) -> Result<Value, ConfigurationFileError> {
@@ -247,7 +212,7 @@ pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection 
             };
         }
     };
-    let value = match parse_jsonc_value(&text, discovered.kind) {
+    let value = match parse_config_document(&text, discovered.kind) {
         Ok(value) => value,
         Err(error) => {
             return ConfigurationInspection::Invalid {
@@ -258,7 +223,18 @@ pub fn inspect_configuration(repository_root: &Path) -> ConfigurationInspection 
             };
         }
     };
-    let schema = inspect_schema_version(&value, env!("CARGO_PKG_VERSION"));
+    let schema_url = match resolve_schema_url(discovered.kind, &text, &value) {
+        Ok(url) => url,
+        Err(error) => {
+            return ConfigurationInspection::Invalid {
+                kind: Some(discovered.kind),
+                path: discovered.path,
+                schema: None,
+                error,
+            };
+        }
+    };
+    let schema = inspect_schema_url(schema_url.as_deref(), env!("CARGO_PKG_VERSION"));
     match parse_value_without_schema_version(discovered.kind, value) {
         Ok(configuration) => ConfigurationInspection::Valid {
             kind: discovered.kind,
@@ -284,8 +260,9 @@ pub(super) fn parse_with_overrides(
 ) -> Result<ResolvedConfiguration, ConfigurationFileError> {
     let raw = match text {
         Some(text) => {
-            let value = parse_jsonc_value(text, config_file_kind)?;
-            check_schema_version(&value, env!("CARGO_PKG_VERSION"))
+            let value = parse_config_document(text, config_file_kind)?;
+            let schema_url = resolve_schema_url(config_file_kind, text, &value)?;
+            check_schema_url(schema_url.as_deref(), env!("CARGO_PKG_VERSION"))
                 .map_err(|error| error.with_file_kind(config_file_kind))?;
             Some(value)
         }
@@ -316,8 +293,8 @@ fn parse_value_without_schema_version(
     .map_err(|error| error.with_file_kind(config_file_kind))
 }
 
-fn inspect_schema_version(value: &Value, binary_version: &str) -> SchemaVersionStatus {
-    let Some(schema_url) = value.get("$schema").and_then(Value::as_str) else {
+fn inspect_schema_url(schema_url: Option<&str>, binary_version: &str) -> SchemaVersionStatus {
+    let Some(schema_url) = schema_url else {
         return SchemaVersionStatus::Missing;
     };
     let Some(config_version) = extract_official_schema_version(schema_url) else {
@@ -346,15 +323,15 @@ fn inspect_schema_version(value: &Value, binary_version: &str) -> SchemaVersionS
     }
 }
 
-pub(super) fn check_schema_version(
-    value: &Value,
+fn check_schema_url(
+    schema_url: Option<&str>,
     binary_version: &str,
 ) -> Result<(), ConfigurationFileError> {
     if let SchemaVersionStatus::NewerThanBinary {
         config_version,
         binary_version,
         ..
-    } = inspect_schema_version(value, binary_version)
+    } = inspect_schema_url(schema_url, binary_version)
     {
         return Err(ConfigurationFileError::NewerSchemaVersion {
             file: ConfigFileKind::Json,
@@ -363,6 +340,15 @@ pub(super) fn check_schema_version(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn check_schema_version(
+    value: &Value,
+    binary_version: &str,
+) -> Result<(), ConfigurationFileError> {
+    let schema_url = value.get("$schema").and_then(Value::as_str);
+    check_schema_url(schema_url, binary_version)
 }
 
 fn extract_official_schema_version(url: &str) -> Option<&str> {

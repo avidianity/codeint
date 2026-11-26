@@ -28,6 +28,9 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | `adopt_rollback` | Git repo with a regular file named `.codeint` and a committed eroded function, run with `--adopt` | `2` | Standard error says `cannot write Ratchet file` and has no `could not remove`; no `codeint.jsonc` remains and `.codeint` is still the regular file |
 | `adopt_existing_config` | Repo where the config already exists, run with `--adopt` | `2` | Standard error states `already exists` and names `codeint ratchet update` and `codeint baseline update`; SHA-256 of the config is unchanged; no file appears under `.codeint/` |
 | `adopt_existing_state` | Repo with `.codeint/baseline.json` and no config, run with `--adopt` | `2` | Standard error states `already exists` and names `codeint baseline update` and `codeint baseline update --reset`; SHA-256 of `.codeint/baseline.json` is unchanged; no config and no `.codeint/ratchet.json` appear |
+| `format_toml` | Fresh Git repo run with `codeint init --format toml`, followed by `codeint doctor` and `codeint check` | `0` | Writes `codeint.toml` starting with `#:schema`, and both `doctor` and `check` pass |
+| `format_yaml` | Fresh Git repo run with `codeint init --format yaml`, followed by `codeint doctor` and `codeint check` | `0` | Writes `codeint.yaml` starting with `# yaml-language-server: $schema=`, and both `doctor` and `check` pass |
+| `format_json` | Fresh Git repo run with `codeint init --format json` | `0` | Writes strict comment-free `codeint.json` |
 
 ## Drive and Assert
 

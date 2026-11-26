@@ -318,8 +318,10 @@ dependencies = [
  "jsonc-parser",
  "schemars",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

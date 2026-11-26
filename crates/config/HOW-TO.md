@@ -9,9 +9,10 @@ let repository = Repository::discover(&folder)?;
 let configuration = read_configuration(repository.root())?;
 ```
 
-- `read_configuration` reads `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` at the root of the repository, so pass the root of the working tree, never the folder the user named.
-  All four files accept JSONC syntax (`//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`).
-  Having more than one of those four files present fails with `ConfigurationFileError::AmbiguousConfigFiles` (exit code 2) naming every conflicting file.
+- `read_configuration` reads `codeint.json`, `codeint.jsonc`, `codeint.toml`, `codeint.yaml`, `codeint.yml`, `.codeint/config.json`, `.codeint/config.jsonc`, `.codeint/config.toml`, `.codeint/config.yaml`, or `.codeint/config.yml` at the root of the repository, so pass the root of the working tree, never the folder the user named.
+  JSON and JSONC files accept JSONC syntax (`//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`); TOML is parsed with `toml` and YAML with `serde-saphyr` under strict static-config rules (empty or comment-only files resolve to defaults; non-mapping roots, duplicate keys, multi-document YAML, non-string YAML keys, YAML anchors/aliases/merge keys, non-finite floats, and TOML date-time values fail with exit code 2).
+  Having more than one of those ten files present fails with `ConfigurationFileError::AmbiguousConfigFiles` (exit code 2) naming every conflicting file.
+  Leading schema comment directives (`#:schema <url>` in TOML and `# yaml-language-server: $schema=<url>` in YAML) and top-level `$schema` keys are both recognized for version checks and `rewrite_schema_tag`; conflicting URLs between them fail with `ConfigurationFileError::ConflictingSchemaDirectives` (exit code 2).
 - `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
 - `configuration.format` holds the configured `OutputFormat` (`Toon` by default, or `Text`, `Json`, `Sarif`, `Markdown`), used as the fallback when CLI `--format` is omitted on `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`.
 - `Command::{Check, Diff, Trend, Report, Impact, Trace, Churn, Coupling}` carry `format: Option<...>` so callers distinguish an explicit CLI `--format` override from an omitted flag.
@@ -172,10 +173,10 @@ let languages = vec![DetectedLanguage {
 let written = write_starter_configuration(tree.root(), &languages, None)?;
 ```
 
-- Pass the root of the working tree; the file lands at `{root}/codeint.jsonc`.
-- It fails with `StarterConfigurationError::AlreadyExists` when any of `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` already exists, and never replaces it.
-- `write_adoption_starter_configuration` takes the same arguments and writes the same file with `regression_limits.per_file` set to `true` and a commented-out `new_file_budgets` block after the last key; `codeint init --adopt` calls it.
-- `write_adoption_zero_budgets` takes the same arguments plus the `MeasuredBaselineMetric` list of a run, and rewrites the adoption starter at `{root}/codeint.jsonc` with a zero Budget under `budgets.production` for each recorded Production Metric (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Hazards), a zero Budget under `budgets` for each recorded Dependency hygiene Metric, and the commented `test_gap` line kept; it never adds a Test gap Budget.
+- Pass the root of the working tree; `write_starter_configuration` writes `{root}/codeint.jsonc`, and `write_starter_configuration_in_format` writes `codeint.jsonc`, `codeint.json`, `codeint.toml`, or `codeint.yaml` according to `InitFormat` (strict `InitFormat::Json` omits commented hints).
+- It fails with `StarterConfigurationError::AlreadyExists` when any of the ten configuration files (`codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}`) already exists, and never replaces it.
+- `write_adoption_starter_configuration` takes the same arguments plus `InitFormat` and writes the starter file with `regression_limits.per_file` set to `true` and (for comment-capable formats) a commented-out `new_file_budgets` block; `codeint init --adopt` calls it.
+- `write_adoption_zero_budgets` takes the same arguments plus the `MeasuredBaselineMetric` list of a run and `InitFormat`, and rewrites the adoption starter at `{root}/{format.file_name()}` with a zero Budget under `budgets.production` for each recorded Production Metric (Erosion, Cognitive complexity, Duplication, Verbosity, Import cycles, Boundaries, Orphan files, Hazards), a zero Budget under `budgets` for each recorded Dependency hygiene Metric, and (for comment-capable formats) the commented `test_gap` line kept; it never adds a Test gap Budget.
 - `include` holds repository-relative paths, not globs; the writer escapes glob characters, so `[draft]` covers that folder only.
 - An empty `languages` slice leaves the `languages` key out, so every Language plugin covers the whole repository.
 - Pass `Some(&StarterBoundaries::WorkspaceZones(...))` (from `StarterBoundaries::from_workspace_packages`) or `Some(&StarterBoundaries::Preset(...))` (from `BoundaryPreset::detect`) to append commented-out starter `boundaries` hints that keep `boundaries` inactive until uncommented.
