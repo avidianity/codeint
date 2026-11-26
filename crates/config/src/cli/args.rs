@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use crate::PluginKind;
 use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnFormat, ChurnSince};
 use crate::command::{
     AgentClient, AgentFormat, BaselineFormat, ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat,
-    GuardFormat, ImpactFormat, RatchetFormat, ReportFormat, ReportRenderFormat, SchemaFormat,
-    TraceFormat, TrendFormat,
+    GuardFormat, ImpactFormat, PluginTestFormat, RatchetFormat, ReportFormat, ReportRenderFormat,
+    SchemaFormat, TraceFormat, TrendFormat,
 };
 use crate::coupling::{CouplingRatio, DEFAULT_MAX_COMMIT_FILES, DEFAULT_MIN_CO_CHANGES};
 use crate::resolved::{BudgetOverride, SourceSetOverride};
@@ -169,6 +170,8 @@ pub(super) enum CommandArguments {
             help = "The format of the output"
         )]
         format: ConfigFormat,
+        #[command(flatten)]
+        plugin_limits: PluginLimitArguments,
         #[arg(
             long = "budget",
             value_name = "SPEC",
@@ -181,20 +184,6 @@ pub(super) enum CommandArguments {
             help = "Override a Source set glob as SOURCE_SET=GLOB"
         )]
         source_sets: Vec<SourceSetOverride>,
-        #[arg(
-            long = "plugin-memory-mb",
-            value_name = "MB",
-            value_parser = clap::value_parser!(u64).range(1..=4096),
-            help = "Override plugin_limits.memory_mb (1 to 4096)"
-        )]
-        plugin_memory_mb: Option<u64>,
-        #[arg(
-            long = "plugin-timeout-ms",
-            value_name = "MS",
-            value_parser = clap::value_parser!(u64).range(1..=300_000),
-            help = "Override plugin_limits.timeout_ms (1 to 300000)"
-        )]
-        plugin_timeout_ms: Option<u64>,
     },
     #[command(
         about = "Re-render a saved check or diff JSON report into another format without re-running analysis"
@@ -233,6 +222,11 @@ pub(super) enum CommandArguments {
     Agent {
         #[command(subcommand)]
         command: AgentSubcommandArguments,
+    },
+    #[command(about = "Check an external Wasm Plugin against the codeint Plugin contract")]
+    Plugin {
+        #[command(subcommand)]
+        command: PluginSubcommandArguments,
     },
     #[command(about = "Manage the repository Ratchet ceilings in .codeint/ratchet.json")]
     Ratchet {
@@ -288,6 +282,24 @@ pub(super) enum CommandArguments {
     },
 }
 
+#[derive(Debug, clap::Args)]
+pub(super) struct PluginLimitArguments {
+    #[arg(
+        long = "plugin-memory-mb",
+        value_name = "MB",
+        value_parser = clap::value_parser!(u64).range(1..=4096),
+        help = "Override the memory limit in MiB of each Plugin call, plugin_limits.memory_mb (1 to 4096)"
+    )]
+    pub(super) memory_mb: Option<u64>,
+    #[arg(
+        long = "plugin-timeout-ms",
+        value_name = "MS",
+        value_parser = clap::value_parser!(u64).range(1..=300_000),
+        help = "Override the time limit in milliseconds of each Plugin call, plugin_limits.timeout_ms (1 to 300000)"
+    )]
+    pub(super) timeout_ms: Option<u64>,
+}
+
 #[derive(Debug, Subcommand)]
 pub(super) enum AgentSubcommandArguments {
     #[command(
@@ -336,6 +348,39 @@ pub(super) enum AgentSubcommandArguments {
             help = "Override the home folder containing agent configuration files"
         )]
         config_root: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(super) enum PluginSubcommandArguments {
+    #[command(
+        about = "Run the Conformance runner against a Wasm Plugin and report each violated rule with a fix hint"
+    )]
+    Test {
+        #[arg(value_name = "WASM", help = "Path to the Wasm Plugin to check")]
+        path: PathBuf,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = PluginKind::Language,
+            help = "The kind of Plugin to check"
+        )]
+        kind: PluginKind,
+        #[arg(
+            long = "source",
+            value_name = "FILE",
+            help = "A source file for a Language plugin to lower in addition to the built-in probe sources; may repeat"
+        )]
+        sources: Vec<PathBuf>,
+        #[command(flatten)]
+        plugin_limits: PluginLimitArguments,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = PluginTestFormat::Text,
+            help = "The format of the output"
+        )]
+        format: PluginTestFormat,
     },
 }
 

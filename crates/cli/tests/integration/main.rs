@@ -31,6 +31,7 @@ mod npm_packages;
 mod orphan_files;
 mod package_filter;
 mod planted_defects;
+mod plugin_test;
 mod ratchet;
 mod report;
 mod schema;

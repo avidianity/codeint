@@ -55,6 +55,7 @@ pub struct WasmMetricPlugin {
     display_name: String,
     description: String,
     version: u32,
+    declared_name_is_blank: bool,
     instances: InstancePool<bindings::MetricPluginPre<PluginStoreState>, bindings::MetricPlugin>,
 }
 
@@ -77,7 +78,7 @@ impl WasmMetricPlugin {
             bindings::MetricPluginPre::new,
             |pre, store| pre.instantiate(store),
         )?;
-        let (key, display_name, description, version) =
+        let (key, display_name, description, version, declared_name_is_blank) =
             read_metric_metadata(&mut component, &plugin_name, path, limits)?;
         Ok(WasmMetricPlugin {
             plugin_name,
@@ -85,12 +86,17 @@ impl WasmMetricPlugin {
             display_name,
             description,
             version,
+            declared_name_is_blank,
             instances: InstancePool::from_component(component, limits),
         })
     }
 
     pub fn peak_memory_bytes(&self) -> usize {
         self.instances.peak_memory_bytes()
+    }
+
+    pub fn declared_name_is_blank(&self) -> bool {
+        self.declared_name_is_blank
     }
 
     pub(crate) fn key_impl(&self) -> &str {
@@ -148,7 +154,7 @@ fn read_metric_metadata(
     plugin_name: &str,
     path: &Path,
     limits: PluginLimits,
-) -> Result<(String, String, String, u32), PluginHostError> {
+) -> Result<(String, String, String, u32, bool), PluginHostError> {
     let mut init = component.init_session(plugin_name, path, limits);
     let key = init.call("key", |b, s| b.codeint_plugin_metric().call_key(s))?;
     validate_metric_key(plugin_name, &key)?;
@@ -158,12 +164,9 @@ fn read_metric_metadata(
     })?;
     let version = init.call("version", |b, s| b.codeint_plugin_metric().call_version(s))?;
     validate_metric_version(plugin_name, version)?;
-    let display_name = if raw_name.trim().is_empty() {
-        key.clone()
-    } else {
-        raw_name
-    };
-    Ok((key, display_name, description, version))
+    let name_is_blank = raw_name.trim().is_empty();
+    let display_name = if name_is_blank { key.clone() } else { raw_name };
+    Ok((key, display_name, description, version, name_is_blank))
 }
 
 fn map_metric_trap(

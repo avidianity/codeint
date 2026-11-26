@@ -3,6 +3,8 @@ mod fixture;
 mod help;
 mod keys;
 mod markdown;
+#[path = "../wasm_fixtures/mod.rs"]
+mod wasm_fixtures;
 
 use std::collections::{BTreeMap, BTreeSet};
 

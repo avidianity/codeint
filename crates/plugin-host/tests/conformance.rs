@@ -104,6 +104,16 @@ fn assert_import_conformance(
             text: (*text).to_owned(),
         })
         .collect();
+    let no_manifests = plugin
+        .workspace_packages(Vec::new())
+        .unwrap_or_else(|error| {
+            panic!("{label}: workspace_packages failed on no manifests: {error}")
+        });
+    assert!(
+        no_manifests.is_empty(),
+        "{label}: workspace_packages returned {no_manifests:?} for no manifests"
+    );
+
     let packages = plugin
         .workspace_packages(valid_manifest.clone())
         .unwrap_or_else(|error| panic!("{label}: workspace_packages failed: {error}"));
