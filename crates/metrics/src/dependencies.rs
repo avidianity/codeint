@@ -4,7 +4,7 @@ use codeint_model::{
     CodeModel, DeclaredDep, DepKind, ImportResolution, Metric, RepoPath, SourceSet, token_text_hash,
 };
 
-use crate::finding_id::{FindingId, FindingIds};
+use crate::finding_id::{FindingContext, FindingId, FindingIds};
 use crate::tooling_paths::ToolingPaths;
 
 #[cfg(test)]
@@ -19,6 +19,7 @@ pub enum UnusedDependencyKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnusedDependencyFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub package_root: String,
     pub manifest: RepoPath,
     pub dependency: String,
@@ -28,6 +29,7 @@ pub struct UnusedDependencyFinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnlistedDependencyFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub package_root: String,
     pub manifest: RepoPath,
     pub dependency: String,
@@ -37,6 +39,7 @@ pub struct UnlistedDependencyFinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DevInProductionDependencyFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub package_root: String,
     pub manifest: RepoPath,
     pub dependency: String,
@@ -108,6 +111,7 @@ struct PackageImports {
 
 struct MatchedImportFinding {
     id: FindingId,
+    context: FindingContext,
     package_root: String,
     manifest: RepoPath,
     dependency: String,
@@ -160,6 +164,7 @@ impl DependencyHygiene {
                 .into_iter()
                 .map(|item| UnlistedDependencyFinding {
                     id: item.id,
+                    context: item.context,
                     package_root: item.package_root,
                     manifest: item.manifest,
                     dependency: item.dependency,
@@ -170,6 +175,7 @@ impl DependencyHygiene {
                 .into_iter()
                 .map(|item| DevInProductionDependencyFinding {
                     id: item.id,
+                    context: item.context,
                     package_root: item.package_root,
                     manifest: item.manifest,
                     dependency: item.dependency,
@@ -441,16 +447,17 @@ fn package_root_of<'a>(
     manifests.get_key_value("").map(|(root, _)| root.as_str())
 }
 
-fn dependency_finding_id(
+fn dependency_finding_identity(
     ids: &mut FindingIds,
     manifest: &RepoPath,
     package_root: &str,
     dependency: &str,
-) -> FindingId {
-    ids.next_in_source_order(
+) -> (FindingId, FindingContext) {
+    let (id, content_hash) = ids.next_with_content_hash(
         [manifest],
         [token_text_hash(package_root), token_text_hash(dependency)],
-    )
+    );
+    (id, FindingContext::content_only(content_hash))
 }
 
 struct DependencyTables<'a> {
@@ -498,8 +505,11 @@ impl DependencyTables<'_> {
                     return None;
                 }
                 let manifest = &self.manifests[package_root];
+                let (id, context) =
+                    dependency_finding_identity(&mut ids, manifest, package_root, dependency);
                 Some(UnusedDependencyFinding {
-                    id: dependency_finding_id(&mut ids, manifest, package_root, dependency),
+                    id,
+                    context,
                     package_root: package_root.clone(),
                     manifest: manifest.clone(),
                     dependency: dependency.clone(),
@@ -529,8 +539,11 @@ impl DependencyTables<'_> {
                 total += 1;
                 let declared_kinds = self.effective_declared(package_root, dependency);
                 if should_flag(declared_kinds) {
+                    let (id, context) =
+                        dependency_finding_identity(&mut ids, manifest, package_root, dependency);
                     findings.push(MatchedImportFinding {
-                        id: dependency_finding_id(&mut ids, manifest, package_root, dependency),
+                        id,
+                        context,
                         package_root: package_root.clone(),
                         manifest: manifest.clone(),
                         dependency: dependency.clone(),

@@ -17,7 +17,7 @@ use crate::check::{
 use crate::describe;
 
 const CODEINT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MEASUREMENT_CACHE_VERSION: u32 = 8;
+const MEASUREMENT_CACHE_VERSION: u32 = 9;
 
 #[derive(Serialize)]
 struct MeasurementSettings<'configuration> {

@@ -61,4 +61,5 @@
 - [ADR 0029: Hand-written lexers for PHP, Dart, Python, and Go Language plugins](docs/adr/0029-hand-written-lexers.md)
 - [ADR 0030: Finding Baseline in `.codeint/baseline.json`](docs/adr/0030-finding-baseline.md)
 - [ADR 0031: Shell Reference ranges](docs/adr/0031-shell-reference-ranges.md)
-- [ADR 0032: Configurable default output format and concise `text` output](docs/adr/0032-default-output-format-and-text.md)
+- [ADR 0032: Context-anchored Finding matching and Baseline schema version 2](docs/adr/0032-context-anchored-finding-matching.md)
+- [ADR 0033: Configurable default output format and concise `text` output](docs/adr/0033-default-output-format-and-text.md)

@@ -1,23 +1,14 @@
 use std::collections::BTreeSet;
 
-use codeint_model::Metric;
+use codeint_config::FindingAnchor;
 
-use crate::baseline::{BaselineScope, BaselineWeight, Identified};
+use crate::baseline::{BaselineWeight, Identified};
 use crate::dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 use crate::findings::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CloneLocation,
     CognitiveComplexityFinding, ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow,
     HazardLineRow, ImportCycleFinding, OrphanFileRow, TestGapFindingRow,
 };
-
-impl BaselineScope<'_> {
-    pub(crate) fn hides_whole_family(&self, family: &CloneFamilyFinding) -> bool {
-        family
-            .clone_group_ids
-            .iter()
-            .all(|id| self.hides(Metric::Duplication.key(), id))
-    }
-}
 
 fn unique_lines<'a>(lines: impl Iterator<Item = (&'a str, u32)>) -> f64 {
     lines.collect::<BTreeSet<_>>().len() as f64
@@ -91,6 +82,16 @@ macro_rules! impl_identified {
             impl Identified for $ty {
                 fn id(&self) -> &str {
                     &self.id
+                }
+
+                fn anchor(&self) -> FindingAnchor {
+                    self.anchor
+                        .clone()
+                        .unwrap_or_else(|| FindingAnchor::id_only(&self.id))
+                }
+
+                fn set_anchor(&mut self, anchor: FindingAnchor) {
+                    self.anchor = Some(anchor);
                 }
             }
         )+

@@ -39,7 +39,7 @@ pub use duplication::{
     MinimumDistinctTokens, NearCloneConfig,
 };
 pub use erosion::{ErodedFunction, Erosion, FunctionMasses};
-pub use finding_id::FindingId;
+pub use finding_id::{FindingContext, FindingId};
 pub use hazards::{HAZARDS_METRIC_KEY, HazardLineFinding, HazardLines, Hazards};
 pub use impact::{ImpactAnalysis, ImpactDependent, ImpactError, ImpactSummary, ImpactTarget};
 pub use import_cycles::{ImportCycle, ImportCycles, ModuleShare, UnresolvedImport};

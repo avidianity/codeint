@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_config::{Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig};
+use codeint_config::{
+    Boundaries as BoundariesConfig, DependenciesConfig, DuplicationConfig, FindingAnchor,
+};
 use codeint_metrics::{DependencyHygiene, OrphanFiles};
 use codeint_model::{CodeModel, MetricPlugin, MetricPluginError, RepoPath, SourceSet, SourceSets};
 use serde::{Deserialize, Serialize};
 
+use crate::baseline::Identified;
 use crate::{
     BoundaryFindingRow, CloneFamilyFinding, CloneGroupFinding, CognitiveComplexityFinding,
     ErodedFunctionFinding, ExternalMetricFinding, FlaggedLineRow, HazardLineRow,
@@ -39,6 +42,8 @@ pub(crate) struct SourceSetMeasurement {
     pub(crate) cognitive_complexity: MetricMeasurement<CognitiveComplexityFinding>,
     pub(crate) duplication: MetricMeasurement<CloneGroupFinding>,
     pub(crate) clone_families: Vec<CloneFamilyFinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) clone_family_anchors: Vec<FindingAnchor>,
     pub(crate) verbosity: MetricMeasurement<FlaggedLineRow>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) import_cycles: Option<MetricMeasurement<ImportCycleFinding>>,
@@ -77,6 +82,8 @@ pub(crate) struct MetricMeasurement<T> {
     pub(crate) ratio: f64,
     pub(crate) numerator: f64,
     pub(crate) findings_worst_first: Vec<T>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) finding_anchors: Vec<FindingAnchor>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) file_numerators: BTreeMap<String, f64>,
 }
@@ -87,9 +94,22 @@ impl<T> Default for MetricMeasurement<T> {
             ratio: 0.0,
             numerator: 0.0,
             findings_worst_first: Vec::new(),
+            finding_anchors: Vec::new(),
             file_numerators: BTreeMap::new(),
         }
     }
+}
+
+pub(crate) fn rehydrate_anchors<T: Identified>(
+    mut findings: Vec<T>,
+    anchors: Vec<FindingAnchor>,
+) -> Vec<T> {
+    if findings.len() == anchors.len() {
+        for (finding, anchor) in findings.iter_mut().zip(anchors) {
+            finding.set_anchor(anchor);
+        }
+    }
+    findings
 }
 
 impl CommitMeasurement {
@@ -363,6 +383,15 @@ impl SourceSetMeasurement {
             let result = plugin.measure(model)?;
             let file_numerators =
                 count_file_numerators(result.findings.iter().map(|finding| &finding.path));
+            let findings_worst_first: Vec<ExternalMetricFinding> = result
+                .findings
+                .iter()
+                .map(ExternalMetricFinding::from)
+                .collect();
+            let finding_anchors = findings_worst_first
+                .iter()
+                .map(Identified::anchor)
+                .collect();
             external_metrics.insert(
                 plugin.key().to_owned(),
                 ExternalMetricCommitMeasurement {
@@ -372,16 +401,20 @@ impl SourceSetMeasurement {
                     measurement: MetricMeasurement {
                         ratio: result.ratio,
                         numerator: result.numerator,
-                        findings_worst_first: result
-                            .findings
-                            .iter()
-                            .map(ExternalMetricFinding::from)
-                            .collect(),
+                        findings_worst_first,
+                        finding_anchors,
                         file_numerators,
                     },
                 },
             );
         }
+        let clone_families: Vec<CloneFamilyFinding> = measured
+            .duplication
+            .clone_families
+            .iter()
+            .map(CloneFamilyFinding::from)
+            .collect();
+        let clone_family_anchors = clone_families.iter().map(Identified::anchor).collect();
         Ok(SourceSetMeasurement {
             files: model.files.len(),
             erosion: MetricMeasurement::from_items(
@@ -423,12 +456,8 @@ impl SourceSetMeasurement {
                     .count_by_file()
                     .map(|(path, lines)| (path, lines as f64)),
             )),
-            clone_families: measured
-                .duplication
-                .clone_families
-                .iter()
-                .map(CloneFamilyFinding::from)
-                .collect(),
+            clone_families,
+            clone_family_anchors,
             verbosity: MetricMeasurement::from_items(
                 measured.verbosity.ratio(),
                 measured.verbosity.verbose_lines() as f64,
@@ -464,17 +493,23 @@ impl SourceSetMeasurement {
     }
 }
 
-impl<F> MetricMeasurement<F> {
+impl<F: Identified> MetricMeasurement<F> {
     fn from_items<'a, T>(
         ratio: f64,
         numerator: f64,
         items: &'a [T],
         convert: impl Fn(&'a T) -> F,
     ) -> MetricMeasurement<F> {
+        let findings_worst_first: Vec<F> = items.iter().map(convert).collect();
+        let finding_anchors = findings_worst_first
+            .iter()
+            .map(Identified::anchor)
+            .collect();
         MetricMeasurement {
             ratio,
             numerator,
-            findings_worst_first: items.iter().map(convert).collect(),
+            findings_worst_first,
+            finding_anchors,
             file_numerators: BTreeMap::new(),
         }
     }
@@ -511,7 +546,7 @@ fn presence_file_numerators<'a>(
     paths.map(|path| (path.to_string(), 1.0)).collect()
 }
 
-fn finding_measurement<'a, T: 'a, R: From<&'a T>>(
+fn finding_measurement<'a, T: 'a, R: From<&'a T> + Identified>(
     ratio: f64,
     findings: &'a [T],
 ) -> MetricMeasurement<R> {

@@ -5,7 +5,7 @@ use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile, SourceSet}
 
 use crate::FindingId;
 use crate::erosion::function_mass;
-use crate::finding_id::{FindingIds, function_finding_id, group_by_package};
+use crate::finding_id::{FindingContext, FindingIds, function_finding_identity, group_by_package};
 
 #[cfg(test)]
 mod tests;
@@ -15,6 +15,7 @@ pub const TEST_GAP_METRIC_KEY: &str = Metric::TestGap.key();
 #[derive(Clone, Debug, PartialEq)]
 pub struct TestGapFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub path: RepoPath,
     pub name: Option<String>,
     pub line: u32,
@@ -162,8 +163,11 @@ fn measure_file(
         totals.untested += untested_mass;
         totals.measured_functions += 1;
         if untested_share > 0.0 {
+            let (id, context) =
+                function_finding_identity(ids, &file.path, function, &file.model.tokens);
             findings.push(TestGapFinding {
-                id: function_finding_id(ids, &file.path, function, &file.model.tokens),
+                id,
+                context,
                 path: file.path.clone(),
                 name: function.name.clone(),
                 line: function.line,

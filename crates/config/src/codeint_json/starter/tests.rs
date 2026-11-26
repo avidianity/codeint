@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use codeint_model::{Metric, RepoPath, SourceSet};
 use serde_json::Value;
 
@@ -303,7 +301,7 @@ fn zero_budget_keys_cover_every_recorded_metric_of_the_registry_except_test_gap(
                 source_set,
                 metric: metric.key().to_owned(),
                 metric_version: metric.version(),
-                findings: BTreeSet::new(),
+                findings: Vec::new(),
             })
         })
         .collect();

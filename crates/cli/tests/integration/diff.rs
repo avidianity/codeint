@@ -1609,16 +1609,20 @@ fn a_result_cached_under_plugin_interface_0_2_0_or_cache_version_7_is_not_reused
     let repository = codeint_git::Repository::discover(fixture.root()).expect("open fixture repo");
     let commit = repository.resolve("main").expect("resolve main commit");
 
-    let mut version_7_settings = current_settings.clone();
-    version_7_settings
-        .as_object_mut()
-        .expect("settings is a JSON object")
-        .insert("cache_version".to_owned(), json!(7));
+    let with_cache_version = |version: u32| {
+        let mut settings = current_settings.clone();
+        settings
+            .as_object_mut()
+            .expect("settings is a JSON object")
+            .insert("cache_version".to_owned(), json!(version));
+        settings
+    };
 
     for legacy_settings in [
         pre_step_v0_2_0_settings,
         explicit_v0_2_0_settings,
-        version_7_settings,
+        with_cache_version(7),
+        with_cache_version(8),
     ] {
         let seeded_cache = tempfile::tempdir().expect("create seeded result cache folder");
         codeint_git::ResultCache::in_folder(seeded_cache.path().to_path_buf())
@@ -1645,7 +1649,7 @@ fn a_result_cached_under_plugin_interface_0_2_0_or_cache_version_7_is_not_reused
     }
 
     assert_eq!(current_settings["plugin_interface_version"], json!("0.4.0"));
-    assert_eq!(current_settings["cache_version"], json!(8));
+    assert_eq!(current_settings["cache_version"], json!(9));
 }
 
 #[test]
@@ -1885,4 +1889,103 @@ fn a_metric_version_change_invalidates_the_commit_cache_and_recomputes() {
     assert_cached_diff_matches(&fixture, cache.path(), &baseline, 2);
     fixture.forget_committed_file("main:src/value.ts");
     assert_cached_diff_matches(&fixture, cache.path(), &baseline, 2);
+}
+
+fn assert_diff_metric_state(
+    report: &Value,
+    metric: &str,
+    expected_unchanged: u64,
+    expected_new_lines: &[u64],
+    expected_resolved: usize,
+) {
+    let section = &report["source_sets"]["production"][metric];
+    assert_eq!(section["unchanged"], expected_unchanged);
+    assert_eq!(
+        crate::common::finding_lines(&section["new"]),
+        expected_new_lines
+    );
+    assert_eq!(
+        section["resolved"]
+            .as_array()
+            .expect("resolved array")
+            .len(),
+        expected_resolved
+    );
+}
+
+fn fixture_with_sql_change(base_sql: &str, head_sql: &str) -> Fixture {
+    let fixture = Fixture::on_main();
+    fixture.put("migrations/001.sql", base_sql);
+    fixture.commit("base migration");
+    fixture.put("migrations/001.sql", head_sql);
+    fixture
+}
+
+#[test]
+fn diff_reports_inserted_duplicate_hazard_line_above_at_line_1_not_legacy_line_3() {
+    let fixture = fixture_with_sql_change(
+        "SELECT 1;\nDELETE FROM users;\n",
+        "DELETE FROM users;\nSELECT 1;\nDELETE FROM users;\n",
+    );
+
+    let first = fixture.diff_json("main");
+    assert_diff_metric_state(&first, "hazards", 1, &[1], 0);
+
+    let cached = fixture.diff_json("main");
+    assert_diff_metric_state(&cached, "hazards", 1, &[1], 0);
+}
+
+fn assert_sql_diff_hazards(base_sql: &str, head_sql: &str, expected_new_lines: &[u64]) {
+    let fixture = fixture_with_sql_change(base_sql, head_sql);
+    let report = fixture.diff_json("main");
+    assert_diff_metric_state(&report, "hazards", 1, expected_new_lines, 0);
+}
+
+#[test]
+fn diff_adjacent_duplicate_hazard_line_reports_one_new_and_one_unchanged() {
+    assert_sql_diff_hazards(
+        "SELECT 1;\nDELETE FROM users;\n",
+        "SELECT 1;\nDELETE FROM users;\nDELETE FROM users;\n",
+        &[3],
+    );
+}
+
+#[test]
+fn diff_editing_neighbors_of_single_finding_keeps_it_unchanged() {
+    assert_sql_diff_hazards(
+        "SELECT 1;\nDELETE FROM users;\nSELECT 2;\n",
+        "SELECT 100;\nDELETE FROM users;\nSELECT 200;\n",
+        &[],
+    );
+}
+
+#[test]
+fn diff_reports_inserted_duplicate_eroded_function_and_flagged_line_above_at_new_lines() {
+    let branches: String = (0..11)
+        .map(|index| format!("  if (value === {index}) {{ acc += {index}; }}\n"))
+        .collect();
+    let callback = format!(
+        "handlers.push((value: number): number => {{\n  let acc = 0;\n{branches}  return acc;\n}});\n"
+    );
+    let legacy_verbose = "export function pickLegacy(flag: boolean): number {\n  if (flag) { return 1; } else { return 2; }\n}\n";
+    let fresh_verbose = "export function pickFresh(flag: boolean): number {\n  if (flag) { return 1; } else { return 2; }\n}\n";
+    let header = "const handlers: Array<(v: number) => number> = [];\n";
+    let separator = "const marker = 'separator';\n";
+    let fixture = Fixture::on_main();
+    fixture.put("src/eroded.ts", &format!("{header}{separator}{callback}"));
+    fixture.put("src/verbose.ts", legacy_verbose);
+    fixture.commit("base");
+
+    fixture.put(
+        "src/eroded.ts",
+        &format!("{header}{callback}{separator}{callback}"),
+    );
+    fixture.put(
+        "src/verbose.ts",
+        &format!("{fresh_verbose}{legacy_verbose}"),
+    );
+
+    let report = fixture.diff_json("main");
+    assert_diff_metric_state(&report, "erosion", 1, &[2], 0);
+    assert_diff_metric_state(&report, "verbosity", 1, &[2], 0);
 }

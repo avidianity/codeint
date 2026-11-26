@@ -1,9 +1,29 @@
-use codeint_config::{BASELINE_PATH, Baseline};
+use std::collections::HashSet;
+
+use codeint_config::{BASELINE_PATH, Baseline, FindingAnchor};
+use codeint_metrics::{FindingContext, FindingId};
 use codeint_model::SourceSet;
 use serde::{Deserialize, Serialize};
 
+pub(crate) fn id_and_anchor(
+    id: FindingId,
+    context: FindingContext,
+) -> (String, Option<FindingAnchor>) {
+    let rendered = id.to_string();
+    let anchor = FindingAnchor::from_hashes(
+        rendered.clone(),
+        context.content_hash,
+        context.before,
+        context.after,
+        context.line,
+    );
+    (rendered, Some(anchor))
+}
+
 pub(crate) trait Identified {
     fn id(&self) -> &str;
+    fn anchor(&self) -> FindingAnchor;
+    fn set_anchor(&mut self, anchor: FindingAnchor);
 }
 
 pub(crate) trait BaselineWeight: Sized {
@@ -40,20 +60,29 @@ pub(crate) struct BaselineScope<'a> {
 }
 
 impl BaselineScope<'_> {
-    pub(crate) fn hides(&self, metric: &str, id: &str) -> bool {
-        self.baseline.is_baselined(self.source_set, metric, id)
-    }
-
     pub(crate) fn split<R: Identified + BaselineWeight>(
         &self,
         metric: &str,
         rows: Vec<R>,
-    ) -> (Vec<R>, Baselined) {
-        let (hidden, visible): (Vec<R>, Vec<R>) = rows
-            .into_iter()
-            .partition(|row| self.hides(metric, row.id()));
-        if hidden.is_empty() {
-            return (visible, Baselined::default());
+    ) -> (Vec<R>, Baselined, HashSet<String>) {
+        let anchors: Vec<FindingAnchor> = rows.iter().map(Identified::anchor).collect();
+        let matched = self
+            .baseline
+            .match_findings(self.source_set, metric, &anchors);
+        if matched.matched_pairs.is_empty() {
+            return (rows, Baselined::default(), HashSet::new());
+        }
+        let is_hidden = matched.matched_candidates(rows.len());
+        let mut hidden = Vec::with_capacity(matched.matched_pairs.len());
+        let mut visible = Vec::with_capacity(rows.len() - matched.matched_pairs.len());
+        let mut hidden_ids = HashSet::with_capacity(matched.matched_pairs.len());
+        for (row, hide) in rows.into_iter().zip(is_hidden) {
+            if hide {
+                hidden_ids.insert(row.id().to_owned());
+                hidden.push(row);
+            } else {
+                visible.push(row);
+            }
         }
         let visible_weight = R::weight(&visible.iter().collect::<Vec<_>>());
         let total_weight = visible_weight + R::weight(&hidden.iter().collect::<Vec<_>>());
@@ -66,7 +95,7 @@ impl BaselineScope<'_> {
             hidden: hidden.len(),
             retained_share: Some(retained_share),
         };
-        (visible, baselined)
+        (visible, baselined, hidden_ids)
     }
 }
 

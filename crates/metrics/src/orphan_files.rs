@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use codeint_model::{CodeModel, ImportResolution, Metric, Package, RepoPath, SourceSet};
 
-use crate::finding_id::{FindingId, FindingIds};
+use crate::finding_id::{FindingContext, FindingId, FindingIds};
 use crate::tooling_paths::ToolingPaths;
 
 #[cfg(test)]
@@ -26,6 +26,7 @@ impl OrphanFileKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrphanFileFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub path: RepoPath,
     pub kind: OrphanFileKind,
     pub test_importers: Vec<RepoPath>,
@@ -405,9 +406,10 @@ fn assign_finding_ids(mut pending: Vec<PendingOrphan>) -> Vec<OrphanFileFinding>
     pending
         .into_iter()
         .map(|item| {
-            let id = ids.next_in_source_order([&item.path], []);
+            let (id, content_hash) = ids.next_with_content_hash([&item.path], []);
             OrphanFileFinding {
                 id,
+                context: FindingContext::content_only(content_hash),
                 path: item.path,
                 kind: item.kind,
                 test_importers: item.test_importers,

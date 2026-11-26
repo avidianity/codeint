@@ -235,6 +235,15 @@ pub(crate) fn finding_names(findings: &Value) -> Vec<&str> {
         .collect()
 }
 
+pub(crate) fn finding_lines(findings: &Value) -> Vec<u64> {
+    findings
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .map(|finding| finding["line"].as_u64().expect("finding line"))
+        .collect()
+}
+
 pub(crate) fn assert_doctor_counts_language_files(dir: &Path, needle: &str) {
     let summary = doctor_languages_summary(dir);
     assert!(summary.contains(needle), "doctor languages: {summary}");

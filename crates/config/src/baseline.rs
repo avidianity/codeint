@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use codeint_model::SourceSet;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
+use crate::finding_anchor::{AnchorMatch, FindingAnchor, match_anchors};
 use crate::repo_state::{
     DEPENDENCY_METRIC_KEYS, LoadedForUpdate, MetricVersionMismatch, RepoStateFile,
     SourceSetEntries, StateFileError, StateFileFault, metric_label, read_state_file,
@@ -14,14 +16,15 @@ use crate::repo_state::{
 mod tests;
 
 pub const BASELINE_PATH: &str = ".codeint/baseline.json";
-pub const BASELINE_SCHEMA_VERSION: u32 = 1;
+pub const BASELINE_SCHEMA_VERSION: u32 = 2;
+const LEGACY_BASELINE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BaselineEntry {
     pub metric_version: u32,
     #[serde(default)]
-    pub findings: BTreeSet<String>,
+    pub findings: Vec<FindingAnchor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,6 +35,61 @@ pub struct Baseline {
     pub source_sets: SourceSetEntries<BaselineEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dependencies: BTreeMap<String, BaselineEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyBaselineEntry {
+    metric_version: u32,
+    #[serde(default)]
+    findings: BTreeSet<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyBaseline {
+    schema_version: u32,
+    #[serde(default)]
+    source_sets: SourceSetEntries<LegacyBaselineEntry>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, LegacyBaselineEntry>,
+}
+
+impl From<LegacyBaselineEntry> for BaselineEntry {
+    fn from(entry: LegacyBaselineEntry) -> BaselineEntry {
+        BaselineEntry {
+            metric_version: entry.metric_version,
+            findings: entry
+                .findings
+                .into_iter()
+                .map(FindingAnchor::id_only)
+                .collect(),
+        }
+    }
+}
+
+fn convert_legacy_entries(
+    entries: BTreeMap<String, LegacyBaselineEntry>,
+) -> BTreeMap<String, BaselineEntry> {
+    entries
+        .into_iter()
+        .map(|(metric, entry)| (metric, BaselineEntry::from(entry)))
+        .collect()
+}
+
+impl From<LegacyBaseline> for Baseline {
+    fn from(legacy: LegacyBaseline) -> Baseline {
+        Baseline {
+            schema_version: legacy.schema_version,
+            source_sets: SourceSetEntries {
+                production: convert_legacy_entries(legacy.source_sets.production),
+                test: convert_legacy_entries(legacy.source_sets.test),
+                generated: convert_legacy_entries(legacy.source_sets.generated),
+                vendored: convert_legacy_entries(legacy.source_sets.vendored),
+            },
+            dependencies: convert_legacy_entries(legacy.dependencies),
+        }
+    }
 }
 
 impl Default for Baseline {
@@ -49,7 +107,7 @@ pub struct MeasuredBaselineMetric {
     pub source_set: Option<SourceSet>,
     pub metric: String,
     pub metric_version: u32,
-    pub findings: BTreeSet<String>,
+    pub findings: Vec<FindingAnchor>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -72,6 +130,33 @@ fn baseline_fault(fault: StateFileFault) -> StateFileError {
     StateFileError::from_fault(RepoStateFile::Baseline, BASELINE_PATH, fault)
 }
 
+fn invalid_json(source: serde_json::Error) -> BaselineFileError {
+    StateFileError::InvalidJson {
+        file: RepoStateFile::Baseline,
+        path: BASELINE_PATH.to_owned(),
+        source,
+    }
+}
+
+fn parse_versioned_value(value: Value) -> Result<Baseline, BaselineFileError> {
+    let Some(version) = value.get("schema_version").and_then(Value::as_u64) else {
+        return serde_json::from_value(value).map_err(invalid_json);
+    };
+    if version == u64::from(LEGACY_BASELINE_SCHEMA_VERSION) {
+        let legacy: LegacyBaseline = serde_json::from_value(value).map_err(invalid_json)?;
+        return Ok(Baseline::from(legacy));
+    }
+    if version == u64::from(BASELINE_SCHEMA_VERSION) {
+        return serde_json::from_value(value).map_err(invalid_json);
+    }
+    Err(StateFileError::UnsupportedSchemaVersion {
+        file: RepoStateFile::Baseline,
+        path: BASELINE_PATH.to_owned(),
+        found: u32::try_from(version).unwrap_or(u32::MAX),
+        expected: BASELINE_SCHEMA_VERSION,
+    })
+}
+
 impl Baseline {
     pub fn load_optional(repository_root: &Path) -> Result<Option<Baseline>, BaselineFileError> {
         read_state_file(repository_root, BASELINE_PATH)
@@ -88,12 +173,8 @@ impl Baseline {
     }
 
     pub fn parse(text: &str) -> Result<Baseline, BaselineFileError> {
-        let baseline: Baseline =
-            serde_json::from_str(text).map_err(|source| StateFileError::InvalidJson {
-                file: RepoStateFile::Baseline,
-                path: BASELINE_PATH.to_owned(),
-                source,
-            })?;
+        let value: Value = serde_json::from_str(text).map_err(invalid_json)?;
+        let baseline = parse_versioned_value(value)?;
         baseline.validate()?;
         Ok(baseline)
     }
@@ -109,9 +190,16 @@ impl Baseline {
         }
     }
 
-    pub fn is_baselined(&self, source_set: Option<SourceSet>, metric: &str, id: &str) -> bool {
-        self.entry(source_set, metric)
-            .is_some_and(|entry| entry.findings.contains(id))
+    pub fn match_findings(
+        &self,
+        source_set: Option<SourceSet>,
+        metric: &str,
+        candidates: &[FindingAnchor],
+    ) -> AnchorMatch {
+        let Some(entry) = self.entry(source_set, metric) else {
+            return AnchorMatch::default();
+        };
+        match_anchors(&entry.findings, candidates)
     }
 
     pub fn total_findings(&self) -> usize {
@@ -149,6 +237,7 @@ impl Baseline {
         reset: bool,
     ) -> (Baseline, BaselineUpdateSummary) {
         let mut next = existing.cloned().unwrap_or_default();
+        next.schema_version = BASELINE_SCHEMA_VERSION;
         let mut summary = BaselineUpdateSummary {
             path: BASELINE_PATH.to_owned(),
             created: existing.is_none(),
@@ -172,7 +261,9 @@ impl Baseline {
     }
 
     fn validate(&self) -> Result<(), BaselineFileError> {
-        if self.schema_version != BASELINE_SCHEMA_VERSION {
+        if self.schema_version != LEGACY_BASELINE_SCHEMA_VERSION
+            && self.schema_version != BASELINE_SCHEMA_VERSION
+        {
             return Err(StateFileError::UnsupportedSchemaVersion {
                 file: RepoStateFile::Baseline,
                 path: BASELINE_PATH.to_owned(),
@@ -223,18 +314,26 @@ fn next_entry(
     accept_current: bool,
     summary: &mut BaselineUpdateSummary,
 ) -> BaselineEntry {
-    let empty = BTreeSet::new();
-    let stored = previous.map_or(&empty, |entry| &entry.findings);
+    let stored: &[FindingAnchor] = previous.map_or(&[], |entry| entry.findings.as_slice());
     let version_changed = previous.is_some_and(|entry| entry.metric_version != item.metric_version);
-    let findings = if accept_current || version_changed {
+    let matched = match_anchors(stored, &item.findings);
+    let matched_count = matched.matched_pairs.len();
+    let unmatched_current = item.findings.len() - matched_count;
+    let unmatched_stored = stored.len() - matched_count;
+    let mut findings = if accept_current || version_changed {
         summary.refreshed += usize::from(version_changed);
-        summary.added += item.findings.difference(stored).count();
+        summary.added += unmatched_current;
         item.findings.clone()
     } else {
-        summary.skipped_new += item.findings.difference(stored).count();
-        stored.intersection(&item.findings).cloned().collect()
+        summary.skipped_new += unmatched_current;
+        matched
+            .matched_pairs
+            .iter()
+            .map(|&(_, current_index)| item.findings[current_index].clone())
+            .collect()
     };
-    summary.removed += stored.difference(&findings).count();
+    findings.sort();
+    summary.removed += unmatched_stored;
     BaselineEntry {
         metric_version: item.metric_version,
         findings,

@@ -35,6 +35,35 @@ macro_rules! crate_structs {
             }
         )*
     };
+    (
+        @finding
+        $(
+            $(#[$meta:meta])*
+            struct $name:ident {
+                $(
+                    $(#[$field_meta:meta])*
+                    $field:ident: $ty:ty,
+                )*
+            }
+        )*
+    ) => {
+        $(
+            crate_structs! {
+                $(#[$meta])*
+                struct $name {
+                    id: String,
+                    $(
+                        $(#[$field_meta])*
+                        $field: $ty,
+                    )*
+                    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+                    owners: Vec<String>,
+                    #[serde(skip)]
+                    anchor: Option<codeint_config::FindingAnchor>,
+                }
+            }
+        )*
+    };
 }
 
 mod agent;

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use codeint_model::{CodeModel, Metric, Package, RepoPath, Token, token_text_hash};
 
 use crate::FindingId;
-use crate::finding_id::FindingIds;
+use crate::finding_id::{FindingContext, FindingIds};
 use crate::line_share::{LineShare, line_shares_by_package};
 
 #[cfg(test)]
@@ -12,6 +12,7 @@ mod tests;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FlaggedLineFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub path: RepoPath,
     pub line: u32,
     pub rule: String,
@@ -117,11 +118,13 @@ fn flagged_line_findings(
             let line_tokens = tokens[first..after_last]
                 .iter()
                 .map(|token| token.text_hash);
+            let (id, content_hash) = ids.next_with_content_hash(
+                [path],
+                std::iter::once(token_text_hash(rule)).chain(line_tokens),
+            );
             FlaggedLineFinding {
-                id: ids.next_in_source_order(
-                    [path],
-                    std::iter::once(token_text_hash(rule)).chain(line_tokens),
-                ),
+                id,
+                context: FindingContext::for_span(content_hash, tokens, line, line),
                 path: path.clone(),
                 line,
                 rule: rule.to_owned(),
