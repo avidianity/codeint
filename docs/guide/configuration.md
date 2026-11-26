@@ -18,6 +18,8 @@ If your config file pins an official `$schema` tag newer than the running binary
 ```jsonc
 {
   "$schema": "https://raw.githubusercontent.com/avidianity/codeint/main/schema/codeint.schema.json",
+  // Default output format for check, diff, trend, report, impact, trace, churn, and coupling
+  "format": "text",
   // Override default Source-set classification
   "source_sets": {
     "generated": ["src/**/*.generated.ts"],
@@ -138,6 +140,8 @@ If your config file pins an official `$schema` tag newer than the running binary
 
 ## Key sections
 
+- **`format`**: default output format (`toon`, `text`, `json`, `sarif`, or `markdown`; defaults to `toon`) for `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`.
+  CLI `--format` always overrides configured `format`, utility commands (`doctor`, `guard`, `config`, `ratchet`, `baseline`, `agent`, `plugin test`), `schema`, and MCP tools ignore it, and running a command that does not support the configured format exits with code `2` naming the supported formats.
 - **`source_sets`**: globs that override built-in classification into `production`, `test`, `generated`, or `vendored`.
 - **`budgets`**: hard maximum ratios (`0` to `1`) per Source set (`erosion`, `cognitive_complexity`, `duplication`, `verbosity`, `import_cycles`, `boundaries`, `hazards`, plus `orphan_files` and `test_gap` under `production` only and external Metric keys) and top-level Dependency hygiene Metrics (`unused_dependencies`, `unlisted_dependencies`, `dev_in_production_dependencies`).
   `codeint check` and `codeint diff` exit `1` when any Budget is exceeded.

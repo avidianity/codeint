@@ -18,6 +18,8 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | Case | State | Expected exit | Expected visible result and authoritative effect |
 | ---- | ----- | ------------- | ------------------------------------------------ |
 | `golden_toon` | Clean fixture repo, default format | `0` | TOON report lists `source_sets`, `skipped` (`src/broken.ts`), and `declaration_only` (`src/types.d.ts`) |
+| `golden_text` | `--format text` | `0` | Concise monochrome text report starts with `codeint check: PASS`, aligns Metric rows, lists `Notes`, and contains no ANSI escape sequences |
+| `config_format_text` | `codeint.json` sets `"format": "text"`, no `--format` flag | `0` | Default `codeint check` inherits `text` format and matches `--format text` output |
 | `golden_json` | `--format json` | `0` | Valid JSON with `files == 3`, `source_sets.production`, one skipped file, and `src/types.d.ts` in `declaration_only` |
 | `golden_sarif` | `--format sarif` | `0` | Valid SARIF `2.1.0` with driver name `codeint` |
 | `golden_md_output` | `--format markdown --output` | `0` | Standard output is empty; `report.md` contains `codeint report` and the Metric table |

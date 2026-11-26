@@ -69,6 +69,7 @@ fn config_resolved_reports_defaults_only_across_text_json_and_toon_formats() {
             .expect("config_file string")
             .ends_with("codeint.json")
     );
+    assert_setting(&payload, "format", json!("toon"), "default");
     assert_setting(&payload, "source_sets.production", json!([]), "default");
     assert_setting(&payload, "source_sets.test", json!([]), "default");
     assert_setting(&payload, "source_sets.generated", json!([]), "default");

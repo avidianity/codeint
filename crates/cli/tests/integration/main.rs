@@ -17,6 +17,7 @@ mod diff;
 mod doctor;
 #[cfg(unix)]
 mod evaluation_runner;
+mod format_config_and_text;
 mod go;
 mod guard;
 mod hazards;

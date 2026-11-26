@@ -20,7 +20,9 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | `no_regression_1` | `main --head feature --format json` | `0` | Valid JSON comparison with no `regressions`; populates `CODEINT_CACHE_DIR` |
 | `no_regression_2` | Repeat `main --head feature --format json` | `0` | Identical JSON output served with cache populated |
 | `no_regression_md` | `--format markdown --output` | `0` | Writes non-empty `diff.md` |
+| `no_regression_text` | `main --head feature --format text` | `0` | Monochrome text report starts with `codeint diff: PASS` and contains no ANSI escape sequences |
 | `regression_json` | Working tree adds eroded `src/route.ts` | `1` | Full JSON report lists `regressions`; standard error names the Regression |
+| `regression_text` | Working tree adds eroded `src/route.ts`, `codeint.json` sets `"format": "text"` | `1` | Default `codeint diff main` inherits `text`, starts with `codeint diff: FAIL`, and lists `src/route.ts` |
 | `regression_sarif` | Regression with `--format sarif --output` | `1` | Writes SARIF `2.1.0` `diff.sarif` containing the new Finding |
 | `per_file_regression` | `regression_limits.per_file: true` while `src/parse.ts` improves and `src/sign.ts` adds an eroded function | `1` | Full JSON report lists a per-file Regression for `src/sign.ts` in `erosion`; standard error names `file src/sign.ts regressed` |
 | `per_file_clean` | `regression_limits.per_file: true` comparing `main --head feature` where no modified file regresses | `0` | Valid JSON comparison with no `regressions` |

@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use super::{TrendReport, TrendRow};
 use crate::markdown::{code, prose, table};
 
@@ -25,14 +23,7 @@ pub(super) fn render(report: &TrendReport) -> String {
         }
     }
     for (name, rows) in report.source_sets.named() {
-        let external_keys: Vec<String> = rows
-            .iter()
-            .flat_map(|row| row.external_metrics.keys().cloned())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        let show_import_cycles = rows.iter().any(|row| row.import_cycles.is_some());
-        let show_hazards = rows.iter().any(|row| row.hazards.is_some());
+        let (show_import_cycles, show_hazards, external_keys) = TrendReport::column_flags(rows);
         let mut columns: Vec<&str> = BASE_COLUMNS.to_vec();
         if show_import_cycles {
             columns.push("Import cycles");
@@ -63,35 +54,10 @@ fn row_cells(
     show_hazards: bool,
     external_keys: &[String],
 ) -> Vec<String> {
-    let mut cells = vec![
+    row.metric_cells(
         code(&row.commit),
-        row.committed_on.clone(),
-        row.files.to_string(),
-        row.erosion.0.to_string(),
-        row.cognitive_complexity.0.to_string(),
-        row.duplication.0.to_string(),
-        row.verbosity.0.to_string(),
-    ];
-    if show_import_cycles {
-        let value = row
-            .import_cycles
-            .as_ref()
-            .map_or_else(|| "-".to_owned(), |decimal| decimal.0.to_string());
-        cells.push(value);
-    }
-    if show_hazards {
-        let value = row
-            .hazards
-            .as_ref()
-            .map_or_else(|| "-".to_owned(), |decimal| decimal.0.to_string());
-        cells.push(value);
-    }
-    for key in external_keys {
-        let value = row
-            .external_metrics
-            .get(key)
-            .map_or(0.0, |decimal| decimal.0);
-        cells.push(value.to_string());
-    }
-    cells
+        show_import_cycles,
+        show_hazards,
+        external_keys,
+    )
 }

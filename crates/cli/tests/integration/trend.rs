@@ -353,7 +353,7 @@ fn format_sarif_is_not_offered_because_a_trend_lists_no_findings() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(
-        stderr_of(&output).contains("[possible values: toon, json, markdown]"),
+        stderr_of(&output).contains("[possible values: toon, text, json, markdown]"),
         "unexpected error: {}",
         stderr_of(&output)
     );

@@ -35,7 +35,7 @@ if !report.over_budget().is_empty() {
 - Hazards is measured only over languages whose `LanguageFacts::has_hazard_rules` is `true` (on both numerator and denominator) and is omitted when no measured language has Hazard line rules; a Hazards Budget passes when Hazards is absent.
 - When `MeasuredLanguage::has_imports` is `false`, TOON, JSON, and Markdown reports omit `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` for that language and emit a one-line `import_metrics_note`, and SARIF emits no import Findings for files of that language.
 - Repository totals and Budgets for `import_cycles`, `orphan_files`, `boundaries`, and `dependencies` (including Workspace package `import_cycles`) count only languages with `has_imports: true` on both sides of each ratio, and stay absent when no measured language has imports.
-- `render` formats the report as `Toon`, `Json`, `Sarif`, or `Markdown`.
+- `render` formats the report as `Toon`, `Text`, `Json`, `Sarif`, or `Markdown`.
 - Every Metric section in `Report` and `DiffReport` (built-in Metrics, Dependency hygiene, and external Metric plugins) records its positive integer `metric_version`, and `TrendReport` records `metric_versions` for the Metrics in the trend.
 - SARIF output emits one result per listed Finding and stores each Finding id in `partialFingerprints.codeintFindingId`.
   When overlapping or transitively related Clone groups form a Clone family across three or more locations, `duplication.clone_families` lists the Clone families worst-first by `duplicated_lines` in JSON, TOON, Markdown, and MCP, and SARIF emits one consolidated result per Clone family instead of duplicate results for its member Clone groups.
@@ -86,7 +86,7 @@ for message in diff.failure_messages() {
 - Use `Head::WorkingTree` when comparing against the working tree, or `Head::Commit(HeadCommit { git_ref, commit })` when comparing two commits.
 - `DiffReport::compare` matches Findings by occurrence-free content hash and surrounding-line context anchors (falling back to exact id for id-only entries) to classify each one as `new`, `resolved`, or `unchanged`.
 - `failure_messages` returns every `BudgetFailure` on the head side, followed by every `NewFileBudgetFailure` evaluated from `DiffReportOptions::new_files` against `DiffReportOptions::new_file_budgets`, followed by every `RatchetFailure` recorded by `apply_ratchet`, followed by every `Regression` that exceeds `RegressionLimits` (`ratio_rise`, direct `numerator_rise` rounded to four decimal places, `new_findings` on Metrics configured with `any_new_finding`, which is the default for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene, and per-file `per_file_numerator_rise` / `per_file_new_findings` for each path in `DiffReportOptions::changed_files` when `RegressionLimits::per_file` is `true`).
-- `render` formats the diff as `Toon`, `Json`, `Sarif` (new Findings only, plus `runs[0].properties.newFileBudgetFailures`, `runs[0].properties.ratchetFailures`, and `runs[0].properties.perFileRegressions` when present), or `Markdown` (including `## Over New-file Budget`, `## Over Ratchet`, and `## Regressions` when present).
+- `render` formats the diff as `Toon`, `Text`, `Json`, `Sarif` (new Findings only, plus `runs[0].properties.newFileBudgetFailures`, `runs[0].properties.ratchetFailures`, and `runs[0].properties.perFileRegressions` when present), or `Markdown` (including `## Over New-file Budget`, `## Over Ratchet`, and `## Regressions` when present).
 
 ## Summarize history with `TrendReport`
 
@@ -104,7 +104,7 @@ let text = trend.render(TrendFormat::Toon)?;
 
 - Pass `TrendPoint` values oldest first.
 - `TrendReport::of` records the four Metric ratios per Source set across commits and omits Source sets that have zero files in every commit.
-- `render` formats the trend as `Toon`, `Json`, or `Markdown`.
+- `render` formats the trend as `Toon`, `Text`, `Json`, or `Markdown`.
 
 ## Re-render a saved JSON report with `SavedReport`
 
@@ -119,3 +119,4 @@ let sarif = saved.render(ReportRenderFormat::Sarif)?;
 - `SavedReport::from_json` accepts JSON produced by `Report::render(ReportFormat::Json)` or `DiffReport::render(ReportFormat::Json)`, preserving `metric_version` values (and defaulting missing `metric_version` fields in older saved reports to `1`).
 - It rejects malformed JSON, non-object JSON, unsupported schema versions, and unrecognized payloads with `SavedReportError`.
 - `render` formats the saved report as `Toon`, `Json`, `Sarif`, `Markdown`, or `Text` without re-running analysis.
+- Call `with_show_all(true)` before `render(ReportRenderFormat::Text)` to match `codeint check --all --format text` and `codeint diff --all --format text` (listing every Finding, passing Workspace packages, and resolved diff Findings).

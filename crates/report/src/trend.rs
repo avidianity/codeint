@@ -8,6 +8,7 @@ use crate::measurement::{CommitMeasurement, SourceSetMeasurement};
 use crate::{Decimal, ReportError, TEST_GAP_TREND_NOTE};
 
 mod markdown;
+mod text;
 
 pub struct TrendPoint {
     pub commit: String,
@@ -105,12 +106,29 @@ impl TrendReport {
         }
     }
 
+    fn column_flags(rows: &[TrendRow]) -> (bool, bool, Vec<String>) {
+        let external_keys = rows
+            .iter()
+            .flat_map(|row| row.external_metrics.keys().cloned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let show_import_cycles = rows.iter().any(|row| row.import_cycles.is_some());
+        let show_hazards = rows.iter().any(|row| row.hazards.is_some());
+        (show_import_cycles, show_hazards, external_keys)
+    }
+
     pub fn render(&self, format: TrendFormat) -> Result<String, ReportError> {
-        match format {
-            TrendFormat::Toon => crate::render_toon(self),
-            TrendFormat::Json => crate::render_json(self),
-            TrendFormat::Markdown => Ok(markdown::render(self)),
+        if format == TrendFormat::Text {
+            return Ok(text::render(self));
         }
+        if format == TrendFormat::Markdown {
+            return Ok(markdown::render(self));
+        }
+        if format == TrendFormat::Json {
+            return crate::render_json(self);
+        }
+        crate::render_toon(self)
     }
 }
 
@@ -214,5 +232,45 @@ impl TrendRow {
                 .map(|(key, entry)| (key.clone(), Decimal::rounded(entry.measurement.ratio)))
                 .collect(),
         }
+    }
+
+    fn metric_cells(
+        &self,
+        commit_cell: String,
+        show_import_cycles: bool,
+        show_hazards: bool,
+        external_keys: &[String],
+    ) -> Vec<String> {
+        let mut cells = vec![
+            commit_cell,
+            self.committed_on.clone(),
+            self.files.to_string(),
+            self.erosion.0.to_string(),
+            self.cognitive_complexity.0.to_string(),
+            self.duplication.0.to_string(),
+            self.verbosity.0.to_string(),
+        ];
+        if show_import_cycles {
+            let value = self
+                .import_cycles
+                .as_ref()
+                .map_or_else(|| "-".to_owned(), |decimal| decimal.0.to_string());
+            cells.push(value);
+        }
+        if show_hazards {
+            let value = self
+                .hazards
+                .as_ref()
+                .map_or_else(|| "-".to_owned(), |decimal| decimal.0.to_string());
+            cells.push(value);
+        }
+        for key in external_keys {
+            let value = self
+                .external_metrics
+                .get(key)
+                .map_or(0.0, |decimal| decimal.0);
+            cells.push(value.to_string());
+        }
+        cells
     }
 }

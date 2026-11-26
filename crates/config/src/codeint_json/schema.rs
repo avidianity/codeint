@@ -15,6 +15,29 @@ use crate::sql::SqlConfigFile;
 
 pub(super) const DEFAULT_MIN_SIMILARITY: f64 = 0.85;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputFormat {
+    #[default]
+    Toon,
+    Text,
+    Json,
+    Sarif,
+    Markdown,
+}
+
+impl std::fmt::Display for OutputFormat {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            OutputFormat::Toon => "toon",
+            OutputFormat::Text => "text",
+            OutputFormat::Json => "json",
+            OutputFormat::Sarif => "sarif",
+            OutputFormat::Markdown => "markdown",
+        })
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema, clap::ValueEnum,
 )]
@@ -71,6 +94,12 @@ pub(super) struct ConfigurationFile {
         description = "The address of this JSON schema, for editors; codeint does not read it."
     )]
     _schema: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        with = "OutputFormat",
+        description = "Default output format for check, diff, trend, report, impact, trace, churn, and coupling: toon, text, json, sarif, or markdown. Omitted defaults to toon. CLI --format always overrides this setting."
+    )]
+    format: Option<OutputFormat>,
     #[serde(default)]
     #[schemars(
         description = "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins."
@@ -197,10 +226,15 @@ impl ConfigurationFile {
     pub(super) fn without_schema_address(&self) -> ConfigurationFile {
         ConfigurationFile {
             _schema: None,
+            format: None,
             regression_limits: self.regression_limits.clone().normalized(),
             duplication: self.duplication.clone().normalized(),
             ..self.clone()
         }
+    }
+
+    pub(super) fn format(&self) -> Option<OutputFormat> {
+        self.format
     }
 
     pub(super) fn into_sections(self) -> ConfigurationFileSections {

@@ -58,6 +58,14 @@ impl SavedReport {
         Err(SavedReportError::UnrecognizedReport)
     }
 
+    pub fn with_show_all(mut self, show_all: bool) -> SavedReport {
+        match &mut self {
+            SavedReport::Check(report) => report.set_show_all(show_all),
+            SavedReport::Diff(report) => report.set_show_all(show_all),
+        }
+        self
+    }
+
     pub fn render(&self, format: ReportRenderFormat) -> Result<String, ReportError> {
         let report_format = format.as_report_format();
         match self {

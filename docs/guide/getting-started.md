@@ -52,10 +52,11 @@ npx codeint check
    codeint config --resolved
    ```
 
-5. Measure the current working tree:
+5. Measure the current working tree (pass `--format text` for a concise monochrome terminal summary, or set `"format": "text"` in `codeint.jsonc` as the repository default):
 
    ```sh
    codeint check
+   codeint check --format text
    ```
 
 6. Compare your branch against `main` and fail on any Budget, Ratchet, or Regression failure:
@@ -76,10 +77,11 @@ npx codeint check
    codeint baseline update
    ```
 
-8. Save a JSON report once and re-render it losslessly into Markdown, SARIF, or TOON without re-scanning:
+8. Save a JSON report once and re-render it losslessly into concise `text`, Markdown, SARIF, or TOON without re-scanning:
 
    ```sh
    codeint diff main --format json --output diff.json
+   codeint report diff.json --format text
    codeint report diff.json --format markdown
    codeint report diff.json --format sarif --output codeint.sarif
    ```

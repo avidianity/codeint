@@ -19,6 +19,8 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | ---- | ----- | ------------- | ------------------------------------------------ |
 | `history_json` | Multi-commit branch with `--format json` | `0` | Valid JSON with `commits == 3` and three `production` rows oldest first; populates `CODEINT_CACHE_DIR` |
 | `history_toon` | Multi-commit branch with `--format toon` | `0` | Valid TOON table of commits |
+| `history_text` | Multi-commit branch with `--format text` | `0` | Monochrome aligned commit table starts with `codeint trend`, lists 3 dates oldest first, and has no ANSI escapes |
+| `config_unsupported_format` | `codeint.json` sets `"format": "sarif"` | `2` | Standard error names `trend`, `sarif`, and supported formats (`toon`, `text`, `json`, `markdown`) |
 | `since_json` | `--since 2026-11-05 --format json` | `0` | Valid JSON with `commits == 2` |
 | `history_md` | `--format markdown --output` | `0` | Writes non-empty `trend.md` |
 | `bad_since` | Invalid calendar date `2026-02-30` | `2` | Standard error rejects the date |

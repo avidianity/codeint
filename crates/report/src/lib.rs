@@ -95,6 +95,7 @@ mod sections;
 mod summary;
 #[cfg(test)]
 mod tests;
+mod text;
 mod trace;
 mod trend;
 
@@ -169,6 +170,8 @@ pub struct Report {
     over_budget: Vec<BudgetFailure>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     over_ratchet: Vec<RatchetFailure>,
+    #[serde(skip)]
+    show_all: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -666,6 +669,7 @@ impl Report {
             ratchet_note: None,
             manifest_warnings: extras.manifest_warnings,
             languages: sections_per_language,
+            show_all: options.findings == FindingsShown::All,
         })
     }
 
@@ -731,9 +735,14 @@ impl Report {
         Ok(())
     }
 
+    pub(crate) fn set_show_all(&mut self, show_all: bool) {
+        self.show_all = show_all;
+    }
+
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
         match format {
             ReportFormat::Toon => render_toon(self),
+            ReportFormat::Text => Ok(text::render_check(self)),
             ReportFormat::Json => render_json(self),
             ReportFormat::Sarif => serde_json::to_string_pretty(&sarif::SarifLog::new(self))
                 .map_err(ReportError::Sarif),

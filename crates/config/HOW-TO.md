@@ -13,6 +13,8 @@ let configuration = read_configuration(repository.root())?;
   All four files accept JSONC syntax (`//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`).
   Having more than one of those four files present fails with `ConfigurationFileError::AmbiguousConfigFiles` (exit code 2) naming every conflicting file.
 - `read_resolved_configuration` runs the same merge pipeline with `ConfigOverrides` and returns both the merged `Configuration` and per-field `ResolvedSetting` entries with `ConfigProvenance` (`default`, `file`, or `cli`).
+- `configuration.format` holds the configured `OutputFormat` (`Toon` by default, or `Text`, `Json`, `Sarif`, `Markdown`), used as the fallback when CLI `--format` is omitted on `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`.
+- `Command::{Check, Diff, Trend, Report, Impact, Trace, Churn, Coupling}` carry `format: Option<...>` so callers distinguish an explicit CLI `--format` override from an omitted flag.
 - It returns `Configuration::default()` when neither file is present; codeint runs with defaults.
 - Every other failure is a `ConfigurationFileError`, which stops the run with exit code 2.
   Its message names the key with its path, such as `source_sets.test[1]`, and the expected JSON type.
@@ -211,10 +213,10 @@ let shown_day = CalendarDay::containing(committed_at_unix_seconds).to_string();
 - Without `--since`, the range is `TrendRange::Latest(20)`.
 - `--since` takes a plain `YYYY-MM-DD` day; codeint parses it itself, with no date-time library, and rejects a day that does not exist, such as `2026-02-30`, with exit code 2.
 - A `CalendarDay` is a day in UTC: `start_unix_seconds` is its first second, and `containing` gives the UTC day of a Unix time.
-- `TrendFormat` lists the formats `codeint trend` supports: TOON, JSON, and Markdown.
+- `TrendFormat` lists the formats `codeint trend` supports: TOON, Text, JSON, and Markdown.
 
 ## Key a cached result by the configuration
 
-- `Configuration` serializes as the effective `codeint.json`: every key with its default filled in, without the `$schema` address.
-  A file that only differs in `$schema` or in keys set to their defaults serializes the same.
+- `Configuration` serializes as the effective `codeint.json`: every key with its default filled in, without the `$schema` address or `format` (since `format` only controls output rendering and never affects commit analysis).
+  A file that only differs in `$schema`, `format`, or keys set to their defaults serializes the same.
 - Put the whole `Configuration` in the settings of a cached result, not chosen keys, so that a new setting can never leave a stale entry.

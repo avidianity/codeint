@@ -207,7 +207,7 @@ Edit the existing codeint.json, or delete it and run codeint init again.
 | `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown`; see [Report formats](#report-formats) |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in `codeint.json`; see [Report formats](#report-formats) |
 | `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `--coverage-report <PATH>` | Path to an LCOV or Cobertura XML Coverage report; may repeat; when present, replaces `coverage_reports` from `codeint.json`; see [Test gap](#test-gap) |
 | `--ignore-baseline` | Show every Finding and evaluate Budgets on every Finding, as if `.codeint/baseline.json` did not exist; see [`codeint baseline`](#codeint-baseline) |
@@ -329,7 +329,7 @@ codeint check --package packages/missing
 | `--package <PATH>` | Scope measurement and output to this Workspace package |
 | `--output <FILE>` | Write the report to this file instead of standard output |
 | `--all` | List every Finding instead of the 20 worst per Metric |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, or `markdown` |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in `codeint.json` |
 | `--owner <OWNER>` | Include only Findings whose `CODEOWNERS` owner matches this pattern |
 | `-h, --help` | Print the help of `codeint diff` |
 
@@ -403,11 +403,12 @@ Both sides follow the same file rules as `codeint check`.
 The report classifies each Finding by its `id`: new when only the head side has it, resolved when only the merge-base has it, and unchanged when both have it.
 For each Metric of each Source set, it shows the ratio on both sides, the new and the resolved Findings, worst first, and the number of unchanged Findings.
 It lists at most 20 new and 20 resolved Findings per Metric, and counts the rest in `new_left_out` and `resolved_left_out`; `--all` lists every one.
-`--format json` and `--format markdown` print the same comparison.
+`--format text`, `--format json`, and `--format markdown` print the same comparison.
 `--format sarif` lists only the new Findings, so code scanning annotates what the change added.
 
 ```sh exit=1
 codeint diff origin/main --all
+codeint diff main --format text
 codeint diff main --format json
 codeint diff main --format markdown
 codeint diff main --format sarif --output diff.sarif
@@ -538,7 +539,7 @@ With no failure, the report has no `over_budget` or `regressions` key, and codei
 | ------ | ------- |
 | `--since <YYYY-MM-DD>` | Measure every main-line commit committed on or after this day, in UTC, instead of the latest 20 |
 | `--output <FILE>` | Write the report to this file instead of standard output |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, or `markdown` |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, or `markdown`; overrides `format` in `codeint.json` |
 | `-h, --help` | Print the help of `codeint trend` |
 
 `codeint trend` measures each commit of the main line of the current branch and prints each Metric over time, oldest commit first:
@@ -590,9 +591,10 @@ In a shallow clone, the trend stops at the oldest commit the clone has.
 The report has one table per Source set, with one row per commit.
 Each row shows the commit, the day it was committed in UTC, the number of measured files, and the ratio of each Metric.
 A Source set appears only when at least one commit of the trend has a file in it.
-`--format json` and `--format markdown` print the same rows:
+`--format text`, `--format json`, and `--format markdown` print the same rows:
 
 ```sh exit=0
+codeint trend --format text
 codeint trend --format markdown
 codeint trend --format json --output trend.json
 ```
@@ -805,12 +807,14 @@ codeint config --resolved --format json --budget production.erosion=0.25 --sourc
 | Option | Meaning |
 | ------ | ------- |
 | `--output <FILE>` | Write the report to this file instead of standard output |
-| `--format <FORMAT>` | The format of the report: `toon`, the default, `json`, `sarif`, `markdown`, or `text` |
+| `--all` | List every Finding in text output instead of capping at 5 per Metric (and include passing Workspace packages on `check` and resolved Findings on `diff`) |
+| `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in `codeint.json` |
 | `-h, --help` | Print the help of `codeint report` |
 
 `codeint report` re-renders a saved `codeint check --format json` or `codeint diff --format json` payload into another format without re-running analysis.
 Pass `-` as `<INPUT>` to read the JSON payload from standard input.
-`--format text` prints the same compact text report as `--format toon`.
+`--format text` prints the same concise monochrome text summary as `codeint check --format text` and `codeint diff --format text`, and `--all` matches `check --all --format text` and `diff --all --format text` byte for byte.
+When `--format` is omitted inside a Git working tree, `codeint report` reads `format` from the repository's configuration; outside any Git repository or inside a bare Git repository, it falls back to `toon`.
 
 ```sh exit=0
 codeint report report.json --format toon
@@ -818,6 +822,7 @@ codeint report report.json --format json
 codeint report report.json --format sarif --output report.sarif
 codeint report report.json --format markdown
 codeint report report.json --format text
+codeint report report.json --format text --all
 ```
 
 An input file that does not exist, malformed JSON, or an unsupported report schema version stops the run with exit code 2:
@@ -1099,6 +1104,7 @@ In the key paths below, `[]` stands for each item of a list, and a name in brace
 | Key | Type | Meaning |
 | --- | ---- | ------- |
 | `$schema` | string | The address of the JSON schema, for editors; when it points to a newer official codeint release tag than the running binary, codeint exits with code 2 |
+| `format` | string | Default output format for `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`: `toon` (default), `text`, `json`, `sarif`, or `markdown`; CLI `--format` always overrides it; see [Default output format](#default-output-format) |
 | `source_sets` | object | Globs that put files into a Source set; see [Source sets](#source-sets) |
 | `source_sets.{source_set}` | list of strings | Globs of repository-relative paths that belong to this Source set; empty by default |
 | `budgets` | object | The Budgets of each Source set and dependency hygiene Metric; see [Budgets](#budgets) |
@@ -1203,8 +1209,46 @@ codeint check
 ```
 
 ```text stderr
-codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards, framework_profiles, packages, ratchet
+codeint: codeint.json has an unknown key budget; the keys allowed there are $schema, format, source_sets, budgets, new_file_budgets, regression_limits, languages, plugins, plugin_limits, boundaries, dependencies, duplication, entry_points, coverage_reports, sql, hazards, framework_profiles, packages, ratchet
 Remove the key, or correct its spelling to one of the allowed keys.
+```
+
+### Default output format
+
+Set `format` to choose the default output format for `check`, `diff`, `trend`, `report`, `impact`, `trace`, `churn`, and `coupling`: `toon` (the built-in default), `text`, `json`, `sarif`, or `markdown`.
+CLI `--format` always overrides `format` in `codeint.json`.
+Utility commands (`doctor`, `guard`, `config`, `ratchet`, `baseline`, `agent`, `plugin test`), `schema`, and MCP tools ignore `format` and keep their own defaults.
+When one of the eight analysis and report commands does not support the configured format, codeint stops with exit code 2 and names the command, the configured format, and the supported formats.
+
+```json codeint.json
+{ "format": "text" }
+```
+
+```sh exit=0
+codeint check
+```
+
+```text stdout
+codeint check: PASS (4 files, 39 source lines)
+
+Production (4 files, 39 lines)
+  Metric                 Ratio  Reference    Status
+  Erosion               0.7986  0.206-0.731  ok
+  Cognitive complexity       0  -            ok
+  Duplication                0  0.006-0.194  ok
+  Verbosity             0.0256  0-0.001      ok
+  Import cycles              0  0-0.184      ok
+
+Production Erosion findings (1):
+  src/route.ts:1  route  cc=16  lines=18  mass=67.8823
+
+Production Verbosity findings (1):
+  src/sign.ts:4  else-after-return
+
+Notes
+  Test gap is not measured because no Coverage report was named.
+  skipped (1): src/broken.ts (cannot parse: Unexpected token at line 1, column 23)
+  declaration-only: 1 file
 ```
 
 ### Source sets
@@ -1978,8 +2022,42 @@ codeint: cannot write the cache entry /home/me/.cache/codeint: File exists (os e
 
 Every command that prints a report takes `--format` and `--output {file}`.
 `--output` writes the report in the chosen format to a file instead of standard output.
-`codeint check` and `codeint diff` print TOON by default, and also print JSON, SARIF, and Markdown.
-`codeint trend` prints TOON by default, and also prints JSON and Markdown.
+`codeint check`, `codeint diff`, and `codeint report` print TOON by default (or the configured `format` in `codeint.json`), and also print Text, JSON, SARIF, and Markdown.
+`codeint trend` prints TOON by default (or the configured `format` in `codeint.json`), and also prints Text, JSON, and Markdown.
+
+### Text report
+
+`--format text` prints a concise, monochrome, summary-first report without ANSI color codes.
+On `codeint check` and `codeint report`, it lists the `PASS`/`FAIL` status header, aligned per-Source-set Metric tables, per-language summaries when multiple languages are measured, failing Workspace packages (or all with `--all`), up to 5 worst Findings per non-zero Metric (all with `--all`), and concise notes.
+On `codeint diff`, it lists the `PASS`/`FAIL` header, aligned comparison tables, new Findings, and resolved Findings only under `--all`.
+On `codeint trend`, it prints an aligned per-Source-set commit table with short 7-character commit hashes, oldest first.
+
+```sh exit=0
+codeint check --format text
+```
+
+```text stdout
+codeint check: PASS (4 files, 39 source lines)
+
+Production (4 files, 39 lines)
+  Metric                 Ratio  Reference    Status
+  Erosion               0.7986  0.206-0.731  ok
+  Cognitive complexity       0  -            ok
+  Duplication                0  0.006-0.194  ok
+  Verbosity             0.0256  0-0.001      ok
+  Import cycles              0  0-0.184      ok
+
+Production Erosion findings (1):
+  src/route.ts:1  route  cc=16  lines=18  mass=67.8823
+
+Production Verbosity findings (1):
+  src/sign.ts:4  else-after-return
+
+Notes
+  Test gap is not measured because no Coverage report was named.
+  skipped (1): src/broken.ts (cannot parse: Unexpected token at line 1, column 23)
+  declaration-only: 1 file
+```
 
 ### TOON report
 

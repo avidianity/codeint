@@ -331,10 +331,17 @@ drive_check() {
   mkdir -p "$dir"
 
   run_case "$FIXTURE_REPO" "$dir/golden_toon" "$BIN_PATH" check
+  run_case "$FIXTURE_REPO" "$dir/golden_text" "$BIN_PATH" check --format text
   run_case "$FIXTURE_REPO" "$dir/golden_json" "$BIN_PATH" check --format json
   run_case "$FIXTURE_REPO" "$dir/golden_sarif" "$BIN_PATH" check --format sarif
   run_case "$FIXTURE_REPO" "$dir/golden_md_output" "$BIN_PATH" check --format markdown --output "$dir/report.md"
   run_case "$FIXTURE_REPO" "$dir/golden_all" "$BIN_PATH" check --all --format json
+
+  local work_fmt="$RUN_DIR/work-check-format"
+  rm -rf "$work_fmt"
+  cp -R "$FIXTURE_REPO" "$work_fmt"
+  printf '{"format":"text"}\n' > "$work_fmt/codeint.json"
+  run_case "$work_fmt" "$dir/config_format_text" "$BIN_PATH" check
 
   local work_budget="$RUN_DIR/work-check-budget"
   fresh_work_copy "$FIXTURE_REPO" "$work_budget"
@@ -364,12 +371,15 @@ drive_diff() {
   run_case "$FIXTURE_REPO" "$dir/no_regression_1" "$BIN_PATH" diff main --head feature --format json
   run_case "$FIXTURE_REPO" "$dir/no_regression_2" "$BIN_PATH" diff main --head feature --format json
   run_case "$FIXTURE_REPO" "$dir/no_regression_md" "$BIN_PATH" diff main --head feature --format markdown --output "$dir/diff.md"
+  run_case "$FIXTURE_REPO" "$dir/no_regression_text" "$BIN_PATH" diff main --head feature --format text
 
   local work_reg="$RUN_DIR/work-diff-regression"
   fresh_work_copy "$FIXTURE_REPO" "$work_reg"
   write_eroded_ts "$work_reg/src/route.ts" "route" 16
   run_case "$work_reg" "$dir/regression_json" "$BIN_PATH" diff main --format json
   run_case "$work_reg" "$dir/regression_sarif" "$BIN_PATH" diff main --format sarif --output "$dir/diff.sarif"
+  printf '{"format":"text"}\n' > "$work_reg/codeint.json"
+  run_case "$work_reg" "$dir/regression_text" "$BIN_PATH" diff main
 
   local work_pf="$RUN_DIR/work-diff-per-file"
   fresh_work_copy "$FIXTURE_REPO" "$work_pf"
@@ -410,8 +420,16 @@ drive_trend() {
 
   run_case "$FIXTURE_REPO" "$dir/history_json" "$BIN_PATH" trend --format json
   run_case "$FIXTURE_REPO" "$dir/history_toon" "$BIN_PATH" trend --format toon
+  run_case "$FIXTURE_REPO" "$dir/history_text" "$BIN_PATH" trend --format text
   run_case "$FIXTURE_REPO" "$dir/since_json" "$BIN_PATH" trend --since 2026-11-05 --format json
   run_case "$FIXTURE_REPO" "$dir/history_md" "$BIN_PATH" trend --format markdown --output "$dir/trend.md"
+
+  local work_trend_badfmt="$RUN_DIR/work-trend-badfmt"
+  rm -rf "$work_trend_badfmt"
+  cp -R "$FIXTURE_REPO" "$work_trend_badfmt"
+  printf '{"format":"sarif"}\n' > "$work_trend_badfmt/codeint.json"
+  run_case "$work_trend_badfmt" "$dir/config_unsupported_format" "$BIN_PATH" trend
+
   run_case "$FIXTURE_REPO" "$dir/bad_since" "$BIN_PATH" trend --since 2026-02-30
   run_case "$EMPTY_REPO" "$dir/unborn_head" "$BIN_PATH" trend
 }
@@ -798,6 +816,7 @@ drive_report() {
   run_case "$work" "$dir/check_to_sarif_output" "$BIN_PATH" report "$work/check.json" --format sarif --output "$dir/report.sarif"
   run_case "$work" "$dir/check_to_markdown" "$BIN_PATH" report "$work/check.json" --format markdown
   run_case_stdin "$work" "$dir/check_to_text_stdin" "$work/check.json" "$BIN_PATH" report - --format text
+  run_case "$work" "$dir/check_to_text_all" "$BIN_PATH" report "$work/check.json" --format text --all
   run_case "$work" "$dir/diff_to_toon" "$BIN_PATH" report "$work/diff.json" --format toon
   run_case "$work" "$dir/diff_to_json" "$BIN_PATH" report "$work/diff.json" --format json
   run_case "$work" "$dir/missing_input" "$BIN_PATH" report "$work/no-such.json" --format sarif
@@ -1145,6 +1164,14 @@ if "check" in features:
     toon_out = read_text("check/golden_toon.stdout") or ""
     check("check.golden_toon.shape", "source_sets:" in toon_out and "skipped" in toon_out and "declaration_only" in toon_out, "missing expected TOON keys")
 
+    check("check.golden_text.exit", read_exit("check/golden_text") == 0, str(read_exit("check/golden_text")))
+    text_out = read_text("check/golden_text.stdout") or ""
+    check("check.golden_text.shape", text_out.startswith("codeint check: PASS") and "Production" in text_out and "\x1b" not in text_out, text_out)
+
+    check("check.config_format_text.exit", read_exit("check/config_format_text") == 0, str(read_exit("check/config_format_text")))
+    cfg_text_out = read_text("check/config_format_text.stdout") or ""
+    check("check.config_format_text.parity", cfg_text_out == text_out, "configured format text differed from --format text")
+
     check("check.golden_json.exit", read_exit("check/golden_json") == 0, str(read_exit("check/golden_json")))
     cj = read_json("check/golden_json.stdout")
     check("check.golden_json.shape", isinstance(cj, dict) and cj.get("files") == 3 and "production" in cj.get("source_sets", {}) and len(cj.get("skipped", [])) == 1 and "src/types.d.ts" in cj.get("declaration_only", []), str(cj))
@@ -1185,10 +1212,18 @@ if "diff" in features:
     check("diff.no_regression_md.exit", read_exit("diff/no_regression_md") == 0, str(read_exit("diff/no_regression_md")))
     check("diff.no_regression_md.file", len(read_text("diff/diff.md") or "") > 0, "diff.md empty")
 
+    check("diff.no_regression_text.exit", read_exit("diff/no_regression_text") == 0, str(read_exit("diff/no_regression_text")))
+    diff_pass_text = read_text("diff/no_regression_text.stdout") or ""
+    check("diff.no_regression_text.shape", diff_pass_text.startswith("codeint diff: PASS") and "\x1b" not in diff_pass_text, diff_pass_text)
+
     check("diff.regression_json.exit", read_exit("diff/regression_json") == 1, str(read_exit("diff/regression_json")))
     rj = read_json("diff/regression_json.stdout")
     check("diff.regression_json.payload", isinstance(rj, dict) and len(rj.get("regressions", [])) >= 1, str(rj))
     check("diff.regression_json.stderr", len((read_text("diff/regression_json.stderr") or "").strip()) > 0, "stderr empty on regression")
+
+    check("diff.regression_text.exit", read_exit("diff/regression_text") == 1, str(read_exit("diff/regression_text")))
+    diff_fail_text = read_text("diff/regression_text.stdout") or ""
+    check("diff.regression_text.shape", diff_fail_text.startswith("codeint diff: FAIL") and "src/route.ts" in diff_fail_text and "\x1b" not in diff_fail_text, diff_fail_text)
 
     check("diff.regression_sarif.exit", read_exit("diff/regression_sarif") == 1, str(read_exit("diff/regression_sarif")))
     rs = read_json("diff/diff.sarif")
@@ -1231,6 +1266,12 @@ if "trend" in features:
     check("trend.cache_populated", int(cache_count) >= 1, f"cache_count={cache_count}")
 
     check("trend.history_toon.exit", read_exit("trend/history_toon") == 0, str(read_exit("trend/history_toon")))
+    check("trend.history_text.exit", read_exit("trend/history_text") == 0, str(read_exit("trend/history_text")))
+    trend_text = read_text("trend/history_text.stdout") or ""
+    check("trend.history_text.shape", trend_text.startswith("codeint trend") and "2026-11-02" in trend_text and "2026-11-16" in trend_text and "\x1b" not in trend_text, trend_text)
+    check("trend.config_unsupported_format.exit", read_exit("trend/config_unsupported_format") == 2, str(read_exit("trend/config_unsupported_format")))
+    trend_badfmt_err = read_text("trend/config_unsupported_format.stderr") or ""
+    check("trend.config_unsupported_format.stderr", "trend" in trend_badfmt_err and "sarif" in trend_badfmt_err and "markdown" in trend_badfmt_err, trend_badfmt_err)
     check("trend.since_json.exit", read_exit("trend/since_json") == 0, str(read_exit("trend/since_json")))
     sj = read_json("trend/since_json.stdout")
     check("trend.since_json.commits", isinstance(sj, dict) and sj.get("commits") == 2, str(sj))
@@ -1540,7 +1581,12 @@ if "report" in features:
     check("report.check_to_markdown.shape", "codeint report" in rmd and "| Source set |" in rmd, rmd)
 
     check("report.check_to_text_stdin.exit", read_exit("report/check_to_text_stdin") == 0, str(read_exit("report/check_to_text_stdin")))
-    check("report.check_to_text_stdin.shape", "source_sets:" in (read_text("report/check_to_text_stdin.stdout") or ""), read_text("report/check_to_text_stdin.stdout") or "")
+    rtxt = read_text("report/check_to_text_stdin.stdout") or ""
+    check("report.check_to_text_stdin.shape", "codeint check: PASS" in rtxt and "Metric" in rtxt and "\x1b[" not in rtxt, rtxt)
+
+    check("report.check_to_text_all.exit", read_exit("report/check_to_text_all") == 0, str(read_exit("report/check_to_text_all")))
+    rtxt_all = read_text("report/check_to_text_all.stdout") or ""
+    check("report.check_to_text_all.shape", "codeint check: PASS" in rtxt_all and "Metric" in rtxt_all and "\x1b[" not in rtxt_all, rtxt_all)
 
     check("report.diff_to_toon.exit", read_exit("report/diff_to_toon") == 0, str(read_exit("report/diff_to_toon")))
     check("report.diff_to_toon.shape", len((read_text("report/diff_to_toon.stdout") or "").strip()) > 0, "empty diff toon")

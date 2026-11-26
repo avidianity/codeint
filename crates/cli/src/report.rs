@@ -23,9 +23,10 @@ pub(crate) enum RerenderError {
 pub(crate) fn rerender(
     input: &ReportInput,
     format: ReportRenderFormat,
+    show_all: bool,
 ) -> Result<String, RerenderError> {
     let text = read_input(input)?;
-    let report = SavedReport::from_json(&text)?;
+    let report = SavedReport::from_json(&text)?.with_show_all(show_all);
     Ok(report.render(format)?)
 }
 
