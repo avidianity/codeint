@@ -930,7 +930,7 @@ A path that names no readable file stops the run with exit code 2.
 | `--plugin-timeout-ms <MS>` | The time limit in milliseconds for each Plugin call, from 1 to 300000; 5000 by default |
 | `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
 
-The built-in probe sources use the first extension that the Plugin claims.
+The built-in probe sources run once for every extension that the Plugin claims.
 A Plugin whose Hazard rules or Flagged lines fire only on specific text needs a `--source` file that holds that text, or the runner cannot check those rules.
 
 ```sh exit=0

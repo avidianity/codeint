@@ -825,16 +825,18 @@ fn check_lower(
         let path = probe_repo_path(&probe.file_name, &probe.extension);
         let first = plugin.lower(&path, &probe.text);
         let second = plugin.lower(&path, &probe.text);
-        if let Err(error) = &first
-            && is_limit_error(error)
-        {
-            watch.note(error.to_string());
-            report.fail(
-                "lower",
-                format!("{}: {error}", probe.label),
-                "keep lower within the memory and time limits, or raise them with --plugin-memory-mb and --plugin-timeout-ms",
-            );
-            return;
+        for outcome in [&first, &second] {
+            if let Err(error) = outcome
+                && is_limit_error(error)
+            {
+                watch.note(error.to_string());
+                report.fail(
+                    "lower",
+                    format!("{}: {error}", probe.label),
+                    "keep lower within the memory and time limits, or raise them with --plugin-memory-mb and --plugin-timeout-ms",
+                );
+                return;
+            }
         }
         if format!("{first:?}") != format!("{second:?}") {
             report.fail(
@@ -1115,7 +1117,7 @@ fn check_import_calls(
         chosen,
         importers,
     } = probe;
-    check_workspace_packages(report, plugin, &chosen, watch);
+    let remaining_invalid = check_workspace_packages(report, plugin, &chosen, watch);
     check_imports(
         report,
         plugin,
@@ -1128,8 +1130,11 @@ fn check_import_calls(
     );
 
     let mut dependencies = plugin.declared_dependencies(chosen_manifests(&chosen, true));
-    if dependencies.is_ok() && !chosen.is_empty() {
-        dependencies = plugin.declared_dependencies(chosen_manifests(&chosen, false));
+    if dependencies.is_ok()
+        && let Some(invalid_manifests) = remaining_invalid
+        && !chosen.is_empty()
+    {
+        dependencies = plugin.declared_dependencies(invalid_manifests);
     }
     match dependencies {
         Ok(_) => report.pass("declared-dependencies", "dependency declarations are valid"),
@@ -1200,62 +1205,144 @@ fn check_workspace_packages(
     plugin: &WasmLanguagePlugin,
     chosen: &[RepoPath],
     watch: &mut LimitWatch,
-) {
-    let mut probes = vec![("no manifests", Vec::new(), true)];
-    if !chosen.is_empty() {
-        probes.push((
-            "the manifests it chose, with valid content",
-            chosen_manifests(chosen, true),
-            true,
-        ));
-        probes.push((
-            "the manifests it chose, with invalid content",
-            chosen_manifests(chosen, false),
-            false,
-        ));
+) -> Option<Vec<Manifest>> {
+    if !check_workspace_must_accept(report, plugin, "no manifests", Vec::new(), watch) {
+        return None;
     }
-    for (label, manifests, must_accept) in probes {
-        match plugin.workspace_packages_checked(manifests) {
-            Err(error) => {
-                watch.note_host(&error);
-                report.fail(
-                    "workspace-packages",
-                    format!("{label}: {error}"),
-                    "workspace-packages must never trap; return a workspace-error for a manifest it cannot read",
-                );
-                return;
-            }
-            Ok(Err(error @ WorkspaceError::Manifest { .. })) if must_accept => {
-                report.fail(
-                    "workspace-packages",
-                    format!("{label}: {error}"),
-                    "return a workspace-error only for a manifest it cannot read, naming that manifest's exact path; codeint check skips a manifest that a workspace-error names and warns, and stops on any other workspace-error, so never return one for a chosen manifest with valid content or for no manifests",
-                );
-                return;
-            }
-            Ok(Err(error @ WorkspaceError::InvalidPackageRoot(_))) => {
-                report.fail(
-                    "workspace-packages",
-                    format!("{label}: {error}"),
-                    "return only package roots relative to the repository root with forward slashes, never absolute or containing ..",
-                );
-                return;
-            }
-            Ok(Ok(packages)) if packages.iter().any(|package| package.as_str().is_empty()) => {
-                report.fail(
-                    "workspace-packages",
-                    format!("{label}: workspace-packages returned the repository root"),
-                    "return only member package folders; the root package is implicit",
-                );
-                return;
-            }
-            Ok(_) => {}
-        }
+    if chosen.is_empty() {
+        report.pass(
+            "workspace-packages",
+            "answers valid and invalid manifests without a trap or an invalid path",
+        );
+        return Some(Vec::new());
     }
+    if !check_workspace_must_accept(
+        report,
+        plugin,
+        "the manifests it chose, with valid content",
+        chosen_manifests(chosen, true),
+        watch,
+    ) {
+        return None;
+    }
+    let remaining = check_workspace_invalid_manifests(report, plugin, chosen, watch)?;
     report.pass(
         "workspace-packages",
         "answers valid and invalid manifests without a trap or an invalid path",
     );
+    Some(remaining)
+}
+
+fn check_workspace_must_accept(
+    report: &mut ConformanceReport,
+    plugin: &WasmLanguagePlugin,
+    label: &str,
+    manifests: Vec<Manifest>,
+    watch: &mut LimitWatch,
+) -> bool {
+    match plugin.workspace_packages_checked(manifests) {
+        Err(error) => {
+            fail_workspace_trap(report, label, &error, watch);
+            false
+        }
+        Ok(Err(error @ WorkspaceError::Manifest { .. })) => {
+            report.fail(
+                "workspace-packages",
+                format!("{label}: {error}"),
+                "return a workspace-error only for a manifest it cannot read, naming that manifest's exact path; codeint check skips a manifest that a workspace-error names and warns, and stops on any other workspace-error, so never return one for a chosen manifest with valid content or for no manifests",
+            );
+            false
+        }
+        Ok(Err(error)) => {
+            fail_workspace_error(report, label, &error);
+            false
+        }
+        Ok(Ok(packages)) => check_workspace_roots(report, label, &packages),
+    }
+}
+
+fn check_workspace_invalid_manifests(
+    report: &mut ConformanceReport,
+    plugin: &WasmLanguagePlugin,
+    chosen: &[RepoPath],
+    watch: &mut LimitWatch,
+) -> Option<Vec<Manifest>> {
+    let label = "the manifests it chose, with invalid content";
+    let mut remaining = chosen_manifests(chosen, false);
+    loop {
+        match plugin.workspace_packages_checked(remaining.clone()) {
+            Err(error) => {
+                fail_workspace_trap(report, label, &error, watch);
+                return None;
+            }
+            Ok(Err(WorkspaceError::Manifest { path, message })) => {
+                let Some(position) = remaining.iter().position(|manifest| manifest.path == path)
+                else {
+                    report.fail(
+                        "workspace-packages",
+                        format!(
+                            "{label}: workspace-error names {path:?}, which is not among the remaining manifests passed in ({message})"
+                        ),
+                        "name the exact path of one of the manifests the host passed in; codeint check skips a manifest that a workspace-error names and stops with exit code 2 when the path is not among the remaining manifests",
+                    );
+                    return None;
+                };
+                remaining.remove(position);
+            }
+            Ok(Err(error)) => {
+                fail_workspace_error(report, label, &error);
+                return None;
+            }
+            Ok(Ok(packages)) => {
+                if !check_workspace_roots(report, label, &packages) {
+                    return None;
+                }
+                return Some(remaining);
+            }
+        }
+    }
+}
+
+fn fail_workspace_trap(
+    report: &mut ConformanceReport,
+    label: &str,
+    error: &PluginHostError,
+    watch: &mut LimitWatch,
+) {
+    watch.note_host(error);
+    report.fail(
+        "workspace-packages",
+        format!("{label}: {error}"),
+        "workspace-packages must never trap; return a workspace-error for a manifest it cannot read",
+    );
+}
+
+fn fail_workspace_error(report: &mut ConformanceReport, label: &str, error: &WorkspaceError) {
+    let hint = match error {
+        WorkspaceError::InvalidPackageRoot(_) => {
+            "return only package roots relative to the repository root with forward slashes, never absolute or containing .."
+        }
+        WorkspaceError::Manifest { .. } | WorkspaceError::PluginFailed { .. } => {
+            "workspace-packages must never trap; return a workspace-error naming a manifest path it cannot read"
+        }
+    };
+    report.fail("workspace-packages", format!("{label}: {error}"), hint);
+}
+
+fn check_workspace_roots(
+    report: &mut ConformanceReport,
+    label: &str,
+    packages: &[RepoPath],
+) -> bool {
+    if packages.iter().any(|package| package.as_str().is_empty()) {
+        report.fail(
+            "workspace-packages",
+            format!("{label}: workspace-packages returned the repository root"),
+            "return only member package folders; the root package is implicit",
+        );
+        return false;
+    }
+    true
 }
 
 fn check_reference_ranges(report: &mut ConformanceReport, plugin: &WasmLanguagePlugin) {

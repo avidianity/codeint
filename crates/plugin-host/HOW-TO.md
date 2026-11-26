@@ -111,6 +111,7 @@ if !report.passed() {
 - The report lists every check exactly once, in a fixed order.
 - `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::workspace_packages_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths` still turns a trap into an empty list, as `codeint check` expects.
 - `sources` adds Language plugin probe sources to the built-in ones; each file name carries the extension that the Plugin claims.
+- `run_conformance` leaves `end-to-end` as `Skipped` and attaches an `EndToEndProbe` in `report.end_to_end` when earlier checks pass; callers such as `codeint-cli` run `codeint check` on that probe and fill in the `end-to-end` entry.
 - `codeint plugin test` is the command-line front end; see [docs/reference.md](../../docs/reference.md#codeint-plugin).
 
 ## Verify WIT contract lockstep

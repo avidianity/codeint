@@ -298,6 +298,65 @@ fn the_end_to_end_check_runs_codeint_check_on_the_probe_repository_and_cleans_up
     }
 }
 
+fn check_message<'a>(report: &'a Value, id: &str) -> &'a str {
+    report["checks"]
+        .as_array()
+        .expect("checks array")
+        .iter()
+        .find(|check| check["id"] == id)
+        .and_then(|check| check["message"].as_str())
+        .unwrap_or_default()
+}
+
+fn assert_language_passes(wasm: &str, expected: &[(&str, &str)]) {
+    let (output, report) = json_report("language", wasm, &[]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    for (id, status) in expected {
+        assert_eq!(check_status(&report, id), *status, "{wasm}: {id}");
+    }
+}
+
+#[test]
+fn a_workspace_error_naming_an_unpassed_manifest_path_fails_workspace_packages() {
+    let report = assert_fails(
+        "language",
+        "workspace_unpassed_path_language_plugin.wasm",
+        &[],
+        "workspace-packages",
+    );
+    assert!(
+        check_message(&report, "workspace-packages").contains("wrong/unpassed.json"),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_plugin_whose_declared_dependencies_assumes_workspace_filtered_manifests_passes() {
+    assert_language_passes(
+        "strict_declared_deps_language_plugin.wasm",
+        &[
+            ("workspace-packages", "pass"),
+            ("declared-dependencies", "pass"),
+            ("end-to-end", "pass"),
+        ],
+    );
+}
+
+#[test]
+fn a_plugin_that_causes_end_to_end_to_skip_a_valid_manifest_fails_end_to_end() {
+    let report = assert_fails(
+        "language",
+        "workspace_skips_valid_manifest_language_plugin.wasm",
+        &[],
+        "end-to-end",
+    );
+    let message = check_message(&report, "end-to-end");
+    assert!(
+        message.contains("skips a valid probe manifest"),
+        "expected skipped-manifest end-to-end failure, got: {message}"
+    );
+}
+
 #[test]
 fn a_chosen_source_file_is_sent_its_real_content_not_a_labelled_garbage_manifest() {
     for wasm in [
