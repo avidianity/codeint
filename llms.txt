@@ -1,14 +1,14 @@
 # codeint
 
 > codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Test gap, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, SQL (generic SQL plus PostgreSQL, MySQL/MariaDB, SQLite, and DuckDB Dialects), Shell (POSIX sh, Bash, and Zsh), and external WebAssembly Language and Metric plugins.
-> CLI commands include `check`, `diff`, `ratchet`, `baseline`, `trend`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `plugin`, `agent`, `mcp`, `init`, and `update`, configured via `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc`, with optional whole-repository ceilings in `.codeint/ratchet.json` and an optional Baseline of existing Findings in `.codeint/baseline.json` that `codeint check` hides (`--ignore-baseline` shows them).
+> CLI commands include `check`, `diff`, `ratchet`, `baseline`, `trend`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `plugin`, `agent`, `mcp`, `init`, and `update`, configured via `codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}`, with optional whole-repository ceilings in `.codeint/ratchet.json` and an optional Baseline of existing Findings in `.codeint/baseline.json` that `codeint check` hides (`--ignore-baseline` shows them).
 
 ## Guide
 
 - [Guide Index](docs/guide/README.md): reading map for all user documentation.
 - [Philosophy and Architecture](docs/guide/philosophy-and-architecture.md): why Software entropy matters, how all independent Metrics (including Hazards) and structural checks work, and how the codebase is structured.
 - [Getting Started](docs/guide/getting-started.md): install codeint, initialize `codeint.jsonc`, and run `check`, `diff`, `ratchet update`, `baseline update`, `trend`, `doctor`, `plugin test`, `config`, `report`, `guard`, `trace`, `impact`, `churn`, `coupling`, and `update`.
-- [Configuration](docs/guide/configuration.md): configure `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` default output `format`, Budgets, new-file Budgets, Regression limits (including opt-in `per_file` checks), Ratchet path, Source sets, architectural boundaries, near-clones, entry points, dependency hygiene, Coverage reports, SQL Dialects, Hazards disabled rules, and multi-language folders, plus `codeint config --resolved`.
+- [Configuration](docs/guide/configuration.md): configure `codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}` default output `format`, Budgets, new-file Budgets, Regression limits (including opt-in `per_file` checks), Ratchet path, Source sets, architectural boundaries, near-clones, entry points, dependency hygiene, Coverage reports, SQL Dialects, Hazards disabled rules, and multi-language folders, plus `codeint config --resolved`.
 - [Import boundaries](docs/guide/import-boundaries.md): define architectural zones, `public_files` encapsulation, built-in `layered` and `hexagonal` presets, `allow_external` and `deny_external` third-party package glob rules, and pre-edit `codeint guard` checks.
 - [Test gap](docs/guide/test-gap.md): measure untested Production Function mass from LCOV and Cobertura XML Coverage reports, set up each test tool, and enforce a Test gap Budget.
 - [Hazards](docs/guide/hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.
@@ -26,7 +26,7 @@
 - [Programmatic API](docs/programmatic.md): JavaScript/TypeScript SDK (`codeint` npm package) and Rust library API (`codeint-cli`).
 - [Plugins](docs/plugins.md): build external WebAssembly Language and Metric plugins against `codeint:plugin@0.4.0` using `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`, zero WASI imports), pin SHA-256 digests, declare in config, and test.
 - [Plugin SDK HOW-TO](crates/plugin-sdk/HOW-TO.md): call contract and Cargo features for `codeint-plugin-sdk`.
-- [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint.jsonc` and `codeint.json`.
+- [JSON Schema](schema/codeint.schema.json): JSON Schema for `codeint` JSON, JSONC, TOML, and YAML configuration files.
 - [Glossary](GLOSSARY.md): canonical domain terminology.
 - [Evaluation suite runner](eval/HOW-TO.md): measure the pinned public corpus in `eval/corpus.json` or stratified panels in `eval/panels.json` in scratch folders with native-parser recall oracles, 3-run timing, and peak memory.
 - [Evaluation report](docs/evaluation.md): published 410-repository Reference range panels, native-parser recall, 3-run speed and memory benchmarks, agent-reviewed false positive rates ([audit verdicts](docs/evaluation-audit.json)), and pinned before-after case studies ([machine-readable summary](docs/evaluation-summary.json)).
@@ -63,3 +63,4 @@
 - [ADR 0031: Shell Reference ranges](docs/adr/0031-shell-reference-ranges.md)
 - [ADR 0032: Context-anchored Finding matching and Baseline schema version 2](docs/adr/0032-context-anchored-finding-matching.md)
 - [ADR 0033: Configurable default output format and concise `text` output](docs/adr/0033-default-output-format-and-text.md)
+- [ADR 0034: Support TOML and YAML configuration files alongside JSON and JSONC](docs/adr/0034-config-file-formats.md)

@@ -5,9 +5,6 @@ use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_json::Value;
 
 pub(crate) const CONFIGURATION_FILE_NAME: &str = "codeint.json";
-pub(crate) const CONFIGURATION_JSONC_FILE_NAME: &str = "codeint.jsonc";
-pub(crate) const DOT_CODEINT_CONFIGURATION_FILE_NAME: &str = ".codeint/config.json";
-pub(crate) const DOT_CODEINT_CONFIGURATION_JSONC_FILE_NAME: &str = ".codeint/config.jsonc";
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message} at line {line} column {column}")]
@@ -17,29 +14,68 @@ pub struct JsoncError {
     pub column: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigSyntax {
+    Json,
+    Toml,
+    Yaml,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConfigFileKind {
     #[default]
     Json,
     Jsonc,
+    Toml,
+    Yaml,
+    Yml,
     DotCodeintJson,
     DotCodeintJsonc,
+    DotCodeintToml,
+    DotCodeintYaml,
+    DotCodeintYml,
 }
 
 impl ConfigFileKind {
-    pub const ALL: [ConfigFileKind; 4] = [
+    pub const ALL: [ConfigFileKind; 10] = [
         ConfigFileKind::Json,
         ConfigFileKind::Jsonc,
+        ConfigFileKind::Toml,
+        ConfigFileKind::Yaml,
+        ConfigFileKind::Yml,
         ConfigFileKind::DotCodeintJson,
         ConfigFileKind::DotCodeintJsonc,
+        ConfigFileKind::DotCodeintToml,
+        ConfigFileKind::DotCodeintYaml,
+        ConfigFileKind::DotCodeintYml,
     ];
 
     pub fn file_name(self) -> &'static str {
         match self {
             ConfigFileKind::Json => CONFIGURATION_FILE_NAME,
-            ConfigFileKind::Jsonc => CONFIGURATION_JSONC_FILE_NAME,
-            ConfigFileKind::DotCodeintJson => DOT_CODEINT_CONFIGURATION_FILE_NAME,
-            ConfigFileKind::DotCodeintJsonc => DOT_CODEINT_CONFIGURATION_JSONC_FILE_NAME,
+            ConfigFileKind::Jsonc => "codeint.jsonc",
+            ConfigFileKind::Toml => "codeint.toml",
+            ConfigFileKind::Yaml => "codeint.yaml",
+            ConfigFileKind::Yml => "codeint.yml",
+            ConfigFileKind::DotCodeintJson => ".codeint/config.json",
+            ConfigFileKind::DotCodeintJsonc => ".codeint/config.jsonc",
+            ConfigFileKind::DotCodeintToml => ".codeint/config.toml",
+            ConfigFileKind::DotCodeintYaml => ".codeint/config.yaml",
+            ConfigFileKind::DotCodeintYml => ".codeint/config.yml",
+        }
+    }
+
+    pub fn syntax(self) -> ConfigSyntax {
+        match self {
+            ConfigFileKind::Json
+            | ConfigFileKind::Jsonc
+            | ConfigFileKind::DotCodeintJson
+            | ConfigFileKind::DotCodeintJsonc => ConfigSyntax::Json,
+            ConfigFileKind::Toml | ConfigFileKind::DotCodeintToml => ConfigSyntax::Toml,
+            ConfigFileKind::Yaml
+            | ConfigFileKind::Yml
+            | ConfigFileKind::DotCodeintYaml
+            | ConfigFileKind::DotCodeintYml => ConfigSyntax::Yaml,
         }
     }
 }
@@ -93,6 +129,28 @@ pub enum ConfigurationFileError {
         file: ConfigFileKind,
         #[source]
         source: JsoncError,
+    },
+    #[error("{file} is not valid TOML: {message}")]
+    InvalidToml {
+        file: ConfigFileKind,
+        message: String,
+    },
+    #[error("{file} is not valid YAML: {message}")]
+    InvalidYaml {
+        file: ConfigFileKind,
+        message: String,
+    },
+    #[error(
+        "{file}: {key} uses a TOML date-time value, which codeint configuration does not support"
+    )]
+    UnsupportedTomlDatetime { file: ConfigFileKind, key: KeyPath },
+    #[error(
+        "{file} specifies conflicting schema URLs in its leading schema comment ({directive_url:?}) and $schema key ({key_url:?})"
+    )]
+    ConflictingSchemaDirectives {
+        file: ConfigFileKind,
+        directive_url: String,
+        key_url: String,
     },
     #[error(
         "{file} has an unknown key {key}; the keys allowed there are {}",
@@ -402,6 +460,10 @@ impl ConfigurationFileError {
             | BrokenSymlink { file }
             | NotJson { file, .. }
             | InvalidJsonc { file, .. }
+            | InvalidToml { file, .. }
+            | InvalidYaml { file, .. }
+            | UnsupportedTomlDatetime { file, .. }
+            | ConflictingSchemaDirectives { file, .. }
             | UnknownKey { file, .. }
             | WrongType { file, .. }
             | OutOfRange { file, .. }

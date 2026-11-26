@@ -11,6 +11,7 @@ mod boundaries;
 mod churn;
 mod codeowners;
 mod config;
+mod config_formats;
 mod coupling;
 mod dependencies;
 mod diff;

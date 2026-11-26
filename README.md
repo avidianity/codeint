@@ -73,7 +73,7 @@ Beyond static snapshots, codeint helps humans and coding agents understand how f
 
 ### Built for CI and coding agents
 
-- **JSONC configuration and `.codeint/` state**: configure codeint in `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` (`codeint init` writes a starter `codeint.jsonc`), set an optional default output `format` (`toon`, `text`, `json`, `sarif`, or `markdown`) for analysis and report commands, lock in monotonic whole-repository ceilings in `.codeint/ratchet.json` via `codeint ratchet update`, and freeze existing Findings in `.codeint/baseline.json` via `codeint baseline update`.
+- **JSON, JSONC, TOML, and YAML configuration with `.codeint/` state**: configure codeint in `codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}` (`codeint init` writes `codeint.jsonc` by default, or pass `--format json|toml|yaml`), set an optional default output `format` (`toon`, `text`, `json`, `sarif`, or `markdown`) for analysis and report commands, lock in monotonic whole-repository ceilings in `.codeint/ratchet.json` via `codeint ratchet update`, and freeze existing Findings in `.codeint/baseline.json` via `codeint baseline update`.
 - **Single-scan multi-format reporting**: save `codeint check --format json` or `codeint diff --format json` once, then re-render losslessly into concise monochrome `text`, `toon`, `json`, `sarif`, or `markdown` with `codeint report`.
 - **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, verify repository health offline with `codeint doctor`, and check an external Wasm Plugin against the Plugin contract with `codeint plugin test`.
 - **First-class MCP integration**: run `codeint agent status` and `codeint agent install` to register the local stdio MCP server (`codeint mcp`) for Claude Code, Cursor, and Codex, exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
@@ -137,7 +137,7 @@ codeint plugin test plugins/my-plugin.wasm
 codeint agent install
 ```
 
-- `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema`.
+- `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema` (pass `--format json`, `--format toml`, or `--format yaml` for `codeint.json`, `codeint.toml`, or `codeint.yaml`).
 - `codeint init --adopt` onboards an existing codebase in one step: it writes the starter `codeint.jsonc` with `per_file: true`, zero Budgets for each recorded Metric, and commented `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json` from the current state, and prints a pull-request workflow, without replacing any existing file ([adoption guide](./docs/guide/adopting-on-an-existing-codebase.md)).
 - `codeint check` measures the working tree and prints each Metric with its Findings.
 - `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget, Ratchet, or Regression failure.

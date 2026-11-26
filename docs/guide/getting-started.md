@@ -24,7 +24,7 @@ npx codeint check
 
 ## First measurements inside a Git repository
 
-1. Create a starter `codeint.jsonc` pinned to your installed version's JSON schema (never overwriting an existing `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc`).
+1. Create a starter configuration file pinned to your installed version's JSON schema (writes `codeint.jsonc` by default, or pass `--format json|toml|yaml`; never overwrites an existing config across `codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}`).
    When codeint finds two or more Workspace packages, or a single-package repository matching at least two zones of the `layered` or `hexagonal` preset, it includes a commented-out `boundaries` starter suggestion that stays inactive until you uncomment it:
 
    ```sh
@@ -137,6 +137,6 @@ Use codeint before editing or refactoring to understand architectural rules and 
 
 - `0`: succeeded with no Budget, Ratchet, Regression, blocking `codeint doctor` error, or failed `codeint plugin test` check.
 - `1`: succeeded, and at least one Budget, Ratchet, Regression, blocking `codeint doctor` error, or `codeint plugin test` check failed.
-- `2`: operational error (invalid configuration file, more than one configuration file across `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, and `.codeint/config.jsonc`, Ratchet or Baseline Metric version mismatch, missing folder, unknown option, or not inside a Git repository).
+- `2`: operational error (invalid configuration file, more than one configuration file across `codeint.{json,jsonc,toml,yaml,yml}` and `.codeint/config.{json,jsonc,toml,yaml,yml}`, Ratchet or Baseline Metric version mismatch, missing folder, unknown option, or not inside a Git repository).
 
 See [docs/reference.md](../reference.md) for every command flag and output format (`toon`, `json`, `sarif`, `markdown`, `text`).

@@ -444,7 +444,7 @@ fn file_access_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str
     use ConfigurationFileError as E;
     match error {
         E::AmbiguousConfigFiles { .. } => Some(Cow::Borrowed(
-            "Keep only one configuration file among codeint.json, codeint.jsonc, .codeint/config.json, and .codeint/config.jsonc, and remove the others.",
+            "Keep only one configuration file among codeint.{json,jsonc,toml,yaml,yml} and .codeint/config.{json,jsonc,toml,yaml,yml}, and remove the others.",
         )),
         E::Unreadable { file, .. } => Some(Cow::Owned(format!(
             "Check that {file} is a file you have permission to read, then run codeint again."
@@ -454,6 +454,16 @@ fn file_access_remedy(error: &ConfigurationFileError) -> Option<Cow<'static, str
         ))),
         E::NotJson { file, .. } | E::InvalidJsonc { file, .. } => Some(Cow::Owned(format!(
             "Fix the JSON syntax of {file} at that line and column."
+        ))),
+        E::InvalidToml { file, .. } => Some(Cow::Owned(format!("Fix the TOML syntax of {file}."))),
+        E::InvalidYaml { file, .. } => Some(Cow::Owned(format!(
+            "Fix the YAML syntax of {file}; use a single mapping document with string keys and no duplicate keys, anchors, or aliases."
+        ))),
+        E::UnsupportedTomlDatetime { file, .. } => Some(Cow::Owned(format!(
+            "Replace the TOML date-time value in {file} with the expected string or number type."
+        ))),
+        E::ConflictingSchemaDirectives { file, .. } => Some(Cow::Owned(format!(
+            "Keep only one schema URL in {file}, or make the leading schema comment and $schema key match."
         ))),
         E::NewerSchemaVersion { file, .. } => Some(Cow::Owned(format!(
             "Run codeint update (or upgrade the codeint npm package) to match or exceed the $schema version, or lower the $schema tag in {file}."

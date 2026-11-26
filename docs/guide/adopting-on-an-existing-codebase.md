@@ -23,9 +23,10 @@ Run this at the root of your Git repository, or in any folder inside it:
 codeint init --adopt
 ```
 
+Pass `--format json`, `--format toml`, or `--format yaml` to write `codeint.json`, `codeint.toml`, or `codeint.yaml` instead of the default `codeint.jsonc`.
 The command does five things:
 
-1. It writes a starter `codeint.jsonc` with `"regression_limits": { "per_file": true }` and a commented-out `new_file_budgets` block.
+1. It writes a starter configuration file (`codeint.jsonc` by default) with `"regression_limits": { "per_file": true }` and (for `jsonc`, `toml`, and `yaml`) a commented-out `new_file_budgets` block.
 2. It measures the whole repository once.
 3. It writes `.codeint/ratchet.json` and `.codeint/baseline.json` from that measurement.
 4. It adds a zero Budget under `budgets.production` and `budgets.test` for each Metric that the Baseline records, such as `"erosion": 0`, and a zero Budget for each Dependency hygiene Metric.
@@ -33,7 +34,7 @@ The command does five things:
 5. It prints the next steps, including a pull-request workflow for GitHub Actions.
 
 It never replaces a file.
-When `codeint.jsonc`, `codeint.json`, `.codeint/config.jsonc`, `.codeint/config.json`, `.codeint/ratchet.json`, or `.codeint/baseline.json` already exists, it stops with exit code 2 and writes nothing.
+When any supported configuration file (`codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}`), `.codeint/ratchet.json`, or `.codeint/baseline.json` already exists, it stops with exit code 2 and writes nothing.
 In that case, edit the existing file, or use the commands in the sections below.
 When only the configuration file exists, the message names `codeint ratchet update` and `codeint baseline update`, which create the Ratchet and Baseline for it.
 

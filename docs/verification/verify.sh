@@ -500,6 +500,31 @@ drive_init() {
   run_case "$work_adopt_state" "$dir/adopt_existing_state" "$BIN_PATH" init --adopt
   sha256_file "$work_adopt_state/.codeint/baseline.json" > "$dir/adopt_existing_state.after.sha256"
   find "$work_adopt_state" -path "$work_adopt_state/.git" -prune -o -type f -print | sed "s|^$work_adopt_state/||" | sort > "$dir/adopt_existing_state.files"
+
+  local work_toml="$RUN_DIR/work-init-toml"
+  fresh_work_copy "$INIT_REPO" "$work_toml"
+  run_case "$work_toml" "$dir/format_toml" "$BIN_PATH" init --format toml
+  if [ -f "$work_toml/codeint.toml" ]; then
+    cp "$work_toml/codeint.toml" "$dir/codeint.toml"
+  fi
+  run_case "$work_toml" "$dir/format_toml_doctor" "$BIN_PATH" doctor --format json
+  run_case "$work_toml" "$dir/format_toml_check" "$BIN_PATH" check --format json
+
+  local work_yaml="$RUN_DIR/work-init-yaml"
+  fresh_work_copy "$INIT_REPO" "$work_yaml"
+  run_case "$work_yaml" "$dir/format_yaml" "$BIN_PATH" init --format yaml
+  if [ -f "$work_yaml/codeint.yaml" ]; then
+    cp "$work_yaml/codeint.yaml" "$dir/codeint.yaml"
+  fi
+  run_case "$work_yaml" "$dir/format_yaml_doctor" "$BIN_PATH" doctor --format json
+  run_case "$work_yaml" "$dir/format_yaml_check" "$BIN_PATH" check --format json
+
+  local work_json="$RUN_DIR/work-init-json"
+  fresh_work_copy "$INIT_REPO" "$work_json"
+  run_case "$work_json" "$dir/format_json" "$BIN_PATH" init --format json
+  if [ -f "$work_json/codeint.json" ]; then
+    cp "$work_json/codeint.json" "$dir/codeint.strict.json"
+  fi
 }
 
 drive_ratchet() {
@@ -1305,6 +1330,22 @@ if "init" in features:
     adopt_budgets = adopt_cfg_json.get("budgets", {}).get("production", {}) if isinstance(adopt_cfg_json, dict) else {}
     check("init.adopt_fresh.zero_budgets", adopt_budgets.get("erosion") == 0 and "test_gap" not in adopt_budgets, str(adopt_budgets))
     check("init.adopt_fresh.ratchet", isinstance(adopt_ratchet, dict) and "_parse_error" not in adopt_ratchet, str(adopt_ratchet))
+
+    check("init.format_toml.exit", read_exit("init/format_toml") == 0, str(read_exit("init/format_toml")))
+    toml_cfg = read_text("init/codeint.toml") or ""
+    check("init.format_toml.schema", toml_cfg.startswith("#:schema https://"), toml_cfg)
+    check("init.format_toml_doctor.exit", read_exit("init/format_toml_doctor") == 0, str(read_exit("init/format_toml_doctor")))
+    check("init.format_toml_check.exit", read_exit("init/format_toml_check") == 0, str(read_exit("init/format_toml_check")))
+
+    check("init.format_yaml.exit", read_exit("init/format_yaml") == 0, str(read_exit("init/format_yaml")))
+    yaml_cfg = read_text("init/codeint.yaml") or ""
+    check("init.format_yaml.schema", yaml_cfg.startswith("# yaml-language-server: $schema=https://"), yaml_cfg)
+    check("init.format_yaml_doctor.exit", read_exit("init/format_yaml_doctor") == 0, str(read_exit("init/format_yaml_doctor")))
+    check("init.format_yaml_check.exit", read_exit("init/format_yaml_check") == 0, str(read_exit("init/format_yaml_check")))
+
+    check("init.format_json.exit", read_exit("init/format_json") == 0, str(read_exit("init/format_json")))
+    strict_json = read_json("init/codeint.strict.json")
+    check("init.format_json.strict", isinstance(strict_json, dict) and "$schema" in strict_json, str(strict_json))
     adopt_baseline = read_json("init/adopt_fresh.baseline.json")
     adopt_erosion = []
     if isinstance(adopt_baseline, dict):

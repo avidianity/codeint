@@ -1,19 +1,21 @@
-# Configuration (`codeint.jsonc`, `codeint.json`, or `.codeint/config.*`)
+# Configuration (JSON, JSONC, TOML, and YAML)
 
-codeint reads `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` from the root of your Git repository.
-All four files accept JSONC syntax: `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
-Keep only one configuration file across those four paths; having more than one present stops the run with exit code `2` and lists every conflicting file.
+codeint reads one dedicated configuration file from the root of your Git repository across ten supported paths: `codeint.json`, `codeint.jsonc`, `codeint.toml`, `codeint.yaml`, `codeint.yml`, `.codeint/config.json`, `.codeint/config.jsonc`, `.codeint/config.toml`, `.codeint/config.yaml`, or `.codeint/config.yml` ([ADR 0034](../adr/0034-config-file-formats.md)).
+JSON and JSONC files accept `//` line comments, `/* ... */` block comments, and trailing commas before `}` or `]`.
+TOML and YAML files use the exact same schema and keys: empty or comment-only files resolve to defaults, while non-mapping roots, duplicate keys, multi-document YAML streams, non-string YAML keys, YAML anchors, aliases, merge keys, non-finite floats, and TOML native date-time values stop the run with exit code `2`.
+Keep only one configuration file across those ten paths; having more than one present stops the run with exit code `2` and lists every conflicting file.
 Without any configuration file, codeint measures every supported language with default settings and no hard Budgets.
 
 ## Starter configuration
 
-Run `codeint init` to generate a starter `codeint.jsonc` with a versioned `$schema` URL for editor autocomplete.
-`codeint init` never replaces an existing configuration file at `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc`.
-When built-in Language plugins discover two or more Workspace packages, `codeint init` appends commented-out starter `boundaries.zones` entries for each package.
-In a single-package repository whose Production source folders match at least two zones of the `layered` or `hexagonal` preset, `codeint init` appends a commented-out `boundaries.preset` suggestion.
+Run `codeint init` to generate a starter `codeint.jsonc` with a versioned `$schema` URL for editor autocomplete, or pass `--format json`, `--format toml`, or `--format yaml` to write `codeint.json` (strict comment-free JSON), `codeint.toml` (with a leading `#:schema` comment), or `codeint.yaml` (with a leading `# yaml-language-server: $schema=` comment).
+`codeint init` never replaces an existing configuration file at any of the ten supported paths.
+When built-in Language plugins discover two or more Workspace packages, `codeint init` appends commented-out starter `boundaries.zones` entries for each package (omitted for strict `--format json`).
+In a single-package repository whose Production source folders match at least two zones of the `layered` or `hexagonal` preset, `codeint init` appends a commented-out `boundaries.preset` suggestion (omitted for strict `--format json`).
 In flat or custom repositories without those signals, `codeint init` emits no guessed boundary zones.
-When you upgrade via `codeint update`, codeint updates that `$schema` tag automatically.
-If your config file pins an official `$schema` tag newer than the running binary, codeint stops with exit code `2` and instructs you to upgrade.
+For TOML and YAML, codeint recognizes both the leading schema comment directive and a top-level `$schema` key; specifying both with different URLs stops the run with exit code `2`.
+When you upgrade via `codeint update`, codeint updates that schema tag automatically across JSON, JSONC, TOML, and YAML.
+If your config file pins an official schema tag newer than the running binary, codeint stops with exit code `2` and instructs you to upgrade.
 
 ```jsonc
 {

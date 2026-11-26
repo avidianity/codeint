@@ -7,8 +7,8 @@ use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnFormat, ChurnSince};
 use crate::command::{
     AgentClient, AgentFormat, BaselineFormat, ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat,
-    GuardFormat, ImpactFormat, PluginTestFormat, RatchetFormat, ReportFormat, ReportRenderFormat,
-    SchemaFormat, TraceFormat, TrendFormat,
+    GuardFormat, ImpactFormat, InitFormat, PluginTestFormat, RatchetFormat, ReportFormat,
+    ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat,
 };
 use crate::coupling::{CouplingRatio, DEFAULT_MAX_COMMIT_FILES, DEFAULT_MIN_CO_CHANGES};
 use crate::resolved::{BudgetOverride, SourceSetOverride};
@@ -90,7 +90,7 @@ pub(super) enum CommandArguments {
     )]
     Impact(ImpactArguments),
     #[command(
-        about = "Write a starter codeint.jsonc at the root of the Git repository that contains the current folder"
+        about = "Write a starter configuration file at the root of the Git repository that contains the current folder"
     )]
     Init {
         #[arg(
@@ -98,6 +98,13 @@ pub(super) enum CommandArguments {
             help = "Also enable per-file Regression checks, suggest new-file Budgets, write .codeint/ratchet.json and .codeint/baseline.json from the current state, and print pull-request CI instructions"
         )]
         adopt: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = InitFormat::Jsonc,
+            help = "The configuration file format to write"
+        )]
+        format: InitFormat,
     },
     #[command(about = "Update a standalone codeint binary in place from GitHub Releases")]
     Update {

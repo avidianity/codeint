@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 use codeint_model::{Metric, MetricScope, RepoPath, SourceSet};
 
 use super::schema::{ConfigurationFile, LanguageGlobs};
+use super::starter_formats::{StarterRenderInput, StructuredSyntax, render_structured_starter};
 use crate::baseline::MeasuredBaselineMetric;
 use crate::boundaries::BoundaryPreset;
-use crate::config_error::{CONFIGURATION_JSONC_FILE_NAME, ConfigFileKind};
+use crate::command::InitFormat;
+use crate::config_error::ConfigFileKind;
 
 #[cfg(test)]
 mod tests;
@@ -101,7 +103,7 @@ pub fn published_schema_address() -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StarterKind {
+pub(super) enum StarterKind {
     Standard,
     Adoption,
 }
@@ -111,11 +113,21 @@ pub fn write_starter_configuration(
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
 ) -> Result<PathBuf, StarterConfigurationError> {
+    write_starter_configuration_in_format(repository_root, languages, boundaries, InitFormat::Jsonc)
+}
+
+pub fn write_starter_configuration_in_format(
+    repository_root: &Path,
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+    format: InitFormat,
+) -> Result<PathBuf, StarterConfigurationError> {
     write_starter(
         repository_root,
         languages,
         boundaries,
         StarterKind::Standard,
+        format,
     )
 }
 
@@ -123,12 +135,14 @@ pub fn write_adoption_starter_configuration(
     repository_root: &Path,
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
+    format: InitFormat,
 ) -> Result<PathBuf, StarterConfigurationError> {
     write_starter(
         repository_root,
         languages,
         boundaries,
         StarterKind::Adoption,
+        format,
     )
 }
 
@@ -137,13 +151,15 @@ pub fn write_adoption_zero_budgets(
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
     recorded: &[MeasuredBaselineMetric],
+    format: InitFormat,
 ) -> Result<PathBuf, StarterConfigurationError> {
-    let path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
-    let text = starter_configuration_text_with_boundaries(
+    let path = repository_root.join(format.file_name());
+    let text = starter_configuration_text_for_format(
         languages,
         boundaries,
         StarterKind::Adoption,
         &zero_budget_keys(recorded),
+        format,
     );
     std::fs::write(&path, text).map_err(|source| StarterConfigurationError::Unwritable {
         path: path.clone(),
@@ -152,10 +168,10 @@ pub fn write_adoption_zero_budgets(
     Ok(path)
 }
 
-struct ZeroBudgetKeys {
-    production: Vec<&'static str>,
-    test: Vec<&'static str>,
-    dependencies: Vec<&'static str>,
+pub(super) struct ZeroBudgetKeys {
+    pub(super) production: Vec<&'static str>,
+    pub(super) test: Vec<&'static str>,
+    pub(super) dependencies: Vec<&'static str>,
 }
 
 impl ZeroBudgetKeys {
@@ -228,9 +244,10 @@ fn write_starter(
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
     kind: StarterKind,
+    format: InitFormat,
 ) -> Result<PathBuf, StarterConfigurationError> {
-    for kind in ConfigFileKind::ALL {
-        let existing_path = repository_root.join(kind.file_name());
+    for existing_kind in ConfigFileKind::ALL {
+        let existing_path = repository_root.join(existing_kind.file_name());
         match std::fs::symlink_metadata(&existing_path) {
             Ok(_) => {
                 return Err(StarterConfigurationError::AlreadyExists {
@@ -250,12 +267,13 @@ fn write_starter(
             }
         }
     }
-    let path = repository_root.join(CONFIGURATION_JSONC_FILE_NAME);
-    let text = starter_configuration_text_with_boundaries(
+    let path = repository_root.join(format.file_name());
+    let text = starter_configuration_text_for_format(
         languages,
         boundaries,
         kind,
         &ZeroBudgetKeys::none(),
+        format,
     );
     let unwritable = |source| StarterConfigurationError::Unwritable {
         path: path.clone(),
@@ -288,13 +306,112 @@ fn starter_configuration_text(languages: &[DetectedLanguage]) -> String {
     )
 }
 
+fn starter_configuration_text_for_format(
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+    kind: StarterKind,
+    zero_budgets: &ZeroBudgetKeys,
+    format: InitFormat,
+) -> String {
+    let schema_address = published_schema_address();
+    match format {
+        InitFormat::Jsonc => starter_json_text(
+            &schema_address,
+            languages,
+            boundaries,
+            kind,
+            zero_budgets,
+            true,
+        ),
+        InitFormat::Json => starter_json_text(
+            &schema_address,
+            languages,
+            boundaries,
+            kind,
+            zero_budgets,
+            false,
+        ),
+        InitFormat::Toml => render_structured(
+            StructuredSyntax::Toml,
+            &schema_address,
+            languages,
+            boundaries,
+            kind,
+            zero_budgets,
+        ),
+        InitFormat::Yaml => render_structured(
+            StructuredSyntax::Yaml,
+            &schema_address,
+            languages,
+            boundaries,
+            kind,
+            zero_budgets,
+        ),
+    }
+}
+
+fn render_structured(
+    syntax: StructuredSyntax,
+    schema_address: &str,
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+    kind: StarterKind,
+    zero_budgets: &ZeroBudgetKeys,
+) -> String {
+    let language_pairs: Vec<(String, Vec<RepoPath>)> = languages
+        .iter()
+        .map(|lang| (lang.plugin.clone(), lang.include.clone()))
+        .collect();
+    let zones: Option<Vec<(String, String)>> = match boundaries {
+        Some(StarterBoundaries::WorkspaceZones(zones)) => Some(
+            zones
+                .iter()
+                .map(|z| (z.name.clone(), z.pattern.clone()))
+                .collect(),
+        ),
+        _ => None,
+    };
+    let preset = match boundaries {
+        Some(StarterBoundaries::Preset(preset)) => Some(*preset),
+        _ => None,
+    };
+    let input = StarterRenderInput {
+        schema_address,
+        languages: &language_pairs,
+        boundary_zones: zones.as_deref(),
+        boundary_preset: preset,
+        adoption: kind == StarterKind::Adoption,
+        production_zeros: &zero_budgets.production,
+        test_zeros: &zero_budgets.test,
+        dependency_zeros: &zero_budgets.dependencies,
+    };
+    render_structured_starter(syntax, &input)
+}
+
+#[cfg(test)]
 fn starter_configuration_text_with_boundaries(
     languages: &[DetectedLanguage],
     boundaries: Option<&StarterBoundaries>,
     kind: StarterKind,
     zero_budgets: &ZeroBudgetKeys,
 ) -> String {
-    let schema_address = published_schema_address();
+    starter_configuration_text_for_format(
+        languages,
+        boundaries,
+        kind,
+        zero_budgets,
+        InitFormat::Jsonc,
+    )
+}
+
+fn starter_json_text(
+    schema_address: &str,
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+    kind: StarterKind,
+    zero_budgets: &ZeroBudgetKeys,
+    with_comments: bool,
+) -> String {
     let detected_languages = (!languages.is_empty()).then(|| {
         languages
             .iter()
@@ -311,9 +428,11 @@ fn starter_configuration_text_with_boundaries(
             .collect()
     });
     let starter = match kind {
-        StarterKind::Standard => ConfigurationFile::starter(schema_address, detected_languages),
+        StarterKind::Standard => {
+            ConfigurationFile::starter(schema_address.to_owned(), detected_languages)
+        }
         StarterKind::Adoption => {
-            ConfigurationFile::adoption_starter(schema_address, detected_languages)
+            ConfigurationFile::adoption_starter(schema_address.to_owned(), detected_languages)
         }
     };
     let mut json = serde_json::to_value(&starter)
@@ -323,6 +442,19 @@ fn starter_configuration_text_with_boundaries(
     }
     zero_budgets.insert_into(&mut json);
     let rendered = format!("{json:#}\n");
+    if !with_comments {
+        return rendered;
+    }
+    add_jsonc_hints(rendered, languages, boundaries, kind, zero_budgets)
+}
+
+fn add_jsonc_hints(
+    rendered: String,
+    languages: &[DetectedLanguage],
+    boundaries: Option<&StarterBoundaries>,
+    kind: StarterKind,
+    zero_budgets: &ZeroBudgetKeys,
+) -> String {
     let rendered = if zero_budgets.production.is_empty() {
         rendered.replacen(
             "  \"budgets\": {\n    \"production\": {},",

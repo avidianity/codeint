@@ -39,9 +39,9 @@ use codeint_report::{ExitCodeSchema, ReportError, render_baseline_update};
 pub use codeint_config::{
     AgentClient, AgentFormat, BaselineFormat, BudgetOverride, CalendarDay, ChurnFormat, ChurnSince,
     ChurnWindow, ConfigFormat, ConfigOverrides, CouplingRatio, CouplingRatioError,
-    CouplingSettings, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, PluginHostConfig,
-    RatchetFormat, ReportFormat, SchemaFormat, SourceSetOverride, TraceFormat, TrendFormat,
-    TrendRange,
+    CouplingSettings, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat, InitFormat,
+    PluginHostConfig, RatchetFormat, ReportFormat, SchemaFormat, SourceSetOverride, TraceFormat,
+    TrendFormat, TrendRange,
 };
 pub use codeint_report::{
     AgentInstallAction, AgentInstallEntry, AgentInstallReport, AgentStatusEntry, AgentStatusReport,
@@ -265,7 +265,8 @@ pub fn trace(
 }
 
 pub fn init(folder: &Path) -> Result<PathBuf, CodeintError> {
-    init::init(folder).map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
+    init::init(folder, InitFormat::Jsonc)
+        .map_err(|err| CodeintError::from_cli_error(CliError::Init(err)))
 }
 
 pub fn guard(folder: &Path, target: &Path) -> Result<GuardReport, CodeintError> {
@@ -546,8 +547,9 @@ fn run_auxiliary_command(command: Command) -> Result<Outcome, CliError> {
         Command::Init {
             folder,
             adopt,
+            format,
             plugin_host,
-        } => run_init(&folder, adopt, &plugin_host),
+        } => run_init(&folder, adopt, format, &plugin_host),
         Command::Update {
             check_only,
             version,
@@ -845,14 +847,15 @@ fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcom
 fn run_init(
     folder: &Path,
     adopt: bool,
+    format: InitFormat,
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
     if adopt {
-        let adopted = init::adopt(folder, plugin_host)?;
+        let adopted = init::adopt(folder, format, plugin_host)?;
         print_report(&init::render_adoption(&adopted))?;
         return Ok(Outcome::Passed);
     }
-    let written = init::init(folder)?;
+    let written = init::init(folder, format)?;
     print_report(&format!("Wrote {}\n", written.display()))?;
     Ok(Outcome::Passed)
 }
