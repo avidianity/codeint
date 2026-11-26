@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::audit::AuditPopulation;
+use crate::ceilings::{Ceilings, ceiling_violations};
 use crate::corpus::{Corpus, CorpusEntry, SizeBucket, load_corpus};
 use crate::error::{EvaluationError, io_error};
 use crate::lowering::{LoweredFile, lower_language_files};
@@ -33,6 +34,8 @@ pub struct EvaluationConfig {
     pub runs: u32,
     pub audit_sample_size: usize,
     pub oracle_overrides: BTreeMap<String, PathBuf>,
+    pub require_oracles: bool,
+    pub ceilings: Ceilings,
 }
 
 fn absolute(path: &Path) -> Result<PathBuf, EvaluationError> {
@@ -114,8 +117,14 @@ fn evaluate_repository(
     population: &mut AuditPopulation,
 ) -> RepositoryResult {
     let mut result = RepositoryResult::pending(entry);
-    if let Err(error) = measure_repository(&mut result, entry, config, oracles, population) {
-        result.error = Some(error.to_string());
+    match measure_repository(&mut result, entry, config, oracles, population) {
+        Ok(()) => {
+            let violations = ceiling_violations(&result, &config.ceilings, config.require_oracles);
+            if !violations.is_empty() {
+                result.error = Some(violations.join("; "));
+            }
+        }
+        Err(error) => result.error = Some(error.to_string()),
     }
     result.passed =
         result.error.is_none() && result.exit_code == Some(0) && result.oracle.meets_bar();

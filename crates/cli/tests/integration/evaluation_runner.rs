@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use codeint_eval::{
-    AuditCategory, EvaluationConfig, EvaluationSummary, OracleStatus, RepositoryResult,
+    AuditCategory, Ceilings, EvaluationConfig, EvaluationSummary, OracleStatus, RepositoryResult,
     run_evaluation,
 };
 use tempfile::TempDir;
@@ -106,6 +106,8 @@ fn evaluation_runner_measures_local_repositories_in_scratch_folders_and_writes_r
         oracle_overrides: [("python".to_owned(), write_fake_oracle(work.path()))]
             .into_iter()
             .collect(),
+        require_oracles: false,
+        ceilings: Ceilings::default(),
     })
     .expect("evaluation runs");
 
@@ -295,6 +297,8 @@ fn evaluate_one(
         runs: 1,
         audit_sample_size: 10,
         oracle_overrides,
+        require_oracles: false,
+        ceilings: Ceilings::default(),
     })
     .expect("evaluation runs");
     repository(&summary, "local/special").clone()

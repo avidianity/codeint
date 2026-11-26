@@ -1,0 +1,139 @@
+name: corpus-eval
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+      - llms.txt
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corpus-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: never
+  MAX_WALL_SECONDS: "30"
+  MAX_RSS_MIB: "2048"
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install lld
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lld
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          prefix-key: v0-rust-${{ hashFiles('Cargo.toml') }}
+          shared-key: "ubuntu-rust-release"
+      - run: cargo build --release --locked --bin codeint --bin codeint-eval
+      - run: target/release/codeint --version
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: corpus-eval-binaries
+          path: |
+            target/release/codeint
+            target/release/codeint-eval
+          if-no-files-found: error
+          retention-days: 1
+
+  evaluate:
+    name: evaluate (${{ matrix.language }})
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - typescript-javascript
+          - rust
+          - python
+          - go
+          - php
+          - dart
+          - sql
+          - shell
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          sparse-checkout: eval/corpus.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: corpus-eval-binaries
+          path: bin
+      - run: chmod +x bin/codeint bin/codeint-eval
+      - name: Install the resource timer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y time
+      - if: matrix.language == 'python'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version: "1.24"
+          cache: false
+      - if: matrix.language == 'php'
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: "8.1"
+      - if: matrix.language == 'dart'
+        uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b
+        with:
+          sdk: "3.11"
+      - name: Evaluate the pinned repositories
+        env:
+          LANGUAGE: ${{ matrix.language }}
+        run: |
+          scratch_root="$RUNNER_TEMP/corpus-eval-scratch"
+          mkdir -p "$scratch_root"
+          bin/codeint-eval \
+            --codeint bin/codeint \
+            --language "$LANGUAGE" \
+            --scratch-root "$scratch_root" \
+            --output-dir "$RUNNER_TEMP/corpus-eval-report" \
+            --require-oracles \
+            --max-wall-seconds "$MAX_WALL_SECONDS" \
+            --max-rss-mib "$MAX_RSS_MIB"
+      - name: Report the evaluation
+        if: ${{ !cancelled() }}
+        run: |
+          report="$RUNNER_TEMP/corpus-eval-report/evaluation.md"
+          if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Confirm no clones remain
+        if: ${{ !cancelled() }}
+        run: |
+          scratch_root="$RUNNER_TEMP/corpus-eval-scratch"
+          [ -d "$scratch_root" ] || exit 0
+          leftovers=$(find "$scratch_root" -mindepth 1 -maxdepth 1)
+          rm -rf "$scratch_root"
+          if [ -n "$leftovers" ]; then
+            echo "Scratch folders outlived the run: $leftovers" >&2
+            exit 1
+          fi
