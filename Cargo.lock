@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-config",
  "codeint-eval",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-config"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "clap",
  "codeint-model",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-eval"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "clap",
  "codeint-model",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-git"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "gix",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-lang-dart"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "globset",
@@ -358,14 +358,14 @@ dependencies = [
 
 [[package]]
 name = "codeint-lang-go"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
 ]
 
 [[package]]
 name = "codeint-lang-php"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "globset",
@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-lang-python"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "globset",
@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-lang-rust"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "globset",
@@ -395,14 +395,14 @@ dependencies = [
 
 [[package]]
 name = "codeint-lang-shell"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
 ]
 
 [[package]]
 name = "codeint-lang-sql"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "sqlparser",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-lang-ts"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "globset",
@@ -427,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-metrics"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-model",
  "thiserror",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-model"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "schemars",
  "serde",
@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-plugin-host"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-config",
  "codeint-lang-dart",
@@ -464,7 +464,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-plugin-sdk"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "dlmalloc",
  "wit-bindgen",
@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "codeint-report"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "codeint-config",
  "codeint-metrics",
