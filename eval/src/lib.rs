@@ -23,7 +23,7 @@ pub use corpus::{CaseStudy, Corpus, CorpusEntry, SizeBucket, load_corpus};
 pub use error::EvaluationError;
 pub use recall::{LanguageRecall, RECALL_BAR, RecallCount};
 pub use review::{AuditReview, CategoryReview, Judgement, Verdict, VerdictFile, load_verdicts};
-pub use run::{EvaluationConfig, run_evaluation};
+pub use run::{EvaluationConfig, apply_verdicts_to_summary, run_evaluation};
 pub use scratch::{StaleSweep, sweep_stale_scratch_folders};
 pub use stats::Distribution;
 pub use summary::{

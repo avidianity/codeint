@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
 
@@ -34,6 +36,7 @@ pub struct EvaluationConfig {
     pub languages: Vec<String>,
     pub repositories: Vec<String>,
     pub runs: u32,
+    pub jobs: usize,
     pub audit_sample_size: usize,
     pub oracle_overrides: BTreeMap<String, PathBuf>,
     pub audit_verdicts: Option<PathBuf>,
@@ -69,11 +72,7 @@ pub fn run_evaluation(config: &EvaluationConfig) -> Result<EvaluationSummary, Ev
         .map(|entry| entry.language.as_str())
         .collect();
     let oracles = prepare_oracles(languages, oracle_workspace.path(), &config.oracle_overrides);
-    let mut population = AuditPopulation::default();
-    let repositories: Vec<RepositoryResult> = selected
-        .iter()
-        .map(|entry| evaluate_repository(entry, config, &oracles, &mut population))
-        .collect();
+    let (repositories, population) = evaluate_repositories(&selected, config, &oracles);
     drop(oracle_workspace);
     let case_studies = if config.case_studies {
         measure_case_studies(&corpus.case_studies, config)
@@ -125,6 +124,86 @@ fn select<'corpus>(
         });
     }
     Ok(selected)
+}
+
+pub fn apply_verdicts_to_summary(
+    summary_path: &Path,
+    verdicts_path: &Path,
+    output_dir: &Path,
+) -> Result<EvaluationSummary, EvaluationError> {
+    let text = std::fs::read_to_string(summary_path).map_err(io_error(summary_path))?;
+    let mut summary: EvaluationSummary =
+        serde_json::from_str(&text).map_err(|error| EvaluationError::Manifest {
+            path: summary_path.to_path_buf(),
+            message: error.to_string(),
+        })?;
+    let verdicts = load_verdicts(verdicts_path)?;
+    summary.audit_review = Some(review_samples(&summary.audit, &verdicts));
+    write_outputs(output_dir, &summary)?;
+    Ok(summary)
+}
+
+fn evaluate_repositories(
+    selected: &[&CorpusEntry],
+    config: &EvaluationConfig,
+    oracles: &BTreeMap<String, PreparedOracle>,
+) -> (Vec<RepositoryResult>, AuditPopulation) {
+    let total = selected.len();
+    let workers = config.jobs.max(1).min(total.max(1));
+    if workers == 1 {
+        let mut population = AuditPopulation::default();
+        let repositories = selected
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let result = evaluate_repository(entry, config, oracles, &mut population);
+                log_progress(index + 1, total, &result);
+                result
+            })
+            .collect();
+        return (repositories, population);
+    }
+    let next = AtomicUsize::new(0);
+    let completed = AtomicUsize::new(0);
+    let slots: Mutex<Vec<Option<(RepositoryResult, AuditPopulation)>>> =
+        Mutex::new((0..total).map(|_| None).collect());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(entry) = selected.get(index) else {
+                        break;
+                    };
+                    let mut local = AuditPopulation::default();
+                    let result = evaluate_repository(entry, config, oracles, &mut local);
+                    let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                    log_progress(done, total, &result);
+                    if let Ok(mut guard) = slots.lock() {
+                        guard[index] = Some((result, local));
+                    }
+                }
+            });
+        }
+    });
+    let mut population = AuditPopulation::default();
+    let mut repositories = Vec::with_capacity(total);
+    let finished = slots.into_inner().unwrap_or_default();
+    for slot in finished.into_iter().flatten() {
+        repositories.push(slot.0);
+        population.absorb(slot.1);
+    }
+    (repositories, population)
+}
+
+fn log_progress(done: usize, total: usize, result: &RepositoryResult) {
+    let verdict = if result.passed { "PASS" } else { "FAIL" };
+    let label = result.panel.as_deref().unwrap_or(result.language.as_str());
+    eprintln!(
+        "[{done}/{total}] {verdict} {} ({label}) {}",
+        result.name,
+        result.error.as_deref().unwrap_or_default()
+    );
 }
 
 fn evaluate_repository(

@@ -44,6 +44,13 @@ struct Arguments {
     runs: u32,
     #[arg(
         long,
+        default_value_t = 1,
+        value_name = "COUNT",
+        help = "How many repositories to evaluate in parallel"
+    )]
+    jobs: usize,
+    #[arg(
+        long,
         default_value_t = 100,
         help = "How many Findings to sample per audit category"
     )]
@@ -58,6 +65,13 @@ struct Arguments {
         help = "Read the reviewer's verdicts on the audit sample from FILE and report false positive rates"
     )]
     audit_verdicts: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires = "audit_verdicts",
+        help = "Apply --audit-verdicts to an existing evaluation-summary.json and write updated reports without re-measuring"
+    )]
+    apply_verdicts_to: Option<PathBuf>,
     #[arg(long, value_parser = parse_oracle, help = "Use PROGRAM as the oracle for LANGUAGE, as LANGUAGE=PROGRAM; may repeat")]
     oracle: Vec<(String, PathBuf)>,
     #[arg(
@@ -116,11 +130,30 @@ fn protected_repositories(manifest: &Path, current: &Path) -> Vec<PathBuf> {
     repositories
 }
 
-pub(crate) fn evaluation_config() -> Result<EvaluationConfig, std::io::Error> {
+pub(crate) enum RunMode {
+    Evaluate(Box<EvaluationConfig>),
+    ApplyVerdicts {
+        summary: PathBuf,
+        verdicts: PathBuf,
+        output_dir: PathBuf,
+    },
+}
+
+pub(crate) fn run_mode() -> Result<RunMode, std::io::Error> {
     let arguments = Arguments::parse();
+    if let (Some(summary), Some(verdicts)) = (
+        arguments.apply_verdicts_to,
+        arguments.audit_verdicts.clone(),
+    ) {
+        return Ok(RunMode::ApplyVerdicts {
+            summary,
+            verdicts,
+            output_dir: arguments.output_dir,
+        });
+    }
     let protected_repositories =
         protected_repositories(&arguments.manifest, &std::env::current_dir()?);
-    Ok(EvaluationConfig {
+    Ok(RunMode::Evaluate(Box::new(EvaluationConfig {
         manifest: arguments.manifest,
         codeint: arguments.codeint,
         output_dir: arguments.output_dir,
@@ -130,6 +163,7 @@ pub(crate) fn evaluation_config() -> Result<EvaluationConfig, std::io::Error> {
         languages: arguments.language,
         repositories: arguments.repository,
         runs: arguments.runs,
+        jobs: arguments.jobs.max(1),
         audit_sample_size: arguments.audit_sample_size,
         oracle_overrides: arguments.oracle.into_iter().collect::<BTreeMap<_, _>>(),
         audit_verdicts: arguments.audit_verdicts,
@@ -140,5 +174,5 @@ pub(crate) fn evaluation_config() -> Result<EvaluationConfig, std::io::Error> {
                 .max_rss_mib
                 .map(|mebibytes| mebibytes * 1024 * 1024),
         },
-    })
+    })))
 }

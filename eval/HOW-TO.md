@@ -19,10 +19,12 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
 | `--language <PLUGIN>` | every Language plugin | Measure only repositories of this Language plugin; may repeat |
 | `--repository <NAME>` | every repository | Measure only the repository with this name, such as `spf13/cobra`; may repeat |
 | `--runs <COUNT>` | `3` | How many times to run `codeint check` per repository |
+| `--jobs <COUNT>` | `1` | How many repositories to evaluate in parallel |
 | `--audit-sample-size <COUNT>` | `100` | How many Findings to sample per audit category |
 | `--scratch-root <DIR>` | system temporary folder | Create the `codeint-eval-*` scratch folders under this folder |
 | `--oracle <PLUGIN=PROGRAM>` | none | Use `PROGRAM` instead of the built-in native-parser oracle for one Language plugin |
 | `--audit-verdicts <FILE>` | none | Read a reviewer's verdicts on the audit sample and report false positive rates |
+| `--apply-verdicts-to <FILE>` | none | Apply `--audit-verdicts` to an existing `evaluation-summary.json` and rewrite the reports without re-measuring |
 | `--require-oracles` | off | Fail a repository whose Language plugin has an oracle that is skipped, instead of reporting `skipped` |
 | `--max-wall-seconds <SECONDS>` | none | Fail a repository whose median `codeint check` wall time is above `SECONDS`, or that has no wall time |
 | `--max-rss-mib <MIB>` | none | Fail a repository whose peak resident memory is above `MIB` mebibytes, or that has no peak resident memory measurement |

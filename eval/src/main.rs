@@ -4,7 +4,10 @@ mod config;
 
 use std::process::ExitCode;
 
-use codeint_eval::{EvaluationSummary, run_evaluation, sweep_stale_scratch_folders};
+use codeint_eval::{
+    EvaluationSummary, apply_verdicts_to_summary, run_evaluation, sweep_stale_scratch_folders,
+};
+use config::RunMode;
 
 fn print_results(summary: &EvaluationSummary) {
     for result in &summary.repositories {
@@ -19,12 +22,28 @@ fn print_results(summary: &EvaluationSummary) {
 }
 
 fn main() -> ExitCode {
-    let config = match config::evaluation_config() {
-        Ok(config) => config,
+    let mode = match config::run_mode() {
+        Ok(mode) => mode,
         Err(error) => {
             eprintln!("codeint-eval: cannot read the current folder: {error}");
             return ExitCode::from(2);
         }
+    };
+    let config = match mode {
+        RunMode::ApplyVerdicts {
+            summary,
+            verdicts,
+            output_dir,
+        } => {
+            return match apply_verdicts_to_summary(&summary, &verdicts, &output_dir) {
+                Ok(updated) => ExitCode::from(u8::from(!updated.passed)),
+                Err(error) => {
+                    eprintln!("codeint-eval: {error}");
+                    ExitCode::from(2)
+                }
+            };
+        }
+        RunMode::Evaluate(config) => config,
     };
     let sweep = sweep_stale_scratch_folders(config.scratch_root.as_deref());
     eprintln!(
