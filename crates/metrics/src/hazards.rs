@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile, Token, token_text_hash};
 
 use crate::FindingId;
-use crate::finding_id::FindingIds;
+use crate::finding_id::{FindingContext, FindingIds};
 
 #[cfg(test)]
 mod tests;
@@ -34,6 +34,7 @@ impl HazardLines {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HazardLineFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub path: RepoPath,
     pub line: u32,
     pub rule: String,
@@ -140,8 +141,10 @@ fn measure_grouped_file(
         .unwrap_or_default();
     for (line, rule) in active_rules {
         let content = std::iter::once(token_text_hash(rule)).chain(line_token_hashes(tokens, line));
+        let (id, content_hash) = ids.next_with_content_hash([path], content);
         findings.push(HazardLineFinding {
-            id: ids.next_in_source_order([path], content),
+            id,
+            context: FindingContext::for_span(content_hash, tokens, line, line),
             path: path.clone(),
             line,
             rule: rule.to_owned(),

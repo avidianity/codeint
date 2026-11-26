@@ -144,9 +144,9 @@ updated.write_atomic(repository.root())?;
 ```
 
 - The Baseline always lives at `BASELINE_PATH` (`.codeint/baseline.json`); `Baseline::load_optional` returns `Ok(None)` when it is absent and shares the Ratchet's repository-containment rules.
-- `Baseline::is_baselined(source_set, metric, id)` says whether a Finding is hidden; pass `None` as the Source set for Dependency hygiene Metrics.
-- `Baseline::version_mismatches` returns a `MetricVersionMismatch` for each measured Metric whose stored Metric version differs.
-- `Baseline::update` records every Finding on the first run, later only removes fixed Findings (counting new ones in `skipped_new`), refreshes Metrics whose Metric version changed, replaces every measured Metric's Findings when `reset` is `true`, and keeps entries of unmeasured Metrics.
+- `Baseline::parse` accepts `schema_version` `2` (structured `FindingAnchor` entries with hashed surrounding-line context anchors) and `schema_version` `1` (id-only strings, falling back to exact `id` matching).
+- `Baseline::match_findings(source_set, metric, candidates)` and `match_anchors(references, candidates)` match Findings by occurrence-free content hash and context anchors (exact `id` matching for id-only entries); pass `None` as the Source set for Dependency hygiene Metrics.
+- `Baseline::update` always writes `schema_version` `2`, records every Finding on the first run, later only removes fixed Findings (refreshing matched anchors and counting new ones in `skipped_new`), refreshes Metrics whose Metric version changed, replaces every measured Metric's Findings when `reset` is `true`, and keeps entries of unmeasured Metrics.
 
 ## Add a setting
 

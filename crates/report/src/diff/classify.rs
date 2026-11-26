@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_config::FindingsShown;
+use codeint_config::{FindingAnchor, FindingsShown, match_anchors};
 use codeint_model::Metric;
 
 use super::types::{
@@ -8,7 +8,9 @@ use super::types::{
     MetricChanges, SourceSetChanges,
 };
 use crate::baseline::Identified;
-use crate::measurement::{DependenciesMeasurement, MetricMeasurement, SourceSetMeasurement};
+use crate::measurement::{
+    DependenciesMeasurement, MetricMeasurement, SourceSetMeasurement, rehydrate_anchors,
+};
 use crate::ownership::{OwnedFinding, OwnershipOptions};
 use crate::{
     BoundaryFindingRow, CloneGroupFinding, CognitiveComplexityFinding, Decimal,
@@ -99,23 +101,28 @@ pub(super) fn source_set_changes(
         shown,
         ownership,
     );
-    let base_families = ownership.apply(base.clone_families);
-    let head_families = ownership.apply(head.clone_families);
+    let base_families = ownership.apply(rehydrate_anchors(
+        base.clone_families,
+        base.clone_family_anchors,
+    ));
+    let head_families = ownership.apply(rehydrate_anchors(
+        head.clone_families,
+        head.clone_family_anchors,
+    ));
     let clone_families = if base_families.is_empty() && head_families.is_empty() {
         None
     } else {
-        let base_ids = ids(&base_families);
-        let head_ids = ids(&head_families);
         let all_clustered = clustered_clone_group_ids(&head_families);
-        let new = missing_from(head_families, &base_ids, shown);
-        let resolved = missing_from(base_families, &head_ids, shown);
+        let (new_items, resolved_items, unchanged) = partition_diff(base_families, head_families);
+        let new = Findings::worst_first(new_items.into_iter(), shown);
+        let resolved = Findings::worst_first(resolved_items.into_iter(), shown);
         let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
             &duplication_groups.new.listed,
             &new.listed,
             &all_clustered,
         );
         Some(CloneFamilyChanges {
-            unchanged: head_ids.intersection(&base_ids).count(),
+            unchanged,
             new,
             resolved,
             unlisted_clone_family_group_ids,
@@ -198,28 +205,55 @@ fn classify<T: Identified + OwnedFinding + FileAttributed>(
     shown: FindingsShown,
     ownership: OwnershipOptions<'_>,
 ) -> MetricChanges<T> {
-    let base_findings = ownership.apply(base.findings_worst_first);
-    let head_findings = ownership.apply(head.findings_worst_first);
-    let base_ids = ids(&base_findings);
-    let head_ids = ids(&head_findings);
-    let new_items: Vec<T> = head_findings
-        .into_iter()
-        .filter(|finding| !base_ids.contains(finding.id()))
-        .collect();
+    let base_ratio = Decimal::rounded(base.ratio);
+    let head_ratio = Decimal::rounded(head.ratio);
+    let base_numerator = Decimal::rounded(base.numerator);
+    let head_numerator = Decimal::rounded(head.numerator);
+    let base_file_numerators = rounded_file_numerators(base.file_numerators);
+    let head_file_numerators = rounded_file_numerators(head.file_numerators);
+    let base_findings = ownership.apply(rehydrate_anchors(
+        base.findings_worst_first,
+        base.finding_anchors,
+    ));
+    let head_findings = ownership.apply(rehydrate_anchors(
+        head.findings_worst_first,
+        head.finding_anchors,
+    ));
+    let (new_items, resolved_items, unchanged) = partition_diff(base_findings, head_findings);
     let new_findings_by_file = count_findings_by_file(&new_items);
     MetricChanges {
         metric_version,
-        base_ratio: Decimal::rounded(base.ratio),
-        head_ratio: Decimal::rounded(head.ratio),
-        base_numerator: Decimal::rounded(base.numerator),
-        head_numerator: Decimal::rounded(head.numerator),
-        base_file_numerators: rounded_file_numerators(base.file_numerators),
-        head_file_numerators: rounded_file_numerators(head.file_numerators),
+        base_ratio,
+        head_ratio,
+        base_numerator,
+        head_numerator,
+        base_file_numerators,
+        head_file_numerators,
         new_findings_by_file,
-        unchanged: head_ids.intersection(&base_ids).count(),
+        unchanged,
         new: Findings::worst_first(new_items.into_iter(), shown),
-        resolved: missing_from(base_findings, &head_ids, shown),
+        resolved: Findings::worst_first(resolved_items.into_iter(), shown),
     }
+}
+
+fn partition_diff<T: Identified>(base: Vec<T>, head: Vec<T>) -> (Vec<T>, Vec<T>, usize) {
+    let base_anchors: Vec<FindingAnchor> = base.iter().map(Identified::anchor).collect();
+    let head_anchors: Vec<FindingAnchor> = head.iter().map(Identified::anchor).collect();
+    let matched = match_anchors(&base_anchors, &head_anchors);
+    let unchanged = matched.matched_pairs.len();
+    let base_matched = matched.matched_references(base.len());
+    let head_matched = matched.matched_candidates(head.len());
+    let new_items: Vec<T> = head
+        .into_iter()
+        .zip(head_matched)
+        .filter_map(|(finding, is_matched)| (!is_matched).then_some(finding))
+        .collect();
+    let resolved_items: Vec<T> = base
+        .into_iter()
+        .zip(base_matched)
+        .filter_map(|(finding, is_matched)| (!is_matched).then_some(finding))
+        .collect();
+    (new_items, resolved_items, unchanged)
 }
 
 fn classify_optional<T: Identified + OwnedFinding + FileAttributed>(
@@ -259,25 +293,6 @@ fn count_findings_by_file<T: FileAttributed>(findings: &[T]) -> BTreeMap<String,
         }
     }
     counts
-}
-
-fn ids<T: Identified>(findings: &[T]) -> HashSet<String> {
-    findings
-        .iter()
-        .map(|finding| finding.id().to_owned())
-        .collect()
-}
-
-fn missing_from<T: Identified>(
-    findings_worst_first: Vec<T>,
-    other_side: &HashSet<String>,
-    shown: FindingsShown,
-) -> Findings<T> {
-    let missing: Vec<T> = findings_worst_first
-        .into_iter()
-        .filter(|finding| !other_side.contains(finding.id()))
-        .collect();
-    Findings::worst_first(missing.into_iter(), shown)
 }
 
 macro_rules! impl_single_file_attributed {

@@ -989,8 +989,9 @@ codeint ratchet help
 | ------ | ------- |
 | `-h, --help` | Print the help of `codeint baseline` |
 
-A **Baseline** is a committed list of existing Findings in `.codeint/baseline.json` that `codeint check` hides and removes permanently as those Findings are fixed ([ADR 0030](./adr/0030-finding-baseline.md)).
-It stores the Finding `id` values of each measured Metric per Source set, and of Dependency hygiene, alongside each Metric's positive integer Metric version.
+A **Baseline** is a committed list of existing Findings in `.codeint/baseline.json` that `codeint check` hides and removes permanently as those Findings are fixed ([ADR 0030](./adr/0030-finding-baseline.md), [ADR 0032](./adr/0032-context-anchored-finding-matching.md)).
+In `schema_version` `2`, each recorded Finding stores its `id`, its occurrence-free content hash, optional one-way hashes of the nearest preceding and following non-empty token lines, and a 1-based line hint (never raw source text), alongside each Metric's positive integer Metric version per Source set and for Dependency hygiene.
+`codeint check` and `codeint baseline update` still read `schema_version` `1` files cleanly using exact `id` matching, and `codeint baseline update` upgrades them to `schema_version` `2`.
 A repository without `.codeint/baseline.json` reports exactly as before.
 
 `codeint baseline update` measures the whole repository and writes `.codeint/baseline.json`:
@@ -1015,7 +1016,7 @@ codeint baseline help
 
 When `.codeint/baseline.json` exists, `codeint check` (including `--package` runs and the MCP `check` tool):
 
-- leaves out every Finding whose `id` the Baseline lists for that Metric and Source set, and counts them in `baselined_findings` on the Metric and in the top-level `baseline` object (`path` and `hidden_findings`);
+- hides every Finding that matches an entry in the Baseline for that Metric and Source set (pairing identical-content Findings by their hashed surrounding-line context anchors so inserting a duplicate above a legacy Finding blames the new line, while a single untouched Finding still matches when neighboring lines change), and counts hidden Findings in `baselined_findings` on the Metric and in the top-level `baseline` object (`path` and `hidden_findings`);
 - keeps every Metric ratio as measured, so Reference ranges and the Ratchet still see the whole repository;
 - compares each Budget with the non-baselined ratio: the measured ratio scaled by the share of the Metric's Finding weight that the Baseline does not hide, and marks such Budget failures with `non_baselined`;
 - stops with exit code 2 and names `codeint baseline update` when a Metric version in the Baseline differs from the current Metric version.

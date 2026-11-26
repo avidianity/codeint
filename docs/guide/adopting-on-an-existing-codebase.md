@@ -108,8 +108,8 @@ See [`codeint ratchet`](../reference.md#codeint-ratchet).
 
 ## The Baseline: `.codeint/baseline.json`
 
-The Baseline stores the identifier of each existing Finding, with the Metric version that produced it.
-`codeint check` hides those Findings and evaluates Budgets on the Findings that remain.
+The Baseline stores each existing Finding's identifier and hashed surrounding-line context anchors (never raw source text), with the Metric version that produced it.
+`codeint check` hides those Findings and evaluates Budgets on the Findings that remain, pairing duplicate Findings by surrounding-line context so inserting an identical Finding above legacy code reports the new line.
 This lets you set a strict Budget, such as `"erosion": 0`, on day one without failing on legacy code; `codeint init --adopt` writes those zero Budgets for you.
 
 Remove fixed Findings after you clean up:
@@ -179,3 +179,4 @@ Both files only shrink over time, so the legacy debt trends to zero.
 - [`codeint init`](../reference.md#codeint-init)
 - [ADR 0026: Direct numerator-rise Regression rules and `.codeint/` Ratchet ceilings](../adr/0026-regression-and-ratchet.md)
 - [ADR 0030: Finding Baseline in `.codeint/baseline.json`](../adr/0030-finding-baseline.md)
+- [ADR 0032: Context-anchored Finding matching and Baseline schema version 2](../adr/0032-context-anchored-finding-matching.md)

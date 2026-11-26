@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use codeint_config::{
     AgentFormat, BaselineFormat, ConfigFormat, DoctorFormat, FindingsShown, GuardFormat,
     ImpactFormat, RatchetFormat, TraceFormat,
@@ -314,15 +316,29 @@ impl FindingsView<'_> {
     where
         R: From<&'a T> + OwnedFinding + Identified + BaselineWeight,
     {
+        self.map_baselined_with_hidden(metric, items).0
+    }
+
+    pub(crate) fn map_baselined_with_hidden<'a, T: 'a, R>(
+        self,
+        metric: &str,
+        items: &'a [T],
+    ) -> (Findings<R>, HashSet<String>)
+    where
+        R: From<&'a T> + OwnedFinding + Identified + BaselineWeight,
+    {
         let rows: Vec<R> = items.iter().map(R::from).collect();
-        let (visible, baselined) = match self.baseline {
+        let (visible, baselined, hidden_ids) = match self.baseline {
             Some(scope) => scope.split(metric, rows),
-            None => (rows, Baselined::default()),
+            None => (rows, Baselined::default(), HashSet::new()),
         };
-        Findings {
-            baselined,
-            ..self.select(visible.into_iter())
-        }
+        (
+            Findings {
+                baselined,
+                ..self.select(visible.into_iter())
+            },
+            hidden_ids,
+        )
     }
 
     pub(crate) fn select<T: OwnedFinding>(self, items: impl Iterator<Item = T>) -> Findings<T> {

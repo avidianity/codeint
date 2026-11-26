@@ -59,6 +59,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         source_lines: 20,
         function_mass: Decimal(53.6656),
         owners: Vec::new(),
+        anchor: None,
     }];
     let complex = [CognitiveComplexityFinding {
         id: "5555555555555555".to_owned(),
@@ -70,6 +71,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         cyclomatic_complexity: 7,
         source_lines: 25,
         owners: Vec::new(),
+        anchor: None,
     }];
     let clones = [CloneGroupFinding {
         id: "2222222222222222".to_owned(),
@@ -88,6 +90,7 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
             },
         ],
         owners: Vec::new(),
+        anchor: None,
     }];
     let flagged = [FlaggedLineRow {
         id: "3333333333333333".to_owned(),
@@ -95,11 +98,13 @@ fn every_sarif_result_carries_its_finding_id_in_partial_fingerprints() {
         line: 4,
         rule: "else-after-return".to_owned(),
         owners: Vec::new(),
+        anchor: None,
     }];
     let cycles = [ImportCycleFinding {
         id: "4444444444444444".to_owned(),
         modules: vec!["src/x.ts".to_owned(), "src/y.ts".to_owned()],
         owners: Vec::new(),
+        anchor: None,
     }];
     let listed = ListedFindings {
         eroded_functions: &eroded,
@@ -166,6 +171,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
                 },
             ],
             owners: Vec::new(),
+            anchor: None,
         },
         CloneGroupFinding {
             id: "bbbb000000000002".to_owned(),
@@ -184,6 +190,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
                 },
             ],
             owners: Vec::new(),
+            anchor: None,
         },
     ];
     let families = [CloneFamilyFinding {
@@ -208,6 +215,7 @@ fn clone_family_sarif_result_replaces_its_member_clone_groups_and_keeps_standalo
             },
         ],
         owners: Vec::new(),
+        anchor: None,
     }];
     let listed = ListedFindings {
         clone_groups: &clones,
@@ -469,6 +477,7 @@ fn sarif_emits_hazard_rules_by_rule_name_and_never_includes_source_text() {
             line: 7,
             rule: "select-star".to_owned(),
             owners: Vec::new(),
+            anchor: None,
         },
         HazardLineRow {
             id: "bbbb000000000002".to_owned(),
@@ -476,6 +485,7 @@ fn sarif_emits_hazard_rules_by_rule_name_and_never_includes_source_text() {
             line: 12,
             rule: "plain-text-secret".to_owned(),
             owners: Vec::new(),
+            anchor: None,
         },
     ];
     let listed = ListedFindings {

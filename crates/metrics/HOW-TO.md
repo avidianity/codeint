@@ -43,7 +43,8 @@ for function in erosion.eroded_functions() {
   the tokens from the first to the last line of an eroded function; the normalized token sequence and the fragment paths of a Clone group; the rule and the tokens of a Flagged line; the module paths of an Import cycle.
   Token content is the `text_hash` of each token, so whitespace, comments, and line endings never change an id.
 - Findings with the same Metric, paths, and content get an occurrence number in source order, so equal Findings in one file stay distinct, and a comparison of two runs counts them right.
-- A Metric computes ids with the crate's `FindingIds`, created once per measurement with its `Metric`, and calls `next_in_source_order` for its Findings in path and line order.
+- Every Finding also carries a `FindingContext` holding its occurrence-free `content_hash`, optional one-way hashes of the nearest preceding and following token-bearing lines (`before` and `after`), and optional 1-based start `line`, used by Baseline and `codeint diff` to disambiguate identical-content Findings without changing `FindingId`.
+- A Metric computes ids and content hashes with the crate's `FindingIds`, created once per measurement with its `Metric`, and calls `next_with_content_hash` for its Findings in path and line order.
 - The hash is `codeint_model::StableHasher`, which writes every number as little-endian bytes, so ids are the same on every platform.
 
 ## Report a Metric per Source set

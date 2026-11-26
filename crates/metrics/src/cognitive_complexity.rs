@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use codeint_model::{CodeModel, Metric, Package, RepoPath, SourceFile};
 
-use crate::finding_id::{FindingId, FindingIds, function_finding_id, group_by_package};
+use crate::finding_id::{
+    FindingContext, FindingId, FindingIds, function_finding_identity, group_by_package,
+};
 
 #[cfg(test)]
 mod tests;
@@ -12,6 +14,7 @@ const HIGH_COGNITIVE_COMPLEXITY_ABOVE: u32 = 15;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComplexFunction {
     pub id: FindingId,
+    pub context: FindingContext,
     pub path: RepoPath,
     pub line: u32,
     pub end_line: u32,
@@ -119,8 +122,11 @@ fn measure_file(
             continue;
         }
         totals.complex += cognitive;
+        let (id, context) =
+            function_finding_identity(ids, &file.path, function, &file.model.tokens);
         findings.push(ComplexFunction {
-            id: function_finding_id(ids, &file.path, function, &file.model.tokens),
+            id,
+            context,
             path: file.path.clone(),
             line: function.line,
             end_line: function.end_line,

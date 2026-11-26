@@ -44,7 +44,7 @@ if !report.over_budget().is_empty() {
 - `over_ratchet` returns every `RatchetFailure` recorded by `apply_ratchet`, `set_ratchet_note` sets the optional `ratchet_note` emitted on `--package` runs, and `failure_messages` combines `over_budget` and `over_ratchet`.
 - `ratchet_metrics` returns every measured Metric's rounded ratio and `metric_version` for Ratchet checking or updating.
 - Set `ReportOptions::baseline` to a loaded `codeint_config::Baseline` to leave out baselined Findings before ownership filtering and truncation; each Metric then records `baselined_findings`, the report records `baseline` (`path`, `hidden_findings`), and each Budget compares with the non-baselined ratio (measured ratio times the unhidden share of Finding weight), marking such failures `non_baselined`.
-- `baseline_metrics` returns each measured Metric's `metric_version` and the ids of its listed Findings; build the report with `FindingsShown::All`, no ownership filter, and no Baseline before passing them to `Baseline::update`.
+- `baseline_metrics` returns each measured Metric's `metric_version` and `FindingAnchor` entries of its listed Findings; build the report with `FindingsShown::All`, no ownership filter, and no Baseline before passing them to `Baseline::update`.
 - `render_baseline_update(&summary, format)` prints the `codeint baseline update` summary as `text`, `toon`, or `json`.
 
 ## Measure one commit with `CommitMeasurement`
@@ -84,7 +84,7 @@ for message in diff.failure_messages() {
 ```
 
 - Use `Head::WorkingTree` when comparing against the working tree, or `Head::Commit(HeadCommit { git_ref, commit })` when comparing two commits.
-- `DiffReport::compare` matches Findings by id to classify each one as `new`, `resolved`, or `unchanged`.
+- `DiffReport::compare` matches Findings by occurrence-free content hash and surrounding-line context anchors (falling back to exact id for id-only entries) to classify each one as `new`, `resolved`, or `unchanged`.
 - `failure_messages` returns every `BudgetFailure` on the head side, followed by every `NewFileBudgetFailure` evaluated from `DiffReportOptions::new_files` against `DiffReportOptions::new_file_budgets`, followed by every `RatchetFailure` recorded by `apply_ratchet`, followed by every `Regression` that exceeds `RegressionLimits` (`ratio_rise`, direct `numerator_rise` rounded to four decimal places, `new_findings` on Metrics configured with `any_new_finding`, which is the default for Import cycles, Boundaries, Orphan files, Hazards, and Dependency hygiene, and per-file `per_file_numerator_rise` / `per_file_new_findings` for each path in `DiffReportOptions::changed_files` when `RegressionLimits::per_file` is `true`).
 - `render` formats the diff as `Toon`, `Json`, `Sarif` (new Findings only, plus `runs[0].properties.newFileBudgetFailures`, `runs[0].properties.ratchetFailures`, and `runs[0].properties.perFileRegressions` when present), or `Markdown` (including `## Over New-file Budget`, `## Over Ratchet`, and `## Regressions` when present).
 

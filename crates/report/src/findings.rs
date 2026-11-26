@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use codeint_config::Codeowners;
+use codeint_config::{Codeowners, FindingAnchor};
 use codeint_metrics::{
     BoundaryFinding, CloneFamily, CloneGroup, ComplexFunction, ErodedFunction, FlaggedLineFinding,
     Fragment, HazardLineFinding, ImportCycle, OrphanFileFinding, TestGapFinding, UnresolvedImport,
@@ -8,6 +8,7 @@ use codeint_metrics::{
 use codeint_model::{ExternalFinding, RepoPath, SkippedFile};
 use serde::{Deserialize, Serialize};
 
+use crate::baseline::id_and_anchor;
 use crate::dependencies::{ImportedDependencyRow, UnusedDependencyRow};
 use crate::ownership::OwnedFinding;
 use crate::render::{Decimal, FindingKind};
@@ -35,12 +36,14 @@ pub struct HazardLineRow {
     pub rule: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owners: Vec<String>,
+    #[serde(skip)]
+    pub(crate) anchor: Option<FindingAnchor>,
 }
 
 crate_structs! {
+    @finding
     #[derive(Debug, Serialize, Deserialize)]
     struct ErodedFunctionFinding {
-        id: String,
         path: String,
         line: u32,
         end_line: u32,
@@ -50,41 +53,25 @@ crate_structs! {
         cognitive_complexity: u32,
         source_lines: u32,
         function_mass: Decimal,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct CloneGroupFinding {
-        id: String,
         tokens: usize,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         similarity: Option<Decimal>,
         locations: Vec<CloneLocation>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct CloneFamilyFinding {
-        id: String,
         duplicated_lines: u64,
         clone_group_ids: Vec<String>,
         locations: Vec<CloneLocation>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct CloneLocation {
-        path: String,
-        start_line: u32,
-        end_line: u32,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct CognitiveComplexityFinding {
-        id: String,
         path: String,
         line: u32,
         end_line: u32,
@@ -93,23 +80,17 @@ crate_structs! {
         cognitive_complexity: u32,
         cyclomatic_complexity: u32,
         source_lines: u32,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct FlaggedLineRow {
-        id: String,
         path: String,
         line: u32,
         rule: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct BoundaryFindingRow {
-        id: String,
         kind: String,
         importer: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -125,28 +106,49 @@ crate_structs! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
         message: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct ImportCycleFinding {
-        id: String,
         modules: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct OrphanFileRow {
-        id: String,
         path: String,
         kind: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         test_importers: Vec<String>,
         message: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestGapFindingRow {
+        path: String,
+        line: u32,
+        end_line: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        function_mass: Decimal,
+        untested_share: Decimal,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct ExternalMetricFinding {
+        path: String,
+        line: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        end_line: Option<u32>,
+        message: String,
+    }
+}
+
+crate_structs! {
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct CloneLocation {
+        path: String,
+        start_line: u32,
+        end_line: u32,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -158,36 +160,10 @@ crate_structs! {
         owners: Vec<String>,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct TestGapFindingRow {
-        id: String,
-        path: String,
-        line: u32,
-        end_line: u32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
-        function_mass: Decimal,
-        untested_share: Decimal,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
-    }
-
     #[derive(Debug, Serialize, Deserialize)]
     struct SkippedEntry {
         path: String,
         reason: String,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct ExternalMetricFinding {
-        id: String,
-        path: String,
-        line: u32,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        end_line: Option<u32>,
-        message: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        owners: Vec<String>,
     }
 }
 
@@ -282,12 +258,14 @@ macro_rules! impl_line_rule_row {
     ($from:ty, $to:ident) => {
         impl From<&$from> for $to {
             fn from(finding: &$from) -> $to {
+                let (id, anchor) = id_and_anchor(finding.id, finding.context);
                 $to {
-                    id: finding.id.to_string(),
+                    id,
                     path: finding.path.to_string(),
                     line: finding.line,
                     rule: finding.rule.clone(),
                     owners: Vec::new(),
+                    anchor,
                 }
             }
         }
@@ -301,8 +279,9 @@ macro_rules! impl_function_finding {
     ($from:ty, $to:ident, |$arg:ident| { $($extra_field:ident: $extra_expr:expr,)* }) => {
         impl From<&$from> for $to {
             fn from($arg: &$from) -> $to {
+                let (id, anchor) = id_and_anchor($arg.id, $arg.context);
                 $to {
-                    id: $arg.id.to_string(),
+                    id,
                     path: $arg.path.to_string(),
                     line: $arg.line,
                     end_line: $arg.end_line,
@@ -312,6 +291,7 @@ macro_rules! impl_function_finding {
                     source_lines: $arg.source_lines,
                     $($extra_field: $extra_expr,)*
                     owners: Vec::new(),
+                    anchor,
                 }
             }
         }
@@ -323,30 +303,42 @@ impl_function_finding!(ErodedFunction, ErodedFunctionFinding, |function| {
 });
 impl_function_finding!(ComplexFunction, CognitiveComplexityFinding, |function| {});
 
+fn clone_locations(fragments: &[Fragment]) -> Vec<CloneLocation> {
+    fragments.iter().map(CloneLocation::new).collect()
+}
+
+fn repo_path_strings(paths: &[RepoPath]) -> Vec<String> {
+    paths.iter().map(RepoPath::to_string).collect()
+}
+
 impl From<&CloneGroup> for CloneGroupFinding {
     fn from(group: &CloneGroup) -> CloneGroupFinding {
+        let (id, anchor) = id_and_anchor(group.id, group.context);
         CloneGroupFinding {
-            id: group.id.to_string(),
+            id,
             tokens: group.tokens,
             similarity: group.similarity.map(Decimal::rounded),
-            locations: group.fragments.iter().map(CloneLocation::new).collect(),
+            locations: clone_locations(&group.fragments),
             owners: Vec::new(),
+            anchor,
         }
     }
 }
 
 impl From<&CloneFamily> for CloneFamilyFinding {
     fn from(family: &CloneFamily) -> CloneFamilyFinding {
+        let (id, anchor) = id_and_anchor(family.id, family.context);
         CloneFamilyFinding {
-            id: family.id.to_string(),
+            id,
             duplicated_lines: family.duplicated_lines,
             clone_group_ids: family
                 .clone_group_ids
                 .iter()
                 .map(ToString::to_string)
                 .collect(),
-            locations: family.fragments.iter().map(CloneLocation::new).collect(),
+            locations: clone_locations(&family.fragments),
             owners: Vec::new(),
+            anchor,
         }
     }
 }
@@ -392,8 +384,9 @@ pub(crate) fn unlisted_clone_family_group_ids(
 
 impl From<&TestGapFinding> for TestGapFindingRow {
     fn from(finding: &TestGapFinding) -> TestGapFindingRow {
+        let (id, anchor) = id_and_anchor(finding.id, finding.context);
         TestGapFindingRow {
-            id: finding.id.to_string(),
+            id,
             path: finding.path.to_string(),
             line: finding.line,
             end_line: finding.end_line,
@@ -401,24 +394,28 @@ impl From<&TestGapFinding> for TestGapFindingRow {
             function_mass: Decimal::rounded(finding.function_mass),
             untested_share: Decimal::rounded(finding.untested_share),
             owners: Vec::new(),
+            anchor,
         }
     }
 }
 
 impl From<&ImportCycle> for ImportCycleFinding {
     fn from(cycle: &ImportCycle) -> ImportCycleFinding {
+        let (id, anchor) = id_and_anchor(cycle.id(), cycle.context());
         ImportCycleFinding {
-            id: cycle.id().to_string(),
-            modules: cycle.modules().iter().map(RepoPath::to_string).collect(),
+            id,
+            modules: repo_path_strings(cycle.modules()),
             owners: Vec::new(),
+            anchor,
         }
     }
 }
 
 impl From<&BoundaryFinding> for BoundaryFindingRow {
     fn from(finding: &BoundaryFinding) -> BoundaryFindingRow {
+        let (id, anchor) = id_and_anchor(finding.id, finding.context);
         BoundaryFindingRow {
-            id: finding.id.to_string(),
+            id,
             kind: finding.kind.key().to_owned(),
             importer: finding.importer.to_string(),
             target: finding.target.as_ref().map(RepoPath::to_string),
@@ -429,6 +426,7 @@ impl From<&BoundaryFinding> for BoundaryFindingRow {
             reason: finding.reason.clone(),
             message: finding.message.clone(),
             owners: Vec::new(),
+            anchor,
         }
     }
 }
@@ -444,24 +442,28 @@ impl From<&SkippedFile> for SkippedEntry {
 
 impl From<&OrphanFileFinding> for OrphanFileRow {
     fn from(finding: &OrphanFileFinding) -> OrphanFileRow {
-        let test_importers = finding
-            .test_importers
-            .iter()
-            .map(RepoPath::to_string)
-            .collect();
+        let (id, anchor) = id_and_anchor(finding.id, finding.context);
         OrphanFileRow {
-            id: finding.id.to_string(),
+            id,
             path: finding.path.to_string(),
             kind: finding.kind.key().to_owned(),
-            test_importers,
+            test_importers: repo_path_strings(&finding.test_importers),
             message: finding.message.clone(),
             owners: Vec::new(),
+            anchor,
         }
     }
 }
 
 impl From<&ExternalFinding> for ExternalMetricFinding {
     fn from(finding: &ExternalFinding) -> ExternalMetricFinding {
+        let anchor = Some(FindingAnchor {
+            id: finding.id.clone(),
+            content: None,
+            before: None,
+            after: None,
+            line: Some(finding.line),
+        });
         ExternalMetricFinding {
             id: finding.id.clone(),
             path: finding.path.to_string(),
@@ -469,6 +471,7 @@ impl From<&ExternalFinding> for ExternalMetricFinding {
             end_line: finding.end_line,
             message: finding.message.clone(),
             owners: Vec::new(),
+            anchor,
         }
     }
 }

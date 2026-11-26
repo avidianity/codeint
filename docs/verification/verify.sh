@@ -1355,7 +1355,7 @@ if "baseline" in features:
     check("baseline.create_json.payload", isinstance(bc, dict) and bc.get("created") is True and bc.get("added", 0) >= 1, str(bc))
     bf_created = read_json("baseline/baseline.created.json")
     bf_created_ids = bf_created.get("source_sets", {}).get("production", {}).get("erosion", {}).get("findings", []) if isinstance(bf_created, dict) else []
-    check("baseline.create_json.file", isinstance(bf_created, dict) and bf_created.get("schema_version") == 1 and len(bf_created_ids) >= 1, str(bf_created))
+    check("baseline.create_json.file", isinstance(bf_created, dict) and bf_created.get("schema_version") == 2 and len(bf_created_ids) >= 1, str(bf_created))
 
     check("baseline.check_hides.exit", read_exit("baseline/check_hides") == 0, str(read_exit("baseline/check_hides")))
     bch = read_json("baseline/check_hides.stdout")
@@ -1387,7 +1387,7 @@ if "baseline" in features:
     check("baseline.corrupt_reset.exit", read_exit("baseline/corrupt_reset") == 0, str(read_exit("baseline/corrupt_reset")))
     bcr = read_json("baseline/corrupt_reset.stdout")
     bf_rec = read_json("baseline/baseline.recovered.json")
-    check("baseline.corrupt_reset.payload", isinstance(bcr, dict) and bcr.get("replaced_invalid") is True and isinstance(bf_rec, dict) and bf_rec.get("schema_version") == 1, str(bcr))
+    check("baseline.corrupt_reset.payload", isinstance(bcr, dict) and bcr.get("replaced_invalid") is True and isinstance(bf_rec, dict) and bf_rec.get("schema_version") == 2, str(bcr))
 
 if "plugin-test" in features:
     check("plugin-test.language_json.exit", read_exit("plugin-test/language_json") == 0, str(read_exit("plugin-test/language_json")))

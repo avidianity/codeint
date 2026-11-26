@@ -289,19 +289,23 @@ impl DuplicationSection {
                 None,
             )
         };
+        let (clone_groups, hidden_group_ids) =
+            view.map_baselined_with_hidden(Metric::Duplication.key(), &duplication.clone_groups);
         let all_clone_families = view.ownership.apply(
             duplication
                 .clone_families
                 .iter()
                 .map(CloneFamilyFinding::from)
                 .filter(|family| {
-                    view.baseline
-                        .is_none_or(|scope| !scope.hides_whole_family(family))
+                    family.clone_group_ids.is_empty()
+                        || !family
+                            .clone_group_ids
+                            .iter()
+                            .all(|id| hidden_group_ids.contains(id))
                 })
                 .collect(),
         );
         let all_clustered = clustered_clone_group_ids(&all_clone_families);
-        let clone_groups = view.map_baselined(Metric::Duplication.key(), &duplication.clone_groups);
         let clone_families = Findings::worst_first(all_clone_families.into_iter(), view.shown);
         let unlisted_clone_family_group_ids = unlisted_clone_family_group_ids(
             &clone_groups.listed,

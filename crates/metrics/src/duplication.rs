@@ -7,7 +7,7 @@ use codeint_model::{CodeModel, Metric, Package, RepoPath, StableHasher, Token, T
 use crate::line_share::{LineShare, line_shares_by_package};
 
 use crate::FindingId;
-use crate::finding_id::FindingIds;
+use crate::finding_id::{FindingContext, FindingIds};
 
 mod near_clones;
 #[cfg(test)]
@@ -112,17 +112,15 @@ impl Duplication {
                 .cmp(&left.tokens)
                 .then_with(|| left.fragments.cmp(&right.fragments))
         });
-        let mut ids = FindingIds::new(Metric::Duplication);
+        let mut identifier = FragmentIdentifier::new(Metric::Duplication.key(), model);
         let mut clone_groups = Vec::with_capacity(unidentified_groups.len());
         let mut cluster_inputs = Vec::with_capacity(unidentified_groups.len());
         for group in unidentified_groups {
             let digest = content_digest(&group.normalized_content);
-            let id = ids.next_in_source_order(
-                group.fragments.iter().map(|fragment| &fragment.path),
-                group.normalized_content,
-            );
+            let (id, context) = identifier.identify(&group.fragments, group.normalized_content);
             clone_groups.push(CloneGroup {
                 id,
+                context,
                 tokens: group.tokens,
                 similarity: None,
                 fragments: group.fragments,
@@ -221,6 +219,7 @@ impl CloneLines {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CloneGroup {
     pub id: FindingId,
+    pub context: FindingContext,
     pub tokens: usize,
     pub similarity: Option<f64>,
     pub fragments: Vec<Fragment>,
@@ -229,9 +228,51 @@ pub struct CloneGroup {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CloneFamily {
     pub id: FindingId,
+    pub context: FindingContext,
     pub duplicated_lines: u64,
     pub clone_group_ids: Vec<FindingId>,
     pub fragments: Vec<Fragment>,
+}
+
+pub(super) struct FragmentIdentifier<'model> {
+    ids: FindingIds,
+    tokens_by_path: HashMap<&'model RepoPath, &'model [Token]>,
+}
+
+impl<'model> FragmentIdentifier<'model> {
+    pub(super) fn new(metric_key: &'static str, model: &'model CodeModel) -> Self {
+        let tokens_by_path = model
+            .files
+            .iter()
+            .map(|file| (&file.path, file.model.tokens.as_slice()))
+            .collect();
+        FragmentIdentifier {
+            ids: FindingIds::for_key(metric_key),
+            tokens_by_path,
+        }
+    }
+
+    pub(super) fn identify(
+        &mut self,
+        fragments: &[Fragment],
+        content: impl IntoIterator<Item = u64>,
+    ) -> (FindingId, FindingContext) {
+        let (id, content_hash) = self
+            .ids
+            .next_with_content_hash(fragments.iter().map(|fragment| &fragment.path), content);
+        let context = FindingContext::for_spans(
+            content_hash,
+            fragments.iter().map(|fragment| {
+                let tokens = self
+                    .tokens_by_path
+                    .get(&fragment.path)
+                    .copied()
+                    .unwrap_or_default();
+                (tokens, fragment.start_line, fragment.end_line)
+            }),
+        );
+        (id, context)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -329,17 +370,18 @@ fn build_clone_families(model: &CodeModel, groups: &[GroupClusterInput]) -> Vec<
         .filter_map(|group_indices| family_from_component(model, groups, &group_indices))
         .collect();
     unidentified.sort_by(|left, right| left.fragments.cmp(&right.fragments));
-    let mut ids = FindingIds::for_key("clone_family");
+    let mut identifier = FragmentIdentifier::new("clone_family", model);
     let mut families: Vec<CloneFamily> = unidentified
         .into_iter()
-        .map(|family| CloneFamily {
-            id: ids.next_in_source_order(
-                family.fragments.iter().map(|fragment| &fragment.path),
-                family.content_digests,
-            ),
-            duplicated_lines: family.duplicated_lines,
-            clone_group_ids: family.clone_group_ids,
-            fragments: family.fragments,
+        .map(|family| {
+            let (id, context) = identifier.identify(&family.fragments, family.content_digests);
+            CloneFamily {
+                id,
+                context,
+                duplicated_lines: family.duplicated_lines,
+                clone_group_ids: family.clone_group_ids,
+                fragments: family.fragments,
+            }
         })
         .collect();
     families.sort_by(|left, right| {
