@@ -39,7 +39,7 @@ Inside `RUN_DIR`, it creates:
 - `empty-repo/`: an initialized Git repository with an unborn `HEAD` and no commits;
 - `non-repo/`: a plain folder outside any Git repository;
 - `cache/`: an isolated `CODEINT_CACHE_DIR`;
-- `manifest.env`: `RUN_ID`, `REPO_ROOT`, `BIN_PATH`, `BUILD_REV`, `BIN_SHA256`, `OWNER_CHECKOUT`, `OWNER_ID`, and `FIXTURE_HEAD`.
+- `manifest.env`: `RUN_ID`, `REPO_ROOT`, `BIN_PATH`, `BUILD_REV`, `BIN_SHA256`, `BIN_VERSION`, `OWNER_CHECKOUT`, `OWNER_ID`, and `FIXTURE_HEAD`.
 
 ### Doctor
 

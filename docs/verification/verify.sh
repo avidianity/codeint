@@ -73,7 +73,7 @@ ensure_wasm_fixtures() {
   fi
   if [ ! -f "$bad" ]; then
     cargo build --manifest-path "$REPO_ROOT/crates/plugin-host/tests/fixtures/sandbox-probes/Cargo.toml" \
-      -p out-of-range-ratio-metric \
+      -p out-of-range-ratio-metric-plugin \
       --target wasm32-wasip2 --locked --offline --target-dir "$target_dir" >&2
   fi
 }
@@ -1764,12 +1764,12 @@ cmd_all() {
   local evidence_dir
   evidence_dir="$(printf '%s\n' "$launch_out" | awk -F= '$1=="EVIDENCE_DIR"{print $2}')"
   local status=0
-  cmd_doctor "$run_dir" || status=$?
+  "$0" doctor "$run_dir" || status=$?
   if [ "$status" -eq 0 ]; then
-    cmd_drive "$run_dir" "$feature" || status=$?
+    "$0" drive "$run_dir" "$feature" || status=$?
   fi
   if [ "$status" -eq 0 ]; then
-    cmd_assert "$run_dir" "$feature" || status=$?
+    "$0" assert "$run_dir" "$feature" || status=$?
   fi
   cmd_cleanup "$run_dir"
   printf 'evidence_dir=%s\n' "$evidence_dir"
