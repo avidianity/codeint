@@ -21,6 +21,11 @@ pub enum EvaluationError {
     },
     #[error("no repository in {path} matches the selected languages and repositories")]
     EmptySelection { path: PathBuf },
+    #[error("repository {repository} has no measured files for declared language {language}")]
+    MissingLanguage {
+        repository: String,
+        language: String,
+    },
     #[error("cannot write the evaluation summary as JSON: {0}")]
     Serialize(#[from] serde_json::Error),
 }

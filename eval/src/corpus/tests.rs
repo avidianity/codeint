@@ -93,3 +93,18 @@ fn entries_need_a_built_in_language_and_a_full_commit_sha() {
     assert!(validate_entry(&entry("python", "main")).is_err_and(|message| message.contains("40")));
     assert!(validate_entry(&entry("python", &sha.to_uppercase())).is_err());
 }
+
+#[test]
+fn entries_and_case_studies_reject_option_like_urls() {
+    let mut bad = entry("python", SHA);
+    bad.url = "--upload-pack=touch /tmp/pwned".to_owned();
+    assert!(validate_entry(&bad).is_err());
+    let study = CaseStudy {
+        name: "study".to_owned(),
+        url: "--upload-pack=id".to_owned(),
+        before: SHA.to_owned(),
+        after: SHA.to_owned(),
+        change: "change".to_owned(),
+    };
+    assert!(validate_case_study(&study).is_err());
+}

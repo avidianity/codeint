@@ -99,9 +99,15 @@ fn is_full_sha(commit: &str) -> bool {
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+fn is_safe_url(url: &str) -> bool {
+    !url.is_empty()
+        && !url.starts_with('-')
+        && !url.chars().any(|ch| ch.is_whitespace() || ch == '\0')
+}
+
 fn validate_case_study(study: &CaseStudy) -> Result<(), String> {
-    if study.name.is_empty() || study.url.is_empty() {
-        return Err("every case study needs a name and a url".to_owned());
+    if study.name.is_empty() || !is_safe_url(&study.url) {
+        return Err("every case study needs a name and a safe non-option url".to_owned());
     }
     for commit in [&study.before, &study.after] {
         if !is_full_sha(commit) {
@@ -115,8 +121,8 @@ fn validate_case_study(study: &CaseStudy) -> Result<(), String> {
 }
 
 fn validate_entry(entry: &CorpusEntry) -> Result<(), String> {
-    if entry.name.is_empty() || entry.url.is_empty() {
-        return Err("every repository needs a name and a url".to_owned());
+    if entry.name.is_empty() || !is_safe_url(&entry.url) {
+        return Err("every repository needs a name and a safe non-option url".to_owned());
     }
     if !built_in_language_names().contains(&entry.language.as_str()) {
         return Err(format!(

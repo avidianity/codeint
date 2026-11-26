@@ -6,6 +6,7 @@ use tempfile::TempDir;
 
 fn git(folder: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
+        .args(["-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(folder)
         .output()
@@ -14,10 +15,13 @@ fn git(folder: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("utf8")
 }
 
-fn init_repo(root: &Path, name: &str, body: &str) -> (std::path::PathBuf, String) {
+fn init_repo(root: &Path, name: &str, relative: &str, body: &str) -> (std::path::PathBuf, String) {
     let folder = root.join(name);
-    std::fs::create_dir_all(folder.join("src")).expect("mkdir");
-    std::fs::write(folder.join("src/a.sql"), body).expect("write");
+    let target = folder.join(relative);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).expect("mkdir");
+    }
+    std::fs::write(target, body).expect("write");
     git(&folder, &["init", "--initial-branch=main"]);
     git(&folder, &["config", "user.name", "Test"]);
     git(&folder, &["config", "user.email", "test@example.com"]);
@@ -27,13 +31,10 @@ fn init_repo(root: &Path, name: &str, body: &str) -> (std::path::PathBuf, String
     (folder, commit)
 }
 
-fn write_fake_codeint(folder: &Path) -> std::path::PathBuf {
-    let path = folder.join("fake-codeint.sh");
-    std::fs::write(
-        &path,
-        "#!/bin/sh\nprintf '{\"source_sets\":{\"production\":{\"source_lines\":3000,\"verbosity\":{\"findings\":[]},\"orphan_files\":{\"findings\":[]}}}}'\n",
-    )
-    .expect("write fake codeint");
+fn write_fake_codeint(folder: &Path, name: &str, report_json: &str) -> std::path::PathBuf {
+    let path = folder.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\nprintf '%s' '{report_json}'\n"))
+        .expect("write fake codeint");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -44,13 +45,38 @@ fn write_fake_codeint(folder: &Path) -> std::path::PathBuf {
     path
 }
 
+fn run_eval(
+    manifest: &Path,
+    codeint: &Path,
+    out: &Path,
+    scratch: &Path,
+    extra: &[&str],
+) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_codeint-eval"))
+        .args([
+            "--manifest",
+            manifest.to_str().expect("manifest str"),
+            "--codeint",
+            codeint.to_str().expect("codeint str"),
+            "--output-dir",
+            out.to_str().expect("out str"),
+            "--scratch-root",
+            scratch.to_str().expect("scratch str"),
+            "--runs",
+            "1",
+        ])
+        .args(extra)
+        .output()
+        .expect("run codeint-eval")
+}
+
 #[test]
 fn parallel_jobs_preserves_manifest_order_and_apply_verdicts_rerenders_summary() {
     let work = TempDir::new().expect("work");
     let scratch = TempDir::new().expect("scratch");
-    let (r1, c1) = init_repo(work.path(), "r1", "SELECT 1;\n");
-    let (r2, c2) = init_repo(work.path(), "r2", "SELECT 2;\n");
-    let (r3, c3) = init_repo(work.path(), "r3", "SELECT 3;\n");
+    let (r1, c1) = init_repo(work.path(), "r1", "src/a.sql", "SELECT 1;\n");
+    let (r2, c2) = init_repo(work.path(), "r2", "src/a.sql", "SELECT 2;\n");
+    let (r3, c3) = init_repo(work.path(), "r3", "src/a.sql", "SELECT 3;\n");
     let manifest = work.path().join("manifest.json");
     let body = json!({
         "measured_on": "2026-11-26",
@@ -61,26 +87,20 @@ fn parallel_jobs_preserves_manifest_order_and_apply_verdicts_rerenders_summary()
         ]
     });
     std::fs::write(&manifest, body.to_string()).expect("manifest");
-    let fake_codeint = write_fake_codeint(work.path());
+    let fake_codeint = write_fake_codeint(
+        work.path(),
+        "fake-codeint.sh",
+        r#"{"source_sets":{"production":{"source_lines":3000,"verbosity":{"findings":[]},"orphan_files":{"findings":[]}}}}"#,
+    );
     let first_out = work.path().join("out1");
 
-    let run = Command::new(env!("CARGO_BIN_EXE_codeint-eval"))
-        .args([
-            "--manifest",
-            manifest.to_str().expect("manifest str"),
-            "--codeint",
-            fake_codeint.to_str().expect("codeint str"),
-            "--output-dir",
-            first_out.to_str().expect("out1 str"),
-            "--scratch-root",
-            scratch.path().to_str().expect("scratch str"),
-            "--runs",
-            "1",
-            "--jobs",
-            "3",
-        ])
-        .output()
-        .expect("run codeint-eval");
+    let run = run_eval(
+        &manifest,
+        &fake_codeint,
+        &first_out,
+        scratch.path(),
+        &["--jobs", "3"],
+    );
     assert!(run.status.success(), "{run:?}");
 
     let summary_path = first_out.join("evaluation-summary.json");
@@ -133,4 +153,51 @@ fn parallel_jobs_preserves_manifest_order_and_apply_verdicts_rerenders_summary()
     assert_eq!(updated["audit_review"]["categories"][0]["reviewed"], 1);
     let markdown = std::fs::read_to_string(second_out.join("evaluation.md")).expect("markdown");
     assert!(markdown.contains("agent-reviewed"), "{markdown}");
+}
+
+#[test]
+fn missing_declared_language_fails_repository_instead_of_falling_back() {
+    let work = TempDir::new().expect("work");
+    let scratch = TempDir::new().expect("scratch");
+    let (folder, commit) = init_repo(
+        work.path(),
+        "py_only",
+        "src/app.py",
+        "def f():\n    return 1\n",
+    );
+    let fake_codeint = write_fake_codeint(
+        work.path(),
+        "fake-codeint-multi.sh",
+        r#"{"languages":{"python":{"source_sets":{"production":{"source_lines":3000,"import_cycles":{"ratio":0.0,"metric_version":1}}}}},"source_sets":{"production":{"source_lines":3000,"import_cycles":{"ratio":0.0,"metric_version":1},"verbosity":{"findings":[]},"orphan_files":{"findings":[]}}}}"#,
+    );
+
+    let manifest = work.path().join("manifest.json");
+    let body = json!({
+        "measured_on": "2026-11-26",
+        "repositories": [
+            {"name": "local/misclassified-sql", "language": "sql", "bucket": "small", "url": format!("file://{}", folder.display()), "commit": commit}
+        ]
+    });
+    std::fs::write(&manifest, body.to_string()).expect("manifest");
+    let out = work.path().join("out");
+
+    let run = run_eval(&manifest, &fake_codeint, &out, scratch.path(), &[]);
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+
+    let summary: Value = serde_json::from_str(
+        &std::fs::read_to_string(out.join("evaluation-summary.json")).expect("summary"),
+    )
+    .expect("json");
+    assert_eq!(summary["passed"], false);
+    assert_eq!(summary["repositories"][0]["passed"], false);
+    assert!(
+        summary["repositories"][0]["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("no measured files for declared language sql")),
+        "{summary}"
+    );
+    assert!(
+        summary["panels"][0]["metrics"]["import_cycles"].is_null(),
+        "{summary}"
+    );
 }

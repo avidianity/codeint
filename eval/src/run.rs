@@ -9,7 +9,7 @@ use crate::audit::AuditPopulation;
 use crate::ceilings::{Ceilings, ceiling_violations};
 use crate::corpus::{CaseStudy, Corpus, CorpusEntry, SizeBucket, load_corpus};
 use crate::error::{EvaluationError, io_error};
-use crate::lowering::{LoweredFile, lower_language_files};
+use crate::lowering::{LoweredFile, LoweredOutcome, lower_language_files};
 use crate::machine::{codeint_version, machine_profile};
 use crate::measure::{CheckMeasurement, measure_check, median};
 use crate::oracle::{PreparedOracle, prepare_oracles, run_oracle};
@@ -91,7 +91,7 @@ pub fn run_evaluation(config: &EvaluationConfig) -> Result<EvaluationSummary, Ev
         machine: machine_profile(),
         runs_per_repository: config.runs.max(1),
         recall_bar: RECALL_BAR,
-        passed: repositories.iter().all(|result| result.passed),
+        passed: evaluation_passed(&repositories, &case_studies),
         languages: summarize_languages(&repositories, &oracles),
         performance: summarize_performance(&repositories),
         panels: summarize_panels(&repositories),
@@ -102,6 +102,11 @@ pub fn run_evaluation(config: &EvaluationConfig) -> Result<EvaluationSummary, Ev
     };
     write_outputs(&config.output_dir, &summary)?;
     Ok(summary)
+}
+
+fn evaluation_passed(repositories: &[RepositoryResult], case_studies: &[CaseStudyResult]) -> bool {
+    repositories.iter().all(|result| result.passed)
+        && case_studies.iter().all(|study| study.error.is_none())
 }
 
 fn select<'corpus>(
@@ -240,8 +245,18 @@ fn measure_repository(
     )?;
     let checkout = clone_at_commit(&scratch, &entry.url, &entry.commit)?;
     let check = measure_check(&config.codeint, &checkout, scratch.path(), config.runs)?;
-    record_check(result, &check);
     let lowered = lower_language_files(&checkout, &entry.language)?;
+    let has_measured_files = lowered
+        .iter()
+        .any(|file| matches!(file.outcome, LoweredOutcome::Measured { .. }));
+    let section = has_measured_files
+        .then(|| language_section(&check.report, &entry.language))
+        .flatten()
+        .ok_or_else(|| EvaluationError::MissingLanguage {
+            repository: entry.name.clone(),
+            language: entry.language.clone(),
+        })?;
+    record_check(result, &check, section);
     result.oracle = oracle_report(
         oracles.get(&entry.language),
         &checkout,
@@ -254,13 +269,16 @@ fn measure_repository(
     Ok(())
 }
 
-fn language_section<'report>(report: &'report Value, language: &str) -> &'report Value {
-    let section = &report["languages"][language];
-    if section.is_null() { report } else { section }
+fn language_section<'report>(report: &'report Value, language: &str) -> Option<&'report Value> {
+    if let Some(languages) = report["languages"].as_object() {
+        languages.get(language)
+    } else {
+        Some(report)
+    }
 }
 
-fn production_lines(report: &Value, language: &str) -> Option<u64> {
-    language_section(report, language)["source_sets"]["production"]["source_lines"].as_u64()
+fn production_lines(section: &Value) -> Option<u64> {
+    section["source_sets"]["production"]["source_lines"].as_u64()
 }
 
 pub(crate) const RANGE_METRICS: [&str; 4] =
@@ -282,8 +300,8 @@ pub(crate) fn metric_readings(production: &Value) -> BTreeMap<String, MetricRead
         .collect()
 }
 
-fn framework_profiles(report: &Value, language: &str) -> Vec<String> {
-    language_section(report, language)["framework_profiles"]
+fn framework_profiles(section: &Value) -> Vec<String> {
+    section["framework_profiles"]
         .as_array()
         .into_iter()
         .flatten()
@@ -291,8 +309,8 @@ fn framework_profiles(report: &Value, language: &str) -> Vec<String> {
         .collect()
 }
 
-fn record_check(result: &mut RepositoryResult, check: &CheckMeasurement) {
-    result.production_lines = production_lines(&check.report, &result.language).or(Some(0));
+fn record_check(result: &mut RepositoryResult, check: &CheckMeasurement, section: &Value) {
+    result.production_lines = production_lines(section).or(Some(0));
     result.measured_bucket = result
         .production_lines
         .and_then(SizeBucket::for_production_lines);
@@ -301,10 +319,8 @@ fn record_check(result: &mut RepositoryResult, check: &CheckMeasurement) {
             .as_array()
             .map_or(0, |skipped| skipped.len() as u64),
     );
-    result.metrics = metric_readings(
-        &language_section(&check.report, &result.language)["source_sets"]["production"],
-    );
-    result.framework_profiles = framework_profiles(&check.report, &result.language);
+    result.metrics = metric_readings(&section["source_sets"]["production"]);
+    result.framework_profiles = framework_profiles(section);
     result.exit_code = check.exit_code;
     result.wall_seconds = check.wall_seconds.clone();
     result.median_wall_seconds = median(&check.wall_seconds);

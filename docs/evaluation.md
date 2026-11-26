@@ -78,10 +78,9 @@ The standard deviation is the population standard deviation.
 
 | Metric | Version | Mean | Median | Standard deviation | 10th percentile | 90th percentile | Lowest | Highest |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Erosion | 1 | 0.315 | 0.199 | 0.327 | 0.000 | 0.795 | 0.000 | 0.999 |
+| Erosion | 1 | 0.309 | 0.197 | 0.330 | 0.000 | 0.795 | 0.000 | 0.999 |
 | Verbosity | 2 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.002 |
-| Duplication | 1 | 0.318 | 0.152 | 0.328 | 0.001 | 0.909 | 0.000 | 0.960 |
-| Import cycles | 1 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
+| Duplication | 1 | 0.315 | 0.142 | 0.330 | 0.001 | 0.909 | 0.000 | 0.960 |
 
 ### typescript-javascript
 
@@ -178,418 +177,418 @@ Files the python oracle parses and codeint did not measure count as recall misse
 
 | Repository | Language | Declared bucket | Measured bucket | Production lines | Median wall time | Peak RSS | Production lines per second |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| morluto/rea | typescript-javascript | large | large | 844237 | 2.262 s | 1274.1 MiB | 373199 |
-| affaan-m/ECC | typescript-javascript | large | large | 109036 | 0.582 s | 335.2 MiB | 187465 |
-| deepseek-ai/deepseek-harness | typescript-javascript | large | large | 499150 | 4.154 s | 1513.4 MiB | 120172 |
-| react/react | typescript-javascript | large | large | 137609 | 0.820 s | 301.6 MiB | 167824 |
-| anomalyco/opencode | typescript-javascript | large | large | 855206 | 4.764 s | 1229.6 MiB | 179508 |
-| vuejs/vue | typescript-javascript | medium | medium | 20865 | 0.091 s | 38.7 MiB | 228344 |
-| n8n-io/n8n | typescript-javascript | large | large | 2022590 | 11.102 s | 2523.5 MiB | 182184 |
-| firecrawl/firecrawl | typescript-javascript | large | large | 162753 | 0.536 s | 242.1 MiB | 303434 |
-| DietrichGebert/ponytail | typescript-javascript | small | small | 3160 | 0.065 s | 21.2 MiB | 48592 |
-| microsoft/vscode | typescript-javascript | large | large | 2339443 | 12.020 s | 3340.4 MiB | 194636 |
-| clash-verge-rev/clash-verge-rev | typescript-javascript | medium | medium | 45752 | 0.155 s | 82.1 MiB | 294997 |
-| anthropics/claude-code | typescript-javascript | medium | medium | 24633 | 0.156 s | 51.8 MiB | 157909 |
-| iptv-org/iptv | typescript-javascript | small | small | 3762 | 0.017 s | 17.9 MiB | 220875 |
-| vercel/next.js | typescript-javascript | large | large | 1138956 | 30.222 s | 1877.4 MiB | 37687 |
-| garrytan/gstack | typescript-javascript | large | large | 176188 | 1.933 s | 714.0 MiB | 91164 |
-| stablyai/orca | typescript-javascript | large | large | 3404433 | 6.982 s | 2030.9 MiB | 487576 |
-| excalidraw/excalidraw | typescript-javascript | large | large | 129239 | 0.145 s | 89.2 MiB | 891463 |
-| shadcn-ui/ui | typescript-javascript | large | large | 415871 | 1.478 s | 399.7 MiB | 281463 |
-| nodejs/node | typescript-javascript | large | large | 354099 | 8.515 s | 1426.3 MiB | 41584 |
-| earendil-works/pi | typescript-javascript | large | large | 319865 | 1.244 s | 595.1 MiB | 257147 |
-| TauricResearch/TradingAgents | typescript-javascript | medium | medium | 27453 | 0.039 s | 46.5 MiB | 697249 |
-| Leonxlnx/taste-skill | typescript-javascript | medium | medium | 37977 | 0.184 s | 83.1 MiB | 206025 |
-| addyosmani/agent-skills | typescript-javascript | small | small | 5321 | 0.022 s | 21.9 MiB | 244331 |
-| axios/axios | typescript-javascript | small | small | 8576 | 0.039 s | 36.9 MiB | 218762 |
-| OpenCut-app/OpenCut | typescript-javascript | small | small | 6539 | 0.017 s | 20.3 MiB | 392854 |
-| tailwindlabs/tailwindcss | typescript-javascript | medium | medium | 32286 | 0.173 s | 84.6 MiB | 187002 |
-| puppeteer/puppeteer | typescript-javascript | medium | medium | 45794 | 0.252 s | 74.1 MiB | 181466 |
-| louislam/uptime-kuma | typescript-javascript | medium | medium | 39251 | 0.112 s | 58.6 MiB | 349591 |
-| Egonex-AI/Understand-Anything | typescript-javascript | medium | medium | 33734 | 0.146 s | 72.5 MiB | 231761 |
-| modelcontextprotocol/servers | typescript-javascript | medium | medium | 18539 | 0.071 s | 58.4 MiB | 260393 |
-| ChatGPTNextWeb/NextChat | typescript-javascript | medium | medium | 37605 | 0.102 s | 47.6 MiB | 368054 |
-| coder/code-server | typescript-javascript | small | small | 3704 | 0.057 s | 21.8 MiB | 65162 |
-| anuraghazra/github-readme-stats | typescript-javascript | small | small | 6513 | 0.023 s | 21.8 MiB | 286385 |
-| Fission-AI/OpenSpec | typescript-javascript | medium | medium | 36481 | 0.174 s | 105.8 MiB | 210025 |
-| Eugeny/tabby | typescript-javascript | medium | medium | 26691 | 0.054 s | 42.0 MiB | 498343 |
-| expressjs/express | typescript-javascript | small | small | 2369 | 0.039 s | 24.8 MiB | 60115 |
-| chartjs/Chart.js | typescript-javascript | medium | medium | 15620 | 0.107 s | 57.9 MiB | 145685 |
-| upstash/context7 | typescript-javascript | medium | medium | 17714 | 0.050 s | 31.0 MiB | 356995 |
-| jgraph/drawio-desktop | typescript-javascript | small | small | 4710 | 0.011 s | 17.1 MiB | 425827 |
-| socketio/socket.io | typescript-javascript | medium | medium | 23574 | 0.673 s | 74.5 MiB | 35017 |
-| coreyhaines31/marketingskills | typescript-javascript | medium | medium | 21219 | 0.197 s | 49.1 MiB | 107607 |
-| reduxjs/redux | typescript-javascript | small | small | 5010 | 0.031 s | 17.3 MiB | 159268 |
-| jquery/jquery | typescript-javascript | small | small | 7203 | 0.076 s | 51.7 MiB | 94934 |
-| pmndrs/zustand | typescript-javascript | small | small | 2316 | 0.042 s | 20.4 MiB | 54819 |
-| scutan90/DeepLearning-500-questions | typescript-javascript | small | small | 3843 | 0.020 s | 14.2 MiB | 195966 |
-| lyswhut/lx-music-desktop | typescript-javascript | medium | medium | 48661 | 0.109 s | 37.6 MiB | 447614 |
-| upscayl/upscayl | typescript-javascript | small | small | 6863 | 0.022 s | 17.8 MiB | 305652 |
-| prettier/prettier | typescript-javascript | medium | medium | 47273 | 1.854 s | 237.3 MiB | 25493 |
-| KeygraphHQ/shannon | typescript-javascript | medium | medium | 40912 | 0.093 s | 43.9 MiB | 441821 |
-| algorithm-visualizer/algorithm-visualizer | typescript-javascript | small | small | 2681 | 0.016 s | 14.4 MiB | 166145 |
-| ultraworkers/claw-code | rust | large | large | 66820 | 0.319 s | 159.0 MiB | 209177 |
-| farion1231/cc-switch | rust | large | large | 177711 | 1.290 s | 377.8 MiB | 137733 |
-| openai/codex | rust | large | large | 921065 | 7.111 s | 1702.1 MiB | 129529 |
-| rustdesk/rustdesk | rust | large | large | 153705 | 0.524 s | 250.2 MiB | 293600 |
-| pbakaus/impeccable | rust | large | large | 174629 | 4.132 s | 872.6 MiB | 42258 |
-| tauri-apps/tauri | rust | large | large | 71436 | 0.370 s | 146.6 MiB | 192902 |
-| denoland/deno | rust | large | large | 410199 | 2.530 s | 791.4 MiB | 162146 |
-| ruvnet/RuView | rust | large | large | 158139 | 1.365 s | 415.6 MiB | 115839 |
-| zed-industries/zed | rust | large | large | 990328 | 5.600 s | 1339.4 MiB | 176830 |
-| astral-sh/uv | rust | large | large | 202794 | 1.925 s | 477.6 MiB | 105370 |
-| rtk-ai/rtk | rust | large | large | 85424 | 0.413 s | 174.2 MiB | 206756 |
-| storytold/photocraft | rust | large | large | 340681 | 2.589 s | 1019.1 MiB | 131608 |
-| unionlabs/union | rust | large | large | 181032 | 5.761 s | 1416.3 MiB | 31426 |
-| dani-garcia/vaultwarden | rust | medium | medium | 31443 | 0.189 s | 91.9 MiB | 166050 |
-| BurntSushi/ripgrep | rust | medium | medium | 25014 | 0.130 s | 84.2 MiB | 191956 |
-| LadybirdBrowser/ladybird | rust | large | large | 822176 | 3.122 s | 1224.7 MiB | 263336 |
-| openinterpreter/openinterpreter | rust | large | large | 752893 | 4.735 s | 1300.9 MiB | 159002 |
-| alacritty/alacritty | rust | medium | medium | 20755 | 0.066 s | 58.2 MiB | 315173 |
-| rust-lang/rustlings | rust | small | small | 6084 | 0.029 s | 23.3 MiB | 209365 |
-| tw93/Pake | rust | small | small | 9861 | 0.056 s | 47.4 MiB | 175994 |
-| starship/starship | rust | medium | medium | 20476 | 0.130 s | 56.0 MiB | 157045 |
-| sharkdp/fd | rust | small | small | 3373 | 0.026 s | 24.4 MiB | 129296 |
-| GyulyVGC/sniffnet | rust | medium | medium | 22399 | 0.061 s | 57.0 MiB | 368914 |
-| FuelLabs/fuels-rs | rust | medium | medium | 16058 | 0.160 s | 52.4 MiB | 100617 |
-| cjpais/Handy | rust | medium | medium | 23081 | 0.104 s | 67.4 MiB | 222504 |
-| AlexsJones/llmfit | rust | medium | medium | 37372 | 0.174 s | 127.8 MiB | 214696 |
-| casey/just | rust | medium | medium | 18848 | 0.099 s | 59.7 MiB | 190647 |
-| TabbyML/tabby | rust | medium | medium | 33260 | 2.855 s | 413.2 MiB | 11649 |
-| Zackriya-Solutions/meetily | rust | medium | medium | 35117 | 0.104 s | 87.8 MiB | 338272 |
-| ankitects/anki | rust | medium | medium | 49762 | 0.183 s | 126.4 MiB | 272646 |
-| yewstack/yew | rust | medium | medium | 21901 | 0.104 s | 70.5 MiB | 211078 |
-| dandavison/delta | rust | medium | medium | 14652 | 0.050 s | 44.2 MiB | 295367 |
-| googleworkspace/cli | rust | medium | medium | 14683 | 0.060 s | 54.1 MiB | 246216 |
-| sharkdp/hyperfine | rust | small | small | 4901 | 0.037 s | 24.8 MiB | 130790 |
-| cloudflare/pingora | rust | medium | medium | 48066 | 0.337 s | 137.2 MiB | 142668 |
-| tokio-rs/axum | rust | medium | medium | 16103 | 0.095 s | 60.0 MiB | 170334 |
-| tree-sitter/tree-sitter | rust | medium | medium | 35427 | 0.114 s | 91.1 MiB | 310848 |
-| Schniz/fnm | rust | small | small | 3338 | 0.019 s | 21.2 MiB | 178728 |
-| Wilfred/difftastic | rust | medium | medium | 14371 | 0.089 s | 51.1 MiB | 160610 |
-| TheAlgorithms/Rust | rust | medium | medium | 21394 | 0.060 s | 44.8 MiB | 358048 |
-| ogham/exa | rust | small | small | 5976 | 0.022 s | 28.7 MiB | 267106 |
-| fathyb/carbonyl | rust | small | small | 2675 | 0.019 s | 19.7 MiB | 137837 |
-| QuipNetwork/hashsigs-rs | rust | small | small | 7166 | 0.109 s | 45.1 MiB | 66000 |
-| seanmonstar/warp | rust | small | small | 6593 | 0.026 s | 28.5 MiB | 257718 |
-| actix/actix | rust | small | small | 5523 | 0.058 s | 27.4 MiB | 94500 |
-| tokio-rs/mio | rust | small | small | 8214 | 0.076 s | 37.7 MiB | 108603 |
-| dtolnay/anyhow | rust | small | small | 2378 | 0.024 s | 25.7 MiB | 100217 |
-| emmett-framework/granian | rust | small | small | 8010 | 0.030 s | 31.7 MiB | 268082 |
-| dtolnay/thiserror | rust | small | small | 2560 | 0.014 s | 20.4 MiB | 182576 |
-| autumnai/leaf | rust | small | small | 3393 | 0.049 s | 34.6 MiB | 68970 |
-| coollabsio/coolify | php | large | large | 227364 | 14.941 s | 587.1 MiB | 15217 |
-| nextcloud/server | php | large | large | 310264 | 6.282 s | 742.7 MiB | 49388 |
-| laravel/framework | php | large | large | 132915 | 1.264 s | 299.3 MiB | 105158 |
-| filamentphp/filament | php | large | large | 270274 | 3.826 s | 334.4 MiB | 70632 |
-| symfony/symfony | php | large | large | 1030081 | 4.666 s | 1082.7 MiB | 220748 |
-| composer/composer | php | large | large | 50034 | 0.143 s | 46.3 MiB | 349864 |
-| bagisto/bagisto | php | large | large | 303018 | 3.048 s | 318.2 MiB | 99428 |
-| monicahq/monica | php | large | large | 164533 | 0.539 s | 250.5 MiB | 305313 |
-| firefly-iii/firefly-iii | php | large | large | 109763 | 1.270 s | 166.8 MiB | 86413 |
-| krayin/laravel-crm | php | large | large | 59939 | 0.799 s | 196.1 MiB | 75008 |
-| livewire/livewire | php | medium | medium | 21413 | 0.158 s | 57.0 MiB | 135916 |
-| guzzle/guzzle | php | medium | medium | 12931 | 0.100 s | 49.0 MiB | 129214 |
-| PHPMailer/PHPMailer | php | small | small | 5717 | 0.031 s | 19.5 MiB | 183353 |
-| DesignPatternsPHP/DesignPatternsPHP | php | small | small | 2018 | 0.029 s | 13.3 MiB | 69329 |
-| matomo-org/matomo | php | large | large | 273171 | 7.439 s | 668.2 MiB | 36721 |
-| Seldaek/monolog | php | small | small | 8691 | 0.027 s | 19.0 MiB | 319519 |
-| sebastianbergmann/phpunit | php | large | large | 85993 | 0.516 s | 112.9 MiB | 166673 |
-| fruitcake/laravel-debugbar | php | small | small | 5231 | 0.017 s | 19.6 MiB | 308945 |
-| BookStackApp/BookStack | php | large | large | 116965 | 1.200 s | 174.8 MiB | 97474 |
-| bcit-ci/CodeIgniter | php | medium | medium | 28489 | 0.042 s | 35.4 MiB | 682352 |
-| nikic/PHP-Parser | php | medium | medium | 17251 | 0.086 s | 44.4 MiB | 201378 |
-| koel/koel | php | medium | medium | 41312 | 0.147 s | 106.6 MiB | 281638 |
-| briannesbitt/Carbon | php | medium | medium | 30625 | 0.122 s | 88.0 MiB | 250207 |
-| getgrav/grav | php | large | large | 70378 | 0.183 s | 78.5 MiB | 384096 |
-| grokability/snipe-it | php | large | large | 583155 | 6.799 s | 595.5 MiB | 85773 |
-| barryvdh/laravel-ide-helper | php | small | small | 3677 | 0.017 s | 17.0 MiB | 214227 |
-| Intervention/image | php | medium | medium | 16997 | 0.076 s | 47.1 MiB | 223675 |
-| phpstan/phpstan | php | small | small | 2563 | 0.074 s | 24.8 MiB | 34798 |
-| digininja/DVWA | php | small | small | 8614 | 0.027 s | 21.5 MiB | 315909 |
-| thephpleague/flysystem | php | medium | medium | 10123 | 0.031 s | 21.5 MiB | 330464 |
-| filp/whoops | php | small | small | 2157 | 0.013 s | 16.8 MiB | 169364 |
-| wallabag/wallabag | php | medium | medium | 20434 | 0.115 s | 49.5 MiB | 177119 |
-| spatie/laravel-permission | php | small | small | 2608 | 0.052 s | 22.1 MiB | 50434 |
-| SpartnerNL/Laravel-Excel | php | small | small | 7326 | 0.100 s | 20.2 MiB | 73502 |
-| ramsey/uuid | php | small | small | 4424 | 0.048 s | 22.9 MiB | 91961 |
-| typecho/typecho | php | medium | medium | 23232 | 0.190 s | 59.5 MiB | 122507 |
-| slimphp/Slim | php | small | small | 3080 | 0.026 s | 19.5 MiB | 117569 |
-| pestphp/pest | php | medium | medium | 21028 | 0.092 s | 36.3 MiB | 228701 |
-| egulias/EmailValidator | php | small | small | 2422 | 0.018 s | 12.5 MiB | 133248 |
-| walkor/workerman | php | small | small | 6907 | 0.022 s | 16.7 MiB | 319451 |
-| tymondesigns/jwt-auth | php | small | small | 2361 | 0.021 s | 14.2 MiB | 114178 |
-| dompdf/dompdf | php | medium | medium | 22190 | 0.083 s | 26.7 MiB | 266587 |
-| z-song/laravel-admin | php | medium | medium | 23640 | 0.265 s | 59.0 MiB | 89233 |
-| deployphp/deployer | php | medium | medium | 11866 | 0.071 s | 21.3 MiB | 168214 |
-| nextcloud/all-in-one | php | medium | medium | 12760 | 0.038 s | 24.2 MiB | 331557 |
-| squizlabs/PHP_CodeSniffer | php | medium | medium | 40134 | 0.128 s | 49.9 MiB | 314541 |
-| Anankke/SSPanel-UIM | php | medium | medium | 19727 | 0.038 s | 28.6 MiB | 515098 |
-| doctrine/orm | php | medium | medium | 36744 | 0.166 s | 73.1 MiB | 221978 |
-| bobthecow/psysh | php | medium | medium | 36911 | 0.120 s | 57.0 MiB | 307490 |
-| symfony/console | php | medium | medium | 17886 | 0.075 s | 42.8 MiB | 239555 |
-| flutter/flutter | dart | large | large | 806633 | 5.113 s | 1152.9 MiB | 157767 |
-| AppFlowy-IO/AppFlowy | dart | large | large | 229243 | 0.612 s | 249.6 MiB | 374531 |
-| chen08209/FlClash | dart | large | large | 125752 | 0.713 s | 226.3 MiB | 176430 |
-| Predidit/Kazumi | dart | large | large | 65949 | 0.062 s | 34.7 MiB | 1055539 |
-| hiddify/hiddify-app | dart | medium | medium | 42284 | 0.207 s | 87.1 MiB | 204611 |
-| ccch1mneyyy/dsh-Go | dart | large | large | 537675 | 2.097 s | 1065.7 MiB | 256390 |
-| ente/ente | dart | large | large | 352288 | 1.394 s | 582.1 MiB | 252687 |
-| GopeedLab/gopeed | dart | medium | medium | 48337 | 0.243 s | 105.2 MiB | 199146 |
-| alibaba/flutter-go | dart | medium | medium | 26521 | 0.077 s | 30.3 MiB | 342360 |
-| mitesh77/Best-Flutter-UI-Templates | dart | small | small | 9524 | 0.035 s | 15.8 MiB | 273798 |
-| ImranR98/Obtainium | dart | medium | medium | 33892 | 0.040 s | 42.7 MiB | 853548 |
-| getlantern/lantern | dart | medium | medium | 46249 | 0.450 s | 80.7 MiB | 102823 |
-| KaringX/karing | dart | large | large | 51672 | 4.610 s | 211.3 MiB | 11208 |
-| xiaoyaocz/dart_simple_live | dart | medium | medium | 39907 | 0.101 s | 39.1 MiB | 394039 |
-| bagisto/opensource-ecommerce-mobile-app | dart | large | large | 71308 | 0.725 s | 97.7 MiB | 98393 |
-| CarGuo/gsy_github_app_flutter | dart | medium | medium | 36339 | 0.175 s | 40.4 MiB | 207422 |
-| wanghongenpin/proxypin | dart | large | large | 67024 | 0.227 s | 73.0 MiB | 295517 |
-| Notsfsssf/pixez-flutter | dart | large | large | 62354 | 0.332 s | 136.5 MiB | 187709 |
-| cfug/dio | dart | small | small | 7698 | 0.058 s | 22.9 MiB | 132821 |
-| felangel/bloc | dart | medium | medium | 11597 | 0.117 s | 42.2 MiB | 98777 |
-| jonataslaw/getx | dart | medium | medium | 15922 | 0.029 s | 24.8 MiB | 555912 |
-| flame-engine/flame | dart | large | large | 102657 | 0.267 s | 118.1 MiB | 383790 |
-| KaringX/clashmi | dart | medium | medium | 35863 | 2.556 s | 199.7 MiB | 14031 |
-| firebase/flutterfire | dart | large | large | 64761 | 0.366 s | 111.3 MiB | 176970 |
-| lollipopkit/flutter_server_box | dart | large | large | 246009 | 2.219 s | 627.9 MiB | 110850 |
-| brianegan/flutter_architecture_samples | dart | medium | medium | 12616 | 0.135 s | 29.0 MiB | 93779 |
-| toly1994328/FlutterUnit | dart | large | large | 59372 | 0.142 s | 54.7 MiB | 418070 |
-| simplezhli/flutter_deer | dart | medium | medium | 16839 | 0.036 s | 18.9 MiB | 471063 |
-| Sle2p/AniCh | dart | medium | medium | 27488 | 0.089 s | 32.9 MiB | 309814 |
-| ComicSparks/pikapika | dart | medium | medium | 31065 | 0.133 s | 42.5 MiB | 234017 |
-| mornyeapp/Mornye | dart | large | large | 293436 | 0.705 s | 474.1 MiB | 416029 |
-| alibaba/fish-redux | dart | small | small | 4484 | 0.036 s | 18.7 MiB | 124243 |
-| OpenFlutter/Flutter-Notebook | dart | small | small | 8007 | 0.040 s | 17.3 MiB | 201787 |
-| nisrulz/flutter-examples | dart | small | small | 8552 | 0.065 s | 18.9 MiB | 130811 |
-| mylxsw/aidea | dart | medium | medium | 49709 | 0.081 s | 63.3 MiB | 612714 |
-| vandadnp/flutter-tips-and-tricks | dart | medium | medium | 13755 | 0.023 s | 16.1 MiB | 608043 |
-| 2d-inc/HistoryOfEverything | dart | small | small | 4833 | 0.012 s | 14.9 MiB | 404563 |
-| iampawan/Flutter-UI-Kit | dart | small | small | 4684 | 0.022 s | 13.1 MiB | 216867 |
-| samarthagarwal/FlutterScreens | dart | small | small | 3362 | 0.018 s | 13.1 MiB | 185835 |
-| flutterchina/flukit | dart | small | small | 4586 | 0.018 s | 14.1 MiB | 250740 |
-| miru-project/miru-app | dart | medium | medium | 19261 | 0.072 s | 37.2 MiB | 269127 |
-| Sky24n/flutter_wanandroid | dart | small | small | 7314 | 0.015 s | 17.5 MiB | 472532 |
-| ComicSparks/jasmine | dart | medium | medium | 18552 | 0.026 s | 24.1 MiB | 714582 |
-| btwld/fvm | dart | small | small | 9465 | 0.075 s | 33.3 MiB | 126855 |
-| ionicfirebaseapp/getwidget | dart | medium | medium | 11792 | 0.068 s | 23.7 MiB | 174392 |
-| xuelongqy/flutter_easy_refresh | dart | medium | medium | 17664 | 0.090 s | 31.0 MiB | 195854 |
-| best-flutter/flutter_swiper | dart | small | small | 2653 | 0.022 s | 13.4 MiB | 123108 |
-| ReactiveX/rxdart | dart | small | small | 6582 | 0.104 s | 25.7 MiB | 63121 |
-| rrousselGit/flutter_hooks | dart | small | small | 2855 | 0.052 s | 16.1 MiB | 54396 |
-| OpenFlutter/fluwx | dart | small | small | 4102 | 0.040 s | 16.7 MiB | 103670 |
-| NousResearch/hermes-agent | python | large | large | 947246 | 4.747 s | 2082.2 MiB | 199539 |
-| yt-dlp/yt-dlp | python | large | large | 201346 | 0.274 s | 136.1 MiB | 733634 |
-| anthropics/skills | python | medium | medium | 17061 | 0.087 s | 34.9 MiB | 196124 |
-| microsoft/markitdown | python | small | small | 7117 | 0.013 s | 18.5 MiB | 554158 |
-| Significant-Gravitas/AutoGPT | python | large | large | 477476 | 1.401 s | 898.6 MiB | 340849 |
-| huggingface/transformers | python | large | large | 752814 | 3.558 s | 843.2 MiB | 211605 |
-| AUTOMATIC1111/stable-diffusion-webui | python | medium | medium | 33074 | 0.049 s | 48.2 MiB | 673503 |
-| langgenius/dify | python | large | large | 480982 | 13.001 s | 1510.6 MiB | 36995 |
-| langflow-ai/langflow | python | large | large | 370045 | 1.446 s | 628.5 MiB | 255936 |
-| nextlevelbuilder/ui-ux-pro-max-skill | python | medium | medium | 24454 | 0.280 s | 62.7 MiB | 87337 |
-| Graphify-Labs/graphify | python | large | large | 89067 | 0.256 s | 163.5 MiB | 347859 |
-| github/spec-kit | python | large | large | 75044 | 0.254 s | 163.0 MiB | 295162 |
-| langchain-ai/langchain | python | large | large | 205153 | 0.415 s | 166.7 MiB | 494284 |
-| Comfy-Org/ComfyUI | python | large | large | 256452 | 0.459 s | 222.6 MiB | 558492 |
-| Shubhamsaboo/awesome-llm-apps | python | large | large | 69835 | 3.097 s | 133.9 MiB | 22547 |
-| harry0703/MoneyPrinterTurbo | python | medium | medium | 40254 | 0.085 s | 67.2 MiB | 474757 |
-| ytdl-org/youtube-dl | python | large | large | 137578 | 0.104 s | 86.3 MiB | 1318015 |
-| browser-use/browser-use | python | medium | medium | 14527 | 0.032 s | 33.1 MiB | 452742 |
-| debpalash/VoiceStudio | python | large | large | 142694 | 0.356 s | 349.2 MiB | 400600 |
-| Panniantong/Agent-Reach | python | small | small | 8000 | 0.019 s | 21.8 MiB | 423085 |
-| openai/whisper | python | small | small | 3257 | 0.008 s | 13.2 MiB | 417810 |
-| pytorch/pytorch | python | large | large | 1246987 | 4.377 s | 1404.3 MiB | 284863 |
-| D4Vinci/Scrapling | python | medium | medium | 14643 | 0.034 s | 34.2 MiB | 431370 |
-| fastapi/fastapi | python | medium | medium | 31370 | 0.187 s | 80.2 MiB | 167587 |
-| hacksider/Deep-Live-Cam | python | small | small | 6485 | 0.010 s | 16.2 MiB | 680480 |
-| nvbn/thefuck | python | small | small | 5066 | 0.015 s | 18.5 MiB | 334075 |
-| vllm-project/vllm | python | large | large | 1293645 | 9.163 s | 1211.2 MiB | 141180 |
-| 3b1b/manim | python | medium | medium | 21968 | 0.016 s | 21.6 MiB | 1357656 |
-| 666ghj/MiroFish | python | medium | medium | 21160 | 0.031 s | 31.1 MiB | 677482 |
-| Z4nzu/hackingtool | python | small | small | 8790 | 0.013 s | 19.0 MiB | 702362 |
-| abi/screenshot-to-code | python | medium | medium | 11777 | 0.031 s | 31.4 MiB | 384969 |
-| usestrix/strix | python | medium | medium | 39912 | 0.337 s | 100.4 MiB | 118583 |
-| hiyouga/LlamaFactory | python | medium | medium | 42248 | 0.057 s | 46.2 MiB | 735248 |
-| pallets/flask | python | small | small | 8142 | 0.016 s | 20.4 MiB | 521266 |
-| ai-job-search-dev/ai-job-search | python | small | small | 5449 | 0.015 s | 19.5 MiB | 358071 |
-| asgeirtj/system_prompts_leaks | python | medium | medium | 32579 | 0.101 s | 57.5 MiB | 323840 |
-| NanmiCoder/MediaCrawler | python | medium | medium | 18289 | 0.083 s | 30.6 MiB | 221464 |
-| binary-husky/gpt_academic | python | medium | medium | 49008 | 0.143 s | 61.9 MiB | 343527 |
-| jingyaogong/minimind | python | small | small | 3994 | 0.015 s | 15.6 MiB | 261849 |
-| scrapy/scrapy | python | medium | medium | 33076 | 0.122 s | 67.8 MiB | 271366 |
-| virattt/ai-hedge-fund | python | medium | medium | 11397 | 0.017 s | 19.3 MiB | 688379 |
-| bilibili/GPT-SoVITS | python | medium | medium | 40052 | 0.078 s | 53.4 MiB | 514333 |
-| commaai/openpilot | python | medium | medium | 46200 | 0.144 s | 69.4 MiB | 321270 |
-| jamiepine/voicebox | python | medium | medium | 18937 | 0.067 s | 54.8 MiB | 281982 |
-| karpathy/nanochat | python | small | small | 5213 | 0.010 s | 16.1 MiB | 504266 |
-| CorentinJ/Real-Time-Voice-Cloning | python | small | small | 4639 | 0.009 s | 14.1 MiB | 496778 |
-| FoundationAgents/OpenManus | python | small | small | 9324 | 0.013 s | 17.7 MiB | 741924 |
-| Zie619/n8n-workflows | python | small | small | 5971 | 0.019 s | 25.2 MiB | 311307 |
-| psf/requests | python | small | small | 5095 | 0.014 s | 16.6 MiB | 364831 |
-| hiroi-sora/Umi-OCR | python | small | small | 9983 | 0.023 s | 17.7 MiB | 443460 |
-| ollama/ollama | go | large | large | 150942 | 0.466 s | 270.4 MiB | 324105 |
-| JuliusBrussee/caveman | go | large | large | 86647 | 0.375 s | 255.0 MiB | 231080 |
-| microsoft/TypeScript | go | large | large | 234260 | 2.507 s | 644.1 MiB | 93447 |
-| fatedier/frp | go | medium | medium | 35256 | 0.066 s | 50.6 MiB | 535484 |
-| infiniflow/ragflow | go | large | large | 405918 | 5.955 s | 747.9 MiB | 68166 |
-| syncthing/syncthing | go | large | large | 52790 | 0.244 s | 112.8 MiB | 216590 |
-| gin-gonic/gin | go | small | small | 5364 | 0.028 s | 25.2 MiB | 193153 |
-| junegunn/fzf | go | medium | medium | 22956 | 0.041 s | 34.3 MiB | 553508 |
-| netdata/netdata | go | large | large | 445710 | 2.099 s | 871.6 MiB | 212380 |
-| caddyserver/caddy | go | large | large | 50918 | 0.155 s | 78.4 MiB | 329424 |
-| grafana/grafana | go | large | large | 551632 | 14.036 s | 2163.2 MiB | 39302 |
-| nektos/act | go | medium | medium | 15602 | 0.047 s | 35.4 MiB | 330272 |
-| prometheus/prometheus | go | large | large | 120134 | 0.590 s | 268.6 MiB | 203553 |
-| traefik/traefik | go | large | large | 56672 | 0.790 s | 249.4 MiB | 71734 |
-| usememos/memos | go | medium | medium | 46670 | 0.434 s | 180.8 MiB | 107447 |
-| rclone/rclone | go | large | large | 199107 | 0.368 s | 220.7 MiB | 540538 |
-| router-for-me/CLIProxyAPI | go | large | large | 325665 | 1.684 s | 672.8 MiB | 193413 |
-| go-gitea/gitea | go | large | large | 260214 | 0.519 s | 333.8 MiB | 501033 |
-| multica-ai/multica | go | large | large | 289450 | 2.103 s | 1089.4 MiB | 137638 |
-| alibaba/open-code-review | go | medium | medium | 37725 | 0.198 s | 127.5 MiB | 190612 |
-| wagoodman/dive | go | small | small | 8289 | 0.019 s | 20.7 MiB | 426758 |
-| etcd-io/etcd | go | large | large | 76188 | 0.261 s | 150.8 MiB | 291894 |
-| v2ray/v2ray-core | go | medium | medium | 30798 | 0.151 s | 68.0 MiB | 204600 |
-| charmbracelet/bubbletea | go | small | small | 9509 | 0.014 s | 17.1 MiB | 670490 |
-| spf13/cobra | go | small | small | 5165 | 0.061 s | 18.2 MiB | 84468 |
-| danielmiessler/Fabric | go | medium | medium | 21379 | 0.056 s | 41.9 MiB | 384050 |
-| astaxie/build-web-application-with-golang | go | medium | medium | 12472 | 0.045 s | 26.9 MiB | 276774 |
-| schollz/croc | go | medium | medium | 28527 | 0.067 s | 58.1 MiB | 423949 |
-| gofiber/fiber | go | medium | medium | 38295 | 0.093 s | 82.4 MiB | 413658 |
-| go-gorm/gorm | go | medium | medium | 12497 | 0.060 s | 40.0 MiB | 209213 |
-| docker/compose | go | medium | medium | 31268 | 0.121 s | 67.8 MiB | 257917 |
-| glanceapp/glance | go | small | small | 8168 | 0.012 s | 18.3 MiB | 655906 |
-| IceWhaleTech/CasaOS | go | small | small | 9580 | 0.017 s | 19.6 MiB | 561786 |
-| restic/restic | go | medium | medium | 38397 | 0.108 s | 69.4 MiB | 356195 |
-| binwiederhier/ntfy | go | medium | medium | 30648 | 0.189 s | 86.6 MiB | 162107 |
-| derailed/k9s | go | medium | medium | 39963 | 0.059 s | 38.6 MiB | 679205 |
-| k3s-io/k3s | go | medium | medium | 30357 | 0.085 s | 51.1 MiB | 356227 |
-| ehang-io/nps | go | small | small | 8545 | 0.334 s | 60.2 MiB | 25574 |
-| labstack/echo | go | small | small | 8486 | 0.058 s | 32.0 MiB | 146306 |
-| beego/beego | go | medium | medium | 35989 | 0.107 s | 56.1 MiB | 336871 |
-| dokku/dokku | go | medium | medium | 40888 | 0.121 s | 59.9 MiB | 336720 |
-| iawia002/lux | go | small | small | 8571 | 0.027 s | 19.8 MiB | 321586 |
-| abiosoft/colima | go | medium | medium | 10091 | 0.023 s | 18.0 MiB | 446629 |
-| gitleaks/gitleaks | go | medium | medium | 12156 | 0.042 s | 24.2 MiB | 289832 |
-| chubin/wttr.in | go | small | small | 8733 | 0.023 s | 17.4 MiB | 387155 |
-| spf13/viper | go | small | small | 2280 | 0.016 s | 14.1 MiB | 138589 |
-| charmbracelet/glow | go | small | small | 3200 | 0.011 s | 12.6 MiB | 281035 |
-| go-kit/kit | go | small | small | 8996 | 0.035 s | 21.5 MiB | 260294 |
-| sirupsen/logrus | go | small | small | 2190 | 0.014 s | 14.4 MiB | 160226 |
-| gorilla/websocket | go | small | small | 2971 | 0.014 s | 14.2 MiB | 210684 |
-| NawfalMotii79/PLFM_RADAR | sql | medium | medium | 19288 | 0.030 s | 28.6 MiB | 646465 |
-| pgmq/pgmq | sql | medium | medium | 10854 | 0.145 s | 80.3 MiB | 74955 |
-| datacharmer/test_db | sql | medium | medium | 47574 | 0.350 s | 217.7 MiB | 135901 |
-| BrentOzarULTD/SQL-Server-First-Responder-Kit | sql | large | large | 137263 | 0.841 s | 568.2 MiB | 163131 |
-| olahallengren/sql-server-maintenance-solution | sql | medium | medium | 20808 | 0.113 s | 118.3 MiB | 183399 |
-| openmaptiles/openmaptiles | sql | medium | medium | 10411 | 0.053 s | 49.2 MiB | 197178 |
-| pgpartman/pg_partman | sql | large | large | 156326 | 1.924 s | 582.1 MiB | 81266 |
-| lerocha/chinook-database | sql | large | large | 173602 | 1.293 s | 867.7 MiB | 134262 |
-| darold/pgFormatter | sql | large | large | 310653 | 2.519 s | 1824.0 MiB | 123301 |
-| NikolayS/PgQue | sql | medium | medium | 34095 | 0.226 s | 82.0 MiB | 150753 |
-| NixOS/hydra | sql | medium | medium | 38904 | 0.685 s | 274.7 MiB | 56809 |
-| amachanic/sp_whoisactive | sql | medium | medium | 14923 | 0.056 s | 97.0 MiB | 266837 |
-| microsoft/fhir-server | sql | large | large | 335344 | 4.045 s | 1196.2 MiB | 82913 |
-| cahyadsn/wilayah | sql | large | large | 509905 | 2.087 s | 1469.1 MiB | 244311 |
-| NikolayS/postgres_dba | sql | small | small | 2900 | 0.029 s | 27.0 MiB | 100777 |
-| theory/pgtap | sql | small | small | 4990 | 0.160 s | 140.7 MiB | 31175 |
-| aquametalabs/aquameta | sql | small | small | 4742 | 0.033 s | 35.0 MiB | 141764 |
-| mqttsnet/thinglinks | sql | medium | medium | 11692 | 2.093 s | 489.9 MiB | 5587 |
-| oracle-samples/db-sample-schemas | sql | large | large | 110419 | 0.308 s | 364.2 MiB | 358706 |
-| smpetersgithub/AdvancedSQLPuzzles | sql | medium | medium | 11192 | 0.026 s | 41.0 MiB | 429173 |
-| chinnonsantos/sql-paises-estados-cidades | sql | medium | medium | 18097 | 0.177 s | 221.2 MiB | 102344 |
-| anthonydb/practical-sql-2 | sql | small | small | 3059 | 0.013 s | 33.9 MiB | 243585 |
-| rin-nas/postgresql-patterns-library | sql | medium | medium | 12411 | 0.021 s | 40.8 MiB | 596167 |
-| tanelpoder/tpt-oracle | sql | large | large | 100830 | 0.553 s | 795.4 MiB | 182407 |
-| erikdarlingdata/DarlingData | sql | large | large | 145386 | 0.391 s | 484.6 MiB | 371671 |
-| anthonydb/practical-sql | sql | small | small | 2558 | 0.016 s | 30.2 MiB | 157245 |
-| Ysurac/FlightAirMap | sql | large | large | 137049 | 1.668 s | 1101.9 MiB | 82150 |
-| utPLSQL/utPLSQL | sql | small | small | 2769 | 0.012 s | 21.7 MiB | 231687 |
-| trickerer/Trinity-Bots | sql | medium | medium | 28859 | 0.222 s | 249.7 MiB | 129952 |
-| morenoh149/postgresDBSamples | sql | large | large | 59597 | 0.318 s | 464.5 MiB | 187285 |
-| jOOQ/sakila | sql | large | large | 928489 | 3.068 s | 7747.9 MiB | 302616 |
-| microsoft/Windows-appsample-customers-orders-database | sql | medium | medium | 16236 | 0.060 s | 79.9 MiB | 271718 |
-| dbkangaroo/kangaroo | sql | large | large | 141672 | 1.589 s | 2522.6 MiB | 89165 |
-| marcingminski/sqlwatch | sql | medium | medium | 14828 | 0.025 s | 30.5 MiB | 602059 |
-| lorint/AdventureWorks-for-Postgres | sql | small | small | 2732 | 0.016 s | 31.0 MiB | 165783 |
-| 3dcitydb/3dcitydb | sql | small | small | 2883 | 0.014 s | 25.5 MiB | 204183 |
-| geocompass/pg-coordtransform | sql | small | small | 2117 | 0.010 s | 15.6 MiB | 208119 |
-| point-source/supabase-tenant-rbac | sql | medium | medium | 12138 | 0.058 s | 69.4 MiB | 210978 |
-| tSQLt-org/tSQLt | sql | medium | medium | 24792 | 0.044 s | 107.8 MiB | 558834 |
-| pljson/pljson | sql | small | small | 8422 | 0.020 s | 35.3 MiB | 426831 |
-| andrelugomes/digital-innovation-one | sql | medium | medium | 11873 | 0.013 s | 23.9 MiB | 888861 |
-| Abstrct/Schemaverse | sql | small | small | 9141 | 0.165 s | 76.3 MiB | 55352 |
-| basedosdados/sdk | sql | medium | medium | 19773 | 0.076 s | 53.9 MiB | 260891 |
-| pgpointcloud/pointcloud | sql | medium | medium | 40779 | 0.807 s | 1165.9 MiB | 50524 |
-| pgq/pgq | sql | small | small | 3223 | 0.012 s | 25.0 MiB | 266206 |
-| pgMemento/pgMemento | sql | small | small | 6727 | 0.019 s | 29.4 MiB | 355085 |
-| siqichen-usc/LeetCode-SQL-Summary | sql | small | small | 4664 | 0.018 s | 45.1 MiB | 261640 |
-| bnagy/cgasm | sql | large | large | 53520 | 0.025 s | 50.7 MiB | 2115610 |
-| postgis/h3-pg | sql | small | small | 5558 | 0.022 s | 46.5 MiB | 250520 |
-| Hameds/IranCountryDivisions | sql | large | large | 1047837 | 4.939 s | 5891.2 MiB | 212175 |
-| vercel/next.js | typescript-javascript | large | large | 1138956 | 24.515 s | 1830.4 MiB | 46459 |
-| shadcn-ui/ui | typescript-javascript | large | large | 415871 | 1.187 s | 398.9 MiB | 350406 |
-| react/create-react-app | typescript-javascript | large | large | 56349 | 0.214 s | 110.7 MiB | 262867 |
-| mui/material-ui | typescript-javascript | large | large | 577616 | 1.654 s | 427.6 MiB | 349291 |
-| storybookjs/storybook | typescript-javascript | large | large | 359426 | 2.083 s | 470.0 MiB | 172515 |
-| ChatGPTNextWeb/NextChat | typescript-javascript | medium | medium | 37605 | 0.055 s | 45.9 MiB | 689367 |
-| remotion-dev/remotion | typescript-javascript | large | large | 1223808 | 5.127 s | 1021.7 MiB | 238711 |
-| AykutSarac/jsoncrack.com | typescript-javascript | small | small | 8237 | 0.023 s | 19.7 MiB | 355664 |
-| xyflow/xyflow | typescript-javascript | medium | medium | 45226 | 0.078 s | 36.8 MiB | 582350 |
-| jaredpalmer/formik | typescript-javascript | small | small | 8487 | 0.017 s | 21.6 MiB | 488967 |
-| pmndrs/react-three-fiber | typescript-javascript | small | small | 6962 | 0.021 s | 21.7 MiB | 324081 |
-| gethomepage/homepage | typescript-javascript | medium | medium | 29325 | 0.108 s | 74.2 MiB | 270478 |
-| vercel/swr | typescript-javascript | small | small | 4940 | 0.020 s | 26.0 MiB | 246960 |
-| pmndrs/react-spring | typescript-javascript | medium | medium | 21487 | 0.038 s | 33.2 MiB | 564179 |
-| slymnoyann/hey.xyz | typescript-javascript | medium | medium | 44766 | 0.196 s | 156.1 MiB | 228827 |
-| tailwindlabs/headlessui | typescript-javascript | medium | medium | 33429 | 0.152 s | 78.9 MiB | 219990 |
-| maotoumao/MusicFree | typescript-javascript | medium | medium | 27546 | 0.030 s | 25.0 MiB | 933529 |
-| nextauthjs/next-auth | typescript-javascript | medium | medium | 29698 | 0.058 s | 39.5 MiB | 512777 |
-| rahuldkjain/github-profile-readme-generator | typescript-javascript | small | small | 5392 | 0.008 s | 15.8 MiB | 638072 |
-| tabler/tabler-icons | typescript-javascript | small | small | 5141 | 0.031 s | 20.9 MiB | 164024 |
-| PanJiaChen/vue-element-admin | typescript-javascript | medium | medium | 10502 | 0.013 s | 17.7 MiB | 779085 |
-| bailicangdu/vue2-elm | typescript-javascript | small | small | 4236 | 0.041 s | 26.7 MiB | 103481 |
-| vuejs/vuepress | typescript-javascript | small | small | 8059 | 0.015 s | 18.3 MiB | 527452 |
-| zxwk1998/vue-admin-better | typescript-javascript | small | small | 8928 | 0.027 s | 27.7 MiB | 325006 |
-| iview/iview-admin | typescript-javascript | small | small | 5994 | 0.010 s | 15.6 MiB | 616505 |
-| codesandbox/codesandbox-client | typescript-javascript | large | large | 906913 | 144.338 s | 2752.0 MiB | 6283 |
-| bailicangdu/vue2-manage | typescript-javascript | small | small | 2170 | 0.598 s | 101.5 MiB | 3628 |
-| vueComponent/ant-design-vue-pro | typescript-javascript | medium | medium | 11135 | 0.013 s | 18.1 MiB | 854801 |
-| getgridea/gridea | typescript-javascript | small | small | 6670 | 0.012 s | 17.4 MiB | 559231 |
-| tsparticles/tsparticles | typescript-javascript | large | large | 142624 | 0.724 s | 153.2 MiB | 196899 |
-| OnsenUI/OnsenUI | typescript-javascript | medium | medium | 36420 | 0.069 s | 53.6 MiB | 531292 |
-| x-extends/vxe-table | typescript-javascript | large | large | 60659 | 0.045 s | 49.0 MiB | 1338753 |
-| gridsome/gridsome | typescript-javascript | medium | medium | 13188 | 0.030 s | 25.4 MiB | 437898 |
-| emqx/MQTTX | typescript-javascript | large | large | 56309 | 0.080 s | 45.8 MiB | 702922 |
-| Tencent/wujie | typescript-javascript | medium | medium | 15475 | 0.049 s | 31.4 MiB | 313152 |
-| elunez/eladmin-web | typescript-javascript | medium | medium | 10603 | 0.018 s | 18.9 MiB | 588512 |
-| herozhou/vue-framework-wz | typescript-javascript | medium | medium | 14092 | 0.104 s | 53.6 MiB | 135396 |
-| umicro/uView | typescript-javascript | medium | medium | 23352 | 0.038 s | 29.2 MiB | 618823 |
-| algolia/instantsearch | typescript-javascript | large | large | 94534 | 1.742 s | 276.7 MiB | 54270 |
-| Simon-He95/markstream-vue | typescript-javascript | large | large | 169970 | 0.211 s | 140.7 MiB | 803871 |
-| storybookjs/storybook | typescript-javascript | large | large | 359496 | 2.668 s | 471.8 MiB | 134745 |
-| hoppscotch/hoppscotch | typescript-javascript | large | large | 157256 | 0.323 s | 170.1 MiB | 487177 |
-| lyswhut/lx-music-desktop | typescript-javascript | medium | medium | 48661 | 0.052 s | 37.5 MiB | 940230 |
-| TanStack/query | typescript-javascript | large | large | 82110 | 0.433 s | 132.7 MiB | 189569 |
-| slidevjs/slidev | typescript-javascript | medium | medium | 25212 | 0.049 s | 28.4 MiB | 510432 |
-| vuetifyjs/vuetify | typescript-javascript | large | large | 107760 | 0.211 s | 74.4 MiB | 510664 |
-| xyflow/xyflow | typescript-javascript | medium | medium | 45226 | 0.118 s | 36.8 MiB | 382344 |
-| ueberdosis/tiptap | typescript-javascript | large | large | 89064 | 0.322 s | 132.7 MiB | 276763 |
-| directus/directus | typescript-javascript | large | large | 189245 | 0.515 s | 176.2 MiB | 367651 |
-| tailwindlabs/headlessui | typescript-javascript | medium | medium | 33429 | 0.254 s | 82.8 MiB | 131863 |
-| Molunerfinn/PicGo | typescript-javascript | medium | medium | 34336 | 0.053 s | 37.6 MiB | 650368 |
-| lucide-icons/lucide | typescript-javascript | medium | medium | 18541 | 0.075 s | 26.7 MiB | 245926 |
-| youzan/vant | typescript-javascript | medium | medium | 41040 | 0.076 s | 36.7 MiB | 537899 |
-| vueuse/vueuse | typescript-javascript | medium | medium | 26071 | 0.102 s | 50.1 MiB | 254948 |
-| lin-xin/vue-manage-system | typescript-javascript | small | small | 2946 | 0.013 s | 14.5 MiB | 225232 |
-| darkroomengineering/lenis | typescript-javascript | small | small | 2821 | 0.014 s | 15.2 MiB | 206158 |
-| soybeanjs/soybean-admin | typescript-javascript | small | small | 9454 | 0.025 s | 19.9 MiB | 382571 |
-| vuejs/pinia | typescript-javascript | small | small | 6272 | 0.027 s | 21.7 MiB | 234837 |
-| formkit/auto-animate | typescript-javascript | small | small | 2822 | 0.016 s | 16.2 MiB | 176872 |
-| logaretm/vee-validate | typescript-javascript | small | small | 7510 | 0.043 s | 29.8 MiB | 176155 |
+| morluto/rea | typescript-javascript | large | large | 844237 | 1.574 s | 1194.7 MiB | 536449 |
+| affaan-m/ECC | typescript-javascript | large | large | 109036 | 0.576 s | 322.8 MiB | 189429 |
+| deepseek-ai/deepseek-harness | typescript-javascript | large | large | 499150 | 2.325 s | 1433.0 MiB | 214667 |
+| react/react | typescript-javascript | large | large | 137609 | 0.702 s | 303.6 MiB | 196151 |
+| anomalyco/opencode | typescript-javascript | large | large | 855206 | 4.090 s | 1175.2 MiB | 209118 |
+| vuejs/vue | typescript-javascript | medium | medium | 20865 | 0.036 s | 38.4 MiB | 572274 |
+| n8n-io/n8n | typescript-javascript | large | large | 2022590 | 9.893 s | 2544.3 MiB | 204444 |
+| firecrawl/firecrawl | typescript-javascript | large | large | 162753 | 0.451 s | 207.8 MiB | 361065 |
+| DietrichGebert/ponytail | typescript-javascript | small | small | 3160 | 0.014 s | 21.5 MiB | 218430 |
+| microsoft/vscode | typescript-javascript | large | large | 2339443 | 9.579 s | 3123.4 MiB | 244233 |
+| clash-verge-rev/clash-verge-rev | typescript-javascript | medium | medium | 45752 | 0.094 s | 79.4 MiB | 489286 |
+| anthropics/claude-code | typescript-javascript | medium | medium | 24633 | 0.112 s | 50.8 MiB | 219491 |
+| iptv-org/iptv | typescript-javascript | small | small | 3762 | 0.013 s | 17.8 MiB | 300165 |
+| vercel/next.js | typescript-javascript | large | large | 1138956 | 30.323 s | 1916.5 MiB | 37560 |
+| garrytan/gstack | typescript-javascript | large | large | 176188 | 0.846 s | 625.4 MiB | 208349 |
+| stablyai/orca | typescript-javascript | large | large | 3404433 | 5.753 s | 2094.7 MiB | 591747 |
+| excalidraw/excalidraw | typescript-javascript | large | large | 129239 | 0.119 s | 88.6 MiB | 1083526 |
+| shadcn-ui/ui | typescript-javascript | large | large | 415871 | 2.036 s | 395.4 MiB | 204240 |
+| nodejs/node | typescript-javascript | large | large | 354099 | 5.438 s | 1482.0 MiB | 65112 |
+| earendil-works/pi | typescript-javascript | large | large | 319865 | 1.151 s | 523.7 MiB | 277865 |
+| TauricResearch/TradingAgents | typescript-javascript | medium | medium | 27453 | 0.052 s | 48.2 MiB | 527774 |
+| Leonxlnx/taste-skill | typescript-javascript | medium | medium | 37977 | 0.159 s | 77.4 MiB | 238879 |
+| addyosmani/agent-skills | typescript-javascript | small | small | 5321 | 0.021 s | 21.3 MiB | 256970 |
+| axios/axios | typescript-javascript | small | small | 8576 | 0.044 s | 37.3 MiB | 196628 |
+| OpenCut-app/OpenCut | typescript-javascript | small | small | 6539 | 0.017 s | 20.2 MiB | 392051 |
+| tailwindlabs/tailwindcss | typescript-javascript | medium | medium | 32286 | 0.135 s | 83.7 MiB | 238810 |
+| puppeteer/puppeteer | typescript-javascript | medium | medium | 45794 | 0.151 s | 76.9 MiB | 304261 |
+| louislam/uptime-kuma | typescript-javascript | medium | medium | 39251 | 0.081 s | 59.5 MiB | 484242 |
+| Egonex-AI/Understand-Anything | typescript-javascript | medium | medium | 33734 | 0.128 s | 67.5 MiB | 263111 |
+| modelcontextprotocol/servers | typescript-javascript | medium | medium | 18539 | 0.100 s | 58.6 MiB | 185740 |
+| ChatGPTNextWeb/NextChat | typescript-javascript | medium | medium | 37605 | 0.064 s | 46.9 MiB | 591208 |
+| coder/code-server | typescript-javascript | small | small | 3704 | 0.023 s | 22.2 MiB | 159694 |
+| anuraghazra/github-readme-stats | typescript-javascript | small | small | 6513 | 0.027 s | 21.2 MiB | 239985 |
+| Fission-AI/OpenSpec | typescript-javascript | medium | medium | 36481 | 0.191 s | 107.2 MiB | 190962 |
+| Eugeny/tabby | typescript-javascript | medium | medium | 26691 | 0.111 s | 42.7 MiB | 240644 |
+| expressjs/express | typescript-javascript | small | small | 2369 | 0.029 s | 24.7 MiB | 81070 |
+| chartjs/Chart.js | typescript-javascript | medium | medium | 15620 | 0.100 s | 59.0 MiB | 155729 |
+| upstash/context7 | typescript-javascript | medium | medium | 17714 | 0.039 s | 29.8 MiB | 453766 |
+| jgraph/drawio-desktop | typescript-javascript | small | small | 4710 | 0.014 s | 17.2 MiB | 325811 |
+| socketio/socket.io | typescript-javascript | medium | medium | 23574 | 0.364 s | 83.0 MiB | 64731 |
+| coreyhaines31/marketingskills | typescript-javascript | medium | medium | 21219 | 0.105 s | 46.4 MiB | 202412 |
+| reduxjs/redux | typescript-javascript | small | small | 5010 | 0.018 s | 17.4 MiB | 276694 |
+| jquery/jquery | typescript-javascript | small | small | 7203 | 0.048 s | 51.4 MiB | 149602 |
+| pmndrs/zustand | typescript-javascript | small | small | 2316 | 0.020 s | 20.5 MiB | 114038 |
+| scutan90/DeepLearning-500-questions | typescript-javascript | small | small | 3843 | 0.017 s | 14.0 MiB | 220875 |
+| lyswhut/lx-music-desktop | typescript-javascript | medium | medium | 48661 | 0.081 s | 37.2 MiB | 598591 |
+| upscayl/upscayl | typescript-javascript | small | small | 6863 | 0.024 s | 17.4 MiB | 284794 |
+| prettier/prettier | typescript-javascript | medium | medium | 47273 | 1.243 s | 235.0 MiB | 38034 |
+| KeygraphHQ/shannon | typescript-javascript | medium | medium | 40912 | 0.067 s | 45.4 MiB | 614842 |
+| algorithm-visualizer/algorithm-visualizer | typescript-javascript | small | small | 2681 | 0.015 s | 14.0 MiB | 175519 |
+| ultraworkers/claw-code | rust | large | large | 66820 | 0.229 s | 144.7 MiB | 291795 |
+| farion1231/cc-switch | rust | large | large | 177711 | 0.712 s | 348.6 MiB | 249633 |
+| openai/codex | rust | large | large | 921065 | 4.565 s | 1774.4 MiB | 201755 |
+| rustdesk/rustdesk | rust | large | large | 153705 | 0.371 s | 250.3 MiB | 414768 |
+| pbakaus/impeccable | rust | large | large | 174629 | 2.591 s | 836.6 MiB | 67397 |
+| tauri-apps/tauri | rust | large | large | 71436 | 0.594 s | 149.9 MiB | 120309 |
+| denoland/deno | rust | large | large | 410199 | 1.846 s | 727.4 MiB | 222239 |
+| ruvnet/RuView | rust | large | large | 158139 | 0.891 s | 408.6 MiB | 177427 |
+| zed-industries/zed | rust | large | large | 990328 | 4.861 s | 1353.2 MiB | 203731 |
+| astral-sh/uv | rust | large | large | 202794 | 1.097 s | 453.6 MiB | 184839 |
+| rtk-ai/rtk | rust | large | large | 85424 | 0.265 s | 175.6 MiB | 322735 |
+| storytold/photocraft | rust | large | large | 340681 | 3.055 s | 1013.8 MiB | 111527 |
+| unionlabs/union | rust | large | large | 181032 | 5.388 s | 1452.0 MiB | 33598 |
+| dani-garcia/vaultwarden | rust | medium | medium | 31443 | 0.140 s | 92.5 MiB | 224219 |
+| BurntSushi/ripgrep | rust | medium | medium | 25014 | 0.118 s | 85.9 MiB | 211366 |
+| LadybirdBrowser/ladybird | rust | large | large | 822176 | 2.775 s | 1208.2 MiB | 296308 |
+| openinterpreter/openinterpreter | rust | large | large | 752893 | 4.393 s | 1359.3 MiB | 171386 |
+| alacritty/alacritty | rust | medium | medium | 20755 | 0.069 s | 55.6 MiB | 300800 |
+| rust-lang/rustlings | rust | small | small | 6084 | 0.063 s | 23.9 MiB | 97067 |
+| tw93/Pake | rust | small | small | 9861 | 0.048 s | 47.6 MiB | 205579 |
+| starship/starship | rust | medium | medium | 20476 | 0.128 s | 57.2 MiB | 159472 |
+| sharkdp/fd | rust | small | small | 3373 | 0.025 s | 23.5 MiB | 132530 |
+| GyulyVGC/sniffnet | rust | medium | medium | 22399 | 0.065 s | 56.2 MiB | 344030 |
+| FuelLabs/fuels-rs | rust | medium | medium | 16058 | 0.130 s | 61.2 MiB | 123508 |
+| cjpais/Handy | rust | medium | medium | 23081 | 0.085 s | 69.1 MiB | 270690 |
+| AlexsJones/llmfit | rust | medium | medium | 37372 | 0.138 s | 125.9 MiB | 271396 |
+| casey/just | rust | medium | medium | 18848 | 0.147 s | 62.7 MiB | 128118 |
+| TabbyML/tabby | rust | medium | medium | 33260 | 3.578 s | 413.2 MiB | 9295 |
+| Zackriya-Solutions/meetily | rust | medium | medium | 35117 | 0.162 s | 89.1 MiB | 216698 |
+| ankitects/anki | rust | medium | medium | 49762 | 0.188 s | 124.4 MiB | 264240 |
+| yewstack/yew | rust | medium | medium | 21901 | 0.099 s | 70.5 MiB | 220884 |
+| dandavison/delta | rust | medium | medium | 14652 | 0.045 s | 45.2 MiB | 323634 |
+| googleworkspace/cli | rust | medium | medium | 14683 | 0.050 s | 52.0 MiB | 290937 |
+| sharkdp/hyperfine | rust | small | small | 4901 | 0.020 s | 23.7 MiB | 242319 |
+| cloudflare/pingora | rust | medium | medium | 48066 | 0.265 s | 126.6 MiB | 181414 |
+| tokio-rs/axum | rust | medium | medium | 16103 | 0.145 s | 64.6 MiB | 110802 |
+| tree-sitter/tree-sitter | rust | medium | medium | 35427 | 0.116 s | 89.2 MiB | 306624 |
+| Schniz/fnm | rust | small | small | 3338 | 0.015 s | 21.3 MiB | 216393 |
+| Wilfred/difftastic | rust | medium | medium | 14371 | 0.111 s | 53.5 MiB | 129198 |
+| TheAlgorithms/Rust | rust | medium | medium | 21394 | 0.132 s | 44.4 MiB | 162127 |
+| ogham/exa | rust | small | small | 5976 | 0.023 s | 27.0 MiB | 258154 |
+| fathyb/carbonyl | rust | small | small | 2675 | 0.048 s | 19.4 MiB | 55707 |
+| QuipNetwork/hashsigs-rs | rust | small | small | 7166 | 0.057 s | 44.8 MiB | 125781 |
+| seanmonstar/warp | rust | small | small | 6593 | 0.026 s | 28.4 MiB | 256137 |
+| actix/actix | rust | small | small | 5523 | 0.026 s | 27.0 MiB | 213584 |
+| tokio-rs/mio | rust | small | small | 8214 | 0.094 s | 36.0 MiB | 86992 |
+| dtolnay/anyhow | rust | small | small | 2378 | 0.055 s | 25.1 MiB | 43262 |
+| emmett-framework/granian | rust | small | small | 8010 | 0.032 s | 31.4 MiB | 252195 |
+| dtolnay/thiserror | rust | small | small | 2560 | 0.014 s | 20.5 MiB | 183064 |
+| autumnai/leaf | rust | small | small | 3393 | 0.058 s | 35.3 MiB | 58897 |
+| coollabsio/coolify | php | large | large | 227364 | 9.377 s | 592.9 MiB | 24247 |
+| nextcloud/server | php | large | large | 310264 | 4.995 s | 727.9 MiB | 62119 |
+| laravel/framework | php | large | large | 132915 | 0.792 s | 277.5 MiB | 167759 |
+| filamentphp/filament | php | large | large | 270274 | 2.317 s | 352.0 MiB | 116638 |
+| symfony/symfony | php | large | large | 1030081 | 2.923 s | 1094.9 MiB | 352371 |
+| composer/composer | php | large | large | 50034 | 0.071 s | 46.4 MiB | 700052 |
+| bagisto/bagisto | php | large | large | 303018 | 1.356 s | 314.5 MiB | 223390 |
+| monicahq/monica | php | large | large | 164533 | 0.539 s | 236.6 MiB | 305230 |
+| firefly-iii/firefly-iii | php | large | large | 109763 | 0.733 s | 167.8 MiB | 149782 |
+| krayin/laravel-crm | php | large | large | 59939 | 0.922 s | 191.9 MiB | 64989 |
+| livewire/livewire | php | medium | medium | 21413 | 0.108 s | 56.8 MiB | 198135 |
+| guzzle/guzzle | php | medium | medium | 12931 | 0.068 s | 47.8 MiB | 191281 |
+| PHPMailer/PHPMailer | php | small | small | 5717 | 0.024 s | 19.5 MiB | 239013 |
+| DesignPatternsPHP/DesignPatternsPHP | php | small | small | 2018 | 0.025 s | 13.1 MiB | 79277 |
+| matomo-org/matomo | php | large | large | 273171 | 4.628 s | 687.8 MiB | 59031 |
+| Seldaek/monolog | php | small | small | 8691 | 0.019 s | 20.2 MiB | 459835 |
+| sebastianbergmann/phpunit | php | large | large | 85993 | 0.428 s | 112.3 MiB | 200723 |
+| fruitcake/laravel-debugbar | php | small | small | 5231 | 0.017 s | 19.5 MiB | 300682 |
+| BookStackApp/BookStack | php | large | large | 116965 | 1.101 s | 171.1 MiB | 106228 |
+| bcit-ci/CodeIgniter | php | medium | medium | 28489 | 0.042 s | 35.1 MiB | 675668 |
+| nikic/PHP-Parser | php | medium | medium | 17251 | 0.106 s | 45.4 MiB | 162772 |
+| koel/koel | php | medium | medium | 41312 | 0.199 s | 113.5 MiB | 207655 |
+| briannesbitt/Carbon | php | medium | medium | 30625 | 0.192 s | 84.2 MiB | 159278 |
+| getgrav/grav | php | large | large | 70378 | 0.263 s | 81.3 MiB | 267137 |
+| grokability/snipe-it | php | large | large | 583155 | 5.493 s | 607.7 MiB | 106155 |
+| barryvdh/laravel-ide-helper | php | small | small | 3677 | 0.032 s | 16.4 MiB | 115129 |
+| Intervention/image | php | medium | medium | 16997 | 0.121 s | 50.4 MiB | 140968 |
+| phpstan/phpstan | php | small | small | 2563 | 0.030 s | 24.2 MiB | 84947 |
+| digininja/DVWA | php | small | small | 8614 | 0.028 s | 20.8 MiB | 304888 |
+| thephpleague/flysystem | php | medium | medium | 10123 | 0.061 s | 22.8 MiB | 165820 |
+| filp/whoops | php | small | small | 2157 | 0.019 s | 17.1 MiB | 116394 |
+| wallabag/wallabag | php | medium | medium | 20434 | 0.122 s | 53.4 MiB | 166991 |
+| spatie/laravel-permission | php | small | small | 2608 | 0.035 s | 22.8 MiB | 73755 |
+| SpartnerNL/Laravel-Excel | php | small | small | 7326 | 0.030 s | 20.3 MiB | 242347 |
+| ramsey/uuid | php | small | small | 4424 | 0.031 s | 23.2 MiB | 144882 |
+| typecho/typecho | php | medium | medium | 23232 | 0.191 s | 60.3 MiB | 121480 |
+| slimphp/Slim | php | small | small | 3080 | 0.024 s | 19.5 MiB | 127358 |
+| pestphp/pest | php | medium | medium | 21028 | 0.078 s | 37.7 MiB | 268396 |
+| egulias/EmailValidator | php | small | small | 2422 | 0.013 s | 12.5 MiB | 187560 |
+| walkor/workerman | php | small | small | 6907 | 0.017 s | 16.7 MiB | 402453 |
+| tymondesigns/jwt-auth | php | small | small | 2361 | 0.016 s | 14.2 MiB | 148514 |
+| dompdf/dompdf | php | medium | medium | 22190 | 0.027 s | 27.0 MiB | 814180 |
+| z-song/laravel-admin | php | medium | medium | 23640 | 0.186 s | 60.5 MiB | 127238 |
+| deployphp/deployer | php | medium | medium | 11866 | 0.030 s | 20.8 MiB | 391783 |
+| nextcloud/all-in-one | php | medium | medium | 12760 | 0.029 s | 25.0 MiB | 434673 |
+| squizlabs/PHP_CodeSniffer | php | medium | medium | 40134 | 0.120 s | 51.7 MiB | 335528 |
+| Anankke/SSPanel-UIM | php | medium | medium | 19727 | 0.032 s | 28.2 MiB | 611032 |
+| doctrine/orm | php | medium | medium | 36744 | 0.297 s | 75.0 MiB | 123556 |
+| bobthecow/psysh | php | medium | medium | 36911 | 0.196 s | 60.4 MiB | 188048 |
+| symfony/console | php | medium | medium | 17886 | 0.076 s | 43.2 MiB | 236105 |
+| flutter/flutter | dart | large | large | 806633 | 4.495 s | 1154.0 MiB | 179467 |
+| AppFlowy-IO/AppFlowy | dart | large | large | 229243 | 0.464 s | 241.9 MiB | 493966 |
+| chen08209/FlClash | dart | large | large | 125752 | 0.512 s | 224.1 MiB | 245783 |
+| Predidit/Kazumi | dart | large | large | 65949 | 0.053 s | 34.6 MiB | 1253731 |
+| hiddify/hiddify-app | dart | medium | medium | 42284 | 0.217 s | 86.0 MiB | 195171 |
+| ccch1mneyyy/dsh-Go | dart | large | large | 537675 | 2.299 s | 1072.5 MiB | 233824 |
+| ente/ente | dart | large | large | 352288 | 1.025 s | 605.8 MiB | 343625 |
+| GopeedLab/gopeed | dart | medium | medium | 48337 | 0.181 s | 106.5 MiB | 266343 |
+| alibaba/flutter-go | dart | medium | medium | 26521 | 0.038 s | 27.7 MiB | 697016 |
+| mitesh77/Best-Flutter-UI-Templates | dart | small | small | 9524 | 0.013 s | 16.1 MiB | 711944 |
+| ImranR98/Obtainium | dart | medium | medium | 33892 | 0.039 s | 42.0 MiB | 878685 |
+| getlantern/lantern | dart | medium | medium | 46249 | 0.158 s | 81.0 MiB | 292059 |
+| KaringX/karing | dart | large | large | 51672 | 1.667 s | 212.3 MiB | 30999 |
+| xiaoyaocz/dart_simple_live | dart | medium | medium | 39907 | 0.078 s | 39.5 MiB | 512635 |
+| bagisto/opensource-ecommerce-mobile-app | dart | large | large | 71308 | 0.183 s | 93.0 MiB | 390303 |
+| CarGuo/gsy_github_app_flutter | dart | medium | medium | 36339 | 0.061 s | 41.7 MiB | 591473 |
+| wanghongenpin/proxypin | dart | large | large | 67024 | 0.103 s | 70.4 MiB | 652434 |
+| Notsfsssf/pixez-flutter | dart | large | large | 62354 | 0.245 s | 137.3 MiB | 254310 |
+| cfug/dio | dart | small | small | 7698 | 0.027 s | 23.1 MiB | 286447 |
+| felangel/bloc | dart | medium | medium | 11597 | 0.081 s | 42.5 MiB | 142781 |
+| jonataslaw/getx | dart | medium | medium | 15922 | 0.031 s | 25.0 MiB | 521553 |
+| flame-engine/flame | dart | large | large | 102657 | 0.287 s | 118.2 MiB | 357667 |
+| KaringX/clashmi | dart | medium | medium | 35863 | 1.487 s | 194.5 MiB | 24121 |
+| firebase/flutterfire | dart | large | large | 64761 | 0.379 s | 104.9 MiB | 171040 |
+| lollipopkit/flutter_server_box | dart | large | large | 246009 | 2.001 s | 643.0 MiB | 122968 |
+| brianegan/flutter_architecture_samples | dart | medium | medium | 12616 | 0.090 s | 26.3 MiB | 140791 |
+| toly1994328/FlutterUnit | dart | large | large | 59372 | 0.087 s | 52.5 MiB | 681891 |
+| simplezhli/flutter_deer | dart | medium | medium | 16839 | 0.023 s | 19.1 MiB | 744818 |
+| Sle2p/AniCh | dart | medium | medium | 27488 | 0.055 s | 32.1 MiB | 500544 |
+| ComicSparks/pikapika | dart | medium | medium | 31065 | 0.105 s | 43.0 MiB | 294697 |
+| mornyeapp/Mornye | dart | large | large | 293436 | 0.880 s | 471.2 MiB | 333478 |
+| alibaba/fish-redux | dart | small | small | 4484 | 0.020 s | 18.9 MiB | 226692 |
+| OpenFlutter/Flutter-Notebook | dart | small | small | 8007 | 0.046 s | 17.0 MiB | 172574 |
+| nisrulz/flutter-examples | dart | small | small | 8552 | 0.047 s | 19.1 MiB | 183807 |
+| mylxsw/aidea | dart | medium | medium | 49709 | 0.084 s | 63.2 MiB | 594196 |
+| vandadnp/flutter-tips-and-tricks | dart | medium | medium | 13755 | 0.027 s | 16.2 MiB | 510099 |
+| 2d-inc/HistoryOfEverything | dart | small | small | 4833 | 0.012 s | 14.8 MiB | 406807 |
+| iampawan/Flutter-UI-Kit | dart | small | small | 4684 | 0.009 s | 13.0 MiB | 537151 |
+| samarthagarwal/FlutterScreens | dart | small | small | 3362 | 0.008 s | 13.5 MiB | 416474 |
+| flutterchina/flukit | dart | small | small | 4586 | 0.020 s | 14.3 MiB | 233943 |
+| miru-project/miru-app | dart | medium | medium | 19261 | 0.091 s | 34.7 MiB | 212535 |
+| Sky24n/flutter_wanandroid | dart | small | small | 7314 | 0.040 s | 17.3 MiB | 180807 |
+| ComicSparks/jasmine | dart | medium | medium | 18552 | 0.030 s | 25.9 MiB | 619057 |
+| btwld/fvm | dart | small | small | 9465 | 0.049 s | 29.8 MiB | 193558 |
+| ionicfirebaseapp/getwidget | dart | medium | medium | 11792 | 0.041 s | 24.0 MiB | 288719 |
+| xuelongqy/flutter_easy_refresh | dart | medium | medium | 17664 | 0.054 s | 27.4 MiB | 326391 |
+| best-flutter/flutter_swiper | dart | small | small | 2653 | 0.010 s | 13.8 MiB | 262139 |
+| ReactiveX/rxdart | dart | small | small | 6582 | 0.062 s | 26.7 MiB | 105823 |
+| rrousselGit/flutter_hooks | dart | small | small | 2855 | 0.033 s | 15.7 MiB | 87512 |
+| OpenFlutter/fluwx | dart | small | small | 4102 | 0.039 s | 16.6 MiB | 105558 |
+| NousResearch/hermes-agent | python | large | large | 947246 | 4.390 s | 1947.2 MiB | 215777 |
+| yt-dlp/yt-dlp | python | large | large | 201346 | 0.196 s | 118.7 MiB | 1029862 |
+| anthropics/skills | python | medium | medium | 17061 | 0.055 s | 32.8 MiB | 308899 |
+| microsoft/markitdown | python | small | small | 7117 | 0.027 s | 18.2 MiB | 259167 |
+| Significant-Gravitas/AutoGPT | python | large | large | 477476 | 1.327 s | 898.1 MiB | 359883 |
+| huggingface/transformers | python | large | large | 752814 | 4.443 s | 868.2 MiB | 169420 |
+| AUTOMATIC1111/stable-diffusion-webui | python | medium | medium | 33074 | 0.060 s | 48.1 MiB | 555021 |
+| langgenius/dify | python | large | large | 480982 | 12.971 s | 1486.6 MiB | 37082 |
+| langflow-ai/langflow | python | large | large | 370045 | 1.534 s | 637.3 MiB | 241163 |
+| nextlevelbuilder/ui-ux-pro-max-skill | python | medium | medium | 24454 | 0.246 s | 64.6 MiB | 99483 |
+| Graphify-Labs/graphify | python | large | large | 89067 | 0.296 s | 183.5 MiB | 301328 |
+| github/spec-kit | python | large | large | 75044 | 0.271 s | 142.2 MiB | 277190 |
+| langchain-ai/langchain | python | large | large | 205153 | 0.325 s | 168.6 MiB | 631497 |
+| Comfy-Org/ComfyUI | python | large | large | 256452 | 0.528 s | 275.1 MiB | 485664 |
+| Shubhamsaboo/awesome-llm-apps | python | large | large | 69835 | 4.049 s | 133.7 MiB | 17247 |
+| harry0703/MoneyPrinterTurbo | python | medium | medium | 40254 | 0.090 s | 68.9 MiB | 445296 |
+| ytdl-org/youtube-dl | python | large | large | 137578 | 0.134 s | 87.9 MiB | 1027610 |
+| browser-use/browser-use | python | medium | medium | 14527 | 0.033 s | 32.5 MiB | 444026 |
+| debpalash/VoiceStudio | python | large | large | 142694 | 0.397 s | 349.2 MiB | 359462 |
+| Panniantong/Agent-Reach | python | small | small | 8000 | 0.019 s | 21.6 MiB | 424137 |
+| openai/whisper | python | small | small | 3257 | 0.008 s | 13.0 MiB | 414412 |
+| pytorch/pytorch | python | large | large | 1246987 | 4.364 s | 1457.0 MiB | 285751 |
+| D4Vinci/Scrapling | python | medium | medium | 14643 | 0.041 s | 34.3 MiB | 354400 |
+| fastapi/fastapi | python | medium | medium | 31370 | 0.171 s | 80.4 MiB | 183692 |
+| hacksider/Deep-Live-Cam | python | small | small | 6485 | 0.010 s | 16.1 MiB | 648835 |
+| nvbn/thefuck | python | small | small | 5066 | 0.017 s | 18.8 MiB | 306146 |
+| vllm-project/vllm | python | large | large | 1293645 | 9.724 s | 1215.0 MiB | 133031 |
+| 3b1b/manim | python | medium | medium | 21968 | 0.017 s | 21.5 MiB | 1311620 |
+| 666ghj/MiroFish | python | medium | medium | 21160 | 0.035 s | 30.5 MiB | 612745 |
+| Z4nzu/hackingtool | python | small | small | 8790 | 0.016 s | 18.8 MiB | 548575 |
+| abi/screenshot-to-code | python | medium | medium | 11777 | 0.032 s | 32.1 MiB | 365336 |
+| usestrix/strix | python | medium | medium | 39912 | 0.356 s | 99.4 MiB | 112136 |
+| hiyouga/LlamaFactory | python | medium | medium | 42248 | 0.057 s | 45.4 MiB | 737239 |
+| pallets/flask | python | small | small | 8142 | 0.017 s | 20.6 MiB | 484708 |
+| ai-job-search-dev/ai-job-search | python | small | small | 5449 | 0.014 s | 19.3 MiB | 399977 |
+| asgeirtj/system_prompts_leaks | python | medium | medium | 32579 | 0.097 s | 59.2 MiB | 334783 |
+| NanmiCoder/MediaCrawler | python | medium | medium | 18289 | 0.035 s | 28.2 MiB | 527876 |
+| binary-husky/gpt_academic | python | medium | medium | 49008 | 0.132 s | 61.9 MiB | 370979 |
+| jingyaogong/minimind | python | small | small | 3994 | 0.011 s | 15.5 MiB | 379682 |
+| scrapy/scrapy | python | medium | medium | 33076 | 0.062 s | 60.2 MiB | 531651 |
+| virattt/ai-hedge-fund | python | medium | medium | 11397 | 0.015 s | 20.1 MiB | 781971 |
+| bilibili/GPT-SoVITS | python | medium | medium | 40052 | 0.057 s | 50.3 MiB | 698125 |
+| commaai/openpilot | python | medium | medium | 46200 | 0.064 s | 61.6 MiB | 726819 |
+| jamiepine/voicebox | python | medium | medium | 18937 | 0.073 s | 54.1 MiB | 260922 |
+| karpathy/nanochat | python | small | small | 5213 | 0.010 s | 16.2 MiB | 498047 |
+| CorentinJ/Real-Time-Voice-Cloning | python | small | small | 4639 | 0.008 s | 14.2 MiB | 550498 |
+| FoundationAgents/OpenManus | python | small | small | 9324 | 0.012 s | 18.0 MiB | 768506 |
+| Zie619/n8n-workflows | python | small | small | 5971 | 0.020 s | 25.0 MiB | 298989 |
+| psf/requests | python | small | small | 5095 | 0.014 s | 16.2 MiB | 364951 |
+| hiroi-sora/Umi-OCR | python | small | small | 9983 | 0.030 s | 18.0 MiB | 330679 |
+| ollama/ollama | go | large | large | 150942 | 0.466 s | 271.4 MiB | 324083 |
+| JuliusBrussee/caveman | go | large | large | 86647 | 0.383 s | 252.8 MiB | 225975 |
+| microsoft/TypeScript | go | large | large | 234260 | 2.913 s | 641.0 MiB | 80428 |
+| fatedier/frp | go | medium | medium | 35256 | 0.063 s | 56.5 MiB | 559836 |
+| infiniflow/ragflow | go | large | large | 405918 | 6.960 s | 847.6 MiB | 58321 |
+| syncthing/syncthing | go | large | large | 52790 | 0.154 s | 105.6 MiB | 343548 |
+| gin-gonic/gin | go | small | small | 5364 | 0.053 s | 24.7 MiB | 100754 |
+| junegunn/fzf | go | medium | medium | 22956 | 0.077 s | 37.2 MiB | 297921 |
+| netdata/netdata | go | large | large | 445710 | 2.956 s | 909.3 MiB | 150772 |
+| caddyserver/caddy | go | large | large | 50918 | 0.129 s | 69.3 MiB | 393505 |
+| grafana/grafana | go | large | large | 551632 | 16.288 s | 1962.0 MiB | 33867 |
+| nektos/act | go | medium | medium | 15602 | 0.064 s | 39.8 MiB | 242062 |
+| prometheus/prometheus | go | large | large | 120134 | 1.070 s | 292.3 MiB | 112257 |
+| traefik/traefik | go | large | large | 56672 | 1.119 s | 259.0 MiB | 50649 |
+| usememos/memos | go | medium | medium | 46670 | 0.575 s | 178.0 MiB | 81187 |
+| rclone/rclone | go | large | large | 199107 | 0.573 s | 238.4 MiB | 347561 |
+| router-for-me/CLIProxyAPI | go | large | large | 325665 | 2.371 s | 749.8 MiB | 137342 |
+| go-gitea/gitea | go | large | large | 260214 | 0.677 s | 369.2 MiB | 384405 |
+| multica-ai/multica | go | large | large | 289450 | 2.710 s | 1089.7 MiB | 106795 |
+| alibaba/open-code-review | go | medium | medium | 37725 | 0.283 s | 131.9 MiB | 133497 |
+| wagoodman/dive | go | small | small | 8289 | 0.027 s | 22.4 MiB | 302897 |
+| etcd-io/etcd | go | large | large | 76188 | 0.297 s | 153.4 MiB | 256323 |
+| v2ray/v2ray-core | go | medium | medium | 30798 | 0.174 s | 75.3 MiB | 176756 |
+| charmbracelet/bubbletea | go | small | small | 9509 | 0.015 s | 16.7 MiB | 622932 |
+| spf13/cobra | go | small | small | 5165 | 0.022 s | 19.1 MiB | 234164 |
+| danielmiessler/Fabric | go | medium | medium | 21379 | 0.077 s | 43.3 MiB | 276913 |
+| astaxie/build-web-application-with-golang | go | medium | medium | 12472 | 0.062 s | 29.0 MiB | 200970 |
+| schollz/croc | go | medium | medium | 28527 | 0.090 s | 57.8 MiB | 316545 |
+| gofiber/fiber | go | medium | medium | 38295 | 0.133 s | 82.4 MiB | 288982 |
+| go-gorm/gorm | go | medium | medium | 12497 | 0.069 s | 44.8 MiB | 180281 |
+| docker/compose | go | medium | medium | 31268 | 0.145 s | 77.9 MiB | 215220 |
+| glanceapp/glance | go | small | small | 8168 | 0.020 s | 18.0 MiB | 401038 |
+| IceWhaleTech/CasaOS | go | small | small | 9580 | 0.024 s | 20.7 MiB | 394008 |
+| restic/restic | go | medium | medium | 38397 | 0.096 s | 68.2 MiB | 399710 |
+| binwiederhier/ntfy | go | medium | medium | 30648 | 0.176 s | 85.8 MiB | 174476 |
+| derailed/k9s | go | medium | medium | 39963 | 0.070 s | 38.8 MiB | 572213 |
+| k3s-io/k3s | go | medium | medium | 30357 | 0.105 s | 54.7 MiB | 288630 |
+| ehang-io/nps | go | small | small | 8545 | 0.301 s | 60.5 MiB | 28423 |
+| labstack/echo | go | small | small | 8486 | 0.054 s | 32.6 MiB | 158257 |
+| beego/beego | go | medium | medium | 35989 | 0.094 s | 49.1 MiB | 382636 |
+| dokku/dokku | go | medium | medium | 40888 | 0.105 s | 54.8 MiB | 388962 |
+| iawia002/lux | go | small | small | 8571 | 0.031 s | 20.2 MiB | 280207 |
+| abiosoft/colima | go | medium | medium | 10091 | 0.020 s | 18.8 MiB | 492937 |
+| gitleaks/gitleaks | go | medium | medium | 12156 | 0.035 s | 23.8 MiB | 344763 |
+| chubin/wttr.in | go | small | small | 8733 | 0.021 s | 18.4 MiB | 407948 |
+| spf13/viper | go | small | small | 2280 | 0.014 s | 14.4 MiB | 162232 |
+| charmbracelet/glow | go | small | small | 3200 | 0.012 s | 12.5 MiB | 275572 |
+| go-kit/kit | go | small | small | 8996 | 0.033 s | 21.7 MiB | 272305 |
+| sirupsen/logrus | go | small | small | 2190 | 0.015 s | 14.3 MiB | 147092 |
+| gorilla/websocket | go | small | small | 2971 | 0.011 s | 14.4 MiB | 278643 |
+| pgmq/pgmq | sql | medium | medium | 10854 | 0.069 s | 77.7 MiB | 156352 |
+| datacharmer/test_db | sql | medium | medium | 47574 | 0.317 s | 217.0 MiB | 150306 |
+| BrentOzarULTD/SQL-Server-First-Responder-Kit | sql | large | large | 137263 | 0.891 s | 568.2 MiB | 153985 |
+| olahallengren/sql-server-maintenance-solution | sql | medium | medium | 20808 | 0.135 s | 103.8 MiB | 154636 |
+| openmaptiles/openmaptiles | sql | medium | medium | 10411 | 0.039 s | 51.0 MiB | 270221 |
+| pgpartman/pg_partman | sql | large | large | 156326 | 1.503 s | 578.5 MiB | 104018 |
+| lerocha/chinook-database | sql | large | large | 173602 | 0.954 s | 850.5 MiB | 181942 |
+| darold/pgFormatter | sql | large | large | 310653 | 1.757 s | 1851.4 MiB | 176822 |
+| NikolayS/PgQue | sql | medium | medium | 34095 | 0.239 s | 82.4 MiB | 142639 |
+| NixOS/hydra | sql | medium | medium | 38904 | 0.593 s | 273.0 MiB | 65567 |
+| amachanic/sp_whoisactive | sql | medium | medium | 14923 | 0.059 s | 94.0 MiB | 254180 |
+| microsoft/fhir-server | sql | large | large | 335344 | 2.428 s | 1265.2 MiB | 138134 |
+| cahyadsn/wilayah | sql | large | large | 509905 | 1.461 s | 1510.8 MiB | 349088 |
+| NikolayS/postgres_dba | sql | small | small | 2900 | 0.015 s | 27.3 MiB | 194386 |
+| theory/pgtap | sql | small | small | 4990 | 0.091 s | 136.8 MiB | 54634 |
+| aquametalabs/aquameta | sql | small | small | 4742 | 0.021 s | 36.4 MiB | 224373 |
+| mqttsnet/thinglinks | sql | medium | medium | 11692 | 2.250 s | 482.0 MiB | 5195 |
+| oracle-samples/db-sample-schemas | sql | large | large | 110419 | 0.374 s | 363.9 MiB | 295302 |
+| smpetersgithub/AdvancedSQLPuzzles | sql | medium | medium | 11192 | 0.025 s | 40.6 MiB | 442618 |
+| chinnonsantos/sql-paises-estados-cidades | sql | medium | medium | 18097 | 0.164 s | 216.0 MiB | 110653 |
+| anthonydb/practical-sql-2 | sql | small | small | 3059 | 0.015 s | 34.3 MiB | 197377 |
+| rin-nas/postgresql-patterns-library | sql | medium | medium | 12411 | 0.031 s | 39.3 MiB | 400080 |
+| tanelpoder/tpt-oracle | sql | large | large | 100830 | 0.880 s | 812.1 MiB | 114538 |
+| erikdarlingdata/DarlingData | sql | large | large | 145386 | 0.450 s | 479.8 MiB | 323020 |
+| anthonydb/practical-sql | sql | small | small | 2558 | 0.012 s | 30.7 MiB | 214334 |
+| Ysurac/FlightAirMap | sql | large | large | 137049 | 1.949 s | 1099.0 MiB | 70325 |
+| utPLSQL/utPLSQL | sql | small | small | 2769 | 0.012 s | 20.9 MiB | 223185 |
+| trickerer/Trinity-Bots | sql | medium | medium | 28859 | 0.236 s | 258.2 MiB | 122366 |
+| morenoh149/postgresDBSamples | sql | large | large | 59597 | 0.278 s | 471.5 MiB | 214592 |
+| jOOQ/sakila | sql | large | large | 928489 | 3.310 s | 7766.1 MiB | 280498 |
+| microsoft/Windows-appsample-customers-orders-database | sql | medium | medium | 16236 | 0.072 s | 81.5 MiB | 224183 |
+| dbkangaroo/kangaroo | sql | large | large | 141672 | 1.820 s | 2466.2 MiB | 77843 |
+| marcingminski/sqlwatch | sql | medium | medium | 14828 | 0.024 s | 31.4 MiB | 615835 |
+| lorint/AdventureWorks-for-Postgres | sql | small | small | 2732 | 0.021 s | 30.8 MiB | 132710 |
+| 3dcitydb/3dcitydb | sql | small | small | 2883 | 0.015 s | 25.4 MiB | 193408 |
+| geocompass/pg-coordtransform | sql | small | small | 2117 | 0.010 s | 15.6 MiB | 214360 |
+| point-source/supabase-tenant-rbac | sql | medium | medium | 12138 | 0.057 s | 70.0 MiB | 213206 |
+| tSQLt-org/tSQLt | sql | medium | medium | 24792 | 0.055 s | 106.8 MiB | 449231 |
+| pljson/pljson | sql | small | small | 8422 | 0.020 s | 35.6 MiB | 419420 |
+| andrelugomes/digital-innovation-one | sql | medium | medium | 11873 | 0.012 s | 23.7 MiB | 961941 |
+| Abstrct/Schemaverse | sql | small | small | 9141 | 0.161 s | 76.8 MiB | 56754 |
+| basedosdados/sdk | sql | medium | medium | 19773 | 0.086 s | 53.6 MiB | 229424 |
+| pgpointcloud/pointcloud | sql | medium | medium | 40779 | 0.746 s | 1166.8 MiB | 54659 |
+| pgq/pgq | sql | small | small | 3223 | 0.012 s | 24.1 MiB | 271861 |
+| pgMemento/pgMemento | sql | small | small | 6727 | 0.019 s | 28.5 MiB | 346047 |
+| siqichen-usc/LeetCode-SQL-Summary | sql | small | small | 4664 | 0.018 s | 45.4 MiB | 260946 |
+| bnagy/cgasm | sql | large | large | 53520 | 0.027 s | 50.4 MiB | 1998749 |
+| postgis/h3-pg | sql | small | small | 5558 | 0.023 s | 46.9 MiB | 245842 |
+| Hameds/IranCountryDivisions | sql | large | large | 1047837 | 4.901 s | 6032.2 MiB | 213816 |
+| czwbig/Tmall_JavaEE | sql | medium | medium | 29551 | 0.129 s | 249.4 MiB | 229567 |
+| vercel/next.js | typescript-javascript | large | large | 1138956 | 22.089 s | 1810.5 MiB | 51561 |
+| shadcn-ui/ui | typescript-javascript | large | large | 415871 | 1.167 s | 398.9 MiB | 356479 |
+| react/create-react-app | typescript-javascript | large | large | 56349 | 0.295 s | 111.5 MiB | 190864 |
+| mui/material-ui | typescript-javascript | large | large | 577616 | 1.235 s | 428.0 MiB | 467606 |
+| storybookjs/storybook | typescript-javascript | large | large | 359426 | 1.494 s | 452.2 MiB | 240612 |
+| ChatGPTNextWeb/NextChat | typescript-javascript | medium | medium | 37605 | 0.120 s | 45.8 MiB | 313159 |
+| remotion-dev/remotion | typescript-javascript | large | large | 1223808 | 2.621 s | 890.6 MiB | 466873 |
+| AykutSarac/jsoncrack.com | typescript-javascript | small | small | 8237 | 0.027 s | 19.7 MiB | 307116 |
+| xyflow/xyflow | typescript-javascript | medium | medium | 45226 | 0.082 s | 36.2 MiB | 552582 |
+| jaredpalmer/formik | typescript-javascript | small | small | 8487 | 0.043 s | 21.7 MiB | 199430 |
+| pmndrs/react-three-fiber | typescript-javascript | small | small | 6962 | 0.016 s | 22.4 MiB | 440891 |
+| gethomepage/homepage | typescript-javascript | medium | medium | 29325 | 0.115 s | 74.5 MiB | 254587 |
+| vercel/swr | typescript-javascript | small | small | 4940 | 0.023 s | 25.5 MiB | 211528 |
+| pmndrs/react-spring | typescript-javascript | medium | medium | 21487 | 0.035 s | 33.8 MiB | 608433 |
+| slymnoyann/hey.xyz | typescript-javascript | medium | medium | 44766 | 0.212 s | 156.4 MiB | 211536 |
+| tailwindlabs/headlessui | typescript-javascript | medium | medium | 33429 | 0.161 s | 79.8 MiB | 207983 |
+| maotoumao/MusicFree | typescript-javascript | medium | medium | 27546 | 0.027 s | 25.8 MiB | 1005495 |
+| nextauthjs/next-auth | typescript-javascript | medium | medium | 29698 | 0.052 s | 39.9 MiB | 573854 |
+| rahuldkjain/github-profile-readme-generator | typescript-javascript | small | small | 5392 | 0.010 s | 15.5 MiB | 542225 |
+| tabler/tabler-icons | typescript-javascript | small | small | 5141 | 0.033 s | 21.0 MiB | 153559 |
+| PanJiaChen/vue-element-admin | typescript-javascript | medium | medium | 10502 | 0.013 s | 17.8 MiB | 787763 |
+| bailicangdu/vue2-elm | typescript-javascript | small | small | 4236 | 0.037 s | 27.8 MiB | 114356 |
+| vuejs/vuepress | typescript-javascript | small | small | 8059 | 0.034 s | 17.8 MiB | 233792 |
+| zxwk1998/vue-admin-better | typescript-javascript | small | small | 8928 | 0.028 s | 27.6 MiB | 321105 |
+| iview/iview-admin | typescript-javascript | small | small | 5994 | 0.011 s | 15.7 MiB | 567452 |
+| codesandbox/codesandbox-client | typescript-javascript | large | large | 906913 | 117.778 s | 2702.7 MiB | 7700 |
+| bailicangdu/vue2-manage | typescript-javascript | small | small | 2170 | 0.619 s | 101.5 MiB | 3505 |
+| vueComponent/ant-design-vue-pro | typescript-javascript | medium | medium | 11135 | 0.014 s | 18.4 MiB | 809156 |
+| getgridea/gridea | typescript-javascript | small | small | 6670 | 0.011 s | 17.3 MiB | 624693 |
+| tsparticles/tsparticles | typescript-javascript | large | large | 142624 | 0.554 s | 149.0 MiB | 257418 |
+| OnsenUI/OnsenUI | typescript-javascript | medium | medium | 36420 | 0.065 s | 53.9 MiB | 557899 |
+| x-extends/vxe-table | typescript-javascript | large | large | 60659 | 0.041 s | 49.3 MiB | 1470350 |
+| gridsome/gridsome | typescript-javascript | medium | medium | 13188 | 0.023 s | 25.0 MiB | 577866 |
+| emqx/MQTTX | typescript-javascript | large | large | 56309 | 0.054 s | 44.9 MiB | 1052115 |
+| Tencent/wujie | typescript-javascript | medium | medium | 15475 | 0.037 s | 32.0 MiB | 416239 |
+| elunez/eladmin-web | typescript-javascript | medium | medium | 10603 | 0.016 s | 18.9 MiB | 664902 |
+| herozhou/vue-framework-wz | typescript-javascript | medium | medium | 14092 | 0.071 s | 54.6 MiB | 197993 |
+| umicro/uView | typescript-javascript | medium | medium | 23352 | 0.026 s | 28.9 MiB | 893148 |
+| algolia/instantsearch | typescript-javascript | large | large | 94534 | 1.063 s | 279.9 MiB | 88932 |
+| Simon-He95/markstream-vue | typescript-javascript | large | large | 169970 | 0.220 s | 136.0 MiB | 771143 |
+| storybookjs/storybook | typescript-javascript | large | large | 359496 | 1.389 s | 476.0 MiB | 258801 |
+| hoppscotch/hoppscotch | typescript-javascript | large | large | 157256 | 0.307 s | 170.7 MiB | 512969 |
+| lyswhut/lx-music-desktop | typescript-javascript | medium | medium | 48661 | 0.054 s | 38.0 MiB | 902628 |
+| TanStack/query | typescript-javascript | large | large | 82110 | 0.277 s | 132.5 MiB | 296647 |
+| slidevjs/slidev | typescript-javascript | medium | medium | 25212 | 0.026 s | 28.0 MiB | 958067 |
+| vuetifyjs/vuetify | typescript-javascript | large | large | 107760 | 0.118 s | 75.1 MiB | 913902 |
+| xyflow/xyflow | typescript-javascript | medium | medium | 45226 | 0.047 s | 37.0 MiB | 958184 |
+| ueberdosis/tiptap | typescript-javascript | large | large | 89064 | 0.198 s | 113.8 MiB | 449727 |
+| directus/directus | typescript-javascript | large | large | 189245 | 0.312 s | 175.8 MiB | 607019 |
+| tailwindlabs/headlessui | typescript-javascript | medium | medium | 33429 | 0.146 s | 79.2 MiB | 228557 |
+| Molunerfinn/PicGo | typescript-javascript | medium | medium | 34336 | 0.036 s | 37.4 MiB | 941724 |
+| lucide-icons/lucide | typescript-javascript | medium | medium | 18541 | 0.065 s | 26.3 MiB | 284288 |
+| youzan/vant | typescript-javascript | medium | medium | 41040 | 0.045 s | 37.4 MiB | 903639 |
+| vueuse/vueuse | typescript-javascript | medium | medium | 26071 | 0.062 s | 47.2 MiB | 419289 |
+| lin-xin/vue-manage-system | typescript-javascript | small | small | 2946 | 0.008 s | 14.7 MiB | 353418 |
+| darkroomengineering/lenis | typescript-javascript | small | small | 2821 | 0.008 s | 15.5 MiB | 338140 |
+| soybeanjs/soybean-admin | typescript-javascript | small | small | 9454 | 0.016 s | 20.0 MiB | 609416 |
+| vuejs/pinia | typescript-javascript | small | small | 6272 | 0.018 s | 22.0 MiB | 353378 |
+| formkit/auto-animate | typescript-javascript | small | small | 2822 | 0.010 s | 16.5 MiB | 276130 |
+| logaretm/vee-validate | typescript-javascript | small | small | 7510 | 0.028 s | 27.9 MiB | 269054 |
 
-Largest repository: stablyai/orca with 3404433 Production lines, 6.982 s median wall time, and 2030.9 MiB peak RSS.
+Largest repository: stablyai/orca with 3404433 Production lines, 5.753 s median wall time, and 2094.7 MiB peak RSS.
 
 ## Before-after case studies
 
@@ -948,7 +947,6 @@ Before: `8e3f49d5024ba64c5f93e8f71013a8079a495d80`; after: `9c532f069caa54107675
 | [go-kit/kit](https://github.com/go-kit/kit) | `78fbbceece7b` | PASS (exit code 0) |
 | [sirupsen/logrus](https://github.com/sirupsen/logrus) | `954b418844d9` | PASS (exit code 0) |
 | [gorilla/websocket](https://github.com/gorilla/websocket) | `e064f32e3674` | PASS (exit code 0) |
-| [NawfalMotii79/PLFM_RADAR](https://github.com/NawfalMotii79/PLFM_RADAR) | `62d4c5565089` | PASS (exit code 0) |
 | [pgmq/pgmq](https://github.com/pgmq/pgmq) | `51468f6ba2af` | PASS (exit code 0) |
 | [datacharmer/test_db](https://github.com/datacharmer/test_db) | `e324b56193ca` | PASS (exit code 0) |
 | [BrentOzarULTD/SQL-Server-First-Responder-Kit](https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit) | `5d3a6811a44e` | PASS (exit code 0) |
@@ -998,6 +996,7 @@ Before: `8e3f49d5024ba64c5f93e8f71013a8079a495d80`; after: `9c532f069caa54107675
 | [bnagy/cgasm](https://github.com/bnagy/cgasm) | `6c54b38020a0` | PASS (exit code 0) |
 | [postgis/h3-pg](https://github.com/postgis/h3-pg) | `f960a574eab6` | PASS (exit code 0) |
 | [Hameds/IranCountryDivisions](https://github.com/Hameds/IranCountryDivisions) | `37c01f5e776b` | PASS (exit code 0) |
+| [czwbig/Tmall_JavaEE](https://github.com/czwbig/Tmall_JavaEE) | `0a96527e8402` | PASS (exit code 0) |
 | [vercel/next.js](https://github.com/vercel/next.js) | `b8e68eb8f87d` | PASS (exit code 0) |
 | [shadcn-ui/ui](https://github.com/shadcn-ui/ui) | `055aa6b7837b` | PASS (exit code 0) |
 | [react/create-react-app](https://github.com/react/create-react-app) | `6254386531d2` | PASS (exit code 0) |
@@ -1067,321 +1066,321 @@ Reviewer: agent. These are agent-reviewed false positive rates; a person can rec
 
 | Category | Sampled | Reviewed | False positives | False positive rate |
 | --- | --- | --- | --- | --- |
-| Source sets | 100 | 100 | 4 | 4.00% |
-| Flagged lines | 100 | 100 | 6 | 6.00% |
-| Orphan files | 100 | 100 | 98 | 98.00% |
+| Source sets | 100 | 100 | 3 | 3.00% |
+| Flagged lines | 100 | 100 | 3 | 3.00% |
+| Orphan files | 100 | 100 | 99 | 99.00% |
 
 ### Source sets
 
-Seed `3bf488efc1c073e8`; 100 of 434482 Findings.
+Seed `2668856fc08081a5`; 100 of 434483 Findings.
 
-- `vercel/next.js packages/next/src/next-devtools/dev-overlay/container/build-error.stories.tsx production`
-- `NousResearch/hermes-agent tests/gateway/test_session_db_handle_sharing.py test`
-- `vercel/next.js test/e2e/app-dir/next-config-ts/import-from-node-modules/app/layout.tsx test`
-- `chen08209/FlClash lib/features/form/named_url_form.dart production`
-- `3b1b/manim manimlib/animation/movement.py production`
-- `microsoft/vscode src/vs/workbench/services/search/test/common/folderQuerySearchTree.test.ts test`
-- `vercel/next.js test/e2e/app-dir/ensure-static-navigation/app/default/mixed-server-client/connection-and-use-search-params/page.tsx test`
-- `n8n-io/n8n packages/nodes-base/nodes/Bannerbear/Bannerbear.node.ts production`
-- `stablyai/orca src/packages/process-host/src/bounded-output-sink.ts production`
-- `vercel/next.js test/e2e/app-dir/dynamic-css/app/layout.js test`
-- `doctrine/orm src/PersistentCollection.php production`
-- `openinterpreter/openinterpreter codex-rs/core/src/harness/guidance.rs production`
-- `filamentphp/filament packages/infolists/src/Components/ImageEntry.php production`
-- `go-gitea/gitea models/issues/dependency.go production`
-- `n8n-io/n8n packages/quality/testing/playwright/tests/e2e/workflows/editor/canvas/canvas-nodes.spec.ts test`
-- `lyswhut/lx-music-desktop src/renderer-lyric/useApp/useLyric.ts production`
-- `stablyai/orca src/renderer/src/components/workspace-cleanup/removal/run/workspace-cleanup-run-physical-start.test.tsx test`
-- `cloudflare/pingora pingora-core/src/connectors/http/custom/mod.rs production`
-- `storytold/photocraft crates/engine-core/src/cmd/table.rs production`
-- `nextcloud/server tests/Core/Command/Log/FileTest.php test`
-- `n8n-io/n8n packages/frontend/editor-ui/src/features/ndv/runData/components/BinaryEntryDataTable.vue production`
-- `stablyai/orca src/main/claude-accounts/profiles/wsl/claude-profile-wsl-router.ts production`
-- `huggingface/transformers tests/models/mistral/__init__.py test`
-- `vllm-project/vllm tests/parser/engine/test_minimax_m2.py test`
-- `Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/firecrawl/search.py production`
-- `anomalyco/opencode packages/app/src/voice/handoff.ts production`
-- `tanelpoder/tpt-oracle mods.sql production`
-- `ente/ente mobile/apps/photos/lib/utils/cache_util.dart production`
-- `briannesbitt/Carbon src/Carbon/Lang/uz_Cyrl.php production`
-- `microsoft/TypeScript tsc/internal/checker/symboltracker.go production`
-- `yewstack/yew packages/yew/src/dom_bundle/utils.rs production`
-- `nodejs/node deps/v8/test/mjsunit/regress/regress-3230771.js test`
-- `doctrine/orm tests/Tests/Models/DataTransferObjects/DtoWithArrayOfEnums.php test`
-- `LadybirdBrowser/ladybird Libraries/LibCompress/Rust/src/compressor.rs production`
-- `sebastianbergmann/phpunit tests/end-to-end/error-handler/_files/NoSourceDeprecationTest.php test`
-- `stablyai/orca src/renderer/src/components/native-chat/prompts/NativeChatQuestionCardFocus.fixture.tsx production`
-- `morluto/rea tests/boundary/filesystem/cliJsonInputCancellation.test.ts test`
-- `n8n-io/n8n packages/nodes-base/nodes/MondayCom/V2/helpers/userLocator.ts production`
-- `grafana/grafana apps/alerting/rules/pkg/apis/alerting/v0alpha1/listrecordingrulesearchrulesv0alpha1_response_body_types_gen.go generated`
-- `stablyai/orca src/renderer/src/components/bots/items/BotItemsList.tsx production`
-- `chartjs/Chart.js test/fixtures/scale.logarithmic/large-range.js test`
-- `n8n-io/n8n packages/nodes-base/nodes/InvoiceNinja/InvoiceNinjaTrigger.node.ts production`
-- `vercel/next.js packages/next/src/server/app-render/csrf-protection.ts production`
-- `flutter/flutter dev/integration_tests/flutter_gallery/lib/demo/all.dart production`
-- `langchain-ai/langchain libs/partners/openai/tests/unit_tests/llms/test_azure.py test`
-- `microsoft/vscode src/vs/workbench/contrib/chat/browser/widget/chatForkActionViewItem.ts production`
-- `anomalyco/opencode packages/core/test/fixture/v1-config/attachment.ts test`
-- `nextcloud/server lib/public/Mail/Provider/IMessageSend.php production`
-- `grafana/grafana pkg/registry/apps/playlist/migrator/migrator_test.go test`
-- `matomo-org/matomo tests/PHPUnit/System/TrackerDisallowedIpTest.php test`
-- `prettier/prettier tests/format/js/method-chain/test.js test`
-- `huggingface/transformers src/transformers/utils/constants.py production`
-- `n8n-io/n8n packages/cli/src/workflows/publication/__tests__/workflow-publication-outbox-consumer.test.ts test`
-- `dokku/dokku plugins/builds/subcommands.go production`
-- `grokability/snipe-it resources/views/vendor/mail/html/header.blade.php vendored`
-- `stablyai/orca src/renderer/src/store/slices/runtime-status/views/runtime-status-subscriptions.ts production`
-- `nodejs/node deps/v8/test/mjsunit/regress/regress-v8-10817.js test`
-- `vercel/next.js test/e2e/app-dir/scss/basic-module-additional-data/basic-module-additional-data.test.ts test`
-- `binary-husky/gpt_academic crazy_functions/paper_fns/github_search.py production`
-- `nodejs/node test/fixtures/es-modules/test-wasm-js-string-builtins.mjs test`
-- `laravel/framework src/Illuminate/Database/Eloquent/PendingHasThroughRelationship.php production`
-- `lyswhut/lx-music-desktop src/renderer/views/Setting/components/ThemeEditModal/useCloseBtnColor.ts production`
-- `AppFlowy-IO/AppFlowy frontend/appflowy_flutter/lib/plugins/database/widgets/share_button.dart production`
-- `symfony/symfony src/Symfony/Contracts/Service/ServiceSubscriberInterface.php production`
-- `laravel/framework tests/Redis/PhpRedisConnectorTest.php test`
-- `bcit-ci/CodeIgniter system/libraries/Profiler.php production`
-- `vercel/next.js test/e2e/app-dir/segment-cache/cached-navigations/default/app/complete-prerender-shell/[slug]/page.tsx test`
-- `JuliusBrussee/caveman proxy/internal/store/learn_outcomes.go production`
-- `netdata/netdata src/go/plugin/dem/synthetic/history/store.go production`
-- `microsoft/vscode build/lib/test/workspaceImage.test.ts generated`
-- `FoundationAgents/OpenManus app/tool/ask_human.py production`
-- `coollabsio/coolify app/Notifications/Database/BackupSuccessWithS3Warning.php production`
-- `louislam/uptime-kuma src/pages/ManageMaintenance.vue production`
-- `microsoft/vscode src/vs/sessions/contrib/canvases/browser/pinnedCanvases.contribution.ts production`
-- `ccch1mneyyy/dsh-Go packages/dsh_tavern/test/t16_delete_single_v5_store_test.dart test`
-- `stablyai/orca src/main/runtime/construction/runtime-construction-dependencies.ts production`
-- `koel/koel app/Http/Requests/SpotifyCallbackRequest.php production`
-- `vllm-project/vllm vllm/models/step5/common/csa_tail_ring.py production`
-- `ccch1mneyyy/dsh-Go packages/dsh_tavern/test/t12_jsonlogic_minmax_coercion_test.dart test`
-- `AUTOMATIC1111/stable-diffusion-webui modules/textual_inversion/image_embedding.py production`
-- `openinterpreter/openinterpreter codex-rs/sandboxing/src/seatbelt_daemon_socket_tests.rs test`
-- `laravel/framework src/Illuminate/Queue/Events/Looping.php production`
-- `symfony/symfony src/Symfony/Bridge/Doctrine/Messenger/DoctrineCloseConnectionMiddleware.php production`
-- `matomo-org/matomo plugins/TwoFactorAuth/API.php production`
-- `unionlabs/union cosmwasm/cw20-token-minter/src/lib.rs production`
-- `n8n-io/n8n packages/@n8n/nodes-langchain/nodes/vendors/GoogleGemini/actions/file/upload.operation.ts production`
-- `nodejs/node test/parallel/test-domain-enter-exit.js test`
-- `n8n-io/n8n packages/nodes-base/nodes/Brevo/AttributeDescription.ts production`
-- `openai/codex codex-rs/tui/src/chatwidget/streaming.rs production`
-- `langflow-ai/langflow src/backend/base/langflow/services/authorization/permissions.py production`
-- `vllm-project/vllm vllm/benchmarks/serve.py production`
-- `prettier/prettier tests/format/js/class/multiple-static.js test`
-- `netdata/netdata src/go/plugin/go.d/collector/redis/init_test.go test`
-- `stablyai/orca config/build-plugins/dev-serve-config.ts production`
-- `LadybirdBrowser/ladybird Libraries/LibWeb/Rust/src/css/css_string.rs production`
-- `vercel/next.js packages/eslint-plugin-next/src/rules/inline-script-id.ts production`
-- `n8n-io/n8n packages/frontend/editor-ui/src/features/ai/instanceAi/composables/useDraftWorkflowDocument.ts production`
-- `sebastianbergmann/phpunit src/TextUI/Configuration/Value/Source.php production`
-- `axios/axios lib/helpers/AxiosTransformStream.js production`
-- `openai/codex codex-rs/protocol/src/conversation_start_params_tests.rs test`
+- `doctrine/orm tests/Tests/ORM/Cache/FileLockRegionTest.php test`
+- `morluto/rea src/browser/CdpCaptureValues.test.ts test`
+- `stablyai/orca src/renderer/src/components/settings/accounts/scope/system-default-lanes.ts production`
+- `prettier/prettier tests/format/markdown/list/huge-first-number/format.test.js test`
+- `vercel/next.js test/e2e/app-dir/global-error/basic/app/ssr/page.js test`
+- `garrytan/gstack make-pdf/src/image-size.ts production`
+- `sebastianbergmann/phpunit src/TextUI/ParallelTestRunner.php production`
+- `Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/api/ws_outbox.py production`
+- `huggingface/transformers src/transformers/models/sam_hq/__init__.py generated`
+- `filamentphp/filament packages/tables/src/Concerns/HasEmptyState.php production`
+- `nextcloud/server lib/public/Security/IHasher.php production`
+- `openinterpreter/openinterpreter codex-rs/network-proxy/src/environment_policy.rs production`
+- `monicahq/monica app/Enums/RelationshipStatusEnum.php production`
+- `astral-sh/uv crates/uv-configuration/src/exclude_newer.rs production`
+- `matomo-org/matomo core/Updates/0.4.2.php production`
+- `anomalyco/opencode packages/tui/src/component/prompt/index.tsx production`
+- `nodejs/node test/parallel/test-urlpattern-invalidthis.js test`
+- `deepseek-ai/deepseek-harness apps/desktop/tests/macos-signing-walk.spec.ts test`
+- `n8n-io/n8n packages/nodes-base/nodes/Microsoft/ExcelSharePoint/test/readRows.harness.test.ts test`
+- `symfony/symfony src/Symfony/Component/Security/Core/User/OidcUser.php production`
+- `livewire/livewire src/Features/SupportSlots/PlaceholderSlot.php production`
+- `anomalyco/opencode packages/desktop/src/renderer/html.test.ts test`
+- `ramsey/uuid src/Rfc4122/NilUuid.php production`
+- `anomalyco/opencode packages/app/src/new-session/mcp.ts production`
+- `grokability/snipe-it tests/Feature/Components/Ui/BulkFulfillComponentTest.php test`
+- `microsoft/vscode extensions/copilot/src/extension/completions-core/vscode-node/lib/src/test/snapshot.ts test`
+- `stablyai/orca src/main/opencode/status-hooks/plugin-source/status-plugin-post-source.ts production`
+- `microsoft/vscode src/vs/editor/common/tokens/contiguousMultilineTokens.ts production`
+- `coollabsio/coolify tests/Unit/DatabaseReadWriteHostConfigTest.php test`
+- `ccch1mneyyy/dsh-Go packages/dsh_tavern/test/regex_engine_test.dart test`
+- `vercel/next.js crates/next-custom-transforms/tests/errors/use-cache-not-allowed/2/input.js test`
+- `huggingface/transformers src/transformers/models/glpn/modeling_glpn.py production`
+- `microsoft/vscode src/vs/workbench/services/agentHost/test/browser/codexContinuationService.test.ts test`
+- `ytdl-org/youtube-dl youtube_dl/extractor/freesound.py production`
+- `ComicSparks/jasmine lib/screens/downloads_exporting_screen.dart production`
+- `NousResearch/hermes-agent tests/plugins/config_backends/test_remote_unavailable_consumers.py test`
+- `morluto/rea scripts/ci/cache-retention.mjs production`
+- `grokability/snipe-it resources/lang/fil-PH/auth.php production`
+- `nodejs/node test/fixtures/snapshot/ts-example.ts test`
+- `router-for-me/CLIProxyAPI sdk/cliproxy/auth/conductor_session_affinity_alias_test.go test`
+- `nodejs/node test/fixtures/source-map/enclosing-call-site-min.js test`
+- `pgMemento/pgMemento ctl/STOP.sql production`
+- `garrytan/gstack lib/dx-error-capture.ts production`
+- `mornyeapp/Mornye test/autoplay_taste_inheritance_test.dart test`
+- `react/react compiler/packages/babel-plugin-react-compiler/src/__tests__/fixtures/compiler/dce-loop.js test`
+- `firecrawl/firecrawl apps/api/src/services/worker/nuq-reconciler-worker.ts production`
+- `stablyai/orca src/main/bots/bot-home.test.ts test`
+- `ccch1mneyyy/dsh-Go app/test/update/ohos_notice_test.dart test`
+- `nextcloud/server apps/dav/lib/Listener/ActivityUpdaterListener.php production`
+- `derailed/k9s internal/config/data/config.go production`
+- `stablyai/orca mobile/src/components/list/DisclosureChevron.tsx production`
+- `vllm-project/vllm vllm/models/kimi_k3/amd/specialized_decode/mono/common/sync.py production`
+- `openinterpreter/openinterpreter codex-rs/windows-sandbox-rs/src/provisioning_client_tests.rs test`
+- `flutter/flutter dev/benchmarks/microbenchmarks/lib/foundation/platform_asset_bundle.dart production`
+- `grokability/snipe-it resources/lang/fil-PH/admin/locations/message.php production`
+- `earendil-works/pi packages/chord/src/remote/internal.ts production`
+- `microsoft/vscode src/vs/platform/agentHost/node/codex/codexForkPlan.ts production`
+- `n8n-io/n8n packages/cli/test/integration/middlewares/body-parser.test.ts test`
+- `langflow-ai/langflow src/backend/base/langflow/agentic/api/router.py production`
+- `NanmiCoder/MediaCrawler database/db_session.py production`
+- `microsoft/vscode src/vs/sessions/contrib/chat/browser/requestOriginProvider.contribution.ts production`
+- `ehang-io/nps web/controllers/base.go production`
+- `go-gitea/gitea routers/api/v1/repo/migrate.go production`
+- `n8n-io/n8n packages/workflow/test/expressions/expression-helpers.test.ts test`
+- `n8n-io/n8n packages/nodes-base/nodes/Raindrop/__tests__/Raindrop.workflow.test.ts test`
+- `openai/codex codex-rs/tui/src/bottom_pane/experimental_features_view_tests.rs test`
+- `monicahq/monica app/Helpers/PossessionFieldOptions.php production`
+- `NousResearch/hermes-agent tests/tools/test_search_error_guard.py test`
+- `n8n-io/n8n packages/@n8n/workflow-engine-check/src/trigger-identity-rule.ts production`
+- `n8n-io/n8n packages/frontend/editor-ui/src/features/settings/communityNodes/composables/useInstalledCommunityPackage.test.ts test`
+- `monicahq/monica app/Helpers/FieldSettingsCatalogue.php production`
+- `rclone/rclone cmd/serve/nfs/cache_test.go test`
+- `vercel/next.js test/e2e/app-dir/instant-validation/app/suspense-in-root/static/route-group-shared-boundary/(outer)/(inner)/layout.tsx test`
+- `vercel/next.js test/e2e/conflicting-public-file-page/pages/hello.js test`
+- `smpetersgithub/AdvancedSQLPuzzles Advanced SQL Puzzles/Recursion Examples/Double the Number Recursion.sql production`
+- `symfony/symfony src/Symfony/Bundle/FrameworkBundle/Tests/DependencyInjection/Fixtures/php/legacy_translator.php production`
+- `NousResearch/hermes-agent tests/agent/test_conversation_loop_interpreter_shutdown.py test`
+- `ccch1mneyyy/dsh-Go app/lib/ui/common/sheet_title_bar.dart production`
+- `SpartnerNL/Laravel-Excel src/Concerns/WithSheetProtection.php production`
+- `nodejs/node deps/v8/test/inspector/debugger/regression-419663.js test`
+- `symfony/symfony src/Symfony/Component/Cache/CacheWarmer/AbstractPhpFileCacheWarmer.php production`
+- `nodejs/node test/parallel/test-common-wpt-script-modifier.js test`
+- `openai/codex codex-rs/cloud-tasks/src/lib.rs production`
+- `Shubhamsaboo/awesome-llm-apps ai_agent_framework_crash_course/openai_sdk_crash_course/4_running_agents/4_2_conversation_management/__init__.py production`
+- `n8n-io/n8n .github/scripts/link-check/check-report.mjs production`
+- `vllm-project/vllm tests/models/quantization/conftest.py test`
+- `hiddify/hiddify-app third_party/flutter_animate/lib/src/animate_list.dart vendored`
+- `nodejs/node test/fixtures/snapshot/console.js test`
+- `pytorch/pytorch torch/_native/ops/norm/rmsnorm_kernels.py production`
+- `NousResearch/hermes-agent agent/bot_chain.py production`
+- `netdata/netdata src/go/pkg/web/doc_test.go test`
+- `microsoft/fhir-server src/Microsoft.Health.Fhir.SqlServer/Features/Schema/Sql/Sprocs/UnitTestHelper.sql production`
+- `router-for-me/CLIProxyAPI internal/httpfetch/httpfetch_test.go test`
+- `NousResearch/hermes-agent tests/fakes/main_era_venv.py test`
+- `nodejs/node test/js-native-api/test_error/test.js test`
+- `microsoft/vscode src/vs/sessions/contrib/agentFeedback/browser/agentFeedbackWorkbenchComments.ts production`
+- `ente/ente mobile/apps/photos/lib/db/ml/clip_vector_db.dart production`
+- `garrytan/gstack browse/src/cdp-allowlist.ts production`
+- `n8n-io/n8n packages/nodes-base/nodes/InvoiceNinja/invoiceInterface.ts production`
+- `Shubhamsaboo/awesome-llm-apps ai_agent_framework_crash_course/openai_sdk_crash_course/3_tool_using_agent/3_1_function_tools/__init__.py production`
 
 ### Flagged lines
 
-Seed `3bf488efc1c073e8`; 100 of 73257 Findings.
+Seed `2668856fc08081a5`; 100 of 73257 Findings.
 
-- `binary-husky/gpt_academic shared_utils/nltk_downloader.py:770 else-after-return`
-- `vercel/next.js turbopack/crates/turbopack-tests/tests/execution/webpack/inner-graph/__skipped__/extend-class/input/module9.js:6 constructor-only-forwards`
-- `pytorch/pytorch torch/_export/utils.py:1287 else-after-return`
-- `grokability/snipe-it app/Console/Commands/RestoreFromBackup.php:219 constructor-only-forwards`
-- `typecho/typecho var/Widget/Archive.php:713 else-after-return`
-- `flame-engine/flame packages/flame/lib/src/anchor.dart:59 else-after-return`
-- `matomo-org/matomo node_modules/vue/dist/vue.runtime.global.js:11090 else-after-return`
-- `zed-industries/zed crates/db/src/db.rs:84 else-after-return`
-- `ente/ente mobile/apps/photos/lib/services/memories/photo_selector.dart:611 else-after-return`
-- `Ysurac/FlightAirMap require/class.Spotter.php:3898 else-after-return`
-- `ente/ente mobile/apps/photos/lib/models/gallery/gallery_groups.dart:541 else-after-return`
-- `caddyserver/caddy modules/caddyhttp/reverseproxy/reverseproxy.go:2234 if-else-returns-boolean`
-- `pytorch/pytorch torch/_dynamo/backends/debugging.py:415 else-after-return`
-- `pytorch/pytorch torch/ao/quantization/fx/prepare.py:238 else-after-return`
-- `Shubhamsaboo/awesome-llm-apps ai_agent_framework_crash_course/google_adk_crash_course/6_callbacks/6_3_tool_execution_callbacks/agent.py:28 else-after-return`
-- `mqttsnet/thinglinks thinglinks-job/thinglinks-job-admin/src/main/resources/static/plugins/codemirror/mode/javascript/javascript.js:295 else-after-return`
-- `pytorch/pytorch torch/nn/modules/container.py:143 else-after-return`
-- `nextcloud/server lib/private/App/AppManager.php:420 else-after-return`
-- `react/react packages/eslint-plugin-react-hooks/src/rules/RulesOfHooks.ts:48 else-after-return`
-- `lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:12065 trailing-return`
-- `zed-industries/zed crates/agent/src/tools/evals/fixtures/disable_cursor_blinking/before.rs:4282 else-after-return`
-- `Comfy-Org/ComfyUI comfy/ldm/lightricks/model.py:852 trailing-bare-return`
-- `livewire/livewire src/Features/SupportPageComponents/SupportPageComponents.php:204 else-after-return`
-- `fastapi/fastapi scripts/translate.py:278 else-after-return`
-- `ente/ente mobile/apps/photos/lib/ui/viewer/location/dynamic_location_gallery_widget.dart:116 else-after-return`
-- `rustdesk/rustdesk flutter/lib/common/widgets/peer_card.dart:450 else-after-return`
-- `ultraworkers/claw-code rust/crates/runtime/src/permissions.rs:195 redundant-closure`
-- `pytorch/pytorch torch/testing/_internal/common_methods_invocations.py:6601 else-after-return`
-- `pytorch/pytorch torch/fx/experimental/rewriter.py:150 else-after-return`
-- `pytorch/pytorch .github/scripts/tryrebase.py:187 else-after-return`
-- `rtk-ai/rtk scripts/test-install.sh:505 else-after-return`
-- `langgenius/dify api/providers/vdb/vdb-clickzetta/src/dify_vdb_clickzetta/clickzetta_vector.py:469 else-after-return`
-- `ytdl-org/youtube-dl youtube_dl/downloader/rtmp.py:213 else-after-return`
-- `denoland/deno cli/tsc/mod.rs:1272 else-after-return`
-- `grafana/grafana packages/grafana-data/src/datetime/luxon_moment_compat/luxon.js:4278 else-after-return`
-- `zed-industries/zed crates/editor/src/edit_prediction.rs:1730 else-after-return`
-- `ankitects/anki qt/aqt/mediasrv.py:1398 else-after-return`
-- `zed-industries/zed crates/action_log/src/action_log.rs:1169 else-after-return`
-- `vercel/next.js packages/next/src/compiled/babel-packages/packages-bundle.js:185 else-after-return`
-- `nektos/act pkg/runner/step_action_remote.go:294 if-else-returns-boolean`
-- `microsoft/vscode extensions/notebook-renderers/src/linkify.ts:47 else-after-return`
-- `rustdesk/rustdesk flutter/lib/models/native_model.dart:92 else-after-return`
-- `pytorch/pytorch torch/_dynamo/variables/dicts.py:2044 else-after-return`
-- `huggingface/transformers src/transformers/core_model_loading.py:370 else-after-return`
-- `pytorch/pytorch tools/extract_scripts.py:49 else-after-return`
-- `pytorch/pytorch torch/_dynamo/variables/sets.py:1186 else-after-return`
-- `rustdesk/rustdesk flutter/lib/desktop/pages/port_forward_page.dart:331 else-after-return`
-- `flutter/flutter engine/src/flutter/lib/web_ui/lib/src/engine/text_editing/text_editing.dart:1117 else-after-return`
-- `pytorch/pytorch test/cpython/v3_13/test_itertools.py:1192 else-after-return`
-- `binary-husky/gpt_academic toolbox.py:907 else-after-return`
-- `Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/twitter/tweets/like.py:97 except-only-reraises`
-- `huggingface/transformers src/transformers/generation/utils.py:3909 else-after-return`
-- `pytorch/pytorch torch/_export/serde/serialize.py:3184 else-after-return`
-- `pytorch/pytorch torch/fx/experimental/migrate_gradual_types/transform_to_z3.py:338 else-after-return`
-- `jquery/jquery src/selector.js:268 else-after-return`
-- `microsoft/TypeScript tsc/internal/fourslash/fourslash.go:2286 if-else-returns-boolean`
-- `microsoft/vscode src/vs/workbench/api/browser/mainThreadFileSystem.ts:234 catch-only-rethrows`
-- `firebase/flutterfire packages/firebase_data_connect/firebase_data_connect/lib/src/any_value.dart:42 else-after-return`
-- `mylxsw/aidea lib/page/chat/group/chat.dart:236 else-after-return`
-- `rustdesk/rustdesk src/core_main.rs:510 else-after-return`
-- `AppFlowy-IO/AppFlowy frontend/appflowy_flutter/lib/plugins/ai_chat/presentation/chat_editor_style.dart:138 else-after-return`
-- `nextcloud/server tests/lib/User/UserTest.php:142 if-else-returns-boolean`
-- `astaxie/build-web-application-with-golang th/code/src/apps/ch.2.3/type_function/main.go:13 if-else-returns-boolean`
-- `ente/ente mobile/apps/photos/lib/ui/viewer/search/result/people_section_all_page.dart:798 else-after-return`
-- `LadybirdBrowser/ladybird Libraries/LibWeb/Rust/src/render_state/clock/effects.rs:400 else-after-return`
-- `Significant-Gravitas/AutoGPT classic/forge/forge/content_processing/text.py:183 else-after-return`
-- `AppFlowy-IO/AppFlowy frontend/appflowy_flutter/packages/appflowy_ui/script/generate_theme.dart:292 else-after-return`
-- `matomo-org/matomo plugins/Ecommerce/Reports/BaseItem.php:73 else-after-return`
-- `casey/just src/lexer.rs:871 else-after-return`
-- `CarGuo/gsy_github_app_flutter lib/common/repositories/repos_repository.dart:682 else-after-return`
-- `ytdl-org/youtube-dl youtube_dl/extractor/common.py:1353 else-after-return`
-- `netdata/netdata packaging/installer/netdata-dem-runtime.sh:25 else-after-return`
-- `langgenius/dify api/core/tools/utils/dataset_retriever/dataset_retriever_tool.py:137 else-after-return`
-- `anomalyco/opencode packages/cli-rs/crates/latex/src/layout.rs:505 redundant-closure`
-- `n8n-io/n8n packages/nodes-base/nodes/NextCloud/NextCloud.node.ts:1499 else-after-return`
-- `bilibili/GPT-SoVITS GPT_SoVITS/inference_webui.py:291 conditional-yields-boolean`
-- `syncthing/syncthing gui/default/vendor/moment/moment.js:3355 else-after-return`
-- `rustdesk/rustdesk src/core_main.rs:623 else-after-return`
-- `nextcloud/server apps/settings/tests/Controller/UsersControllerTest.php:145 else-after-return`
-- `microsoft/vscode src/vs/workbench/contrib/scm/common/quickDiff.ts:169 else-after-return`
-- `alibaba/flutter-go lib/blocs/industry_main.dart:46 else-after-return`
-- `pytorch/pytorch benchmarks/inductor_backends/cutlass.py:140 else-after-return`
-- `lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:9743 else-after-return`
-- `nodejs/node deps/v8/tools/system-analyzer/view/code-panel.mjs:281 else-after-return`
-- `zed-industries/zed extensions/proto/src/language_servers/protols.rs:55 else-after-return`
-- `vllm-project/vllm tests/reasoning/utils.py:79 else-after-return`
-- `vllm-project/vllm vllm/model_executor/layers/quantization/moe_wna16.py:655 else-after-return`
-- `vercel/next.js turbopack/crates/turbopack-lightningcss-napi/src/transformer.rs:375 else-after-return`
-- `microsoft/vscode src/vs/base/browser/dom.ts:764 else-after-return`
-- `microsoft/TypeScript tsc/testdata/fixtures/compiler/transformers/classFields.ts:3162 else-after-return`
-- `Ysurac/FlightAirMap require/libs/SimplePie.compiled.php:6831 else-after-return`
-- `CarGuo/gsy_github_app_flutter lib/widget/pull/gsy_refresh_sliver.dart:475 else-after-return`
-- `langchain-ai/langchain libs/text-splitters/scripts/lint_imports.sh:17 else-after-return`
-- `pytorch/pytorch torch/fx/experimental/migrate_gradual_types/constraint_transformation.py:1110 else-after-return`
-- `langgenius/dify api/services/data_source/website_service.py:445 else-after-return`
-- `microsoft/TypeScript tsc/internal/ls/completions.go:4283 if-else-returns-boolean`
-- `pytorch/pytorch torch/_inductor/codegen/cpp.py:3712 else-after-return`
-- `ollama/ollama server/routes_test.go:2191 else-after-return`
-- `etcd-io/etcd tools/local-tester/faults.sh:73 legacy-backticks`
-- `typecho/typecho admin/src/js/tokeninput.js:274 else-after-return`
+- `ente/ente mobile/apps/photos/lib/models/gallery/gallery_groups.dart:495 else-after-return`
+- `nikic/PHP-Parser lib/PhpParser/PrettyPrinter/Standard.php:774 else-after-return`
+- `grafana/grafana packages/grafana-data/src/datetime/luxon_moment_compat/luxon.js:569 else-after-return`
+- `nodejs/node deps/v8/tools/testrunner/local/utils.py:160 else-after-return`
+- `nextcloud/server build/integration/features/bootstrap/BasicStructure.php:115 else-after-return`
+- `rustdesk/rustdesk flutter/lib/models/web_model.dart:88 else-after-return`
+- `langgenius/dify api/core/plugin/backwards_invocation/model.py:169 else-after-return`
+- `Ysurac/FlightAirMap require/class.TrackerArchive.php:1040 else-after-return`
+- `Ysurac/FlightAirMap require/class.TrackerArchive.php:1042 else-after-return`
+- `pytorch/pytorch torch/utils/data/datapipes/datapipe.py:150 else-after-return`
+- `pytorch/pytorch torch/_dynamo/variables/builtin.py:3037 else-after-return`
+- `vandadnp/flutter-tips-and-tricks tipsandtricks/null-aware-infix-operators-in-dart/null-aware-infix-operators-in-dart.dart:23 else-after-return`
+- `vercel/next.js turbopack/crates/turbopack-ecmascript/src/chunk/placeable.rs:137 else-after-return`
+- `ytdl-org/youtube-dl youtube_dl/extractor/leeco.py:329 else-after-return`
+- `flutterchina/flukit package_src/lib/src/scale_view.dart:115 else-after-return`
+- `nodejs/node deps/v8/test/mjsunit/regress/regress-crbug-1302527.js:318 constructor-only-forwards`
+- `ente/ente mobile/apps/auth/lib/ui/home_page.dart:1971 else-after-return`
+- `unionlabs/union voyager/plugins/transaction/cosmos/src/main.rs:393 else-after-return`
+- `matomo-org/matomo tests/javascript/frameworks/ext/ext-all-2.3.0.js:1684 else-after-return`
+- `nextcloud/server apps/files_sharing/lib/External/Storage.php:365 else-after-return`
+- `squizlabs/PHP_CodeSniffer src/Standards/Generic/Sniffs/Formatting/MultipleStatementAlignmentSniff.php:312 else-after-return`
+- `squizlabs/PHP_CodeSniffer src/Tokenizers/CSS.php:123 else-after-return`
+- `typecho/typecho var/Typecho/I18n/GetText.php:296 else-after-return`
+- `lollipopkit/flutter_server_box lib/src/rust/frb_generated.dart:31563 else-after-return`
+- `ente/ente mobile/apps/photos/lib/ui/viewer/hierarchical_search/chip_widgets/only_them_filter_chip.dart:166 else-after-return`
+- `n8n-io/n8n packages/@n8n/nodes-langchain/nodes/vendors/OpenAi/v1/actions/text/classify.operation.ts:76 else-after-return`
+- `Ysurac/FlightAirMap require/class.AIS.php:473 else-after-return`
+- `pytorch/pytorch torch/_inductor/ir.py:10287 else-after-return`
+- `prometheus/prometheus web/ui/react-app/src/pages/graph/HistogramHelpers.ts:100 else-after-return`
+- `best-flutter/flutter_swiper lib/src/swiper_pagination.dart:57 else-after-return`
+- `pytorch/pytorch torch/_numpy/testing/utils.py:250 else-after-return`
+- `pytorch/pytorch torch/_subclasses/fake_tensor.py:3456 else-after-return`
+- `pytorch/pytorch torch/_inductor/fx_passes/mkldnn_fusion.py:526 else-after-return`
+- `syncthing/syncthing gui/default/vendor/angular/angular-dirPagination.js:523 else-after-return`
+- `tree-sitter/tree-sitter lib/lldb_pretty_printers/table_entry.py:26 else-after-return`
+- `lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:9466 trailing-return`
+- `tauri-apps/tauri crates/tauri-cli/src/plugin/init.rs:249 else-after-return`
+- `rustdesk/rustdesk libs/clipboard/src/platform/unix/macos/paste_task.rs:449 else-after-return`
+- `huggingface/transformers src/transformers/models/seamless_m4t_v2/modeling_seamless_m4t_v2.py:3196 else-after-return`
+- `denoland/deno libs/core/modules/recursive_load.rs:712 else-after-return`
+- `nodejs/node deps/cares/config/ltmain.sh:9599 legacy-backticks`
+- `pytorch/pytorch test/dynamo/test_repros.py:830 else-after-return`
+- `langgenius/dify api/providers/vdb/vdb-tidb-on-qdrant/src/dify_vdb_tidb_on_qdrant/tidb_on_qdrant_vector.py:77 else-after-return`
+- `astral-sh/uv crates/uv-project-commands/src/run.rs:1521 else-after-return`
+- `Ysurac/FlightAirMap require/class.Spotter.php:2423 else-after-return`
+- `vllm-project/vllm vllm/v1/core/single_type_kv_cache_manager.py:2276 else-after-return`
+- `microsoft/vscode src/vs/sessions/contrib/chat/browser/runScriptAction.ts:383 else-after-return`
+- `Ysurac/FlightAirMap require/class.MarineArchive.php:805 else-after-return`
+- `zed-industries/zed crates/editor/src/display_map/inlay_map.rs:960 else-after-return`
+- `pytorch/pytorch torch/_higher_order_ops/triton_kernel_wrap.py:653 else-after-return`
+- `bagisto/bagisto packages/Webkul/Admin/tests/e2e-pw/pages/shop/OmnibusShopPage.ts:5 constructor-only-forwards`
+- `pytorch/pytorch torch/distributions/transforms.py:1197 else-after-return`
+- `microsoft/vscode src/vs/base/common/date.ts:225 else-after-return`
+- `vllm-project/vllm tests/v1/attention/test_mla_backends.py:664 else-after-return`
+- `rustdesk/rustdesk src/core_main.rs:716 else-after-return`
+- `Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/todoist/labels.py:506 except-only-reraises`
+- `rustdesk/rustdesk flutter/lib/desktop/pages/remote_tab_page.dart:409 else-after-return`
+- `Significant-Gravitas/AutoGPT classic/forge/forge/components/data_processor/data_processor.py:475 else-after-return`
+- `Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/util/type.py:190 else-after-return`
+- `huggingface/transformers src/transformers/utils/import_utils.py:251 else-after-return`
+- `nodejs/node tools/gyp/pylib/gyp/xcodeproj_file.py:1363 else-after-return`
+- `pytorch/pytorch test/test_proxy_tensor.py:2457 else-after-return`
+- `rustdesk/rustdesk flutter/lib/mobile/widgets/floating_mouse.dart:702 else-after-return`
+- `langgenius/dify api/providers/vdb/vdb-oracle/src/dify_vdb_oracle/oraclevector.py:139 else-after-return`
+- `matomo-org/matomo plugins/Actions/Columns/Metrics/AveragePageGenerationTime.php:70 else-after-return`
+- `binary-husky/gpt_academic crazy_functions/live_audio/aliyunASR.py:103 else-after-return`
+- `grokability/snipe-it public/js/dist/all.js:29906 else-after-return`
+- `flutter/flutter packages/flutter_driver/lib/src/driver/vmservice_driver.dart:166 else-after-return`
+- `nextcloud/server lib/private/Files/Node/NonExistingFolder.php:199 else-after-return`
+- `netdata/netdata packaging/installer/netdata-uninstaller.sh:668 else-after-return`
+- `pytorch/pytorch torch/distributed/flight_recorder/components/types.py:350 else-after-return`
+- `pytorch/pytorch torch/_inductor/fx_passes/decompose_mem_bound_mm.py:181 else-after-return`
+- `pytorch/pytorch tools/testing/test_run.py:212 else-after-return`
+- `CarGuo/gsy_github_app_flutter lib/common/repositories/repos_repository.dart:664 else-after-return`
+- `anthropics/skills skills/docx/scripts/office/validators/base.py:669 else-after-return`
+- `pytorch/pytorch torch/_inductor/codegen/cpp_micro_gemm.py:41 else-after-return`
+- `pytorch/pytorch test/functorch/test_leaf_function.py:1020 else-after-return`
+- `vllm-project/vllm vllm/distributed/kv_transfer/kv_connector/v1/lmcache_mp_connector.py:124 else-after-return`
+- `lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:11411 trailing-return`
+- `router-for-me/CLIProxyAPI sdk/cliproxy/auth/conductor_cooldown.go:3673 if-else-returns-boolean`
+- `ruvnet/RuView v2/vendor/security/sqlx-sqlite-0.8.6/src/connection/explain.rs:789 else-after-return`
+- `ente/ente mobile/apps/photos/lib/utils/misc_util.dart:20 else-after-return`
+- `denoland/deno libs/node_resolver/resolution.rs:1678 else-after-return`
+- `grokability/snipe-it app/Presenters/AccessoryPresenter.php:461 else-after-return`
+- `flutter/flutter packages/flutter_tools/lib/src/android/gradle_utils.dart:1335 else-after-return`
+- `ruvnet/RuView v2/vendor/security/sqlx-sqlite-0.8.6/src/connection/explain.rs:703 else-after-return`
+- `nextcloud/server apps/files_external/lib/Lib/Storage/SFTP.php:459 else-after-return`
+- `rustdesk/rustdesk src/core_main.rs:715 else-after-return`
+- `bagisto/opensource-ecommerce-mobile-app lib/core/currency/product_price_display.dart:173 else-after-return`
+- `bagisto/bagisto packages/Webkul/Admin/tests/e2e-pw/pages/admin/sales/RmaCustomFieldsPage.ts:24 constructor-only-forwards`
+- `prometheus/prometheus prompb/remote.pb.go:327 else-after-return`
+- `grafana/grafana pkg/middleware/request_tracing.go:83 if-else-returns-boolean`
+- `nextcloud/server apps/dav/tests/testsuits/carddav/script.sh:6 legacy-backticks`
+- `etcd-io/etcd tools/local-tester/faults.sh:50 legacy-backticks`
+- `vllm-project/vllm vllm/entrypoints/pooling/offline.py:186 else-after-return`
+- `pbakaus/impeccable crates/context/src/catalog.rs:472 redundant-closure`
+- `flutter/flutter packages/flutter/lib/src/painting/rounded_rectangle_border.dart:524 else-after-return`
+- `garrytan/gstack lib/cso/state.ts:2149 catch-only-rethrows`
+- `openai/codex codex-rs/tui/src/chatwidget/tests/mcp_startup.rs:783 redundant-closure`
+- `pytorch/pytorch torch/_inductor/fx_passes/quantization.py:369 else-after-return`
 
 ### Orphan files
 
-Seed `3bf488efc1c073e8`; 100 of 81387 Findings.
+Seed `2668856fc08081a5`; 100 of 81387 Findings.
 
-- `ruvnet/RuView ui/utils/fullscreen.js unreferenced`
-- `stablyai/orca src/renderer/src/lib/agent-session/launch/structured-agent-session-launch-abandon.ts test-only`
-- `stablyai/orca src/main/runtime/rpc/methods/orchestration/worker/start/placement/explicit-worker-terminal-validation.ts test-only`
-- `n8n-io/n8n packages/frontend/editor-ui/src/features/core/dataTable/types.ts unreferenced`
-- `stablyai/orca src/main/codex/history/rollouts/codex-session-source-home.ts test-only`
-- `n8n-io/n8n packages/nodes-base/nodes/Xero/GenericFunctions.ts test-only`
-- `Comfy-Org/ComfyUI comfy/ldm/lightricks/vae/causal_conv3d.py test-only`
-- `morluto/rea src/application/binaryDiagnostics/BinaryLayoutService.ts test-only`
-- `n8n-io/n8n packages/nodes-base/nodes/Google/Books/GoogleBooks.node.ts test-only`
-- `stablyai/orca src/main/rate-limits/providers/claude/claude-usage-window.ts test-only`
-- `Significant-Gravitas/AutoGPT classic/forge/forge/components/math_utils/math_utils.py unreferenced`
-- `langchain-ai/langchain libs/langchain/langchain_classic/tools/requests/tool.py unreferenced`
-- `stablyai/orca mobile/src/bots/MobileBotGroupItems.tsx test-only`
-- `infiniflow/ragflow internal/agent/runtime/numbers.go unreferenced`
-- `grokability/snipe-it resources/lang/de-if/admin/labels/general.php unreferenced`
-- `stablyai/orca src/shared/telemetry/schemas/telemetry-onboarding-foundation-schemas.ts test-only`
-- `stablyai/orca src/main/runtime/browser-host/client-pages/browser-host-client-page-placement.ts test-only`
-- `Comfy-Org/ComfyUI comfy_extras/sam3d_body/export/glb_openpose.py unreferenced`
-- `stablyai/orca src/main/native-chat/agent-session-journal/replay/journal-retained-inputs.ts test-only`
-- `nodejs/node deps/v8/tools/heap-stats/trace-file-reader.js unreferenced`
-- `NousResearch/hermes-agent apps/desktop/src/plugins/kanban/ui.tsx test-only`
-- `stablyai/orca src/main/ssh/legacy-relay/bridge/legacy-relay-bridge-application.ts unreferenced`
-- `stablyai/orca src/main/git/refs/fork-remotes/fork-remote-stale-branch-refspec.ts test-only`
-- `vercel/next.js packages/next-codemod/transforms/__testfixtures__/cache-components-instant-false/basic-default.input.tsx unreferenced`
-- `infiniflow/ragflow internal/agent/tool/arxiv.go unreferenced`
-- `BookStackApp/BookStack lang/zh_TW/pagination.php unreferenced`
-- `stablyai/orca src/shared/agent-session/journal/journal-connector-reply-turn.ts test-only`
-- `stablyai/orca src/main/automations/launch/automation-terminal-launch.ts unreferenced`
-- `grokability/snipe-it resources/lang/uk-UA/admin/maintenances/general.php unreferenced`
-- `stablyai/orca src/renderer/src/components/right-sidebar/source-control/ai/section-agent-placement.ts test-only`
-- `grokability/snipe-it resources/lang/ur-PK/admin/consumables/general.php unreferenced`
-- `bagisto/bagisto packages/Webkul/Customer/src/Resources/lang/sw/app.php unreferenced`
-- `stablyai/orca src/main/native-chat/transcript-history/opencode/transcript-opencode2-fork-coverage.ts unreferenced`
-- `anomalyco/opencode packages/stories/mocks/gui-plugins/pairing.tsx unreferenced`
-- `n8n-io/n8n packages/nodes-base/nodes/SurveyMonkey/GenericFunctions.ts test-only`
-- `stablyai/orca src/shared/orchestration/workers/nested-worker-depth.ts test-only`
-- `commaai/openpilot openpilot/tools/lib/azure_container.py test-only`
-- `monicahq/monica resources/views/components/error.blade.php unreferenced`
-- `stablyai/orca src/main/runtime/browser/commands/browser-capture.ts unreferenced`
-- `stablyai/orca src/main/managed-server/activation/orcad-activation-transaction-transitions.ts test-only`
-- `stablyai/orca src/renderer/src/components/bots/BotChatRowMenu.tsx test-only`
-- `stablyai/orca mobile/src/terminal/session/pane-layout/mobile-terminal-pane-layout.ts test-only`
-- `grokability/snipe-it resources/lang/zh-HK/admin/users/table.php unreferenced`
-- `vercel/next.js packages/next/src/client/add-locale.ts unreferenced`
-- `NousResearch/hermes-agent plugins/platforms/ntfy/adapter.py test-only`
-- `langflow-ai/langflow src/backend/base/langflow/alembic/versions/182e5471b900_add_context_message.py unreferenced`
-- `grokability/snipe-it resources/lang/hy-AM/pagination.php unreferenced`
-- `ente/ente web/apps/locker/src/components/locker/use-locker-uploads.ts test-only`
-- `bagisto/bagisto packages/Webkul/Sales/src/Database/Migrations/2024_04_24_102939_add_incl_tax_columns_in_refunds_table.php unreferenced`
-- `stablyai/orca mobile/src/tasks/providers/jira/mobile-jira-operations.ts unreferenced`
-- `morluto/rea src/native/pe/PeImportsProvider.ts test-only`
+- `stablyai/orca src/renderer/src/components/skills/installation/skill-install-progress-state.ts unreferenced`
+- `morluto/rea src/domain/javascript/javascriptBuiltinResourceMethods.ts test-only`
+- `morluto/rea src/composition/firmware.ts test-only`
+- `flame-engine/flame packages/flame_test/lib/src/expect_color.dart test-only`
+- `stablyai/orca mobile/src/transport/rpc/rpc-client-socket-factory.ts test-only`
+- `stablyai/orca src/main/runtime/terminal/wait/reattached-ready-screen.ts test-only`
+- `n8n-io/n8n packages/frontend/editor-ui/src/features/ndv/parameters/components/ResourceLocator/ResourceLocator.test.constants.ts test-only`
+- `stablyai/orca src/renderer/src/lib/simulator/search/simulator-palette-active-tab.ts unreferenced`
+- `langchain-ai/langchain libs/langchain/langchain_classic/chat_loaders/telegram.py unreferenced`
+- `bagisto/bagisto packages/Webkul/Admin/src/Resources/views/appearance/sections/index.blade.php unreferenced`
+- `n8n-io/n8n packages/@n8n/api-types/src/dto/ai/ai-gateway-wallet-response.dto.ts unreferenced`
+- `vercel/next.js packages/next/src/server/mcp/tools/get-compilation-issues.ts unreferenced`
+- `stablyai/orca src/main/acp/acp-dialects/goose-dialect.ts test-only`
+- `stablyai/orca mobile/src/worktree/project-sections/project-group-tree-sections.ts test-only`
+- `ente/ente web/packages/gallery/services/download-core.ts unreferenced`
+- `flutter/flutter dev/devicelab/bin/tasks/complex_layout_android__impeller_gles_start_up.dart unreferenced`
+- `langgenius/dify api/libs/custom_inputs.py test-only`
+- `coollabsio/coolify resources/views/livewire/security/cloud-provider-tokens.blade.php unreferenced`
+- `stablyai/orca src/main/computer/desktop-script/snapshots/desktop-script-snapshot-store.ts unreferenced`
+- `grokability/snipe-it resources/lang/zh-HK/admin/departments/table.php unreferenced`
+- `binary-husky/gpt_academic crazy_functions/doc_fns/read_fns/unstructured_all/paper_metadata_extractor.py unreferenced`
+- `stablyai/orca src/renderer/src/components/sidebar/workspace-card/controller/use-worktree-card-workspace-actions.ts test-only`
+- `grokability/snipe-it resources/views/livewire/clone-fieldset.blade.php unreferenced`
+- `coollabsio/coolify resources/views/components/terminal/theme-selector.blade.php unreferenced`
+- `stablyai/orca src/main/managed-server/activation/orcad-candidate-preflight.ts test-only`
+- `firefly-iii/firefly-iii resources/views/budgets/delete.blade.php unreferenced`
+- `stablyai/orca src/renderer/src/components/right-sidebar/source-control/listing/split-open.ts test-only`
+- `firefly-iii/firefly-iii resources/views/transactions/edit.blade.php unreferenced`
 - `NousResearch/hermes-agent plugins/platforms/telegram/update_admission.py test-only`
-- `stablyai/orca src/main/startup/deep-link-state.ts test-only`
-- `stablyai/orca src/renderer/src/components/native-chat/media/images/native-chat-image-visibility.ts test-only`
-- `vercel/next.js packages/next/src/server/after/after.ts test-only`
-- `BookStackApp/BookStack resources/views/settings/sort-rules/edit.blade.php unreferenced`
-- `stablyai/orca mobile/src/home/tabs/MobileHomeAutomationsTab.tsx unreferenced`
-- `stablyai/orca src/main/browser/guest-lifecycle/input/browser-guest-context-menu-target.ts test-only`
-- `langchain-ai/langchain libs/langchain_v1/langchain/agents/middleware/human_in_the_loop.py test-only`
-- `vercel/next.js packages/next-codemod/transforms/__testfixtures__/next-image-experimental-loader/wrapped-with-pwa/output/next.config.js unreferenced`
-- `stablyai/orca src/shared/source-control/checks/pr-check-severity-order.ts test-only`
-- `grokability/snipe-it resources/lang/is-IS/admin/components/table.php unreferenced`
-- `stablyai/orca src/renderer/src/components/github-project/cells/ProjectCellValueEditors.tsx unreferenced`
-- `stablyai/orca src/cli/bot-automation-eval/bot-automation-eval-owner-linear.ts unreferenced`
-- `stablyai/orca src/renderer/src/components/sidebar/worktree-list/listing/worktree-filter-visibility.ts unreferenced`
-- `stablyai/orca src/main/credentials/credential-file-io.ts test-only`
-- `stablyai/orca src/main/updater/lifecycle/updater-setup.ts test-only`
-- `Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/exa/websets_polling.py test-only`
-- `ruvnet/RuView archive/v1/src/api/middleware/__init__.py unreferenced`
-- `chartjs/Chart.js src/helpers/helpers.config.ts test-only`
-- `bagisto/bagisto packages/Webkul/Marketing/src/Database/Migrations/2023_11_09_162805_create_url_rewrites_table.php unreferenced`
-- `firefly-iii/firefly-iii app/Http/Controllers/Json/RuleController.php unreferenced`
-- `stablyai/orca mobile/src/session/native-chat/composer/drafts/use-mobile-native-chat-launch-draft-seed.ts unreferenced`
-- `grokability/snipe-it resources/lang/ga-IE/auth/general.php unreferenced`
-- `stablyai/orca src/main/orca-profiles/cloud-console/cloud-console-link.ts test-only`
-- `stablyai/orca src/renderer/src/components/ui/dropdown-menu.tsx test-only`
-- `stablyai/orca src/main/runtime/terminal/wait/terminal-idle-polls.ts test-only`
-- `stablyai/orca src/main/runtime/agent-session/records/agent-session-rewind-completion.ts test-only`
-- `langchain-ai/langchain libs/core/langchain_core/tracers/__init__.py test-only`
-- `stablyai/orca src/renderer/src/components/sidebar/worktree-list/drag/worktree-sidebar-drop-preview.ts unreferenced`
-- `vllm-project/vllm vllm/models/flint/ops/moe_cute.py test-only`
-- `stablyai/orca src/renderer/src/components/sidebar/worktree-list/rows/project-group-header-actions.tsx unreferenced`
-- `stablyai/orca src/renderer/src/lib/terminal/quick-commands/quick-commands-menu-events.ts unreferenced`
-- `langchain-ai/langchain libs/langchain/langchain_classic/llms/utils.py unreferenced`
-- `morluto/rea src/application/binary/BinarySessionPort.ts unreferenced`
-- `grokability/snipe-it resources/lang/ur-PK/admin/groups/table.php unreferenced`
-- `vercel/next.js packages/next/src/trace/shared.ts test-only`
-- `langchain-ai/langchain libs/langchain/langchain_classic/document_loaders/airbyte_json.py unreferenced`
-- `coollabsio/coolify app/Livewire/Project/DeleteEnvironment.php test-only`
-- `morluto/rea src/domain/analysisView/sourceToBundleView.ts test-only`
-- `vercel/next.js packages/next/src/server/web/spec-extension/revalidate.ts test-only`
-- `stablyai/orca src/main/runtime/terminal/output/recent-pty-output-buffer.ts test-only`
-- `vllm-project/vllm vllm/distributed/ec_transfer/ec_connector/mooncake_ec_connector.py test-only`
-- `n8n-io/n8n packages/nodes-base/nodes/MonicaCrm/descriptions/NoteDescription.ts unreferenced`
-- `n8n-io/n8n packages/@n8n/db/src/migrations/sqlite/1766068346315-AddChatMessageIndices.ts unreferenced`
-- `morluto/rea src/domain/javascript/javascriptBootstrapIntegrity.ts test-only`
-- `n8n-io/n8n packages/nodes-base/nodes/BambooHr/v1/actions/file/getAll/description.ts unreferenced`
-- `Significant-Gravitas/AutoGPT classic/forge/forge/content_processing/text.py unreferenced`
-- `vercel/next.js evals/evals/agent-029-use-cache-directive/app/layout.tsx unreferenced`
-- `monicahq/monica resources/views/app/settings/account/preferences/index.blade.php unreferenced`
+- `stablyai/orca src/renderer/src/components/ui/sonner.fixture.tsx unreferenced`
+- `ente/ente web/packages/gallery/services/save-progress.ts unreferenced`
+- `n8n-io/n8n packages/nodes-base/credentials/JiraSoftwareServerApi.credentials.ts unreferenced`
+- `stablyai/orca src/main/hang-watchdog/renderer-hang-stack-policy.ts unreferenced`
+- `BookStackApp/BookStack app/Activity/Notifications/Messages/PageCreationNotification.php test-only`
+- `grokability/snipe-it resources/lang/en-GB/admin/categories/table.php unreferenced`
+- `stablyai/orca src/renderer/src/components/terminal-pane/layout/split/terminal-pane-split-completion.ts unreferenced`
+- `langchain-ai/langchain libs/langchain/langchain_classic/tools/gmail/create_draft.py unreferenced`
+- `ruvnet/RuView v2/crates/homecore-server/ui/js/panels/fleet.js test-only`
+- `infiniflow/ragflow internal/dao/chat.go unreferenced`
+- `firefly-iii/firefly-iii resources/views/partials/form/transaction/transaction-type.blade.php unreferenced`
+- `bagisto/bagisto packages/Webkul/Rule/src/Providers/ModuleServiceProvider.php unreferenced`
+- `stablyai/orca src/main/runtime/workspaces/removal/worktree-pty-stop-verdict.ts test-only`
+- `krayin/laravel-crm packages/Webkul/Admin/src/DataGrids/Contact/PersonDataGrid.php unreferenced`
+- `BookStackApp/BookStack lang/th/validation.php unreferenced`
+- `stablyai/orca src/renderer/src/components/bots/bot-connectors-host-fixture.tsx unreferenced`
+- `langchain-ai/langchain libs/standard-tests/langchain_tests/base.py test-only`
+- `stablyai/orca src/renderer/src/lib/editor/monaco/monaco-delayer-cancellation-guard.ts unreferenced`
+- `Significant-Gravitas/AutoGPT autogpt_platform/scripted_model/scripted_model/streaming.py unreferenced`
+- `stablyai/orca src/renderer/src/components/plugins/catalog/PluginInUseAction.tsx unreferenced`
+- `stablyai/orca src/renderer/src/components/terminal-pane/pty-connection/pane-connection-context.ts unreferenced`
+- `anomalyco/opencode packages/app/perf/diff.bench.ts unreferenced`
+- `anomalyco/opencode packages/core/perf/snapshot.ts unreferenced`
+- `stablyai/orca src/main/daemon/providers/adapter/daemon-pty-runtime-state.ts test-only`
+- `grokability/snipe-it app/Http/Transformers/AccessoriesTransformer.php unreferenced`
+- `stablyai/orca src/renderer/src/lib/agent-session/launch/prompt/launch-agent-paste-timeout-notice.ts unreferenced`
+- `n8n-io/n8n packages/nodes-base/nodes/Grist/Grist.node.ts test-only`
+- `stablyai/orca src/renderer/src/components/new-workspace/source-search/smart-workspace-github-direct-link.ts unreferenced`
+- `n8n-io/n8n packages/frontend/editor-ui/src/features/agents/components/AgentNewTestRunButton.vue test-only`
+- `stablyai/orca src/main/runtime/rpc/server/pairing/network/pairing-endpoint.ts test-only`
+- `n8n-io/n8n packages/nodes-base/nodes/Google/Sheet/v2/GoogleSheetsV2.node.ts unreferenced`
+- `anomalyco/opencode packages/cli/src/acp/permission.ts test-only`
+- `NousResearch/hermes-agent apps/desktop/electron/ui-preferences-ipc.ts unreferenced`
+- `stablyai/orca src/renderer/src/components/comment-markdown/chat-markdown-math-typeset.ts test-only`
+- `grokability/snipe-it resources/lang/it-IT/admin/manufacturers/message.php unreferenced`
+- `stablyai/orca mobile/src/tasks/mobile-tasks-project-workspace-types.ts unreferenced`
+- `morluto/rea src/ghidra/GhidraRiscvProfile.ts test-only`
+- `stablyai/orca src/renderer/src/components/native-chat/host-access/native-chat-agy-sign-in.ts test-only`
+- `chartjs/Chart.js src/core/core.typedRegistry.js test-only`
+- `stablyai/orca src/shared/bots/bot-chat-identity.ts unreferenced`
+- `n8n-io/n8n packages/@n8n/db/src/migrations/common/1795100170853-AllowApiSourceOnAiPreference.ts unreferenced`
+- `stablyai/orca src/main/window/activation/macos-desktop-handoff.ts unreferenced`
+- `stablyai/orca src/shared/agent-session/conversation-context/agent-session-compaction.ts test-only`
+- `abi/screenshot-to-code backend/agent/providers/anthropic/__init__.py test-only`
+- `stablyai/orca src/shared/ripgrep/ripgrep-match-offsets.ts test-only`
+- `grokability/snipe-it resources/lang/cy-GB/admin/asset_maintenances/table.php unreferenced`
+- `stablyai/orca src/main/persistence/loading-store/terminal-bindings/pty-binding-generations.ts test-only`
+- `Shubhamsaboo/awesome-llm-apps advanced_llm_apps/chat_with_X_tutorials/chat_with_youtube_videos/chat_youtube.py unreferenced`
+- `stablyai/orca src/shared/agent-status/store/agent-status-store-status-codec.ts test-only`
+- `anomalyco/opencode packages/core/script/migration.ts unreferenced`
+- `morluto/rea src/application/AnalysisOperationFacts.ts test-only`
+- `n8n-io/n8n packages/nodes-base/nodes/Adalo/types.ts unreferenced`
+- `n8n-io/n8n packages/nodes-base/nodes/InvoiceNinja/InvoiceNinja.node.ts test-only`
+- `stablyai/orca src/main/managed-server/install/remote-install-lock-owner-commands.ts test-only`
+- `stablyai/orca src/renderer/src/components/editor/rich-markdown/review/rich-markdown-review-annotations.ts unreferenced`
+- `stablyai/orca src/main/runtime/rpc/server/pairing/declared-desktop-clients.ts test-only`
+- `vllm-project/vllm vllm/models/mistral/mistral_large4/amd/specialized_decode/mono/op.py unreferenced`
+- `stablyai/orca src/renderer/src/components/editor/rich-markdown/review/RichMarkdownAnnotationOverlay.tsx unreferenced`
+- `n8n-io/n8n packages/nodes-base/nodes/Databricks/actions/genie/getMessage.operation.ts test-only`
+- `stablyai/orca src/shared/agent-journal-orca-card-items.ts unreferenced`
+- `pytorch/pytorch torch/testing/_internal/distributed/rpc/examples/__init__.py unreferenced`
+- `stablyai/orca src/shared/speech/native-recognizer/speech-recognizer-package.ts test-only`
+- `morluto/rea src/application/environment/environmentToolAnswer.ts test-only`
+- `coollabsio/coolify app/Livewire/Storage/Concerns/SelectsSftpLogin.php test-only`
+- `vllm-project/vllm vllm/transformers_utils/processors/internvl.py test-only`
+- `grokability/snipe-it resources/lang/de-DE/admin/settings/mcp.php unreferenced`
+- `NousResearch/hermes-agent ui-tui/packages/hermes-ink/src/utils/debug.ts test-only`
+- `Comfy-Org/ComfyUI comfy/latent_formats.py test-only`
+- `IceWhaleTech/CasaOS internal/conf/var.go unreferenced`
+- `grafana/grafana packages/grafana-api-clients/src/generator/variants.ts test-only`
+- `nodejs/node lib/internal/crypto/webcrypto_util.js test-only`

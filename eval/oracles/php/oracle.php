@@ -1,7 +1,7 @@
 <?php
 
-error_reporting(0);
-ini_set('display_errors', '0');
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+ini_set('display_errors', 'stderr');
 
 const DECISION_TOKENS = [
     T_IF, T_ELSEIF, T_FOR, T_FOREACH, T_WHILE, T_CASE, T_CATCH,
@@ -337,9 +337,13 @@ final class ImportScanner
 
 function describe(string $path): array
 {
+    $code = @file_get_contents($path);
+    if ($code === false) {
+        return ['path' => $path, 'error' => 'cannot read file'];
+    }
     try {
-        $tokens = significantTokens((string) file_get_contents($path));
-    } catch (ParseError $error) {
+        $tokens = significantTokens($code);
+    } catch (CompileError $error) {
         return ['path' => $path, 'error' => $error->getMessage()];
     }
     return ['path' => $path, 'functions' => functions($tokens), 'imports' => (new ImportScanner($tokens))->scan()];

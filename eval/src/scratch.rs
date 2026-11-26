@@ -60,7 +60,9 @@ const FETCH_ATTEMPTS: usize = 3;
 fn fetch_with_retry(checkout: &Path, url: &str, commit: &str) -> Result<(), EvaluationError> {
     let mut last_error = None;
     for attempt in 1..=FETCH_ATTEMPTS {
-        match run_checked(git(checkout).args(["fetch", "--quiet", "--depth", "1", url, commit])) {
+        match run_checked(
+            git(checkout).args(["fetch", "--quiet", "--depth", "1", "--", url, commit]),
+        ) {
             Ok(_) => return Ok(()),
             Err(error) => {
                 last_error = Some(error);

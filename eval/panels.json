@@ -2102,13 +2102,6 @@
       "commit": "e064f32e3674d9d79a8fd417b5bc06fa5c6cad8f"
     },
     {
-      "name": "NawfalMotii79/PLFM_RADAR",
-      "language": "sql",
-      "bucket": "medium",
-      "url": "https://github.com/NawfalMotii79/PLFM_RADAR",
-      "commit": "62d4c556508927a4192acca24422bd16a979c7dc"
-    },
-    {
       "name": "pgmq/pgmq",
       "language": "sql",
       "bucket": "medium",
@@ -2450,6 +2443,13 @@
       "bucket": "large",
       "url": "https://github.com/Hameds/IranCountryDivisions",
       "commit": "37c01f5e776bdd330fbb9d196cff8bf6ceadcb25"
+    },
+    {
+      "name": "czwbig/Tmall_JavaEE",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/czwbig/Tmall_JavaEE",
+      "commit": "0a96527e840273acd6c3428a0ceec4556130e2d3"
     },
     {
       "name": "vercel/next.js",
