@@ -16,6 +16,7 @@ Branch `main` has two commits:
 Branch `feature` starts at `main` and is checked out.
 Its commit `Simplify parse`, on 2026-11-16, makes `src/parse.ts` simple and adds `src/total.ts`.
 The working tree adds `src/route.ts`, an eroded function that is not committed.
+It also holds a `plugins` folder with four Wasm Plugin files built from the test fixtures: `sample_mini_plugin.wasm` (a valid Language plugin that claims `.mini` files), `sample_long_functions_plugin.wasm` (a valid Metric plugin), `out_of_range_ratio_metric_plugin.wasm` (a Metric plugin that returns a ratio above 1), and `legacy_v0_3_0_language_plugin.wasm` (a Language plugin built against an older contract), plus `plugins/sample.mini`, a source file for the valid Language plugin.
 
 ## Commands
 
@@ -37,6 +38,7 @@ The working tree adds `src/route.ts`, an eroded function that is not committed.
 | `report` | Re-render a saved `check` or `diff` JSON report into another format without re-running analysis; see [`codeint report`](#codeint-report) |
 | `doctor` | Run read-only diagnostics on `codeint.json`, Git repository status, detected languages, Workspace packages, and external Wasm Plugins; see [`codeint doctor`](#codeint-doctor) |
 | `agent` | Inspect and configure codeint MCP integration for local coding agents; see [`codeint agent`](#codeint-agent) |
+| `plugin` | Check an external Wasm Plugin against the codeint Plugin contract; see [`codeint plugin`](#codeint-plugin) |
 | `ratchet` | Manage the repository Ratchet ceilings in `.codeint/ratchet.json`; see [`codeint ratchet`](#codeint-ratchet) |
 | `baseline` | Manage the repository Baseline of existing Findings in `.codeint/baseline.json`; see [`codeint baseline`](#codeint-baseline) |
 | `churn` | Rank eroded and duplicated files alongside their Git commit churn independently per Metric; see [`codeint churn`](#codeint-churn) |
@@ -781,8 +783,8 @@ codeint schema --output schema.json
 | `--format <FORMAT>` | The format of the output: `text`, the default, `toon`, or `json` |
 | `--budget <SPEC>` | Override a Budget ratio as `SOURCE_SET.METRIC=RATIO` |
 | `--source-set <SPEC>` | Override a Source set glob as `SOURCE_SET=GLOB` |
-| `--plugin-memory-mb <MB>` | Override `plugin_limits.memory_mb` (1 to 4096) |
-| `--plugin-timeout-ms <MS>` | Override `plugin_limits.timeout_ms` (1 to 300000) |
+| `--plugin-memory-mb <MB>` | Override the memory limit in MiB of each Plugin call, `plugin_limits.memory_mb` (1 to 4096) |
+| `--plugin-timeout-ms <MS>` | Override the time limit in milliseconds of each Plugin call, `plugin_limits.timeout_ms` (1 to 300000) |
 | `-h, --help` | Print the help of `codeint config` |
 
 `codeint config --resolved` prints every effective active setting merged from built-in defaults, `codeint.json`, and CLI overrides alongside its provenance (`default`, `file`, or `cli`).
@@ -869,6 +871,87 @@ CODEINT_AGENT_HOME=.agent-home codeint agent status --format json
 CODEINT_AGENT_HOME=.agent-home codeint agent status --format toon
 CODEINT_AGENT_HOME=.agent-home codeint agent install --dry-run --client claude-code
 codeint agent help
+```
+
+### `codeint plugin`
+
+| Command | Meaning |
+| ------- | ------- |
+| `test` | Run the Conformance runner against a Wasm Plugin and report each violated rule with a fix hint |
+| `help` | Print the help of `codeint plugin`, or of the subcommand that follows it |
+
+| Option | Meaning |
+| ------ | ------- |
+| `-h, --help` | Print the help of `codeint plugin` |
+
+`codeint plugin test <WASM>` loads one Wasm Plugin through the same sandboxed Plugin host that `codeint check` uses and runs the Conformance runner against it.
+It needs no repository, no `codeint.json`, and no network access.
+The runner checks a Language plugin for the following rules:
+
+- It is a valid WebAssembly component that exports `codeint:plugin/language@0.4.0` and imports no WASI or host interface.
+- It claims at least one valid extension: not empty, no leading dot, and no `/` or whitespace, because such an extension never matches a repository file.
+  Duplicate extensions are allowed.
+- Its Hazard rule list matches `has-hazard-rules` and holds no empty rule name.
+- Its Framework profile names are not empty, because an empty name can never be selected in config.
+- `lower` is deterministic and stateless on built-in probe sources, which the runner writes once for every extension the Plugin claims, and on every `--source` file, returns lines counted from 1 inside the file for both LF and CRLF line endings, returns functions and tokens in source order, lists every Hazard rule it uses in `hazard-rules`, and rejects a file it does not claim.
+- Its Framework profiles resolve for the disabled, auto, exclude, and only selections, for the root package and a member package, with every known profile, with each profile alone, and, for three or more profiles, with the first two, sent the real package files and only the manifests `manifest-paths` chose, each with the content of the probe file it names, for the packages of the workspace that `workspace-packages` reports and for a fixed member package, with entry points and generated paths that are files of the repository, the same inputs and checks `codeint check` uses.
+  When `known-framework-profiles` is empty, codeint never resolves Framework profiles, so the runner reports `framework-profiles` as skipped.
+- When `has-imports` is true, it answers `manifest-paths`, `workspace-packages`, `resolve-imports` (with no Framework profile active, with each known profile active, and, for two or more profiles, with every known profile active at once), `declared-dependencies`, and `entry-points` without a trap and with valid data; `workspace-packages` returns only package roots that `codeint check` accepts, and returns no `workspace-error` for no manifests or for a manifest it chose with valid content, and `plugin test` sends it only manifests that `manifest-paths` chose, because `codeint check` skips a manifest that a `workspace-error` names, with a warning, and stops on any other `workspace-error`.
+  The `end-to-end` check fails when `codeint check` skips a valid probe manifest with a warning.
+  When `has-imports` is false, codeint never calls these five, so the runner reports them as skipped.
+- It answers `reference-ranges` with valid data: bounds within `0..=1`, at most one range per Metric, and every range for a built-in Metric at that Metric's current `metric_version`.
+  A stale range (version 0 or a mismatch) fails with a hint to recalibrate or update it, because `codeint check` hides such a range behind a note.
+  Ranges for keys that are not built-in Metrics are not version-checked.
+- `codeint check` accepts it end to end: the runner writes the probe files and the manifests `manifest-paths` chose to a temporary Git repository, declares only this Plugin in its `codeint.json`, and runs the real measurement pipeline once with no Framework profile configured and once with `framework_profiles` set to each known profile.
+  Any error that makes `codeint check` exit with code 2 fails `end-to-end` with the error text, and the temporary folder is removed on every path.
+- It stays within the memory and time limits of each call; a call that hits a limit fails `limits`.
+
+The runner checks a Metric plugin for the following rules:
+
+- It is a valid WebAssembly component that exports `codeint:plugin/metric@0.4.0` and imports no WASI or host interface.
+- Its key is a valid snake_case key that collides with no built-in Metric or reserved report key, its version is 1 or higher, and its name and description are not empty.
+- `measure` is deterministic and stateless on an empty Code model and on Code models with functions, tokens, Hazard lines, runtime imports, several Production and Test files, and a Code model with function Coverage, Generated and Vendored files, anonymous functions, every token kind, and a program start, and it returns a ratio between 0 and 1, finite and non-negative numbers, Findings with a non-empty id, lines counted from 1, and paths relative to the repository root.
+- `codeint check` accepts it end to end: the real measurement pipeline measures a small TypeScript probe repository in a temporary Git repository that declares only this Plugin, and any error that makes `codeint check` exit with code 2 fails `end-to-end`.
+- It stays within the memory and time limits of each call.
+
+Each check prints as pass, fail, or skipped.
+A fail names the rule and a fix hint.
+A check that needs a Plugin that did not load, a call that codeint never makes for the Plugin, or a measurement that an earlier fail stopped, prints as skipped.
+Checks print in a fixed order, and each check appears once.
+`codeint plugin test` exits with code 0 when no check fails and code 1 when at least one check fails.
+A path that names no readable file stops the run with exit code 2.
+
+| Option of `codeint plugin test` | Meaning |
+| ------------------------------- | ------- |
+| `<WASM>` | The path to the Wasm Plugin to check |
+| `--kind <KIND>` | The kind of Plugin to check: `language`, the default, or `metric` |
+| `--source <FILE>` | A source file for a Language plugin to lower in addition to the built-in probe sources; may repeat |
+| `--plugin-memory-mb <MB>` | The memory limit in MiB for each Plugin call, from 1 to 4096; 64 by default |
+| `--plugin-timeout-ms <MS>` | The time limit in milliseconds for each Plugin call, from 1 to 300000; 5000 by default |
+| `--format <FORMAT>` | The format of the output: `text`, the default, `json`, or `toon` |
+
+The built-in probe sources run once for every extension that the Plugin claims.
+A Plugin whose Hazard rules or Flagged lines fire only on specific text needs a `--source` file that holds that text, or the runner cannot check those rules.
+
+```sh exit=0
+codeint plugin test plugins/sample_mini_plugin.wasm
+codeint plugin test plugins/sample_mini_plugin.wasm --kind language --source plugins/sample.mini
+codeint plugin test plugins/sample_mini_plugin.wasm --plugin-memory-mb 128 --plugin-timeout-ms 10000
+codeint plugin test plugins/sample_long_functions_plugin.wasm --kind metric
+codeint plugin test plugins/sample_mini_plugin.wasm --format json
+codeint plugin test plugins/sample_long_functions_plugin.wasm --kind metric --format toon
+codeint plugin help
+```
+
+A Plugin that breaks a rule exits with code 1, and the report names the rule and the fix:
+
+```sh exit=1
+codeint plugin test plugins/out_of_range_ratio_metric_plugin.wasm --kind metric
+codeint plugin test plugins/legacy_v0_3_0_language_plugin.wasm --format json
+```
+
+```sh exit=2
+codeint plugin test plugins/missing.wasm
 ```
 
 ### `codeint ratchet`
@@ -992,8 +1075,8 @@ codeint coupling --format markdown
 
 | Exit code | Meaning |
 | --------- | ------- |
-| `0` | The run succeeded, and no Budget, Ratchet, Regression, or blocking doctor error failed |
-| `1` | The run succeeded, and at least one Budget, Ratchet, Regression, or blocking doctor error failed; codeint still writes the whole report and names each failure on standard error |
+| `0` | The run succeeded, and no Budget, Ratchet, Regression, blocking doctor error, or failed `codeint plugin test` check occurred |
+| `1` | The run succeeded, and at least one Budget, Ratchet, Regression, blocking doctor error, or `codeint plugin test` check failed; codeint still writes the whole report and names each failure on standard error |
 | `2` | An operational error stopped the run, such as an unknown option, a Git ref that names no commit, a Ratchet or Baseline Metric version mismatch, or an invalid `codeint.json`; codeint names the error on standard error |
 
 ## `codeint.json`
@@ -1143,6 +1226,7 @@ Source sets settle in strict priority order from lowest to highest:
 - `go` puts a file in `test` when its name ends in `_test.go` or when any folder in its path is named `testdata`, puts a file in `generated` when a line comment before any code matches `// Code generated ... DO NOT EDIT.`, and puts files under `vendor/` in `vendored`.
   `go` evaluates no build conditions, so platform-specific files are measured like any other file.
 - `sql` puts a file in `generated` when its first 20 lines contain a database dump header (`-- PostgreSQL database dump`, `-- Dumped by pg_dump`, `-- MySQL dump` followed by a space, `-- MariaDB database dump`, or `-- MariaDB dump` followed by a space) or `-- Code generated` with `DO NOT EDIT.` (case-insensitive), when any line starts with a migration tool marker (`--> statement-breakpoint`, `-- atlas:txmode`, or `-- atlas:nolint`), or when its path lies under `prisma/migrations/` or `drizzle/`; puts a file in `test` when any folder in its path is named `test`, `tests`, `fixtures`, or `testdata`, or when its file name ends with `.test.sql` or starts with `test_` (and ends with `.sql`); and puts every other `.sql` file (including hand-written migrations) in `production`.
+- `shell` puts a file in `test` when any folder in its path is named `test`, `tests`, or `spec`, or when its name starts with `test_` or ends with `_test` or `.test` before the `.sh`, `.bash`, or `.zsh` extension; puts Autotools helper scripts such as `ltmain.sh` and `configure.sh`, and files whose header comment contains a generated-file marker (such as `Code generated`, `DO NOT EDIT`, `do not modify by hand`, or `this file is generated`), in `generated`; and puts files under `vendor/` or `third_party/` in `vendored`.
 - Core rules put files under `vendor/` or `third_party/` into `vendored`, and files with generated-file markers (such as `@generated` or `GENERATED CODE`) into `generated`.
 
 Globs under `source_sets` win over every rule.
@@ -1297,7 +1381,7 @@ Each entry of `languages` names a Language plugin, the globs of the folders or f
 Several entries may name one Language plugin; it measures what any of them includes.
 Without `languages`, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include.
 When two Language plugins claim the same file extension for the same folder, codeint stops with exit code 2 until `languages` assigns separate folders to each plugin.
-codeint ships seven built-in Language plugins:
+codeint ships eight built-in Language plugins:
 
 | Plugin name | Extensions | Workspace manifest |
 | ----------- | ---------- | ------------------ |
@@ -1308,6 +1392,7 @@ codeint ships seven built-in Language plugins:
 | `python` | `.py` | `pyproject.toml` |
 | `go` | `.go` | `go.mod` |
 | `sql` | `.sql` | none (no imports; belongs to enclosing Workspace package) |
+| `shell` | `.sh`, `.bash`, `.zsh` | none (no imports; belongs to enclosing Workspace package) |
 
 For Go (`go`), each folder with a `go.mod` file below the repository root is one Workspace package (`go.work` is not read), an import of a repository Go package leads to every non-test `.go` file in that folder, standard library and cgo (`"C"`) imports count as built in, every named function and method (`ReceiverType.MethodName`) with a body is one function, function literals inside a function count toward the enclosing function one nesting level deeper (package-level function literals are not separate functions), and decision points are `if`, `for`, `case` except `default`, `&&`, and `||`.
 Go Verbosity applies five Flagged line rules (never flagging idiomatic `if err != nil` checks):
@@ -1318,6 +1403,10 @@ See [docs/guide/go.md](./guide/go.md) for the full Go guide.
 For SQL (`sql`), codeint reads every `.sql` file in two layers with `sqlparser` ([ADR 0018](./adr/0018-sql-through-sqlparser-in-two-layers.md)), supports generic SQL by default plus `postgresql`, `mysql` (covering MariaDB), `sqlite`, and `duckdb` Dialects, defines 2 Flagged line rules and 32 Hazard line rules (27 statement rules and 5 schema-backed rules), builds schemas automatically from repository SQL files, and leaves import Metrics absent because SQL has no imports.
 Calibrated SQL Reference ranges come from a panel of 20 pre-2023 public SQL repositories ([ADR 0022](./adr/0022-sql-reference-ranges.md), source `codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0`): Erosion `9.4% to 97.6%`, Duplication `4.2% to 92.1%`, and Verbosity `4.2% to 92.1%` (Import cycles is absent because SQL has no imports).
 See [SQL](#sql) below and [docs/guide/sql.md](./guide/sql.md) for details.
+
+For Shell (`shell`), codeint reads every `.sh`, `.bash`, and `.zsh` file with a hand-written lexer, detects POSIX `sh`, Bash, or Zsh from the first-line shebang and then from the extension, measures each named function plus one `<script>` function for top-level commands, defines 4 Flagged line rules and 10 Hazard line rules, and leaves import Metrics absent because shell scripts have no imports.
+Calibrated Shell Reference ranges come from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md), source `codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0`): Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` (Import cycles is absent because shell scripts have no imports).
+See [Shell](#shell) below and [docs/guide/shell.md](./guide/shell.md) for details.
 
 ```json codeint.json
 {
@@ -1342,7 +1431,8 @@ In a multi-language repository, list each built-in Language plugin with its own 
     { "plugin": "dart", "include": ["lib"], "exclude": [] },
     { "plugin": "python", "include": ["services"], "exclude": [] },
     { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] },
-    { "plugin": "sql", "include": ["db", "analytics"], "exclude": [] }
+    { "plugin": "sql", "include": ["db", "analytics"], "exclude": [] },
+    { "plugin": "shell", "include": ["scripts"], "exclude": [] }
   ]
 }
 ```
@@ -1704,6 +1794,42 @@ All 32 built-in SQL Hazard line rules (27 statement rules and 5 schema-backed ru
 ```sh exit=0
 codeint check
 ```
+
+### Shell
+
+The built-in `shell` Language plugin measures `.sh`, `.bash`, and `.zsh` files with a hand-written lexer and no external parser dependency.
+codeint dispatches files by extension, so extensionless scripts are not measured.
+See [docs/guide/shell.md](./guide/shell.md) for a walkthrough.
+
+- **Flavors**: a first-line shebang naming `sh`, `dash`, or `ash` selects POSIX `sh`, one naming `bash` selects Bash, and one naming `zsh` selects Zsh, directly or through `env`.
+  Without a recognized shebang, `.bash` selects Bash, `.zsh` selects Zsh, and `.sh` selects POSIX `sh`.
+- **Functions and names**: each `name() { ... }` and `function name { ... }` definition is one function with its own name.
+  Commands outside named functions form one function named `<script>` when any exist.
+- **Decision points and Cognitive complexity**: `if`, `elif`, `for`, `while`, `until`, `select`, each `case` branch except a lone `*)` wildcard, `&&`, and `||` each add `1`; Cognitive complexity adds nesting depth for nested control flow.
+- **Source lines**: comments and blank lines are not source lines; single-quoted, double-quoted, and ANSI-C `$'...'` strings, nested `$(...)` substitutions, heredocs (`<<EOF`, `<<-EOF`, `<<'EOF'`), and line continuations are read as code.
+  An unterminated quote, substitution, or heredoc makes the file unparsable.
+- **No imports**: Import cycles, Import boundaries, Orphan files, and Dependency hygiene are absent for shell scripts.
+- **Flagged line rules (Verbosity)**:
+  - `useless-cat`: `cat file | command` with exactly one plain file operand.
+  - `legacy-backticks`: command substitution written with backticks instead of `$(...)`.
+  - `redundant-exit-status-check`: a `[ ... ]`, `[[ ... ]]`, or `test` comparison of `$?` with `0`.
+  - `else-after-return`: an `else` after an `if` branch that always ends in `return` or `exit`.
+- **Reference ranges**: Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md)).
+
+All 10 built-in Shell Hazard line rules:
+
+| Rule | Matches |
+| ---- | ------- |
+| `missing-strict-mode` | A script with top-level commands but no `set -e` and `set -u` (POSIX `sh`), or no `set -e`, `set -u`, and `set -o pipefail` (Bash and Zsh), from `set`, Zsh `setopt`, or shebang flags |
+| `unquoted-variable` | An unquoted `$VAR` or `${VAR}` expansion in a command name, argument, or redirection target |
+| `eval-with-variable` | `eval` with an argument that expands a variable |
+| `pipe-download-to-shell` | `curl` or `wget` piped into a shell interpreter, or a shell reading `<(curl ...)` or `<(wget ...)` |
+| `unchecked-cd` | `cd` outside a condition and not followed by `&&` or `\|\|`, in a script without `set -e` |
+| `unguarded-rm-rf` | Recursive forced `rm` on a path that starts with `$VAR/` or `${VAR}/` without a `${VAR:?}` guard |
+| `hardcoded-secret` | A non-placeholder literal assigned to a name containing `password`, `passwd`, `secret`, `token`, `api_key`, `apikey`, `private_key`, `access_key`, or a similar word, or a literal with a known secret shape such as an AWS access key, a `ghp_` token, or a private key block |
+| `read-without-r` | `read` without `-r` |
+| `posix-sh-bashism` | Bash-only syntax in a POSIX `sh` script: `[[`, `declare`, `function`, `mapfile`, `readarray`, `select`, `shopt`, `source`, `typeset`, `((`, array assignment, `<<<`, `\|&`, `&>`, `&>>`, or process substitution |
+| `insecure-tls-download` | `curl -k`, `curl --insecure`, or `wget --no-check-certificate` |
 
 ### Hazards
 

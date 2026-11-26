@@ -2924,7 +2924,7 @@ fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
     assert_operational_error(
         &output,
         "codeint: codeint.jsonc names an unknown Language plugin cobol at languages[0].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql\n\
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql, shell\n\
          Name one of the Language plugins listed, or remove the entry from languages.\n",
     );
 }
@@ -3096,7 +3096,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "cobol", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin cobol at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql",
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql, shell",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -5681,6 +5681,47 @@ fn no_imports_repo(
         config,
         files,
     )
+}
+
+#[test]
+fn a_plugin_that_chooses_no_manifests_checks_a_repository_with_a_package_json() {
+    let repository = sandbox_probe_repo(
+        "cargo-only",
+        "cargo_only_workspace_language_plugin.wasm",
+        "cargo_only.wasm",
+        serde_json::json!({}),
+        &[("package.json", "{\"name\":\"root\"}"), ("a.probe", "x\n")],
+    );
+    check_json_with_exit(&repository, &["check", "--format", "json"], 0);
+}
+
+#[test]
+fn a_plugin_that_chooses_only_cargo_toml_is_sent_no_package_json() {
+    let repository = sandbox_probe_repo(
+        "manifest-strict",
+        "manifest_strict_profiles_language_plugin.wasm",
+        "manifest_strict.wasm",
+        serde_json::json!({}),
+        &[
+            ("package.json", "{\"name\":\"root\"}"),
+            ("Cargo.toml", "[package]\nname = \"root\"\n"),
+            ("a.probe", "x\n"),
+        ],
+    );
+    check_json_with_exit(&repository, &["check", "--format", "json"], 0);
+}
+
+#[test]
+fn a_single_profile_only_selection_failure_fails_check() {
+    let repository = sandbox_probe_repo(
+        "single-only",
+        "single_profile_only_language_plugin.wasm",
+        "single_only.wasm",
+        serde_json::json!({ "framework_profiles": ["alpha"] }),
+        &[("a.probe", "x\n")],
+    );
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 
 fn folder_import_cycles_report(files: &[(&str, &str)]) -> serde_json::Value {

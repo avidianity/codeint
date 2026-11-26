@@ -311,9 +311,9 @@ pub fn resolve_relative_file(
     }
 }
 
-pub fn build_reference_ranges(
+pub fn build_reference_ranges<const N: usize>(
     source: &str,
-    entries: [(&str, u32, f64, f64); 4],
+    entries: [(&str, u32, f64, f64); N],
 ) -> Vec<ReferenceRange> {
     entries
         .into_iter()

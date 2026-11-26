@@ -67,12 +67,9 @@ impl ReferenceRangeScope {
         match self {
             ReferenceRangeScope::OneLanguage(ranges) => match ranges.for_metric(metric) {
                 None => ReferenceRangeEntry::NotShown(NOT_PUBLISHED_FOR_THIS_LANGUAGE.to_owned()),
-                Some(range) if range.metric_version != metric_version => {
-                    ReferenceRangeEntry::NotShown(format_stale_reference_range_note(
-                        range.metric_version,
-                        metric_version,
-                    ))
-                }
+                Some(range) if range.is_stale_for(metric_version) => ReferenceRangeEntry::NotShown(
+                    format_stale_reference_range_note(range.metric_version, metric_version),
+                ),
                 Some(range) => ReferenceRangeEntry::from(range),
             },
             ReferenceRangeScope::SeveralLanguages => {

@@ -15,7 +15,9 @@ use crate::sql::SqlConfigFile;
 
 pub(super) const DEFAULT_MIN_SIMILARITY: f64 = 0.85;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema, clap::ValueEnum,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginKind {
     #[default]

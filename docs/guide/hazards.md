@@ -15,12 +15,12 @@ Every other Metric in codeint measures Software entropy, the maintainability cos
 - **AST-only matching**: every Hazard line rule reads parsed statements, never raw text.
   A keyword inside a comment or string literal never matches.
 - **Strict non-leakage**: a Hazard line Finding holds only its `id`, repository-relative `path`, 1-based `line`, and `rule` name (plus optional `owners`).
-  No report format, log line, or error message prints the matched source text, so a line matched by `plain-text-secret` never copies a secret into a report or CI log.
+  No report format, log line, or error message prints the matched source text, so a line matched by `plain-text-secret` or `hardcoded-secret` never copies a secret into a report or CI log.
 - **No Reference range**: Hazards has no published Reference range.
 
-Currently, the built-in `sql` Language plugin defines 32 Hazard line rules (27 statement rules and 5 schema-backed rules).
+Currently, the built-in `sql` Language plugin defines 32 Hazard line rules (27 statement rules and 5 schema-backed rules), and the built-in `shell` Language plugin defines 10.
 External WebAssembly Language plugins can also export Hazard line rules through `codeint:plugin@0.4.0`; see [docs/plugins.md](../plugins.md).
-See the complete 32-rule list and what each rule matches in [docs/reference.md#sql](../reference.md#sql).
+See the complete 32-rule SQL list in [docs/reference.md#sql](../reference.md#sql) and the 10-rule Shell list in [docs/reference.md#shell](../reference.md#shell).
 
 ## Configuration
 

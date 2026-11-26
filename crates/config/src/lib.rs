@@ -50,8 +50,9 @@ pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{
     AgentClient, AgentCommand, AgentFormat, BaselineCommand, BaselineFormat, Command, ConfigError,
     ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
-    Invocation, PluginHostConfig, RatchetCommand, RatchetFormat, ReportDestination, ReportFormat,
-    ReportInput, ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat, TrendRange,
+    Invocation, PluginCommand, PluginHostConfig, PluginTestFormat, RatchetCommand, RatchetFormat,
+    ReportDestination, ReportFormat, ReportInput, ReportRenderFormat, SchemaFormat, TraceFormat,
+    TrendFormat, TrendRange,
 };
 pub use config_error::{
     ConfigFileKind, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,

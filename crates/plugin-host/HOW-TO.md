@@ -18,7 +18,7 @@ let framework_profiles = built_in_language_framework_profiles();
 let ts_plugin = built_in_language_plugin("typescript-javascript");
 ```
 
-- `built_in_language_plugins` returns the static slice of all seven built-in `NamedLanguagePlugin` entries (`typescript-javascript`, `rust`, `php`, `dart`, `python`, `go`, `sql`).
+- `built_in_language_plugins` returns the static slice of all eight built-in `NamedLanguagePlugin` entries (`typescript-javascript`, `rust`, `php`, `dart`, `python`, `go`, `sql`, `shell`).
 - `built_in_language_plugin` looks up a single built-in Language plugin by name.
 - `built_in_language_names` returns the reserved built-in plugin names in registration order.
 - `built_in_language_descriptors` returns each built-in Language plugin's name and claimed extensions for schema and discovery reporting.
@@ -86,6 +86,33 @@ let plugin = load_language_plugin(repository.root(), &declaration, &PluginHostCo
 
 - `sha256` is a pure-Rust, `#![forbid(unsafe_code)]`, std-only FIPS 180-4 SHA-256 implementation.
 - On a hash mismatch, `load_language_plugin` returns `PluginHostError::HashMismatch` (local path) or `PluginHostError::DownloadHashMismatch` (HTTPS URL) naming the plugin, its path or URL, and both expected and actual digests, without caching or passing the bytes to `wasmtime`.
+
+## Run the Conformance runner on one Wasm Plugin
+
+```rust
+use codeint_config::{PluginKind, PluginLimits};
+use codeint_plugin_host::{ConformanceSource, run_conformance};
+
+let sources = [ConformanceSource {
+    file_name: "sample.mini".to_owned(),
+    text: "alpha\nbeta\n".to_owned(),
+}];
+let report = run_conformance(PluginKind::Language, path, PluginLimits::default(), &sources)?;
+if !report.passed() {
+    for check in report.checks.iter().filter(|check| check.hint.is_some()) {
+        eprintln!("{}: {} ({})", check.id, check.message, check.hint.as_deref().unwrap_or_default());
+    }
+}
+```
+
+- `run_conformance` reads the file, loads it through the same zero-capability sandbox as `codeint check`, and returns one `ConformanceCheck` per rule with `ConformanceStatus::{Pass, Fail, Skipped}`, a message, and a fix hint on every fail.
+- It returns `Err(PluginHostError::Read)` only when the file cannot be read; every contract violation is a failed check, never an `Err`.
+- A check that depends on a failed load or an earlier fail is `Skipped`, and so is every import check of a Language plugin whose `has-imports` is false.
+- The report lists every check exactly once, in a fixed order.
+- `WasmLanguagePlugin::manifest_paths_checked` and `WasmLanguagePlugin::workspace_packages_checked` expose a trap or a limit hit as `Err(PluginHostError)`; `LanguagePlugin::manifest_paths` still turns a trap into an empty list, as `codeint check` expects.
+- `sources` adds Language plugin probe sources to the built-in ones; each file name carries the extension that the Plugin claims.
+- `run_conformance` leaves `end-to-end` as `Skipped` and attaches an `EndToEndProbe` in `report.end_to_end` when earlier checks pass; callers such as `codeint-cli` run `codeint check` on that probe and fill in the `end-to-end` entry.
+- `codeint plugin test` is the command-line front end; see [docs/reference.md](../../docs/reference.md#codeint-plugin).
 
 ## Verify WIT contract lockstep
 

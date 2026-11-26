@@ -133,6 +133,14 @@ impl std::fmt::Display for CommitId {
 }
 
 impl Repository {
+    pub fn init(folder: &Path) -> Result<Repository, GitError> {
+        gix::init(folder).map_err(|source| GitError::Open {
+            start: folder.to_path_buf(),
+            source,
+        })?;
+        Repository::discover(folder)
+    }
+
     pub fn discover(start: &Path) -> Result<Repository, GitError> {
         let repository = gix::discover(start).map_err(|source| {
             if source.is_not_found() {
