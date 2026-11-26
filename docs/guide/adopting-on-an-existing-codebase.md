@@ -83,7 +83,7 @@ jobs:
           fetch-depth: 0
       - uses: avidianity/codeint@main
         with:
-          version: v0.6.0
+          version: v0.7.0
 ```
 
 `fetch-depth: 0` lets `codeint diff` find the Git merge-base.
