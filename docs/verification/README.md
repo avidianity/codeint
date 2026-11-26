@@ -63,7 +63,7 @@ Doctor exits `1` and refuses the run when the binary is stale, `HEAD` moved, or 
 
 ### Drive
 
-Run the real `codeint` binary against the isolated fixture repositories for all mapped features or one named feature (`check`, `diff`, `trend`, or `init`):
+Run the real `codeint` binary against the isolated fixture repositories for all mapped features or one named feature (`check`, `diff`, `trend`, `init`, `ratchet`, `baseline`, `plugin-test`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `agent`, `mcp`, or `update`):
 
 ```sh
 docs/verification/verify.sh drive "$RUN_DIR" all
@@ -76,7 +76,8 @@ docs/verification/verify.sh drive "$RUN_DIR" check
 ```
 
 Every `codeint` invocation runs with `CODEINT_CACHE_DIR="$CACHE_DIR"`.
-Scenarios that mutate `codeint.json` or working-tree files copy the fixture repo into a per-scenario work folder inside `RUN_DIR` so `FIXTURE_REPO` stays untouched.
+Scenarios that mutate `codeint.json`, `.codeint/` state, working-tree files, or agent config files run inside per-scenario folders under `RUN_DIR` so `FIXTURE_REPO` and host user configurations stay untouched.
+No scenario makes network requests.
 
 ### Assert
 
@@ -88,12 +89,12 @@ docs/verification/verify.sh assert "$RUN_DIR" all
 
 Assert checks both visible results and authoritative effects:
 
-- exit codes `0` (pass), `1` (over Budget or Regression), and `2` (operational error);
-- TOON, JSON, SARIF 2.1.0, and Markdown output shapes;
+- exit codes `0` (pass), `1` (over Budget, over Ratchet, Regression, blocking doctor error, or failed Conformance check), and `2` (operational error);
+- TOON, JSON, SARIF 2.1.0, Markdown, text, and MCP JSON-RPC 2.0 output shapes;
 - `--output` file creation with empty stdout;
-- `codeint.json` written by `init` is valid JSON and remains unchanged after a refused second `init`;
+- stored state files (`codeint.jsonc`, `.codeint/ratchet.json`, `.codeint/baseline.json`, and isolated agent config files under `RUN_DIR`) before and after updates and refusals;
 - `CODEINT_CACHE_DIR` holds at least one cache entry after `diff` or `trend`;
-- `FIXTURE_REPO` has empty `git status --porcelain` and unchanged `HEAD`.
+- `FIXTURE_REPO` has empty `git status --porcelain` and unchanged `HEAD`, and `BIN_PATH` SHA-256 is unchanged.
 
 Assert writes `verdict.json` to `EVIDENCE_DIR` and exits `0` on `PASS` or `1` on `FAIL`.
 
@@ -130,7 +131,7 @@ Run Launch, Doctor, Drive, Assert, and Cleanup in one command:
 docs/verification/verify.sh all
 ```
 
-Pass a feature name (`check`, `diff`, `trend`, or `init`) to verify one Feature map:
+Pass a feature name (`check`, `diff`, `trend`, `init`, `ratchet`, `baseline`, `plugin-test`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `agent`, `mcp`, or `update`) to verify one Feature map:
 
 ```sh
 docs/verification/verify.sh all check
