@@ -208,6 +208,18 @@ fn git(root: &Path, arguments: &[&str], date: &str) {
     );
 }
 
+fn copy_file(source: &Path, target: &Path) {
+    if source.extension().is_some_and(|ext| ext == "wasm") && fs::hard_link(source, target).is_ok()
+    {
+        return;
+    }
+    if let Err(error) = fs::copy(source, target)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        panic!("copy a fixture file: {error}");
+    }
+}
+
 fn copy_folder(from: &Path, to: &Path) {
     let entries = match fs::read_dir(from) {
         Ok(entries) => entries,
@@ -229,10 +241,8 @@ fn copy_folder(from: &Path, to: &Path) {
         if file_type.is_dir() {
             fs::create_dir_all(&target).expect("create a copied folder");
             copy_folder(&entry.path(), &target);
-        } else if let Err(error) = fs::copy(entry.path(), &target)
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            panic!("copy a fixture file: {error}");
+        } else {
+            copy_file(&entry.path(), &target);
         }
     }
 }

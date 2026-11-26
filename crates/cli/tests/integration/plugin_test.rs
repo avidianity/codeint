@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use codeint_plugin_host::{LANGUAGE_CHECKS, METRIC_CHECKS};
+use rayon::prelude::*;
 use serde_json::Value;
 
 fn fixture(file_name: &str) -> PathBuf {
@@ -105,13 +107,31 @@ fn broken_plugins_fail_with_a_fix_hint() {
     ];
     let (_sources, hazard_source) = write_source("probe.uhr", "UNLISTED_HAZARD\n");
     let source_args: [&std::ffi::OsStr; 2] = ["--source".as_ref(), hazard_source.as_os_str()];
+    let jobs: Vec<(&str, &str, &str, &str)> = cases
+        .iter()
+        .flat_map(|&(kind, wasm, check_id)| {
+            ["json", "text", "toon"]
+                .into_iter()
+                .map(move |format| (kind, wasm, check_id, format))
+        })
+        .collect();
+    let mut outputs: BTreeMap<(&str, &str, &str), Output> = jobs
+        .par_iter()
+        .map(|&(kind, wasm, check_id, format)| {
+            let extra: &[&std::ffi::OsStr] = if check_id == "lower" {
+                &source_args
+            } else {
+                &[]
+            };
+            (
+                (kind, wasm, format),
+                run_plugin_test_with(kind, wasm, format, extra),
+            )
+        })
+        .collect();
     for (kind, wasm, check_id) in cases {
-        let extra: &[&std::ffi::OsStr] = if check_id == "lower" {
-            &source_args
-        } else {
-            &[]
-        };
-        let (output, report) = json_report(kind, wasm, extra);
+        let output = outputs.remove(&(kind, wasm, "json")).unwrap();
+        let report: Value = serde_json::from_str(&stdout(&output)).unwrap();
         assert_eq!(output.status.code(), Some(1), "{wasm}: {output:?}");
         assert_eq!(report["passed"], false, "{wasm}");
         let failed = failed_checks(&report);
@@ -123,7 +143,7 @@ fn broken_plugins_fail_with_a_fix_hint() {
                 panic!("{wasm}: expected failed {check_id} with a hint, got {failed:?}")
             });
         for format in ["text", "toon"] {
-            let output = run_plugin_test_with(kind, wasm, format, extra);
+            let output = outputs.remove(&(kind, wasm, format)).unwrap();
             assert_eq!(output.status.code(), Some(1), "{wasm} {format}: {output:?}");
             let text = stdout(&output);
             if format == "text" {
@@ -534,12 +554,23 @@ fn every_report_lists_each_check_once_in_order() {
         "empty_finding_id_metric_plugin.wasm",
         "sample_long_functions_plugin.wasm",
     ];
+    let jobs: Vec<(&str, &str)> = [("language", &language[..]), ("metric", &metric[..])]
+        .into_iter()
+        .flat_map(|(kind, wasms)| wasms.iter().map(move |&wasm| (kind, wasm)))
+        .collect();
+    let mut reports: BTreeMap<(&str, &str), Value> = jobs
+        .par_iter()
+        .map(|&(kind, wasm)| {
+            let (_, report) = json_report(kind, wasm, &[]);
+            ((kind, wasm), report)
+        })
+        .collect();
     for (kind, wasms, expected) in [
         ("language", &language[..], &LANGUAGE_CHECKS[..]),
         ("metric", &metric[..], &METRIC_CHECKS[..]),
     ] {
         for wasm in wasms {
-            let (_, report) = json_report(kind, wasm, &[]);
+            let report = reports.remove(&(kind, *wasm)).unwrap();
             assert_eq!(check_ids(&report), expected, "{wasm}");
         }
     }

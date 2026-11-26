@@ -65,5 +65,9 @@ probe-runtime = { path = "probe-runtime" }
 wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc"] }
 
 [profile.dev]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = "symbols"
 debug = 0
 panic = "abort"

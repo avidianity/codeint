@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use super::*;
 
@@ -84,4 +85,37 @@ fn a_process_is_alive_when_the_listing_names_it() {
         "\"eval.exe\",\"14242\",\"Console\",\"1\",\"9,000 K\"\r\n",
         4242
     ));
+}
+
+#[test]
+fn local_file_fetch_fails_without_retry_backoff() {
+    let origin = tempfile::TempDir::new().expect("origin folder");
+    let init = Command::new("git")
+        .args(["init", "--quiet", "--initial-branch", "main"])
+        .current_dir(origin.path())
+        .status()
+        .expect("git init");
+    assert!(init.success());
+    let root = tempfile::TempDir::new().expect("scratch root");
+    let scratch = ScratchFolder::outside(&[], Some(root.path())).expect("scratch folder");
+    let url = format!("file://{}", origin.path().display());
+
+    let started = Instant::now();
+    let result = clone_at_commit(&scratch, &url, "0123456789abcdef0123456789abcdef01234567");
+    let elapsed = started.elapsed();
+
+    assert!(result.is_err(), "missing commit must fail");
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "local file:// fetch must fail without waiting for remote retry backoff, took {elapsed:?}"
+    );
+}
+
+#[test]
+fn remote_urls_retry_and_local_file_urls_try_once() {
+    assert_eq!(fetch_attempts_for("file:///tmp/repo"), 1);
+    assert_eq!(
+        fetch_attempts_for("https://github.com/example/repo.git"),
+        FETCH_ATTEMPTS
+    );
 }
