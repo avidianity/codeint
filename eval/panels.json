@@ -1,0 +1,2958 @@
+{
+  "measured_on": "2026-11-25",
+  "repositories": [
+    {
+      "name": "morluto/rea",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/morluto/rea",
+      "commit": "ca7fdb32454cba46e18ccf42e2e1f1018ad08144"
+    },
+    {
+      "name": "affaan-m/ECC",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/affaan-m/ECC",
+      "commit": "4adeee6732a12d1540f49a4d50a38ce8c97f9a53"
+    },
+    {
+      "name": "deepseek-ai/deepseek-harness",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/deepseek-ai/deepseek-harness",
+      "commit": "4b399c39a6d1479cd84ca591b4d7c88e24d38a96"
+    },
+    {
+      "name": "react/react",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/react/react",
+      "commit": "92bb0678c52133a47b3095f6e54da883ea0d6cff"
+    },
+    {
+      "name": "anomalyco/opencode",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/anomalyco/opencode",
+      "commit": "5050225a097af2a3ffd5c9b6e39d53ba3d69eeec"
+    },
+    {
+      "name": "vuejs/vue",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/vuejs/vue",
+      "commit": "9e88707940088cb1f4cd7dd210c9168a50dc347c"
+    },
+    {
+      "name": "n8n-io/n8n",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/n8n-io/n8n",
+      "commit": "87575809a0ca764ed251ae9d4b91abed04227a93"
+    },
+    {
+      "name": "firecrawl/firecrawl",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/firecrawl/firecrawl",
+      "commit": "0519b26a2b73c13048c0d29bce12c0306f7601ec"
+    },
+    {
+      "name": "DietrichGebert/ponytail",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/DietrichGebert/ponytail",
+      "commit": "ebd8654c2c627f721eb8f9c0d1bd4090a29f9e10"
+    },
+    {
+      "name": "microsoft/vscode",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/microsoft/vscode",
+      "commit": "3e9189b30eda397f582b51b2e124f4f8d88a377e"
+    },
+    {
+      "name": "clash-verge-rev/clash-verge-rev",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/clash-verge-rev/clash-verge-rev",
+      "commit": "52bb25531c694235f13fda0fd5963807f2a0b64b"
+    },
+    {
+      "name": "anthropics/claude-code",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/anthropics/claude-code",
+      "commit": "4cc5e8b63a5cc6fcddd1bf7fed04ebd712d0c91a"
+    },
+    {
+      "name": "iptv-org/iptv",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/iptv-org/iptv",
+      "commit": "46c85ffcd6e04ab5d2cc2450d2159cd01f2da1cc"
+    },
+    {
+      "name": "vercel/next.js",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/vercel/next.js",
+      "commit": "b8e68eb8f87dc64e8e5490d8fd4fb9f758424d41"
+    },
+    {
+      "name": "garrytan/gstack",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/garrytan/gstack",
+      "commit": "a5acd49d9e45a7a4d866920e91113d122ac66b57"
+    },
+    {
+      "name": "stablyai/orca",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/stablyai/orca",
+      "commit": "cb49083b6506f8b81862d0d2ca43de6a998d4420"
+    },
+    {
+      "name": "excalidraw/excalidraw",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/excalidraw/excalidraw",
+      "commit": "5681e7d8be319092b13979e947afe632d5a4a525"
+    },
+    {
+      "name": "shadcn-ui/ui",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/shadcn-ui/ui",
+      "commit": "055aa6b7837b1808456a24beb4c97a677864aa82"
+    },
+    {
+      "name": "nodejs/node",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/nodejs/node",
+      "commit": "ffc57f007f6037e2b8f423795499e656a98bce50"
+    },
+    {
+      "name": "earendil-works/pi",
+      "language": "typescript-javascript",
+      "bucket": "large",
+      "url": "https://github.com/earendil-works/pi",
+      "commit": "e2cb38ac149b440560e1f66da26613bf25f42937"
+    },
+    {
+      "name": "TauricResearch/TradingAgents",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/TauricResearch/TradingAgents",
+      "commit": "121265d18d467ac717f7af99cb0d669c15d2e73c"
+    },
+    {
+      "name": "Leonxlnx/taste-skill",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/Leonxlnx/taste-skill",
+      "commit": "d1a2bb41d927083ac7118f60cfc9cdf711810ea0"
+    },
+    {
+      "name": "addyosmani/agent-skills",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/addyosmani/agent-skills",
+      "commit": "e997ac5b9a74eab332d5e9793bb38a38c8cfdd74"
+    },
+    {
+      "name": "axios/axios",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/axios/axios",
+      "commit": "a35e6f4ee55dcdec8c7b6f15218d636754c06c66"
+    },
+    {
+      "name": "OpenCut-app/OpenCut",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/OpenCut-app/OpenCut",
+      "commit": "e668010778568641babef2cc40be4703ae6916d6"
+    },
+    {
+      "name": "tailwindlabs/tailwindcss",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/tailwindlabs/tailwindcss",
+      "commit": "7a4ef9c7ce90ab1e46e0e2e594001534c74290e1"
+    },
+    {
+      "name": "puppeteer/puppeteer",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/puppeteer/puppeteer",
+      "commit": "f4bf4ac07a3c1239d36f86368c9c34813e8f03d4"
+    },
+    {
+      "name": "louislam/uptime-kuma",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/louislam/uptime-kuma",
+      "commit": "8c079b8d4fb287816ddb02792c2a7fe12a5d5323"
+    },
+    {
+      "name": "Egonex-AI/Understand-Anything",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/Egonex-AI/Understand-Anything",
+      "commit": "b232f356446295e4eaa05b9b285e08ce5cd5e8a0"
+    },
+    {
+      "name": "modelcontextprotocol/servers",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/modelcontextprotocol/servers",
+      "commit": "c799c8552b0f27b7a33a7b9233773da144dddcf5"
+    },
+    {
+      "name": "ChatGPTNextWeb/NextChat",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/ChatGPTNextWeb/NextChat",
+      "commit": "1d3dc331512929a4b1d3e82354e72acce33b5c7a"
+    },
+    {
+      "name": "coder/code-server",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/coder/code-server",
+      "commit": "c094099c1516e578cb3b0976175e4e75a552e6d1"
+    },
+    {
+      "name": "anuraghazra/github-readme-stats",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/anuraghazra/github-readme-stats",
+      "commit": "54a7985aeefda00d5eadb55b80c17c7f976c37d2"
+    },
+    {
+      "name": "Fission-AI/OpenSpec",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/Fission-AI/OpenSpec",
+      "commit": "f1cd852f4edce22b8df9548a4df889172ca8ff25"
+    },
+    {
+      "name": "Eugeny/tabby",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/Eugeny/tabby",
+      "commit": "dc72f059410a5dd51bfd9ca40242abc9d04579ec"
+    },
+    {
+      "name": "expressjs/express",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/expressjs/express",
+      "commit": "43fca52d28a422c8be48fd489cbd4f2d6152bab6"
+    },
+    {
+      "name": "chartjs/Chart.js",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/chartjs/Chart.js",
+      "commit": "a020fd2018b5a1979724093f0b7bc4a8072a714d"
+    },
+    {
+      "name": "upstash/context7",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/upstash/context7",
+      "commit": "6335fd8458bb942205c24c8b89e8bc97b0950804"
+    },
+    {
+      "name": "jgraph/drawio-desktop",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/jgraph/drawio-desktop",
+      "commit": "5e8406789216bed8f043bc503f4927b4034d7a71"
+    },
+    {
+      "name": "socketio/socket.io",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/socketio/socket.io",
+      "commit": "c04ce00d380af51cec92d136cd6fb6631d8d8c41"
+    },
+    {
+      "name": "coreyhaines31/marketingskills",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/coreyhaines31/marketingskills",
+      "commit": "8fd2fcade2fd6629026e9dfe6d133b55b36968b9"
+    },
+    {
+      "name": "reduxjs/redux",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/reduxjs/redux",
+      "commit": "ce8d8362218b43219437badba5ec23e3cfaa918e"
+    },
+    {
+      "name": "jquery/jquery",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/jquery/jquery",
+      "commit": "effd615f0009e927dfd1f41d04fb6073478076d4"
+    },
+    {
+      "name": "pmndrs/zustand",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/pmndrs/zustand",
+      "commit": "5d66d53be80363b94491868b41325ea058fd16bb"
+    },
+    {
+      "name": "scutan90/DeepLearning-500-questions",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/scutan90/DeepLearning-500-questions",
+      "commit": "6087a06b112c3c28b885ab2f794535c19a9e4326"
+    },
+    {
+      "name": "lyswhut/lx-music-desktop",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/lyswhut/lx-music-desktop",
+      "commit": "323e4bac505da428adae8db6b58039fb2b36b86d"
+    },
+    {
+      "name": "upscayl/upscayl",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/upscayl/upscayl",
+      "commit": "a00d55fee90e0f9435d5eaa86e76700df8199af8"
+    },
+    {
+      "name": "prettier/prettier",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/prettier/prettier",
+      "commit": "4772dcfad89966f1639f0832713a03e056edfbb3"
+    },
+    {
+      "name": "KeygraphHQ/shannon",
+      "language": "typescript-javascript",
+      "bucket": "medium",
+      "url": "https://github.com/KeygraphHQ/shannon",
+      "commit": "bade5321884fd65a76a69375a2c870230ed7e25c"
+    },
+    {
+      "name": "algorithm-visualizer/algorithm-visualizer",
+      "language": "typescript-javascript",
+      "bucket": "small",
+      "url": "https://github.com/algorithm-visualizer/algorithm-visualizer",
+      "commit": "18de2edf6b629e843ee4bcedfa2208d22b253f0f"
+    },
+    {
+      "name": "ultraworkers/claw-code",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/ultraworkers/claw-code",
+      "commit": "ca8752613b3b54b7d8b82e552298cea0f078133c"
+    },
+    {
+      "name": "farion1231/cc-switch",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/farion1231/cc-switch",
+      "commit": "99f4bae58531e72667cfd1ea9dd466933050cfac"
+    },
+    {
+      "name": "openai/codex",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/openai/codex",
+      "commit": "9f3cb259535c72de6960cc837ac705a780c62995"
+    },
+    {
+      "name": "rustdesk/rustdesk",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/rustdesk/rustdesk",
+      "commit": "a0c0963c483fc8f1aeed4547787d1673adcb583c"
+    },
+    {
+      "name": "pbakaus/impeccable",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/pbakaus/impeccable",
+      "commit": "9e460a87ef338ee9d12c7beed8fedc597a5af5f7"
+    },
+    {
+      "name": "tauri-apps/tauri",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/tauri-apps/tauri",
+      "commit": "3376e61fa85ca9b37e78cbf5c9610ac3be1920b3"
+    },
+    {
+      "name": "denoland/deno",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/denoland/deno",
+      "commit": "d8c551b5a5b46d8ec3892a91d0364cfcbca2c681"
+    },
+    {
+      "name": "ruvnet/RuView",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/ruvnet/RuView",
+      "commit": "8139c7e6258a19da9c9861fa035705dd3f031b56"
+    },
+    {
+      "name": "zed-industries/zed",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/zed-industries/zed",
+      "commit": "e84c6c61adb54bc6140a85b307d18cf970c24ab5"
+    },
+    {
+      "name": "astral-sh/uv",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/astral-sh/uv",
+      "commit": "e3e7c1eacb980339352a5ad69affcd3b6c206c92"
+    },
+    {
+      "name": "rtk-ai/rtk",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/rtk-ai/rtk",
+      "commit": "97e68d5358aa5d91d1540ea64df58c9688bcf83d"
+    },
+    {
+      "name": "storytold/photocraft",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/storytold/photocraft",
+      "commit": "e22facf45b0e7f0fbeb3b439ed44a950da9783b4"
+    },
+    {
+      "name": "unionlabs/union",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/unionlabs/union",
+      "commit": "031785bb6dc6b957c624e62bc64c184409c97d7b"
+    },
+    {
+      "name": "dani-garcia/vaultwarden",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/dani-garcia/vaultwarden",
+      "commit": "dbd7829ed140ae3458abc97dedec9a4421ddff42"
+    },
+    {
+      "name": "BurntSushi/ripgrep",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/BurntSushi/ripgrep",
+      "commit": "3e85c6c148fdce38a99ceeb9d2780dc7b03b4a4f"
+    },
+    {
+      "name": "LadybirdBrowser/ladybird",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/LadybirdBrowser/ladybird",
+      "commit": "b1e03741225da399b18db2a0b017977fab03fafb"
+    },
+    {
+      "name": "openinterpreter/openinterpreter",
+      "language": "rust",
+      "bucket": "large",
+      "url": "https://github.com/openinterpreter/openinterpreter",
+      "commit": "f1701ae772bf1ee8ced04c83d5a806bd694f9fd1"
+    },
+    {
+      "name": "alacritty/alacritty",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/alacritty/alacritty",
+      "commit": "791efff6d74c66bee390c259e322626ca93aadb6"
+    },
+    {
+      "name": "rust-lang/rustlings",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/rust-lang/rustlings",
+      "commit": "f7b9b3c5882a1a43275130b95142d94f847526f5"
+    },
+    {
+      "name": "tw93/Pake",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/tw93/Pake",
+      "commit": "17b7b7418d069a895e91f9532c2ec384a17bcfcb"
+    },
+    {
+      "name": "starship/starship",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/starship/starship",
+      "commit": "1b5c2f257ef276c3020899623a1942b3ecd457f7"
+    },
+    {
+      "name": "sharkdp/fd",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/sharkdp/fd",
+      "commit": "2e8648f10fe55af6258ab90ab889eb8b96033379"
+    },
+    {
+      "name": "GyulyVGC/sniffnet",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/GyulyVGC/sniffnet",
+      "commit": "247b75b4f82e17b0f4b969c8e35d303d9506919a"
+    },
+    {
+      "name": "FuelLabs/fuels-rs",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/FuelLabs/fuels-rs",
+      "commit": "f5191b6aab3d553ce2348234015e3523b46beb1e"
+    },
+    {
+      "name": "cjpais/Handy",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/cjpais/Handy",
+      "commit": "bdb68c85730af9cd23dcecc49865f755e3cdaa20"
+    },
+    {
+      "name": "AlexsJones/llmfit",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/AlexsJones/llmfit",
+      "commit": "6bc8f67890c1b0223de3f8f404ce06c088aac27f"
+    },
+    {
+      "name": "casey/just",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/casey/just",
+      "commit": "62784c2a6e169b8ca5f32bd69d5cfeb1d6b5e1fe"
+    },
+    {
+      "name": "TabbyML/tabby",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/TabbyML/tabby",
+      "commit": "21b29048d7bcf6b94f9f482f2d0fd05efadfd19f"
+    },
+    {
+      "name": "Zackriya-Solutions/meetily",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/Zackriya-Solutions/meetily",
+      "commit": "2166bc6fe3ba585580f3f94b79cda7e7b91deb76"
+    },
+    {
+      "name": "ankitects/anki",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/ankitects/anki",
+      "commit": "149b1901421281110aa4bf6510a971e9c5f2046d"
+    },
+    {
+      "name": "yewstack/yew",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/yewstack/yew",
+      "commit": "5ee55894001d8671f10f5019bada02fe54400861"
+    },
+    {
+      "name": "dandavison/delta",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/dandavison/delta",
+      "commit": "ad9986cf9ddd504d17df3df54e073284f9fdb100"
+    },
+    {
+      "name": "googleworkspace/cli",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/googleworkspace/cli",
+      "commit": "8e945eed02a8230af122ec6247cc218d28c1f1ce"
+    },
+    {
+      "name": "sharkdp/hyperfine",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/sharkdp/hyperfine",
+      "commit": "c5161524980522320c7d3425e714cc0965a869a5"
+    },
+    {
+      "name": "cloudflare/pingora",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/cloudflare/pingora",
+      "commit": "4aa2e5ab612c3a488bbc5a5f6f9ff83aa08b94d0"
+    },
+    {
+      "name": "tokio-rs/axum",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/tokio-rs/axum",
+      "commit": "8d8944e6db1a74e671e298aa9bbbd98f8c5e7022"
+    },
+    {
+      "name": "tree-sitter/tree-sitter",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/tree-sitter/tree-sitter",
+      "commit": "127254c1d6f8dd3b8a8e7726423904bf0b48beda"
+    },
+    {
+      "name": "Schniz/fnm",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/Schniz/fnm",
+      "commit": "07f13237ae208f531f8ea88d4cfde3160c22f99a"
+    },
+    {
+      "name": "Wilfred/difftastic",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/Wilfred/difftastic",
+      "commit": "4b834ef576fa17920468372165f9938e2dc46596"
+    },
+    {
+      "name": "TheAlgorithms/Rust",
+      "language": "rust",
+      "bucket": "medium",
+      "url": "https://github.com/TheAlgorithms/Rust",
+      "commit": "fed66cb0c74c4a939ec5163648458a8c2b46fd4c"
+    },
+    {
+      "name": "ogham/exa",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/ogham/exa",
+      "commit": "3d1edbb47052cb416ef9478106c3907586da5150"
+    },
+    {
+      "name": "fathyb/carbonyl",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/fathyb/carbonyl",
+      "commit": "ab80a276b1bd1c2c8dcefc8f248415dfc61dc2bf"
+    },
+    {
+      "name": "QuipNetwork/hashsigs-rs",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/QuipNetwork/hashsigs-rs",
+      "commit": "2aee878ffbe50e43779f0f5b1e2a0af7388a8eee"
+    },
+    {
+      "name": "seanmonstar/warp",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/seanmonstar/warp",
+      "commit": "1fdc5eebfc6faae4f29b4f686dd8b34356064456"
+    },
+    {
+      "name": "actix/actix",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/actix/actix",
+      "commit": "4fed9792ae780550f2b885164de35c29ff2bcce2"
+    },
+    {
+      "name": "tokio-rs/mio",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/tokio-rs/mio",
+      "commit": "101e5b7c92b1b5f8abc0ba3eb81b264943e13e37"
+    },
+    {
+      "name": "dtolnay/anyhow",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/dtolnay/anyhow",
+      "commit": "c89c9b82b155f701a20eb4a9d3609ad09df5a62f"
+    },
+    {
+      "name": "emmett-framework/granian",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/emmett-framework/granian",
+      "commit": "0aa7202723ba9bd0cf91c38b355019ee6fb121bf"
+    },
+    {
+      "name": "dtolnay/thiserror",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/dtolnay/thiserror",
+      "commit": "aa7e8161d55acd7792f4e3d1d9b1b3052134dfaf"
+    },
+    {
+      "name": "autumnai/leaf",
+      "language": "rust",
+      "bucket": "small",
+      "url": "https://github.com/autumnai/leaf",
+      "commit": "858527fa6e2a60cb669d6af1cf4f1eb2bb839860"
+    },
+    {
+      "name": "coollabsio/coolify",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/coollabsio/coolify",
+      "commit": "b164dfb9d668d988debbae4edad4a70d2b1a27c7"
+    },
+    {
+      "name": "nextcloud/server",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/nextcloud/server",
+      "commit": "c6ce5a965ee6311934052d4d706432dcd4cea3a7"
+    },
+    {
+      "name": "laravel/framework",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/laravel/framework",
+      "commit": "64de808fe0f46db3279c6b3f348d61ac1459b8c3"
+    },
+    {
+      "name": "filamentphp/filament",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/filamentphp/filament",
+      "commit": "a14f2fb477ae07ececca88dd58957938b1515ed5"
+    },
+    {
+      "name": "symfony/symfony",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/symfony/symfony",
+      "commit": "4be5be214758428b38887297dd73b79d8a511588"
+    },
+    {
+      "name": "composer/composer",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/composer/composer",
+      "commit": "c4899ab08f9e05c3a2d99843221704fcc71739b2"
+    },
+    {
+      "name": "bagisto/bagisto",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/bagisto/bagisto",
+      "commit": "708eee8aa2069550079d41c916448ef1f40ac9aa"
+    },
+    {
+      "name": "monicahq/monica",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/monicahq/monica",
+      "commit": "2b34248b6192cf0f04e7e438d5ceb1e93574cf6f"
+    },
+    {
+      "name": "firefly-iii/firefly-iii",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/firefly-iii/firefly-iii",
+      "commit": "3bba58800a08304508c8cd607cb0e9b48ce44651"
+    },
+    {
+      "name": "krayin/laravel-crm",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/krayin/laravel-crm",
+      "commit": "64ef70505c5d4320231420bb21adf99dd1698e4e"
+    },
+    {
+      "name": "livewire/livewire",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/livewire/livewire",
+      "commit": "0b8f03c9b7f51c7267613eb0be6bad245c27ce2c"
+    },
+    {
+      "name": "guzzle/guzzle",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/guzzle/guzzle",
+      "commit": "ba6574fd975ab16f87dc356729a36777c03851e8"
+    },
+    {
+      "name": "PHPMailer/PHPMailer",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/PHPMailer/PHPMailer",
+      "commit": "a3689ab9ab48ea3089e8392fdf24cbfccbd5067d"
+    },
+    {
+      "name": "DesignPatternsPHP/DesignPatternsPHP",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/DesignPatternsPHP/DesignPatternsPHP",
+      "commit": "54254e0f2a59e27280f81304bce9218e12f97a03"
+    },
+    {
+      "name": "matomo-org/matomo",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/matomo-org/matomo",
+      "commit": "d9d53e00f85880e4ab5564abca752799a48530f6"
+    },
+    {
+      "name": "Seldaek/monolog",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/Seldaek/monolog",
+      "commit": "6d4cf3a1199b8fa9e38fdb540569579354242fc7"
+    },
+    {
+      "name": "sebastianbergmann/phpunit",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/sebastianbergmann/phpunit",
+      "commit": "a816bd15cfdaae6df35524a89738ea25eb919fb0"
+    },
+    {
+      "name": "fruitcake/laravel-debugbar",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/fruitcake/laravel-debugbar",
+      "commit": "033b34a6448990decb74c8689f4c9be750ea0957"
+    },
+    {
+      "name": "BookStackApp/BookStack",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/BookStackApp/BookStack",
+      "commit": "2513cd852af0a1712b3810f19f2e80a95e8bb2a7"
+    },
+    {
+      "name": "bcit-ci/CodeIgniter",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/bcit-ci/CodeIgniter",
+      "commit": "3658d731eaabe6117298a105ffb5b9dd59e190ce"
+    },
+    {
+      "name": "nikic/PHP-Parser",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/nikic/PHP-Parser",
+      "commit": "24c72b4d84130ea4ae01b926631faf53f6aea7e0"
+    },
+    {
+      "name": "koel/koel",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/koel/koel",
+      "commit": "f0d5bc79d3083c6cdb335ae8a30ee565cca02a5d"
+    },
+    {
+      "name": "briannesbitt/Carbon",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/briannesbitt/Carbon",
+      "commit": "4c5056ed90f65291e5bb2c0b5842cb3cdb093422"
+    },
+    {
+      "name": "getgrav/grav",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/getgrav/grav",
+      "commit": "190ad5899be4ff4d999bb4b146c25eb12e9428f8"
+    },
+    {
+      "name": "grokability/snipe-it",
+      "language": "php",
+      "bucket": "large",
+      "url": "https://github.com/grokability/snipe-it",
+      "commit": "5a7b60cfaad9b9824fd900c0a7d0425ace30d008"
+    },
+    {
+      "name": "barryvdh/laravel-ide-helper",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/barryvdh/laravel-ide-helper",
+      "commit": "66f7ec11122bcb009aba7c2fea31faf5cee46634"
+    },
+    {
+      "name": "Intervention/image",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/Intervention/image",
+      "commit": "4cb9b7008d671d7418eefbcf9218335dba565ba0"
+    },
+    {
+      "name": "phpstan/phpstan",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/phpstan/phpstan",
+      "commit": "6eb49ccb9a53f2a905ef8b5d0ad7f810cdb24761"
+    },
+    {
+      "name": "digininja/DVWA",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/digininja/DVWA",
+      "commit": "502ac150ce37c20ca6e04cab7c5ca959f315f2d0"
+    },
+    {
+      "name": "thephpleague/flysystem",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/thephpleague/flysystem",
+      "commit": "12930254888f54a48ea9d8ac04c2f73a0e3b09f1"
+    },
+    {
+      "name": "filp/whoops",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/filp/whoops",
+      "commit": "d5480d53f10069dc4620a39f87e38e8945d47322"
+    },
+    {
+      "name": "wallabag/wallabag",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/wallabag/wallabag",
+      "commit": "066328363ff337b1d174561587244069814d9067"
+    },
+    {
+      "name": "spatie/laravel-permission",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/spatie/laravel-permission",
+      "commit": "0bd8ab977e53ba68e6cf7bd967b2f86ddd53cff1"
+    },
+    {
+      "name": "SpartnerNL/Laravel-Excel",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/SpartnerNL/Laravel-Excel",
+      "commit": "ba07e2d82e380d333acaa44cc4c3504d3486795d"
+    },
+    {
+      "name": "ramsey/uuid",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/ramsey/uuid",
+      "commit": "7a16331da5bbcade32198a18b25f937f2cf3c4b1"
+    },
+    {
+      "name": "typecho/typecho",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/typecho/typecho",
+      "commit": "1e53c04e1ef90e61150e78917314adaeb9028bf5"
+    },
+    {
+      "name": "slimphp/Slim",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/slimphp/Slim",
+      "commit": "e257f61f94a480ad54db0c3633f9badc03fb2949"
+    },
+    {
+      "name": "pestphp/pest",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/pestphp/pest",
+      "commit": "0fe7c2440cd408f462db3437f1a06e195f4eb94e"
+    },
+    {
+      "name": "egulias/EmailValidator",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/egulias/EmailValidator",
+      "commit": "9bef884e12278a7b89b64adbfb9379c021d3c102"
+    },
+    {
+      "name": "walkor/workerman",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/walkor/workerman",
+      "commit": "26b96338cf3fed60b30e86a56ea971da53925d30"
+    },
+    {
+      "name": "tymondesigns/jwt-auth",
+      "language": "php",
+      "bucket": "small",
+      "url": "https://github.com/tymondesigns/jwt-auth",
+      "commit": "99e8f24cf96bfb6d847597c6a80713879a0a19c1"
+    },
+    {
+      "name": "dompdf/dompdf",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/dompdf/dompdf",
+      "commit": "c41f2f4871f130386118575564f95cd12a7c6aae"
+    },
+    {
+      "name": "z-song/laravel-admin",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/z-song/laravel-admin",
+      "commit": "67c441eb78ecc5437e59775d89770cd9c2cb1e05"
+    },
+    {
+      "name": "deployphp/deployer",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/deployphp/deployer",
+      "commit": "c08d1367d8f1688e5ee66ba5c3821a12743125f4"
+    },
+    {
+      "name": "nextcloud/all-in-one",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/nextcloud/all-in-one",
+      "commit": "92d021d521f322c1f5be7bf145a9f0f21f77ef00"
+    },
+    {
+      "name": "squizlabs/PHP_CodeSniffer",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/squizlabs/PHP_CodeSniffer",
+      "commit": "c6c65ca0dc8608ba87631523b97b2f8d5351a854"
+    },
+    {
+      "name": "Anankke/SSPanel-UIM",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/Anankke/SSPanel-UIM",
+      "commit": "e90b9a5fed1aecd3a7d5fe1269fa624e17a670f9"
+    },
+    {
+      "name": "doctrine/orm",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/doctrine/orm",
+      "commit": "73bb4882e13d33a252900b55cf07e2c04b6bd454"
+    },
+    {
+      "name": "bobthecow/psysh",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/bobthecow/psysh",
+      "commit": "64b18aa0d5f8bc14087b030f0f92cd76892f8dc3"
+    },
+    {
+      "name": "symfony/console",
+      "language": "php",
+      "bucket": "medium",
+      "url": "https://github.com/symfony/console",
+      "commit": "ea1860277087a43c75a02591d71a5a217682f494"
+    },
+    {
+      "name": "flutter/flutter",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/flutter/flutter",
+      "commit": "06f1c24345a29b26fc388ca8072f2b03a36a4d82"
+    },
+    {
+      "name": "AppFlowy-IO/AppFlowy",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/AppFlowy-IO/AppFlowy",
+      "commit": "8fcee27d9bd93aad4ee0191d5d8d915d6a9a4e93"
+    },
+    {
+      "name": "chen08209/FlClash",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/chen08209/FlClash",
+      "commit": "afe7136002271fd64f098b154e7fff40be721eb8"
+    },
+    {
+      "name": "Predidit/Kazumi",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/Predidit/Kazumi",
+      "commit": "3ae13bfba2cc9bcd727807e8115f93e29e75004b"
+    },
+    {
+      "name": "hiddify/hiddify-app",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/hiddify/hiddify-app",
+      "commit": "66c17f83a55233ef4a1c80a4606df811227cc210"
+    },
+    {
+      "name": "ccch1mneyyy/dsh-Go",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/ccch1mneyyy/dsh-Go",
+      "commit": "f2d589c4a7f415f0d0a9f3c3a1a57a94ac0e11f4"
+    },
+    {
+      "name": "ente/ente",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/ente/ente",
+      "commit": "6a7fa5ffa793de707cbbb8a30fbb27bff229cb39"
+    },
+    {
+      "name": "GopeedLab/gopeed",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/GopeedLab/gopeed",
+      "commit": "bd0ac209bddbe99e1628c30961ef832cbbffa715"
+    },
+    {
+      "name": "alibaba/flutter-go",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/alibaba/flutter-go",
+      "commit": "a41b2124278e9f17d222ec1cea2ace3042be03f7"
+    },
+    {
+      "name": "mitesh77/Best-Flutter-UI-Templates",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/mitesh77/Best-Flutter-UI-Templates",
+      "commit": "c85450cb4367742e879ebfae6cda2b7b4da1c3cd"
+    },
+    {
+      "name": "ImranR98/Obtainium",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/ImranR98/Obtainium",
+      "commit": "c570dccb097e7d5593234c369a359b730a128d5a"
+    },
+    {
+      "name": "getlantern/lantern",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/getlantern/lantern",
+      "commit": "5fafbcaa9e8d07539becd1cc2ee2d70543236608"
+    },
+    {
+      "name": "KaringX/karing",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/KaringX/karing",
+      "commit": "73b7cfa592226fb0588692f93e47942cf36a0627"
+    },
+    {
+      "name": "xiaoyaocz/dart_simple_live",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/xiaoyaocz/dart_simple_live",
+      "commit": "ba828e6783b176ea5709fcd09f0eb01dfaceeb51"
+    },
+    {
+      "name": "bagisto/opensource-ecommerce-mobile-app",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/bagisto/opensource-ecommerce-mobile-app",
+      "commit": "500bd7e28792cc72c14ee179ef67b9ccac0f7843"
+    },
+    {
+      "name": "CarGuo/gsy_github_app_flutter",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/CarGuo/gsy_github_app_flutter",
+      "commit": "f5e6565a60be06af28ea06c0202cbc85c26e81f6"
+    },
+    {
+      "name": "wanghongenpin/proxypin",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/wanghongenpin/proxypin",
+      "commit": "ff0e63b272ac078c2822e3e78b4b06c5a014d5be"
+    },
+    {
+      "name": "Notsfsssf/pixez-flutter",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/Notsfsssf/pixez-flutter",
+      "commit": "7db05ce25f09812a94c3d70f0981093c059e717a"
+    },
+    {
+      "name": "cfug/dio",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/cfug/dio",
+      "commit": "f1bef462289b40992d625d4eb2a2f42321217573"
+    },
+    {
+      "name": "felangel/bloc",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/felangel/bloc",
+      "commit": "654f15a566fe26a5c5d499c2b75a955d81eb8bca"
+    },
+    {
+      "name": "jonataslaw/getx",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/jonataslaw/getx",
+      "commit": "a294d2fbfc65856ca1da1bd37e5018e778e8939a"
+    },
+    {
+      "name": "flame-engine/flame",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/flame-engine/flame",
+      "commit": "d185bf9aa161d317a446d6afe7ac3f44bcb5a4a8"
+    },
+    {
+      "name": "KaringX/clashmi",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/KaringX/clashmi",
+      "commit": "62c15a2fb34fb3b4619a7d01d2a34c22935266f1"
+    },
+    {
+      "name": "firebase/flutterfire",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/firebase/flutterfire",
+      "commit": "1e500b3a39ae92a89cba33f658ceb6fffdeb1fca"
+    },
+    {
+      "name": "lollipopkit/flutter_server_box",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/lollipopkit/flutter_server_box",
+      "commit": "cca102a0a82e99fdec31e7faee7ea298118de2a2"
+    },
+    {
+      "name": "brianegan/flutter_architecture_samples",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/brianegan/flutter_architecture_samples",
+      "commit": "d898d1329e04e5b5fbdef1285b39ef975a6b8efa"
+    },
+    {
+      "name": "toly1994328/FlutterUnit",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/toly1994328/FlutterUnit",
+      "commit": "ec1effa777f0ca1c2d9a5d94096755db206f2410"
+    },
+    {
+      "name": "simplezhli/flutter_deer",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/simplezhli/flutter_deer",
+      "commit": "7b86fd00560c5001378396433d3a95dee3119116"
+    },
+    {
+      "name": "Sle2p/AniCh",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/Sle2p/AniCh",
+      "commit": "c5729a28af239aec78c7059ad122ff00f3f7c47a"
+    },
+    {
+      "name": "ComicSparks/pikapika",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/ComicSparks/pikapika",
+      "commit": "a9d98a37249b5e7d00eef7874e618467cd9e6d89"
+    },
+    {
+      "name": "mornyeapp/Mornye",
+      "language": "dart",
+      "bucket": "large",
+      "url": "https://github.com/mornyeapp/Mornye",
+      "commit": "af9a4d6422759541ec57a9ed696b3b47928a1bff"
+    },
+    {
+      "name": "alibaba/fish-redux",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/alibaba/fish-redux",
+      "commit": "40b853bfa0843e5bbe23e9217bae7598bb08bcf7"
+    },
+    {
+      "name": "OpenFlutter/Flutter-Notebook",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/OpenFlutter/Flutter-Notebook",
+      "commit": "1eab75edb34e739f87cd7aa9f6f212549c6c8026"
+    },
+    {
+      "name": "nisrulz/flutter-examples",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/nisrulz/flutter-examples",
+      "commit": "9d67d31c72ce29fdef589a093ead99de9f38baf5"
+    },
+    {
+      "name": "mylxsw/aidea",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/mylxsw/aidea",
+      "commit": "cea454f7b48abd7c484f9afbf559ebfd31cea0fa"
+    },
+    {
+      "name": "vandadnp/flutter-tips-and-tricks",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/vandadnp/flutter-tips-and-tricks",
+      "commit": "cdc7891b229f4cce752ea3717d1eedb404fb18a4"
+    },
+    {
+      "name": "2d-inc/HistoryOfEverything",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/2d-inc/HistoryOfEverything",
+      "commit": "1864cfb7f2e6e045733d034fdc067e6e4f0c7d1c"
+    },
+    {
+      "name": "iampawan/Flutter-UI-Kit",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/iampawan/Flutter-UI-Kit",
+      "commit": "04dc321f7a6e909904cfeb7f9782ac9afbae0078"
+    },
+    {
+      "name": "samarthagarwal/FlutterScreens",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/samarthagarwal/FlutterScreens",
+      "commit": "8afc1abba2be860050e4a65d53610c977a4a9b59"
+    },
+    {
+      "name": "flutterchina/flukit",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/flutterchina/flukit",
+      "commit": "862e033c33f10bc5269a5319b3c8f7d486c78a14"
+    },
+    {
+      "name": "miru-project/miru-app",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/miru-project/miru-app",
+      "commit": "8599d0dbfbb1c1d86dcfa3d8d78e4c438d3fe2c0"
+    },
+    {
+      "name": "Sky24n/flutter_wanandroid",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/Sky24n/flutter_wanandroid",
+      "commit": "51061b34a4923bfeaad02f9d1fa53f296391d9e7"
+    },
+    {
+      "name": "ComicSparks/jasmine",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/ComicSparks/jasmine",
+      "commit": "8060551d344102abf7cfe1d8796d206a1b83db0a"
+    },
+    {
+      "name": "btwld/fvm",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/btwld/fvm",
+      "commit": "6d8104b334aab8ce4a1b7511335bb51d632606d4"
+    },
+    {
+      "name": "ionicfirebaseapp/getwidget",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/ionicfirebaseapp/getwidget",
+      "commit": "2bcf1e05d2580653c9606af0d8922a0348f4f3ab"
+    },
+    {
+      "name": "xuelongqy/flutter_easy_refresh",
+      "language": "dart",
+      "bucket": "medium",
+      "url": "https://github.com/xuelongqy/flutter_easy_refresh",
+      "commit": "dcdbb8143e1277fc02eeef6a3ccb61a8fc0e2862"
+    },
+    {
+      "name": "best-flutter/flutter_swiper",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/best-flutter/flutter_swiper",
+      "commit": "71eb23671d46f624790019963c7ce10456dec652"
+    },
+    {
+      "name": "ReactiveX/rxdart",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/ReactiveX/rxdart",
+      "commit": "d1f3ba64f71669a137489341009345f59ec84614"
+    },
+    {
+      "name": "rrousselGit/flutter_hooks",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/rrousselGit/flutter_hooks",
+      "commit": "1c47821832bdc45a04b61248d99725e9f45690b7"
+    },
+    {
+      "name": "OpenFlutter/fluwx",
+      "language": "dart",
+      "bucket": "small",
+      "url": "https://github.com/OpenFlutter/fluwx",
+      "commit": "8334f3f2e8f45979bc4dc9910309d8839b761340"
+    },
+    {
+      "name": "NousResearch/hermes-agent",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/NousResearch/hermes-agent",
+      "commit": "f681186ea35e212c575a13d056ef241bfabe6190"
+    },
+    {
+      "name": "yt-dlp/yt-dlp",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/yt-dlp/yt-dlp",
+      "commit": "da452a569fb3d04091468d920f9b9e68512e0373"
+    },
+    {
+      "name": "anthropics/skills",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/anthropics/skills",
+      "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba"
+    },
+    {
+      "name": "microsoft/markitdown",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/microsoft/markitdown",
+      "commit": "ed178952a6672abdfd35b5f9e76a80b6cefc086e"
+    },
+    {
+      "name": "Significant-Gravitas/AutoGPT",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/Significant-Gravitas/AutoGPT",
+      "commit": "dd0b5f73266ea5f3dfab37ebccd93049af58e106"
+    },
+    {
+      "name": "huggingface/transformers",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/huggingface/transformers",
+      "commit": "9d5d0ee866d70b30fe187aab1bcf2aed398e9ecc"
+    },
+    {
+      "name": "AUTOMATIC1111/stable-diffusion-webui",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/AUTOMATIC1111/stable-diffusion-webui",
+      "commit": "82a973c04367123ae98bd9abdf80d9eda9b910e2"
+    },
+    {
+      "name": "langgenius/dify",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/langgenius/dify",
+      "commit": "9d920ce8bb1f03cf30b2f03d30fe011f021a22a6"
+    },
+    {
+      "name": "langflow-ai/langflow",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/langflow-ai/langflow",
+      "commit": "6c9aea6f5d5f47a76a25e8e3e1b4779a4f83d522"
+    },
+    {
+      "name": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "commit": "8db36338810d0942567b97ce439affd1619fcf31"
+    },
+    {
+      "name": "Graphify-Labs/graphify",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/Graphify-Labs/graphify",
+      "commit": "14f35e381cab8d0ae10824a336114a907c288146"
+    },
+    {
+      "name": "github/spec-kit",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/github/spec-kit",
+      "commit": "f61648db96b5ac5eb65a54577865dafc2c830a7c"
+    },
+    {
+      "name": "langchain-ai/langchain",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/langchain-ai/langchain",
+      "commit": "87ad2d71e1351fc1508483610bb6c965b3bbdffe"
+    },
+    {
+      "name": "Comfy-Org/ComfyUI",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/Comfy-Org/ComfyUI",
+      "commit": "b27006af3d753e4a94cd703d9a2432b68a7e6865"
+    },
+    {
+      "name": "Shubhamsaboo/awesome-llm-apps",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/Shubhamsaboo/awesome-llm-apps",
+      "commit": "14c5f8ff0094659f321801385d2b52ccc65fea3b"
+    },
+    {
+      "name": "harry0703/MoneyPrinterTurbo",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/harry0703/MoneyPrinterTurbo",
+      "commit": "2dc10e850d78c61264a64ea180def2b7f1f334d8"
+    },
+    {
+      "name": "ytdl-org/youtube-dl",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/ytdl-org/youtube-dl",
+      "commit": "bc069d2bb40bcbc5bdfdf352ca15bf586c7792cb"
+    },
+    {
+      "name": "browser-use/browser-use",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/browser-use/browser-use",
+      "commit": "94784c1f7ecb6b0a5f565b7f9fba59e395b7e048"
+    },
+    {
+      "name": "debpalash/VoiceStudio",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/debpalash/VoiceStudio",
+      "commit": "6f981a68ecd025818939f08bb90ad99ab3925c92"
+    },
+    {
+      "name": "Panniantong/Agent-Reach",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/Panniantong/Agent-Reach",
+      "commit": "8d9ecc1f5521fe7d223cde782aaa4005695e2671"
+    },
+    {
+      "name": "openai/whisper",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/openai/whisper",
+      "commit": "86098128c0b4f24f0e2aa2994de830614b474227"
+    },
+    {
+      "name": "pytorch/pytorch",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/pytorch/pytorch",
+      "commit": "c6e0b2ad094d2747186247ef514bed6a45396ae8"
+    },
+    {
+      "name": "D4Vinci/Scrapling",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/D4Vinci/Scrapling",
+      "commit": "938867232230fb7b164fa97211497c204fa2e167"
+    },
+    {
+      "name": "fastapi/fastapi",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/fastapi/fastapi",
+      "commit": "05e6df7e906c3decba377c37548019973f40bf15"
+    },
+    {
+      "name": "hacksider/Deep-Live-Cam",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/hacksider/Deep-Live-Cam",
+      "commit": "08896a51c9a6198f50dc9f7508acf39fc460c8f1"
+    },
+    {
+      "name": "nvbn/thefuck",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/nvbn/thefuck",
+      "commit": "c7e7e1d884d3bb241ea6448f72a989434c2a35ec"
+    },
+    {
+      "name": "vllm-project/vllm",
+      "language": "python",
+      "bucket": "large",
+      "url": "https://github.com/vllm-project/vllm",
+      "commit": "689b84c3697623552c0a11eb1e348bf32bc31bba"
+    },
+    {
+      "name": "3b1b/manim",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/3b1b/manim",
+      "commit": "fafa083a4fb274bba9cabde0b6e2f50ba6da0622"
+    },
+    {
+      "name": "666ghj/MiroFish",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/666ghj/MiroFish",
+      "commit": "7657031ac01184afe2cb220f5ee3545573b5e843"
+    },
+    {
+      "name": "Z4nzu/hackingtool",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/Z4nzu/hackingtool",
+      "commit": "c3a858990f1f772e5c59f10c51f1a7aeb888ef23"
+    },
+    {
+      "name": "abi/screenshot-to-code",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/abi/screenshot-to-code",
+      "commit": "f2e5bbdd1dd5d93c259548d9bccf54e2a5f06a30"
+    },
+    {
+      "name": "usestrix/strix",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/usestrix/strix",
+      "commit": "935f82350782cdf15d70cbcb3e6d7e48f49071c2"
+    },
+    {
+      "name": "hiyouga/LlamaFactory",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/hiyouga/LlamaFactory",
+      "commit": "aef9c06ff4e24839a282e70e1c8cac211a609814"
+    },
+    {
+      "name": "pallets/flask",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/pallets/flask",
+      "commit": "49943b5a94413a530761350f04e896f76e8d620e"
+    },
+    {
+      "name": "ai-job-search-dev/ai-job-search",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/ai-job-search-dev/ai-job-search",
+      "commit": "4e021e52f7e3d4016e0c22fc416c814a3d44c5c9"
+    },
+    {
+      "name": "asgeirtj/system_prompts_leaks",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/asgeirtj/system_prompts_leaks",
+      "commit": "74761cc521a4ea73a603b54e7465e057de8ced19"
+    },
+    {
+      "name": "NanmiCoder/MediaCrawler",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/NanmiCoder/MediaCrawler",
+      "commit": "f871fb42739d6a2440c217619f6e2f2415f4a1e6"
+    },
+    {
+      "name": "binary-husky/gpt_academic",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/binary-husky/gpt_academic",
+      "commit": "d6bde0fa54373309bd05823a49bda8da019d2c77"
+    },
+    {
+      "name": "jingyaogong/minimind",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/jingyaogong/minimind",
+      "commit": "858008eb98da4428f78053a1cc4d3a3bd5973629"
+    },
+    {
+      "name": "scrapy/scrapy",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/scrapy/scrapy",
+      "commit": "531bc329984701fcfa02993720382072f3a390d5"
+    },
+    {
+      "name": "virattt/ai-hedge-fund",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/virattt/ai-hedge-fund",
+      "commit": "5c553b5222044f6a5527bd377b4104c50ee0ad28"
+    },
+    {
+      "name": "bilibili/GPT-SoVITS",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/bilibili/GPT-SoVITS",
+      "commit": "6d51ffceafbf240145619af4c92408a6e54b7924"
+    },
+    {
+      "name": "commaai/openpilot",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/commaai/openpilot",
+      "commit": "e5f93ab0aa51df9ecb3254503bb5962cd44979f7"
+    },
+    {
+      "name": "jamiepine/voicebox",
+      "language": "python",
+      "bucket": "medium",
+      "url": "https://github.com/jamiepine/voicebox",
+      "commit": "8dc2a5bfe0f783edd53f8a346a22dcad9c1fb793"
+    },
+    {
+      "name": "karpathy/nanochat",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/karpathy/nanochat",
+      "commit": "92d63d4e8bb4df75c3b71618f31ddde2378b2bcd"
+    },
+    {
+      "name": "CorentinJ/Real-Time-Voice-Cloning",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/CorentinJ/Real-Time-Voice-Cloning",
+      "commit": "890f3a03187195b9829db2079b75c2ba2ab0405c"
+    },
+    {
+      "name": "FoundationAgents/OpenManus",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/FoundationAgents/OpenManus",
+      "commit": "3309bf4e416fb1c74b008f3e86494439a31bad53"
+    },
+    {
+      "name": "Zie619/n8n-workflows",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/Zie619/n8n-workflows",
+      "commit": "94007c1445d9258a7da116646b79473e7c7c3282"
+    },
+    {
+      "name": "psf/requests",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/psf/requests",
+      "commit": "3c7baaa05ab4aa49cc819ce3a819d260de19c157"
+    },
+    {
+      "name": "hiroi-sora/Umi-OCR",
+      "language": "python",
+      "bucket": "small",
+      "url": "https://github.com/hiroi-sora/Umi-OCR",
+      "commit": "83173efc4f4453b41223ea96d63d44534bf0505c"
+    },
+    {
+      "name": "ollama/ollama",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/ollama/ollama",
+      "commit": "924cc286cc592f49c481fa84e15fa60dbc75989e"
+    },
+    {
+      "name": "JuliusBrussee/caveman",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/JuliusBrussee/caveman",
+      "commit": "47c61be2d10a354f0c5cbe2b90959d24c06b16c6"
+    },
+    {
+      "name": "microsoft/TypeScript",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/microsoft/TypeScript",
+      "commit": "502a981024b79219b447ed5f376a529df50118e3"
+    },
+    {
+      "name": "fatedier/frp",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/fatedier/frp",
+      "commit": "a2c975efb5e55102068065d61cfc17ffe34e939d"
+    },
+    {
+      "name": "infiniflow/ragflow",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/infiniflow/ragflow",
+      "commit": "bb7b3c28888c21e1610678d3d7b8c2094265a644"
+    },
+    {
+      "name": "syncthing/syncthing",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/syncthing/syncthing",
+      "commit": "134b625bcb0f60a527171acc529bf1f8cff71b15"
+    },
+    {
+      "name": "gin-gonic/gin",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/gin-gonic/gin",
+      "commit": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646"
+    },
+    {
+      "name": "junegunn/fzf",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/junegunn/fzf",
+      "commit": "ed173e71e44b2a5fa6264ecf232a153dee6994d0"
+    },
+    {
+      "name": "netdata/netdata",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/netdata/netdata",
+      "commit": "fd8102ea144f4311d3d83b2b33b9720a6a9b5069"
+    },
+    {
+      "name": "caddyserver/caddy",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/caddyserver/caddy",
+      "commit": "679806f92d49e5b494200f2e90a93f228203a418"
+    },
+    {
+      "name": "grafana/grafana",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/grafana/grafana",
+      "commit": "c5f86d0464a1ed30b597debc6e94fd8e2bbc0d9e"
+    },
+    {
+      "name": "nektos/act",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/nektos/act",
+      "commit": "ac4c09993f474fc8091608f2f7cf85a69dfd012f"
+    },
+    {
+      "name": "prometheus/prometheus",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/prometheus/prometheus",
+      "commit": "e56aabdcbec6d8d6621244530654502244d2f5de"
+    },
+    {
+      "name": "traefik/traefik",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/traefik/traefik",
+      "commit": "8fcaa7cda47c139b76e02ab3d115c168d093ac04"
+    },
+    {
+      "name": "usememos/memos",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/usememos/memos",
+      "commit": "44d6c4f38b590d63d20b81a6bdedcae35bb5413c"
+    },
+    {
+      "name": "rclone/rclone",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/rclone/rclone",
+      "commit": "554ddb5de24f0e396aa4aa8afc97f4a039206f66"
+    },
+    {
+      "name": "router-for-me/CLIProxyAPI",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/router-for-me/CLIProxyAPI",
+      "commit": "dd543d0907654f132c2f491847ac8f3a3f02d299"
+    },
+    {
+      "name": "go-gitea/gitea",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/go-gitea/gitea",
+      "commit": "a46dea66514b86cee5b58e137c3e020db6967dd2"
+    },
+    {
+      "name": "multica-ai/multica",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/multica-ai/multica",
+      "commit": "f9b3b4b18e5285390a33402e0c53917bf6d87b9d"
+    },
+    {
+      "name": "alibaba/open-code-review",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/alibaba/open-code-review",
+      "commit": "7ea9c5280655deeaba43f2a298df70dbf17c070b"
+    },
+    {
+      "name": "wagoodman/dive",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/wagoodman/dive",
+      "commit": "75dea9077a4f0c0328cf0084d9b1e32f2f22df87"
+    },
+    {
+      "name": "etcd-io/etcd",
+      "language": "go",
+      "bucket": "large",
+      "url": "https://github.com/etcd-io/etcd",
+      "commit": "4e090c033abc29636df2f844fbdd363adffcd90b"
+    },
+    {
+      "name": "v2ray/v2ray-core",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/v2ray/v2ray-core",
+      "commit": "d80440f3d57b45c829dbf513306f7adf9a0f3f76"
+    },
+    {
+      "name": "charmbracelet/bubbletea",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/charmbracelet/bubbletea",
+      "commit": "4d611720dd2bb4036932f29519d519fb4ce8af41"
+    },
+    {
+      "name": "spf13/cobra",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/spf13/cobra",
+      "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e"
+    },
+    {
+      "name": "danielmiessler/Fabric",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/danielmiessler/Fabric",
+      "commit": "30b83e996cd1e6e3f5843fb5b64997ea63ecfd5c"
+    },
+    {
+      "name": "astaxie/build-web-application-with-golang",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/astaxie/build-web-application-with-golang",
+      "commit": "c294b087b96d99d2593ad8f470151af5354bb57f"
+    },
+    {
+      "name": "schollz/croc",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/schollz/croc",
+      "commit": "d77d59a8931d67460574f7603b9446470d475070"
+    },
+    {
+      "name": "gofiber/fiber",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/gofiber/fiber",
+      "commit": "042f553c55b1aee94230d71192db93f37d01aaf3"
+    },
+    {
+      "name": "go-gorm/gorm",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/go-gorm/gorm",
+      "commit": "ead4e04ba7c6a49654649131e587133b1d9f3eca"
+    },
+    {
+      "name": "docker/compose",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/docker/compose",
+      "commit": "13471d2d5e11def421198551b0fbbe5176ed2c43"
+    },
+    {
+      "name": "glanceapp/glance",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/glanceapp/glance",
+      "commit": "53aec7f392ca72143870dcb45526ec7c80a68f32"
+    },
+    {
+      "name": "IceWhaleTech/CasaOS",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/IceWhaleTech/CasaOS",
+      "commit": "e099dd6b4982a264663df2536a55bfea2ae5448a"
+    },
+    {
+      "name": "restic/restic",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/restic/restic",
+      "commit": "f25ec9a5ab18fbb6797ab336b995d6639d62c4d4"
+    },
+    {
+      "name": "binwiederhier/ntfy",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/binwiederhier/ntfy",
+      "commit": "aa97efef7e35143f52f4b5cdce4369fb5d76df2e"
+    },
+    {
+      "name": "derailed/k9s",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/derailed/k9s",
+      "commit": "c732946a6da348ad1b4fdabd6b9bd0f8cd2d3804"
+    },
+    {
+      "name": "k3s-io/k3s",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/k3s-io/k3s",
+      "commit": "a5327bede24a8cb312e192b2432cf7b74eb4e705"
+    },
+    {
+      "name": "ehang-io/nps",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/ehang-io/nps",
+      "commit": "ab648d6f0c618c690a7a79948a7ebd686e1cdafc"
+    },
+    {
+      "name": "labstack/echo",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/labstack/echo",
+      "commit": "59aacddc4a13904b8a80a76f1ec838c495b5feca"
+    },
+    {
+      "name": "beego/beego",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/beego/beego",
+      "commit": "939cfde380bb9f15844ad633b84f037f7da21584"
+    },
+    {
+      "name": "dokku/dokku",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/dokku/dokku",
+      "commit": "a31ba251c1d4e4289d2f0a3bc8ced6502c7221c2"
+    },
+    {
+      "name": "iawia002/lux",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/iawia002/lux",
+      "commit": "dd00f6d258d80b6684a0b9402d7124e5c18ef42f"
+    },
+    {
+      "name": "abiosoft/colima",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/abiosoft/colima",
+      "commit": "49dfe87aecc1645905d0fb8a0e43ce29e12138f6"
+    },
+    {
+      "name": "gitleaks/gitleaks",
+      "language": "go",
+      "bucket": "medium",
+      "url": "https://github.com/gitleaks/gitleaks",
+      "commit": "5f6ec56cfa6f8c67648d863582c7ae2f206d5c1c"
+    },
+    {
+      "name": "chubin/wttr.in",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/chubin/wttr.in",
+      "commit": "8ff2ef6053ef3778acc88ae77a8d94eca17ec5bc"
+    },
+    {
+      "name": "spf13/viper",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/spf13/viper",
+      "commit": "528f7416c4b56a4948673984b190bf8713f0c3c4"
+    },
+    {
+      "name": "charmbracelet/glow",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/charmbracelet/glow",
+      "commit": "8b0600fa445535b9c53194c0d4f7fe3cf700ef3e"
+    },
+    {
+      "name": "go-kit/kit",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/go-kit/kit",
+      "commit": "78fbbceece7bbcf073bee814a7772f4397ea756c"
+    },
+    {
+      "name": "sirupsen/logrus",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/sirupsen/logrus",
+      "commit": "954b418844d9dd2b6321f3fa09f8aad97e3015de"
+    },
+    {
+      "name": "gorilla/websocket",
+      "language": "go",
+      "bucket": "small",
+      "url": "https://github.com/gorilla/websocket",
+      "commit": "e064f32e3674d9d79a8fd417b5bc06fa5c6cad8f"
+    },
+    {
+      "name": "NawfalMotii79/PLFM_RADAR",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/NawfalMotii79/PLFM_RADAR",
+      "commit": "62d4c556508927a4192acca24422bd16a979c7dc"
+    },
+    {
+      "name": "pgmq/pgmq",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/pgmq/pgmq",
+      "commit": "51468f6ba2afeb4a4a9a67e9a532f37b590a0929"
+    },
+    {
+      "name": "datacharmer/test_db",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/datacharmer/test_db",
+      "commit": "e324b56193ca506ab7cc1ab143a9153d8c4535d7"
+    },
+    {
+      "name": "BrentOzarULTD/SQL-Server-First-Responder-Kit",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit",
+      "commit": "5d3a6811a44e4aef1115aee75254e930e2e60938"
+    },
+    {
+      "name": "olahallengren/sql-server-maintenance-solution",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/olahallengren/sql-server-maintenance-solution",
+      "commit": "41617578643e722b790ea4d57ef80f8de38ae747"
+    },
+    {
+      "name": "openmaptiles/openmaptiles",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/openmaptiles/openmaptiles",
+      "commit": "6c11838d38030148832c039c2ea367274db86a87"
+    },
+    {
+      "name": "pgpartman/pg_partman",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/pgpartman/pg_partman",
+      "commit": "e0a6c384a6c77846d2560f9251089339c9637814"
+    },
+    {
+      "name": "lerocha/chinook-database",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/lerocha/chinook-database",
+      "commit": "7f67772503d71ba90f19283c38e93923addb43fa"
+    },
+    {
+      "name": "darold/pgFormatter",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/darold/pgFormatter",
+      "commit": "3aab449352e0dc852a2385f4df8359812b98f5c3"
+    },
+    {
+      "name": "NikolayS/PgQue",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/NikolayS/PgQue",
+      "commit": "798d6ebe84fb4df21608a159c430452f209ae29f"
+    },
+    {
+      "name": "NixOS/hydra",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/NixOS/hydra",
+      "commit": "e181b587af32365897c215c443b0389657bfdc23"
+    },
+    {
+      "name": "amachanic/sp_whoisactive",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/amachanic/sp_whoisactive",
+      "commit": "40ac17b8e61a9ae8ead6410ec51c74a480636ea0"
+    },
+    {
+      "name": "microsoft/fhir-server",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/microsoft/fhir-server",
+      "commit": "8077ac83283aaed59f22fed31e7a58bfa33170c8"
+    },
+    {
+      "name": "cahyadsn/wilayah",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/cahyadsn/wilayah",
+      "commit": "c2eff0881e3c75b8822f8c84ea9d23affc11aadb"
+    },
+    {
+      "name": "NikolayS/postgres_dba",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/NikolayS/postgres_dba",
+      "commit": "d5c63fd11784058be81756eec28f3ea2cd006c1d"
+    },
+    {
+      "name": "theory/pgtap",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/theory/pgtap",
+      "commit": "21ceed193bf370892d530c5115680839ee322851"
+    },
+    {
+      "name": "aquametalabs/aquameta",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/aquametalabs/aquameta",
+      "commit": "ec5dbe6b84ea61b5e8b4b10263a0911b848b0025"
+    },
+    {
+      "name": "mqttsnet/thinglinks",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/mqttsnet/thinglinks",
+      "commit": "3705ee1564fa5ccf29a17fba66feddb886d033e2"
+    },
+    {
+      "name": "oracle-samples/db-sample-schemas",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/oracle-samples/db-sample-schemas",
+      "commit": "6660bad68c07bd143430ace58565b3f727e17263"
+    },
+    {
+      "name": "smpetersgithub/AdvancedSQLPuzzles",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/smpetersgithub/AdvancedSQLPuzzles",
+      "commit": "4fe0cac6e23f6af967bca0a46e364f9b8534eec3"
+    },
+    {
+      "name": "chinnonsantos/sql-paises-estados-cidades",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/chinnonsantos/sql-paises-estados-cidades",
+      "commit": "a705674ebf1efff420714918fffabb8ba04279f6"
+    },
+    {
+      "name": "anthonydb/practical-sql-2",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/anthonydb/practical-sql-2",
+      "commit": "e4e826fa03e71a070954958cf86321dd27a98bca"
+    },
+    {
+      "name": "rin-nas/postgresql-patterns-library",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/rin-nas/postgresql-patterns-library",
+      "commit": "657ba2af7b08508c1e5b00e2220cc5aaf87e5cdf"
+    },
+    {
+      "name": "tanelpoder/tpt-oracle",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/tanelpoder/tpt-oracle",
+      "commit": "45f0a4e1550200ebb53c31b5dc9e5fbbacc2e734"
+    },
+    {
+      "name": "erikdarlingdata/DarlingData",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/erikdarlingdata/DarlingData",
+      "commit": "bf5a0666c2b559fe7d4a813d8843712a4416c53f"
+    },
+    {
+      "name": "anthonydb/practical-sql",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/anthonydb/practical-sql",
+      "commit": "5ba4cf652522f8013870abe0859dcaf562fbe079"
+    },
+    {
+      "name": "Ysurac/FlightAirMap",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/Ysurac/FlightAirMap",
+      "commit": "7083d7a036ba8d66b4c8ba9ce8788686f74fb94f"
+    },
+    {
+      "name": "utPLSQL/utPLSQL",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/utPLSQL/utPLSQL",
+      "commit": "01a89eae1b359b858a41224327670e9b4d32bdc9"
+    },
+    {
+      "name": "trickerer/Trinity-Bots",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/trickerer/Trinity-Bots",
+      "commit": "a2a13b24d47be44654d159338aadf613290c7e43"
+    },
+    {
+      "name": "morenoh149/postgresDBSamples",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/morenoh149/postgresDBSamples",
+      "commit": "2bdc9539762092912655e1b82b7433d3151389dc"
+    },
+    {
+      "name": "jOOQ/sakila",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/jOOQ/sakila",
+      "commit": "e089a5b1ec9af0df7a9c6a5d47d49fa1736a4e84"
+    },
+    {
+      "name": "microsoft/Windows-appsample-customers-orders-database",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/microsoft/Windows-appsample-customers-orders-database",
+      "commit": "247226c93728c5a2a0601575ed732206ca6949e7"
+    },
+    {
+      "name": "dbkangaroo/kangaroo",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/dbkangaroo/kangaroo",
+      "commit": "79018b4200ff84db3188eee37a88de19a84b596c"
+    },
+    {
+      "name": "marcingminski/sqlwatch",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/marcingminski/sqlwatch",
+      "commit": "7273c6cba78c78870f4f7d26b1b3f1a47f23cf73"
+    },
+    {
+      "name": "lorint/AdventureWorks-for-Postgres",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/lorint/AdventureWorks-for-Postgres",
+      "commit": "b474991f0df1c4bf55ca4735eb0254ca0709eed2"
+    },
+    {
+      "name": "3dcitydb/3dcitydb",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/3dcitydb/3dcitydb",
+      "commit": "208ad07c9f0f1ec7e11000d1441d38d97f691d79"
+    },
+    {
+      "name": "geocompass/pg-coordtransform",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/geocompass/pg-coordtransform",
+      "commit": "e5cf4ab0aea0b9803698d9e394360f8ee56c744e"
+    },
+    {
+      "name": "point-source/supabase-tenant-rbac",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/point-source/supabase-tenant-rbac",
+      "commit": "2400ad76a74ee6aeaa7f3c89375dac0a253ddb42"
+    },
+    {
+      "name": "tSQLt-org/tSQLt",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/tSQLt-org/tSQLt",
+      "commit": "4a921d0dacfb1d66b3db124c58158c80e5e910e6"
+    },
+    {
+      "name": "pljson/pljson",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/pljson/pljson",
+      "commit": "09a54e4e9318af36c6d27f0e7170bd4a376276b2"
+    },
+    {
+      "name": "andrelugomes/digital-innovation-one",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/andrelugomes/digital-innovation-one",
+      "commit": "31982544848f282a20f776efc7c8a64e4ba40560"
+    },
+    {
+      "name": "Abstrct/Schemaverse",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/Abstrct/Schemaverse",
+      "commit": "47c01f886b213bac57ce4cfd8ec7c595f58eb323"
+    },
+    {
+      "name": "basedosdados/sdk",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/basedosdados/sdk",
+      "commit": "df859a6e71e2fad8b9dc7c4d050985342f72e25c"
+    },
+    {
+      "name": "pgpointcloud/pointcloud",
+      "language": "sql",
+      "bucket": "medium",
+      "url": "https://github.com/pgpointcloud/pointcloud",
+      "commit": "1770ff3431830a309856b0e15f9e5e53f770674b"
+    },
+    {
+      "name": "pgq/pgq",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/pgq/pgq",
+      "commit": "be3d2cee3fc7279d9e1480b19cfddb8a62c1450d"
+    },
+    {
+      "name": "pgMemento/pgMemento",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/pgMemento/pgMemento",
+      "commit": "f09c44c96c55810b2f917b6f97ebc52c0673b04a"
+    },
+    {
+      "name": "siqichen-usc/LeetCode-SQL-Summary",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/siqichen-usc/LeetCode-SQL-Summary",
+      "commit": "90114213c3babd7759d31214ad20d03691124b06"
+    },
+    {
+      "name": "bnagy/cgasm",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/bnagy/cgasm",
+      "commit": "6c54b38020a075e700343335fe44c45f16e22f3c"
+    },
+    {
+      "name": "postgis/h3-pg",
+      "language": "sql",
+      "bucket": "small",
+      "url": "https://github.com/postgis/h3-pg",
+      "commit": "f960a574eab6aebd186dedff6204711c21742f12"
+    },
+    {
+      "name": "Hameds/IranCountryDivisions",
+      "language": "sql",
+      "bucket": "large",
+      "url": "https://github.com/Hameds/IranCountryDivisions",
+      "commit": "37c01f5e776bdd330fbb9d196cff8bf6ceadcb25"
+    },
+    {
+      "name": "vercel/next.js",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "large",
+      "url": "https://github.com/vercel/next.js",
+      "commit": "b8e68eb8f87dc64e8e5490d8fd4fb9f758424d41"
+    },
+    {
+      "name": "shadcn-ui/ui",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "large",
+      "url": "https://github.com/shadcn-ui/ui",
+      "commit": "055aa6b7837b1808456a24beb4c97a677864aa82"
+    },
+    {
+      "name": "react/create-react-app",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "large",
+      "url": "https://github.com/react/create-react-app",
+      "commit": "6254386531d263688ccfa542d0e628fbc0de0b28"
+    },
+    {
+      "name": "mui/material-ui",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "large",
+      "url": "https://github.com/mui/material-ui",
+      "commit": "9769f52feec52782e29a1770b268ac3eb26e4ab9"
+    },
+    {
+      "name": "storybookjs/storybook",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "large",
+      "url": "https://github.com/storybookjs/storybook",
+      "commit": "44cd55f152cc7c3a98b15a754e05235674ad2337"
+    },
+    {
+      "name": "ChatGPTNextWeb/NextChat",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/ChatGPTNextWeb/NextChat",
+      "commit": "1d3dc331512929a4b1d3e82354e72acce33b5c7a"
+    },
+    {
+      "name": "remotion-dev/remotion",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "large",
+      "url": "https://github.com/remotion-dev/remotion",
+      "commit": "0e28fd7c83df8a06e13fbe17048e6187df60f516"
+    },
+    {
+      "name": "AykutSarac/jsoncrack.com",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "small",
+      "url": "https://github.com/AykutSarac/jsoncrack.com",
+      "commit": "c30e379df2c35af5f7d6e81476acf329d3980598"
+    },
+    {
+      "name": "xyflow/xyflow",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/xyflow/xyflow",
+      "commit": "9635a064f9d44cc10c460e3a0c9ca20ad0852450"
+    },
+    {
+      "name": "jaredpalmer/formik",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "small",
+      "url": "https://github.com/jaredpalmer/formik",
+      "commit": "91475adbf33579561e580eceea0c031f4ec2e992"
+    },
+    {
+      "name": "pmndrs/react-three-fiber",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "small",
+      "url": "https://github.com/pmndrs/react-three-fiber",
+      "commit": "d74622ea8ed717f7212d7e19d65ff3e325508389"
+    },
+    {
+      "name": "gethomepage/homepage",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/gethomepage/homepage",
+      "commit": "a1e3a5fd26d6f55aaccdf1be000913eddba666fc"
+    },
+    {
+      "name": "vercel/swr",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "small",
+      "url": "https://github.com/vercel/swr",
+      "commit": "8148ef012fd5b317d1e8ec2da4b2ca0673f63c0f"
+    },
+    {
+      "name": "pmndrs/react-spring",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/pmndrs/react-spring",
+      "commit": "13aacc5a88af35061da375c0259629f1a16a3caa"
+    },
+    {
+      "name": "slymnoyann/hey.xyz",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/slymnoyann/hey.xyz",
+      "commit": "44dee0c1223b9202699915fd3e92e670fd8e34e6"
+    },
+    {
+      "name": "tailwindlabs/headlessui",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/tailwindlabs/headlessui",
+      "commit": "eea57cf46fd6767ed1059012f7073b88eb159fba"
+    },
+    {
+      "name": "maotoumao/MusicFree",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/maotoumao/MusicFree",
+      "commit": "d118b18b3d0c904400f7eea7bf99c0ceec6c1aee"
+    },
+    {
+      "name": "nextauthjs/next-auth",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "medium",
+      "url": "https://github.com/nextauthjs/next-auth",
+      "commit": "a1a16a5a7780488c7449feece410033f445d0b31"
+    },
+    {
+      "name": "rahuldkjain/github-profile-readme-generator",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "small",
+      "url": "https://github.com/rahuldkjain/github-profile-readme-generator",
+      "commit": "5ae90bfcbd7ab2f69809b094601f7975c32ae077"
+    },
+    {
+      "name": "tabler/tabler-icons",
+      "language": "typescript-javascript",
+      "panel": "react",
+      "bucket": "small",
+      "url": "https://github.com/tabler/tabler-icons",
+      "commit": "a1422751964ae9c7d9acb5c8d9a7a9c1ff0f8192"
+    },
+    {
+      "name": "PanJiaChen/vue-element-admin",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/PanJiaChen/vue-element-admin",
+      "commit": "6858a9ad67483025f6a9432a926beb9327037be3"
+    },
+    {
+      "name": "bailicangdu/vue2-elm",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "small",
+      "url": "https://github.com/bailicangdu/vue2-elm",
+      "commit": "b85ff0220366be863868269177a4abf74c7a85ca"
+    },
+    {
+      "name": "vuejs/vuepress",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "small",
+      "url": "https://github.com/vuejs/vuepress",
+      "commit": "9fb4bb00925d9409e6732118e996411c6a82c85d"
+    },
+    {
+      "name": "zxwk1998/vue-admin-better",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "small",
+      "url": "https://github.com/zxwk1998/vue-admin-better",
+      "commit": "b02834b2dd9148bca55fdb168347890eb1a35e88"
+    },
+    {
+      "name": "iview/iview-admin",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "small",
+      "url": "https://github.com/iview/iview-admin",
+      "commit": "dd86e386a8542e8808a54ce7afeb713963c81d3c"
+    },
+    {
+      "name": "codesandbox/codesandbox-client",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "large",
+      "url": "https://github.com/codesandbox/codesandbox-client",
+      "commit": "dcba8ebc49cd46838e298cfa1501811ac67fb0c9"
+    },
+    {
+      "name": "bailicangdu/vue2-manage",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "small",
+      "url": "https://github.com/bailicangdu/vue2-manage",
+      "commit": "dca263e3a8411ec47b5814a01470162d907d6964"
+    },
+    {
+      "name": "vueComponent/ant-design-vue-pro",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/vueComponent/ant-design-vue-pro",
+      "commit": "616df9e063a42661144614a69aa059e140c367d6"
+    },
+    {
+      "name": "getgridea/gridea",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "small",
+      "url": "https://github.com/getgridea/gridea",
+      "commit": "48e4ab573bfa709816ffd688233b2f570c085e2d"
+    },
+    {
+      "name": "tsparticles/tsparticles",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "large",
+      "url": "https://github.com/tsparticles/tsparticles",
+      "commit": "814efd3b661df2e0594168430926331ff753a0e6"
+    },
+    {
+      "name": "OnsenUI/OnsenUI",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/OnsenUI/OnsenUI",
+      "commit": "82c5ff8ce1b875f72c9d9bf074895438ca86bca9"
+    },
+    {
+      "name": "x-extends/vxe-table",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "large",
+      "url": "https://github.com/x-extends/vxe-table",
+      "commit": "6a3e688368562a9676ce998d5f88632cacdf545f"
+    },
+    {
+      "name": "gridsome/gridsome",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/gridsome/gridsome",
+      "commit": "e396e60ddb9435813dc56cc2d1f98c91c7d64367"
+    },
+    {
+      "name": "emqx/MQTTX",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "large",
+      "url": "https://github.com/emqx/MQTTX",
+      "commit": "a3c542981675f61e18e8b734443edd3847218331"
+    },
+    {
+      "name": "Tencent/wujie",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/Tencent/wujie",
+      "commit": "775fb9041c7209b6120d341d2f61dac8baf25ef1"
+    },
+    {
+      "name": "elunez/eladmin-web",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/elunez/eladmin-web",
+      "commit": "6e20207bbaf9fac872623d2089803cfe143be73b"
+    },
+    {
+      "name": "herozhou/vue-framework-wz",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/herozhou/vue-framework-wz",
+      "commit": "c500d578ef8186681f15d0aabe055e3ba0de175f"
+    },
+    {
+      "name": "umicro/uView",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "medium",
+      "url": "https://github.com/umicro/uView",
+      "commit": "1c73d473e15d6a66291aacb88ecdcedf22b2f7cb"
+    },
+    {
+      "name": "algolia/instantsearch",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "large",
+      "url": "https://github.com/algolia/instantsearch",
+      "commit": "0a50786ebf4c416032946987986171803ea5bd57"
+    },
+    {
+      "name": "Simon-He95/markstream-vue",
+      "language": "typescript-javascript",
+      "panel": "vue2",
+      "bucket": "large",
+      "url": "https://github.com/Simon-He95/markstream-vue",
+      "commit": "ee954b81971edd4fb18868d784b2eba153ba7a99"
+    },
+    {
+      "name": "storybookjs/storybook",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "large",
+      "url": "https://github.com/storybookjs/storybook",
+      "commit": "1aa6a0e28f834ed5b29374a58fc49f63ddb67b83"
+    },
+    {
+      "name": "hoppscotch/hoppscotch",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "large",
+      "url": "https://github.com/hoppscotch/hoppscotch",
+      "commit": "6177eae1875ea4cc8fc46604d65bf85478912d85"
+    },
+    {
+      "name": "lyswhut/lx-music-desktop",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/lyswhut/lx-music-desktop",
+      "commit": "323e4bac505da428adae8db6b58039fb2b36b86d"
+    },
+    {
+      "name": "TanStack/query",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "large",
+      "url": "https://github.com/TanStack/query",
+      "commit": "18b1aded329058c074cda6b1c1a08aba73fdc914"
+    },
+    {
+      "name": "slidevjs/slidev",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/slidevjs/slidev",
+      "commit": "437f139ccd4c8482a193b217922e7800a5b3baec"
+    },
+    {
+      "name": "vuetifyjs/vuetify",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "large",
+      "url": "https://github.com/vuetifyjs/vuetify",
+      "commit": "b506d3ff13bbf9cb17cbd1ea186beba72eb210f4"
+    },
+    {
+      "name": "xyflow/xyflow",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/xyflow/xyflow",
+      "commit": "9635a064f9d44cc10c460e3a0c9ca20ad0852450"
+    },
+    {
+      "name": "ueberdosis/tiptap",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "large",
+      "url": "https://github.com/ueberdosis/tiptap",
+      "commit": "643792f65e8ea5506fc2591cfd140fc3aec6d29b"
+    },
+    {
+      "name": "directus/directus",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "large",
+      "url": "https://github.com/directus/directus",
+      "commit": "4856582eec1ea426f115b79a875c44c819fe0b9d"
+    },
+    {
+      "name": "tailwindlabs/headlessui",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/tailwindlabs/headlessui",
+      "commit": "eea57cf46fd6767ed1059012f7073b88eb159fba"
+    },
+    {
+      "name": "Molunerfinn/PicGo",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/Molunerfinn/PicGo",
+      "commit": "bf4069bd3bdbec9b33d43e37df6bc91265415d47"
+    },
+    {
+      "name": "lucide-icons/lucide",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/lucide-icons/lucide",
+      "commit": "7ff66ea5a6d38d092be36c093638810117c07597"
+    },
+    {
+      "name": "youzan/vant",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/youzan/vant",
+      "commit": "7cc499279866e74b117593abf612567d5a2eb28d"
+    },
+    {
+      "name": "vueuse/vueuse",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "medium",
+      "url": "https://github.com/vueuse/vueuse",
+      "commit": "6680e578f1499c2071dcbf2c8e94dd0aa235745c"
+    },
+    {
+      "name": "lin-xin/vue-manage-system",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "small",
+      "url": "https://github.com/lin-xin/vue-manage-system",
+      "commit": "6a7019ec1a74cc05297d18647a5f944c242d468a"
+    },
+    {
+      "name": "darkroomengineering/lenis",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "small",
+      "url": "https://github.com/darkroomengineering/lenis",
+      "commit": "b82992bba89448228402312da1cad27ce2428d7c"
+    },
+    {
+      "name": "soybeanjs/soybean-admin",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "small",
+      "url": "https://github.com/soybeanjs/soybean-admin",
+      "commit": "c0e8a0d1814cbeaf2b312d2f77ce7187f36df47c"
+    },
+    {
+      "name": "vuejs/pinia",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "small",
+      "url": "https://github.com/vuejs/pinia",
+      "commit": "23e12f4e78634703cfb57e6b1df0ca2f73841c49"
+    },
+    {
+      "name": "formkit/auto-animate",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "small",
+      "url": "https://github.com/formkit/auto-animate",
+      "commit": "cdaef5660220f562770f84fec6733a13b97438e8"
+    },
+    {
+      "name": "logaretm/vee-validate",
+      "language": "typescript-javascript",
+      "panel": "vue3",
+      "bucket": "small",
+      "url": "https://github.com/logaretm/vee-validate",
+      "commit": "7d8cc524f9204655ad00a466090738e43b44ff2a"
+    }
+  ],
+  "case_studies": [
+    {
+      "name": "nektos/act 2bb3e74",
+      "url": "https://github.com/nektos/act",
+      "before": "5d7027dc3fc6a16e2023ffa1ebac93f1c667786e",
+      "after": "2bb3e74616f86ece6a11cd854ad54701542410fd",
+      "change": "feat: split job steps into its own files/structs (#1004)"
+    },
+    {
+      "name": "restic/restic 4b70bba",
+      "url": "https://github.com/restic/restic",
+      "before": "a93bc3c9917a12a1051af83911a726c79f309b34",
+      "after": "4b70bba588304ee254a5c580443ada7dd277e1e1",
+      "change": "Split Scanner from Archiver, refactor Progress"
+    },
+    {
+      "name": "avidianity/codeint Workstream 1",
+      "url": "https://github.com/avidianity/codeint",
+      "before": "8e3f49d5024ba64c5f93e8f71013a8079a495d80",
+      "after": "9c532f069caa54107675551652c265060fa7e156",
+      "change": "Workstream 1 maintainability foundation: single Metric registry, built-in plugins behind the host, and five 1,000-line core files split"
+    }
+  ]
+}

@@ -22,6 +22,7 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
 | `--audit-sample-size <COUNT>` | `100` | How many Findings to sample per audit category |
 | `--scratch-root <DIR>` | system temporary folder | Create the `codeint-eval-*` scratch folders under this folder |
 | `--oracle <PLUGIN=PROGRAM>` | none | Use `PROGRAM` instead of the built-in native-parser oracle for one Language plugin |
+| `--audit-verdicts <FILE>` | none | Read a reviewer's verdicts on the audit sample and report false positive rates |
 
 ## Rules
 
@@ -83,8 +84,35 @@ It runs in the root of the clone and prints one JSON line per path:
 
 Each function is `[first line, last line, decision points]`.
 
-## Human audit sample
+## Audit sample and verdicts
 
 - The runner samples up to `--audit-sample-size` Findings in each of three categories: Source sets, Flagged lines, and Orphan files.
 - The seed comes from the sorted pinned commits, so the same corpus always yields the same sample.
 - Source set items use the Language plugin's Source set with the core Generated and Vendored rules; Framework profile paths are not applied.
+- The audit sample is a list of items for a reviewer to judge, not a verdict.
+  The committed verdicts in `docs/evaluation-audit.json` come from an agent review, so the report labels the rates agent-reviewed.
+- `--audit-verdicts` reads a file of this shape:
+
+```json
+{"reviewer":"agent","verdicts":[{"category":"flagged_lines","item":"owner/name src/a.py:12 rule","verdict":"correct","note":"The line matches the rule."}]}
+```
+
+- Each `verdict` is `correct` or `false_positive`.
+  The report counts, per category, the sampled items, the reviewed items, the false positives, and the rate over the reviewed items.
+  A verdict whose item is no longer in the sample is ignored, and a sampled item without a verdict counts as not reviewed.
+
+## Reference range panels
+
+```sh
+cargo run --release --locked -p codeint-eval -- --manifest eval/panels.json --output-dir docs --audit-verdicts docs/evaluation-audit.json
+```
+
+- [panels.json](./panels.json) pins the stratified panels of [ADR 0028](../docs/adr/0028-stratified-reference-panels.md): up to 50 repositories per base language (15 Small, 20 Medium, 15 Large) and up to 20 per Framework profile (6, 8, 6).
+  An entry with a `panel` field belongs to that Framework profile's panel, and the same repository may join several panels.
+- [panel-selection.json](./panel-selection.json) is the selection log: every selected repository with its stars, star band, Production lines, and shape, and every skipped candidate with the reason.
+- The report prints the mean, median, standard deviation, 10th and 90th percentile (linear interpolation), lowest, and highest of each Metric per panel, with the Metric version of each reading.
+  The 10th and 90th percentiles become the Reference range of the Language plugin or Framework profile, rounded to three decimals.
+- `case_studies` in the manifest pins before and after commits of a public repository.
+  The runner measures both commits once and reports the Production Metric ratios, never source.
+  It skips case studies when `--language` or `--repository` narrows the run.
+- Regenerate the panels, the report, and the Reference ranges whenever a Metric version changes and before a major release.

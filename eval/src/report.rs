@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 use crate::audit::AuditCategory;
 use crate::corpus::SizeBucket;
 use crate::recall::{LanguageRecall, RecallCount};
+use crate::review::AuditReview;
 use crate::summary::{
     CaseSnapshot, CaseStudyResult, EvaluationSummary, LanguageSummary, OracleStatus, PanelSummary,
     RepositoryResult,
@@ -352,13 +353,13 @@ fn category_title(category: AuditCategory) -> &'static str {
     }
 }
 
-fn write_audit_review(out: &mut String, summary: &EvaluationSummary) {
-    let Some(review) = &summary.audit_review else {
+fn write_audit_review(out: &mut String, review: Option<&AuditReview>) {
+    let Some(review) = review else {
         return;
     };
     let _ = writeln!(
         out,
-        "\nReviewer: {}. These rates are not human-audited; a person can recheck every verdict in the verdicts file.\n",
+        "\nReviewer: {}. These are agent-reviewed false positive rates; a person can recheck every verdict in the verdicts file.\n",
         review.reviewer
     );
     let _ = writeln!(
@@ -385,7 +386,7 @@ fn write_audit(out: &mut String, summary: &EvaluationSummary) {
         out,
         "Each sample is drawn with a seed derived from the pinned commits, so the same corpus gives the same sample."
     );
-    write_audit_review(out, summary);
+    write_audit_review(out, summary.audit_review.as_ref());
     for sample in &summary.audit {
         let _ = writeln!(
             out,
