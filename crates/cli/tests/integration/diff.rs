@@ -1779,8 +1779,8 @@ fn diff_enforces_new_file_budgets_across_formats_while_ignoring_legacy_debt() {
     assert_eq!(rerender_text.status.code(), Some(0));
     let text_out = String::from_utf8(rerender_text.stdout).expect("utf8 text");
     assert!(
-        text_out.contains("over_new_file_budget"),
-        "missing over_new_file_budget in text rerender: {text_out}"
+        text_out.contains("Over New-file Budget:"),
+        "missing Over New-file Budget in text rerender: {text_out}"
     );
 }
 

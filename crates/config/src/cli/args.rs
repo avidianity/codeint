@@ -79,10 +79,9 @@ pub(super) enum CommandArguments {
         #[arg(
             long,
             value_enum,
-            default_value_t = TrendFormat::Toon,
-            help = "The format of the report"
+            help = "The format of the report; overrides format in codeint.json (defaults to toon)"
         )]
-        format: TrendFormat,
+        format: Option<TrendFormat>,
     },
     #[command(about = "Find the shortest runtime import path between two files in the repository")]
     Trace(TraceArguments),
@@ -199,10 +198,9 @@ pub(super) enum CommandArguments {
         #[arg(
             long,
             value_enum,
-            default_value_t = ReportRenderFormat::Toon,
-            help = "The format of the report"
+            help = "The format of the report; overrides format in codeint.json (defaults to toon)"
         )]
-        format: ReportRenderFormat,
+        format: Option<ReportRenderFormat>,
     },
     #[command(
         about = "Run read-only diagnostics on codeint.json, Git repository status, detected languages, Workspace packages, and external Wasm Plugins"
@@ -469,10 +467,9 @@ pub(super) struct HistoryReportArguments {
     #[arg(
         long,
         value_enum,
-        default_value_t = ChurnFormat::Toon,
-        help = "The format of the report"
+        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
     )]
-    pub(super) format: ChurnFormat,
+    pub(super) format: Option<ChurnFormat>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -500,10 +497,9 @@ pub(super) struct ReportArguments {
     #[arg(
         long,
         value_enum,
-        default_value_t = ReportFormat::Toon,
-        help = "The format of the report"
+        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
     )]
-    pub(super) format: ReportFormat,
+    pub(super) format: Option<ReportFormat>,
     #[arg(
         long,
         value_name = "OWNER",
@@ -547,10 +543,9 @@ pub(super) struct TraceArguments {
     #[arg(
         long,
         value_enum,
-        default_value_t = TraceFormat::Toon,
-        help = "The format of the report"
+        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
     )]
-    pub(super) format: TraceFormat,
+    pub(super) format: Option<TraceFormat>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -584,8 +579,7 @@ pub(super) struct ImpactArguments {
     #[arg(
         long,
         value_enum,
-        default_value_t = ImpactFormat::Toon,
-        help = "The format of the report"
+        help = "The format of the report; overrides format in codeint.json (defaults to toon)"
     )]
-    pub(super) format: ImpactFormat,
+    pub(super) format: Option<ImpactFormat>,
 }

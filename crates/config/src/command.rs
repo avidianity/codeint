@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::OutputFormat;
 use crate::PluginKind;
 use crate::PluginLimits;
 use crate::calendar_day::CalendarDay;
@@ -77,27 +78,64 @@ impl Default for FindingsShown {
     }
 }
 
+macro_rules! impl_full_output_format {
+    ($target:ident) => {
+        impl From<OutputFormat> for $target {
+            fn from(format: OutputFormat) -> $target {
+                match format {
+                    OutputFormat::Toon => $target::Toon,
+                    OutputFormat::Text => $target::Text,
+                    OutputFormat::Json => $target::Json,
+                    OutputFormat::Sarif => $target::Sarif,
+                    OutputFormat::Markdown => $target::Markdown,
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_subset_output_format {
+    ($target:ident, $supported:expr, $($from:ident => $to:ident),+ $(,)?) => {
+        impl $target {
+            pub const SUPPORTED: &'static [&'static str] = $supported;
+
+            pub fn try_from_output_format(format: OutputFormat) -> Option<$target> {
+                match format {
+                    $(OutputFormat::$from => Some($target::$to),)+
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ReportFormat {
     Toon,
+    Text,
     Json,
     Sarif,
     Markdown,
 }
+
+impl_full_output_format!(ReportFormat);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ReportRenderFormat {
     Toon,
+    Text,
     Json,
     Sarif,
     Markdown,
-    Text,
 }
+
+impl_full_output_format!(ReportRenderFormat);
 
 impl ReportRenderFormat {
     pub fn as_report_format(self) -> ReportFormat {
         match self {
-            ReportRenderFormat::Toon | ReportRenderFormat::Text => ReportFormat::Toon,
+            ReportRenderFormat::Toon => ReportFormat::Toon,
+            ReportRenderFormat::Text => ReportFormat::Text,
             ReportRenderFormat::Json => ReportFormat::Json,
             ReportRenderFormat::Sarif => ReportFormat::Sarif,
             ReportRenderFormat::Markdown => ReportFormat::Markdown,
@@ -108,9 +146,28 @@ impl ReportRenderFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum TrendFormat {
     Toon,
+    Text,
     Json,
     Markdown,
 }
+
+impl_subset_output_format!(
+    TrendFormat,
+    &["toon", "text", "json", "markdown"],
+    Toon => Toon,
+    Text => Text,
+    Json => Json,
+    Markdown => Markdown,
+);
+
+impl_subset_output_format!(
+    ChurnFormat,
+    &["toon", "text", "json", "markdown"],
+    Toon => Toon,
+    Text => Text,
+    Json => Json,
+    Markdown => Markdown,
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum GuardFormat {
@@ -169,12 +226,28 @@ pub enum ImpactFormat {
     Text,
 }
 
+impl_subset_output_format!(
+    ImpactFormat,
+    &["toon", "text", "json"],
+    Toon => Toon,
+    Text => Text,
+    Json => Json,
+);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum TraceFormat {
     Toon,
     Json,
     Text,
 }
+
+impl_subset_output_format!(
+    TraceFormat,
+    &["toon", "text", "json"],
+    Toon => Toon,
+    Text => Text,
+    Json => Json,
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum AgentClient {
@@ -273,7 +346,7 @@ pub enum Command {
         folder: PathBuf,
         destination: ReportDestination,
         findings: FindingsShown,
-        format: ReportFormat,
+        format: Option<ReportFormat>,
         package: Option<String>,
         owner: Option<String>,
         coverage_reports: Vec<PathBuf>,
@@ -286,7 +359,7 @@ pub enum Command {
         head_ref: Option<String>,
         destination: ReportDestination,
         findings: FindingsShown,
-        format: ReportFormat,
+        format: Option<ReportFormat>,
         package: Option<String>,
         owner: Option<String>,
         result_cache: Option<PathBuf>,
@@ -296,7 +369,7 @@ pub enum Command {
         folder: PathBuf,
         range: TrendRange,
         destination: ReportDestination,
-        format: TrendFormat,
+        format: Option<TrendFormat>,
         result_cache: Option<PathBuf>,
         plugin_host: PluginHostConfig,
     },
@@ -307,7 +380,7 @@ pub enum Command {
         depth: Option<usize>,
         package: Option<String>,
         destination: ReportDestination,
-        format: ImpactFormat,
+        format: Option<ImpactFormat>,
         plugin_host: PluginHostConfig,
     },
     Trace {
@@ -318,7 +391,7 @@ pub enum Command {
         max_paths: usize,
         package: Option<String>,
         destination: ReportDestination,
-        format: TraceFormat,
+        format: Option<TraceFormat>,
         plugin_host: PluginHostConfig,
     },
     Init {
@@ -351,9 +424,10 @@ pub enum Command {
         overrides: ConfigOverrides,
     },
     Report {
+        folder: PathBuf,
         input: ReportInput,
         destination: ReportDestination,
-        format: ReportRenderFormat,
+        format: Option<ReportRenderFormat>,
     },
     Doctor {
         folder: PathBuf,
@@ -369,7 +443,7 @@ pub enum Command {
         window: ChurnWindow,
         destination: ReportDestination,
         findings: FindingsShown,
-        format: ChurnFormat,
+        format: Option<ChurnFormat>,
         plugin_host: PluginHostConfig,
     },
     Coupling {
@@ -377,7 +451,7 @@ pub enum Command {
         settings: CouplingSettings,
         destination: ReportDestination,
         findings: FindingsShown,
-        format: ChurnFormat,
+        format: Option<ChurnFormat>,
         plugin_host: PluginHostConfig,
     },
 }

@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use super::schema::{
     Budget, ConfigurationFile, DEFAULT_MIN_SIMILARITY, LanguageGlobs, NewFileBudgetsFile,
-    PluginKind, SourceSetBudgets, SourceSetGlobs,
+    OutputFormat, PluginKind, SourceSetBudgets, SourceSetGlobs,
 };
 use crate::RegressionLimits;
 use crate::boundaries::Boundaries;
@@ -88,6 +88,7 @@ impl PluginLimits {
 
 #[derive(Debug, Default)]
 pub struct Configuration {
+    pub format: OutputFormat,
     pub source_set_overrides: SourceSetOverrides,
     pub budgets: Budgets,
     pub new_file_budgets: Budgets,

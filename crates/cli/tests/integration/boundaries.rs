@@ -1051,7 +1051,7 @@ fn check_enforces_allow_external_deny_external_globs_builtins_and_source_sets_ac
     let rerendered_text =
         fixture.run_stdout(None, &["report", "saved-check.json", "--format", "text"], 0);
     assert!(rerendered_text.contains("@aws-sdk/client-s3"));
-    assert!(rerendered_text.contains("external_package"));
+    assert!(rerendered_text.contains("Boundaries findings"));
 
     fixture.write(
         "codeint.json",

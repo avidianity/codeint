@@ -5,8 +5,8 @@ use codeint_model::{Metric, SourceSet};
 use serde_json::{Value, json};
 
 use super::schema::{
-    Budget, ConfigurationFile, DuplicationConfigFile, LanguageGlobs, PluginEntry, SourceSetBudgets,
-    SourceSetGlobs,
+    Budget, ConfigurationFile, DuplicationConfigFile, LanguageGlobs, OutputFormat, PluginEntry,
+    SourceSetBudgets, SourceSetGlobs,
 };
 use super::shape;
 use super::types::{
@@ -95,8 +95,12 @@ pub(super) fn parse_value_with_overrides(
 ) -> Result<ResolvedConfiguration, ConfigurationFileError> {
     let file = parse_configuration_file(config_file_kind, raw.as_ref())?;
     let mut effective = file.without_schema_address();
+    let configured_format = file.format();
     let sections = file.into_sections();
     let mut settings = Vec::new();
+    let (format, format_source) =
+        resolve_with_provenance(OutputFormat::Toon, configured_format, None);
+    push_setting(&mut settings, "format", json!(format), format_source);
     let source_set_overrides = merge_source_sets(
         raw.as_ref(),
         effective.source_sets_mut(),
@@ -136,6 +140,7 @@ pub(super) fn parse_value_with_overrides(
         &mut settings,
     )?;
     let configuration = Configuration {
+        format,
         config_file: config_file_kind,
         effective,
         source_set_overrides,

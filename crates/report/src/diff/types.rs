@@ -63,6 +63,8 @@ pub struct DiffReport {
     pub(super) over_ratchet: Vec<RatchetFailure>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) regressions: Vec<Regression>,
+    #[serde(skip)]
+    pub(super) show_all: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -29,11 +29,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    AgentCommand, BaselineCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, PluginCommand,
-    RatchetCommand, ReportDestination, ReportInput, ReportRenderFormat, cli_schema,
-    read_invocation,
+    AgentCommand, BaselineCommand, Command, ConfigError, ConfigFileKind, DEFAULT_MAX_TRACE_PATHS,
+    OutputFormat, PluginCommand, RatchetCommand, ReportDestination, ReportInput,
+    ReportRenderFormat, cli_schema, read_configuration, read_invocation,
 };
-use codeint_git::ResultCache;
+use codeint_git::{GitError, Repository, ResultCache};
 use codeint_report::{ExitCodeSchema, ReportError, render_baseline_update};
 
 pub use codeint_config::{
@@ -360,6 +360,16 @@ enum CliError {
     Report(#[from] ReportError),
     #[error(transparent)]
     Rerender(#[from] report::RerenderError),
+    #[error(
+        "codeint {command} does not support configured format \"{format}\" in {config_file}; supported formats for codeint {command}: {}",
+        supported.join(", ")
+    )]
+    UnsupportedConfiguredFormat {
+        command: &'static str,
+        format: OutputFormat,
+        config_file: ConfigFileKind,
+        supported: &'static [&'static str],
+    },
     #[error("cannot write the report to standard output")]
     Output(#[source] std::io::Error),
     #[error("cannot write the report to {}", path.display())]
@@ -569,10 +579,11 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
             overrides,
         } => run_config(&folder, format, &overrides),
         Command::Report {
+            folder,
             input,
             destination,
             format,
-        } => run_report(&input, &destination, format),
+        } => run_report(&folder, &input, &destination, format),
         Command::Doctor {
             folder,
             format,
@@ -720,11 +731,52 @@ fn run_config(
     Ok(Outcome::Passed)
 }
 
+fn resolve_repo_format<F>(
+    folder: &Path,
+    explicit: Option<F>,
+    command: &'static str,
+    supported: &'static [&'static str],
+    convert: fn(OutputFormat) -> Option<F>,
+) -> Result<F, CliError> {
+    if let Some(format) = explicit {
+        return Ok(format);
+    }
+    let repository = Repository::discover(folder).map_err(check::CheckError::Git)?;
+    let configuration =
+        read_configuration(repository.root()).map_err(check::CheckError::Configuration)?;
+    convert(configuration.format).ok_or(CliError::UnsupportedConfiguredFormat {
+        command,
+        format: configuration.format,
+        config_file: configuration.config_file(),
+        supported,
+    })
+}
+
+fn resolve_report_format(
+    folder: &Path,
+    explicit: Option<ReportRenderFormat>,
+) -> Result<ReportRenderFormat, CliError> {
+    if let Some(format) = explicit {
+        return Ok(format);
+    }
+    match Repository::discover(folder) {
+        Ok(repository) => {
+            let configuration =
+                read_configuration(repository.root()).map_err(check::CheckError::Configuration)?;
+            Ok(ReportRenderFormat::from(configuration.format))
+        }
+        Err(GitError::NotInRepository { .. }) => Ok(ReportRenderFormat::Toon),
+        Err(error) => Err(CliError::Check(check::CheckError::Git(error))),
+    }
+}
+
 fn run_report(
+    folder: &Path,
     input: &ReportInput,
     destination: &ReportDestination,
-    format: ReportRenderFormat,
+    format: Option<ReportRenderFormat>,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_report_format(folder, format)?;
     let rendered = report::rerender(input, format)?;
     write_report(&rendered, destination)?;
     Ok(Outcome::Passed)
@@ -745,9 +797,16 @@ fn run_churn(
     window: ChurnWindow,
     destination: &ReportDestination,
     findings: FindingsShown,
-    format: ChurnFormat,
+    format: Option<ChurnFormat>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_repo_format(
+        folder,
+        format,
+        "churn",
+        ChurnFormat::SUPPORTED,
+        ChurnFormat::try_from_output_format,
+    )?;
     let report = churn::churn(folder, window, findings, plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::Passed)
@@ -758,9 +817,16 @@ fn run_coupling(
     settings: CouplingSettings,
     destination: &ReportDestination,
     findings: FindingsShown,
-    format: ChurnFormat,
+    format: Option<ChurnFormat>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_repo_format(
+        folder,
+        format,
+        "coupling",
+        ChurnFormat::SUPPORTED,
+        ChurnFormat::try_from_output_format,
+    )?;
     let report = coupling::coupling(folder, settings, findings, plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::Passed)
@@ -806,12 +872,17 @@ fn run_mcp(
     Ok(Outcome::Passed)
 }
 
+const REPORT_FORMATS: [&str; 5] = ["toon", "text", "json", "sarif", "markdown"];
+
 fn run_check(
     folder: &Path,
     destination: &ReportDestination,
-    format: ReportFormat,
+    format: Option<ReportFormat>,
     options: &CheckOptions,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_repo_format(folder, format, "check", &REPORT_FORMATS, |configured| {
+        Some(ReportFormat::from(configured))
+    })?;
     let report = check::check(folder, options.scope(), &options.plugin_host)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::from_failures(report.failure_messages()))
@@ -821,9 +892,12 @@ fn run_diff(
     folder: &Path,
     base_ref: &str,
     destination: &ReportDestination,
-    format: ReportFormat,
+    format: Option<ReportFormat>,
     options: &DiffOptions,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_repo_format(folder, format, "diff", &REPORT_FORMATS, |configured| {
+        Some(ReportFormat::from(configured))
+    })?;
     let report = measure_diff(folder, base_ref, options)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::from_failures(report.failure_messages()))
@@ -833,10 +907,17 @@ fn run_trend(
     folder: &Path,
     range: TrendRange,
     destination: &ReportDestination,
-    format: TrendFormat,
+    format: Option<TrendFormat>,
     result_cache: Option<PathBuf>,
     plugin_host: &PluginHostConfig,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_repo_format(
+        folder,
+        format,
+        "trend",
+        TrendFormat::SUPPORTED,
+        TrendFormat::try_from_output_format,
+    )?;
     let result_cache = result_cache.map(ResultCache::in_folder);
     let report = trend::trend(folder, range, result_cache.as_ref(), plugin_host)?;
     write_report(&report.render(format)?, destination)?;
@@ -847,8 +928,15 @@ fn run_impact(
     folder: &Path,
     request: &impact::ImpactRequest<'_>,
     destination: &ReportDestination,
-    format: ImpactFormat,
+    format: Option<ImpactFormat>,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_repo_format(
+        folder,
+        format,
+        "impact",
+        ImpactFormat::SUPPORTED,
+        ImpactFormat::try_from_output_format,
+    )?;
     let report = impact::impact(folder, request)?;
     write_report(&report.render(format)?, destination)?;
     Ok(Outcome::Passed)
@@ -859,9 +947,16 @@ fn run_trace(
     from: &str,
     to: &str,
     destination: &ReportDestination,
-    format: TraceFormat,
+    format: Option<TraceFormat>,
     options: &TraceOptions,
 ) -> Result<Outcome, CliError> {
+    let format = resolve_repo_format(
+        folder,
+        format,
+        "trace",
+        TraceFormat::SUPPORTED,
+        TraceFormat::try_from_output_format,
+    )?;
     let report = trace::trace(
         folder,
         from,

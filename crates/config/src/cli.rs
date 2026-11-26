@@ -181,7 +181,7 @@ fn build_report_command(
     current_folder: &Path,
     input: PathBuf,
     output: Option<PathBuf>,
-    format: ReportRenderFormat,
+    format: Option<ReportRenderFormat>,
 ) -> Result<Command, ConfigError> {
     let source = if input.as_os_str() == "-" {
         ReportInput::StandardInput
@@ -189,6 +189,7 @@ fn build_report_command(
         ReportInput::File(input)
     };
     Ok(Command::Report {
+        folder: current_folder.to_path_buf(),
         input: source,
         destination: report_destination(current_folder, output)?,
         format,
@@ -408,7 +409,7 @@ fn build_trend_command(
     current_folder: &Path,
     since: Option<CalendarDay>,
     output: Option<PathBuf>,
-    format: TrendFormat,
+    format: Option<TrendFormat>,
 ) -> Result<Command, ConfigError> {
     Ok(Command::Trend {
         folder: current_folder.to_path_buf(),

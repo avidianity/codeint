@@ -32,6 +32,15 @@ pub(crate) fn remedy(error: &CliError) -> Cow<'static, str> {
         Guard(error) => guard_remedy(error),
         Impact(error) => impact_remedy(error),
         Trace(error) => trace_remedy(error),
+        UnsupportedConfiguredFormat {
+            command,
+            config_file,
+            supported,
+            ..
+        } => Cow::Owned(format!(
+            "Pass --format with one of {} on the command line, or change format in {config_file} to a format supported by codeint {command}.",
+            supported.join(", ")
+        )),
         other => tooling_remedy(other),
     }
 }
@@ -61,7 +70,13 @@ fn tooling_remedy(error: &CliError) -> Cow<'static, str> {
         OutputFile { .. } => Cow::Borrowed(
             "Pass --output a file path that you have permission to write, not a folder.",
         ),
-        Config(_) | ConfigCommand(_) | Check(_) | Guard(_) | Impact(_) | Trace(_) => {
+        Config(_)
+        | ConfigCommand(_)
+        | Check(_)
+        | Guard(_)
+        | Impact(_)
+        | Trace(_)
+        | UnsupportedConfiguredFormat { .. } => {
             unreachable!("handled by remedy")
         }
     }

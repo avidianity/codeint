@@ -249,7 +249,7 @@ fn framework_profiles_wire_entry_points_import_hints_and_report_visibility_acros
     assert!(md.contains("| Framework profiles |"), "{md}");
 
     let text = render_saved_text(repo.path(), &report, "saved-check.json");
-    assert!(text.contains("framework_profiles"), "{text}");
+    assert!(text.contains("framework profiles: react, vue3"), "{text}");
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn sibling_framework_conflict_is_order_independent_and_emits_reference_range_not
     assert!(md.contains(note_a), "{md}");
 
     let text = render_saved_text(repo_a.path(), &report_a, "saved-conflict.json");
-    assert!(text.contains("reference_range_note:"), "{text}");
+    assert!(text.contains(note_a), "{text}");
 
     fs::write(
         repo_a.path().join("src/extra.rs"),

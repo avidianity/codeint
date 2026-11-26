@@ -95,7 +95,7 @@ fn verify_parity(
 ) {
     fs::write(root.join(file_name), saved_json).expect("save json");
 
-    for format in ["sarif", "markdown", "toon", "json"] {
+    for format in ["sarif", "markdown", "toon", "json", "text"] {
         let mut direct_args = base_args.to_vec();
         direct_args.extend(["--format", format]);
         let direct = invoke(root, cache, &direct_args, None);
@@ -122,16 +122,6 @@ fn verify_parity(
             );
         }
     }
-
-    let direct_default = invoke(root, cache, base_args, None);
-    let from_text = invoke(
-        root,
-        cache,
-        &["report", "-", "--format", "text"],
-        Some(saved_json),
-    );
-    assert_eq!(from_text.status.code(), Some(0));
-    assert_eq!(utf8(&from_text.stdout), utf8(&direct_default.stdout));
 }
 
 fn capture_and_verify_parity(

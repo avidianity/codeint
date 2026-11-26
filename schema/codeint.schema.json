@@ -10,6 +10,10 @@
       "description": "The address of this JSON schema, for editors; codeint does not read it.",
       "default": null
     },
+    "format": {
+      "$ref": "#/$defs/OutputFormat",
+      "description": "Default output format for check, diff, trend, report, impact, trace, churn, and coupling: toon, text, json, sarif, or markdown. Omitted defaults to toon. CLI --format always overrides this setting."
+    },
     "source_sets": {
       "$ref": "#/$defs/SourceSetGlobs",
       "description": "Globs of repository-relative paths that put files into a Source set, whatever the Source set rules say. When globs of several Source sets match one file, the first of vendored, generated, test, and production wins.",
@@ -114,6 +118,16 @@
   "description": "The configuration of codeint, read from codeint.json, codeint.jsonc, .codeint/config.json, or .codeint/config.jsonc at the root of the repository.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "OutputFormat": {
+      "type": "string",
+      "enum": [
+        "toon",
+        "text",
+        "json",
+        "sarif",
+        "markdown"
+      ]
+    },
     "SourceSetGlobs": {
       "type": "object",
       "additionalProperties": false,

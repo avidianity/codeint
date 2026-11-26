@@ -197,6 +197,7 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
         .iter()
         .map(|k| k.as_str().expect("config key string"))
         .collect();
+    assert!(config_keys.contains("format"));
     assert!(config_keys.contains("coverage_reports"));
     assert!(config_keys.contains("budgets"));
     assert!(config_keys.contains("sql"));
@@ -238,6 +239,26 @@ fn schema_matches_live_cli_commands_flags_metrics_formats_mcp_tools_version_and_
         format_names,
         BTreeSet::from(["json", "markdown", "sarif", "text", "toon"])
     );
+    let text_format = manifest["output_formats"]
+        .as_array()
+        .expect("output_formats array")
+        .iter()
+        .find(|f| f["name"].as_str() == Some("text"))
+        .expect("text output format");
+    let text_commands: BTreeSet<&str> = text_format["commands"]
+        .as_array()
+        .expect("text commands array")
+        .iter()
+        .map(|cmd| cmd.as_str().expect("command string"))
+        .collect();
+    for expected in [
+        "check", "diff", "trend", "report", "impact", "trace", "churn", "coupling",
+    ] {
+        assert!(
+            text_commands.contains(expected),
+            "text format missing command {expected} in {text_commands:?}"
+        );
+    }
 
     let mcp_tools = live_mcp_tools(non_repo.path());
     assert_eq!(manifest["mcp_tools"], mcp_tools);

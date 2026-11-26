@@ -31,7 +31,7 @@ pub use discovery::{
     discover_config_file, inspect_configuration, is_broken_symlink, read_configuration,
     read_resolved_configuration, schema_value_span,
 };
-pub use schema::{Budget, PluginKind, configuration_schema};
+pub use schema::{Budget, OutputFormat, PluginKind, configuration_schema};
 pub use starter::{
     DetectedLanguage, StarterBoundaries, StarterBoundaryZone, StarterConfigurationError,
     published_schema_address, write_adoption_starter_configuration, write_adoption_zero_budgets,

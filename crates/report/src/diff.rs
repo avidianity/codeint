@@ -16,6 +16,7 @@ mod markdown;
 mod regressions;
 #[cfg(test)]
 mod tests;
+mod text;
 mod types;
 
 pub(crate) use types::Regression;
@@ -122,6 +123,7 @@ impl DiffReport {
             ratchet_note: None,
             manifest_warnings,
             dependencies,
+            show_all: options.findings == FindingsShown::All,
         }
     }
 
@@ -181,6 +183,7 @@ impl DiffReport {
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
         match format {
             ReportFormat::Toon => crate::render_toon(self),
+            ReportFormat::Text => Ok(text::render(self)),
             ReportFormat::Json => crate::render_json(self),
             ReportFormat::Sarif => serde_json::to_string_pretty(&self.new_findings_as_sarif())
                 .map_err(ReportError::Sarif),
