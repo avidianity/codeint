@@ -7,15 +7,19 @@
         "metric_version": 1
       },
       "cognitive_complexity": {
-        "ceiling": 0.0476,
+        "ceiling": 0.0392,
         "metric_version": 1
       },
       "duplication": {
-        "ceiling": 0.007,
+        "ceiling": 0.0183,
         "metric_version": 1
       },
       "erosion": {
-        "ceiling": 0.0638,
+        "ceiling": 0.0537,
+        "metric_version": 1
+      },
+      "hazards": {
+        "ceiling": 0.0,
         "metric_version": 1
       },
       "import_cycles": {
@@ -27,21 +31,21 @@
         "metric_version": 1
       },
       "verbosity": {
-        "ceiling": 0.0004,
+        "ceiling": 0.0003,
         "metric_version": 2
       }
     },
     "test": {
       "cognitive_complexity": {
-        "ceiling": 0.0709,
+        "ceiling": 0.026,
         "metric_version": 1
       },
       "duplication": {
-        "ceiling": 0.0371,
+        "ceiling": 0.0425,
         "metric_version": 1
       },
       "erosion": {
-        "ceiling": 0.0196,
+        "ceiling": 0.0069,
         "metric_version": 1
       },
       "import_cycles": {
@@ -63,6 +67,10 @@
         "metric_version": 1
       },
       "erosion": {
+        "ceiling": 0.0,
+        "metric_version": 1
+      },
+      "hazards": {
         "ceiling": 0.0,
         "metric_version": 1
       },

@@ -1,0 +1,1740 @@
+{
+  "schema_version": 2,
+  "source_sets": {
+    "production": {
+      "boundaries": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "cognitive_complexity": {
+        "metric_version": 1,
+        "findings": [
+          {
+            "id": "091c5a39b3233962",
+            "content": "00b88979428c8d40",
+            "before": "c857742cbde5ca1c",
+            "after": "0f6d3bbcb5d728f5",
+            "line": 175
+          },
+          {
+            "id": "1285d63d2e167ba6",
+            "content": "b28fca2cca447111",
+            "before": "c857742cbde5ca1c",
+            "after": "5f5179a28b1a1965",
+            "line": 302
+          },
+          {
+            "id": "183fba8069e3fa6e",
+            "content": "4beeb9f481947ca4",
+            "before": "c857742cbde5ca1c",
+            "after": "e8853c0c6734aa2f",
+            "line": 95
+          },
+          {
+            "id": "22a7b68e770f9423",
+            "content": "bbebb7426086072c",
+            "before": "c857742cbde5ca1c",
+            "after": "09e9a2622130beca",
+            "line": 41
+          },
+          {
+            "id": "35a5b84b4d17e0f9",
+            "content": "932cba799f889c7b",
+            "before": "c857742cbde5ca1c",
+            "after": "1c8daf324706ff1a",
+            "line": 99
+          },
+          {
+            "id": "3bf255ab48a318f5",
+            "content": "ccac8466da45b146",
+            "before": "c7a25b643a92af4c",
+            "after": "fb4d4f27af2ea598",
+            "line": 5
+          },
+          {
+            "id": "4898439730453d90",
+            "content": "5db2a579dfb50d51",
+            "before": "c857742cbde5ca1c",
+            "after": "d24e2310ee61d607",
+            "line": 322
+          },
+          {
+            "id": "77b497cc70453f5f",
+            "content": "9809925e8ed6f271",
+            "before": "c857742cbde5ca1c",
+            "after": "8af65b8c196cd819",
+            "line": 121
+          },
+          {
+            "id": "7ecce461cd5526d8",
+            "content": "3057ea4d28cec19c",
+            "before": "c857742cbde5ca1c",
+            "after": "0e063447927f7086",
+            "line": 34
+          },
+          {
+            "id": "803cf256935bc532",
+            "content": "cb6cd45a7ee9be8d",
+            "before": "c857742cbde5ca1c",
+            "after": "2e302a0b0bb5aed3",
+            "line": 51
+          },
+          {
+            "id": "83a0cbae2a64b3f0",
+            "content": "e70c9938e47d5466",
+            "before": "c857742cbde5ca1c",
+            "after": "b942d2be4158b553",
+            "line": 97
+          },
+          {
+            "id": "867f91933165b44c",
+            "content": "12666caa3ad9e404",
+            "before": "c857742cbde5ca1c",
+            "after": "1d15f524ee85372f",
+            "line": 137
+          },
+          {
+            "id": "923721f13bb9a1ed",
+            "content": "d0f4fcd2d941cccc",
+            "before": "c857742cbde5ca1c",
+            "line": 27
+          },
+          {
+            "id": "b24e2747726cbb2d",
+            "content": "eadffc277d55a0a4",
+            "before": "c857742cbde5ca1c",
+            "after": "aa15a2ca75082d89",
+            "line": 178
+          },
+          {
+            "id": "ccc83dbc79aaeb7a",
+            "content": "8bc0d909627fceb7",
+            "before": "c857742cbde5ca1c",
+            "after": "f66aec5497460d4e",
+            "line": 418
+          },
+          {
+            "id": "d597559d0b46955c",
+            "content": "85bc6cfabb39c2be",
+            "before": "c857742cbde5ca1c",
+            "after": "5fb8bf43beaad1ef",
+            "line": 171
+          },
+          {
+            "id": "dd28cff9a90c9787",
+            "content": "9b16acdba71c37b2",
+            "before": "c857742cbde5ca1c",
+            "after": "74b0bc38cd028190",
+            "line": 101
+          },
+          {
+            "id": "dd9e5d0dee0114ee",
+            "content": "df6cd695303120ac",
+            "before": "c857742cbde5ca1c",
+            "line": 237
+          }
+        ]
+      },
+      "duplication": {
+        "metric_version": 1,
+        "findings": [
+          {
+            "id": "098e7496e37e1b16",
+            "content": "e655447b8d503f7d",
+            "before": "b80caff8aea47a24",
+            "after": "6c65d278ea146e0c",
+            "line": 147
+          },
+          {
+            "id": "16f4c89eaa4a0b15",
+            "content": "8f8ee1dab58c9780",
+            "before": "63b39e9ae83ef113",
+            "after": "32232af8e9d54e38",
+            "line": 142
+          },
+          {
+            "id": "17a4a6b465b416c7",
+            "content": "e55eca54c4fdd2da",
+            "before": "e8561520a84b2dc8",
+            "after": "1394c5a04826411e",
+            "line": 977
+          },
+          {
+            "id": "1cf90d324c3f64c1",
+            "content": "bc411fcbb2ea3477",
+            "before": "9698becad51cb758",
+            "after": "5d6aa9becf5d3bfb",
+            "line": 492
+          },
+          {
+            "id": "1e50203faa9c6984",
+            "content": "a3375ea9025731aa",
+            "before": "63b39e9ae83ef113",
+            "after": "1611b7cb384cf335",
+            "line": 23
+          },
+          {
+            "id": "2ad6b786b46292f9",
+            "content": "a23e35da87fe40c2",
+            "before": "63b39e9ae83ef113",
+            "after": "4d4e5f57ca42eb06",
+            "line": 89
+          },
+          {
+            "id": "30fd64bfc831a7a3",
+            "content": "dc6b8711ac2b98b2",
+            "before": "8730e506794fb264",
+            "after": "baed1e6367715bb6",
+            "line": 222
+          },
+          {
+            "id": "32d7e28f521dd537",
+            "content": "ce7ef7bd3c78efdb",
+            "before": "6c44f18d14be9636",
+            "after": "5afc2dc401066cb7",
+            "line": 411
+          },
+          {
+            "id": "37e74704ba6746aa",
+            "content": "5c356600c251714c",
+            "before": "63b39e9ae83ef113",
+            "after": "0d2086213524d13c",
+            "line": 202
+          },
+          {
+            "id": "3a11877df9b56c21",
+            "content": "37b21597d2668efd",
+            "before": "17b74341167630c8",
+            "after": "b8a5303dc6b24871",
+            "line": 67
+          },
+          {
+            "id": "3da71a2235595a4c",
+            "content": "4aa316683230ba72",
+            "before": "b20ed53755909a12",
+            "after": "56e9e79eb94836e8",
+            "line": 64
+          },
+          {
+            "id": "3eda86bf30d0815f",
+            "content": "eaa6f811abb8bd65",
+            "before": "6c3e08e2ae341fb1",
+            "after": "d07930f0a289163f",
+            "line": 32
+          },
+          {
+            "id": "4b358abbed9c5d1a",
+            "content": "f63ba0224e22059b",
+            "before": "dd232275b0d2acb7",
+            "after": "63b39e9ae83ef113",
+            "line": 131
+          },
+          {
+            "id": "4e9bc5b6899b61bf",
+            "content": "30a6a5ceb60703f5",
+            "before": "63b39e9ae83ef113",
+            "after": "4d72da8d3b5937f0",
+            "line": 94
+          },
+          {
+            "id": "566ea75890b26d39",
+            "content": "41e39d1746aca4fa",
+            "before": "43fdfa135cf648cf",
+            "after": "5d6aa9becf5d3bfb",
+            "line": 340
+          },
+          {
+            "id": "5a3f1a8347f5bc1d",
+            "content": "2cd0ad08dbe87901",
+            "before": "f19f7bf0f027e467",
+            "after": "c26f3311715d39ae",
+            "line": 1014
+          },
+          {
+            "id": "64de3fcf0728a399",
+            "content": "29f84684d81d373d",
+            "before": "63b39e9ae83ef113",
+            "after": "f5ae6773959885ca",
+            "line": 25
+          },
+          {
+            "id": "788bd4bc84e2a140",
+            "content": "f79e7e03fde1b2cf",
+            "before": "69d12fe4a391134d",
+            "after": "864844d27a4297d2",
+            "line": 197
+          },
+          {
+            "id": "7ec5822f3626fe51",
+            "content": "f85b1f5a8e5e4719",
+            "before": "63b39e9ae83ef113",
+            "after": "b8637ff71c4e02a1",
+            "line": 520
+          },
+          {
+            "id": "7eef89b2e00945e5",
+            "content": "7af4704b557746df",
+            "before": "88d8c8c6f45cf110",
+            "after": "a194053605308ae6",
+            "line": 270
+          },
+          {
+            "id": "861bee7194413828",
+            "content": "31d983c04ac009ef",
+            "before": "63b39e9ae83ef113",
+            "after": "2f00845ad39ba058",
+            "line": 228
+          },
+          {
+            "id": "879b806e27b7ccc7",
+            "content": "f647ec56d164abd3",
+            "before": "4cfdd33715c2ec4d",
+            "after": "2cfaf3cd9ecaa499",
+            "line": 104
+          },
+          {
+            "id": "a5db6daece88f7d2",
+            "content": "5f82babb41c1a38a",
+            "before": "486b320e8e2d43b9",
+            "after": "63b39e9ae83ef113",
+            "line": 315
+          },
+          {
+            "id": "a64026366461f9c6",
+            "content": "9cb81cb5c168f374",
+            "before": "56bfb18dcf67f713",
+            "after": "5929ea514199a2d3",
+            "line": 1008
+          },
+          {
+            "id": "a79a0553d1db897b",
+            "content": "fbc3ce8f41fa17ed",
+            "before": "63b39e9ae83ef113",
+            "after": "cc236ccf3fee4048",
+            "line": 884
+          },
+          {
+            "id": "ae59e9ae8dfd0df8",
+            "content": "5a8403144f54d843",
+            "before": "63b39e9ae83ef113",
+            "after": "79dc8c1d99229989",
+            "line": 427
+          },
+          {
+            "id": "b1c51ca05d4610db",
+            "content": "6e37a570e0161cce",
+            "before": "63b39e9ae83ef113",
+            "after": "670b43e929b4f607",
+            "line": 247
+          },
+          {
+            "id": "b1d1d37264d95a80",
+            "content": "f3de1cdb39b111f0",
+            "before": "ee1d2acd8d81568b",
+            "after": "2be85d88da18209c",
+            "line": 7
+          },
+          {
+            "id": "b25a638581d1c7f4",
+            "content": "0c3650cdea397885",
+            "before": "4b8e56209359e797",
+            "after": "e596ed64b285f55a",
+            "line": 12
+          },
+          {
+            "id": "b72ce0a12039c74e",
+            "content": "c277d3a8f330d258",
+            "before": "4b8e56209359e797",
+            "after": "cf681ca89d9ae718",
+            "line": 6
+          },
+          {
+            "id": "b83defe3f11c7e3f",
+            "content": "d94caa42394e1547",
+            "before": "22cf036c5f11ad2b",
+            "after": "84b654d3be3c53ae",
+            "line": 222
+          },
+          {
+            "id": "b9c7b1e4212020dd",
+            "content": "e48fbb0677bf8f5b",
+            "before": "4b8e56209359e797",
+            "after": "b8efe6b31b06b9a8",
+            "line": 12
+          },
+          {
+            "id": "ba68fa20f3da87ed",
+            "content": "8bc297afd7e02f75",
+            "before": "63b39e9ae83ef113",
+            "after": "bf4bd82070fc20b5",
+            "line": 247
+          },
+          {
+            "id": "bd7841b1938b5c53",
+            "content": "b8059c90d86a6a23",
+            "before": "6d3050ad0ea7dc93",
+            "after": "19e7e4001367522c",
+            "line": 127
+          },
+          {
+            "id": "d103812048048e07",
+            "content": "d6475e766077e73d",
+            "before": "d4a4a75d99068ba5",
+            "after": "84db85c99d4726f2",
+            "line": 6
+          },
+          {
+            "id": "d2ead04aaedb0f22",
+            "content": "507d3b4c95828e3c",
+            "before": "aee8d1cced48975e",
+            "after": "020bc37654357136",
+            "line": 245
+          },
+          {
+            "id": "d46be469a49c9a26",
+            "content": "c6b4729bba58334f",
+            "before": "cd90965f50745e21",
+            "after": "7aab7f6d947f9156",
+            "line": 12
+          },
+          {
+            "id": "d5e7561e658d068f",
+            "content": "adc4ab58f545f551",
+            "before": "63b39e9ae83ef113",
+            "after": "ea98d8a6a8f34adc",
+            "line": 683
+          },
+          {
+            "id": "d8150aace59253f2",
+            "content": "b7db51802b3f589c",
+            "before": "63b39e9ae83ef113",
+            "after": "52172da1547cd20d",
+            "line": 507
+          },
+          {
+            "id": "d84caea457f3d16d",
+            "content": "e3fccbeedb8f2fcd",
+            "before": "09450030c29dfee9",
+            "after": "516372a29b36d048",
+            "line": 66
+          },
+          {
+            "id": "e2e892cb1fa80479",
+            "content": "9dc7f086282618b0",
+            "before": "f5260e9b2e37c330",
+            "after": "384949855c2f098d",
+            "line": 292
+          },
+          {
+            "id": "eed3b680b0034c9e",
+            "content": "dc386686ad9de065",
+            "before": "63b39e9ae83ef113",
+            "after": "94362391e289db81",
+            "line": 275
+          },
+          {
+            "id": "f54c01a5cc956fd5",
+            "content": "3ca90129eb254180",
+            "before": "b25d5d7c678c5864",
+            "after": "63b39e9ae83ef113",
+            "line": 88
+          },
+          {
+            "id": "f57ed2e57026b33b",
+            "content": "9367309aa05cafbb",
+            "before": "63b39e9ae83ef113",
+            "after": "91577bd0636a27ef",
+            "line": 148
+          },
+          {
+            "id": "f67b802271e4672c",
+            "content": "edf124e5da5b6b1a",
+            "before": "63b39e9ae83ef113",
+            "after": "dde1cf420f8b865a",
+            "line": 1006
+          },
+          {
+            "id": "fa606496f522c5b3",
+            "content": "f392628f21344712",
+            "before": "63b39e9ae83ef113",
+            "after": "9f7c3eaa03b9d654",
+            "line": 41
+          },
+          {
+            "id": "fabe99a7646e202f",
+            "content": "24edf70347a249b5",
+            "before": "296c057643e2e1d0",
+            "after": "9dd4bea3615c92e3",
+            "line": 79
+          }
+        ]
+      },
+      "erosion": {
+        "metric_version": 1,
+        "findings": [
+          {
+            "id": "0d86ed5550901163",
+            "content": "ccef734ccf3688cb",
+            "before": "c857742cbde5ca1c",
+            "after": "aa15a2ca75082d89",
+            "line": 178
+          },
+          {
+            "id": "1c64d960cf4d5abb",
+            "content": "2caf4b2b8f196d4c",
+            "before": "89adaf009a043092",
+            "after": "34032dfd06cbf3eb",
+            "line": 31
+          },
+          {
+            "id": "22ffb7e20d23d609",
+            "content": "97657ae0f7ac8833",
+            "before": "c857742cbde5ca1c",
+            "after": "5fb8bf43beaad1ef",
+            "line": 171
+          },
+          {
+            "id": "313417bec9b5104e",
+            "content": "b3e383c1d885350b",
+            "before": "c857742cbde5ca1c",
+            "after": "0e063447927f7086",
+            "line": 34
+          },
+          {
+            "id": "3243375a7dfaf309",
+            "content": "13f4c43042b8388b",
+            "before": "c857742cbde5ca1c",
+            "line": 27
+          },
+          {
+            "id": "32c36d0463dd03e1",
+            "content": "da15b2bc0e0863d6",
+            "before": "c857742cbde5ca1c",
+            "after": "1c8daf324706ff1a",
+            "line": 99
+          },
+          {
+            "id": "43fd261be9abdda8",
+            "content": "49301d6bc10452d3",
+            "before": "c857742cbde5ca1c",
+            "after": "c857742cbde5ca1c",
+            "line": 105
+          },
+          {
+            "id": "455bd8aa8c24d1fd",
+            "content": "9cf7b71ca955edab",
+            "before": "c857742cbde5ca1c",
+            "after": "0f6d3bbcb5d728f5",
+            "line": 175
+          },
+          {
+            "id": "458864f198d8a7d2",
+            "content": "0ef2c119748862eb",
+            "before": "c857742cbde5ca1c",
+            "line": 319
+          },
+          {
+            "id": "4da5204d9abe5ab6",
+            "content": "fcc96a1b39de71bd",
+            "before": "c857742cbde5ca1c",
+            "after": "e0a678945c99bb79",
+            "line": 185
+          },
+          {
+            "id": "53cd9fbf5e8d374b",
+            "content": "84b9d2793bb34a14",
+            "before": "c857742cbde5ca1c",
+            "line": 348
+          },
+          {
+            "id": "5e4e4646e3214d4e",
+            "content": "98d1dddccca794fe",
+            "before": "3ae444abe244c1a0",
+            "after": "357c45af964c811e",
+            "line": 40
+          },
+          {
+            "id": "5ea7d3df39bfae54",
+            "content": "0e9ea182afcda6ea",
+            "before": "c857742cbde5ca1c",
+            "after": "ff9cf266b95c34cb",
+            "line": 265
+          },
+          {
+            "id": "723d41c47efb41f9",
+            "content": "9a9918737bec1207",
+            "before": "c857742cbde5ca1c",
+            "after": "57c27bc31785ce34",
+            "line": 236
+          },
+          {
+            "id": "73f9b9b01dc9eebc",
+            "content": "7c2e75e10c340f3c",
+            "before": "c857742cbde5ca1c",
+            "after": "2e302a0b0bb5aed3",
+            "line": 51
+          },
+          {
+            "id": "758bb69b51ab26b0",
+            "content": "8e855a9468239950",
+            "before": "c857742cbde5ca1c",
+            "after": "bb7f0216a4f63f48",
+            "line": 580
+          },
+          {
+            "id": "7f6f33d07e73c1ad",
+            "content": "dbae7248737cc92b",
+            "before": "c857742cbde5ca1c",
+            "after": "bc5a11090c469497",
+            "line": 86
+          },
+          {
+            "id": "9fd4124291833cbe",
+            "content": "c2b50798fe3b4420",
+            "before": "c857742cbde5ca1c",
+            "after": "f66aec5497460d4e",
+            "line": 418
+          },
+          {
+            "id": "a03d1ccfa2d26d4d",
+            "content": "4d49b99df7996454",
+            "before": "c857742cbde5ca1c",
+            "line": 340
+          },
+          {
+            "id": "ad8f9f08a26ca6d4",
+            "content": "e139c008058f5726",
+            "before": "c857742cbde5ca1c",
+            "after": "5f5179a28b1a1965",
+            "line": 302
+          },
+          {
+            "id": "bd55103954e4df9d",
+            "content": "87b2d073376c4a9b",
+            "before": "c857742cbde5ca1c",
+            "after": "0371f7958456c6b0",
+            "line": 231
+          },
+          {
+            "id": "c2edd32645708043",
+            "content": "40d4a2dc0e0c433b",
+            "before": "c7a25b643a92af4c",
+            "after": "fb4d4f27af2ea598",
+            "line": 5
+          },
+          {
+            "id": "c4a500b990e97c68",
+            "content": "c03358467f70ec41",
+            "before": "c857742cbde5ca1c",
+            "line": 111
+          },
+          {
+            "id": "c6b60c41844a4652",
+            "content": "da17cf1eee4e7ca9",
+            "before": "c857742cbde5ca1c",
+            "after": "e3392982bf1a53b3",
+            "line": 279
+          },
+          {
+            "id": "ccc2382d2932dbae",
+            "content": "62795ec704a280eb",
+            "before": "c857742cbde5ca1c",
+            "after": "0115d3386594630c",
+            "line": 48
+          },
+          {
+            "id": "cdfb918ee3d6514b",
+            "content": "4326aaef1fd9db79",
+            "before": "c857742cbde5ca1c",
+            "line": 185
+          },
+          {
+            "id": "ce5f60ac0db41e84",
+            "content": "3b86895f932e896a",
+            "before": "c857742cbde5ca1c",
+            "after": "9a54cb89d5948be2",
+            "line": 39
+          },
+          {
+            "id": "d0da52b8202188df",
+            "content": "5ed0d21b1d09bcaf",
+            "before": "c857742cbde5ca1c",
+            "after": "213ab26859e9f663",
+            "line": 239
+          },
+          {
+            "id": "e0781d4edaf0b65a",
+            "content": "49e14338b65bc8cd",
+            "before": "c857742cbde5ca1c",
+            "after": "09e9a2622130beca",
+            "line": 41
+          },
+          {
+            "id": "f0fd407c6cff376d",
+            "content": "dc9925658982c1c9",
+            "before": "c857742cbde5ca1c",
+            "after": "1d15f524ee85372f",
+            "line": 137
+          },
+          {
+            "id": "f6dc288e5d11c5f9",
+            "content": "6ffbc7dbda0a1aa2",
+            "before": "c857742cbde5ca1c",
+            "after": "a0332c6a5afd8980",
+            "line": 33
+          }
+        ]
+      },
+      "hazards": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "import_cycles": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "orphan_files": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "verbosity": {
+        "metric_version": 2,
+        "findings": [
+          {
+            "id": "0bc9c293e17049e6",
+            "content": "666bfafe80007af6",
+            "before": "22d0918afd728266",
+            "after": "9c4feea826130bb6",
+            "line": 359
+          },
+          {
+            "id": "1a5812acf76573d1",
+            "content": "48298d8efcd14350",
+            "before": "df0b1310a71c8410",
+            "after": "c857742cbde5ca1c",
+            "line": 132
+          },
+          {
+            "id": "3e031d691e549722",
+            "content": "07b4b4fdd4ab6c60",
+            "before": "0885c380d309634d",
+            "after": "c857742cbde5ca1c",
+            "line": 131
+          },
+          {
+            "id": "4fcddfde17664e55",
+            "content": "dea63f3d4c8c3775",
+            "before": "7b62559350f0f273",
+            "after": "88490c3002ce2835",
+            "line": 30
+          },
+          {
+            "id": "6be560869cbe7d40",
+            "content": "237c61656538daf3",
+            "before": "698ecffea06abe4a",
+            "after": "0e9bd7ae0a249b53",
+            "line": 180
+          },
+          {
+            "id": "6c4792bcf097d887",
+            "content": "a30411f44f83a432",
+            "before": "b4ee848831e6d2d6",
+            "after": "e7ffdccd4034742b",
+            "line": 127
+          },
+          {
+            "id": "781f59be3d18c50c",
+            "content": "b69c0f6d36db55d8",
+            "before": "fca68a66247be0c2",
+            "after": "c857742cbde5ca1c",
+            "line": 335
+          },
+          {
+            "id": "8e65bb8f38642d74",
+            "content": "49fafc157a6f8b69",
+            "before": "568697d5faec95b5",
+            "after": "ecef6a7bb0f68f49",
+            "line": 885
+          },
+          {
+            "id": "969bc8b521f2a0db",
+            "content": "acb624f41cda5db5",
+            "before": "0dfe2fe38d208331",
+            "after": "df0b1310a71c8410",
+            "line": 130
+          },
+          {
+            "id": "971a20c748080f2d",
+            "content": "b69c0f6d36db55d8",
+            "before": "fca68a66247be0c2",
+            "after": "c857742cbde5ca1c",
+            "line": 288
+          },
+          {
+            "id": "9ddc3ec42cff9408",
+            "content": "03cc578dbe041723",
+            "before": "7b40cf83dd186532",
+            "after": "0dfe2fe38d208331",
+            "line": 128
+          },
+          {
+            "id": "9f1260dc23b92c63",
+            "content": "54071de46315d6d0",
+            "before": "3d0709fa07810c53",
+            "after": "804b132d86d72362",
+            "line": 284
+          },
+          {
+            "id": "a3ffc17679c5e7c4",
+            "content": "da40ea4b0d45773d",
+            "before": "22d0918afd728266",
+            "after": "22d0918afd728266",
+            "line": 283
+          },
+          {
+            "id": "b430549efb61fbdc",
+            "content": "f1134914f8f2ea0e",
+            "before": "9c4feea826130bb6",
+            "after": "c857742cbde5ca1c",
+            "line": 287
+          },
+          {
+            "id": "be55a3040e3e9414",
+            "content": "ac846098db97fbea",
+            "before": "804b132d86d72362",
+            "after": "fca68a66247be0c2",
+            "line": 286
+          },
+          {
+            "id": "cdd43481cb91b5a4",
+            "content": "666bfafe80007af6",
+            "before": "22d0918afd728266",
+            "after": "9c4feea826130bb6",
+            "line": 285
+          },
+          {
+            "id": "d32b1ba8065145fd",
+            "content": "f1134914f8f2ea0e",
+            "before": "9c4feea826130bb6",
+            "after": "c857742cbde5ca1c",
+            "line": 334
+          },
+          {
+            "id": "d50faed95de6a36f",
+            "content": "b69c0f6d36db55d8",
+            "before": "fca68a66247be0c2",
+            "after": "c857742cbde5ca1c",
+            "line": 362
+          },
+          {
+            "id": "dd506a0d192dde35",
+            "content": "ac846098db97fbea",
+            "before": "804b132d86d72362",
+            "after": "fca68a66247be0c2",
+            "line": 333
+          },
+          {
+            "id": "eccefb8ad680ffc5",
+            "content": "666bfafe80007af6",
+            "before": "22d0918afd728266",
+            "after": "9c4feea826130bb6",
+            "line": 332
+          },
+          {
+            "id": "edf7907f49f47015",
+            "content": "72aa3c2f9f7eed6f",
+            "before": "e7ffdccd4034742b",
+            "after": "0885c380d309634d",
+            "line": 129
+          },
+          {
+            "id": "f225e2b11140901e",
+            "content": "f1134914f8f2ea0e",
+            "before": "9c4feea826130bb6",
+            "after": "c857742cbde5ca1c",
+            "line": 361
+          },
+          {
+            "id": "f5d6359329c6241e",
+            "content": "d079048c6cfe246c",
+            "before": "76cc4135e6a6c741",
+            "after": "7b40cf83dd186532",
+            "line": 126
+          },
+          {
+            "id": "fc4b3116241d2856",
+            "content": "ac846098db97fbea",
+            "before": "804b132d86d72362",
+            "after": "fca68a66247be0c2",
+            "line": 360
+          }
+        ]
+      }
+    },
+    "test": {
+      "cognitive_complexity": {
+        "metric_version": 1,
+        "findings": [
+          {
+            "id": "4ee42a71437e26e8",
+            "content": "edaba53df142a422",
+            "before": "c857742cbde5ca1c",
+            "after": "0b097e8a111ea6ab",
+            "line": 37
+          },
+          {
+            "id": "ce630d31a3749838",
+            "content": "c38633598bb67045",
+            "before": "0b097e8a111ea6ab",
+            "after": "4023f77803e61fce",
+            "line": 47
+          }
+        ]
+      },
+      "duplication": {
+        "metric_version": 1,
+        "findings": [
+          {
+            "id": "029346b81756f04f",
+            "content": "f33e2cb7f6d93166",
+            "before": "6ef6c897593ed66a",
+            "after": "723c5c124149c968",
+            "line": 1632
+          },
+          {
+            "id": "081031480f20020c",
+            "content": "da854657b2463ed1",
+            "before": "63b39e9ae83ef113",
+            "after": "ce33fdcbdc45de5d",
+            "line": 36
+          },
+          {
+            "id": "09a16a68b5a2d3b3",
+            "content": "c1e59f5ec7447b7b",
+            "before": "8ba061c2e64a2bef",
+            "after": "d84c666a28552619",
+            "line": 619
+          },
+          {
+            "id": "0b516bebeb06ecdc",
+            "content": "830217bb250b4319",
+            "before": "2f5d1190f14e67c0",
+            "after": "47298c7a467011d0",
+            "line": 2395
+          },
+          {
+            "id": "0b978f345ed4bb97",
+            "content": "58d4c07b744ee352",
+            "before": "3b0121ccf80794a7",
+            "after": "d07949c1e32aec65",
+            "line": 4740
+          },
+          {
+            "id": "0bf8d60806269568",
+            "content": "d2a86f9ebd0e7152",
+            "before": "ee1902172346c97f",
+            "after": "74754bba8047016b",
+            "line": 992
+          },
+          {
+            "id": "1416be50dcd8c43a",
+            "content": "ee2928e79f9c3581",
+            "before": "3250bfab4df3ad64",
+            "after": "7f5dc988af7e851e",
+            "line": 369
+          },
+          {
+            "id": "1428a55b33ef1b87",
+            "content": "87e8a4f3548e4a04",
+            "before": "e8cb1ededa94b003",
+            "after": "bab8fe50b8e58d2f",
+            "line": 12
+          },
+          {
+            "id": "15e506ca32435834",
+            "content": "6d78fac49bc6dd74",
+            "before": "1aa27e7c0128c4c9",
+            "after": "ce226deda6ee3c39",
+            "line": 152
+          },
+          {
+            "id": "15f210a6279a3ace",
+            "content": "c1e0f1037c8da952",
+            "before": "4b8e56209359e797",
+            "line": 20
+          },
+          {
+            "id": "1723f6b5ec40fbd0",
+            "content": "f36d75283924cf0c",
+            "before": "f092bde4a3e82a9b",
+            "after": "5b07df471bc0f18e",
+            "line": 87
+          },
+          {
+            "id": "1761d9efcf0cd6e8",
+            "content": "eb545d20bd16c3eb",
+            "before": "1f0e722780f60f14",
+            "after": "cc7078e2d45db8d9",
+            "line": 151
+          },
+          {
+            "id": "195d631976e21cfa",
+            "content": "c57e96a6c27a0ad8",
+            "before": "4cb78dfec8702371",
+            "after": "8714e984605212c7",
+            "line": 2036
+          },
+          {
+            "id": "1b9b4e3cc3770b33",
+            "content": "143196543efbd004",
+            "before": "9eca5bccf7453bcf",
+            "after": "db34119ee3374da4",
+            "line": 439
+          },
+          {
+            "id": "20bcbef56d4a5d35",
+            "content": "aa2e5b0aad27bbf6",
+            "before": "a8836fefa8c2ab77",
+            "after": "7a398bc27a710003",
+            "line": 170
+          },
+          {
+            "id": "25c79857b00917e4",
+            "content": "d5b7ed9a951baafe",
+            "before": "2c0690b51146d9eb",
+            "after": "a4410caed7e3b263",
+            "line": 484
+          },
+          {
+            "id": "260c14c989dcc535",
+            "content": "d7132b7ae7aa9452",
+            "before": "2a4d9cf939a99ae2",
+            "after": "47f92e9a725054d7",
+            "line": 224
+          },
+          {
+            "id": "29b4cbaaa90fb1e7",
+            "content": "313168bae0195671",
+            "before": "4a1441a563245814",
+            "after": "0bf15b683d09767d",
+            "line": 1908
+          },
+          {
+            "id": "2a0efe98407112c9",
+            "content": "ea872d1af3bb83a3",
+            "before": "79a2175bb23f2847",
+            "after": "f170365678ab2c34",
+            "line": 1634
+          },
+          {
+            "id": "2bc88501f5c660a4",
+            "content": "9c1705c249814603",
+            "before": "244efba026921441",
+            "after": "6b6c09c1dce99b47",
+            "line": 182
+          },
+          {
+            "id": "2daf789df4caf2d5",
+            "content": "ee4da7aa1952bae3",
+            "before": "65fb5d20443a0b60",
+            "after": "38dc4b1fba3b4325",
+            "line": 336
+          },
+          {
+            "id": "32b17adf9818399b",
+            "content": "b41ef19ab3403e56",
+            "before": "354e12647d4309b3",
+            "after": "0168930585ced0f8",
+            "line": 85
+          },
+          {
+            "id": "32d9d0619107a0de",
+            "content": "a926f64cd085099e",
+            "before": "aa90ed0a5ba6b37b",
+            "after": "fddc1fab89896f63",
+            "line": 126
+          },
+          {
+            "id": "3487a86d4412295c",
+            "content": "316620a655453d4b",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 624
+          },
+          {
+            "id": "362a22e585669bc4",
+            "content": "b0cc2e76cb0809ff",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 801
+          },
+          {
+            "id": "38cf6e1f02c94bf4",
+            "content": "6835daae9f57dbc7",
+            "before": "4b8e56209359e797",
+            "line": 20
+          },
+          {
+            "id": "38f2694a238f9a1c",
+            "content": "60c8193cdb9a52f7",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 174
+          },
+          {
+            "id": "3c33c5c7bf962aa1",
+            "content": "6156c879186ac608",
+            "before": "63b39e9ae83ef113",
+            "after": "4f55fe37c3f24fd9",
+            "line": 27
+          },
+          {
+            "id": "3cec7b323446090e",
+            "content": "75823e66ba89c506",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 352
+          },
+          {
+            "id": "3e14c07252db56a9",
+            "content": "33b4ea6c21af2b96",
+            "before": "f1e554810cf903bb",
+            "after": "f14bf5a75398e4bf",
+            "line": 328
+          },
+          {
+            "id": "3e4e34cee379b4df",
+            "content": "d28d0d84ac199336",
+            "before": "4c7164c37f48aaf9",
+            "after": "efb232da5749ffe7",
+            "line": 128
+          },
+          {
+            "id": "4497a38dda7e3e06",
+            "content": "4badced651bc99cb",
+            "before": "696a4a22e9195492",
+            "after": "5f62d57443b4c79f",
+            "line": 106
+          },
+          {
+            "id": "44f188c60d9b6135",
+            "content": "2028a7aee78ca4f2",
+            "before": "63b39e9ae83ef113",
+            "after": "e4779357ae6adfcf",
+            "line": 109
+          },
+          {
+            "id": "4975b899c19f1ea8",
+            "content": "e8149262a3f1698e",
+            "before": "0fd10e2396341728",
+            "after": "bf093cd479bf2567",
+            "line": 161
+          },
+          {
+            "id": "4a2b719fd5092534",
+            "content": "d306782e4a8e6c70",
+            "before": "0546b63c03b63e68",
+            "after": "9c1938eea5453eed",
+            "line": 195
+          },
+          {
+            "id": "4f0a0380073ae836",
+            "content": "98c78c0163ab26a1",
+            "before": "c73634d9988116f7",
+            "after": "c56ed24929f983cc",
+            "line": 40
+          },
+          {
+            "id": "52e1704d188b9f36",
+            "content": "136b43d0e12b77d5",
+            "before": "63b39e9ae83ef113",
+            "after": "2c0690b51146d9eb",
+            "line": 63
+          },
+          {
+            "id": "5cd9e7107bb09101",
+            "content": "ddd5fbeca3dbc3bc",
+            "before": "2c0690b51146d9eb",
+            "after": "fc52593d21a4771e",
+            "line": 161
+          },
+          {
+            "id": "5e1a5a208c685540",
+            "content": "f625bd09d4df54a3",
+            "before": "63b39e9ae83ef113",
+            "after": "9996bf0ed8f11a78",
+            "line": 129
+          },
+          {
+            "id": "68ef7aeb0187b15c",
+            "content": "db5de2c243db194c",
+            "before": "f731bfdc75bcadea",
+            "after": "f731bfdc75bcadea",
+            "line": 127
+          },
+          {
+            "id": "6c77dcf6ea0cfd0f",
+            "content": "8e632f805f88d9b8",
+            "before": "04ee6cea7e535971",
+            "after": "3862217e5e97489c",
+            "line": 37
+          },
+          {
+            "id": "6e1ecf6ab4528391",
+            "content": "d7476b1f4fa1fede",
+            "before": "2c0690b51146d9eb",
+            "after": "1fb6075f1049bcf4",
+            "line": 793
+          },
+          {
+            "id": "6f63218a2fac95c0",
+            "content": "01f316a0a940b4ec",
+            "before": "023f6164e910dc86",
+            "after": "8e3eb803085dab70",
+            "line": 2541
+          },
+          {
+            "id": "6f7944a271fde102",
+            "content": "b94dc67478afa602",
+            "before": "63b39e9ae83ef113",
+            "after": "63b39e9ae83ef113",
+            "line": 43
+          },
+          {
+            "id": "75f14d7aa96193da",
+            "content": "d901a7fc54643ece",
+            "before": "3427d809318e7461",
+            "after": "a87213195ae31a0d",
+            "line": 979
+          },
+          {
+            "id": "771ca4544b4592a9",
+            "content": "4268a365a1915f49",
+            "before": "acf4d51c093bbdef",
+            "after": "55c08eb41d00fee5",
+            "line": 408
+          },
+          {
+            "id": "804e2589731302fc",
+            "content": "c64d98d7c213e1fb",
+            "before": "00d94606133d6c65",
+            "after": "3c927ab3b41827bf",
+            "line": 20
+          },
+          {
+            "id": "8297a7d1b89d8643",
+            "content": "47ca22cddb680225",
+            "before": "63b39e9ae83ef113",
+            "after": "00ca08d0d7ab95fe",
+            "line": 17
+          },
+          {
+            "id": "83dfe5caa2c1e330",
+            "content": "799a967392a2350a",
+            "before": "2c0690b51146d9eb",
+            "after": "9b2e8b015aaf347d",
+            "line": 985
+          },
+          {
+            "id": "8596ec12f46c103e",
+            "content": "585197b8dd6176db",
+            "before": "63b39e9ae83ef113",
+            "after": "2abdd12518afc808",
+            "line": 43
+          },
+          {
+            "id": "87859c871e2645ce",
+            "content": "38ac0c18f80f2632",
+            "before": "cf19513dc10236fc",
+            "after": "6abad25386b1e61c",
+            "line": 136
+          },
+          {
+            "id": "8e46833d83925c2b",
+            "content": "49b6c0bb7d3c7f3e",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 2330
+          },
+          {
+            "id": "8faa9ed4e6d1dbbb",
+            "content": "46de509cd3e57be7",
+            "before": "0ba70b573b3125b5",
+            "after": "0ba70b573b3125b5",
+            "line": 1783
+          },
+          {
+            "id": "8ffe316567fc9fc2",
+            "content": "43e70235144c3925",
+            "before": "cd7ccac9a322defa",
+            "after": "0a0aef04e9ae8043",
+            "line": 24
+          },
+          {
+            "id": "90ae6c8e834b8359",
+            "content": "a597b9ab4cd90f54",
+            "before": "587119e274438e6f",
+            "after": "f84dac702ec4a0c2",
+            "line": 38
+          },
+          {
+            "id": "9129a8190393b285",
+            "content": "3a0da0169bae6204",
+            "before": "a4456196b091e64b",
+            "after": "67041a38865b55b5",
+            "line": 164
+          },
+          {
+            "id": "91ac9309f5da04ad",
+            "content": "5631999c9d39ef0f",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 2150
+          },
+          {
+            "id": "958743d6a269335f",
+            "content": "adc601f67926d78e",
+            "before": "ddeced05032a1992",
+            "after": "e5af7ae625d4408e",
+            "line": 396
+          },
+          {
+            "id": "96b7ce5d82900fd7",
+            "content": "d70955192da16204",
+            "before": "2c0690b51146d9eb",
+            "after": "2f79494887874faf",
+            "line": 400
+          },
+          {
+            "id": "99092c53735fd029",
+            "content": "e199d29248c6fbad",
+            "before": "e8b49eed032edf21",
+            "after": "444cd6a86bad31c0",
+            "line": 47
+          },
+          {
+            "id": "9a43ff13c6e66748",
+            "content": "7569804779e04aed",
+            "before": "20f643d8510ab297",
+            "after": "44d57a241bc5bfc6",
+            "line": 303
+          },
+          {
+            "id": "9a79d7026dcc3408",
+            "content": "ec5da1568f8450d4",
+            "before": "2c0690b51146d9eb",
+            "line": 6
+          },
+          {
+            "id": "9e55c9c46b7f82c6",
+            "content": "84d130a9e12fbbba",
+            "before": "820309b32b697dfc",
+            "after": "df7b9ecce1115d28",
+            "line": 344
+          },
+          {
+            "id": "9fcc17f7398ee3f7",
+            "content": "efaac5c41aa80898",
+            "before": "2c0690b51146d9eb",
+            "after": "6e1ef4c37f0582d9",
+            "line": 315
+          },
+          {
+            "id": "a02aa94a4196be2b",
+            "content": "bc7a5ae7e2c7c06c",
+            "before": "a8836fefa8c2ab77",
+            "after": "24d10c6c97783634",
+            "line": 620
+          },
+          {
+            "id": "a9598a6f559477a3",
+            "content": "b6338bed73faae82",
+            "before": "63b39e9ae83ef113",
+            "after": "febdfaab1313ce72",
+            "line": 43
+          },
+          {
+            "id": "a9c4acbb2dc156f0",
+            "content": "6b64db82d40afbfc",
+            "before": "cc396e536c2b711e",
+            "after": "0b6ab57d5792c61a",
+            "line": 89
+          },
+          {
+            "id": "af414b6c52f77463",
+            "content": "8e2b2f1f8e1d6f3b",
+            "before": "83e2ad70686fda46",
+            "after": "71330d344636ae68",
+            "line": 12
+          },
+          {
+            "id": "b185d37cabcac1ce",
+            "content": "76eefe26f8b4a140",
+            "before": "20f643d8510ab297",
+            "after": "b45b75b862a1d20d",
+            "line": 133
+          },
+          {
+            "id": "b1cbb5113096d81b",
+            "content": "59307060965ce2ed",
+            "before": "ee1902172346c97f",
+            "after": "c9aa4e7b0f77b384",
+            "line": 1802
+          },
+          {
+            "id": "b6e5c3c4597f3a28",
+            "content": "e30ac824b194c2f3",
+            "before": "c9fc493ba5cd8f60",
+            "after": "eab9b8f1c6b7726a",
+            "line": 968
+          },
+          {
+            "id": "bd10b6da0cc31755",
+            "content": "41906c940cd8be29",
+            "before": "c63c1bf53e6cc11f",
+            "after": "f5d67a47c056fb41",
+            "line": 96
+          },
+          {
+            "id": "bf787f69d814b38f",
+            "content": "3de0020f845e9c62",
+            "before": "b2030c958dd12235",
+            "after": "02c2c7b0123baccf",
+            "line": 129
+          },
+          {
+            "id": "bf903bd2060440d0",
+            "content": "699c81b2cdc3172a",
+            "before": "59cb04333743a05b",
+            "after": "0cd98f9f72a6ddee",
+            "line": 1667
+          },
+          {
+            "id": "c0041aa33fa83a1c",
+            "content": "d623133952307240",
+            "before": "50412b0b55136cac",
+            "after": "27237569ae5a2301",
+            "line": 126
+          },
+          {
+            "id": "c13f97f1316653fe",
+            "content": "5d50c9ec1a188c09",
+            "before": "bd4d4a63d63cb1d3",
+            "after": "3210a53cbb18638c",
+            "line": 60
+          },
+          {
+            "id": "c3a60cb71c6dde05",
+            "content": "a346169198806d9f",
+            "before": "b6459d48a1fe5a25",
+            "after": "814559cdf4282510",
+            "line": 346
+          },
+          {
+            "id": "c433712c914fdad4",
+            "content": "7bd212dbabef8811",
+            "before": "2c0690b51146d9eb",
+            "after": "2ebad021e7148a5b",
+            "line": 185
+          },
+          {
+            "id": "c81ea2e87635b9c8",
+            "content": "e023b2ceccdcc6bc",
+            "before": "a01759fc458631cb",
+            "after": "73ba75406dc41e73",
+            "line": 18
+          },
+          {
+            "id": "c9deebbd95e198c1",
+            "content": "beee557e3dd01a2c",
+            "before": "6b6c09c1dce99b47",
+            "after": "ab16193d607341a8",
+            "line": 1602
+          },
+          {
+            "id": "d03ea63d6ead8a2f",
+            "content": "923c07846fdf25bc",
+            "before": "c556f3d8d30848a8",
+            "after": "ef2b79e4e5e12f03",
+            "line": 18
+          },
+          {
+            "id": "d26fce493a3bc5a4",
+            "content": "bbc156ff6ddf1755",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 587
+          },
+          {
+            "id": "d29f0f1a4591e5ab",
+            "content": "2576c844910f71f4",
+            "before": "6b6c09c1dce99b47",
+            "after": "c518e01c51c5e46b",
+            "line": 126
+          },
+          {
+            "id": "d30241a285834af2",
+            "content": "de5810ed9b1df5cf",
+            "before": "63b39e9ae83ef113",
+            "after": "2d2c7285cffe88e9",
+            "line": 73
+          },
+          {
+            "id": "d7c84074cd6f6b62",
+            "content": "bb07501d7bbcc26b",
+            "before": "932af575a56f8b15",
+            "after": "3401390ee467b811",
+            "line": 1202
+          },
+          {
+            "id": "d80d48a67429b2fb",
+            "content": "6453cc1cc736da70",
+            "before": "63b39e9ae83ef113",
+            "after": "5db847ee1c6797e8",
+            "line": 21
+          },
+          {
+            "id": "d8304b2a8a7cc402",
+            "content": "a131582a9e5369c1",
+            "before": "e8cb1ededa94b003",
+            "after": "c79949441477e3ab",
+            "line": 12
+          },
+          {
+            "id": "dab4c9f3ecad9d89",
+            "content": "d44d4d1fba57f5b7",
+            "before": "2c0690b51146d9eb",
+            "after": "d580fbba13bccd48",
+            "line": 1623
+          },
+          {
+            "id": "dc5109552db9a7f3",
+            "content": "e76fc940de0b04d2",
+            "before": "20f643d8510ab297",
+            "after": "a7a115c03f973342",
+            "line": 92
+          },
+          {
+            "id": "de523bc95deee2bd",
+            "content": "d8bbbfb7f306eca6",
+            "before": "bdd0d140bf99ff25",
+            "after": "7c542048e5d5a22b",
+            "line": 661
+          },
+          {
+            "id": "debc485165215fac",
+            "content": "6e4886b70ff6260b",
+            "before": "8125d4c83e4283f4",
+            "after": "d028e0615e73d9d9",
+            "line": 275
+          },
+          {
+            "id": "df57d44f706e944c",
+            "content": "447473fa3706a8cd",
+            "before": "f7da4e5d266b1f6e",
+            "after": "54500ae21017b7eb",
+            "line": 137
+          },
+          {
+            "id": "df87ad72a9bf2840",
+            "content": "618c4513fa917f90",
+            "before": "b7b8402dfc81ff23",
+            "after": "7ea0d093a1dad89d",
+            "line": 1797
+          },
+          {
+            "id": "dfe9d84c306f2b4a",
+            "content": "81af0ade9ecc1e13",
+            "before": "04ef546a56eef797",
+            "after": "601f6988dfb06881",
+            "line": 206
+          },
+          {
+            "id": "e344e24fa03a5b64",
+            "content": "1e1b21c18dd28e79",
+            "before": "ddac4cb4e03eaebd",
+            "after": "499440bea3c2ff3c",
+            "line": 3911
+          },
+          {
+            "id": "e35d8d8935b33ea8",
+            "content": "ee2e7f13b1347781",
+            "before": "9db624c672ef1a73",
+            "after": "c29cb9370523dc88",
+            "line": 1617
+          },
+          {
+            "id": "e446cb22e4431f84",
+            "content": "ac81452ad09329ed",
+            "before": "a45f2927c01c0fc9",
+            "after": "0c02b9d445d0e0bf",
+            "line": 126
+          },
+          {
+            "id": "e53aa7c3f8cbb068",
+            "content": "18f4bb59cf737dec",
+            "before": "4b8e56209359e797",
+            "line": 20
+          },
+          {
+            "id": "e734d4631cbf9421",
+            "content": "61baa45c63b6b482",
+            "before": "f7d65845b61c0f02",
+            "after": "3fe1d625cb9fe8ad",
+            "line": 1834
+          },
+          {
+            "id": "ea7b58c1198660a4",
+            "content": "d571b446619feac7",
+            "before": "98ef4f4f83cdc613",
+            "after": "c9aa4e7b0f77b384",
+            "line": 1916
+          },
+          {
+            "id": "ef2d91382091ac60",
+            "content": "d01b85511aad8a81",
+            "before": "b3e4a27eb1bf2103",
+            "after": "63b39e9ae83ef113",
+            "line": 62
+          },
+          {
+            "id": "f0a09aeb24d3732e",
+            "content": "be2f44829d0719eb",
+            "before": "6b47c4f1988cefc6",
+            "after": "6a7039555057a738",
+            "line": 508
+          },
+          {
+            "id": "f19cfa46b26e752a",
+            "content": "f881dee8d6b503de",
+            "before": "5e672621c08fa743",
+            "after": "6b6c09c1dce99b47",
+            "line": 168
+          },
+          {
+            "id": "f45b5ad8313eaa46",
+            "content": "bad24e20f1bc8b57",
+            "before": "c165add049dce571",
+            "after": "dcb4a476a3822d65",
+            "line": 269
+          },
+          {
+            "id": "f8809471157b511a",
+            "content": "daaecf6e3c22e3b3",
+            "before": "48f674100fc9e5b9",
+            "after": "bc35fa0f82ea1248",
+            "line": 2405
+          },
+          {
+            "id": "fa094b269524419e",
+            "content": "6567bf5a1d1bba2e",
+            "before": "08205ce69b3b8afb",
+            "after": "ccbf0a04dc859d8e",
+            "line": 135
+          },
+          {
+            "id": "fa95957f14a1c1d4",
+            "content": "0001eb649d49f2c5",
+            "before": "e36adaa0e55cb915",
+            "after": "4731ba51b4c3ad63",
+            "line": 27
+          },
+          {
+            "id": "fb748f9a2fc6b489",
+            "content": "7819835ca9b1fe80",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 34
+          },
+          {
+            "id": "fe0417ca5a320526",
+            "content": "8d5586c3bb6e3d18",
+            "before": "2c0690b51146d9eb",
+            "after": "2c0690b51146d9eb",
+            "line": 3888
+          }
+        ]
+      },
+      "erosion": {
+        "metric_version": 1,
+        "findings": [
+          {
+            "id": "19608a85c189ca00",
+            "content": "06f0267bdcc6969a",
+            "before": "c857742cbde5ca1c",
+            "line": 96
+          },
+          {
+            "id": "f01271e011f2ab18",
+            "content": "e56ff7ae1ec26812",
+            "before": "c857742cbde5ca1c",
+            "line": 223
+          }
+        ]
+      },
+      "import_cycles": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "verbosity": {
+        "metric_version": 2,
+        "findings": [
+          {
+            "id": "195bb825344ffc92",
+            "content": "9775e2b8eeda8354",
+            "before": "be0e2833c753cd77",
+            "after": "0357a21c6ee14d48",
+            "line": 55
+          },
+          {
+            "id": "5faff21bab1d11c1",
+            "content": "951d5ab8110f726a",
+            "before": "7cb273832557b614",
+            "after": "c857742cbde5ca1c",
+            "line": 56
+          }
+        ]
+      }
+    },
+    "generated": {
+      "cognitive_complexity": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "duplication": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "erosion": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "hazards": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "import_cycles": {
+        "metric_version": 1,
+        "findings": []
+      },
+      "verbosity": {
+        "metric_version": 2,
+        "findings": []
+      }
+    }
+  },
+  "dependencies": {
+    "dev_in_production_dependencies": {
+      "metric_version": 1,
+      "findings": []
+    },
+    "unlisted_dependencies": {
+      "metric_version": 1,
+      "findings": []
+    },
+    "unused_dependencies": {
+      "metric_version": 1,
+      "findings": []
+    }
+  }
+}
