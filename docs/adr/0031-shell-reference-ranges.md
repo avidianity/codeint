@@ -37,11 +37,14 @@ ADR 0028 leaves three choices to each language, and this record fixes them for S
 - Shape phase: when all buckets were full with only 8 library-shaped repositories, the walk continued in the same order.
   Each later library-shaped candidate that qualified for a bucket replaced the most recently admitted app-shaped repository in that bucket, until libraries reached 10.
   `scop/bash-completion` replaced `google/oss-fuzz` (Medium), and `void-linux/void-packages` replaced `huifer/WellAlly-health` (Small).
-- Measured with a `codeint 0.6.0` release build of the lexer fixes below, default minimum clone size 75 tokens, on Apple Silicon.
+- Measured with a `codeint 0.6.0` release build of the lexer and review fixes (`4f7ffad`, `3130b77`), default minimum clone size 75 tokens, on Apple Silicon.
 - Every percentile interpolates linearly between the two nearest ranked values (`idx = p * (n - 1)`), and standard deviation is the sample standard deviation (`n - 1`).
-- Run time across the 50 panel repositories: `0.01s` to `5.04s` per repository (`18.74s` total across 22,202 Production shell files and 2,168,197 Production shell source lines).
-- Largest panel repository: `kaldi-asr/kaldi` (3,396 Production shell files, 298,400 Production shell source lines), which completed in `5.04s` with `367,411,200` bytes maximum resident set size, the panel peak.
-- codeint skipped 2 shell files across the panel: one with an unterminated single quote that `bash -n` also rejects (`kaldi-asr/kaldi`), and one non-UTF-8 file (`akinomyoga/ble.sh`).
+- Run time across the 50 panel repositories: `0.00s` to `2.05s` per repository (`9.83s` total across 22,202 Production shell files and 2,168,197 Production shell source lines).
+- Largest panel repository: `kaldi-asr/kaldi` (3,396 Production shell files, 298,400 Production shell source lines), which completed in `1.36s` with `362,659,840` bytes maximum resident set size, the panel peak.
+- codeint skipped 2 shell files across the panel: one with an unterminated single quote that `bash -n` also rejects (`kaldi-asr/kaldi`, `egs/wsj/s5/steps/tandem/mk_aslf_lda_mllt.sh`), and one non-UTF-8 file (`akinomyoga/ble.sh`, `memo/D0589/D0589.test-printf-s2c.sh`).
+- Re-measurement note: after the initial calibration build, PR review fixes (`4f7ffad` and `3130b77`) tightened Hazard and Flagged rules, capped lexer nesting, and indexed function spans once.
+  Re-measuring all 50 panel repositories at `3130b77` left Erosion, Verbosity, Duplication, Cognitive complexity, and all published Reference ranges unchanged.
+  Hazards and Hazard line counts dropped in 18 repositories (mean `0.054` to `0.051`, median `0.025` to `0.023`, 10th to 90th percentile unchanged at `0.004` to `0.133`), `HariSekhon/DevOps-Bash-tools` Flagged lines dropped from 269 to 265 (Verbosity unchanged at `0.0041`), and total run time dropped from `18.74s` to `9.83s`.
 
 The full walk, with every measured candidate, its pinned commit, status, and numbers, is in [`data/0031-shell-reference-ranges.csv`](./data/0031-shell-reference-ranges.csv).
 
@@ -118,7 +121,9 @@ Decision points from the tree are `if`, each `elif`, `for` and `select`, `while`
 Recall is the matched count over the tree's count per function, and the false-positive rate is codeint's surplus over its own count.
 An unexpected unparsable file is one codeint rejects while `bash -n` (or `zsh -n` for Zsh files) accepts it.
 
-The audit file set held 23,767 shell files, which includes files outside the 22,202 Production files of the panel. Before the fixes below, on those 23,767 files: function recall `0.9979` (81,811 of 81,987), decision-point recall `0.9946` (431,368 of 433,725), decision-point false positives `0.0041`, and 5 unexpected unparsable files.
+The audit file set held 23,767 shell files, which includes files outside the 22,202 Production files of the panel.
+These lexer audit numbers and the 100-line Flagged and Hazard samples below come from the earlier calibration build before the review fixes (`4f7ffad`, `3130b77`); the re-measurement confirmed identical Production line counts, Erosion, and Cognitive complexity across all 50 repositories, showing function and decision-point extraction did not change.
+Before the fixes below, on those 23,767 files: function recall `0.9979` (81,811 of 81,987), decision-point recall `0.9946` (431,368 of 433,725), decision-point false positives `0.0041`, and 5 unexpected unparsable files.
 After the fixes: function recall `0.9983` (82,485 of 82,626), decision-point recall `0.9980` (440,317 of 441,207), decision-point false positives `0.0014`, function false positives `0`, and 0 unexpected unparsable files.
 
 A seeded sample of 100 Flagged lines and 100 Hazard lines from the panel's Production files had no line that contradicts its rule's documented match.
