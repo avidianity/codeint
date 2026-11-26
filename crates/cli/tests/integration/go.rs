@@ -4,7 +4,7 @@ use std::process::{Command, Output};
 
 use serde_json::{Value, json};
 
-use crate::common::init_git_repo;
+use crate::common::{init_git_repo, run_codeint_json as run_json};
 
 fn run_codeint(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_codeint"))
@@ -24,12 +24,6 @@ fn run_stdout(dir: &Path, args: &[&str], expected_code: i32) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("utf8 stdout")
-}
-
-fn run_json(dir: &Path, args: &[&str], expected_code: i32) -> Value {
-    let mut full = args.to_vec();
-    full.extend(["--format", "json"]);
-    serde_json::from_str(&run_stdout(dir, &full, expected_code)).expect("valid JSON output")
 }
 
 fn check_json(dir: &Path) -> Value {
@@ -491,7 +485,7 @@ fn go_import_boundaries_flags_every_file_in_forbidden_package_and_ignores_stdlib
 }
 
 #[test]
-fn go_unparsable_file_is_skipped_and_malformed_go_mod_stops_with_exit_code_two() {
+fn go_unparsable_file_and_malformed_go_mod_are_skipped_without_stopping() {
     let broken_source = init_git_repo(&[
         ("go.mod", "module example.com/skip\n\ngo 1.24\n"),
         ("pkg/ok.go", "package pkg\n\nfunc Ok() int { return 1 }\n"),
@@ -522,12 +516,18 @@ fn go_unparsable_file_is_skipped_and_malformed_go_mod_stops_with_exit_code_two()
             "package bad\n\nfunc Bad() int { return 0 }\n",
         ),
     ]);
-    let output = run_codeint(malformed_mod.path(), &["check", "--format", "json"]);
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let malformed_report = check_json(malformed_mod.path());
+    assert_eq!(malformed_report["files"], 2);
+    let warnings = malformed_report["manifest_warnings"]
+        .as_array()
+        .expect("manifest warnings");
+    assert_eq!(warnings.len(), 1, "got {warnings:?}");
     assert!(
-        stderr.contains("services/bad/go.mod"),
-        "expected malformed go.mod path in stderr, got: {stderr}"
+        warnings[0]
+            .as_str()
+            .unwrap_or_default()
+            .contains("services/bad/go.mod"),
+        "expected malformed go.mod path in the warning, got: {warnings:?}"
     );
 
     let unresolved_repo = init_git_repo(&[

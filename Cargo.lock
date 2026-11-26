@@ -394,6 +394,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeint-lang-shell"
+version = "0.6.0"
+dependencies = [
+ "codeint-model",
+]
+
+[[package]]
 name = "codeint-lang-sql"
 version = "0.6.0"
 dependencies = [
@@ -446,6 +453,7 @@ dependencies = [
  "codeint-lang-php",
  "codeint-lang-python",
  "codeint-lang-rust",
+ "codeint-lang-shell",
  "codeint-lang-sql",
  "codeint-lang-ts",
  "codeint-model",

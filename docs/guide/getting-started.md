@@ -31,31 +31,40 @@ npx codeint check
    codeint init
    ```
 
+   On an existing codebase with many Findings, run `codeint init --adopt` instead.
+   It also enables `per_file`, writes zero Budgets for each Metric it records in the Baseline, suggests `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json`, and prints a pull-request workflow; see [Adopting codeint on an existing codebase](./adopting-on-an-existing-codebase.md).
+
 2. Verify your repository setup, config validity, detected languages, Workspace packages, and external Plugins offline:
 
    ```sh
    codeint doctor
    ```
 
-3. Inspect the effective active configuration and where each setting comes from (`default`, `file`, or `cli`):
+3. Check an external Wasm Plugin against the Plugin contract before you declare it in `codeint.jsonc`; use `--kind metric` for a Metric plugin:
+
+   ```sh
+   codeint plugin test plugins/my-plugin.wasm
+   ```
+
+4. Inspect the effective active configuration and where each setting comes from (`default`, `file`, or `cli`):
 
    ```sh
    codeint config --resolved
    ```
 
-4. Measure the current working tree:
+5. Measure the current working tree:
 
    ```sh
    codeint check
    ```
 
-5. Compare your branch against `main` and fail on any Budget, Ratchet, or Regression failure:
+6. Compare your branch against `main` and fail on any Budget, Ratchet, or Regression failure:
 
    ```sh
    codeint diff main
    ```
 
-6. Lock in current whole-repository ratios in `.codeint/ratchet.json` and monotonically tighten them as code improves (use `--reset` only when intentionally loosening unchanged-version ceilings):
+7. Lock in current whole-repository ratios in `.codeint/ratchet.json` and monotonically tighten them as code improves (use `--reset` only when intentionally loosening unchanged-version ceilings):
 
    ```sh
    codeint ratchet update
@@ -67,7 +76,7 @@ npx codeint check
    codeint baseline update
    ```
 
-7. Save a JSON report once and re-render it losslessly into Markdown, SARIF, or TOON without re-scanning:
+8. Save a JSON report once and re-render it losslessly into Markdown, SARIF, or TOON without re-scanning:
 
    ```sh
    codeint diff main --format json --output diff.json
@@ -75,7 +84,7 @@ npx codeint check
    codeint report diff.json --format sarif --output codeint.sarif
    ```
 
-8. Inspect how each Metric evolved over the latest 20 main-line commits:
+9. Inspect how each Metric evolved over the latest 20 main-line commits:
 
    ```sh
    codeint trend
@@ -124,8 +133,8 @@ Use codeint before editing or refactoring to understand architectural rules and 
 
 ## Exit codes
 
-- `0`: succeeded with no Budget, Ratchet, Regression, or blocking `codeint doctor` error.
-- `1`: succeeded, and at least one Budget, Ratchet, Regression, or blocking `codeint doctor` error failed.
+- `0`: succeeded with no Budget, Ratchet, Regression, blocking `codeint doctor` error, or failed `codeint plugin test` check.
+- `1`: succeeded, and at least one Budget, Ratchet, Regression, blocking `codeint doctor` error, or `codeint plugin test` check failed.
 - `2`: operational error (invalid configuration file, more than one configuration file across `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, and `.codeint/config.jsonc`, Ratchet or Baseline Metric version mismatch, missing folder, unknown option, or not inside a Git repository).
 
 See [docs/reference.md](../reference.md) for every command flag and output format (`toon`, `json`, `sarif`, `markdown`, `text`).

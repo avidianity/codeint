@@ -1,14 +1,15 @@
 # Built-in Languages
 
-codeint ships seven built-in Language plugins in pure, safe Rust (`#![forbid(unsafe_code)]`).
+codeint ships eight built-in Language plugins in pure, safe Rust (`#![forbid(unsafe_code)]`).
 Each plugin parses the modern superset of its language family with no language-version pin needed in `codeint.jsonc` or `codeint.json`.
 
 Every built-in Language plugin extracts:
 
 - **Function names and complexity**: named functions (with `none` for anonymous lambdas or unnamed SQL statements) for Erosion and nesting-weighted Cognitive complexity Findings.
 - **Workspaces and entry points**: for languages with imports, Workspace package roots and standard entry-point files discovered from language manifests for `--package` scoping and Orphan files detection; Language plugins can also mark Production files as program starts from source text.
+  A manifest that a Language plugin finds invalid is skipped with a warning instead of stopping the run; see [Invalid manifests](../reference.md#invalid-manifests).
 - **Dependency manifests and built-ins**: for languages with imports, declared runtime, dev, and optional dependencies from each ecosystem's manifest, plus standard-library and runtime built-in classification so built-in imports are never flagged as unlisted dependencies.
-- **Hazard line rules**: Language plugins may also define AST-only Hazard line rules; `sql` ships 32 Hazard line rules (including 5 schema-backed rules), while the other six built-in Language plugins define none (leaving Hazards absent rather than `0`).
+- **Hazard line rules**: Language plugins may also define AST-only Hazard line rules; `sql` ships 32 Hazard line rules (including 5 schema-backed rules) and `shell` ships 10, while the other six built-in Language plugins define none (leaving Hazards absent rather than `0`).
 
 ## Summary
 
@@ -21,14 +22,16 @@ Every built-in Language plugin extracts:
 | `python` | `.py` | `pyproject.toml` (`[tool.uv.workspace].members`), `requirements*.txt`, `setup.cfg`, `Pipfile` | `test/`, `tests/`, `test_*.py`, `*_test.py`, `conftest.py`; `*_pb2.py`, `*_pb2_grpc.py` -> Generated; `if TYPE_CHECKING:` imports excluded from Import cycles; built-in Framework profiles (`django`, `fastapi`, `flask`) add convention entry points, generated paths (`**/migrations/[0-9][0-9][0-9][0-9]_*.py`, `staticfiles/`, `instance/`), and fallback import hints |
 | `go` | `.go` | `go.mod` | `*_test.go`, `testdata/`; `// Code generated ... DO NOT EDIT.` -> Generated; `vendor/` -> Vendored; see [Go](./go.md) |
 | `sql` | `.sql` | none (no imports; joins enclosing Workspace package) | `test/`, `tests/`, `fixtures/`; dump headers, migration markers, `prisma/migrations/`, `drizzle/` -> Generated; generic SQL by default plus `postgresql`, `mysql`, `sqlite`, `duckdb` Dialects; 32 Hazard line rules; see [SQL](./sql.md) |
+| `shell` | `.sh`, `.bash`, `.zsh` | none (no imports; joins enclosing Workspace package) | `test/`, `tests/`, `spec/`, `test_*.sh`, `*_test.sh`; `ltmain.sh`, `configure.sh`, generated-file headers -> Generated; POSIX `sh`, Bash, or Zsh from the shebang or extension; 10 Hazard line rules; see [Shell](./shell.md) |
 
 Core rules also classify files under `vendor/` or `third_party/` as `vendored` and files with generated-file header comments (`@generated`, `GENERATED CODE`, `DO NOT EDIT`) as `generated`.
 See [Go](./go.md) for Go terminology mapping, multi-file Go package imports, entry points, Flagged line rules, and `go.mod` Dependency hygiene.
 See [SQL](./sql.md) for generic SQL measurement, Dialects, templated SQL and rejected statements, automatic SQL schemas, and [Hazards](./hazards.md) for the Hazards Metric.
+See [Shell](./shell.md) for shell flavor detection, top-level `<script>` functions, Flagged line rules, and Hazard line rules.
 
 ## Calibrated Reference ranges
 
-Measured across 20 pre-2023 public repositories per language (10th to 90th percentile):
+Measured across 20 pre-2023 public repositories per language, or a stratified panel of 50 current public repositories for Shell (10th to 90th percentile):
 
 | Language | Erosion | Duplication | Verbosity | Import cycles | Record |
 | -------- | ------- | ----------- | --------- | ------------- | ------ |
@@ -42,6 +45,7 @@ Measured across 20 pre-2023 public repositories per language (10th to 90th perce
 | Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% | [ADR 0013](../adr/0013-python-reference-ranges.md) |
 | Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% | [ADR 0021](../adr/0021-go-reference-ranges.md) |
 | SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | N/A | [ADR 0022](../adr/0022-sql-reference-ranges.md) |
+| Shell | 41.6% to 92.7% | 0.8% to 75.1% | 0.0% to 2.5% | N/A | [ADR 0031](../adr/0031-shell-reference-ranges.md) |
 
 To add another language as an external WebAssembly plugin, see [docs/plugins.md](../plugins.md).
 

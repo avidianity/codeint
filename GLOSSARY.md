@@ -2,7 +2,7 @@
 
 codeint measures the Software entropy of a codebase (Erosion, Cognitive complexity, Test gap, Duplication, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy, in any language that has a Language plugin.
 It is for developers whose code is increasingly written by coding agents, so they see Software entropy grow before it compounds.
-Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, and SQL.
+Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, SQL, and Shell.
 
 ## Language
 
@@ -140,6 +140,10 @@ _Avoid_: AST, IR, inventory, syntax tree
 **Language plugin**:
 A Plugin that owns every rule specific to one language family and lowers its source files into the Code model.
 _Avoid_: parser plugin, language adapter, language provider
+
+**Conformance runner**:
+The built-in `codeint plugin test` command that loads one Wasm **Plugin** through the Plugin host and checks it against the Plugin contract, printing each violated rule with a fix hint.
+_Avoid_: plugin linter, plugin validator, plugin test suite
 
 **Dialect**:
 One variant of a language that its Language plugin reads with different rules, such as PostgreSQL or SQLite within SQL.

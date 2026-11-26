@@ -15,7 +15,9 @@ use crate::sql::SqlConfigFile;
 
 pub(super) const DEFAULT_MIN_SIMILARITY: f64 = 0.85;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema, clap::ValueEnum,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginKind {
     #[default]
@@ -181,6 +183,15 @@ impl ConfigurationFile {
             languages,
             ..Default::default()
         }
+    }
+
+    pub(super) fn adoption_starter(
+        schema_address: String,
+        languages: Option<Vec<LanguageGlobs>>,
+    ) -> ConfigurationFile {
+        let mut starter = ConfigurationFile::starter(schema_address, languages);
+        starter.regression_limits.per_file = Some(true);
+        starter
     }
 
     pub(super) fn without_schema_address(&self) -> ConfigurationFile {

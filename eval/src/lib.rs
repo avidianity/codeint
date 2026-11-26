@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod audit;
+mod ceilings;
 mod command;
 mod corpus;
 mod error;
@@ -17,6 +18,7 @@ mod stats;
 mod summary;
 
 pub use audit::{AuditCategory, AuditSample};
+pub use ceilings::Ceilings;
 pub use corpus::{CaseStudy, Corpus, CorpusEntry, SizeBucket, load_corpus};
 pub use error::EvaluationError;
 pub use recall::{LanguageRecall, RECALL_BAR, RecallCount};

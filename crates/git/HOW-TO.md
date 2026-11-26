@@ -18,6 +18,15 @@ for path in tree.files() {
 - The working tree lists tracked files and untracked files that Git does not ignore.
   It leaves out symbolic links, so codeint never follows one.
 
+## Create a scratch repository
+
+```rust
+let repository = Repository::init(&empty_folder)?;
+```
+
+- `Repository::init` runs `git init` in an existing folder through the library, with no `git` binary, and returns the repository.
+- The working tree lists untracked files, so a scratch repository needs no commit before `working_tree`.
+
 ## Read the merge-base of a base ref
 
 ```rust

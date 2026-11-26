@@ -2924,7 +2924,7 @@ fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
     assert_operational_error(
         &output,
         "codeint: codeint.jsonc names an unknown Language plugin cobol at languages[0].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql\n\
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql, shell\n\
          Name one of the Language plugins listed, or remove the entry from languages.\n",
     );
 }
@@ -3096,7 +3096,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "cobol", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin cobol at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql",
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql, shell",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }
@@ -3744,24 +3744,39 @@ fn workspace_packages_of_the_object_form_with_packages_are_reported_like_the_arr
     assert_two_package_report(&output);
 }
 
+fn assert_skipped_manifest_leaves_files_in_the_root_package(
+    repository: &Repository,
+    expected_warning: &str,
+) {
+    let output = repository.codeint(&["check"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(text.contains(expected_warning), "{text}");
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("parse json");
+    assert_eq!(report["files"], 1, "{report}");
+    assert!(
+        report.get("packages").is_none(),
+        "files under the skipped manifest must stay in the root package: {report}"
+    );
+}
+
 #[test]
-fn a_workspaces_field_of_the_wrong_shape_names_the_manifest_and_exits_2() {
+fn a_workspaces_field_of_the_wrong_shape_is_skipped_with_a_warning() {
     let repository = Repository::new();
     repository.write("package.json", "{\"workspaces\": \"packages/*\"}\n");
     repository.write("packages/app/package.json", "{}\n");
     repository.write("packages/app/index.ts", "export const app = 1;\n");
     repository.commit_all();
 
-    let output = repository.codeint(&["check"]);
-
-    assert_operational_error(
-        &output,
+    assert_skipped_manifest_leaves_files_in_the_root_package(
+        &repository,
         concat!(
-            "codeint: cannot find the workspace packages from package.json: ",
+            "Skipped the invalid typescript-javascript manifest package.json: ",
             "the workspaces field must be an array of folder patterns, ",
-            "or an object whose packages field is one\n",
-            "Fix the manifest that the message names so that your package manager accepts it, ",
-            "then run codeint again.\n",
+            "or an object whose packages field is one. ",
+            "Files under it count toward the surrounding Workspace package."
         ),
     );
 }
@@ -3790,7 +3805,7 @@ fn pnpm_workspace_packages_each_report_erosion_and_a_negated_pattern_excludes_a_
 }
 
 #[test]
-fn a_pnpm_workspace_yaml_that_is_not_yaml_names_the_manifest_and_exits_2() {
+fn a_pnpm_workspace_yaml_that_is_not_yaml_is_skipped_with_a_warning() {
     let repository = Repository::new();
     repository.write("package.json", "{\"name\": \"shop\"}\n");
     repository.write("pnpm-workspace.yaml", "packages: [packages/*\n");
@@ -3798,15 +3813,12 @@ fn a_pnpm_workspace_yaml_that_is_not_yaml_names_the_manifest_and_exits_2() {
     repository.write("packages/app/index.ts", "export const app = 1;\n");
     repository.commit_all();
 
-    let output = repository.codeint(&["check"]);
-
-    assert_operational_error(
-        &output,
+    assert_skipped_manifest_leaves_files_in_the_root_package(
+        &repository,
         concat!(
-            "codeint: cannot find the workspace packages from pnpm-workspace.yaml: ",
-            "is not valid YAML: unclosed bracket '[' at line 1, column 11\n",
-            "Fix the manifest that the message names so that your package manager accepts it, ",
-            "then run codeint again.\n",
+            "Skipped the invalid typescript-javascript manifest pnpm-workspace.yaml: ",
+            "is not valid YAML: unclosed bracket '[' at line 1, column 11. ",
+            "Files under it count toward the surrounding Workspace package."
         ),
     );
 }
@@ -5669,6 +5681,47 @@ fn no_imports_repo(
         config,
         files,
     )
+}
+
+#[test]
+fn a_plugin_that_chooses_no_manifests_checks_a_repository_with_a_package_json() {
+    let repository = sandbox_probe_repo(
+        "cargo-only",
+        "cargo_only_workspace_language_plugin.wasm",
+        "cargo_only.wasm",
+        serde_json::json!({}),
+        &[("package.json", "{\"name\":\"root\"}"), ("a.probe", "x\n")],
+    );
+    check_json_with_exit(&repository, &["check", "--format", "json"], 0);
+}
+
+#[test]
+fn a_plugin_that_chooses_only_cargo_toml_is_sent_no_package_json() {
+    let repository = sandbox_probe_repo(
+        "manifest-strict",
+        "manifest_strict_profiles_language_plugin.wasm",
+        "manifest_strict.wasm",
+        serde_json::json!({}),
+        &[
+            ("package.json", "{\"name\":\"root\"}"),
+            ("Cargo.toml", "[package]\nname = \"root\"\n"),
+            ("a.probe", "x\n"),
+        ],
+    );
+    check_json_with_exit(&repository, &["check", "--format", "json"], 0);
+}
+
+#[test]
+fn a_single_profile_only_selection_failure_fails_check() {
+    let repository = sandbox_probe_repo(
+        "single-only",
+        "single_profile_only_language_plugin.wasm",
+        "single_only.wasm",
+        serde_json::json!({ "framework_profiles": ["alpha"] }),
+        &[("a.probe", "x\n")],
+    );
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 
 fn folder_import_cycles_report(files: &[(&str, &str)]) -> serde_json::Value {

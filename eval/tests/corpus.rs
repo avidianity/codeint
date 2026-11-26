@@ -8,7 +8,7 @@ use codeint_plugin_host::built_in_language_names;
 fn corpus_pins_five_stratified_public_repositories_per_built_in_language() {
     let corpus = load_corpus(&Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus.json"))
         .expect("valid corpus");
-    assert_eq!(corpus.repositories.len(), 35);
+    assert_eq!(corpus.repositories.len(), 40);
     let mut buckets: BTreeMap<&str, Vec<SizeBucket>> = BTreeMap::new();
     for entry in &corpus.repositories {
         assert_eq!(

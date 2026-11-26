@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::PluginKind;
+use crate::PluginLimits;
 use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnFormat, ChurnWindow};
 use crate::coupling::CouplingSettings;
@@ -158,6 +160,8 @@ pub enum DoctorFormat {
     Toon,
 }
 
+pub type PluginTestFormat = DoctorFormat;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ImpactFormat {
     Toon,
@@ -215,6 +219,17 @@ pub enum AgentCommand {
         client: Option<AgentClient>,
         dry_run: bool,
         format: AgentFormat,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginCommand {
+    Test {
+        path: PathBuf,
+        kind: PluginKind,
+        sources: Vec<PathBuf>,
+        limits: PluginLimits,
+        format: PluginTestFormat,
     },
 }
 
@@ -308,6 +323,8 @@ pub enum Command {
     },
     Init {
         folder: PathBuf,
+        adopt: bool,
+        plugin_host: PluginHostConfig,
     },
     Update {
         check_only: bool,
@@ -345,6 +362,7 @@ pub enum Command {
     },
     Agent(AgentCommand),
     Ratchet(RatchetCommand),
+    Plugin(PluginCommand),
     Baseline(BaselineCommand),
     Churn {
         folder: PathBuf,

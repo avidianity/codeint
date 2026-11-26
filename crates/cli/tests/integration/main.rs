@@ -3,6 +3,8 @@ mod history_support;
 #[path = "../wasm_fixtures/mod.rs"]
 mod wasm_fixtures;
 
+#[cfg(unix)]
+mod action;
 mod agent;
 mod baseline;
 mod boundaries;
@@ -20,17 +22,21 @@ mod guard;
 mod hazards;
 mod impact;
 mod init;
+mod init_adopt;
 #[cfg(unix)]
 mod install;
+mod invalid_manifest;
 mod mcp;
 mod npm_packages;
 mod orphan_files;
 mod package_filter;
 mod planted_defects;
+mod plugin_test;
 mod ratchet;
 mod report;
 mod schema;
 mod sdk;
+mod shell;
 mod sql;
 mod test_gap;
 mod trace;

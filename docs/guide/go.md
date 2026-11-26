@@ -14,6 +14,10 @@ Go and codeint reuse some of the same words with different meanings:
 | Go package (folder of `.go` files) | **Go package** | codeint always writes "Go package" for a folder of `.go` files; an import of a Go package leads to every non-test `.go` file in that folder |
 | One `.go` source file | **module** | In codeint reports and [GLOSSARY.md](../../GLOSSARY.md), a module is one measured source file |
 
+A `go.mod` that is empty or has an invalid directive does not stop codeint.
+codeint skips it, lists it under `manifest_warnings`, and counts the files below it toward the surrounding Workspace package.
+See [Invalid manifests](../reference.md#invalid-manifests).
+
 ## Functions, complexity, and duplication
 
 codeint parses Go through language version 1.27, including type parameters on functions, types, and methods, without adding external parser dependencies.

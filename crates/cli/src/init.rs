@@ -2,14 +2,17 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use codeint_config::{
-    BoundaryPreset, DetectedLanguage, StarterBoundaries, StarterConfigurationError,
-    write_starter_configuration,
+    BASELINE_PATH, BoundaryPreset, DEFAULT_RATCHET_PATH, DetectedLanguage, PluginHostConfig,
+    StarterBoundaries, StarterConfigurationError, write_adoption_starter_configuration,
+    write_adoption_zero_budgets, write_starter_configuration,
 };
 use codeint_git::{GitError, Repository, Snapshot};
 use codeint_model::{InvalidRepoPath, RepoPath, SourceSet, settle_source_set};
 use codeint_plugin_host::{NamedLanguagePlugin, built_in_language_plugins};
 
-use crate::check::{CheckError, find_workspace, read_manifests};
+use crate::baseline;
+use crate::check::{CheckError, find_workspace, load_and_measure_whole_repo, read_manifests};
+use crate::ratchet::{self, RatchetError};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InitError {
@@ -17,19 +20,220 @@ pub(crate) enum InitError {
     Git(#[from] GitError),
     #[error(transparent)]
     StarterConfiguration(#[from] StarterConfigurationError),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+    #[error(transparent)]
+    Ratchet(#[from] RatchetError),
+    #[error(
+        "{} already exists, and codeint init --adopt never replaces it",
+        path.display()
+    )]
+    StateFileExists {
+        path: PathBuf,
+        update_command: &'static str,
+    },
+    #[error(transparent)]
+    AdoptConfigurationExists(StarterConfigurationError),
+    #[error(
+        "{cause}; codeint could not remove what it had written: {}",
+        format_paths(leftovers)
+    )]
+    RollbackIncomplete {
+        cause: Box<InitError>,
+        leftovers: Vec<PathBuf>,
+    },
+    #[error("cannot inspect {}", path.display())]
+    Inspect {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+fn format_paths(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub(crate) struct AdoptedFiles {
+    pub(crate) configuration: PathBuf,
+    pub(crate) ratchet: PathBuf,
+    pub(crate) ratchet_entries: usize,
+    pub(crate) baseline: PathBuf,
+    pub(crate) baselined_findings: usize,
 }
 
 pub(crate) fn init(folder: &Path) -> Result<PathBuf, InitError> {
     let repository = Repository::discover(folder)?;
+    let starter = discover_starter(&repository)?;
+    Ok(write_starter_configuration(
+        repository.root(),
+        &starter.languages,
+        starter.boundaries.as_ref(),
+    )?)
+}
+
+pub(crate) fn adopt(
+    folder: &Path,
+    plugin_host: &PluginHostConfig,
+) -> Result<AdoptedFiles, InitError> {
+    let repository = Repository::discover(folder)?;
+    let root = repository.root().to_path_buf();
+    refuse_existing_state_file(&root, DEFAULT_RATCHET_PATH, "codeint ratchet update")?;
+    refuse_existing_state_file(&root, BASELINE_PATH, "codeint baseline update")?;
+    let state_folder = root.join(".codeint");
+    let state_folder_existed = state_folder.exists();
+    let starter = discover_starter(&repository)?;
+    let configuration = write_adoption_starter_configuration(
+        &root,
+        &starter.languages,
+        starter.boundaries.as_ref(),
+    )
+    .map_err(|error| match error {
+        StarterConfigurationError::AlreadyExists { .. } => {
+            InitError::AdoptConfigurationExists(error)
+        }
+        other => InitError::StarterConfiguration(other),
+    })?;
+    write_adopted_state(&root, plugin_host, &starter, configuration.clone()).map_err(|cause| {
+        let leftovers = roll_back(
+            &[
+                configuration,
+                root.join(DEFAULT_RATCHET_PATH),
+                root.join(BASELINE_PATH),
+            ],
+            (!state_folder_existed).then_some(state_folder.as_path()),
+        );
+        if leftovers.is_empty() {
+            cause
+        } else {
+            InitError::RollbackIncomplete {
+                cause: Box::new(cause),
+                leftovers,
+            }
+        }
+    })
+}
+
+fn is_absent(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
+}
+
+fn removal_failed(result: std::io::Result<()>) -> bool {
+    result.is_err_and(|error| !is_absent(&error))
+}
+
+fn roll_back(files: &[PathBuf], created_folder: Option<&Path>) -> Vec<PathBuf> {
+    let mut leftovers: Vec<PathBuf> = files
+        .iter()
+        .filter(|file| removal_failed(std::fs::remove_file(file)))
+        .cloned()
+        .collect();
+    if let Some(folder) = created_folder
+        && removal_failed(std::fs::remove_dir(folder))
+    {
+        leftovers.push(folder.to_path_buf());
+    }
+    leftovers
+}
+
+fn write_adopted_state(
+    root: &Path,
+    plugin_host: &PluginHostConfig,
+    starter: &Starter,
+    configuration: PathBuf,
+) -> Result<AdoptedFiles, InitError> {
+    let (context, report) = load_and_measure_whole_repo(root, &[], plugin_host)?;
+    let ratchet = ratchet::update_from_report(&context, &report, false)?;
+    let baseline = baseline::update_from_report(&context, &report, false)?;
+    write_adoption_zero_budgets(
+        root,
+        &starter.languages,
+        starter.boundaries.as_ref(),
+        &report.baseline_metrics(),
+    )?;
+    Ok(AdoptedFiles {
+        configuration,
+        ratchet: root.join(DEFAULT_RATCHET_PATH),
+        ratchet_entries: ratchet.summary().total_entries,
+        baseline: root.join(BASELINE_PATH),
+        baselined_findings: baseline.total_findings,
+    })
+}
+
+fn refuse_existing_state_file(
+    root: &Path,
+    relative: &str,
+    update_command: &'static str,
+) -> Result<(), InitError> {
+    let path = root.join(relative);
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => Err(InitError::StateFileExists {
+            path,
+            update_command,
+        }),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(())
+        }
+        Err(source) => Err(InitError::Inspect { path, source }),
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+const PULL_REQUEST_WORKFLOW: &str = include_str!("init_adopt_workflow.yml");
+
+pub(crate) fn render_adoption(adopted: &AdoptedFiles) -> String {
+    format!(
+        "Wrote {configuration}\n\
+         Wrote {ratchet} ({entries} Metric ceilings)\n\
+         Wrote {baseline} ({findings} existing Findings)\n\
+         \n\
+         Next steps:\n\
+         1. Commit codeint.jsonc and the .codeint folder.\n\
+         2. Run codeint check locally and in your coding agent loop; the Baseline hides the existing Findings, and the zero Budgets in codeint.jsonc (production, test, and dependency Metrics) fail on any new Finding of a Metric the Baseline records; the Ratchet separately caps each whole-repository ratio.\n\
+         3. Save this as .github/workflows/codeint.yml to gate every pull request:\n\
+         \n\
+         {workflow}\n\
+         4. After you fix legacy code, run codeint ratchet update and codeint baseline update, and commit the result.\n\
+         5. To hold every new file to a strict bar, uncomment new_file_budgets in codeint.jsonc.\n\
+         \n\
+         Guide: https://github.com/avidianity/codeint/blob/main/docs/guide/adopting-on-an-existing-codebase.md\n",
+        configuration = adopted.configuration.display(),
+        ratchet = adopted.ratchet.display(),
+        entries = adopted.ratchet_entries,
+        baseline = adopted.baseline.display(),
+        findings = adopted.baselined_findings,
+        workflow = PULL_REQUEST_WORKFLOW.replace("{version}", env!("CARGO_PKG_VERSION")),
+    )
+}
+
+struct Starter {
+    languages: Vec<DetectedLanguage>,
+    boundaries: Option<StarterBoundaries>,
+}
+
+fn discover_starter(repository: &Repository) -> Result<Starter, GitError> {
     let tree = repository.working_tree()?;
     let plugins = built_in_language_plugins();
     let languages = detect_languages(tree.files(), plugins)?;
     let boundaries = discover_starter_boundaries(&tree, plugins)?;
-    Ok(write_starter_configuration(
-        repository.root(),
-        &languages,
-        boundaries.as_ref(),
-    )?)
+    Ok(Starter {
+        languages,
+        boundaries,
+    })
 }
 
 fn discover_starter_boundaries(
@@ -54,8 +258,8 @@ fn discover_workspace_roots(
         Err(CheckError::Git(error)) => return Err(error),
         Err(_) => return Ok(Vec::new()),
     };
-    let workspace = match find_workspace(plugins, &manifests) {
-        Ok(workspace) => workspace,
+    let workspace = match find_workspace(plugins, manifests) {
+        Ok((workspace, _)) => workspace,
         Err(CheckError::Git(error)) => return Err(error),
         Err(_) => return Ok(Vec::new()),
     };

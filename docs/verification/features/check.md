@@ -23,6 +23,7 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | `golden_md_output` | `--format markdown --output` | `0` | Standard output is empty; `report.md` contains `codeint report` and the Metric table |
 | `golden_all` | `--all --format json` | `0` | Valid JSON report listing every Finding |
 | `over_budget` | Verbosity Budget set to `0` | `1` | Full JSON report includes `over_budget`; standard error names the Budget failure |
+| `invalid_manifest` | Empty `fixtures/go.mod` added to the fixture repo copy | `0` | JSON report has one `manifest_warnings` entry naming `fixtures/go.mod` and `missing module directive`; the rest is measured |
 | `invalid_config` | Unknown key `budget` in `codeint.json` | `2` | Standard error names the unknown key |
 | `missing_path` | Path `missing` does not exist | `2` | Standard error reports the missing path |
 | `non_repo` | Folder outside a Git repository | `2` | Standard error reports the folder is not inside a Git repository |

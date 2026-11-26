@@ -14,6 +14,7 @@ mod impact;
 mod init;
 mod mcp;
 mod package_scripts;
+mod plugin_test;
 mod ratchet;
 mod remedy;
 mod report;
@@ -28,8 +29,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use codeint_config::{
-    AgentCommand, BaselineCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, RatchetCommand,
-    ReportDestination, ReportInput, ReportRenderFormat, cli_schema, read_invocation,
+    AgentCommand, BaselineCommand, Command, ConfigError, DEFAULT_MAX_TRACE_PATHS, PluginCommand,
+    RatchetCommand, ReportDestination, ReportInput, ReportRenderFormat, cli_schema,
+    read_invocation,
 };
 use codeint_git::ResultCache;
 use codeint_report::{ExitCodeSchema, ReportError, render_baseline_update};
@@ -345,6 +347,8 @@ enum CliError {
     #[error(transparent)]
     Ratchet(#[from] ratchet::RatchetError),
     #[error(transparent)]
+    PluginTest(#[from] plugin_test::PluginTestError),
+    #[error(transparent)]
     Impact(#[from] impact::ImpactCommandError),
     #[error(transparent)]
     Trace(#[from] trace::TraceCommandError),
@@ -375,12 +379,12 @@ fn exit_codes() -> Vec<ExitCodeSchema> {
         ExitCodeSchema {
             code: SUCCESS,
             name: "success",
-            description: "The run succeeded, and no Budget, Ratchet, Regression, or codeint doctor blocking error failed.",
+            description: "The run succeeded, and no Budget, Ratchet, Regression, codeint doctor blocking error, or codeint plugin test check failed.",
         },
         ExitCodeSchema {
             code: BUDGET_OR_REGRESSION_FAILED,
             name: "budget_or_regression_failed",
-            description: "The run succeeded, and at least one Budget, Ratchet, Regression, or codeint doctor blocking error failed.",
+            description: "The run succeeded, and at least one Budget, Ratchet, Regression, codeint doctor blocking error, or codeint plugin test check failed.",
         },
         ExitCodeSchema {
             code: OPERATIONAL_ERROR,
@@ -529,7 +533,11 @@ fn run_command(command: Command) -> Result<Outcome, CliError> {
 
 fn run_auxiliary_command(command: Command) -> Result<Outcome, CliError> {
     match command {
-        Command::Init { folder } => run_init(&folder),
+        Command::Init {
+            folder,
+            adopt,
+            plugin_host,
+        } => run_init(&folder, adopt, &plugin_host),
         Command::Update {
             check_only,
             version,
@@ -570,8 +578,15 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
             format,
             plugin_host,
         } => run_doctor(&folder, format, &plugin_host),
+        other => run_subcommand_group(other),
+    }
+}
+
+fn run_subcommand_group(command: Command) -> Result<Outcome, CliError> {
+    match command {
         Command::Agent(command) => run_agent(command),
         Command::Ratchet(command) => run_ratchet(command),
+        Command::Plugin(command) => run_plugin(command),
         Command::Baseline(command) => run_baseline(command),
         other => run_history_command(other),
     }
@@ -613,6 +628,22 @@ fn run_history_command(command: Command) -> Result<Outcome, CliError> {
     }
 }
 
+fn run_plugin(command: PluginCommand) -> Result<Outcome, CliError> {
+    match command {
+        PluginCommand::Test {
+            path,
+            kind,
+            sources,
+            limits,
+            format,
+        } => {
+            let report = plugin_test::plugin_test(&path, kind, &sources, limits)?;
+            print_report(&format!("{}\n", report.render(format)?))?;
+            Ok(Outcome::from_failures(report.failure_messages()))
+        }
+    }
+}
+
 fn run_agent(command: AgentCommand) -> Result<Outcome, CliError> {
     match command {
         AgentCommand::Status {
@@ -646,7 +677,9 @@ fn run_ratchet(command: RatchetCommand) -> Result<Outcome, CliError> {
             format,
             plugin_host,
         } => {
-            let report = ratchet::update(&folder, reset, &coverage_reports, &plugin_host)?;
+            let (context, measured) =
+                check::load_and_measure_whole_repo(&folder, &coverage_reports, &plugin_host)?;
+            let report = ratchet::update_from_report(&context, &measured, reset)?;
             print_report(&format!("{}\n", report.render(format)?))?;
             Ok(Outcome::Passed)
         }
@@ -662,7 +695,9 @@ fn run_baseline(command: BaselineCommand) -> Result<Outcome, CliError> {
             format,
             plugin_host,
         } => {
-            let summary = baseline::update(&folder, reset, &coverage_reports, &plugin_host)?;
+            let (context, measured) =
+                check::load_and_measure_whole_repo(&folder, &coverage_reports, &plugin_host)?;
+            let summary = baseline::update_from_report(&context, &measured, reset)?;
             print_report(&format!("{}\n", render_baseline_update(&summary, format)?))?;
             Ok(Outcome::Passed)
         }
@@ -737,7 +772,16 @@ fn run_guard(folder: &Path, target: &Path, format: GuardFormat) -> Result<Outcom
     Ok(Outcome::Passed)
 }
 
-fn run_init(folder: &Path) -> Result<Outcome, CliError> {
+fn run_init(
+    folder: &Path,
+    adopt: bool,
+    plugin_host: &PluginHostConfig,
+) -> Result<Outcome, CliError> {
+    if adopt {
+        let adopted = init::adopt(folder, plugin_host)?;
+        print_report(&init::render_adoption(&adopted))?;
+        return Ok(Outcome::Passed);
+    }
     let written = init::init(folder)?;
     print_report(&format!("Wrote {}\n", written.display()))?;
     Ok(Outcome::Passed)

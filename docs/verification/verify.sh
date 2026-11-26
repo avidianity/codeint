@@ -286,6 +286,14 @@ drive_check() {
   printf '{"budget":{}}\n' > "$work_badcfg/codeint.json"
   run_case "$work_badcfg" "$dir/invalid_config" "$BIN_PATH" check
 
+  local work_manifest="$RUN_DIR/work-check-manifest"
+  rm -rf "$work_manifest"
+  cp -R "$FIXTURE_REPO" "$work_manifest"
+  mkdir -p "$work_manifest/fixtures"
+  : > "$work_manifest/fixtures/go.mod"
+  printf 'package fixtures\n\nfunc One() int {\n\treturn 1\n}\n' > "$work_manifest/fixtures/one.go"
+  run_case "$work_manifest" "$dir/invalid_manifest" "$BIN_PATH" check --format json
+
   run_case "$FIXTURE_REPO" "$dir/missing_path" "$BIN_PATH" check missing
   run_case "$NON_REPO" "$dir/non_repo" "$BIN_PATH" check
 }
@@ -342,6 +350,54 @@ drive_init() {
   fi
 
   run_case "$NON_REPO" "$dir/non_repo" "$BIN_PATH" init
+
+  local work_adopt="$RUN_DIR/work-init-adopt-fresh"
+  rm -rf "$work_adopt"
+  cp -R "$INIT_REPO" "$work_adopt"
+  write_eroded_ts "$work_adopt/src/legacy.ts" "legacy" 16
+  git -C "$work_adopt" add .
+  git_commit_deterministic "$work_adopt" "2026-11-17T12:00:00Z" "Add legacy"
+  run_case "$work_adopt" "$dir/adopt_fresh" "$BIN_PATH" init --adopt
+  if [ -f "$work_adopt/codeint.jsonc" ]; then
+    cp "$work_adopt/codeint.jsonc" "$dir/adopt_fresh.config.json"
+  fi
+  if [ -f "$work_adopt/.codeint/ratchet.json" ]; then
+    cp "$work_adopt/.codeint/ratchet.json" "$dir/adopt_fresh.ratchet.json"
+  fi
+  if [ -f "$work_adopt/.codeint/baseline.json" ]; then
+    cp "$work_adopt/.codeint/baseline.json" "$dir/adopt_fresh.baseline.json"
+  fi
+  run_case "$work_adopt" "$dir/adopt_check_clean" "$BIN_PATH" check --format json
+  write_eroded_ts "$work_adopt/src/fresh.ts" "fresh" 16
+  printf 'export const legacy = 1;\n' > "$work_adopt/src/legacy.ts"
+  run_case "$work_adopt" "$dir/adopt_check_new" "$BIN_PATH" check --format json
+
+  local work_adopt_rollback="$RUN_DIR/work-init-adopt-rollback"
+  rm -rf "$work_adopt_rollback"
+  cp -R "$INIT_REPO" "$work_adopt_rollback"
+  write_eroded_ts "$work_adopt_rollback/src/legacy.ts" "legacy" 16
+  printf 'not a folder\n' > "$work_adopt_rollback/.codeint"
+  run_case "$work_adopt_rollback" "$dir/adopt_rollback" "$BIN_PATH" init --adopt
+  find "$work_adopt_rollback" -path "$work_adopt_rollback/.git" -prune -o -type f -print | sed "s|^$work_adopt_rollback/||" | sort > "$dir/adopt_rollback.files"
+
+  local work_adopt_cfg="$RUN_DIR/work-init-adopt-config"
+  rm -rf "$work_adopt_cfg"
+  cp -R "$INIT_REPO" "$work_adopt_cfg"
+  printf '{"budgets":{}}\n' > "$work_adopt_cfg/codeint.jsonc"
+  sha256_file "$work_adopt_cfg/codeint.jsonc" > "$dir/adopt_existing_config.before.sha256"
+  run_case "$work_adopt_cfg" "$dir/adopt_existing_config" "$BIN_PATH" init --adopt
+  sha256_file "$work_adopt_cfg/codeint.jsonc" > "$dir/adopt_existing_config.after.sha256"
+  find "$work_adopt_cfg" -path "$work_adopt_cfg/.git" -prune -o -type f -print | sed "s|^$work_adopt_cfg/||" | sort > "$dir/adopt_existing_config.files"
+
+  local work_adopt_state="$RUN_DIR/work-init-adopt-state"
+  rm -rf "$work_adopt_state"
+  cp -R "$INIT_REPO" "$work_adopt_state"
+  mkdir -p "$work_adopt_state/.codeint"
+  printf '{"version":1,"findings":[]}\n' > "$work_adopt_state/.codeint/baseline.json"
+  sha256_file "$work_adopt_state/.codeint/baseline.json" > "$dir/adopt_existing_state.before.sha256"
+  run_case "$work_adopt_state" "$dir/adopt_existing_state" "$BIN_PATH" init --adopt
+  sha256_file "$work_adopt_state/.codeint/baseline.json" > "$dir/adopt_existing_state.after.sha256"
+  find "$work_adopt_state" -path "$work_adopt_state/.git" -prune -o -type f -print | sed "s|^$work_adopt_state/||" | sort > "$dir/adopt_existing_state.files"
 }
 
 cmd_drive() {
@@ -415,6 +471,16 @@ def read_json(rel):
     except Exception as e:
         return {"_parse_error": str(e)}
 
+def read_jsonc(rel):
+    t = read_text(rel)
+    if t is None:
+        return None
+    stripped = "\n".join(line for line in t.splitlines() if not line.lstrip().startswith("//"))
+    try:
+        return json.loads(stripped)
+    except Exception as e:
+        return {"_parse_error": str(e)}
+
 features = ["check", "diff", "trend", "init"] if feature == "all" else [feature]
 
 check("fixture_repo_clean", git_status == "", f"git status not empty: {git_status!r}")
@@ -444,6 +510,11 @@ if "check" in features:
     ob = read_json("check/over_budget.stdout")
     check("check.over_budget.payload", isinstance(ob, dict) and len(ob.get("over_budget", [])) >= 1, str(ob))
     check("check.over_budget.stderr", "Budget" in (read_text("check/over_budget.stderr") or ""), "stderr missing Budget message")
+
+    check("check.invalid_manifest.exit", read_exit("check/invalid_manifest") == 0, str(read_exit("check/invalid_manifest")))
+    im = read_json("check/invalid_manifest.stdout")
+    im_warnings = im.get("manifest_warnings", []) if isinstance(im, dict) else []
+    check("check.invalid_manifest.warning", len(im_warnings) == 1 and "fixtures/go.mod" in im_warnings[0] and "missing module directive" in im_warnings[0], str(im_warnings))
 
     check("check.invalid_config.exit", read_exit("check/invalid_config") == 2, str(read_exit("check/invalid_config")))
     check("check.missing_path.exit", read_exit("check/missing_path") == 2, str(read_exit("check/missing_path")))
@@ -492,7 +563,7 @@ if "trend" in features:
 
 if "init" in features:
     check("init.fresh.exit", read_exit("init/fresh") == 0, str(read_exit("init/fresh")))
-    init_cfg = read_json("init/codeint.before.json")
+    init_cfg = read_jsonc("init/codeint.before.json")
     check("init.fresh.valid_json", isinstance(init_cfg, dict) and "$schema" in init_cfg and "languages" in init_cfg, str(init_cfg))
 
     check("init.existing.exit", read_exit("init/existing") == 2, str(read_exit("init/existing")))
@@ -502,6 +573,49 @@ if "init" in features:
     check("init.existing.stderr", "already exists" in (read_text("init/existing.stderr") or ""), "stderr missing already exists")
 
     check("init.non_repo.exit", read_exit("init/non_repo") == 2, str(read_exit("init/non_repo")))
+
+    check("init.adopt_fresh.exit", read_exit("init/adopt_fresh") == 0, str(read_exit("init/adopt_fresh")))
+    adopt_cfg = read_text("init/adopt_fresh.config.json") or ""
+    adopt_cfg_json = read_jsonc("init/adopt_fresh.config.json")
+    check("init.adopt_fresh.per_file", isinstance(adopt_cfg_json, dict) and adopt_cfg_json.get("regression_limits", {}).get("per_file") is True, adopt_cfg)
+    adopt_ratchet = read_json("init/adopt_fresh.ratchet.json")
+    adopt_budgets = adopt_cfg_json.get("budgets", {}).get("production", {}) if isinstance(adopt_cfg_json, dict) else {}
+    check("init.adopt_fresh.zero_budgets", adopt_budgets.get("erosion") == 0 and "test_gap" not in adopt_budgets, str(adopt_budgets))
+    check("init.adopt_fresh.ratchet", isinstance(adopt_ratchet, dict) and "_parse_error" not in adopt_ratchet, str(adopt_ratchet))
+    adopt_baseline = read_json("init/adopt_fresh.baseline.json")
+    adopt_erosion = []
+    if isinstance(adopt_baseline, dict):
+        adopt_erosion = adopt_baseline.get("source_sets", {}).get("production", {}).get("erosion", {}).get("findings", [])
+    check("init.adopt_fresh.baseline", len(adopt_erosion) >= 1, str(adopt_baseline))
+    check("init.adopt_fresh.stdout", "Next steps" in (read_text("init/adopt_fresh.stdout") or ""), "stdout missing Next steps")
+    check("init.adopt_check_clean.exit", read_exit("init/adopt_check_clean") == 0, str(read_exit("init/adopt_check_clean")))
+    check("init.adopt_check_new.exit", read_exit("init/adopt_check_new") == 1, str(read_exit("init/adopt_check_new")))
+    adopt_new_err = read_text("init/adopt_check_new.stderr") or ""
+    check("init.adopt_check_new.stderr", "production erosion ratio" in adopt_new_err and "is over its Budget 0" in adopt_new_err and "Ratchet" not in adopt_new_err, adopt_new_err)
+
+    check("init.adopt_rollback.exit", read_exit("init/adopt_rollback") == 2, str(read_exit("init/adopt_rollback")))
+    rollback_err = read_text("init/adopt_rollback.stderr") or ""
+    check("init.adopt_rollback.stderr", "cannot write Ratchet file" in rollback_err and "could not remove" not in rollback_err, rollback_err)
+    rollback_files = (read_text("init/adopt_rollback.files") or "").split()
+    check("init.adopt_rollback.no_config", "codeint.jsonc" not in rollback_files and ".codeint" in rollback_files, str(rollback_files))
+
+    check("init.adopt_existing_config.exit", read_exit("init/adopt_existing_config") == 2, str(read_exit("init/adopt_existing_config")))
+    ac_before = (read_text("init/adopt_existing_config.before.sha256") or "").strip()
+    ac_after = (read_text("init/adopt_existing_config.after.sha256") or "").strip()
+    check("init.adopt_existing_config.unchanged", ac_before != "" and ac_before == ac_after, f"before={ac_before} after={ac_after}")
+    ac_files = (read_text("init/adopt_existing_config.files") or "").split()
+    check("init.adopt_existing_config.no_state", not any(f.startswith(".codeint/") for f in ac_files), str(ac_files))
+    ac_err = read_text("init/adopt_existing_config.stderr") or ""
+    check("init.adopt_existing_config.stderr", "already exists" in ac_err and "codeint ratchet update" in ac_err and "codeint baseline update" in ac_err, ac_err)
+
+    check("init.adopt_existing_state.exit", read_exit("init/adopt_existing_state") == 2, str(read_exit("init/adopt_existing_state")))
+    as_before = (read_text("init/adopt_existing_state.before.sha256") or "").strip()
+    as_after = (read_text("init/adopt_existing_state.after.sha256") or "").strip()
+    check("init.adopt_existing_state.unchanged", as_before != "" and as_before == as_after, f"before={as_before} after={as_after}")
+    as_files = (read_text("init/adopt_existing_state.files") or "").split()
+    check("init.adopt_existing_state.no_config", "codeint.jsonc" not in as_files and ".codeint/ratchet.json" not in as_files, str(as_files))
+    as_err = read_text("init/adopt_existing_state.stderr") or ""
+    check("init.adopt_existing_state.stderr", "already exists" in as_err and "codeint baseline update" in as_err and "codeint baseline update --reset" in as_err, as_err)
 
 verdict = "PASS" if not failures else "FAIL"
 summary = {

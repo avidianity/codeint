@@ -23,6 +23,9 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
 | `--scratch-root <DIR>` | system temporary folder | Create the `codeint-eval-*` scratch folders under this folder |
 | `--oracle <PLUGIN=PROGRAM>` | none | Use `PROGRAM` instead of the built-in native-parser oracle for one Language plugin |
 | `--audit-verdicts <FILE>` | none | Read a reviewer's verdicts on the audit sample and report false positive rates |
+| `--require-oracles` | off | Fail a repository whose Language plugin has an oracle that is skipped, instead of reporting `skipped` |
+| `--max-wall-seconds <SECONDS>` | none | Fail a repository whose median `codeint check` wall time is above `SECONDS`, or that has no wall time |
+| `--max-rss-mib <MIB>` | none | Fail a repository whose peak resident memory is above `MIB` mebibytes, or that has no peak resident memory measurement |
 
 ## Rules
 
@@ -44,6 +47,29 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
   The `bucket` field of the manifest is the declared bucket; the report shows both.
 - Each corpus entry names a public repository, its URL, and an exact 40-digit commit SHA.
   Never commit third-party source code; the manifest holds only references.
+
+## Run it in CI
+
+`.github/workflows/corpus-eval.yml` runs the whole corpus on GitHub Actions.
+It starts on a push to `main` that changes more than Markdown, `LICENSE`, or `llms.txt`, on a weekly schedule (Monday 03:17 UTC), and on manual dispatch.
+It never runs on a pull request, so the pull-request CI gate and its Feedback budget do not count it.
+
+- The `build` job builds `codeint` and `codeint-eval` once with `cargo build --release --locked` and shares both binaries as the `corpus-eval-binaries` artifact.
+- The `evaluate` job is a matrix with one job per Language plugin.
+  Each job downloads the binaries, installs only that language's oracle runtime at its minimum version (Python 3.12, Go 1.24, PHP 8.1, Dart 3.11), and runs `codeint-eval --language {language} --require-oracles --max-wall-seconds 30 --max-rss-mib 2048`.
+- A job fails on a non-zero `codeint check` exit code, an unexpected unparsable file, recall below 98%, a skipped oracle, or a ceiling breach.
+- Each job writes `evaluation.md` to its step summary, then checks that no `codeint-eval-*` scratch folder remains, deletes the scratch root, and fails when one does.
+
+The ceilings hold for every repository, on `ubuntu-24.04` runners.
+They come from one local run of the pinned corpus, on an Apple-silicon Mac with `--runs 1`, so each has headroom for a slower runner:
+
+| Measure | Highest measured (repository) | Ceiling |
+| ------- | ----------------------------- | ------- |
+| Median wall time | 5.34 s (`flutter/packages`, 434,544 Production lines) | 30 s |
+| Peak resident memory | 983 MiB (`flutter/packages`) | 2,048 MiB |
+
+The next slowest repository takes 1.06 s (`pgpartman/pg_partman`) and the next largest peak is 588 MiB (`timescale/timescaledb`).
+Tighten the ceilings from the `evaluation.md` step summaries of real runner jobs once a few runs exist.
 
 ## Native-parser oracles
 

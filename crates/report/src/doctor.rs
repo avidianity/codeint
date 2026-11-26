@@ -168,7 +168,10 @@ impl DoctorReport {
         for check in items {
             let _ = writeln!(out, "  [{badge}] {}: {}", check.id, check.summary);
             if let Some(detail) = &check.detail {
-                let _ = writeln!(out, "    detail: {detail}");
+                for (index, line) in detail.lines().enumerate() {
+                    let label = if index == 0 { "detail: " } else { "        " };
+                    let _ = writeln!(out, "    {label}{line}");
+                }
             }
             if let Some(remedy) = &check.remedy {
                 let _ = writeln!(out, "    remedy: {remedy}");

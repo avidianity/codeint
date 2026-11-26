@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::Parser;
-use codeint_eval::EvaluationConfig;
+use codeint_eval::{Ceilings, EvaluationConfig};
 
 #[derive(Parser)]
 #[command(
@@ -60,6 +60,23 @@ struct Arguments {
     audit_verdicts: Option<PathBuf>,
     #[arg(long, value_parser = parse_oracle, help = "Use PROGRAM as the oracle for LANGUAGE, as LANGUAGE=PROGRAM; may repeat")]
     oracle: Vec<(String, PathBuf)>,
+    #[arg(
+        long,
+        help = "Fail a repository whose Language plugin has no usable oracle instead of skipping it"
+    )]
+    require_oracles: bool,
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        help = "Fail a repository whose median codeint check wall time exceeds SECONDS"
+    )]
+    max_wall_seconds: Option<f64>,
+    #[arg(
+        long,
+        value_name = "MIB",
+        help = "Fail a repository whose peak resident memory exceeds MIB mebibytes, or has no peak resident memory measurement"
+    )]
+    max_rss_mib: Option<u64>,
 }
 
 fn parse_oracle(value: &str) -> Result<(String, PathBuf), String> {
@@ -116,5 +133,12 @@ pub(crate) fn evaluation_config() -> Result<EvaluationConfig, std::io::Error> {
         audit_sample_size: arguments.audit_sample_size,
         oracle_overrides: arguments.oracle.into_iter().collect::<BTreeMap<_, _>>(),
         audit_verdicts: arguments.audit_verdicts,
+        require_oracles: arguments.require_oracles,
+        ceilings: Ceilings {
+            max_wall_seconds: arguments.max_wall_seconds,
+            max_peak_rss_bytes: arguments
+                .max_rss_mib
+                .map(|mebibytes| mebibytes * 1024 * 1024),
+        },
     })
 }

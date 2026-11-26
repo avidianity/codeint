@@ -31,7 +31,7 @@ Each pull request can pass tests and linters while quietly adding copied blocks,
 Over dozens of changes, that structural drag compounds until both humans and agents slow down.
 
 codeint measures **Software entropy** directly from the shape of your source code so you see it grow before it compounds, and reports **Hazards** next to Software entropy ([ADR 0016](./docs/adr/0016-hazards-next-to-software-entropy.md)).
-It ships with seven built-in Language plugins covering TypeScript/JavaScript (with built-in `react`, `vue2`, `vue3`, `svelte`, `nextjs`, `nuxt`, `sveltekit`, `angular`, and `nestjs` Framework profiles plus framework-blind `.vue` and `.svelte` `<script>` lowering), Rust, PHP, Dart, Python, Go, and SQL, plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
+It ships with eight built-in Language plugins covering TypeScript/JavaScript (with built-in `react`, `vue2`, `vue3`, `svelte`, `nextjs`, `nuxt`, `sveltekit`, `angular`, and `nestjs` Framework profiles plus framework-blind `.vue` and `.svelte` `<script>` lowering), Rust, PHP, Dart, Python, Go, SQL, and Shell (`.sh`, `.bash`, `.zsh`), plus sandboxed WebAssembly Plugins for other languages and custom Metrics.
 
 ## How it works
 
@@ -54,7 +54,7 @@ Additional independent Metrics and structural checks run in the same pass:
 - **Orphan files**: Production files unreachable from manifest-declared, program-start, and configured `entry_points`, classified as `unreferenced` or `test-only`.
 - **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pubspec.yaml`, and `go.mod` against imported external packages while excluding standard-library built-ins.
 - **Architectural import boundaries**: named zones, built-in `layered` and `hexagonal` presets, `public_files` encapsulation, directional internal `allow`/`deny` rules, external-package `allow_external`/`deny_external` glob rules, and pre-edit `codeint guard <path>` checks before a file even exists on disk ([Import boundaries guide](./docs/guide/import-boundaries.md)).
-- **Hazards**: share of source lines matching AST-only Hazard line rules for patterns likely to cause wrong results, slow execution, or a security exposure, reported next to Software entropy with strict non-leakage (path, line, and rule name only, never source text) and 32 built-in SQL rules including 5 schema-backed rules ([Hazards guide](./docs/guide/hazards.md), [SQL guide](./docs/guide/sql.md), [ADR 0016](./docs/adr/0016-hazards-next-to-software-entropy.md)).
+- **Hazards**: share of source lines matching AST-only Hazard line rules for patterns likely to cause wrong results, slow execution, or a security exposure, reported next to Software entropy with strict non-leakage (path, line, and rule name only, never source text), 32 built-in SQL rules including 5 schema-backed rules, and 10 built-in Shell rules ([Hazards guide](./docs/guide/hazards.md), [SQL guide](./docs/guide/sql.md), [Shell guide](./docs/guide/shell.md), [ADR 0016](./docs/adr/0016-hazards-next-to-software-entropy.md)).
 
 Every file belongs to one **Source set** (`production`, `test`, `generated`, or `vendored`), so fixtures and generated code never distort Production ratios.
 **Budgets** cap absolute ratios, `.codeint/ratchet.json` (**Ratchet**, managed with `codeint ratchet update`) locks in whole-repository ceilings with Metric version tracking, and `codeint diff <base>` checks every pull request against its Git merge-base ([ADR 0026](./docs/adr/0026-regression-and-ratchet.md)).
@@ -75,7 +75,7 @@ Beyond static snapshots, codeint helps humans and coding agents understand how f
 
 - **JSONC configuration and `.codeint/` state**: configure codeint in `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc` (`codeint init` writes a starter `codeint.jsonc`), lock in monotonic whole-repository ceilings in `.codeint/ratchet.json` via `codeint ratchet update`, and freeze existing Findings in `.codeint/baseline.json` via `codeint baseline update`.
 - **Single-scan multi-format reporting**: save `codeint check --format json` or `codeint diff --format json` once, then re-render losslessly into `text`, `toon`, `json`, `sarif`, or `markdown` with `codeint report`.
-- **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, and verify repository health offline with `codeint doctor`.
+- **Introspection and diagnostics**: inspect machine-readable CLI/MCP capabilities with `codeint schema`, see effective settings with `default`/`file`/`cli` provenance via `codeint config --resolved`, verify repository health offline with `codeint doctor`, and check an external Wasm Plugin against the Plugin contract with `codeint plugin test`.
 - **First-class MCP integration**: run `codeint agent status` and `codeint agent install` to register the local stdio MCP server (`codeint mcp`) for Claude Code, Cursor, and Codex, exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
 
 ### Built for speed and safety
@@ -88,7 +88,7 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 
 ## Calibrated Reference ranges
 
-10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework:
+10th to 90th percentile across 20 pre-2023 open-source repositories per language or framework, or 50 current repositories for Shell:
 
 | Language | Erosion | Duplication | Verbosity | Import cycles | Docs |
 | -------- | ------- | ----------- | --------- | ------------- | ---- |
@@ -102,6 +102,7 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 | Python | 14.4% to 62.4% | 1.2% to 20.1% | 1.4% to 20.4% | 0.0% to 32.1% | [ADR 0013](./docs/adr/0013-python-reference-ranges.md) |
 | Go | 37.9% to 69.2% | 4.4% to 18.1% | 4.5% to 18.3% | 0.0% to 0.0% | [ADR 0021](./docs/adr/0021-go-reference-ranges.md) |
 | SQL | 9.4% to 97.6% | 4.2% to 92.1% | 4.2% to 92.1% | N/A | [ADR 0022](./docs/adr/0022-sql-reference-ranges.md) |
+| Shell | 41.6% to 92.7% | 0.8% to 75.1% | 0.0% to 2.5% | N/A | [ADR 0031](./docs/adr/0031-shell-reference-ranges.md) |
 
 See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings.
 
@@ -125,22 +126,26 @@ Run codeint inside any Git repository:
 
 ```sh
 codeint init
+codeint init --adopt
 codeint check
 codeint diff main
 codeint ratchet update
 codeint baseline update
 codeint guard src/domain/order.ts
 codeint doctor
+codeint plugin test plugins/my-plugin.wasm
 codeint agent install
 ```
 
 - `codeint init` writes a starter `codeint.jsonc` with a versioned `$schema`.
+- `codeint init --adopt` onboards an existing codebase in one step: it writes the starter `codeint.jsonc` with `per_file: true`, zero Budgets for each recorded Metric, and commented `new_file_budgets`, writes `.codeint/ratchet.json` and `.codeint/baseline.json` from the current state, and prints a pull-request workflow, without replacing any existing file ([adoption guide](./docs/guide/adopting-on-an-existing-codebase.md)).
 - `codeint check` measures the working tree and prints each Metric with its Findings.
 - `codeint diff main` compares the working tree against the merge-base of `main` and fails on any Budget, Ratchet, or Regression failure.
 - `codeint ratchet update` creates or monotonically tightens `.codeint/ratchet.json` ceilings for whole-repository runs.
 - `codeint baseline update` creates `.codeint/baseline.json`, or removes fixed Findings from it, so `codeint check` hides existing Findings and reports only new ones.
 - `codeint guard src/domain/order.ts` checks architectural boundary rules for an existing or planned file path.
 - `codeint doctor` runs offline diagnostics on Git status, config validity, detected languages, workspaces, and Plugins.
+- `codeint plugin test plugins/my-plugin.wasm` runs the Conformance runner against an external Wasm Plugin and prints each violated rule with a fix hint.
 - `codeint agent install` registers `codeint mcp` in detected local coding agents.
 
 Or call codeint programmatically from JavaScript/TypeScript (`npm install codeint`) or Rust (`codeint-cli`):
@@ -162,7 +167,7 @@ let pr_diff = diff(Path::new("."), "main", &DiffOptions::default())?;
 
 ## Documentation
 
-- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Import boundaries](./docs/guide/import-boundaries.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
+- [Guide](./docs/guide/README.md): walkthroughs for [Philosophy and Architecture](./docs/guide/philosophy-and-architecture.md), [Getting Started](./docs/guide/getting-started.md), [Configuration](./docs/guide/configuration.md), [Import boundaries](./docs/guide/import-boundaries.md), [Test gap](./docs/guide/test-gap.md), [Hazards](./docs/guide/hazards.md), [Built-in Languages](./docs/guide/languages.md), [CI and GitHub Actions](./docs/guide/ci-and-github-actions.md), [Adopting codeint on an existing codebase](./docs/guide/adopting-on-an-existing-codebase.md), and [Coding-Agent Integration (MCP)](./docs/guide/mcp.md).
 - [Reference](./docs/reference.md): tested reference for every command, flag, exit code, report format (`toon`, `json`, `sarif`, `markdown`, `text`), and configuration key.
 - [Programmatic API](./docs/programmatic.md): JavaScript/TypeScript SDK and Rust library API.
 - [Plugins](./docs/plugins.md): build external WebAssembly Language and Metric plugins with `codeint-plugin-sdk` (`wasm32-wasip2` `no_std` or `wasm32-unknown-unknown` `std`), pin SHA-256 digests, and test them.
