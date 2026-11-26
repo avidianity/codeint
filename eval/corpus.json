@@ -245,6 +245,41 @@
       "bucket": "large",
       "url": "https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit",
       "commit": "5d3a6811a44e4aef1115aee75254e930e2e60938"
+    },
+    {
+      "name": "nvm-sh/nvm",
+      "language": "shell",
+      "bucket": "small",
+      "url": "https://github.com/nvm-sh/nvm",
+      "commit": "3bf66860904e752a128637e423815b899a004155"
+    },
+    {
+      "name": "pi-hole/pi-hole",
+      "language": "shell",
+      "bucket": "small",
+      "url": "https://github.com/pi-hole/pi-hole",
+      "commit": "f7c0220e63e753c664a1ec08d42d6b647b86005d"
+    },
+    {
+      "name": "ohmyzsh/ohmyzsh",
+      "language": "shell",
+      "bucket": "medium",
+      "url": "https://github.com/ohmyzsh/ohmyzsh",
+      "commit": "799f9a8a8ae16e2b6a46dd3e9a9bd657bf614825"
+    },
+    {
+      "name": "testssl/testssl.sh",
+      "language": "shell",
+      "bucket": "medium",
+      "url": "https://github.com/testssl/testssl.sh",
+      "commit": "0f87aca237ae52a35e69a14157c37377a1779908"
+    },
+    {
+      "name": "acmesh-official/acme.sh",
+      "language": "shell",
+      "bucket": "large",
+      "url": "https://github.com/acmesh-official/acme.sh",
+      "commit": "5567d7fe7298fd37aca53194885ba444c6678669"
     }
   ]
 }
