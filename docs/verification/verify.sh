@@ -1580,7 +1580,8 @@ if "report" in features:
     check("report.check_to_markdown.shape", "codeint report" in rmd and "| Source set |" in rmd, rmd)
 
     check("report.check_to_text_stdin.exit", read_exit("report/check_to_text_stdin") == 0, str(read_exit("report/check_to_text_stdin")))
-    check("report.check_to_text_stdin.shape", "source_sets:" in (read_text("report/check_to_text_stdin.stdout") or ""), read_text("report/check_to_text_stdin.stdout") or "")
+    rtxt = read_text("report/check_to_text_stdin.stdout") or ""
+    check("report.check_to_text_stdin.shape", "codeint check: PASS" in rtxt and "Metric" in rtxt and "\x1b[" not in rtxt, rtxt)
 
     check("report.diff_to_toon.exit", read_exit("report/diff_to_toon") == 0, str(read_exit("report/diff_to_toon")))
     check("report.diff_to_toon.shape", len((read_text("report/diff_to_toon.stdout") or "").strip()) > 0, "empty diff toon")
