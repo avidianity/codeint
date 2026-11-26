@@ -109,7 +109,7 @@ See [`codeint ratchet`](../reference.md#codeint-ratchet).
 ## The Baseline: `.codeint/baseline.json`
 
 The Baseline stores each existing Finding's identifier and hashed surrounding-line context anchors (never raw source text), with the Metric version that produced it.
-`codeint check` hides those Findings and evaluates Budgets on the Findings that remain, pairing duplicate Findings by surrounding-line context so inserting an identical Finding above legacy code reports the new line.
+`codeint check` hides those Findings and both `codeint check` and `codeint diff` evaluate Budgets on the Findings that remain, pairing duplicate Findings by surrounding-line context so inserting an identical Finding above legacy code reports the new line.
 This lets you set a strict Budget, such as `"erosion": 0`, on day one without failing on legacy code; `codeint init --adopt` writes those zero Budgets for you.
 
 Remove fixed Findings after you clean up:

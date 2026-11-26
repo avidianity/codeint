@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 
-use codeint_config::{FindingsShown, PluginHostConfig};
+use codeint_config::{Baseline, FindingsShown, PluginHostConfig};
 use codeint_git::{CommitId, GitError, Repository, ResultCache, Snapshot};
 use codeint_model::RepoPath;
 use codeint_report::{
@@ -70,6 +70,7 @@ pub(crate) fn diff(
         selected.as_ref().map(|pkg| pkg.as_str()),
     );
     let base_measurement = base_measurer.measure_selected_package(merge_base, selected.as_ref())?;
+    let baseline = Baseline::load_optional(run.context.repository.root())?;
     let mut report = DiffReport::compare_with_options(
         BaseCommit {
             git_ref: refs.base.to_owned(),
@@ -86,9 +87,19 @@ pub(crate) fn diff(
             changed_files,
             limits: &run.context.configuration.regression_limits,
             ownership: run.ownership(),
+            baseline: baseline.as_ref(),
             include_test_gap_note: !run.context.configuration.coverage_reports.is_empty(),
         },
     );
+    if let Some(baseline) = baseline.as_ref() {
+        let mismatches = baseline.version_mismatches(&report.head_baseline_metrics());
+        if !mismatches.is_empty() {
+            return Err(CheckError::BaselineVersionMismatch {
+                mismatches,
+                supports_ignore_baseline: false,
+            });
+        }
+    }
     crate::ratchet::enforce_if_present(
         run.context.repository.root(),
         &run.context.configuration.ratchet.path,

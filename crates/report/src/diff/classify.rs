@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_config::{FindingAnchor, FindingsShown, match_anchors};
-use codeint_model::Metric;
+use codeint_config::{Baseline, FindingAnchor, FindingsShown, match_anchors};
+use codeint_model::{Metric, SourceSet};
 
 use super::types::{
     CloneFamilyChanges, DependenciesChanges, DuplicationChanges, ExternalMetricChanges,
     MetricChanges, SourceSetChanges,
 };
-use crate::baseline::Identified;
+use crate::baseline::{BaselineScope, BaselineWeight, BudgetedRatio, Identified};
 use crate::measurement::{
     DependenciesMeasurement, MetricMeasurement, SourceSetMeasurement, rehydrate_anchors,
 };
@@ -24,11 +24,17 @@ trait FileAttributed {
 }
 
 pub(super) fn source_set_changes(
+    source_set: SourceSet,
     mut base: SourceSetMeasurement,
     mut head: SourceSetMeasurement,
     shown: FindingsShown,
     ownership: OwnershipOptions<'_>,
+    baseline: Option<&Baseline>,
 ) -> SourceSetChanges {
+    let baseline_scope = baseline.map(|baseline| BaselineScope {
+        baseline,
+        source_set: Some(source_set),
+    });
     let keys: BTreeSet<String> = base
         .external_metrics
         .keys()
@@ -51,55 +57,68 @@ pub(super) fn source_set_changes(
             base_entry.map_or_else(MetricMeasurement::default, |e| e.measurement);
         let head_measurement =
             head_entry.map_or_else(MetricMeasurement::default, |e| e.measurement);
+        let changes = classify(
+            &key,
+            metric_version,
+            base_measurement,
+            head_measurement,
+            shown,
+            ownership,
+            baseline_scope,
+        );
         external_metrics.insert(
             key,
             ExternalMetricChanges {
                 name,
                 description,
-                changes: classify(
-                    metric_version,
-                    base_measurement,
-                    head_measurement,
-                    shown,
-                    ownership,
-                ),
+                changes,
             },
         );
     }
     let import_cycles = classify_optional(
+        Metric::ImportCycles.key(),
         Metric::ImportCycles.version(),
         base.import_cycles,
         head.import_cycles,
         shown,
         ownership,
+        baseline_scope,
     );
     let boundaries = classify_optional(
+        Metric::Boundaries.key(),
         Metric::Boundaries.version(),
         base.boundaries,
         head.boundaries,
         shown,
         ownership,
+        baseline_scope,
     );
     let orphan_files = classify_optional(
+        Metric::OrphanFiles.key(),
         Metric::OrphanFiles.version(),
         base.orphan_files,
         head.orphan_files,
         shown,
         ownership,
+        baseline_scope,
     );
     let hazards = classify_optional(
+        Metric::Hazards.key(),
         Metric::Hazards.version(),
         base.hazards,
         head.hazards,
         shown,
         ownership,
+        baseline_scope,
     );
     let duplication_groups = classify(
+        Metric::Duplication.key(),
         Metric::Duplication.version(),
         base.duplication,
         head.duplication,
         shown,
         ownership,
+        baseline_scope,
     );
     let base_families = ownership.apply(rehydrate_anchors(
         base.clone_families,
@@ -130,29 +149,35 @@ pub(super) fn source_set_changes(
     };
     SourceSetChanges {
         erosion: classify(
+            Metric::Erosion.key(),
             Metric::Erosion.version(),
             base.erosion,
             head.erosion,
             shown,
             ownership,
+            baseline_scope,
         ),
         cognitive_complexity: classify(
+            Metric::CognitiveComplexity.key(),
             Metric::CognitiveComplexity.version(),
             base.cognitive_complexity,
             head.cognitive_complexity,
             shown,
             ownership,
+            baseline_scope,
         ),
         duplication: DuplicationChanges {
             groups: duplication_groups,
             clone_families,
         },
         verbosity: classify(
+            Metric::Verbosity.key(),
             Metric::Verbosity.version(),
             base.verbosity,
             head.verbosity,
             shown,
             ownership,
+            baseline_scope,
         ),
         import_cycles,
         boundaries,
@@ -167,43 +192,56 @@ pub(super) fn dependencies_changes(
     head: Option<DependenciesMeasurement>,
     shown: FindingsShown,
     ownership: OwnershipOptions<'_>,
+    baseline: Option<&Baseline>,
 ) -> Option<DependenciesChanges> {
     if base.is_none() && head.is_none() {
         return None;
     }
+    let baseline_scope = baseline.map(|baseline| BaselineScope {
+        baseline,
+        source_set: None,
+    });
     let base = base.unwrap_or_default();
     let head = head.unwrap_or_default();
     Some(DependenciesChanges {
         unused_dependencies: classify(
+            Metric::UnusedDependencies.key(),
             Metric::UnusedDependencies.version(),
             base.unused_dependencies,
             head.unused_dependencies,
             shown,
             ownership,
+            baseline_scope,
         ),
         unlisted_dependencies: classify(
+            Metric::UnlistedDependencies.key(),
             Metric::UnlistedDependencies.version(),
             base.unlisted_dependencies,
             head.unlisted_dependencies,
             shown,
             ownership,
+            baseline_scope,
         ),
         dev_in_production_dependencies: classify(
+            Metric::DevInProductionDependencies.key(),
             Metric::DevInProductionDependencies.version(),
             base.dev_in_production_dependencies,
             head.dev_in_production_dependencies,
             shown,
             ownership,
+            baseline_scope,
         ),
     })
 }
 
-fn classify<T: Identified + OwnedFinding + FileAttributed>(
+fn classify<T: Identified + OwnedFinding + FileAttributed + BaselineWeight>(
+    metric_key: &str,
     metric_version: u32,
     base: MetricMeasurement<T>,
     head: MetricMeasurement<T>,
     shown: FindingsShown,
     ownership: OwnershipOptions<'_>,
+    baseline: Option<BaselineScope<'_>>,
 ) -> MetricChanges<T> {
     let base_ratio = Decimal::rounded(base.ratio);
     let head_ratio = Decimal::rounded(head.ratio);
@@ -215,16 +253,23 @@ fn classify<T: Identified + OwnedFinding + FileAttributed>(
         base.findings_worst_first,
         base.finding_anchors,
     ));
-    let head_findings = ownership.apply(rehydrate_anchors(
-        head.findings_worst_first,
-        head.finding_anchors,
-    ));
+    let head_findings_all = rehydrate_anchors(head.findings_worst_first, head.finding_anchors);
+    let head_budgeted_ratio =
+        match baseline.and_then(|scope| scope.retained_share(metric_key, &head_findings_all)) {
+            Some(share) => BudgetedRatio {
+                ratio: Decimal::rounded(head_ratio.0 * share).0,
+                non_baselined: true,
+            },
+            None => BudgetedRatio::from(head_ratio.0),
+        };
+    let head_findings = ownership.apply(head_findings_all);
     let (new_items, resolved_items, unchanged) = partition_diff(base_findings, head_findings);
     let new_findings_by_file = count_findings_by_file(&new_items);
     MetricChanges {
         metric_version,
         base_ratio,
         head_ratio,
+        head_budgeted_ratio,
         base_numerator,
         head_numerator,
         base_file_numerators,
@@ -256,21 +301,25 @@ fn partition_diff<T: Identified>(base: Vec<T>, head: Vec<T>) -> (Vec<T>, Vec<T>,
     (new_items, resolved_items, unchanged)
 }
 
-fn classify_optional<T: Identified + OwnedFinding + FileAttributed>(
+fn classify_optional<T: Identified + OwnedFinding + FileAttributed + BaselineWeight>(
+    metric_key: &str,
     metric_version: u32,
     base: Option<MetricMeasurement<T>>,
     head: Option<MetricMeasurement<T>>,
     shown: FindingsShown,
     ownership: OwnershipOptions<'_>,
+    baseline: Option<BaselineScope<'_>>,
 ) -> Option<MetricChanges<T>> {
     match (base, head) {
         (None, None) => None,
         (base_metric, head_metric) => Some(classify(
+            metric_key,
             metric_version,
             base_metric.unwrap_or_default(),
             head_metric.unwrap_or_default(),
             shown,
             ownership,
+            baseline,
         )),
     }
 }

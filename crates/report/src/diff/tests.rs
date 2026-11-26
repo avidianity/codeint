@@ -3,13 +3,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use codeint_config::RegressionLimit;
 
 use super::{MetricChanges, RegressionRule};
+use crate::baseline::BudgetedRatio;
 use crate::{Decimal, Findings};
 
 fn ratio_changes(base_ratio: f64, head_ratio: f64) -> MetricChanges<()> {
+    let head_ratio = Decimal::rounded(head_ratio);
     MetricChanges {
         metric_version: 1,
         base_ratio: Decimal::rounded(base_ratio),
-        head_ratio: Decimal::rounded(head_ratio),
+        head_ratio,
+        head_budgeted_ratio: BudgetedRatio::from(head_ratio.0),
         base_numerator: Decimal(1.0),
         head_numerator: Decimal(1.0),
         base_file_numerators: BTreeMap::new(),
@@ -276,6 +279,7 @@ fn diff_report_evaluates_new_file_budgets_and_round_trips_saved_report() {
             changed_files: BTreeSet::new(),
             limits: &RegressionLimits::default(),
             ownership: crate::OwnershipOptions::default(),
+            baseline: None,
             include_test_gap_note: false,
         },
     );

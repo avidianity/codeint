@@ -1027,7 +1027,11 @@ When `.codeint/baseline.json` exists, `codeint check` (including `--package` run
 - stops with exit code 2 and names `codeint baseline update` when a Metric version in the Baseline differs from the current Metric version.
 
 `codeint check --ignore-baseline` ignores `.codeint/baseline.json`: it shows every Finding, evaluates Budgets on every Finding, and skips the Metric version check.
-`codeint diff` does not read the Baseline.
+
+When `.codeint/baseline.json` exists, `codeint diff` also compares each head Budget with the non-baselined ratio.
+Zero Budgets written by `codeint init --adopt` therefore pass on clean pull requests and fail on any new Finding.
+When a Baseline Metric version differs from the current Metric version, `codeint diff` stops with exit code 2 and names `codeint baseline update`.
+Base-versus-head Finding classification, Regressions, per-file checks, new-file Budgets, and Ratchet enforcement stay unchanged.
 
 ### `codeint churn`
 

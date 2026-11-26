@@ -60,22 +60,26 @@ pub(crate) struct BaselineScope<'a> {
 }
 
 impl BaselineScope<'_> {
+    fn hidden_mask<R: Identified>(&self, metric: &str, rows: &[R]) -> Option<(Vec<bool>, usize)> {
+        let anchors: Vec<FindingAnchor> = rows.iter().map(Identified::anchor).collect();
+        let matched = self
+            .baseline
+            .match_findings(self.source_set, metric, &anchors);
+        let hidden_count = matched.matched_pairs.len();
+        (hidden_count > 0).then(|| (matched.matched_candidates(rows.len()), hidden_count))
+    }
+
     pub(crate) fn split<R: Identified + BaselineWeight>(
         &self,
         metric: &str,
         rows: Vec<R>,
     ) -> (Vec<R>, Baselined, HashSet<String>) {
-        let anchors: Vec<FindingAnchor> = rows.iter().map(Identified::anchor).collect();
-        let matched = self
-            .baseline
-            .match_findings(self.source_set, metric, &anchors);
-        if matched.matched_pairs.is_empty() {
+        let Some((is_hidden, hidden_count)) = self.hidden_mask(metric, &rows) else {
             return (rows, Baselined::default(), HashSet::new());
-        }
-        let is_hidden = matched.matched_candidates(rows.len());
-        let mut hidden = Vec::with_capacity(matched.matched_pairs.len());
-        let mut visible = Vec::with_capacity(rows.len() - matched.matched_pairs.len());
-        let mut hidden_ids = HashSet::with_capacity(matched.matched_pairs.len());
+        };
+        let mut hidden = Vec::with_capacity(hidden_count);
+        let mut visible = Vec::with_capacity(rows.len() - hidden_count);
+        let mut hidden_ids = HashSet::with_capacity(hidden_count);
         for (row, hide) in rows.into_iter().zip(is_hidden) {
             if hide {
                 hidden_ids.insert(row.id().to_owned());
@@ -84,18 +88,38 @@ impl BaselineScope<'_> {
                 visible.push(row);
             }
         }
-        let visible_weight = R::weight(&visible.iter().collect::<Vec<_>>());
-        let total_weight = visible_weight + R::weight(&hidden.iter().collect::<Vec<_>>());
-        let retained_share = if total_weight > 0.0 {
-            visible_weight / total_weight
-        } else {
-            1.0
-        };
+        let retained_share = retained_weight_share(
+            &visible.iter().collect::<Vec<_>>(),
+            &hidden.iter().collect::<Vec<_>>(),
+        );
         let baselined = Baselined {
             hidden: hidden.len(),
             retained_share: Some(retained_share),
         };
         (visible, baselined, hidden_ids)
+    }
+
+    pub(crate) fn retained_share<R: Identified + BaselineWeight>(
+        &self,
+        metric: &str,
+        rows: &[R],
+    ) -> Option<f64> {
+        let (is_hidden, _) = self.hidden_mask(metric, rows)?;
+        let (hidden, visible): (Vec<_>, Vec<_>) =
+            rows.iter().zip(is_hidden).partition(|(_, hide)| *hide);
+        let hidden_rows: Vec<&R> = hidden.into_iter().map(|(row, _)| row).collect();
+        let visible_rows: Vec<&R> = visible.into_iter().map(|(row, _)| row).collect();
+        Some(retained_weight_share(&visible_rows, &hidden_rows))
+    }
+}
+
+fn retained_weight_share<R: BaselineWeight>(visible: &[&R], hidden: &[&R]) -> f64 {
+    let visible_weight = R::weight(visible);
+    let total_weight = visible_weight + R::weight(hidden);
+    if total_weight > 0.0 {
+        visible_weight / total_weight
+    } else {
+        1.0
     }
 }
 

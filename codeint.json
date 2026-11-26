@@ -2,12 +2,66 @@
   "$schema": "https://raw.githubusercontent.com/avidianity/codeint/v0.7.0/schema/codeint.schema.json",
   "budgets": {
     "production": {
+      "erosion": 0,
+      "cognitive_complexity": 0,
+      "duplication": 0,
+      "verbosity": 0,
+      "import_cycles": 0,
       "boundaries": 0,
+      "orphan_files": 0,
+      "hazards": 0
+    },
+    "test": {
+      "erosion": 0,
+      "cognitive_complexity": 0,
+      "duplication": 0,
+      "verbosity": 0,
       "import_cycles": 0
+    },
+    "generated": {
+      "erosion": 0,
+      "cognitive_complexity": 0,
+      "duplication": 0,
+      "verbosity": 0,
+      "import_cycles": 0,
+      "hazards": 0
     },
     "unused_dependencies": 0,
     "unlisted_dependencies": 0,
     "dev_in_production_dependencies": 0
+  },
+  "new_file_budgets": {
+    "production": {
+      "erosion": 0,
+      "cognitive_complexity": 0,
+      "duplication": 0,
+      "verbosity": 0,
+      "import_cycles": 0,
+      "boundaries": 0,
+      "orphan_files": 0,
+      "hazards": 0
+    },
+    "test": {
+      "erosion": 0,
+      "cognitive_complexity": 0,
+      "duplication": 0,
+      "verbosity": 0,
+      "import_cycles": 0
+    },
+    "generated": {
+      "erosion": 0,
+      "cognitive_complexity": 0,
+      "duplication": 0,
+      "verbosity": 0,
+      "import_cycles": 0,
+      "hazards": 0
+    }
+  },
+  "regression_limits": {
+    "per_file": true
+  },
+  "duplication": {
+    "near_clones": true
   },
   "dependencies": {
     "ignore": [
@@ -18,57 +72,97 @@
     ]
   },
   "boundaries": {
+    "strict_zones": true,
     "zones": {
       "model": {
-        "patterns": ["crates/model/**"]
+        "patterns": [
+          "crates/model/**"
+        ]
       },
       "config": {
-        "patterns": ["crates/config/**"]
+        "patterns": [
+          "crates/config/**"
+        ]
       },
       "git": {
-        "patterns": ["crates/git/**"]
+        "patterns": [
+          "crates/git/**"
+        ]
       },
       "metrics": {
-        "patterns": ["crates/metrics/**"]
+        "patterns": [
+          "crates/metrics/**"
+        ]
       },
       "report": {
-        "patterns": ["crates/report/**"]
+        "patterns": [
+          "crates/report/**"
+        ]
       },
       "plugin_host": {
-        "patterns": ["crates/plugin-host/**"]
+        "patterns": [
+          "crates/plugin-host/**"
+        ]
       },
       "plugin_sdk": {
-        "patterns": ["crates/plugin-sdk/**"]
+        "patterns": [
+          "crates/plugin-sdk/**"
+        ]
       },
       "cli": {
-        "patterns": ["crates/cli/**"]
+        "patterns": [
+          "crates/cli/**"
+        ]
       },
       "xtask": {
-        "patterns": ["xtask/**"]
+        "patterns": [
+          "xtask/**"
+        ]
       },
       "eval": {
-        "patterns": ["eval/**"]
+        "patterns": [
+          "eval/**"
+        ]
       },
       "lang_dart": {
-        "patterns": ["plugins/languages/dart/**"]
+        "patterns": [
+          "plugins/languages/dart/**"
+        ]
       },
       "lang_go": {
-        "patterns": ["plugins/languages/go/**"]
+        "patterns": [
+          "plugins/languages/go/**"
+        ]
       },
       "lang_php": {
-        "patterns": ["plugins/languages/php/**"]
+        "patterns": [
+          "plugins/languages/php/**"
+        ]
       },
       "lang_python": {
-        "patterns": ["plugins/languages/python/**"]
+        "patterns": [
+          "plugins/languages/python/**"
+        ]
       },
       "lang_rust": {
-        "patterns": ["plugins/languages/rust/**"]
+        "patterns": [
+          "plugins/languages/rust/**"
+        ]
+      },
+      "lang_shell": {
+        "patterns": [
+          "plugins/languages/shell/**"
+        ]
       },
       "lang_sql": {
-        "patterns": ["plugins/languages/sql/**"]
+        "patterns": [
+          "plugins/languages/sql/**"
+        ]
       },
       "lang_ts": {
-        "patterns": ["plugins/languages/ts/**"]
+        "patterns": [
+          "plugins/languages/ts/**"
+        ]
       },
       "ts_framework_angular": {
         "patterns": [
@@ -165,6 +259,21 @@
           "plugins/languages/python/src/frameworks/flask.rs",
           "plugins/languages/python/src/frameworks/flask/**"
         ]
+      },
+      "npm_wrapper": {
+        "patterns": [
+          "npm/**"
+        ]
+      },
+      "scripts": {
+        "patterns": [
+          "scripts/**"
+        ]
+      },
+      "agent_tooling": {
+        "patterns": [
+          ".opencode/**"
+        ]
       }
     },
     "rules": [
@@ -175,22 +284,32 @@
       },
       {
         "from": "config",
-        "allow": ["model"],
+        "allow": [
+          "model"
+        ],
         "reason": "codeint-config depends only on codeint-model."
       },
       {
         "from": "git",
-        "allow": ["model"],
+        "allow": [
+          "model"
+        ],
         "reason": "codeint-git depends only on codeint-model."
       },
       {
         "from": "metrics",
-        "allow": ["model"],
+        "allow": [
+          "model"
+        ],
         "reason": "codeint-metrics depends only on codeint-model."
       },
       {
         "from": "report",
-        "allow": ["model", "config", "metrics"],
+        "allow": [
+          "model",
+          "config",
+          "metrics"
+        ],
         "reason": "codeint-report depends only on codeint-model, codeint-config, and codeint-metrics."
       },
       {
@@ -203,6 +322,7 @@
           "lang_php",
           "lang_python",
           "lang_rust",
+          "lang_shell",
           "lang_sql",
           "lang_ts"
         ],
@@ -215,7 +335,14 @@
       },
       {
         "from": "cli",
-        "allow": ["model", "config", "git", "metrics", "report", "plugin_host"],
+        "allow": [
+          "model",
+          "config",
+          "git",
+          "metrics",
+          "report",
+          "plugin_host"
+        ],
         "reason": "codeint-cli routes Language plugins through codeint-plugin-host and never directly imports any built-in Language plugin."
       },
       {
@@ -225,27 +352,45 @@
       },
       {
         "from": "eval",
-        "allow": ["model", "plugin_host"],
+        "allow": [
+          "model",
+          "plugin_host"
+        ],
         "reason": "codeint-eval is repository tooling that reads Language plugins through codeint-plugin-host and codeint-model only."
       },
       {
         "from": "lang_dart",
-        "allow": ["model"],
+        "allow": [
+          "model"
+        ],
         "reason": "Built-in Language plugins depend only on codeint-model."
       },
       {
         "from": "lang_go",
-        "allow": ["model"],
+        "allow": [
+          "model"
+        ],
         "reason": "Built-in Language plugins depend only on codeint-model."
       },
       {
         "from": "lang_rust",
-        "allow": ["model"],
+        "allow": [
+          "model"
+        ],
+        "reason": "Built-in Language plugins depend only on codeint-model."
+      },
+      {
+        "from": "lang_shell",
+        "allow": [
+          "model"
+        ],
         "reason": "Built-in Language plugins depend only on codeint-model."
       },
       {
         "from": "lang_sql",
-        "allow": ["model"],
+        "allow": [
+          "model"
+        ],
         "reason": "Built-in Language plugins depend only on codeint-model."
       },
       {
@@ -266,47 +411,74 @@
       },
       {
         "from": "ts_framework_angular",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_nestjs",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_nextjs",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_nuxt",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_react",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_svelte",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_sveltekit",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_vue2",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
         "from": "ts_framework_vue3",
-        "allow": ["model", "lang_ts"],
+        "allow": [
+          "model",
+          "lang_ts"
+        ],
         "reason": "TypeScript/JavaScript Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_ts modules."
       },
       {
@@ -322,22 +494,34 @@
       },
       {
         "from": "php_framework_cakephp",
-        "allow": ["model", "lang_php"],
+        "allow": [
+          "model",
+          "lang_php"
+        ],
         "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
       },
       {
         "from": "php_framework_codeigniter",
-        "allow": ["model", "lang_php"],
+        "allow": [
+          "model",
+          "lang_php"
+        ],
         "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
       },
       {
         "from": "php_framework_laravel",
-        "allow": ["model", "lang_php"],
+        "allow": [
+          "model",
+          "lang_php"
+        ],
         "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
       },
       {
         "from": "php_framework_symfony",
-        "allow": ["model", "lang_php"],
+        "allow": [
+          "model",
+          "lang_php"
+        ],
         "reason": "PHP Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_php modules."
       },
       {
@@ -352,18 +536,45 @@
       },
       {
         "from": "python_framework_django",
-        "allow": ["model", "lang_python"],
+        "allow": [
+          "model",
+          "lang_python"
+        ],
         "reason": "Python Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_python modules."
       },
       {
         "from": "python_framework_fastapi",
-        "allow": ["model", "lang_python"],
+        "allow": [
+          "model",
+          "lang_python"
+        ],
         "reason": "Python Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_python modules."
       },
       {
         "from": "python_framework_flask",
-        "allow": ["model", "lang_python"],
+        "allow": [
+          "model",
+          "lang_python"
+        ],
         "reason": "Python Framework profiles are isolated from sibling Framework profiles and depend only on codeint-model and shared lang_python modules."
+      },
+      {
+        "from": "npm_wrapper",
+        "allow": [],
+        "allow_external": [],
+        "reason": "The npm wrapper package uses only Node.js built-ins and imports no workspace modules or third-party packages."
+      },
+      {
+        "from": "scripts",
+        "allow": [],
+        "allow_external": [],
+        "reason": "Repository CI scripts use only Node.js built-ins and import no workspace modules or third-party packages."
+      },
+      {
+        "from": "agent_tooling",
+        "allow": [],
+        "allow_external": [],
+        "reason": "Local agent hook scripts use only Node.js built-ins and import no workspace modules or third-party packages."
       }
     ]
   }

@@ -47,8 +47,17 @@ pub(crate) fn remedy(error: &CliError) -> Cow<'static, str> {
 
 pub(crate) fn mcp_remedy(error: &CliError) -> Cow<'static, str> {
     match error {
-        CliError::Check(CheckError::BaselineVersionMismatch { .. }) => Cow::Borrowed(
+        CliError::Check(CheckError::BaselineVersionMismatch {
+            supports_ignore_baseline: true,
+            ..
+        }) => Cow::Borrowed(
             "Run codeint baseline update to refresh the Baseline for the updated Metric versions, or pass ignore_baseline: true to show every Finding.",
+        ),
+        CliError::Check(CheckError::BaselineVersionMismatch {
+            supports_ignore_baseline: false,
+            ..
+        }) => Cow::Borrowed(
+            "Run codeint baseline update to refresh the Baseline for the updated Metric versions.",
         ),
         other => remedy(other),
     }
@@ -169,8 +178,17 @@ fn repository_state_or_coverage_remedy(error: &CheckError) -> Option<Cow<'static
         CheckError::RatchetVersionMismatch { .. } => Some(Cow::Borrowed(
             "Run codeint ratchet update to re-baseline the Ratchet file for the updated Metric versions.",
         )),
-        CheckError::BaselineVersionMismatch { .. } => Some(Cow::Borrowed(
+        CheckError::BaselineVersionMismatch {
+            supports_ignore_baseline: true,
+            ..
+        } => Some(Cow::Borrowed(
             "Run codeint baseline update to refresh the Baseline for the updated Metric versions, or pass --ignore-baseline to show every Finding.",
+        )),
+        CheckError::BaselineVersionMismatch {
+            supports_ignore_baseline: false,
+            ..
+        } => Some(Cow::Borrowed(
+            "Run codeint baseline update to refresh the Baseline for the updated Metric versions.",
         )),
         other => coverage_check_remedy(other).map(Cow::Borrowed),
     }

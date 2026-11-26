@@ -413,7 +413,10 @@ fn ensure_baseline_versions_match(
     if mismatches.is_empty() {
         Ok(())
     } else {
-        Err(CheckError::BaselineVersionMismatch { mismatches })
+        Err(CheckError::BaselineVersionMismatch {
+            mismatches,
+            supports_ignore_baseline: true,
+        })
     }
 }
 

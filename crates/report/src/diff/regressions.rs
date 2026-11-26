@@ -27,53 +27,56 @@ pub(super) fn over_budget(
                 (
                     source_set,
                     Metric::Erosion.key(),
-                    changes.erosion.head_ratio.0,
+                    changes.erosion.head_budgeted_ratio,
                 ),
                 (
                     source_set,
                     Metric::CognitiveComplexity.key(),
-                    changes.cognitive_complexity.head_ratio.0,
+                    changes.cognitive_complexity.head_budgeted_ratio,
                 ),
                 (
                     source_set,
                     Metric::Duplication.key(),
-                    changes.duplication.groups.head_ratio.0,
+                    changes.duplication.groups.head_budgeted_ratio,
                 ),
                 (
                     source_set,
                     Metric::Verbosity.key(),
-                    changes.verbosity.head_ratio.0,
+                    changes.verbosity.head_budgeted_ratio,
                 ),
             ]
             .into_iter()
-            .chain(
-                changes.import_cycles.iter().map(move |cycles| {
-                    (source_set, Metric::ImportCycles.key(), cycles.head_ratio.0)
-                }),
-            )
+            .chain(changes.import_cycles.iter().map(move |cycles| {
+                (
+                    source_set,
+                    Metric::ImportCycles.key(),
+                    cycles.head_budgeted_ratio,
+                )
+            }))
             .chain(changes.boundaries.iter().map(move |boundaries| {
                 (
                     source_set,
                     Metric::Boundaries.key(),
-                    boundaries.head_ratio.0,
+                    boundaries.head_budgeted_ratio,
                 )
             }))
-            .chain(
-                changes.orphan_files.iter().map(move |orphans| {
-                    (source_set, Metric::OrphanFiles.key(), orphans.head_ratio.0)
-                }),
-            )
-            .chain(
-                changes
-                    .hazards
-                    .iter()
-                    .map(move |hazards| (source_set, Metric::Hazards.key(), hazards.head_ratio.0)),
-            )
-            .chain(
-                changes.external_metrics.iter().map(move |(key, metric)| {
-                    (source_set, key.as_str(), metric.changes.head_ratio.0)
-                }),
-            )
+            .chain(changes.orphan_files.iter().map(move |orphans| {
+                (
+                    source_set,
+                    Metric::OrphanFiles.key(),
+                    orphans.head_budgeted_ratio,
+                )
+            }))
+            .chain(changes.hazards.iter().map(move |hazards| {
+                (
+                    source_set,
+                    Metric::Hazards.key(),
+                    hazards.head_budgeted_ratio,
+                )
+            }))
+            .chain(changes.external_metrics.iter().map(move |(key, metric)| {
+                (source_set, key.as_str(), metric.changes.head_budgeted_ratio)
+            }))
         }),
     )
 }
@@ -228,9 +231,9 @@ impl DependenciesChanges {
     pub(super) fn over_budget(&self, budgets: &Budgets) -> Vec<BudgetFailure> {
         dependency_over_budget(
             budgets,
-            self.unused_dependencies.head_ratio.0,
-            self.unlisted_dependencies.head_ratio.0,
-            self.dev_in_production_dependencies.head_ratio.0,
+            self.unused_dependencies.head_budgeted_ratio,
+            self.unlisted_dependencies.head_budgeted_ratio,
+            self.dev_in_production_dependencies.head_budgeted_ratio,
         )
     }
 

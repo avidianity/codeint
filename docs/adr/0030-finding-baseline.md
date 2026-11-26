@@ -31,7 +31,8 @@ Spec #470 asks for a committed Baseline of existing Finding identifiers that `co
 - The Finding weight follows the Metric's numerator: Function mass for Erosion, cognitive complexity for Cognitive complexity, untested Function mass for Test gap, distinct lines for Duplication, Verbosity, and Hazards, distinct modules for Import cycles, and one per Finding for the other Metrics, including external Metric plugins.
 - A Metric version that differs from the Baseline stops the run with exit code 2 and names `codeint baseline update`.
 - `--ignore-baseline` ignores the file completely.
-- `codeint diff` does not read the Baseline, because it already compares Findings with the merge-base.
+- Amendment (2026-11-26): `codeint diff` reads `.codeint/baseline.json` when present so head Budget checks compare against the non-baselined ratio (and stops with exit code 2 on a Metric version mismatch naming `codeint baseline update`), keeping base-versus-head Finding comparison, Regressions, per-file checks, new-file Budgets, and Ratchet enforcement unchanged.
+  This fixes a contradiction introduced when `codeint init --adopt` wrote zero Budgets alongside `.codeint/baseline.json` and a pull-request workflow running `codeint diff`.
 
 ### `codeint baseline update`
 
