@@ -8,6 +8,8 @@ mod wasm_fixtures;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use rayon::prelude::*;
+
 use examples::{CommandLine, Example, ExampleSet, OutputSource};
 use fixture::Template;
 use help::{CommandHelp, HelpEntry, every_command_help};
@@ -129,43 +131,41 @@ struct Mismatch {
     actual: String,
 }
 
-fn run_example(
+fn run_example_command(
     template: &Template,
     example: &Example,
-    problems: &mut Vec<String>,
-    mismatches: &mut Vec<Mismatch>,
-) {
-    for command in &example.commands {
-        let run = template.run(example.configuration.as_deref(), command);
-        let code = run.output.status.code();
-        if code != Some(example.exit_code) {
-            problems.push(format!(
-                "line {}: `{}` exits with {code:?}, not {}; standard error: {}",
-                example.line,
-                command.text,
-                example.exit_code,
-                String::from_utf8_lossy(&run.output.stderr)
-            ));
-        }
-        for expected in &example.outputs {
-            let bytes = match &expected.source {
-                OutputSource::StandardOutput => run.output.stdout.clone(),
-                OutputSource::StandardError => run.output.stderr.clone(),
-                OutputSource::File(path) => {
-                    std::fs::read(run.root().join(path)).unwrap_or_default()
-                }
-            };
-            let actual = run.shown(&String::from_utf8_lossy(&bytes));
-            if actual != expected.text {
-                mismatches.push(Mismatch {
-                    example_line: example.line,
-                    source: expected.source.clone(),
-                    content_lines: expected.content_lines.clone(),
-                    actual,
-                });
-            }
+    command: &CommandLine,
+) -> (Vec<String>, Vec<Mismatch>) {
+    let mut problems = Vec::new();
+    let mut mismatches = Vec::new();
+    let run = template.run(example.configuration.as_deref(), command);
+    let code = run.output.status.code();
+    if code != Some(example.exit_code) {
+        problems.push(format!(
+            "line {}: `{}` exits with {code:?}, not {}; standard error: {}",
+            example.line,
+            command.text,
+            example.exit_code,
+            String::from_utf8_lossy(&run.output.stderr)
+        ));
+    }
+    for expected in &example.outputs {
+        let bytes = match &expected.source {
+            OutputSource::StandardOutput => run.output.stdout.clone(),
+            OutputSource::StandardError => run.output.stderr.clone(),
+            OutputSource::File(path) => std::fs::read(run.root().join(path)).unwrap_or_default(),
+        };
+        let actual = run.shown(&String::from_utf8_lossy(&bytes));
+        if actual != expected.text {
+            mismatches.push(Mismatch {
+                example_line: example.line,
+                source: expected.source.clone(),
+                content_lines: expected.content_lines.clone(),
+                actual,
+            });
         }
     }
+    (problems, mismatches)
 }
 
 #[test]
@@ -175,8 +175,23 @@ fn every_example_in_the_reference_runs_as_written_against_the_fixture() {
     let template = Template::build();
     let mut problems = Vec::new();
     let mut mismatches = Vec::new();
-    for example in &set.examples {
-        run_example(&template, example, &mut problems, &mut mismatches);
+    let jobs: Vec<(&Example, &CommandLine)> = set
+        .examples
+        .iter()
+        .flat_map(|example| {
+            example
+                .commands
+                .iter()
+                .map(move |command| (example, command))
+        })
+        .collect();
+    let outcomes: Vec<(Vec<String>, Vec<Mismatch>)> = jobs
+        .par_iter()
+        .map(|&(example, command)| run_example_command(&template, example, command))
+        .collect();
+    for (local_problems, local_mismatches) in outcomes {
+        problems.extend(local_problems);
+        mismatches.extend(local_mismatches);
     }
     if !mismatches.is_empty() {
         let replacements: Vec<_> = mismatches

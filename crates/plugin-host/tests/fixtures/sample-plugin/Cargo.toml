@@ -13,6 +13,10 @@ crate-type = ["cdylib"]
 codeint-plugin-sdk = { path = "../../../../../crates/plugin-sdk" }
 
 [profile.dev]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = "symbols"
 debug = 0
 panic = "abort"
 

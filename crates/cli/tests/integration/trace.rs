@@ -315,7 +315,20 @@ fn trace_lists_every_file_of_a_folder_import_and_explains_reachability() {
     fs::create_dir_all(plugin_dest.parent().unwrap()).unwrap();
     fs::write(&plugin_dest, &wasm_bytes).unwrap();
 
-    let all_json = trace_json(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]);
+    let ((all_json, all_text), (toon_output, direct_json)) = rayon::join(
+        || {
+            rayon::join(
+                || trace_json(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]),
+                || trace_text(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]),
+            )
+        },
+        || {
+            rayon::join(
+                || run_trace(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]),
+                || trace_json(repo.path(), &["src/app.fld", "pkg/mid/sibling.fld"]),
+            )
+        },
+    );
     assert_eq!(all_json["from"], "src/app.fld");
     assert_eq!(all_json["to"], "pkg/leaf/end.fld");
     assert_eq!(all_json["from_entry_point"], "program-start mark");
@@ -349,7 +362,6 @@ fn trace_lists_every_file_of_a_folder_import_and_explains_reachability() {
         ])
     );
 
-    let all_text = trace_text(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]);
     assert_eq!(
         all_text,
         [
@@ -363,7 +375,6 @@ fn trace_lists_every_file_of_a_folder_import_and_explains_reachability() {
         .join("\n")
     );
 
-    let toon_output = run_trace(repo.path(), &["src/app.fld", "pkg/leaf/end.fld", "--all"]);
     assert!(
         toon_output.status.success(),
         "trace toon failed: {}",
@@ -374,7 +385,6 @@ fn trace_lists_every_file_of_a_folder_import_and_explains_reachability() {
     assert!(toon.contains("pkg/mid/sibling.fld"), "toon: {toon}");
     assert!(toon.contains("pkg/leaf/other.fld"), "toon: {toon}");
 
-    let direct_json = trace_json(repo.path(), &["src/app.fld", "pkg/mid/sibling.fld"]);
     assert_eq!(direct_json["connected"], true);
     assert_eq!(direct_json["shortest_distance"], 1);
     assert_eq!(

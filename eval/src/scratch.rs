@@ -57,16 +57,25 @@ fn git(checkout: &Path) -> Command {
 
 const FETCH_ATTEMPTS: usize = 3;
 
+fn fetch_attempts_for(url: &str) -> usize {
+    if url.starts_with("file://") {
+        1
+    } else {
+        FETCH_ATTEMPTS
+    }
+}
+
 fn fetch_with_retry(checkout: &Path, url: &str, commit: &str) -> Result<(), EvaluationError> {
+    let attempts = fetch_attempts_for(url);
     let mut last_error = None;
-    for attempt in 1..=FETCH_ATTEMPTS {
+    for attempt in 1..=attempts {
         match run_checked(
             git(checkout).args(["fetch", "--quiet", "--depth", "1", "--", url, commit]),
         ) {
             Ok(_) => return Ok(()),
             Err(error) => {
                 last_error = Some(error);
-                if attempt < FETCH_ATTEMPTS {
+                if attempt < attempts {
                     std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
                 }
             }
