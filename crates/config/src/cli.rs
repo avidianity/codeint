@@ -141,8 +141,9 @@ fn build_tooling_command(
         CommandArguments::Report {
             input,
             output,
+            all,
             format,
-        } => build_report_command(current_folder, input, output.output, format),
+        } => build_report_command(current_folder, input, output.output, all, format),
         CommandArguments::Doctor { path, format } => Ok(Command::Doctor {
             folder: existing_folder(current_folder, path)?,
             format,
@@ -181,6 +182,7 @@ fn build_report_command(
     current_folder: &Path,
     input: PathBuf,
     output: Option<PathBuf>,
+    all: bool,
     format: Option<ReportRenderFormat>,
 ) -> Result<Command, ConfigError> {
     let source = if input.as_os_str() == "-" {
@@ -192,6 +194,7 @@ fn build_report_command(
         folder: current_folder.to_path_buf(),
         input: source,
         destination: report_destination(current_folder, output)?,
+        all,
         format,
     })
 }

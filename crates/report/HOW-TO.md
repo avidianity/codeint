@@ -119,3 +119,4 @@ let sarif = saved.render(ReportRenderFormat::Sarif)?;
 - `SavedReport::from_json` accepts JSON produced by `Report::render(ReportFormat::Json)` or `DiffReport::render(ReportFormat::Json)`, preserving `metric_version` values (and defaulting missing `metric_version` fields in older saved reports to `1`).
 - It rejects malformed JSON, non-object JSON, unsupported schema versions, and unrecognized payloads with `SavedReportError`.
 - `render` formats the saved report as `Toon`, `Json`, `Sarif`, `Markdown`, or `Text` without re-running analysis.
+- Call `with_show_all(true)` before `render(ReportRenderFormat::Text)` to match `codeint check --all --format text` and `codeint diff --all --format text` (listing every Finding, passing Workspace packages, and resolved diff Findings).

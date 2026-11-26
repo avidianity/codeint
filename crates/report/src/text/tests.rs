@@ -4,9 +4,10 @@ use codeint_config::{
     Baseline, Budgets, CalendarDay, DependenciesConfig, DuplicationConfig, FindingsShown, Ratchet,
     RegressionLimits, ReportFormat, ReportRenderFormat, TrendFormat,
 };
-use codeint_model::language::{FlaggedLine, Function};
+use codeint_model::language::{FlaggedLine, Function, FunctionCoverage, HazardLine};
 use codeint_model::{
-    CodeModel, FileModel, Metric, ReferenceRange, ReferenceRanges, RepoPath, SourceFile, SourceSet,
+    CodeModel, FileModel, ImportResolution, LanguageFacts, Metric, ReferenceRange, ReferenceRanges,
+    RepoPath, RuntimeImport, SourceFile, SourceSet, Workspace,
 };
 
 use crate::{
@@ -224,4 +225,140 @@ fn diff_and_trend_text_render_aligned_tables_and_respect_all_without_ansi() {
     assert!(trend_text.contains("1111111"));
     assert!(trend_text.contains("2222222"));
     assert!(!trend_text.contains("1111111aaaaaaa"));
+}
+
+#[test]
+fn workspace_package_fail_line_includes_failing_non_core_metrics() {
+    let make_file = |path: &str, hazards: Vec<HazardLine>, untested: bool| SourceFile {
+        path: RepoPath::new(path).expect("repo path"),
+        model: FileModel {
+            source_set: SourceSet::Production,
+            source_lines: 10,
+            functions: vec![Function {
+                line: 1,
+                end_line: 10,
+                decision_points: 1,
+                source_lines: 10,
+                name: Some("run".to_owned()),
+                cognitive_complexity: 1,
+                coverage: Some(FunctionCoverage {
+                    listed_lines: 10,
+                    executed_lines: if untested { 0 } else { 10 },
+                }),
+            }],
+            tokens: Vec::new(),
+            flagged_lines: Vec::new(),
+            hazard_lines: hazards,
+            runtime_imports: Vec::new(),
+            program_start: false,
+        },
+    };
+
+    let bad_a = RepoPath::new("packages/bad/src/a.ts").expect("a");
+    let bad_b = RepoPath::new("packages/bad/src/b.ts").expect("b");
+    let model = CodeModel {
+        workspace: Workspace::new([
+            RepoPath::new("packages/bad").expect("pkg bad"),
+            RepoPath::new("packages/ok").expect("pkg ok"),
+        ]),
+        files: vec![
+            make_file(
+                "packages/bad/src/a.ts",
+                vec![HazardLine {
+                    line: 2,
+                    rule: "unsafe-query".to_owned(),
+                }],
+                true,
+            ),
+            make_file("packages/bad/src/b.ts", Vec::new(), false),
+            make_file("packages/ok/src/c.ts", Vec::new(), false),
+        ],
+        runtime_imports: vec![
+            RuntimeImport {
+                importer: bad_a.clone(),
+                specifier: "./b".to_owned(),
+                resolution: ImportResolution::Resolved(vec![bad_b.clone()]),
+            },
+            RuntimeImport {
+                importer: bad_b,
+                specifier: "./a".to_owned(),
+                resolution: ImportResolution::Resolved(vec![bad_a]),
+            },
+        ],
+        languages: vec![LanguageFacts {
+            language: "typescript-javascript".to_owned(),
+            has_coverage: true,
+            has_hazard_rules: true,
+            has_imports: true,
+        }],
+        ..CodeModel::default()
+    };
+
+    let budgets = Budgets::default();
+    let dependencies = DependenciesConfig::default();
+    let (ratchet, _) = Ratchet::update(
+        None,
+        &[
+            codeint_config::MeasuredRatchetMetric {
+                source_set: Some(SourceSet::Production),
+                metric: Metric::Hazards.key().to_owned(),
+                ratio: 0.0,
+                metric_version: Metric::Hazards.version(),
+            },
+            codeint_config::MeasuredRatchetMetric {
+                source_set: Some(SourceSet::Production),
+                metric: Metric::ImportCycles.key().to_owned(),
+                ratio: 0.0,
+                metric_version: Metric::ImportCycles.version(),
+            },
+            codeint_config::MeasuredRatchetMetric {
+                source_set: Some(SourceSet::Production),
+                metric: Metric::TestGap.key().to_owned(),
+                ratio: 0.0,
+                metric_version: Metric::TestGap.version(),
+            },
+        ],
+        true,
+        ".codeint/ratchet.json",
+    )
+    .expect("ratchet");
+
+    let mut report = Report::summarize_with_extras(
+        vec![MeasuredLanguage::new(
+            "typescript-javascript",
+            model,
+            ReferenceRanges::default(),
+            true,
+        )],
+        Vec::new(),
+        ReportOptions {
+            findings: FindingsShown::default(),
+            budgets: &budgets,
+            metric_plugins: &[],
+            boundaries: None,
+            dependencies: &dependencies,
+            dependency_hygiene: None,
+            dependency_hygiene_by_language: None,
+            duplication: DuplicationConfig::default(),
+            orphan_files: None,
+            orphan_files_by_language: None,
+            ownership: OwnershipOptions::default(),
+            coverage_reports_named: true,
+            unmatched_coverage_paths: &[],
+            baseline: None,
+        },
+        ReportExtras::default(),
+    )
+    .expect("report");
+    report.apply_ratchet(&ratchet).expect("apply ratchet");
+
+    let text = report.render(ReportFormat::Text).expect("render text");
+    let pkg_line = text
+        .lines()
+        .find(|line| line.contains("packages/bad (production) [FAIL]:"))
+        .unwrap_or_else(|| panic!("missing packages/bad line in:\n{text}"));
+    assert!(pkg_line.contains("import_cycles=1"), "line: {pkg_line}");
+    assert!(pkg_line.contains("test_gap=0.5"), "line: {pkg_line}");
+    assert!(pkg_line.contains("hazards=0.05"), "line: {pkg_line}");
+    assert!(!text.contains("packages/ok (production)"));
 }

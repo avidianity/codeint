@@ -180,6 +180,10 @@ impl DiffReport {
             .collect()
     }
 
+    pub(crate) fn set_show_all(&mut self, show_all: bool) {
+        self.show_all = show_all;
+    }
+
     pub fn render(&self, format: ReportFormat) -> Result<String, ReportError> {
         match format {
             ReportFormat::Toon => crate::render_toon(self),

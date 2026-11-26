@@ -226,7 +226,7 @@ impl ConfigurationFile {
     pub(super) fn without_schema_address(&self) -> ConfigurationFile {
         ConfigurationFile {
             _schema: None,
-            format: self.format.filter(|&format| format != OutputFormat::Toon),
+            format: None,
             regression_limits: self.regression_limits.clone().normalized(),
             duplication: self.duplication.clone().normalized(),
             ..self.clone()

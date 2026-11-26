@@ -217,6 +217,6 @@ let shown_day = CalendarDay::containing(committed_at_unix_seconds).to_string();
 
 ## Key a cached result by the configuration
 
-- `Configuration` serializes as the effective `codeint.json`: every key with its default filled in, without the `$schema` address.
-  A file that only differs in `$schema` or in keys set to their defaults serializes the same.
+- `Configuration` serializes as the effective `codeint.json`: every key with its default filled in, without the `$schema` address or `format` (since `format` only controls output rendering and never affects commit analysis).
+  A file that only differs in `$schema`, `format`, or keys set to their defaults serializes the same.
 - Put the whole `Configuration` in the settings of a cached result, not chosen keys, so that a new setting can never leave a stale entry.

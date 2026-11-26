@@ -1,6 +1,6 @@
 # Feature map: `codeint report`
 
-Verifies re-rendering saved `codeint check --format json` and `codeint diff --format json` payloads into `toon`, `json`, `sarif`, `markdown`, and `text`, reading from standard input (`-`), `--output`, and operational errors.
+Verifies re-rendering saved `codeint check --format json` and `codeint diff --format json` payloads into `toon`, `json`, `sarif`, `markdown`, and `text`, reading from standard input (`-`), `--all` text expansion, `--output`, and operational errors.
 See [codeint report](../../reference.md#codeint-report) for the command specification.
 
 ## Preconditions
@@ -20,6 +20,7 @@ docs/verification/verify.sh doctor "$RUN_DIR"
 | `check_to_sarif_output` | Saved `check` JSON re-rendered with `--format sarif --output report.sarif` | `0` | Standard output is empty; `report.sarif` is valid SARIF `2.1.0` with driver `codeint` |
 | `check_to_markdown` | Saved `check` JSON re-rendered with `--format markdown` | `0` | Standard output contains `codeint report` and the Metric table |
 | `check_to_text_stdin` | Saved `check` JSON piped via `-` with `--format text` | `0` | Standard output contains concise monochrome text summary (`codeint check: PASS`) and aligned Metric rows |
+| `check_to_text_all` | Saved `check` JSON re-rendered with `--format text --all` | `0` | Standard output matches `codeint check --all --format text` concise monochrome output without ANSI escapes |
 | `diff_to_toon` | Saved `diff` JSON re-rendered with `--format toon` | `0` | Standard output contains non-empty TOON diff report |
 | `diff_to_json` | Saved `diff` JSON re-rendered with `--format json` | `0` | Valid JSON diff payload matching the saved report |
 | `missing_input` | Input file that does not exist | `2` | Standard error reports the unreadable file |

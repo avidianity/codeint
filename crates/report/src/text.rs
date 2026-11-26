@@ -720,27 +720,17 @@ fn compact_language_line(section: &MeasuredSection) -> String {
 }
 
 fn packages_summary_block(report: &Report) -> Option<String> {
-    let mut lines = Vec::new();
-    for (source_set, section) in report.measured.source_sets.iter() {
-        for pkg in &section.packages {
-            let failing =
-                package_fails_limit(source_set, pkg, &report.over_budget, &report.over_ratchet);
-            if !report.show_all && !failing {
-                continue;
-            }
-            let badge = if failing { "FAIL" } else { "ok" };
-            lines.push(format!(
-                "  {} ({}) [{}]: erosion={} cognitive={} duplication={} verbosity={}",
-                pkg.path,
-                source_set.key(),
-                badge,
-                pkg.erosion.ratio.0,
-                pkg.cognitive_complexity.ratio.0,
-                pkg.duplication.ratio.0,
-                pkg.verbosity.ratio.0
-            ));
-        }
-    }
+    let lines: Vec<String> = report
+        .measured
+        .source_sets
+        .iter()
+        .flat_map(|(source_set, section)| {
+            section
+                .packages
+                .iter()
+                .filter_map(move |pkg| format_package_summary_line(source_set, pkg, report))
+        })
+        .collect();
     if lines.is_empty() {
         return None;
     }
@@ -749,39 +739,106 @@ fn packages_summary_block(report: &Report) -> Option<String> {
     Some(out.join("\n"))
 }
 
-fn package_metric_ratio(pkg: &PackageSection, metric_key: &str) -> Option<f64> {
-    match metric_key {
-        "erosion" => Some(pkg.erosion.ratio.0),
-        "cognitive_complexity" => Some(pkg.cognitive_complexity.ratio.0),
-        "duplication" => Some(pkg.duplication.ratio.0),
-        "verbosity" => Some(pkg.verbosity.ratio.0),
-        "import_cycles" => pkg.import_cycles.as_ref().map(|item| item.ratio.0),
-        "test_gap" => pkg.test_gap.as_ref().map(|item| item.ratio.0),
-        "hazards" => pkg.hazards.as_ref().map(|item| item.ratio.0),
-        _ => None,
+fn format_package_summary_line(
+    source_set: SourceSet,
+    pkg: &PackageSection,
+    report: &Report,
+) -> Option<String> {
+    let failing_optional = failing_optional_package_metrics(
+        source_set,
+        pkg,
+        &report.over_budget,
+        &report.over_ratchet,
+    );
+    let failing = !failing_optional.is_empty()
+        || package_fails_core_limit(source_set, pkg, &report.over_budget, &report.over_ratchet);
+    if !report.show_all && !failing {
+        return None;
     }
+    let badge = if failing { "FAIL" } else { "ok" };
+    let mut line = format!(
+        "  {} ({}) [{}]: erosion={} cognitive={} duplication={} verbosity={}",
+        pkg.path,
+        source_set.key(),
+        badge,
+        pkg.erosion.ratio.0,
+        pkg.cognitive_complexity.ratio.0,
+        pkg.duplication.ratio.0,
+        pkg.verbosity.ratio.0
+    );
+    for (metric_key, ratio) in failing_optional {
+        let _ = write!(line, " {metric_key}={ratio}");
+    }
+    Some(line)
 }
 
-fn package_fails_limit(
+fn package_metric_fails_limit(
+    source_set: SourceSet,
+    metric_key: &str,
+    ratio: f64,
+    over_budget: &[BudgetFailure],
+    over_ratchet: &[RatchetFailure],
+) -> bool {
+    let key = source_set.key();
+    over_budget.iter().any(|failure| {
+        failure.source_set.as_deref() == Some(key)
+            && failure.metric == metric_key
+            && ratio > failure.budget
+    }) || over_ratchet.iter().any(|failure| {
+        failure.source_set.as_deref() == Some(key)
+            && failure.metric == metric_key
+            && ratio > failure.ceiling.0
+    })
+}
+
+fn package_fails_core_limit(
     source_set: SourceSet,
     pkg: &PackageSection,
     over_budget: &[BudgetFailure],
     over_ratchet: &[RatchetFailure],
 ) -> bool {
-    let key = source_set.key();
-    let budget_fail = over_budget.iter().any(|failure| {
-        failure.source_set.as_deref() == Some(key)
-            && package_metric_ratio(pkg, &failure.metric)
-                .is_some_and(|ratio| ratio > failure.budget)
-    });
-    if budget_fail {
-        return true;
-    }
-    over_ratchet.iter().any(|failure| {
-        failure.source_set.as_deref() == Some(key)
-            && package_metric_ratio(pkg, &failure.metric)
-                .is_some_and(|ratio| ratio > failure.ceiling.0)
+    [
+        (Metric::Erosion.key(), pkg.erosion.ratio.0),
+        (
+            Metric::CognitiveComplexity.key(),
+            pkg.cognitive_complexity.ratio.0,
+        ),
+        (Metric::Duplication.key(), pkg.duplication.ratio.0),
+        (Metric::Verbosity.key(), pkg.verbosity.ratio.0),
+    ]
+    .into_iter()
+    .any(|(metric_key, ratio)| {
+        package_metric_fails_limit(source_set, metric_key, ratio, over_budget, over_ratchet)
     })
+}
+
+fn failing_optional_package_metrics(
+    source_set: SourceSet,
+    pkg: &PackageSection,
+    over_budget: &[BudgetFailure],
+    over_ratchet: &[RatchetFailure],
+) -> Vec<(&'static str, f64)> {
+    [
+        (
+            Metric::ImportCycles.key(),
+            pkg.import_cycles.as_ref().map(|item| item.ratio.0),
+        ),
+        (
+            Metric::TestGap.key(),
+            pkg.test_gap.as_ref().map(|item| item.ratio.0),
+        ),
+        (
+            Metric::Hazards.key(),
+            pkg.hazards.as_ref().map(|item| item.ratio.0),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(metric_key, ratio)| {
+        let ratio = ratio?;
+        package_metric_fails_limit(source_set, metric_key, ratio, over_budget, over_ratchet)
+            .then_some((metric_key, ratio))
+    })
+    .collect()
 }
 
 fn push_check_findings_blocks(blocks: &mut Vec<String>, report: &Report) {

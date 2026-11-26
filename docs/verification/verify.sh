@@ -816,6 +816,7 @@ drive_report() {
   run_case "$work" "$dir/check_to_sarif_output" "$BIN_PATH" report "$work/check.json" --format sarif --output "$dir/report.sarif"
   run_case "$work" "$dir/check_to_markdown" "$BIN_PATH" report "$work/check.json" --format markdown
   run_case_stdin "$work" "$dir/check_to_text_stdin" "$work/check.json" "$BIN_PATH" report - --format text
+  run_case "$work" "$dir/check_to_text_all" "$BIN_PATH" report "$work/check.json" --format text --all
   run_case "$work" "$dir/diff_to_toon" "$BIN_PATH" report "$work/diff.json" --format toon
   run_case "$work" "$dir/diff_to_json" "$BIN_PATH" report "$work/diff.json" --format json
   run_case "$work" "$dir/missing_input" "$BIN_PATH" report "$work/no-such.json" --format sarif
@@ -1582,6 +1583,10 @@ if "report" in features:
     check("report.check_to_text_stdin.exit", read_exit("report/check_to_text_stdin") == 0, str(read_exit("report/check_to_text_stdin")))
     rtxt = read_text("report/check_to_text_stdin.stdout") or ""
     check("report.check_to_text_stdin.shape", "codeint check: PASS" in rtxt and "Metric" in rtxt and "\x1b[" not in rtxt, rtxt)
+
+    check("report.check_to_text_all.exit", read_exit("report/check_to_text_all") == 0, str(read_exit("report/check_to_text_all")))
+    rtxt_all = read_text("report/check_to_text_all.stdout") or ""
+    check("report.check_to_text_all.shape", "codeint check: PASS" in rtxt_all and "Metric" in rtxt_all and "\x1b[" not in rtxt_all, rtxt_all)
 
     check("report.diff_to_toon.exit", read_exit("report/diff_to_toon") == 0, str(read_exit("report/diff_to_toon")))
     check("report.diff_to_toon.shape", len((read_text("report/diff_to_toon.stdout") or "").strip()) > 0, "empty diff toon")

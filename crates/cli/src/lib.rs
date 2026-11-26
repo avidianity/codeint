@@ -582,8 +582,9 @@ fn run_tooling_command(command: Command) -> Result<Outcome, CliError> {
             folder,
             input,
             destination,
+            all,
             format,
-        } => run_report(&folder, &input, &destination, format),
+        } => run_report(&folder, &input, &destination, all, format),
         Command::Doctor {
             folder,
             format,
@@ -765,7 +766,9 @@ fn resolve_report_format(
                 read_configuration(repository.root()).map_err(check::CheckError::Configuration)?;
             Ok(ReportRenderFormat::from(configuration.format))
         }
-        Err(GitError::NotInRepository { .. }) => Ok(ReportRenderFormat::Toon),
+        Err(GitError::NotInRepository { .. } | GitError::BareRepository { .. }) => {
+            Ok(ReportRenderFormat::Toon)
+        }
         Err(error) => Err(CliError::Check(check::CheckError::Git(error))),
     }
 }
@@ -774,10 +777,11 @@ fn run_report(
     folder: &Path,
     input: &ReportInput,
     destination: &ReportDestination,
+    all: bool,
     format: Option<ReportRenderFormat>,
 ) -> Result<Outcome, CliError> {
     let format = resolve_report_format(folder, format)?;
-    let rendered = report::rerender(input, format)?;
+    let rendered = report::rerender(input, format, all)?;
     write_report(&rendered, destination)?;
     Ok(Outcome::Passed)
 }

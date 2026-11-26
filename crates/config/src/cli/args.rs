@@ -197,6 +197,11 @@ pub(super) enum CommandArguments {
         output: OutputArgument,
         #[arg(
             long,
+            help = "List every Finding in text output instead of capping at 5 per Metric"
+        )]
+        all: bool,
+        #[arg(
+            long,
             value_enum,
             help = "The format of the report; overrides format in codeint.json (defaults to toon)"
         )]

@@ -427,6 +427,7 @@ pub enum Command {
         folder: PathBuf,
         input: ReportInput,
         destination: ReportDestination,
+        all: bool,
         format: Option<ReportRenderFormat>,
     },
     Doctor {

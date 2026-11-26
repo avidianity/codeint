@@ -311,6 +311,22 @@ fn report_reads_configured_format_inside_repo_fails_on_invalid_config_and_falls_
     );
     assert_eq!(report_outside.status.code(), Some(0));
     assert!(utf8(&report_outside.stdout).contains("source_sets:"));
+
+    let bare = TempDir::new().expect("bare repo");
+    git_in(bare.path(), &["init", "--quiet", "--bare"], None);
+    let report_bare = invoke(
+        bare.path(),
+        cache.path(),
+        &["report", "-"],
+        Some(&check_bytes),
+    );
+    assert_eq!(
+        report_bare.status.code(),
+        Some(0),
+        "stderr: {}",
+        utf8(&report_bare.stderr)
+    );
+    assert!(utf8(&report_bare.stdout).contains("source_sets:"));
 }
 
 fn count_eroded_lines(text: &str) -> usize {
@@ -319,19 +335,29 @@ fn count_eroded_lines(text: &str) -> usize {
         .count()
 }
 
-fn assert_report_text_parity(root: &Path, cache: &Path, json_stdout: &[u8], expected_text: &str) {
-    let rerendered = invoke(
-        root,
-        cache,
-        &["report", "-", "--format", "text"],
-        Some(json_stdout),
+fn assert_report_text_parity(
+    root: &Path,
+    cache: &Path,
+    json_stdout: &[u8],
+    all: bool,
+    expected_text: &str,
+) {
+    let args: &[&str] = if all {
+        &["report", "-", "--format", "text", "--all"]
+    } else {
+        &["report", "-", "--format", "text"]
+    };
+    let rerendered = invoke(root, cache, args, Some(json_stdout));
+    assert_eq!(
+        rerendered.status.code(),
+        Some(0),
+        "args={args:?}, stderr={}",
+        utf8(&rerendered.stderr)
     );
-    assert_eq!(rerendered.status.code(), Some(0));
     assert_eq!(utf8(&rerendered.stdout), expected_text);
 }
 
-#[test]
-fn check_diff_trend_and_report_text_output_is_concise_monochrome_summary_first_and_respects_all() {
+fn build_eroded_workspace_repo(include_rust_helper: bool) -> (TempDir, TempDir) {
     let dir = TempDir::new().expect("temp repo");
     let cache = TempDir::new().expect("temp cache");
     git_in(
@@ -357,11 +383,13 @@ fn check_diff_trend_and_report_text_output_is_concise_monochrome_summary_first_a
             "packages/b/src/clean.ts".to_owned(),
             "export const ok = (n: number): number => n + 1;\n".to_owned(),
         ),
-        (
+    ];
+    if include_rust_helper {
+        base_files.push((
             "packages/a/src/helper.rs".to_owned(),
             "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n".to_owned(),
-        ),
-    ];
+        ));
+    }
     for i in 0..7 {
         base_files.push((
             format!("packages/a/src/eroded_{i}.ts"),
@@ -382,15 +410,61 @@ fn check_diff_trend_and_report_text_output_is_concise_monochrome_summary_first_a
             "{\"budgets\":{\"production\":{\"erosion\":0.05}}}\n",
         )],
     );
+    (dir, cache)
+}
 
-    let check_text_out = invoke(
-        dir.path(),
-        cache.path(),
-        &["check", "--format", "text"],
-        None,
+fn apply_eroded_diff_edits(root: &Path) {
+    write_files(
+        root,
+        &[
+            (
+                "packages/a/src/eroded_0.ts",
+                "export const route_0 = (x: number): number => x;\n",
+            ),
+            ("packages/a/src/added.ts", &eroded_ts("added_route", 13)),
+        ],
     );
-    assert_eq!(check_text_out.status.code(), Some(1));
-    let check_text = utf8(&check_text_out.stdout);
+}
+
+fn invoke_expect_code(root: &Path, cache: &Path, args: &[&str], expected_code: i32) -> Output {
+    let out = invoke(root, cache, args, None);
+    assert_eq!(
+        out.status.code(),
+        Some(expected_code),
+        "args={args:?}, stderr={}",
+        utf8(&out.stderr)
+    );
+    out
+}
+
+fn check_text_and_report_parity(
+    root: &Path,
+    cache: &Path,
+    base_args: &[&str],
+    expected_code: i32,
+    all: bool,
+) -> (String, Vec<u8>) {
+    let mut text_args = base_args.to_vec();
+    let mut json_args = base_args.to_vec();
+    if all {
+        text_args.push("--all");
+        json_args.push("--all");
+    }
+    text_args.extend(["--format", "text"]);
+    json_args.extend(["--format", "json"]);
+
+    let text = utf8(&invoke_expect_code(root, cache, &text_args, expected_code).stdout);
+    let json_bytes = invoke_expect_code(root, cache, &json_args, expected_code).stdout;
+    assert_report_text_parity(root, cache, &json_bytes, all, &text);
+    (text, json_bytes)
+}
+
+#[test]
+fn check_diff_trend_and_report_text_output_is_concise_monochrome_summary_first_and_respects_all() {
+    let (dir, cache) = build_eroded_workspace_repo(true);
+
+    let (check_text, _) =
+        check_text_and_report_parity(dir.path(), cache.path(), &["check"], 1, false);
     assert_no_ansi(&check_text);
     assert!(check_text.starts_with("codeint check: FAIL"));
     assert!(check_text.contains("Budget") && check_text.contains("Production"));
@@ -403,81 +477,117 @@ fn check_diff_trend_and_report_text_output_is_concise_monochrome_summary_first_a
     assert_eq!(count_eroded_lines(&check_text), 5);
     assert!(check_text.contains("2 more"));
 
-    let check_all_out = invoke(
-        dir.path(),
-        cache.path(),
-        &["check", "--all", "--format", "text"],
-        None,
-    );
-    assert_eq!(check_all_out.status.code(), Some(1));
-    let check_all = utf8(&check_all_out.stdout);
+    let (check_all, _) =
+        check_text_and_report_parity(dir.path(), cache.path(), &["check"], 1, true);
     assert_no_ansi(&check_all);
     assert_eq!(count_eroded_lines(&check_all), 7);
     assert!(check_all.contains("packages/b"));
 
-    let check_json_out = invoke(
-        dir.path(),
-        cache.path(),
-        &["check", "--format", "json"],
-        None,
-    );
-    assert_report_text_parity(
-        dir.path(),
-        cache.path(),
-        &check_json_out.stdout,
-        &check_text,
-    );
+    apply_eroded_diff_edits(dir.path());
 
-    write_files(
-        dir.path(),
-        &[
-            (
-                "packages/a/src/eroded_0.ts",
-                "export const route_0 = (x: number): number => x;\n",
-            ),
-            ("packages/a/src/added.ts", &eroded_ts("added_route", 13)),
-        ],
-    );
-
-    let diff_text_out = invoke(
-        dir.path(),
-        cache.path(),
-        &["diff", "main", "--format", "text"],
-        None,
-    );
-    assert_eq!(diff_text_out.status.code(), Some(1));
-    let diff_text = utf8(&diff_text_out.stdout);
+    let (diff_text, _) =
+        check_text_and_report_parity(dir.path(), cache.path(), &["diff", "main"], 1, false);
     assert_no_ansi(&diff_text);
     assert!(diff_text.starts_with("codeint diff: FAIL"));
     assert!(diff_text.contains("added_route") && !diff_text.contains("route_0"));
 
-    let diff_all_out = invoke(
-        dir.path(),
-        cache.path(),
-        &["diff", "main", "--all", "--format", "text"],
-        None,
-    );
-    assert_eq!(diff_all_out.status.code(), Some(1));
-    assert!(utf8(&diff_all_out.stdout).contains("route_0"));
-
-    let diff_json_out = invoke(
-        dir.path(),
-        cache.path(),
-        &["diff", "main", "--format", "json"],
-        None,
-    );
-    assert_report_text_parity(dir.path(), cache.path(), &diff_json_out.stdout, &diff_text);
+    let (diff_all, _) =
+        check_text_and_report_parity(dir.path(), cache.path(), &["diff", "main"], 1, true);
+    assert!(diff_all.contains("route_0"));
 
     commit_all(dir.path(), "second", "2026-11-09T12:00:00Z");
-    let trend_text_out = invoke(
-        dir.path(),
-        cache.path(),
-        &["trend", "--format", "text"],
-        None,
+    let trend_text = utf8(
+        &invoke_expect_code(dir.path(), cache.path(), &["trend", "--format", "text"], 0).stdout,
     );
-    assert_eq!(trend_text_out.status.code(), Some(0));
-    let trend_text = utf8(&trend_text_out.stdout);
     assert_no_ansi(&trend_text);
     assert!(trend_text.starts_with("codeint trend"));
     assert!(trend_text.find("2026-11-02") < trend_text.find("2026-11-09"));
+}
+
+fn cache_entry_names(cache_dir: &Path) -> std::collections::BTreeSet<String> {
+    fs::read_dir(cache_dir)
+        .expect("read cache dir")
+        .map(|entry| {
+            entry
+                .expect("dir entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn changing_format_in_codeint_json_reuses_the_same_result_cache_entries_for_trend() {
+    let (dir, cache) = build_sample_repo();
+
+    let baseline_out = invoke(dir.path(), cache.path(), &["trend"], None);
+    assert_eq!(baseline_out.status.code(), Some(0));
+    let initial_entries = cache_entry_names(cache.path());
+    assert_eq!(initial_entries.len(), 3, "entries={initial_entries:?}");
+    for name in &initial_entries {
+        let entry: Value =
+            serde_json::from_slice(&fs::read(cache.path().join(name)).expect("read cache entry"))
+                .expect("parse cache entry");
+        let settings = entry["settings"].as_str().expect("settings string");
+        assert!(
+            !settings.contains("\"format\""),
+            "cache settings must exclude format: {settings}"
+        );
+    }
+
+    for (fmt, expected_marker) in [
+        ("toon", "commits: 3"),
+        ("text", "codeint trend (3 commits, oldest first)"),
+        ("json", "\"commits\": 3"),
+    ] {
+        write_files(
+            dir.path(),
+            &[("codeint.json", &format!("{{\"format\":\"{fmt}\"}}\n"))],
+        );
+        let out = invoke(dir.path(), cache.path(), &["trend"], None);
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "format={fmt}, stderr={}",
+            utf8(&out.stderr)
+        );
+        let stdout = utf8(&out.stdout);
+        assert!(
+            stdout.contains(expected_marker),
+            "format={fmt}, stdout:\n{stdout}"
+        );
+        assert_eq!(
+            cache_entry_names(cache.path()),
+            initial_entries,
+            "changing format to {fmt} split ResultCache keys"
+        );
+    }
+}
+
+#[test]
+fn report_all_matches_check_all_and_diff_all_text_output_byte_for_byte() {
+    let (dir, cache) = build_eroded_workspace_repo(false);
+
+    let (expected_check_all, check_all_json) =
+        check_text_and_report_parity(dir.path(), cache.path(), &["check"], 1, true);
+    assert_eq!(count_eroded_lines(&expected_check_all), 7);
+    assert!(expected_check_all.contains("packages/b"));
+
+    let rerendered_check_capped = invoke(
+        dir.path(),
+        cache.path(),
+        &["report", "-", "--format", "text"],
+        Some(&check_all_json),
+    );
+    assert_eq!(rerendered_check_capped.status.code(), Some(0));
+    let capped_text = utf8(&rerendered_check_capped.stdout);
+    assert_eq!(count_eroded_lines(&capped_text), 5);
+    assert!(capped_text.contains("(pass --all to list every Finding)"));
+
+    apply_eroded_diff_edits(dir.path());
+
+    let (expected_diff_all, _) =
+        check_text_and_report_parity(dir.path(), cache.path(), &["diff", "HEAD"], 1, true);
+    assert!(expected_diff_all.contains("Resolved Production Erosion findings"));
 }

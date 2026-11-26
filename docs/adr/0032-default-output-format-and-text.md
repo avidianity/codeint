@@ -22,7 +22,7 @@ Issue #533 asks for a repository-level default output format setting and real co
 - CLI `--format` always overrides the configured `format`.
 - `codeint config --resolved` reports the effective `format` setting and its provenance (`default` or `file`).
 - `codeint init` leaves `format` omitted from the generated starter `codeint.jsonc`.
-- Effective configuration serialization normalizes explicit `"format": "toon"` to omitted so result cache keys do not split between default and explicit `"toon"`.
+- Effective configuration serialization excludes `format` unconditionally because `format` only controls output rendering and never affects commit analysis, so changing `format` in repository configuration never splits `ResultCache` keys.
 
 ### Command scope and unsupported formats
 
@@ -30,12 +30,13 @@ Issue #533 asks for a repository-level default output format setting and real co
 - Utility commands (`doctor`, `guard`, `config`, `ratchet`, `baseline`, `agent`, `plugin test`), `schema`, and MCP tools keep their own defaults and ignore configured `format`.
 - When one of the eight analysis and report commands does not support the configured `format` (for example `"sarif"` on `trend`, `churn`, `coupling`, `impact`, or `trace`, or `"markdown"` on `impact` or `trace`), codeint stops with exit code 2 and names the command, the configured format, and the supported formats.
 - Passing a supported CLI `--format` still succeeds even when the configured `format` is unsupported for that command.
-- When `--format` is omitted on `codeint report`, codeint reads `format` from the current repository's configuration when run inside a Git repository (failing with exit code 2 on an invalid configuration), and falls back to built-in `toon` when run outside any Git repository.
+- When `--format` is omitted on `codeint report`, codeint reads `format` from the current repository's configuration when run inside a Git working tree (failing with exit code 2 on an invalid configuration), and falls back to built-in `toon` when run outside any Git repository or inside a bare Git repository.
 
 ### Concise monochrome `text` output
 
 - `check --format text`, `diff --format text`, `trend --format text`, and `report --format text` render plain monochrome text with zero ANSI escape sequences and zero new dependencies, matching the eleven commands that already support `--format text`.
-- `check --format text` (and `report --format text` on a check JSON report) leads with a `PASS` or `FAIL` status header (including Budget, Ratchet, and Baseline hidden counts when active), followed by failure lists, aligned per-Source-set Metric tables (with Reference ranges when single-language), compact per-language summaries when multiple languages are measured, Workspace package lines only when a package fails a limit or `--all` is passed, up to 5 worst Findings per non-zero Metric (full list with `--all`), and concise notes when present.
+- `codeint report` accepts `--all` so `codeint report <input> --format text --all` expands text output identically to `codeint check --all --format text` and `codeint diff --all --format text` (listing every Finding, passing Workspace packages, and resolved diff Findings).
+- `check --format text` (and `report --format text` on a check JSON report) leads with a `PASS` or `FAIL` status header (including Budget, Ratchet, and Baseline hidden counts when active), followed by failure lists, aligned per-Source-set Metric tables (with Reference ranges when single-language), compact per-language summaries when multiple languages are measured, Workspace package lines only when a package fails a limit or `--all` is passed (including any failing non-core Metric ratios on `[FAIL]` lines), up to 5 worst Findings per non-zero Metric (full list with `--all`), and concise notes when present.
 - `diff --format text` (and `report --format text` on a diff JSON report) leads with a `PASS` or `FAIL` status header against the base ref (including Regression, per-file, Budget, new-file Budget, and Ratchet counts when present), followed by failure lists, aligned per-Source-set comparison tables, compact one-line listings of `new` Findings (capped at 5 without `--all`), and full `resolved` Findings only when `--all` is passed.
 - `trend --format text` prints an aligned per-Source-set commit table with short 7-character commit hashes, UTC dates, file counts, and one column per Metric ratio, oldest first.
 

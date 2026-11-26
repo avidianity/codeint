@@ -807,13 +807,14 @@ codeint config --resolved --format json --budget production.erosion=0.25 --sourc
 | Option | Meaning |
 | ------ | ------- |
 | `--output <FILE>` | Write the report to this file instead of standard output |
+| `--all` | List every Finding in text output instead of capping at 5 per Metric (and include passing Workspace packages on `check` and resolved Findings on `diff`) |
 | `--format <FORMAT>` | The format of the report: `toon`, the default, `text`, `json`, `sarif`, or `markdown`; overrides `format` in `codeint.json` |
 | `-h, --help` | Print the help of `codeint report` |
 
 `codeint report` re-renders a saved `codeint check --format json` or `codeint diff --format json` payload into another format without re-running analysis.
 Pass `-` as `<INPUT>` to read the JSON payload from standard input.
-`--format text` prints the same concise monochrome text summary as `codeint check --format text` and `codeint diff --format text`.
-When `--format` is omitted inside a Git repository, `codeint report` reads `format` from the repository's configuration; outside any Git repository, it falls back to `toon`.
+`--format text` prints the same concise monochrome text summary as `codeint check --format text` and `codeint diff --format text`, and `--all` matches `check --all --format text` and `diff --all --format text` byte for byte.
+When `--format` is omitted inside a Git working tree, `codeint report` reads `format` from the repository's configuration; outside any Git repository or inside a bare Git repository, it falls back to `toon`.
 
 ```sh exit=0
 codeint report report.json --format toon
@@ -821,6 +822,7 @@ codeint report report.json --format json
 codeint report report.json --format sarif --output report.sarif
 codeint report report.json --format markdown
 codeint report report.json --format text
+codeint report report.json --format text --all
 ```
 
 An input file that does not exist, malformed JSON, or an unsupported report schema version stops the run with exit code 2:

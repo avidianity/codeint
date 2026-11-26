@@ -75,29 +75,18 @@ fn parses_valid_output_formats_across_all_config_paths_and_defaults_to_toon() {
         ),
     ];
 
+    let default_serialized = serde_json::to_string(&default_cfg).expect("serialize default");
     for (tag, file_name, body, expected) in cases {
         let box_dir = Sandbox::create(tag);
         box_dir.write(file_name, body);
         let cfg = read_configuration(&box_dir.root).expect("parse format");
         assert_eq!(cfg.format, expected, "case {tag}");
+        assert_eq!(
+            serde_json::to_string(&cfg).expect("serialize configured"),
+            default_serialized,
+            "cache key must ignore format for case {tag}"
+        );
     }
-
-    let toon_box = Sandbox::create("explicit-toon");
-    toon_box.write("codeint.json", r#"{ "format": "toon" }"#);
-    let explicit_toon = read_configuration(&toon_box.root).expect("explicit toon");
-
-    let text_box = Sandbox::create("explicit-text");
-    text_box.write("codeint.json", r#"{ "format": "text" }"#);
-    let explicit_text = read_configuration(&text_box.root).expect("explicit text");
-
-    assert_eq!(
-        serde_json::to_string(&default_cfg).expect("serialize default"),
-        serde_json::to_string(&explicit_toon).expect("serialize explicit toon")
-    );
-    assert_ne!(
-        serde_json::to_string(&default_cfg).expect("serialize default"),
-        serde_json::to_string(&explicit_text).expect("serialize explicit text")
-    );
 }
 
 #[test]
