@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use codeint_model::{CodeModel, ImportResolution, Metric, Package, RepoPath};
 
 use crate::FindingId;
-use crate::finding_id::FindingIds;
+use crate::finding_id::{FindingContext, FindingIds};
 
 #[cfg(test)]
 mod tests;
@@ -11,6 +11,7 @@ mod tests;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportCycle {
     id: FindingId,
+    context: FindingContext,
     modules: Vec<RepoPath>,
 }
 
@@ -49,6 +50,10 @@ impl ImportCycle {
         self.id
     }
 
+    pub fn context(&self) -> FindingContext {
+        self.context
+    }
+
     pub fn modules(&self) -> &[RepoPath] {
         &self.modules
     }
@@ -85,9 +90,13 @@ impl ImportCycles {
         let mut ids = FindingIds::new(Metric::ImportCycles);
         let cycles = cycle_modules
             .into_iter()
-            .map(|modules| ImportCycle {
-                id: ids.next_in_source_order(&modules, []),
-                modules,
+            .map(|modules| {
+                let (id, content_hash) = ids.next_with_content_hash(&modules, []);
+                ImportCycle {
+                    id,
+                    context: FindingContext::content_only(content_hash),
+                    modules,
+                }
             })
             .collect();
         ImportCycles {

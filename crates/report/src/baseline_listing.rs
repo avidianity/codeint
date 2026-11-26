@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
-
-use codeint_config::{BaselineFormat, BaselineUpdateSummary, MeasuredBaselineMetric};
+use codeint_config::{
+    BaselineFormat, BaselineUpdateSummary, FindingAnchor, MeasuredBaselineMetric,
+};
 use codeint_model::{Metric, SourceSet};
 
 use crate::baseline::{Identified, counted_findings};
@@ -8,13 +8,13 @@ use crate::render::{Findings, ReportError, render_text_report};
 use crate::sections::{DependenciesSection, MeasuredSection, SourceSetSection};
 
 pub(crate) trait BaselineListing {
-    fn listed_ids(&self) -> BTreeSet<String>;
+    fn listed_anchors(&self) -> Vec<FindingAnchor>;
     fn hidden(&self) -> usize;
 }
 
 impl<T: Identified> BaselineListing for Findings<T> {
-    fn listed_ids(&self) -> BTreeSet<String> {
-        self.listed.iter().map(|row| row.id().to_owned()).collect()
+    fn listed_anchors(&self) -> Vec<FindingAnchor> {
+        self.listed.iter().map(Identified::anchor).collect()
     }
 
     fn hidden(&self) -> usize {
@@ -111,7 +111,7 @@ impl MeasuredSection {
                 source_set,
                 metric: metric.to_owned(),
                 metric_version,
-                findings: listing.listed_ids(),
+                findings: listing.listed_anchors(),
             });
         });
         metrics

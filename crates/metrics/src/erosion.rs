@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use codeint_model::{CodeModel, Metric, Package, RepoPath};
 
 use crate::FindingId;
-use crate::finding_id::{FindingIds, function_finding_id, group_by_package};
+use crate::finding_id::{FindingContext, FindingIds, function_finding_identity, group_by_package};
 
 #[cfg(test)]
 mod tests;
@@ -13,6 +13,7 @@ const ERODED_ABOVE_CYCLOMATIC_COMPLEXITY: u32 = 10;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErodedFunction {
     pub id: FindingId,
+    pub context: FindingContext,
     pub path: RepoPath,
     pub line: u32,
     pub end_line: u32,
@@ -70,8 +71,15 @@ impl Erosion {
                 file_masses.total += function_mass;
                 if cyclomatic_complexity > ERODED_ABOVE_CYCLOMATIC_COMPLEXITY {
                     file_masses.eroded += function_mass;
+                    let (id, context) = function_finding_identity(
+                        &mut ids,
+                        &file.path,
+                        function,
+                        &file.model.tokens,
+                    );
                     eroded_functions.push(ErodedFunction {
-                        id: function_finding_id(&mut ids, &file.path, function, &file.model.tokens),
+                        id,
+                        context,
                         path: file.path.clone(),
                         line: function.line,
                         end_line: function.end_line,

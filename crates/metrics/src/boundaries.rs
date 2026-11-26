@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use codeint_model::{CodeModel, ImportResolution, Metric, RepoPath, token_text_hash};
 
 use crate::FindingId;
-use crate::finding_id::FindingIds;
+use crate::finding_id::{FindingContext, FindingIds};
 
 #[cfg(test)]
 mod tests;
@@ -42,6 +42,7 @@ pub enum BoundaryFindingKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BoundaryFinding {
     pub id: FindingId,
+    pub context: FindingContext,
     pub kind: BoundaryFindingKind,
     pub importer: RepoPath,
     pub target: Option<RepoPath>,
@@ -349,16 +350,19 @@ fn assign_finding_ids(mut pending: Vec<PendingFinding>) -> Vec<BoundaryFinding> 
         .into_iter()
         .map(|item| {
             let kind_hash = token_text_hash(item.kind.key());
-            let id = match (&item.target, &item.external_package) {
+            let (id, content_hash) = match (&item.target, &item.external_package) {
                 (Some(target), _) => {
-                    ids.next_in_source_order([&item.importer, target], [kind_hash])
+                    ids.next_with_content_hash([&item.importer, target], [kind_hash])
                 }
-                (None, Some(package)) => ids
-                    .next_in_source_order([&item.importer], [kind_hash, token_text_hash(package)]),
-                (None, None) => ids.next_in_source_order([&item.importer], [kind_hash]),
+                (None, Some(package)) => ids.next_with_content_hash(
+                    [&item.importer],
+                    [kind_hash, token_text_hash(package)],
+                ),
+                (None, None) => ids.next_with_content_hash([&item.importer], [kind_hash]),
             };
             BoundaryFinding {
                 id,
+                context: FindingContext::content_only(content_hash),
                 kind: item.kind,
                 importer: item.importer,
                 target: item.target,

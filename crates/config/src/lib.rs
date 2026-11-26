@@ -13,6 +13,7 @@ mod command;
 mod config_error;
 mod coupling;
 mod dependencies;
+mod finding_anchor;
 mod framework_profiles;
 mod hazards;
 mod ratchet;
@@ -62,6 +63,7 @@ pub use coupling::{
     DEFAULT_MIN_CO_CHANGES, DEFAULT_MIN_COUPLING_RATIO,
 };
 pub use dependencies::DependenciesConfig;
+pub use finding_anchor::{AnchorMatch, FindingAnchor, match_anchors};
 pub use framework_profiles::{FrameworkProfilesConfig, display_package_key};
 pub use hazards::HazardsConfig;
 pub use ratchet::{

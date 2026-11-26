@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use codeint_model::{CodeModel, StableHasher, Token};
 
 use super::{
-    CloneGroup, DisjointSet, Fragment, GroupClusterInput, SearchedRun, TokenSpan, content_digest,
-    distinct_normalized_tokens, fragment, merge_overlapping_spans, mixed, normalized,
+    CloneGroup, DisjointSet, Fragment, FragmentIdentifier, GroupClusterInput, SearchedRun,
+    TokenSpan, content_digest, distinct_normalized_tokens, fragment, merge_overlapping_spans,
+    mixed, normalized,
 };
-use crate::finding_id::FindingIds;
 
 const SHINGLE_LEN: usize = 3;
 const CDC_WINDOW: usize = 4;
@@ -619,19 +619,17 @@ fn build_near_clone_groups(
         .filter_map(|component_pairs| unidentified_near_group(model, candidates, &component_pairs))
         .collect();
     unidentified.sort_by(|left, right| left.fragments.cmp(&right.fragments));
-    let mut ids = FindingIds::for_key("near_clone");
+    let mut identifier = FragmentIdentifier::new("near_clone", model);
     let mut groups = Vec::with_capacity(unidentified.len());
     let mut cluster_inputs = Vec::with_capacity(unidentified.len());
     let mut all_spans = Vec::new();
     for item in unidentified {
         let group_digest = content_digest(&item.content_digests);
-        let id = ids.next_in_source_order(
-            item.fragments.iter().map(|fragment| &fragment.path),
-            item.content_digests,
-        );
+        let (id, context) = identifier.identify(&item.fragments, item.content_digests);
         all_spans.extend(item.spans.iter().copied());
         groups.push(CloneGroup {
             id,
+            context,
             tokens: item.tokens,
             similarity: Some(item.similarity),
             fragments: item.fragments,

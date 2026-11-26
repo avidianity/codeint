@@ -13,6 +13,120 @@ impl fmt::Display for FindingId {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FindingContext {
+    pub content_hash: u64,
+    pub before: Option<u64>,
+    pub after: Option<u64>,
+    pub line: Option<u32>,
+}
+
+impl FindingContext {
+    pub fn content_only(content_hash: u64) -> FindingContext {
+        FindingContext {
+            content_hash,
+            before: None,
+            after: None,
+            line: None,
+        }
+    }
+
+    pub(crate) fn for_span(
+        content_hash: u64,
+        tokens: &[Token],
+        start_line: u32,
+        end_line: u32,
+    ) -> FindingContext {
+        let (before, after) = surrounding_line_hashes(tokens, start_line, end_line);
+        FindingContext {
+            content_hash,
+            before,
+            after,
+            line: (start_line > 0).then_some(start_line),
+        }
+    }
+
+    pub(crate) fn for_spans<'a>(
+        content_hash: u64,
+        spans: impl IntoIterator<Item = (&'a [Token], u32, u32)>,
+    ) -> FindingContext {
+        let mut before_hashes = Vec::new();
+        let mut after_hashes = Vec::new();
+        let mut first_line = None;
+        for (tokens, start_line, end_line) in spans {
+            if first_line.is_none() && start_line > 0 {
+                first_line = Some(start_line);
+            }
+            let (before, after) = surrounding_line_hashes(tokens, start_line, end_line);
+            before_hashes.push(before);
+            after_hashes.push(after);
+        }
+        FindingContext {
+            content_hash,
+            before: combine_optional_hashes(&before_hashes),
+            after: combine_optional_hashes(&after_hashes),
+            line: first_line,
+        }
+    }
+}
+
+pub(crate) fn surrounding_line_hashes(
+    tokens: &[Token],
+    start_line: u32,
+    end_line: u32,
+) -> (Option<u64>, Option<u64>) {
+    let start_idx = tokens.partition_point(|token| token.line < start_line);
+    let before = if start_idx > 0 {
+        let prev_line = tokens[start_idx - 1].line;
+        let prev_start = tokens[..start_idx].partition_point(|token| token.line < prev_line);
+        Some(hash_line_tokens(&tokens[prev_start..start_idx]))
+    } else {
+        None
+    };
+    let end_idx = tokens.partition_point(|token| token.line <= end_line);
+    let after = if end_idx < tokens.len() {
+        let next_line = tokens[end_idx].line;
+        let next_end = end_idx + tokens[end_idx..].partition_point(|token| token.line <= next_line);
+        Some(hash_line_tokens(&tokens[end_idx..next_end]))
+    } else {
+        None
+    };
+    (before, after)
+}
+
+fn hash_line_tokens(tokens: &[Token]) -> u64 {
+    tokens
+        .iter()
+        .fold(
+            StableHasher::new().write_u64(tokens.len() as u64),
+            |hasher, token| hasher.write_u64(token.text_hash),
+        )
+        .finish()
+}
+
+fn combine_optional_hashes(hashes: &[Option<u64>]) -> Option<u64> {
+    match hashes {
+        [] => None,
+        [single] => *single,
+        many => {
+            if many.iter().all(Option::is_none) {
+                return None;
+            }
+            let combined = many
+                .iter()
+                .fold(
+                    StableHasher::new().write_u64(many.len() as u64),
+                    |hasher, item| match item {
+                        Some(value) => hasher.write_u64(1).write_u64(*value),
+                        None => hasher.write_u64(0),
+                    },
+                )
+                .finish();
+            Some(combined)
+        }
+    }
+}
+
 pub(crate) struct FindingIds {
     metric_key: &'static str,
     occurrences: HashMap<u64, u64>,
@@ -30,11 +144,11 @@ impl FindingIds {
         }
     }
 
-    pub(crate) fn next_in_source_order<'path>(
+    pub(crate) fn next_with_content_hash<'path>(
         &mut self,
         paths: impl IntoIterator<Item = &'path RepoPath>,
         content: impl IntoIterator<Item = u64>,
-    ) -> FindingId {
+    ) -> (FindingId, u64) {
         let with_metric = length_prefixed(StableHasher::new(), self.metric_key.as_bytes());
         let mut path_count = 0;
         let with_paths = paths.into_iter().fold(with_metric, |hasher, path| {
@@ -56,7 +170,7 @@ impl FindingIds {
             .write_u64(*occurrence)
             .finish();
         *occurrence += 1;
-        FindingId(id)
+        (FindingId(id), same_content)
     }
 }
 
@@ -83,17 +197,21 @@ pub(crate) fn group_by_package<'model, T: Default + Copy>(
     totals
 }
 
-pub(crate) fn function_finding_id(
+pub(crate) fn function_finding_identity(
     ids: &mut FindingIds,
     path: &RepoPath,
     function: &Function,
     tokens: &[Token],
-) -> FindingId {
-    ids.next_in_source_order(
+) -> (FindingId, FindingContext) {
+    let (id, content_hash) = ids.next_with_content_hash(
         [path],
         tokens_of(function, tokens)
             .iter()
             .map(|token| token.text_hash),
+    );
+    (
+        id,
+        FindingContext::for_span(content_hash, tokens, function.line, function.end_line),
     )
 }
 

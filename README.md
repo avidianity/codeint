@@ -58,7 +58,7 @@ Additional independent Metrics and structural checks run in the same pass:
 
 Every file belongs to one **Source set** (`production`, `test`, `generated`, or `vendored`), so fixtures and generated code never distort Production ratios.
 **Budgets** cap absolute ratios, `.codeint/ratchet.json` (**Ratchet**, managed with `codeint ratchet update`) locks in whole-repository ceilings with Metric version tracking, and `codeint diff <base>` checks every pull request against its Git merge-base ([ADR 0026](./docs/adr/0026-regression-and-ratchet.md)).
-`.codeint/baseline.json` (**Baseline**, managed with `codeint baseline update`) freezes existing Findings, so `codeint check` hides them, holds new Findings to every Budget, and shrinks the Baseline as legacy Findings are fixed ([ADR 0030](./docs/adr/0030-finding-baseline.md)).
+`.codeint/baseline.json` (**Baseline**, managed with `codeint baseline update`) freezes existing Findings with hashed surrounding-line context anchors, so `codeint check` hides them, holds new Findings to every Budget, and shrinks the Baseline as legacy Findings are fixed ([ADR 0030](./docs/adr/0030-finding-baseline.md), [ADR 0032](./docs/adr/0032-context-anchored-finding-matching.md)).
 
 ### Codebase navigation, Git history, and ownership
 

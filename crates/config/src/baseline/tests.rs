@@ -1,15 +1,14 @@
-use std::collections::BTreeSet;
-
 use codeint_model::SourceSet;
 
 use super::{BASELINE_SCHEMA_VERSION, Baseline, BaselineFileError, MeasuredBaselineMetric};
+use crate::FindingAnchor;
 
 fn measured(metric: &str, metric_version: u32, ids: &[&str]) -> MeasuredBaselineMetric {
     MeasuredBaselineMetric {
         source_set: Some(SourceSet::Production),
         metric: metric.to_owned(),
         metric_version,
-        findings: ids.iter().map(|id| (*id).to_owned()).collect(),
+        findings: ids.iter().map(|id| FindingAnchor::id_only(*id)).collect(),
     }
 }
 
@@ -19,7 +18,7 @@ fn stored_ids(baseline: &Baseline, metric: &str) -> Vec<String> {
         .expect("stored entry")
         .findings
         .iter()
-        .cloned()
+        .map(|finding| finding.id.clone())
         .collect()
 }
 
@@ -34,6 +33,7 @@ fn first_update_records_every_current_finding_and_metric_version() {
         false,
     );
     assert!(summary.created);
+    assert_eq!(created.schema_version, BASELINE_SCHEMA_VERSION);
     assert_eq!(summary.added, 2);
     assert_eq!(summary.total_findings, 2);
     assert_eq!(stored_ids(&created, "erosion"), vec!["a", "b"]);
@@ -94,7 +94,7 @@ fn unmeasured_metrics_keep_their_entries() {
 }
 
 #[test]
-fn parse_rejects_unknown_schema_versions_and_zero_metric_versions() {
+fn parse_supports_schema_v1_and_v2_and_rejects_unknown_schema_and_zero_metric_versions() {
     let future = format!(
         "{{\"schema_version\": {}, \"source_sets\": {{}}}}",
         BASELINE_SCHEMA_VERSION + 1
@@ -109,16 +109,44 @@ fn parse_rejects_unknown_schema_versions_and_zero_metric_versions() {
         Baseline::parse(zero),
         Err(BaselineFileError::InvalidMetricVersion { .. })
     ));
-    let parsed = Baseline::parse(
+    let parsed_v1 = Baseline::parse(
         r#"{"schema_version": 1, "source_sets": {"production": {"erosion": {"metric_version": 1, "findings": ["x"]}}}}"#,
     )
-    .expect("valid Baseline");
-    assert!(parsed.is_baselined(Some(SourceSet::Production), "erosion", "x"));
+    .expect("valid v1 Baseline");
     assert_eq!(
-        parsed
+        parsed_v1
+            .match_findings(
+                Some(SourceSet::Production),
+                "erosion",
+                &[FindingAnchor::id_only("x")]
+            )
+            .matched_pairs,
+        vec![(0, 0)]
+    );
+    assert_eq!(
+        parsed_v1
             .entry(Some(SourceSet::Production), "erosion")
             .map(|entry| entry.findings.clone()),
-        Some(BTreeSet::from(["x".to_owned()]))
+        Some(vec![FindingAnchor::id_only("x")])
+    );
+
+    let parsed_v2 = Baseline::parse(
+        r#"{"schema_version": 2, "source_sets": {"production": {"hazards": {"metric_version": 1, "findings": [{"id": "h1", "content": "c1", "before": "b1", "line": 2}]}}}}"#,
+    )
+    .expect("valid v2 Baseline");
+    assert_eq!(parsed_v2.schema_version, 2);
+    assert_eq!(
+        parsed_v2
+            .entry(Some(SourceSet::Production), "hazards")
+            .expect("hazards entry")
+            .findings,
+        vec![FindingAnchor {
+            id: "h1".to_owned(),
+            content: Some("c1".to_owned()),
+            before: Some("b1".to_owned()),
+            after: None,
+            line: Some(2),
+        }]
     );
 }
 
