@@ -6,6 +6,7 @@ fn result(wall: Option<f64>, rss: Option<u64>, oracle: OracleReport) -> Reposito
     let mut result = RepositoryResult::pending(&CorpusEntry {
         name: "owner/name".to_owned(),
         language: "python".to_owned(),
+        panel: None,
         bucket: SizeBucket::Small,
         url: "https://example.com/owner/name".to_owned(),
         commit: "0".repeat(40),

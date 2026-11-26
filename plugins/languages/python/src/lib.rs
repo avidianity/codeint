@@ -35,12 +35,12 @@ impl Guest for Python {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         build_reference_ranges(
-            "codeint panel of 20 Python repositories, ADR 0013, codeint 0.4.0",
+            "codeint stratified panel of 50 Python repositories, ADR 0028, codeint 0.6.0",
             [
-                ("erosion", 1, 0.144, 0.624),
-                ("verbosity", 2, 0.014, 0.204),
-                ("duplication", 1, 0.012, 0.201),
-                ("import_cycles", 1, 0.000, 0.321),
+                ("erosion", 1, 0.331, 0.734),
+                ("verbosity", 2, 0.000, 0.009),
+                ("duplication", 1, 0.008, 0.172),
+                ("import_cycles", 1, 0.000, 0.437),
             ],
         )
     }

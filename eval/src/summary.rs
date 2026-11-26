@@ -1,8 +1,12 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::audit::AuditSample;
 use crate::corpus::{CorpusEntry, SizeBucket};
 use crate::recall::LanguageRecall;
+use crate::review::AuditReview;
+use crate::stats::Distribution;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EvaluationSummary {
@@ -15,8 +19,51 @@ pub struct EvaluationSummary {
     pub passed: bool,
     pub languages: Vec<LanguageSummary>,
     pub performance: PerformanceSummary,
+    pub panels: Vec<PanelSummary>,
     pub repositories: Vec<RepositoryResult>,
+    pub case_studies: Vec<CaseStudyResult>,
     pub audit: Vec<AuditSample>,
+    pub audit_review: Option<AuditReview>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetricReading {
+    pub ratio: f64,
+    pub version: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PanelSummary {
+    pub language: String,
+    pub panel: Option<String>,
+    pub repositories: u64,
+    pub small: u64,
+    pub medium: u64,
+    pub large: u64,
+    pub metrics: BTreeMap<String, PanelMetric>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PanelMetric {
+    pub version: u32,
+    pub distribution: Distribution,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CaseSnapshot {
+    pub commit: String,
+    pub production_lines: Option<u64>,
+    pub metrics: BTreeMap<String, MetricReading>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CaseStudyResult {
+    pub name: String,
+    pub url: String,
+    pub change: String,
+    pub before: Option<CaseSnapshot>,
+    pub after: Option<CaseSnapshot>,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +108,7 @@ impl OracleReport {
 pub struct RepositoryResult {
     pub name: String,
     pub language: String,
+    pub panel: Option<String>,
     pub url: String,
     pub commit: String,
     pub declared_bucket: SizeBucket,
@@ -72,6 +120,8 @@ pub struct RepositoryResult {
     pub median_wall_seconds: Option<f64>,
     pub peak_rss_bytes: Option<u64>,
     pub production_lines_per_second: Option<f64>,
+    pub framework_profiles: Vec<String>,
+    pub metrics: BTreeMap<String, MetricReading>,
     pub oracle: OracleReport,
     pub error: Option<String>,
     pub passed: bool,
@@ -82,6 +132,7 @@ impl RepositoryResult {
         RepositoryResult {
             name: entry.name.clone(),
             language: entry.language.clone(),
+            panel: entry.panel.clone(),
             url: entry.url.clone(),
             commit: entry.commit.clone(),
             declared_bucket: entry.bucket,
@@ -93,6 +144,8 @@ impl RepositoryResult {
             median_wall_seconds: None,
             peak_rss_bytes: None,
             production_lines_per_second: None,
+            framework_profiles: Vec::new(),
+            metrics: BTreeMap::new(),
             oracle: OracleReport::not_applicable(),
             error: None,
             passed: false,

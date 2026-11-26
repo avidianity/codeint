@@ -28,9 +28,9 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
     assert_eq!(sql.hazard_rules().len(), 32);
     let ranges = sql.reference_ranges().unwrap();
     for (metric, low, high) in [
-        ("erosion", 0.094, 0.976),
-        ("verbosity", 0.042, 0.921),
-        ("duplication", 0.042, 0.921),
+        ("erosion", 0.000, 0.795),
+        ("verbosity", 0.000, 0.000),
+        ("duplication", 0.001, 0.909),
     ] {
         let range = ranges
             .for_metric(metric)
@@ -39,7 +39,7 @@ fn sql_plugin_shell_dialects_empty_comments_and_unparsable_files() {
         assert_eq!(range.high, high);
         assert_eq!(
             range.source,
-            "codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0"
+            "codeint stratified panel of 50 SQL repositories, ADR 0028, codeint 0.6.0"
         );
     }
     assert!(ranges.for_metric("import_cycles").is_none());

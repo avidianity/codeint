@@ -11,7 +11,14 @@ const FAKE_CODEINT: &str = "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 
 
 fn git(folder: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
-        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args([
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(folder)
         .output()

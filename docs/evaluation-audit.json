@@ -1,0 +1,1805 @@
+{
+  "reviewer": "agent",
+  "verdicts": [
+    {
+      "category": "source_sets",
+      "item": "doctrine/orm tests/Tests/ORM/Cache/FileLockRegionTest.php test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "morluto/rea src/browser/CdpCaptureValues.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/renderer/src/components/settings/accounts/scope/system-default-lanes.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "prettier/prettier tests/format/markdown/list/huge-first-number/format.test.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/app-dir/global-error/basic/app/ssr/page.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "garrytan/gstack make-pdf/src/image-size.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "sebastianbergmann/phpunit src/TextUI/ParallelTestRunner.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/api/ws_outbox.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "huggingface/transformers src/transformers/models/sam_hq/__init__.py generated",
+      "verdict": "correct",
+      "note": "Auto-generated file with explicit generated header correctly classified as generated."
+    },
+    {
+      "category": "source_sets",
+      "item": "filamentphp/filament packages/tables/src/Concerns/HasEmptyState.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "nextcloud/server lib/public/Security/IHasher.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "openinterpreter/openinterpreter codex-rs/network-proxy/src/environment_policy.rs production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "monicahq/monica app/Enums/RelationshipStatusEnum.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "astral-sh/uv crates/uv-configuration/src/exclude_newer.rs production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "matomo-org/matomo core/Updates/0.4.2.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "anomalyco/opencode packages/tui/src/component/prompt/index.tsx production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/parallel/test-urlpattern-invalidthis.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "deepseek-ai/deepseek-harness apps/desktop/tests/macos-signing-walk.spec.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Microsoft/ExcelSharePoint/test/readRows.harness.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "symfony/symfony src/Symfony/Component/Security/Core/User/OidcUser.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "livewire/livewire src/Features/SupportSlots/PlaceholderSlot.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "anomalyco/opencode packages/desktop/src/renderer/html.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "ramsey/uuid src/Rfc4122/NilUuid.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "anomalyco/opencode packages/app/src/new-session/mcp.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "grokability/snipe-it tests/Feature/Components/Ui/BulkFulfillComponentTest.php test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode extensions/copilot/src/extension/completions-core/vscode-node/lib/src/test/snapshot.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/main/opencode/status-hooks/plugin-source/status-plugin-post-source.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/editor/common/tokens/contiguousMultilineTokens.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "coollabsio/coolify tests/Unit/DatabaseReadWriteHostConfigTest.php test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "ccch1mneyyy/dsh-Go packages/dsh_tavern/test/regex_engine_test.dart test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js crates/next-custom-transforms/tests/errors/use-cache-not-allowed/2/input.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "huggingface/transformers src/transformers/models/glpn/modeling_glpn.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/workbench/services/agentHost/test/browser/codexContinuationService.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "ytdl-org/youtube-dl youtube_dl/extractor/freesound.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "ComicSparks/jasmine lib/screens/downloads_exporting_screen.dart production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "NousResearch/hermes-agent tests/plugins/config_backends/test_remote_unavailable_consumers.py test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "morluto/rea scripts/ci/cache-retention.mjs production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "grokability/snipe-it resources/lang/fil-PH/auth.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/fixtures/snapshot/ts-example.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "router-for-me/CLIProxyAPI sdk/cliproxy/auth/conductor_session_affinity_alias_test.go test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/fixtures/source-map/enclosing-call-site-min.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "pgMemento/pgMemento ctl/STOP.sql production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "garrytan/gstack lib/dx-error-capture.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "mornyeapp/Mornye test/autoplay_taste_inheritance_test.dart test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "react/react compiler/packages/babel-plugin-react-compiler/src/__tests__/fixtures/compiler/dce-loop.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "firecrawl/firecrawl apps/api/src/services/worker/nuq-reconciler-worker.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca src/main/bots/bot-home.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "ccch1mneyyy/dsh-Go app/test/update/ohos_notice_test.dart test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "nextcloud/server apps/dav/lib/Listener/ActivityUpdaterListener.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "derailed/k9s internal/config/data/config.go production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "stablyai/orca mobile/src/components/list/DisclosureChevron.tsx production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "vllm-project/vllm vllm/models/kimi_k3/amd/specialized_decode/mono/common/sync.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "openinterpreter/openinterpreter codex-rs/windows-sandbox-rs/src/provisioning_client_tests.rs test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "flutter/flutter dev/benchmarks/microbenchmarks/lib/foundation/platform_asset_bundle.dart production",
+      "verdict": "false_positive",
+      "note": "Benchmark harness file under dev/benchmarks classified as production instead of test or non-production tooling."
+    },
+    {
+      "category": "source_sets",
+      "item": "grokability/snipe-it resources/lang/fil-PH/admin/locations/message.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "earendil-works/pi packages/chord/src/remote/internal.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/platform/agentHost/node/codex/codexForkPlan.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/cli/test/integration/middlewares/body-parser.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "langflow-ai/langflow src/backend/base/langflow/agentic/api/router.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "NanmiCoder/MediaCrawler database/db_session.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/sessions/contrib/chat/browser/requestOriginProvider.contribution.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "ehang-io/nps web/controllers/base.go production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "go-gitea/gitea routers/api/v1/repo/migrate.go production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/workflow/test/expressions/expression-helpers.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Raindrop/__tests__/Raindrop.workflow.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "openai/codex codex-rs/tui/src/bottom_pane/experimental_features_view_tests.rs test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "monicahq/monica app/Helpers/PossessionFieldOptions.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "NousResearch/hermes-agent tests/tools/test_search_error_guard.py test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/@n8n/workflow-engine-check/src/trigger-identity-rule.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/frontend/editor-ui/src/features/settings/communityNodes/composables/useInstalledCommunityPackage.test.ts test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "monicahq/monica app/Helpers/FieldSettingsCatalogue.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "rclone/rclone cmd/serve/nfs/cache_test.go test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/app-dir/instant-validation/app/suspense-in-root/static/route-group-shared-boundary/(outer)/(inner)/layout.tsx test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "vercel/next.js test/e2e/conflicting-public-file-page/pages/hello.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "smpetersgithub/AdvancedSQLPuzzles Advanced SQL Puzzles/Recursion Examples/Double the Number Recursion.sql production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "symfony/symfony src/Symfony/Bundle/FrameworkBundle/Tests/DependencyInjection/Fixtures/php/legacy_translator.php production",
+      "verdict": "false_positive",
+      "note": "PHP test fixture under uppercase Tests/DependencyInjection/Fixtures directory classified as production instead of test."
+    },
+    {
+      "category": "source_sets",
+      "item": "NousResearch/hermes-agent tests/agent/test_conversation_loop_interpreter_shutdown.py test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "ccch1mneyyy/dsh-Go app/lib/ui/common/sheet_title_bar.dart production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "SpartnerNL/Laravel-Excel src/Concerns/WithSheetProtection.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node deps/v8/test/inspector/debugger/regression-419663.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "symfony/symfony src/Symfony/Component/Cache/CacheWarmer/AbstractPhpFileCacheWarmer.php production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/parallel/test-common-wpt-script-modifier.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "openai/codex codex-rs/cloud-tasks/src/lib.rs production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "Shubhamsaboo/awesome-llm-apps ai_agent_framework_crash_course/openai_sdk_crash_course/4_running_agents/4_2_conversation_management/__init__.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n .github/scripts/link-check/check-report.mjs production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "vllm-project/vllm tests/models/quantization/conftest.py test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "hiddify/hiddify-app third_party/flutter_animate/lib/src/animate_list.dart vendored",
+      "verdict": "correct",
+      "note": "Third-party dependency under third_party directory correctly classified as vendored."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/fixtures/snapshot/console.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "pytorch/pytorch torch/_native/ops/norm/rmsnorm_kernels.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "NousResearch/hermes-agent agent/bot_chain.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "netdata/netdata src/go/pkg/web/doc_test.go test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/fhir-server src/Microsoft.Health.Fhir.SqlServer/Features/Schema/Sql/Sprocs/UnitTestHelper.sql production",
+      "verdict": "false_positive",
+      "note": "SQL unit test helper script classified as production instead of test."
+    },
+    {
+      "category": "source_sets",
+      "item": "router-for-me/CLIProxyAPI internal/httpfetch/httpfetch_test.go test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "NousResearch/hermes-agent tests/fakes/main_era_venv.py test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "nodejs/node test/js-native-api/test_error/test.js test",
+      "verdict": "correct",
+      "note": "Test or test-fixture file correctly classified as test."
+    },
+    {
+      "category": "source_sets",
+      "item": "microsoft/vscode src/vs/sessions/contrib/agentFeedback/browser/agentFeedbackWorkbenchComments.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "ente/ente mobile/apps/photos/lib/db/ml/clip_vector_db.dart production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "garrytan/gstack browse/src/cdp-allowlist.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/InvoiceNinja/invoiceInterface.ts production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "source_sets",
+      "item": "Shubhamsaboo/awesome-llm-apps ai_agent_framework_crash_course/openai_sdk_crash_course/3_tool_using_agent/3_1_function_tools/__init__.py production",
+      "verdict": "correct",
+      "note": "Production source file correctly classified as production."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/photos/lib/models/gallery/gallery_groups.dart:495 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nikic/PHP-Parser lib/PhpParser/PrettyPrinter/Standard.php:774 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "grafana/grafana packages/grafana-data/src/datetime/luxon_moment_compat/luxon.js:569 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nodejs/node deps/v8/tools/testrunner/local/utils.py:160 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server build/integration/features/bootstrap/BasicStructure.php:115 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk flutter/lib/models/web_model.dart:88 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "langgenius/dify api/core/plugin/backwards_invocation/model.py:169 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Ysurac/FlightAirMap require/class.TrackerArchive.php:1040 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Ysurac/FlightAirMap require/class.TrackerArchive.php:1042 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/utils/data/datapipes/datapipe.py:150 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_dynamo/variables/builtin.py:3037 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vandadnp/flutter-tips-and-tricks tipsandtricks/null-aware-infix-operators-in-dart/null-aware-infix-operators-in-dart.dart:23 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vercel/next.js turbopack/crates/turbopack-ecmascript/src/chunk/placeable.rs:137 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ytdl-org/youtube-dl youtube_dl/extractor/leeco.py:329 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "flutterchina/flukit package_src/lib/src/scale_view.dart:115 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nodejs/node deps/v8/test/mjsunit/regress/regress-crbug-1302527.js:318 constructor-only-forwards",
+      "verdict": "correct",
+      "note": "Subclass constructor forwards its parameter directly to super without additional work."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/auth/lib/ui/home_page.dart:1971 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "unionlabs/union voyager/plugins/transaction/cosmos/src/main.rs:393 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "matomo-org/matomo tests/javascript/frameworks/ext/ext-all-2.3.0.js:1684 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server apps/files_sharing/lib/External/Storage.php:365 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "squizlabs/PHP_CodeSniffer src/Standards/Generic/Sniffs/Formatting/MultipleStatementAlignmentSniff.php:312 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "squizlabs/PHP_CodeSniffer src/Tokenizers/CSS.php:123 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "typecho/typecho var/Typecho/I18n/GetText.php:296 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "lollipopkit/flutter_server_box lib/src/rust/frb_generated.dart:31563 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/photos/lib/ui/viewer/hierarchical_search/chip_widgets/only_them_filter_chip.dart:166 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "n8n-io/n8n packages/@n8n/nodes-langchain/nodes/vendors/OpenAi/v1/actions/text/classify.operation.ts:76 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Ysurac/FlightAirMap require/class.AIS.php:473 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_inductor/ir.py:10287 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "prometheus/prometheus web/ui/react-app/src/pages/graph/HistogramHelpers.ts:100 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "best-flutter/flutter_swiper lib/src/swiper_pagination.dart:57 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_numpy/testing/utils.py:250 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_subclasses/fake_tensor.py:3456 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_inductor/fx_passes/mkldnn_fusion.py:526 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "syncthing/syncthing gui/default/vendor/angular/angular-dirPagination.js:523 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "tree-sitter/tree-sitter lib/lldb_pretty_printers/table_entry.py:26 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:9466 trailing-return",
+      "verdict": "correct",
+      "note": "Explicit trailing return statement at the end of a Rust function body."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "tauri-apps/tauri crates/tauri-cli/src/plugin/init.rs:249 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk libs/clipboard/src/platform/unix/macos/paste_task.rs:449 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "huggingface/transformers src/transformers/models/seamless_m4t_v2/modeling_seamless_m4t_v2.py:3196 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "denoland/deno libs/core/modules/recursive_load.rs:712 else-after-return",
+      "verdict": "false_positive",
+      "note": "Rust value-producing if-else expression initializing a local binding; removing the else branch is not valid Rust."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nodejs/node deps/cares/config/ltmain.sh:9599 legacy-backticks",
+      "verdict": "correct",
+      "note": "Shell command substitution uses legacy backtick syntax instead of dollar-parentheses."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch test/dynamo/test_repros.py:830 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "langgenius/dify api/providers/vdb/vdb-tidb-on-qdrant/src/dify_vdb_tidb_on_qdrant/tidb_on_qdrant_vector.py:77 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "astral-sh/uv crates/uv-project-commands/src/run.rs:1521 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Ysurac/FlightAirMap require/class.Spotter.php:2423 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vllm-project/vllm vllm/v1/core/single_type_kv_cache_manager.py:2276 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/vscode src/vs/sessions/contrib/chat/browser/runScriptAction.ts:383 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Ysurac/FlightAirMap require/class.MarineArchive.php:805 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "zed-industries/zed crates/editor/src/display_map/inlay_map.rs:960 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_higher_order_ops/triton_kernel_wrap.py:653 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "bagisto/bagisto packages/Webkul/Admin/tests/e2e-pw/pages/shop/OmnibusShopPage.ts:5 constructor-only-forwards",
+      "verdict": "correct",
+      "note": "Subclass constructor forwards its parameter directly to super without additional work."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/distributions/transforms.py:1197 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "microsoft/vscode src/vs/base/common/date.ts:225 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vllm-project/vllm tests/v1/attention/test_mla_backends.py:664 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk src/core_main.rs:716 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/blocks/todoist/labels.py:506 except-only-reraises",
+      "verdict": "correct",
+      "note": "Exception handler catches an exception solely to re-raise it unchanged."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk flutter/lib/desktop/pages/remote_tab_page.dart:409 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Significant-Gravitas/AutoGPT classic/forge/forge/components/data_processor/data_processor.py:475 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "Significant-Gravitas/AutoGPT autogpt_platform/backend/backend/util/type.py:190 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "huggingface/transformers src/transformers/utils/import_utils.py:251 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nodejs/node tools/gyp/pylib/gyp/xcodeproj_file.py:1363 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch test/test_proxy_tensor.py:2457 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk flutter/lib/mobile/widgets/floating_mouse.dart:702 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "langgenius/dify api/providers/vdb/vdb-oracle/src/dify_vdb_oracle/oraclevector.py:139 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "matomo-org/matomo plugins/Actions/Columns/Metrics/AveragePageGenerationTime.php:70 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "binary-husky/gpt_academic crazy_functions/live_audio/aliyunASR.py:103 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "grokability/snipe-it public/js/dist/all.js:29906 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "flutter/flutter packages/flutter_driver/lib/src/driver/vmservice_driver.dart:166 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server lib/private/Files/Node/NonExistingFolder.php:199 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "netdata/netdata packaging/installer/netdata-uninstaller.sh:668 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/distributed/flight_recorder/components/types.py:350 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_inductor/fx_passes/decompose_mem_bound_mm.py:181 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch tools/testing/test_run.py:212 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "CarGuo/gsy_github_app_flutter lib/common/repositories/repos_repository.dart:664 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "anthropics/skills skills/docx/scripts/office/validators/base.py:669 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_inductor/codegen/cpp_micro_gemm.py:41 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch test/functorch/test_leaf_function.py:1020 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vllm-project/vllm vllm/distributed/kv_transfer/kv_connector/v1/lmcache_mp_connector.py:124 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "lollipopkit/flutter_server_box crates/sbm_ffi/src/frb_generated.rs:11411 trailing-return",
+      "verdict": "correct",
+      "note": "Explicit trailing return statement at the end of a Rust function body."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "router-for-me/CLIProxyAPI sdk/cliproxy/auth/conductor_cooldown.go:3673 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Conditional returns boolean literals and can be simplified to a boolean expression."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ruvnet/RuView v2/vendor/security/sqlx-sqlite-0.8.6/src/connection/explain.rs:789 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ente/ente mobile/apps/photos/lib/utils/misc_util.dart:20 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "denoland/deno libs/node_resolver/resolution.rs:1678 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "grokability/snipe-it app/Presenters/AccessoryPresenter.php:461 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "flutter/flutter packages/flutter_tools/lib/src/android/gradle_utils.dart:1335 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "ruvnet/RuView v2/vendor/security/sqlx-sqlite-0.8.6/src/connection/explain.rs:703 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server apps/files_external/lib/Lib/Storage/SFTP.php:459 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "rustdesk/rustdesk src/core_main.rs:715 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "bagisto/opensource-ecommerce-mobile-app lib/core/currency/product_price_display.dart:173 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "bagisto/bagisto packages/Webkul/Admin/tests/e2e-pw/pages/admin/sales/RmaCustomFieldsPage.ts:24 constructor-only-forwards",
+      "verdict": "correct",
+      "note": "Subclass constructor forwards its parameter directly to super without additional work."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "prometheus/prometheus prompb/remote.pb.go:327 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "grafana/grafana pkg/middleware/request_tracing.go:83 if-else-returns-boolean",
+      "verdict": "correct",
+      "note": "Conditional returns boolean literals and can be simplified to a boolean expression."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "nextcloud/server apps/dav/tests/testsuits/carddav/script.sh:6 legacy-backticks",
+      "verdict": "correct",
+      "note": "Shell command substitution uses legacy backtick syntax instead of dollar-parentheses."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "etcd-io/etcd tools/local-tester/faults.sh:50 legacy-backticks",
+      "verdict": "correct",
+      "note": "Shell command substitution uses legacy backtick syntax instead of dollar-parentheses."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "vllm-project/vllm vllm/entrypoints/pooling/offline.py:186 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pbakaus/impeccable crates/context/src/catalog.rs:472 redundant-closure",
+      "verdict": "false_positive",
+      "note": "Rust closure performs deref coercion from String reference to str slice; passing the function directly does not compile."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "flutter/flutter packages/flutter/lib/src/painting/rounded_rectangle_border.dart:524 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "garrytan/gstack lib/cso/state.ts:2149 catch-only-rethrows",
+      "verdict": "correct",
+      "note": "Catch block catches an error solely to rethrow it unchanged."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "openai/codex codex-rs/tui/src/chatwidget/tests/mcp_startup.rs:783 redundant-closure",
+      "verdict": "false_positive",
+      "note": "Rust closure performs deref coercion from Vec reference to slice; passing the function directly does not compile."
+    },
+    {
+      "category": "flagged_lines",
+      "item": "pytorch/pytorch torch/_inductor/fx_passes/quantization.py:369 else-after-return",
+      "verdict": "correct",
+      "note": "Else branch follows an unconditional return, raise, throw, or break and can be unnested."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/skills/installation/skill-install-progress-state.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/domain/javascript/javascriptBuiltinResourceMethods.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/composition/firmware.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "flame-engine/flame packages/flame_test/lib/src/expect_color.dart test-only",
+      "verdict": "false_positive",
+      "note": "Test helper or test-library module classified as production rather than test."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/transport/rpc/rpc-client-socket-factory.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/terminal/wait/reattached-ready-screen.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/frontend/editor-ui/src/features/ndv/parameters/components/ResourceLocator/ResourceLocator.test.constants.ts test-only",
+      "verdict": "false_positive",
+      "note": "Test helper or test-library module classified as production rather than test."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/lib/simulator/search/simulator-palette-active-tab.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/langchain/langchain_classic/chat_loaders/telegram.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Public library module exposed dynamically via package lazy-import hooks."
+    },
+    {
+      "category": "orphan_files",
+      "item": "bagisto/bagisto packages/Webkul/Admin/src/Resources/views/appearance/sections/index.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel Blade view rendered by framework view resolution rather than static imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/@n8n/api-types/src/dto/ai/ai-gateway-wallet-response.dto.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vercel/next.js packages/next/src/server/mcp/tools/get-compilation-issues.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/acp/acp-dialects/goose-dialect.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/worktree/project-sections/project-group-tree-sections.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "ente/ente web/packages/gallery/services/download-core.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "flutter/flutter dev/devicelab/bin/tasks/complex_layout_android__impeller_gles_start_up.dart unreferenced",
+      "verdict": "false_positive",
+      "note": "Standalone benchmark, task, app, or package script entry point."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langgenius/dify api/libs/custom_inputs.py test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "coollabsio/coolify resources/views/livewire/security/cloud-provider-tokens.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel Blade view rendered by framework view resolution rather than static imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/computer/desktop-script/snapshots/desktop-script-snapshot-store.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/zh-HK/admin/departments/table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel localization table loaded dynamically by the translation runtime."
+    },
+    {
+      "category": "orphan_files",
+      "item": "binary-husky/gpt_academic crazy_functions/doc_fns/read_fns/unstructured_all/paper_metadata_extractor.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/sidebar/workspace-card/controller/use-worktree-card-workspace-actions.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/views/livewire/clone-fieldset.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel Blade view rendered by framework view resolution rather than static imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "coollabsio/coolify resources/views/components/terminal/theme-selector.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel Blade view rendered by framework view resolution rather than static imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/managed-server/activation/orcad-candidate-preflight.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "firefly-iii/firefly-iii resources/views/budgets/delete.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel Blade view rendered by framework view resolution rather than static imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/right-sidebar/source-control/listing/split-open.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "firefly-iii/firefly-iii resources/views/transactions/edit.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel Blade view rendered by framework view resolution rather than static imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "NousResearch/hermes-agent plugins/platforms/telegram/update_admission.py test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/ui/sonner.fixture.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "UI fixture file discovered by fixture harness globs rather than production imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "ente/ente web/packages/gallery/services/save-progress.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/credentials/JiraSoftwareServerApi.credentials.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Plugin node or credential definition registered via package manifest metadata."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/hang-watchdog/renderer-hang-stack-policy.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "BookStackApp/BookStack app/Activity/Notifications/Messages/PageCreationNotification.php test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/en-GB/admin/categories/table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel localization table loaded dynamically by the translation runtime."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/terminal-pane/layout/split/terminal-pane-split-completion.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/langchain/langchain_classic/tools/gmail/create_draft.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Public library module exposed dynamically via package lazy-import hooks."
+    },
+    {
+      "category": "orphan_files",
+      "item": "ruvnet/RuView v2/crates/homecore-server/ui/js/panels/fleet.js test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "infiniflow/ragflow internal/dao/chat.go unreferenced",
+      "verdict": "false_positive",
+      "note": "Go package file whose symbols are used within the same package or by package importers."
+    },
+    {
+      "category": "orphan_files",
+      "item": "firefly-iii/firefly-iii resources/views/partials/form/transaction/transaction-type.blade.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel Blade view rendered by framework view resolution rather than static imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "bagisto/bagisto packages/Webkul/Rule/src/Providers/ModuleServiceProvider.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel service provider discovered and booted through Composer and framework registration."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/workspaces/removal/worktree-pty-stop-verdict.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "krayin/laravel-crm packages/Webkul/Admin/src/DataGrids/Contact/PersonDataGrid.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "BookStackApp/BookStack lang/th/validation.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/bots/bot-connectors-host-fixture.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "UI fixture file discovered by fixture harness globs rather than production imports."
+    },
+    {
+      "category": "orphan_files",
+      "item": "langchain-ai/langchain libs/standard-tests/langchain_tests/base.py test-only",
+      "verdict": "false_positive",
+      "note": "Test helper or test-library module classified as production rather than test."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/lib/editor/monaco/monaco-delayer-cancellation-guard.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Significant-Gravitas/AutoGPT autogpt_platform/scripted_model/scripted_model/streaming.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/plugins/catalog/PluginInUseAction.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/terminal-pane/pty-connection/pane-connection-context.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "anomalyco/opencode packages/app/perf/diff.bench.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Standalone benchmark, task, app, or package script entry point."
+    },
+    {
+      "category": "orphan_files",
+      "item": "anomalyco/opencode packages/core/perf/snapshot.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Standalone benchmark, task, app, or package script entry point."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/daemon/providers/adapter/daemon-pty-runtime-state.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it app/Http/Transformers/AccessoriesTransformer.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/lib/agent-session/launch/prompt/launch-agent-paste-timeout-notice.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Grist/Grist.node.ts test-only",
+      "verdict": "false_positive",
+      "note": "Plugin node or credential definition registered via package manifest metadata."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/new-workspace/source-search/smart-workspace-github-direct-link.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/frontend/editor-ui/src/features/agents/components/AgentNewTestRunButton.vue test-only",
+      "verdict": "correct",
+      "note": "Vue component imported only by its unit test file with no production callers found in the repository."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/rpc/server/pairing/network/pairing-endpoint.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Google/Sheet/v2/GoogleSheetsV2.node.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Plugin node or credential definition registered via package manifest metadata."
+    },
+    {
+      "category": "orphan_files",
+      "item": "anomalyco/opencode packages/cli/src/acp/permission.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "NousResearch/hermes-agent apps/desktop/electron/ui-preferences-ipc.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/comment-markdown/chat-markdown-math-typeset.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/it-IT/admin/manufacturers/message.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel localization table loaded dynamically by the translation runtime."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca mobile/src/tasks/mobile-tasks-project-workspace-types.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/ghidra/GhidraRiscvProfile.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/native-chat/host-access/native-chat-agy-sign-in.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "chartjs/Chart.js src/core/core.typedRegistry.js test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/bots/bot-chat-identity.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/@n8n/db/src/migrations/common/1795100170853-AllowApiSourceOnAiPreference.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Database migration file discovered and executed dynamically by the ORM migration runner."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/window/activation/macos-desktop-handoff.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/agent-session/conversation-context/agent-session-compaction.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "abi/screenshot-to-code backend/agent/providers/anthropic/__init__.py test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/ripgrep/ripgrep-match-offsets.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/cy-GB/admin/asset_maintenances/table.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel localization table loaded dynamically by the translation runtime."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/persistence/loading-store/terminal-bindings/pty-binding-generations.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Shubhamsaboo/awesome-llm-apps advanced_llm_apps/chat_with_X_tutorials/chat_with_youtube_videos/chat_youtube.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Standalone benchmark, task, app, or package script entry point."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/agent-status/store/agent-status-store-status-codec.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "anomalyco/opencode packages/core/script/migration.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Standalone benchmark, task, app, or package script entry point."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/application/AnalysisOperationFacts.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Adalo/types.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/InvoiceNinja/InvoiceNinja.node.ts test-only",
+      "verdict": "false_positive",
+      "note": "Plugin node or credential definition registered via package manifest metadata."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/managed-server/install/remote-install-lock-owner-commands.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/editor/rich-markdown/review/rich-markdown-review-annotations.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/main/runtime/rpc/server/pairing/declared-desktop-clients.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vllm-project/vllm vllm/models/mistral/mistral_large4/amd/specialized_decode/mono/op.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/renderer/src/components/editor/rich-markdown/review/RichMarkdownAnnotationOverlay.tsx unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "n8n-io/n8n packages/nodes-base/nodes/Databricks/actions/genie/getMessage.operation.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/agent-journal-orca-card-items.ts unreferenced",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "pytorch/pytorch torch/testing/_internal/distributed/rpc/examples/__init__.py unreferenced",
+      "verdict": "false_positive",
+      "note": "Test helper or test-library module classified as production rather than test."
+    },
+    {
+      "category": "orphan_files",
+      "item": "stablyai/orca src/shared/speech/native-recognizer/speech-recognizer-package.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "morluto/rea src/application/environment/environmentToolAnswer.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "coollabsio/coolify app/Livewire/Storage/Concerns/SelectsSftpLogin.php test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "vllm-project/vllm vllm/transformers_utils/processors/internvl.py test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grokability/snipe-it resources/lang/de-DE/admin/settings/mcp.php unreferenced",
+      "verdict": "false_positive",
+      "note": "Laravel localization table loaded dynamically by the translation runtime."
+    },
+    {
+      "category": "orphan_files",
+      "item": "NousResearch/hermes-agent ui-tui/packages/hermes-ink/src/utils/debug.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "Comfy-Org/ComfyUI comfy/latent_formats.py test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "IceWhaleTech/CasaOS internal/conf/var.go unreferenced",
+      "verdict": "false_positive",
+      "note": "Go package file whose symbols are used within the same package or by package importers."
+    },
+    {
+      "category": "orphan_files",
+      "item": "grafana/grafana packages/grafana-api-clients/src/generator/variants.ts test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    },
+    {
+      "category": "orphan_files",
+      "item": "nodejs/node lib/internal/crypto/webcrypto_util.js test-only",
+      "verdict": "false_positive",
+      "note": "Production module referenced by other production source files missed by static orphan resolution."
+    }
+  ]
+}

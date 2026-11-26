@@ -78,6 +78,13 @@ impl AuditPopulation {
             }));
     }
 
+    pub(crate) fn absorb(&mut self, mut other: AuditPopulation) {
+        self.source_sets.append(&mut other.source_sets);
+        self.flagged_lines.append(&mut other.flagged_lines);
+        self.orphan_files.append(&mut other.orphan_files);
+        self.commits.append(&mut other.commits);
+    }
+
     pub(crate) fn draw(self, size: usize) -> Vec<AuditSample> {
         let seed = seed_for(&self.commits);
         [

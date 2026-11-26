@@ -45,11 +45,11 @@ impl Guest for Go {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         build_reference_ranges(
-            "codeint panel of 20 Go repositories, ADR 0021, codeint 0.6.0",
+            "codeint stratified panel of 50 Go repositories, ADR 0028, codeint 0.6.0",
             [
-                ("erosion", 1, 0.379, 0.692),
-                ("verbosity", 2, 0.045, 0.183),
-                ("duplication", 1, 0.044, 0.181),
+                ("erosion", 1, 0.325, 0.674),
+                ("verbosity", 2, 0.000, 0.002),
+                ("duplication", 1, 0.025, 0.181),
                 ("import_cycles", 1, 0.000, 0.000),
             ],
         )

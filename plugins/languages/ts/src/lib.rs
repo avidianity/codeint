@@ -37,8 +37,7 @@ pub use rules::flagged_line_rules;
 pub(crate) const EXTENSIONS: [&str; 10] = [
     "ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs", "vue", "svelte",
 ];
-const REFERENCE_RANGE_SOURCE: &str =
-    "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
+const REFERENCE_RANGE_SOURCE: &str = "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0";
 
 pub struct TypeScriptAndJavaScript;
 
@@ -89,10 +88,10 @@ impl Guest for TypeScriptAndJavaScript {
 
     fn reference_ranges() -> Vec<ReferenceRange> {
         [
-            ("erosion", 1, 0.352, 0.600),
-            ("verbosity", 2, 0.018, 0.347),
-            ("duplication", 1, 0.017, 0.346),
-            ("import_cycles", 1, 0.000, 0.308),
+            ("erosion", 1, 0.206, 0.731),
+            ("verbosity", 2, 0.000, 0.001),
+            ("duplication", 1, 0.006, 0.194),
+            ("import_cycles", 1, 0.000, 0.184),
         ]
         .into_iter()
         .map(|(metric, metric_version, low, high)| ReferenceRange {

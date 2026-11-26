@@ -561,7 +561,9 @@ mod tests {
         let ctx = PackageContext::new("", &files, &manifests);
         let (ranges, note) = select_reference_ranges(&ctx, &[&react::PROFILE, &nextjs::PROFILE]);
         assert!(note.is_none(), "expected no fallback note, got {note:?}");
-        assert!(ranges.iter().any(|range| range.source.contains("ADR 0020")));
+        assert!(ranges.iter().any(|range| {
+            range.source.contains("20 React repositories") && range.source.contains("ADR 0028")
+        }));
     }
 
     #[test]

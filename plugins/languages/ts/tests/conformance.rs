@@ -291,14 +291,13 @@ fn a_file_named_like_a_declaration_without_the_d_suffix_is_code() {
 #[test]
 fn the_plugin_supplies_the_approved_reference_ranges_for_every_metric() {
     let ranges = plugin().reference_ranges().expect("valid Reference ranges");
-    let source =
-        "codeint panel of 20 TypeScript and JavaScript repositories, ADR 0008, codeint 0.1.0";
+    let source = "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0";
 
     for (metric, low, high) in [
-        ("erosion", 0.352, 0.600),
-        ("verbosity", 0.018, 0.347),
-        ("duplication", 0.017, 0.346),
-        ("import_cycles", 0.000, 0.308),
+        ("erosion", 0.206, 0.731),
+        ("verbosity", 0.000, 0.001),
+        ("duplication", 0.006, 0.194),
+        ("import_cycles", 0.000, 0.184),
     ] {
         let range = ranges
             .for_metric(metric)

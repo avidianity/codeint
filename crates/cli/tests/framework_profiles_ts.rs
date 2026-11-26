@@ -170,7 +170,7 @@ export function forced(): number { return 3; }
         &report,
         &ExpectedCheck {
             profiles: &["nextjs", "react"],
-            adr: Some("ADR 0020"),
+            adr: Some("20 React repositories"),
             orphans: &[".next/forced_prod.ts", "src/app/_components/dead.ts"],
             generated_files: 1,
         },
@@ -223,7 +223,7 @@ export function built() { return 2; }
         &report,
         &ExpectedCheck {
             profiles: &["nuxt", "vue3"],
-            adr: Some("ADR 0015"),
+            adr: Some("20 Vue 3 repositories"),
             orphans: &["app/lib/dead.ts"],
             generated_files: 2,
         },
