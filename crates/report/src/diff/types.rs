@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeint_config::{Budgets, FindingsShown, RegressionLimits};
+use codeint_config::{Baseline, Budgets, FindingsShown, RegressionLimits};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::baseline::BudgetedRatio;
 use crate::measurement::CommitMeasurement;
 use crate::ownership::OwnershipOptions;
 use crate::{
@@ -190,6 +191,7 @@ pub(super) struct MetricChanges<T> {
     pub(super) metric_version: u32,
     pub(super) base_ratio: Decimal,
     pub(super) head_ratio: Decimal,
+    pub(super) head_budgeted_ratio: BudgetedRatio,
     pub(super) base_numerator: Decimal,
     pub(super) head_numerator: Decimal,
     pub(super) base_file_numerators: BTreeMap<String, Decimal>,
@@ -215,6 +217,7 @@ pub struct DiffReportOptions<'a> {
     pub changed_files: BTreeSet<String>,
     pub limits: &'a RegressionLimits,
     pub ownership: OwnershipOptions<'a>,
+    pub baseline: Option<&'a Baseline>,
     pub include_test_gap_note: bool,
 }
 
@@ -317,6 +320,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for MetricChanges<T> {
             metric_version: raw.metric_version,
             base_ratio: raw.base_ratio,
             head_ratio: raw.head_ratio,
+            head_budgeted_ratio: BudgetedRatio::from(raw.head_ratio.0),
             base_numerator: Decimal(0.0),
             head_numerator: Decimal(0.0),
             base_file_numerators: BTreeMap::new(),
@@ -371,6 +375,7 @@ impl<'de> Deserialize<'de> for DuplicationChanges {
                 metric_version: raw.metric_version,
                 base_ratio: raw.base_ratio,
                 head_ratio: raw.head_ratio,
+                head_budgeted_ratio: BudgetedRatio::from(raw.head_ratio.0),
                 base_numerator: Decimal(0.0),
                 head_numerator: Decimal(0.0),
                 base_file_numerators: BTreeMap::new(),

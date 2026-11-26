@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use codeint_config::{
-    Budgets, FindingsShown, MeasuredRatchetMetric, Ratchet, RatchetVersionMismatch,
-    RegressionLimits, ReportFormat,
+    Budgets, FindingsShown, MeasuredBaselineMetric, MeasuredRatchetMetric, Ratchet,
+    RatchetVersionMismatch, RegressionLimits, ReportFormat,
 };
 use codeint_model::{Metric, SourceSet};
 
@@ -54,6 +54,7 @@ impl DiffReport {
                 changed_files: BTreeSet::new(),
                 limits,
                 ownership: OwnershipOptions::default(),
+                baseline: None,
                 include_test_gap_note: false,
             },
         )
@@ -76,10 +77,12 @@ impl DiffReport {
         for ((source_set, base), (_, head)) in base_sets.into_iter().zip(head_sets) {
             if base.files > 0 || head.files > 0 {
                 *source_sets.slot(source_set) = Some(classify::source_set_changes(
+                    source_set,
                     base,
                     head,
                     options.findings,
                     options.ownership,
+                    options.baseline,
                 ));
             }
         }
@@ -88,6 +91,7 @@ impl DiffReport {
             head_dependencies,
             options.findings,
             options.ownership,
+            options.baseline,
         );
         let mut over_budget_failures = regressions::over_budget(&source_sets, options.budgets);
         if let Some(deps) = &dependencies {
@@ -162,6 +166,18 @@ impl DiffReport {
             );
         }
         metrics
+    }
+
+    pub fn head_baseline_metrics(&self) -> Vec<MeasuredBaselineMetric> {
+        self.head_ratchet_metrics()
+            .into_iter()
+            .map(|item| MeasuredBaselineMetric {
+                source_set: item.source_set,
+                metric: item.metric,
+                metric_version: item.metric_version,
+                findings: Vec::new(),
+            })
+            .collect()
     }
 
     pub fn apply_ratchet(&mut self, ratchet: &Ratchet) -> Result<(), Vec<RatchetVersionMismatch>> {

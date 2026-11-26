@@ -162,13 +162,18 @@ fn adopt_writes_zero_test_budgets_so_swapping_eroded_test_files_fails_check() {
     );
 }
 
-#[test]
-fn adopt_enables_per_file_so_diff_fails_a_worsened_legacy_file_even_when_another_file_shrinks() {
+fn adopted_feature_branch() -> tempfile::TempDir {
     let repo = legacy_repository();
     run_codeint_text(repo.path(), &["init", "--adopt"], 0);
     run_git(repo.path(), &["add", "."]);
     run_git(repo.path(), &["commit", "-q", "-m", "adopt codeint"]);
     run_git(repo.path(), &["checkout", "-q", "-b", "feature"]);
+    repo
+}
+
+#[test]
+fn adopt_enables_per_file_so_diff_fails_a_worsened_legacy_file_even_when_another_file_shrinks() {
+    let repo = adopted_feature_branch();
     write_repo_files(
         repo.path(),
         &[
@@ -182,6 +187,51 @@ fn adopt_enables_per_file_so_diff_fails_a_worsened_legacy_file_even_when_another
     let (_, stderr) = run_codeint_text(repo.path(), &["diff", "main"], 1);
 
     assert!(stderr.contains("src/legacy.ts"), "got: {stderr}");
+}
+
+#[test]
+fn adopt_clean_diff_passes_and_new_finding_fails_diff_budget() {
+    let repo = adopted_feature_branch();
+    write_repo_files(repo.path(), &[("src/extra.ts", &tidy_ts("extra"))]);
+    run_git(repo.path(), &["add", "."]);
+    run_git(repo.path(), &["commit", "-q", "-m", "add clean helper"]);
+
+    run_codeint_text(repo.path(), &["diff", "main"], 0);
+
+    write_repo_files(
+        repo.path(),
+        &[
+            ("src/fresh.ts", &eroded_ts("fresh", 11)),
+            ("src/older.ts", &tidy_ts("older")),
+        ],
+    );
+    let (_, stderr) = run_codeint_text(repo.path(), &["diff", "main"], 1);
+
+    assert!(
+        stderr.contains("the non-baselined production erosion ratio")
+            && stderr.contains("is over its Budget 0"),
+        "expected a non-baselined Erosion Budget failure in diff, got: {stderr}"
+    );
+}
+
+#[test]
+fn diff_stops_with_exit_2_when_baseline_metric_version_is_stale() {
+    let repo = legacy_repository();
+    run_codeint_text(repo.path(), &["init", "--adopt"], 0);
+    let mut baseline = stored_json(repo.path(), BASELINE_FILE);
+    baseline["source_sets"]["production"]["erosion"]["metric_version"] = serde_json::json!(99);
+    fs::write(
+        repo.path().join(BASELINE_FILE),
+        serde_json::to_string_pretty(&baseline).expect("serialize stale baseline"),
+    )
+    .expect("write stale baseline");
+
+    let (_, stderr) = run_codeint_text(repo.path(), &["diff", "HEAD"], 2);
+
+    assert!(
+        stderr.contains("codeint baseline update"),
+        "expected stale baseline remedy, got: {stderr}"
+    );
 }
 
 #[test]

@@ -170,6 +170,7 @@ fn diff_and_trend_text_render_aligned_tables_and_respect_all_without_ansi() {
             changed_files: BTreeSet::new(),
             limits: &limits,
             ownership: OwnershipOptions::default(),
+            baseline: None,
             include_test_gap_note: false,
         },
     );
@@ -200,6 +201,7 @@ fn diff_and_trend_text_render_aligned_tables_and_respect_all_without_ansi() {
             changed_files: BTreeSet::new(),
             limits: &limits,
             ownership: OwnershipOptions::default(),
+            baseline: None,
             include_test_gap_note: false,
         },
     );

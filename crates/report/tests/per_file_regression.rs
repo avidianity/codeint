@@ -75,6 +75,7 @@ fn diff_report_evaluates_per_file_regressions_and_round_trips_formats() {
             changed_files,
             limits: &limits,
             ownership: OwnershipOptions::default(),
+            baseline: None,
             include_test_gap_note: false,
         },
     );

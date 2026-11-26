@@ -471,9 +471,11 @@ drive_init() {
     cp "$work_adopt/.codeint/baseline.json" "$dir/adopt_fresh.baseline.json"
   fi
   run_case "$work_adopt" "$dir/adopt_check_clean" "$BIN_PATH" check --format json
+  run_case "$work_adopt" "$dir/adopt_diff_clean" "$BIN_PATH" diff HEAD --format json
   write_eroded_ts "$work_adopt/src/fresh.ts" "fresh" 16
   printf 'export const legacy = 1;\n' > "$work_adopt/src/legacy.ts"
   run_case "$work_adopt" "$dir/adopt_check_new" "$BIN_PATH" check --format json
+  run_case "$work_adopt" "$dir/adopt_diff_new" "$BIN_PATH" diff HEAD --format json
 
   local work_adopt_rollback="$RUN_DIR/work-init-adopt-rollback"
   fresh_work_copy "$INIT_REPO" "$work_adopt_rollback"
@@ -1310,9 +1312,13 @@ if "init" in features:
     check("init.adopt_fresh.baseline", len(adopt_erosion) >= 1, str(adopt_baseline))
     check("init.adopt_fresh.stdout", "Next steps" in (read_text("init/adopt_fresh.stdout") or ""), "stdout missing Next steps")
     check("init.adopt_check_clean.exit", read_exit("init/adopt_check_clean") == 0, str(read_exit("init/adopt_check_clean")))
+    check("init.adopt_diff_clean.exit", read_exit("init/adopt_diff_clean") == 0, str(read_exit("init/adopt_diff_clean")))
     check("init.adopt_check_new.exit", read_exit("init/adopt_check_new") == 1, str(read_exit("init/adopt_check_new")))
     adopt_new_err = read_text("init/adopt_check_new.stderr") or ""
     check("init.adopt_check_new.stderr", "production erosion ratio" in adopt_new_err and "is over its Budget 0" in adopt_new_err and "Ratchet" not in adopt_new_err, adopt_new_err)
+    check("init.adopt_diff_new.exit", read_exit("init/adopt_diff_new") == 1, str(read_exit("init/adopt_diff_new")))
+    adopt_diff_new_err = read_text("init/adopt_diff_new.stderr") or ""
+    check("init.adopt_diff_new.stderr", "the non-baselined production erosion ratio" in adopt_diff_new_err and "is over its Budget 0" in adopt_diff_new_err, adopt_diff_new_err)
 
     check("init.adopt_rollback.exit", read_exit("init/adopt_rollback") == 2, str(read_exit("init/adopt_rollback")))
     rollback_err = read_text("init/adopt_rollback.stderr") or ""
