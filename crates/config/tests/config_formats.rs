@@ -337,6 +337,10 @@ fn rejects_unsafe_and_invalid_toml_and_yaml_inputs() {
     ));
 }
 
+fn schema_url(tag: &str) -> String {
+    format!("https://raw.githubusercontent.com/avidianity/codeint/{tag}/schema/codeint.schema.json")
+}
+
 fn schema_doc(kind: ConfigFileKind, url: &str) -> String {
     match kind {
         ConfigFileKind::Toml => format!("#:schema {url}\nformat = \"text\"\n"),
@@ -346,12 +350,11 @@ fn schema_doc(kind: ConfigFileKind, url: &str) -> String {
 
 #[test]
 fn schema_directives_and_dollar_schema_keys_validate_and_detect_conflicts() {
-    let newer_url =
-        "https://raw.githubusercontent.com/avidianity/codeint/v99.0.0/schema/codeint.schema.json";
+    let newer_url = schema_url("v99.0.0");
     let current_url = published_schema_address();
 
     for kind in [ConfigFileKind::Toml, ConfigFileKind::Yaml] {
-        let err = read_error("newer", kind.file_name(), &schema_doc(kind, newer_url));
+        let err = read_error("newer", kind.file_name(), &schema_doc(kind, &newer_url));
         assert!(matches!(
             err,
             ConfigurationFileError::NewerSchemaVersion {
@@ -399,44 +402,43 @@ fn schema_directives_and_dollar_schema_keys_validate_and_detect_conflicts() {
 
 #[test]
 fn rewrite_schema_tag_updates_toml_and_yaml_directives_keys_and_skips_conflicts() {
-    let old =
-        "https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json";
-    let new =
-        "https://raw.githubusercontent.com/avidianity/codeint/v9.9.9/schema/codeint.schema.json";
-    let cases = [
+    let (old, alt, new) = (
+        schema_url("v0.1.0"),
+        schema_url("v0.2.0"),
+        schema_url("v9.9.9"),
+    );
+    let toml_cases = [
         (
-            ConfigFileKind::Toml,
             format!("#:schema {old}\n\nformat = \"text\"\n"),
             Some(format!("#:schema {new}\n\nformat = \"text\"\n")),
         ),
         (
-            ConfigFileKind::Toml,
             format!("#:schema {old}\n\"$schema\" = \"{old}\"\n"),
             Some(format!("#:schema {new}\n\"$schema\" = \"{new}\"\n")),
         ),
+        (format!("#:schema {old}\n\"$schema\" = \"{alt}\"\n"), None),
+    ];
+    for (input, expected) in toml_cases {
+        assert_eq!(
+            rewrite_schema_tag(ConfigFileKind::Toml, &input, "v9.9.9"),
+            expected.map(|body| (body, new.clone()))
+        );
+    }
+    let yaml_cases = [
         (
-            ConfigFileKind::Yaml,
             format!("# yaml-language-server: $schema={old}\nformat: text\n"),
-            Some(format!(
-                "# yaml-language-server: $schema={new}\nformat: text\n"
-            )),
+            format!("# yaml-language-server: $schema={new}\nformat: text\n"),
         ),
         (
-            ConfigFileKind::Yaml,
             format!("$schema: {old}\nformat: text\n"),
-            Some(format!("$schema: {new}\nformat: text\n")),
-        ),
-        (
-            ConfigFileKind::Toml,
-            format!(
-                "#:schema {old}\n\"$schema\" = \"https://raw.githubusercontent.com/avidianity/codeint/v0.2.0/schema/codeint.schema.json\"\n"
-            ),
-            None,
+            format!("$schema: {new}\nformat: text\n"),
         ),
     ];
-    for (kind, input, expected) in cases {
-        let actual = rewrite_schema_tag(kind, &input, "v9.9.9");
-        assert_eq!(actual, expected.map(|body| (body, new.to_owned())));
+    for (input, expected) in yaml_cases {
+        assert_eq!(
+            rewrite_schema_tag(ConfigFileKind::Yaml, &input, "v9.9.9"),
+            Some((expected, new.clone()))
+        );
     }
 }
 
@@ -583,4 +585,91 @@ fn uncomment_yaml_hints(text: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
+}
+
+#[test]
+fn schema_directive_edge_cases_preserve_integrity_on_trailing_comments_duplicates_and_multiline_strings()
+ {
+    let (old, new, newer) = (
+        schema_url("v0.1.0"),
+        schema_url("v9.9.9"),
+        schema_url("v99.0.0"),
+    );
+
+    let trailing_cases = [
+        (
+            "codeint.toml",
+            format!("#:schema {newer} # pin\nformat = \"text\"\n"),
+            ConfigFileKind::Toml,
+        ),
+        (
+            "codeint.yaml",
+            format!("# yaml-language-server: $schema={newer}\t# pin\nformat: text\n"),
+            ConfigFileKind::Yaml,
+        ),
+    ];
+    for (file_name, body, expected_kind) in trailing_cases {
+        assert!(matches!(
+            read_error("trailing-newer", file_name, &body),
+            ConfigurationFileError::NewerSchemaVersion { file, .. } if file == expected_kind
+        ));
+    }
+
+    let dup_msg = read_error(
+        "dup-comment-conflict",
+        "codeint.toml",
+        &format!("#:schema {old}\n#:schema {new}\nformat = \"text\"\n"),
+    )
+    .to_string();
+    assert!(dup_msg.contains("leading schema comment") && !dup_msg.contains("$schema key"));
+
+    let (rewritten_dup, _) = rewrite_schema_tag(
+        ConfigFileKind::Toml,
+        &format!("#:schema {old}\n#:schema {old}\nformat = \"text\"\n"),
+        "v9.9.9",
+    )
+    .expect("rewrite duplicate directives");
+    assert_eq!(rewritten_dup.matches(new.as_str()).count(), 2);
+
+    let (rewritten_tab, _) = rewrite_schema_tag(
+        ConfigFileKind::Yaml,
+        &format!(
+            "# yaml-language-server: $schema={old} # pin\n$schema: {old}\t# pin\nformat: text\n"
+        ),
+        "v9.9.9",
+    )
+    .expect("rewrite tab comment");
+    assert_eq!(rewritten_tab.matches(new.as_str()).count(), 2);
+
+    for body in [
+        format!("#:schema {old}\n\"$schema\" = \"\"\"{old}\"\"\"\nformat = \"text\"\n"),
+        format!("entry_points = [\"\"\"\n\"$schema\" = \"{old}\"\n\"\"\"]\n"),
+    ] {
+        assert_eq!(
+            rewrite_schema_tag(ConfigFileKind::Toml, &body, "v9.9.9"),
+            None
+        );
+    }
+    for body in [
+        format!("# yaml-language-server: $schema={old}\n$schema:\n  \"{old}\"\nformat: text\n"),
+        format!("entry_points:\n  - \"foo\n$schema: {old}\nbar\"\n"),
+    ] {
+        assert_eq!(
+            rewrite_schema_tag(ConfigFileKind::Yaml, &body, "v9.9.9"),
+            None
+        );
+    }
+
+    let tricky_zones =
+        StarterBoundaries::WorkspaceZones(vec![codeint_config::StarterBoundaryZone {
+            name: "a'b\"c".to_owned(),
+            pattern: "packages/a'b\"c/**".to_owned(),
+        }]);
+    with_temp_repo("tricky-toml-zone", |root| {
+        let path =
+            write_starter_configuration_in_format(root, &[], Some(&tricky_zones), InitFormat::Toml)
+                .expect("write tricky toml starter");
+        let text = fs::read_to_string(path).expect("read tricky toml");
+        verify_uncommented_starter("codeint.toml", &uncomment_hash_hints(&text));
+    });
 }

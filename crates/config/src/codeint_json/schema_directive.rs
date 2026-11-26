@@ -3,6 +3,7 @@ use std::ops::Range;
 use jsonc_parser::{CollectOptions, ParseOptions, parse_to_ast};
 use serde_json::Value;
 
+use super::formats::{parse_toml_value, parse_yaml_value};
 use crate::config_error::{ConfigFileKind, ConfigSyntax, ConfigurationFileError};
 
 pub(super) const OFFICIAL_SCHEMA_PREFIX: &str =
@@ -59,33 +60,36 @@ pub(super) fn resolve_schema_url(
     text: &str,
     value: &Value,
 ) -> Result<Option<String>, ConfigurationFileError> {
-    let directive = extract_schema_directive(kind, text)?;
+    let directives = extract_schema_directives(kind, text)?;
+    let directive_url = directives.first().map(|span| span.value.as_str());
     let key_url = value.get("$schema").and_then(Value::as_str);
-    match (directive, key_url) {
-        (Some(directive), Some(key)) if directive.value != key => {
+    match (directive_url, key_url) {
+        (Some(directive), Some(key)) if directive != key => {
             Err(ConfigurationFileError::ConflictingSchemaDirectives {
                 file: kind,
-                directive_url: directive.value,
-                key_url: key.to_owned(),
+                first_label: "its leading schema comment",
+                first_url: directive.to_owned(),
+                second_label: "$schema key",
+                second_url: key.to_owned(),
             })
         }
-        (Some(directive), _) => Ok(Some(directive.value)),
+        (Some(directive), _) => Ok(Some(directive.to_owned())),
         (None, Some(key)) => Ok(Some(key.to_owned())),
         (None, None) => Ok(None),
     }
 }
 
-pub(super) fn extract_schema_directive(
+fn extract_schema_directives(
     kind: ConfigFileKind,
     text: &str,
-) -> Result<Option<SchemaValueSpan>, ConfigurationFileError> {
+) -> Result<Vec<SchemaValueSpan>, ConfigurationFileError> {
     let syntax = kind.syntax();
     if syntax == ConfigSyntax::Json {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     let without_bom = text.strip_prefix('\u{FEFF}').unwrap_or(text);
     let mut offset = text.len() - without_bom.len();
-    let mut found: Option<SchemaValueSpan> = None;
+    let mut found: Vec<SchemaValueSpan> = Vec::new();
     for raw_line in without_bom.split_inclusive('\n') {
         let line = raw_line.trim_end_matches(['\r', '\n']);
         let trimmed = line.trim_start();
@@ -107,19 +111,21 @@ pub(super) fn extract_schema_directive(
 
 fn record_directive(
     file: ConfigFileKind,
-    slot: &mut Option<SchemaValueSpan>,
+    found: &mut Vec<SchemaValueSpan>,
     next: SchemaValueSpan,
 ) -> Result<(), ConfigurationFileError> {
-    if let Some(existing) = slot.as_ref()
+    if let Some(existing) = found.first()
         && existing.value != next.value
     {
         return Err(ConfigurationFileError::ConflictingSchemaDirectives {
             file,
-            directive_url: existing.value.clone(),
-            key_url: next.value,
+            first_label: "a leading schema comment",
+            first_url: existing.value.clone(),
+            second_label: "another leading schema comment",
+            second_url: next.value,
         });
     }
-    *slot = Some(next);
+    found.push(next);
     Ok(())
 }
 
@@ -152,12 +158,22 @@ fn parse_yaml_schema_directive(trimmed: &str, line_start: usize) -> Option<Schem
     extract_url_token(trimmed, after_key, line_start)
 }
 
+fn strip_inline_hash_comment(text: &str) -> &str {
+    let bytes = text.as_bytes();
+    for (index, &byte) in bytes.iter().enumerate() {
+        if byte == b'#' && index > 0 && matches!(bytes[index - 1], b' ' | b'\t') {
+            return text[..index].trim_end();
+        }
+    }
+    text.trim_end()
+}
+
 fn extract_url_token(
     full_trimmed: &str,
     after_marker: &str,
     line_start: usize,
 ) -> Option<SchemaValueSpan> {
-    let value_slice = after_marker.trim();
+    let value_slice = strip_inline_hash_comment(after_marker.trim_start());
     if value_slice.is_empty() || value_slice.chars().any(char::is_whitespace) {
         return None;
     }
@@ -211,60 +227,52 @@ fn rewrite_json_schema_tag(text: &str, target_tag: &str) -> Option<(String, Stri
     Some((updated, new_url))
 }
 
+fn parse_structured_document(kind: ConfigFileKind, text: &str) -> Option<Value> {
+    match kind.syntax() {
+        ConfigSyntax::Toml => parse_toml_value(text, kind).ok(),
+        ConfigSyntax::Yaml => parse_yaml_value(text, kind).ok(),
+        ConfigSyntax::Json => None,
+    }
+}
+
 fn rewrite_toml_or_yaml_schema_tag(
     kind: ConfigFileKind,
     text: &str,
     target_tag: &str,
 ) -> Option<(String, String)> {
-    let directive = extract_schema_directive(kind, text).ok()?;
-    let key_span = top_level_key_schema_span(kind.syntax(), text);
-    if has_conflicting_spans(directive.as_ref(), key_span.as_ref()) {
-        return None;
-    }
-    let mut replacements = Vec::new();
-    let mut new_url = None;
-    push_replacement(directive, target_tag, None, &mut replacements, &mut new_url)?;
-    push_replacement(
-        key_span,
-        target_tag,
-        Some(text),
-        &mut replacements,
-        &mut new_url,
-    )?;
+    let value = parse_structured_document(kind, text)?;
+    let active_url = resolve_schema_url(kind, text, &value).ok()??;
+    let new_url = updated_official_url(&active_url, target_tag)?;
+    let replacements = collect_structured_replacements(kind, text, &value, &new_url)?;
     let updated = apply_replacements(text, replacements)?;
-    Some((updated, new_url?))
+    let reparsed = parse_structured_document(kind, &updated)?;
+    let verified = resolve_schema_url(kind, &updated, &reparsed).ok()??;
+    (verified == new_url).then_some((updated, new_url))
 }
 
-fn has_conflicting_spans(
-    directive: Option<&SchemaValueSpan>,
-    key_span: Option<&SchemaValueSpan>,
-) -> bool {
-    matches!((directive, key_span), (Some(d), Some(k)) if d.value != k.value)
-}
-
-fn push_replacement(
-    span: Option<SchemaValueSpan>,
-    target_tag: &str,
-    preserve_quotes_from: Option<&str>,
-    replacements: &mut Vec<Replacement>,
-    new_url: &mut Option<String>,
-) -> Option<()> {
-    let Some(span) = span else {
-        return Some(());
-    };
-    let Some(url) = updated_official_url(&span.value, target_tag) else {
-        return Some(());
-    };
-    let replacement = match preserve_quotes_from {
-        Some(source) => format_scalar_replacement(source.get(span.span.clone())?, &url),
-        None => url.clone(),
-    };
-    replacements.push(Replacement {
-        span: span.span,
-        text: replacement,
-    });
-    *new_url = Some(url);
-    Some(())
+fn collect_structured_replacements(
+    kind: ConfigFileKind,
+    text: &str,
+    value: &Value,
+    new_url: &str,
+) -> Option<Vec<Replacement>> {
+    let directives = extract_schema_directives(kind, text).ok()?;
+    let mut replacements: Vec<Replacement> = directives
+        .into_iter()
+        .map(|span| Replacement {
+            span: span.span,
+            text: new_url.to_owned(),
+        })
+        .collect();
+    if let Some(expected_key_url) = value.get("$schema").and_then(Value::as_str) {
+        let key_span = unique_top_level_key_schema_span(kind.syntax(), text, expected_key_url)?;
+        let original = text.get(key_span.span.clone())?;
+        replacements.push(Replacement {
+            span: key_span.span,
+            text: format_scalar_replacement(original, new_url),
+        });
+    }
+    Some(replacements)
 }
 
 fn format_scalar_replacement(original: &str, new_url: &str) -> String {
@@ -277,20 +285,30 @@ fn format_scalar_replacement(original: &str, new_url: &str) -> String {
     }
 }
 
-fn top_level_key_schema_span(syntax: ConfigSyntax, text: &str) -> Option<SchemaValueSpan> {
+fn unique_top_level_key_schema_span(
+    syntax: ConfigSyntax,
+    text: &str,
+    expected_value: &str,
+) -> Option<SchemaValueSpan> {
     let without_bom = text.strip_prefix('\u{FEFF}').unwrap_or(text);
     let mut offset = text.len() - without_bom.len();
+    let mut matched: Option<SchemaValueSpan> = None;
     for raw_line in without_bom.split_inclusive('\n') {
         let line = raw_line.trim_end_matches(['\r', '\n']);
         if syntax == ConfigSyntax::Toml && line.trim_start().starts_with('[') {
             break;
         }
-        if let Some(span) = parse_top_level_schema_key_line(syntax, line, offset) {
-            return Some(span);
+        if let Some(span) = parse_top_level_schema_key_line(syntax, line, offset)
+            && span.value == expected_value
+        {
+            if matched.is_some() {
+                return None;
+            }
+            matched = Some(span);
         }
         offset += raw_line.len();
     }
-    None
+    matched
 }
 
 fn parse_top_level_schema_key_line(
@@ -328,6 +346,9 @@ fn strip_yaml_schema_assignment(line: &str) -> Option<&str> {
 }
 
 fn extract_scalar_span(trimmed: &str, value_start: usize) -> Option<SchemaValueSpan> {
+    if trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''") {
+        return None;
+    }
     if let Some(quote) = trimmed.chars().next().filter(|c| *c == '"' || *c == '\'') {
         let end_quote = trimmed[1..].find(quote)? + 1;
         let inner = &trimmed[1..end_quote];
@@ -340,10 +361,7 @@ fn extract_scalar_span(trimmed: &str, value_start: usize) -> Option<SchemaValueS
             value: inner.to_owned(),
         });
     }
-    let without_comment = trimmed
-        .split_once(" #")
-        .map_or(trimmed, |(before, _)| before)
-        .trim_end();
+    let without_comment = strip_inline_hash_comment(trimmed);
     if without_comment.is_empty() || without_comment.chars().any(char::is_whitespace) {
         return None;
     }

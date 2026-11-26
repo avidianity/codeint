@@ -111,4 +111,4 @@ jobs:
 
 - `fetch-depth: 0` fetches full branch history so `codeint diff` can compute the Git merge-base.
 - Grant `pull-requests: write` for sticky pull-request comments, and `security-events: write` when uploading SARIF.
-- To tune Budgets, Regression limits, Ratchet paths, or boundaries, edit `codeint.jsonc`, `codeint.json`, `.codeint/config.jsonc`, or `.codeint/config.json`; see [Configuration](./configuration.md).
+- To tune Budgets, Regression limits, Ratchet paths, or boundaries, edit `codeint.{json,jsonc,toml,yaml,yml}` or `.codeint/config.{json,jsonc,toml,yaml,yml}`; see [Configuration](./configuration.md).

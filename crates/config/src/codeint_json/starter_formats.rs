@@ -61,12 +61,12 @@ fn write_toml_body(out: &mut String, input: &StarterRenderInput<'_>) {
     for (plugin, include) in input.languages {
         let includes: Vec<String> = include
             .iter()
-            .map(|path| quote_scalar(StructuredSyntax::Toml, &globset::escape(path.as_str())))
+            .map(|path| quote_scalar(&globset::escape(path.as_str())))
             .collect();
         let _ = writeln!(
             out,
             "\n[[languages]]\nplugin = {}\ninclude = [{}]\nexclude = []",
-            quote_scalar(StructuredSyntax::Toml, plugin),
+            quote_scalar(plugin),
             includes.join(", ")
         );
     }
@@ -95,19 +95,15 @@ fn write_yaml_body(out: &mut String, input: &StarterRenderInput<'_>) {
     if !input.languages.is_empty() {
         out.push_str("languages:\n");
         for (plugin, include) in input.languages {
-            let _ = writeln!(
-                out,
-                "  - plugin: {}",
-                quote_scalar(StructuredSyntax::Yaml, plugin)
-            );
-            out.push_str("    include:\n");
-            for path in include {
-                let escaped = globset::escape(path.as_str());
-                let _ = writeln!(
-                    out,
-                    "      - {}",
-                    quote_scalar(StructuredSyntax::Yaml, &escaped)
-                );
+            let _ = writeln!(out, "  - plugin: {}", quote_scalar(plugin));
+            if include.is_empty() {
+                out.push_str("    include: []\n");
+            } else {
+                out.push_str("    include:\n");
+                for path in include {
+                    let escaped = globset::escape(path.as_str());
+                    let _ = writeln!(out, "      - {}", quote_scalar(&escaped));
+                }
             }
             out.push_str("    exclude: []\n");
         }
@@ -197,15 +193,15 @@ fn write_boundary_hints(
             StructuredSyntax::Toml => {
                 out.push_str("# [boundaries]\n# rules = []\n");
                 for (name, pattern) in zones {
-                    let _ = writeln!(out, "# [boundaries.zones.{}]", quote_scalar(syntax, name));
-                    let _ = writeln!(out, "# patterns = [{}]", quote_scalar(syntax, pattern));
+                    let _ = writeln!(out, "# [boundaries.zones.{}]", quote_scalar(name));
+                    let _ = writeln!(out, "# patterns = [{}]", quote_scalar(pattern));
                 }
             }
             StructuredSyntax::Yaml => {
                 out.push_str("# boundaries:\n#   zones:\n");
                 for (name, pattern) in zones {
-                    let _ = writeln!(out, "#     {}:", quote_scalar(syntax, name));
-                    let _ = writeln!(out, "#       patterns: [{}]", quote_scalar(syntax, pattern));
+                    let _ = writeln!(out, "#     {}:", quote_scalar(name));
+                    let _ = writeln!(out, "#       patterns: [{}]", quote_scalar(pattern));
                 }
                 out.push_str("#   rules: []\n");
             }
@@ -229,11 +225,6 @@ fn write_boundary_hints(
     }
 }
 
-fn quote_scalar(syntax: StructuredSyntax, value: &str) -> String {
-    match syntax {
-        StructuredSyntax::Toml => toml::Value::String(value.to_owned()).to_string(),
-        StructuredSyntax::Yaml => {
-            serde_json::to_string(value).expect("strings serialize to YAML double-quoted form")
-        }
-    }
+fn quote_scalar(value: &str) -> String {
+    serde_json::to_string(value).expect("strings serialize to single-line basic double-quoted form")
 }

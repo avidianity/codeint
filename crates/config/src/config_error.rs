@@ -145,12 +145,14 @@ pub enum ConfigurationFileError {
     )]
     UnsupportedTomlDatetime { file: ConfigFileKind, key: KeyPath },
     #[error(
-        "{file} specifies conflicting schema URLs in its leading schema comment ({directive_url:?}) and $schema key ({key_url:?})"
+        "{file} specifies conflicting schema URLs in {first_label} ({first_url:?}) and {second_label} ({second_url:?})"
     )]
     ConflictingSchemaDirectives {
         file: ConfigFileKind,
-        directive_url: String,
-        key_url: String,
+        first_label: &'static str,
+        first_url: String,
+        second_label: &'static str,
+        second_url: String,
     },
     #[error(
         "{file} has an unknown key {key}; the keys allowed there are {}",
