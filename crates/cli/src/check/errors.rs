@@ -119,6 +119,7 @@ pub(crate) enum CheckError {
     )]
     BaselineVersionMismatch {
         mismatches: Vec<RatchetVersionMismatch>,
+        supports_ignore_baseline: bool,
     },
 }
 

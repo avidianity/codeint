@@ -94,7 +94,10 @@ pub(crate) fn diff(
     if let Some(baseline) = baseline.as_ref() {
         let mismatches = baseline.version_mismatches(&report.head_baseline_metrics());
         if !mismatches.is_empty() {
-            return Err(CheckError::BaselineVersionMismatch { mismatches });
+            return Err(CheckError::BaselineVersionMismatch {
+                mismatches,
+                supports_ignore_baseline: false,
+            });
         }
     }
     crate::ratchet::enforce_if_present(

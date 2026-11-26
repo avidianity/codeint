@@ -229,8 +229,8 @@ fn diff_stops_with_exit_2_when_baseline_metric_version_is_stale() {
     let (_, stderr) = run_codeint_text(repo.path(), &["diff", "HEAD"], 2);
 
     assert!(
-        stderr.contains("codeint baseline update"),
-        "expected stale baseline remedy, got: {stderr}"
+        stderr.contains("codeint baseline update") && !stderr.contains("--ignore-baseline"),
+        "expected stale baseline remedy without --ignore-baseline, got: {stderr}"
     );
 }
 
