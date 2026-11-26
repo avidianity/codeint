@@ -55,6 +55,24 @@ fn git(checkout: &Path) -> Command {
     command
 }
 
+const FETCH_ATTEMPTS: usize = 3;
+
+fn fetch_with_retry(checkout: &Path, url: &str, commit: &str) -> Result<(), EvaluationError> {
+    let mut last_error = None;
+    for attempt in 1..=FETCH_ATTEMPTS {
+        match run_checked(git(checkout).args(["fetch", "--quiet", "--depth", "1", url, commit])) {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < FETCH_ATTEMPTS {
+                    std::thread::sleep(std::time::Duration::from_secs(2 * attempt as u64));
+                }
+            }
+        }
+    }
+    Err(last_error.expect("at least one fetch attempt ran"))
+}
+
 pub(crate) fn clone_at_commit(
     scratch: &ScratchFolder,
     url: &str,
@@ -62,7 +80,7 @@ pub(crate) fn clone_at_commit(
 ) -> Result<PathBuf, EvaluationError> {
     let checkout = scratch.path().join("checkout");
     run_checked(Command::new("git").args(["init", "--quiet"]).arg(&checkout))?;
-    run_checked(git(&checkout).args(["fetch", "--quiet", "--depth", "1", url, commit]))?;
+    fetch_with_retry(&checkout, url, commit)?;
     run_checked(git(&checkout).args(["checkout", "--quiet", "--detach", "FETCH_HEAD"]))?;
     let head = stdout_text(git(&checkout).args(["rev-parse", "HEAD"]))?;
     if head != commit {
