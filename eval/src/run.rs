@@ -9,7 +9,7 @@ use crate::audit::AuditPopulation;
 use crate::ceilings::{Ceilings, ceiling_violations};
 use crate::corpus::{CaseStudy, Corpus, CorpusEntry, SizeBucket, load_corpus};
 use crate::error::{EvaluationError, io_error};
-use crate::lowering::{LoweredFile, LoweredOutcome, lower_language_files};
+use crate::lowering::{LoweredFile, lower_language_files};
 use crate::machine::{codeint_version, machine_profile};
 use crate::measure::{CheckMeasurement, measure_check, median};
 use crate::oracle::{PreparedOracle, prepare_oracles, run_oracle};
@@ -246,10 +246,7 @@ fn measure_repository(
     let checkout = clone_at_commit(&scratch, &entry.url, &entry.commit)?;
     let check = measure_check(&config.codeint, &checkout, scratch.path(), config.runs)?;
     let lowered = lower_language_files(&checkout, &entry.language)?;
-    let has_measured_files = lowered
-        .iter()
-        .any(|file| matches!(file.outcome, LoweredOutcome::Measured { .. }));
-    let section = has_measured_files
+    let section = (!lowered.is_empty())
         .then(|| language_section(&check.report, &entry.language))
         .flatten()
         .ok_or_else(|| EvaluationError::MissingLanguage {
