@@ -23,7 +23,7 @@ pub use types::{
     BaseCommit, DiffReport, DiffReportOptions, Head, HeadCommit, NewFileBudgetFailure,
 };
 
-use types::{BaseEntry, HeadEntry, SourceSetChangesSections};
+use types::{BaseEntry, HeadEntry, ManifestWarnings, SourceSetChangesSections};
 #[cfg(test)]
 use types::{MetricChanges, RegressionRule};
 
@@ -66,6 +66,10 @@ impl DiffReport {
         options: DiffReportOptions<'_>,
     ) -> DiffReport {
         let mut source_sets = SourceSetChangesSections::default();
+        let manifest_warnings = ManifestWarnings {
+            base: base_measurement.manifest_warnings().to_vec(),
+            head: head_measurement.manifest_warnings().to_vec(),
+        };
         let (base_sets, base_dependencies) = base_measurement.into_parts();
         let (head_sets, head_dependencies) = head_measurement.into_parts();
         for ((source_set, base), (_, head)) in base_sets.into_iter().zip(head_sets) {
@@ -116,6 +120,7 @@ impl DiffReport {
                 .include_test_gap_note
                 .then(|| TEST_GAP_DIFF_NOTE.to_owned()),
             ratchet_note: None,
+            manifest_warnings,
             dependencies,
         }
     }

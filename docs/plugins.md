@@ -159,6 +159,11 @@ impl LanguagePlugin for SampleMiniPlugin {
     }
 
     fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+        if !path.ends_with(".mini") {
+            return Err(LowerError::UnsupportedFile(format!(
+                "{path} does not end with .mini"
+            )));
+        }
         let _hash = fnv1a_64(&path);
         Ok(FileModel {
             source_lines: text.lines().filter(|line| !line.trim().is_empty()).count() as u32,
@@ -181,7 +186,7 @@ Only `extensions` and `lower` are required; the other eleven methods have safe d
 | `lower(path, text) -> Result<FileModel, LowerError>` | Required | Lower one file into its `source_set`, `source_lines`, `functions`, `tokens`, `flagged_lines`, `hazard_lines`, `runtime_imports`, and `program_start` mark. Return `DeclarationOnly`, `Unparsable`, `UnsupportedFile`, or `TooLarge` on error. |
 | `has_imports() -> bool` | `false` | State whether this language has runtime imports, manifests, and entry points; when `false`, codeint never calls the five import/manifest methods below. |
 | `manifest_paths(repository_paths) -> Vec<String>` | `Vec::new()` | Select manifest paths from `repository_paths` that the host reads once on the Plugin's behalf. |
-| `workspace_packages(manifests) -> Result<Vec<String>, WorkspaceError>` | `Ok(Vec::new())` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. |
+| `workspace_packages(manifests) -> Result<Vec<String>, WorkspaceError>` | `Ok(Vec::new())` | Return relative Workspace package roots from the manifest contents, or an empty list for a single-package repository. Return `WorkspaceError` with the `path` of the one invalid manifest; the host then skips that manifest with a warning and calls again without it. |
 | `resolve_imports(repository_paths, manifests, requests, active_profiles) -> Vec<Resolution>` | `Vec::new()` | Return one `Resolved(Vec<String>)` (non-empty paths from `repository_paths`), `External(String)`, `Builtin`, or `Unresolved(String)` entry per request in request order. |
 | `declared_dependencies(manifests) -> Vec<DeclaredDep>` | `Vec::new()` | Extract manifest-declared external dependencies (`package_root`, normalized `name`, and `kind` of `Runtime`, `Dev`, or `Optional`). |
 | `entry_points(repository_paths, manifests) -> Vec<String>` | `Vec::new()` | Discover standard entry-point source files from `repository_paths` and `manifests`, returning only paths from `repository_paths`. |
@@ -193,6 +198,10 @@ Only `extensions` and `lower` are required; the other eleven methods have safe d
 
 Follow these invariants in `lower`:
 
+- Return `LowerError::UnsupportedFile` for any path whose extension the Plugin does not claim.
+  `codeint plugin test` accepts `UnsupportedFile` or `Unparsable` for an unclaimed extension, and fails any other result: an `Ok`, a `DeclarationOnly`, `TooLarge`, or a hit memory or time limit.
+  The Plugin host reports a trap as `Unparsable`, so a trap on an unclaimed extension passes `lower` too.
+
 - Keep `functions` sorted by start `line` (`line >= 1` and `line <= end_line`), with `name` set to `None` for anonymous lambdas or closures.
 - Always set `coverage` to `None` on every `Function` that `lower` returns.
   codeint fills in `coverage` from Coverage reports after Language plugins run and before Metrics run.
@@ -203,6 +212,17 @@ Follow these invariants in `lower`:
   Leave `hazard_lines` empty when `has_hazard_rules` returns `false`.
 - Set `program_start` to `false` unless the source text marks the file as a program start, such as a Go `package main` file.
   codeint counts every marked Production file as an entry point for Orphan files and names the mark in `codeint trace`; marked files in other Source sets stay out of entry points.
+
+### Invalid manifests
+
+Return `WorkspaceError::Manifest` from `workspace_packages` when one manifest is invalid, and set `path` to that manifest's exact path from the `manifests` argument.
+The host does not stop on this error.
+It removes the named manifest, records one warning with the path and your `message`, and calls `workspace_packages` again with the remaining manifests.
+It repeats this for each further invalid manifest, then passes only the remaining manifests to `resolve_imports`, `declared_dependencies`, and `entry_points`.
+Files under a skipped manifest count toward the surrounding Workspace package.
+Report one invalid manifest per call, because the host removes only the one `path` names.
+
+The error stays fatal, with exit code 2, in three cases: the plugin traps, the `path` names a manifest that the host did not pass, and the error is not a manifest error, such as an invalid Workspace package root.
 
 ### Compile the sample Language plugin
 
@@ -297,6 +317,8 @@ The Plugin host enforces these rules at load and measurement time:
 - `numerator` and `denominator` must be finite and `>= 0.0`.
 - Each Finding must have a non-empty `id`, a 1-based `line` (`>= 1`), and a valid repository-relative `path` using `/`.
 - Compute each Finding `id` from file path and content (never from line numbers) using `codeint_plugin_sdk::Fnv1a64` so `codeint diff` tracks moved Findings as unchanged.
+- Return the same `findings` for the same Code model on every run: `codeint plugin test` fails a Metric plugin whose `measure` is non-deterministic.
+  A Finding `id` that differs between runs of unchanged code breaks the Baseline and `codeint diff`, which match Findings by `id` across runs ([ADR 0030](adr/0030-finding-baseline.md)).
 - Order `findings` worst first.
 
 ### Coverage facts in the Code model
@@ -499,6 +521,9 @@ Every Language plugin (built-in or external) must pass the shared Seam 2 conform
 The suite verifies:
 
 - Non-empty file extensions without leading dots.
+  An extension that contains `/` or whitespace never matches a repository file name, so `codeint plugin test` fails it.
+  Duplicate extensions are allowed; codeint skips an extension that is already listed.
+- Non-empty Framework profile names, because an empty name can never be selected in config.
 - `UnsupportedFile`, empty file, `DeclarationOnly`, and `Unparsable` handling in `lower`.
 - Production and Test Source set classification.
 - LF and CRLF equivalence for `source-lines` and `functions`.
@@ -506,11 +531,13 @@ The suite verifies:
 - When `has-imports` returns `true`:
   - Non-empty `runtime-imports` on the production fixture.
   - `manifest-paths` returning only paths from `repository-paths`.
-  - `workspace-packages` parsing valid manifests and returning `WorkspaceError::Manifest` on invalid manifests.
+  - `workspace-packages` parsing valid manifests, never returning an error for no manifests or a valid manifest, and returning `WorkspaceError::Manifest` on invalid manifests.
   - `resolve-imports` returning one `Resolved` (non-empty list of paths from `repository-paths`), `External`, `Builtin`, or `Unresolved` result per request in request order.
   - `declared-dependencies` returning manifest-declared dependencies and `entry-points` returning only paths from `repository-paths`.
 - When `has-imports` returns `false`, empty `runtime-imports` and no calls to `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, or `entry-points`.
-- `reference-ranges` returning valid ranges.
+- `reference-ranges` returning valid ranges (at most one per Metric, bounds within `0..=1`), each at the current version of its built-in Metric.
+  A range with `metric_version` 0 or a version that differs from the current Metric version fails the check, because `codeint check` hides it; the hint names the Metric, the range's version, and the current version.
+  Ranges for keys that are not built-in Metrics are not version-checked, because `codeint check` never looks them up.
 - `has-hazard-rules`, `hazard-rules`, and `hazard-lines` staying consistent (empty `hazard-rules` and empty `hazard-lines` when `false`, non-empty list of non-empty rule names when `true`, every `hazard-line.line` within `1..=line_count`, and every `hazard-line.rule` listed in `hazard-rules`).
 - Safe concurrent `lower` calls across threads.
 
@@ -520,6 +547,34 @@ Run the conformance suite and the host sandbox tests:
 cargo test --locked -p codeint-plugin-host --test conformance
 cargo test --locked -p codeint-plugin-host --test load
 ```
+
+### Check a Plugin with the Conformance runner
+
+`codeint plugin test <WASM>` runs the built-in Conformance runner against a built `.wasm` file.
+It needs no repository and no `codeint.json`, and it exits with code 0 when every check passes, code 1 when a check fails, and code 2 when the file cannot be read.
+Pass `--kind metric` for a Metric plugin; the default kind is `language`.
+
+```sh
+codeint plugin test target/wasm32-wasip2/release/my_plugin.wasm
+codeint plugin test target/wasm32-wasip2/release/my_metric.wasm --kind metric --format json
+```
+
+Each failed check prints its rule and a fix hint.
+The runner reports these rules:
+
+- Language plugin: a valid WebAssembly component with zero WASI imports, an exact `codeint:plugin@0.4.0` match, valid extensions, Hazard rules and Framework profiles that are consistent and resolve under every selection (disabled, auto, exclude, and only, each with every known profile, with each profile alone, and, for three or more profiles, with the first two) for the root package and a member package, sent the real package files and only the manifests `manifest-paths` chose, each with the content of the probe file it names, for the packages of the workspace that `workspace-packages` reports and for a fixed member package, as `codeint check` sends them, with entry points and generated paths that are repository files (skipped when the plugin lists no Framework profiles), a deterministic and stateless `lower` with 1-based line bounds, sorted functions and tokens, and listed Hazard rules, valid, current-version answers from `reference-ranges`, and, when `has-imports` is true, valid answers from `manifest-paths`, `workspace-packages`, `resolve-imports`, `declared-dependencies`, and `entry-points` (skipped when `has-imports` is false), and an `end-to-end` run of the real `codeint check` measurement pipeline on a probe repository that holds the probe files and the manifests `manifest-paths` chose, with no Framework profile configured and once with `framework_profiles` set to each known profile.
+- Metric plugin: a valid WebAssembly component with zero WASI imports, an exact `codeint:plugin@0.4.0` match, a valid Metric key that collides with no built-in Metric or reserved report key, a Metric version of 1 or higher, a non-empty name and description, a deterministic and stateless `measure` that returns a ratio from 0 to 1, finite non-negative numbers, and Findings with non-empty ids, 1-based lines, and repository-relative paths, and an `end-to-end` run of the real `codeint check` pipeline with the Metric plugin configured on a small TypeScript probe repository.
+- Both kinds: peak memory and call time within `--plugin-memory-mb` and `--plugin-timeout-ms`.
+
+The `end-to-end` check writes the probe repository to a temporary folder, runs `git init` there through the Git library, writes a `codeint.json` that declares only your Plugin, and calls `codeint check` in the same process.
+Any error that makes `codeint check` exit with code 2 fails the check with the error text.
+The folder is removed on every path, including a failure.
+The built-in Language plugins stay loaded, as in `codeint check`; a Language plugin is the only one that measures the probe files, because the `codeint.json` scopes `languages` to it, so a claimed extension that a built-in plugin also claims never raises an extension conflict.
+The probe repository leaves out manifests that `manifest-paths` did not choose, because a built-in Language plugin reads its own manifests and could report a member package that hides an empty `workspace-packages` answer of your Plugin.
+
+The built-in probe sources cannot trigger rules that fire only on specific text.
+Pass `--source <FILE>` (repeatable) to lower your own sample files too, such as a file that holds the text of each Hazard rule.
+See [docs/reference.md](./reference.md#codeint-plugin) for every option and output format.
 
 ### Test end to end with the CLI
 
@@ -584,4 +639,4 @@ Move an existing external Plugin to `0.4.0`:
 3. For Metric plugins: ensure `version() -> u32` returns a positive integer (`>= 1`; `codeint-plugin-sdk` defaults to `1`).
 4. Rebuild the WebAssembly component for `wasm32-wasip2` (or `wasm32-unknown-unknown` plus `wasm-tools component new`) so it exports `codeint:plugin/language@0.4.0` or `codeint:plugin/metric@0.4.0` with zero WASI imports.
 5. Compute the SHA-256 digest of the rebuilt `.wasm` file and update `plugins[].sha256` in `codeint.jsonc` or `codeint.json`.
-6. Run `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.
+6. Run `codeint plugin test` and `codeint check` (and the Seam 2 conformance suite for Language plugins) to confirm the rebuilt Plugin loads.

@@ -7,6 +7,7 @@ Every built-in Language plugin extracts:
 
 - **Function names and complexity**: named functions (with `none` for anonymous lambdas or unnamed SQL statements) for Erosion and nesting-weighted Cognitive complexity Findings.
 - **Workspaces and entry points**: for languages with imports, Workspace package roots and standard entry-point files discovered from language manifests for `--package` scoping and Orphan files detection; Language plugins can also mark Production files as program starts from source text.
+  A manifest that a Language plugin finds invalid is skipped with a warning instead of stopping the run; see [Invalid manifests](../reference.md#invalid-manifests).
 - **Dependency manifests and built-ins**: for languages with imports, declared runtime, dev, and optional dependencies from each ecosystem's manifest, plus standard-library and runtime built-in classification so built-in imports are never flagged as unlisted dependencies.
 - **Hazard line rules**: Language plugins may also define AST-only Hazard line rules; `sql` ships 32 Hazard line rules (including 5 schema-backed rules) and `shell` ships 10, while the other six built-in Language plugins define none (leaving Hazards absent rather than `0`).
 

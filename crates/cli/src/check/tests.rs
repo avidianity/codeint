@@ -10,7 +10,7 @@ use codeint_model::language::{
     ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
 use codeint_model::{
-    InvalidReferenceRange, LanguageFacts, LanguagePlugin, ReferenceRanges, RepoPath,
+    InvalidReferenceRange, LanguageFacts, LanguagePlugin, Package, ReferenceRanges, RepoPath,
 };
 use serde_json::Value;
 use tempfile::TempDir;
@@ -1565,4 +1565,184 @@ fn lowering_clears_language_plugin_coverage_and_unmeasured_plugins_emit_no_langu
     );
     assert!(filtered.files.is_empty());
     assert!(filtered.languages.is_empty());
+}
+
+struct PickyManifests;
+
+fn assert_no_bad_manifest(manifests: &[Manifest]) {
+    assert!(
+        manifests
+            .iter()
+            .all(|manifest| manifest.text.trim() != "bad")
+    );
+}
+
+fn empty_after_checking<Item>(manifests: &[Manifest]) -> Vec<Item> {
+    assert_no_bad_manifest(manifests);
+    Vec::new()
+}
+
+fn fatal_picky_error(manifest_text: &str) -> codeint_model::WorkspaceError {
+    match measure_test_snapshot(
+        &[("a/manifest.picky", manifest_text), ("a/a.picky", "x\n")],
+        &[PICKY_MANIFESTS],
+    ) {
+        Err(CheckError::Workspace(error)) => error,
+        other => panic!("expected a fatal workspace error, got {:?}", other.err()),
+    }
+}
+
+const PICKY_MANIFESTS: NamedLanguagePlugin<'static> = NamedLanguagePlugin {
+    name: "picky",
+    plugin: &PickyManifests,
+};
+
+impl Guest for PickyManifests {
+    fn extensions() -> Vec<String> {
+        vec!["picky".to_owned()]
+    }
+
+    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+        lines_of(&text)
+    }
+
+    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
+        repository_paths
+            .into_iter()
+            .filter(|path| path.ends_with("manifest.picky"))
+            .collect()
+    }
+
+    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
+        for manifest in &manifests {
+            match manifest.text.trim() {
+                "bad" => {
+                    return Err(WorkspaceError {
+                        path: manifest.path.clone(),
+                        message: "bad manifest".to_owned(),
+                    });
+                }
+                "unnamed" => {
+                    return Err(WorkspaceError {
+                        path: "elsewhere/manifest.picky".to_owned(),
+                        message: "names a path that was not passed".to_owned(),
+                    });
+                }
+                "escape" => return Ok(vec!["../escape".to_owned()]),
+                _ => {}
+            }
+        }
+        Ok(manifests
+            .iter()
+            .filter_map(|manifest| manifest.path.strip_suffix("/manifest.picky"))
+            .map(str::to_owned)
+            .collect())
+    }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        Vec::new()
+    }
+
+    fn resolve_imports(
+        _repository_paths: Vec<String>,
+        manifests: Vec<Manifest>,
+        requests: Vec<ImportRequest>,
+        _active_profiles: Vec<String>,
+    ) -> Vec<Resolution> {
+        assert_no_bad_manifest(&manifests);
+        requests
+            .iter()
+            .map(|_| Resolution::External(String::new()))
+            .collect()
+    }
+
+    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
+        empty_after_checking(&manifests)
+    }
+
+    fn entry_points(_repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
+        empty_after_checking(&manifests)
+    }
+
+    fn has_hazard_rules() -> bool {
+        false
+    }
+
+    fn hazard_rules() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn has_imports() -> bool {
+        true
+    }
+
+    codeint_model::empty_framework_profile_guest_methods!();
+}
+
+#[test]
+fn invalid_manifest_is_dropped_with_a_warning_and_the_rest_is_measured() {
+    let snapshot = measure_test_snapshot(
+        &[
+            ("good/manifest.picky", "ok"),
+            ("good/a.picky", "one\n"),
+            ("broken/manifest.picky", "bad"),
+            ("broken/b.picky", "two\ntwo\n"),
+        ],
+        &[PICKY_MANIFESTS],
+    )
+    .expect("an invalid manifest does not stop the measurement");
+
+    assert_eq!(snapshot.manifest_warnings.len(), 1);
+    assert!(
+        snapshot.manifest_warnings[0].contains("broken/manifest.picky")
+            && snapshot.manifest_warnings[0].contains("bad manifest"),
+        "{:?}",
+        snapshot.manifest_warnings
+    );
+    let picky = &snapshot.languages[0];
+    assert_eq!(picky.model.files.len(), 4);
+    let broken = RepoPath::new("broken/b.picky").expect("path");
+    assert_eq!(picky.model.workspace.package_of(&broken), Package::Root);
+    let members: Vec<&str> = picky
+        .model
+        .workspace
+        .member_roots()
+        .map(RepoPath::as_str)
+        .collect();
+    assert_eq!(members, ["good"]);
+}
+
+#[test]
+fn every_invalid_manifest_is_dropped_with_its_own_warning() {
+    let snapshot = measure_test_snapshot(
+        &[
+            ("one/manifest.picky", "bad"),
+            ("two/manifest.picky", "bad"),
+            ("two/a.picky", "x\n"),
+        ],
+        &[PICKY_MANIFESTS],
+    )
+    .expect("invalid manifests do not stop the measurement");
+
+    assert_eq!(snapshot.manifest_warnings.len(), 2);
+    assert!(snapshot.manifest_warnings[0].contains("one/manifest.picky"));
+    assert!(snapshot.manifest_warnings[1].contains("two/manifest.picky"));
+}
+
+#[test]
+fn workspace_error_naming_a_path_that_was_not_passed_stays_fatal() {
+    let error = fatal_picky_error("unnamed");
+
+    assert!(matches!(
+        &error,
+        codeint_model::WorkspaceError::Manifest { path, .. } if path == "elsewhere/manifest.picky"
+    ));
+}
+
+#[test]
+fn workspace_error_that_is_not_a_manifest_error_stays_fatal() {
+    assert!(matches!(
+        fatal_picky_error("escape"),
+        codeint_model::WorkspaceError::InvalidPackageRoot(_)
+    ));
 }

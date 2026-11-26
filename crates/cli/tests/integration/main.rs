@@ -25,11 +25,13 @@ mod init;
 mod init_adopt;
 #[cfg(unix)]
 mod install;
+mod invalid_manifest;
 mod mcp;
 mod npm_packages;
 mod orphan_files;
 mod package_filter;
 mod planted_defects;
+mod plugin_test;
 mod ratchet;
 mod report;
 mod schema;

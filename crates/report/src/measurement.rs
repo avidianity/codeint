@@ -20,6 +20,8 @@ pub struct CommitMeasurement {
     vendored: SourceSetMeasurement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dependencies: Option<DependenciesMeasurement>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    manifest_warnings: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -91,6 +93,15 @@ impl<T> Default for MetricMeasurement<T> {
 }
 
 impl CommitMeasurement {
+    pub fn with_manifest_warnings(mut self, warnings: Vec<String>) -> CommitMeasurement {
+        self.manifest_warnings = warnings;
+        self
+    }
+
+    pub(crate) fn manifest_warnings(&self) -> &[String] {
+        &self.manifest_warnings
+    }
+
     pub fn of(model: CodeModel) -> CommitMeasurement {
         CommitMeasurement::of_with_metrics(model, &[]).expect("built-in metrics cannot fail")
     }
@@ -231,6 +242,7 @@ impl CommitMeasurement {
             generated: measure(SourceSet::Generated, None)?,
             vendored: measure(SourceSet::Vendored, None)?,
             dependencies,
+            manifest_warnings: Vec::new(),
         })
     }
 

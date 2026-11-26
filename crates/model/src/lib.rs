@@ -40,7 +40,7 @@ pub use source_set::{
     has_generated_header_marker, has_generated_header_marker_with_extra, path_file_name,
     settle_source_set,
 };
-pub use workspace::{Package, Workspace, WorkspaceError};
+pub use workspace::{Package, SkippedManifest, Workspace, WorkspaceError};
 
 pub fn token_text_hash(text: &str) -> u64 {
     StableHasher::new().write_bytes(text.as_bytes()).finish()
@@ -315,6 +315,12 @@ impl From<language::LowerError> for LowerError {
     }
 }
 
+impl ReferenceRange {
+    pub fn is_stale_for(&self, current_metric_version: u32) -> bool {
+        self.metric_version != current_metric_version
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ReferenceRanges {
     by_metric: BTreeMap<String, ReferenceRange>,
@@ -419,6 +425,36 @@ pub enum LanguagePluginError {
         path: RepoPath,
         rule: String,
     },
+}
+
+pub fn validate_hazard_lines(
+    plugin_name: &str,
+    path: &RepoPath,
+    line_count: usize,
+    hazard_lines: &[HazardLine],
+    listed_rules: &HashSet<String>,
+) -> Result<(), LanguagePluginError> {
+    for hazard in hazard_lines {
+        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
+        if line_number < 1 || line_number > line_count {
+            return Err(LanguagePluginError::HazardLineOutOfRange {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                line: hazard.line,
+                line_count,
+            });
+        }
+    }
+    for hazard in hazard_lines {
+        if !listed_rules.contains(&hazard.rule) {
+            return Err(LanguagePluginError::UnlistedHazardRule {
+                plugin: plugin_name.to_owned(),
+                path: path.clone(),
+                rule: hazard.rule.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_declared_dependencies(

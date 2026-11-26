@@ -55,6 +55,7 @@ mod impact;
 mod markdown;
 mod measurement;
 mod ownership;
+mod plugin_test;
 mod ratchet;
 mod render;
 mod report_schema;
@@ -83,6 +84,7 @@ pub use guard::{GuardAllowedTarget, GuardDeniedTarget, GuardExternalImports, Gua
 pub use impact::{ChangedBase, ImpactReport};
 pub use measurement::{CommitMeasurement, CommitMeasurementOptions};
 pub use ownership::OwnershipOptions;
+pub use plugin_test::{PluginTestCheck, PluginTestReport, PluginTestStatus, PluginTestSummary};
 pub use ratchet::{RATCHET_PACKAGE_SKIPPED_NOTE, RatchetFailure, RatchetUpdateReport};
 pub use render::ReportError;
 pub use report_schema::report_schema;
@@ -118,6 +120,8 @@ pub struct Report {
     coverage_unmatched_note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ratchet_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    manifest_warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     baseline: Option<ReportBaseline>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -421,9 +425,15 @@ pub struct ReportExtras {
     pub disabled_hazard_rules: BTreeSet<String>,
     pub rejected_statements: Vec<RejectedStatementEntry>,
     pub sql_schemas: Vec<SqlSchemaSummary>,
+    pub manifest_warnings: Vec<String>,
 }
 
 impl ReportExtras {
+    pub fn with_manifest_warnings(mut self, warnings: Vec<String>) -> ReportExtras {
+        self.manifest_warnings = warnings;
+        self
+    }
+
     pub fn with_disabled_hazard_rules(mut self, rules: BTreeSet<String>) -> ReportExtras {
         self.disabled_hazard_rules = rules;
         self
@@ -444,6 +454,10 @@ impl ReportExtras {
 }
 
 impl Report {
+    pub fn manifest_warnings(&self) -> &[String] {
+        &self.manifest_warnings
+    }
+
     pub fn summarize(
         languages: Vec<MeasuredLanguage>,
         submodules: Vec<RepoPath>,
@@ -621,6 +635,7 @@ impl Report {
                 options.unmatched_coverage_paths,
             ),
             ratchet_note: None,
+            manifest_warnings: extras.manifest_warnings,
             languages: sections_per_language,
         })
     }

@@ -16,7 +16,12 @@ impl LanguagePlugin for MyLanguage {
         vec!["mylang".to_string()]
     }
 
-    fn lower(_path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+        if !path.ends_with(".mylang") {
+            return Err(LowerError::UnsupportedFile(format!(
+                "{path} does not end with .mylang"
+            )));
+        }
         Ok(FileModel {
             source_lines: text.lines().filter(|line| !line.trim().is_empty()).count() as u32,
             ..FileModel::empty(SourceSet::Production)

@@ -515,34 +515,49 @@ impl WasmLanguagePlugin {
     }
 
     pub(crate) fn manifest_paths_impl(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+        self.manifest_paths_checked(repository_paths)
+            .unwrap_or_default()
+    }
+
+    pub fn manifest_paths_checked(
+        &self,
+        repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, PluginHostError> {
         let paths = owned_paths(repository_paths);
         self.with_checked_instance("manifest-paths", |api, store| {
             api.call_manifest_paths(store, &paths)
         })
-        .unwrap_or_default()
     }
 
     pub(crate) fn workspace_packages_impl(
         &self,
         manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        let host_manifests = to_guest_manifests(manifests);
-        let packages = self
-            .with_checked_instance("workspace-packages", |api, store| {
-                api.call_workspace_packages(store, &host_manifests)
-            })
-            .map_err(|error| WorkspaceError::Manifest {
-                path: self.name.clone(),
+        self.workspace_packages_checked(manifests)
+            .map_err(|error| WorkspaceError::PluginFailed {
+                plugin: self.name.clone(),
                 message: error.to_string(),
             })?
-            .map_err(|error| WorkspaceError::Manifest {
+    }
+
+    pub fn workspace_packages_checked(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Result<Vec<RepoPath>, WorkspaceError>, PluginHostError> {
+        let host_manifests = to_guest_manifests(manifests);
+        let packages = self.with_checked_instance("workspace-packages", |api, store| {
+            api.call_workspace_packages(store, &host_manifests)
+        })?;
+        Ok(match packages {
+            Err(error) => Err(WorkspaceError::Manifest {
                 path: error.path,
                 message: error.message,
-            })?;
-        packages
-            .into_iter()
-            .map(|root| Ok(RepoPath::new(root)?))
-            .collect()
+            }),
+            Ok(roots) => roots
+                .into_iter()
+                .map(|root| Ok(RepoPath::new(root)?))
+                .collect(),
+        })
     }
 
     pub(crate) fn resolve_imports_impl(

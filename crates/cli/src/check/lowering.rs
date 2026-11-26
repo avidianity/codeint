@@ -4,8 +4,8 @@ use std::string::FromUtf8Error;
 use codeint_config::{ConfigFileKind, LanguageCoverage, SqlDialect};
 use codeint_git::Snapshot;
 use codeint_model::{
-    CodeModel, HazardLine, LanguagePluginError, LowerError, RepoPath, SkippedFile, SourceFile,
-    Workspace, settle_source_set,
+    CodeModel, LowerError, RepoPath, SkippedFile, SourceFile, Workspace, settle_source_set,
+    validate_hazard_lines,
 };
 use codeint_plugin_host::{NamedLanguagePlugin, SqlParsedFile};
 use codeint_report::RejectedStatementEntry;
@@ -207,24 +207,6 @@ pub(super) fn collect_plugin_models(
     }
 }
 
-fn validate_hazard_rule_names(
-    plugin_name: &str,
-    path: &RepoPath,
-    hazard_lines: &[HazardLine],
-    listed_rules: &HashSet<String>,
-) -> Result<(), LanguagePluginError> {
-    for hazard in hazard_lines {
-        if !listed_rules.contains(&hazard.rule) {
-            return Err(LanguagePluginError::UnlistedHazardRule {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                rule: hazard.rule.clone(),
-            });
-        }
-    }
-    Ok(())
-}
-
 fn lower_bytes(
     bytes: Vec<u8>,
     path: &RepoPath,
@@ -253,10 +235,14 @@ fn lower_bytes(
     };
     match lowered {
         Ok((mut file, sql_details)) => {
-            validate_hazard_line_bounds(named.name, path, line_count, &file.hazard_lines)
-                .map_err(|error| CheckError::language_plugin(config_file, error))?;
-            validate_hazard_rule_names(named.name, path, &file.hazard_lines, listed_hazard_rules)
-                .map_err(|error| CheckError::language_plugin(config_file, error))?;
+            validate_hazard_lines(
+                named.name,
+                path,
+                line_count,
+                &file.hazard_lines,
+                listed_hazard_rules,
+            )
+            .map_err(|error| CheckError::language_plugin(config_file, error))?;
             for function in &mut file.functions {
                 function.coverage = None;
             }
@@ -287,26 +273,6 @@ fn lower_bytes(
             sql: None,
         }),
     }
-}
-
-fn validate_hazard_line_bounds(
-    plugin_name: &str,
-    path: &RepoPath,
-    line_count: usize,
-    hazard_lines: &[HazardLine],
-) -> Result<(), LanguagePluginError> {
-    for hazard in hazard_lines {
-        let line_number = usize::try_from(hazard.line).unwrap_or(usize::MAX);
-        if line_number < 1 || line_number > line_count {
-            return Err(LanguagePluginError::HazardLineOutOfRange {
-                plugin: plugin_name.to_owned(),
-                path: path.clone(),
-                line: hazard.line,
-                line_count,
-            });
-        }
-    }
-    Ok(())
 }
 
 fn not_utf8(path: RepoPath, error: &FromUtf8Error) -> SkippedFile {
