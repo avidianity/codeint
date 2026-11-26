@@ -1,6 +1,6 @@
 # codeint
 
-> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Test gap, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, SQL (generic SQL plus PostgreSQL, MySQL/MariaDB, SQLite, and DuckDB Dialects), and external WebAssembly Language and Metric plugins.
+> codeint is a command-line tool, local MCP server, and programmatic SDK (JavaScript/TypeScript and Rust) that measures Software entropy (Erosion, Cognitive complexity, Test gap, Duplication with Clone families and opt-in near-clones, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy across TypeScript/JavaScript (including React JSX/TSX, Vue, and Svelte), Rust, PHP, Dart, Python, Go, SQL (generic SQL plus PostgreSQL, MySQL/MariaDB, SQLite, and DuckDB Dialects), Shell (POSIX sh, Bash, and Zsh), and external WebAssembly Language and Metric plugins.
 > CLI commands include `check`, `diff`, `ratchet`, `baseline`, `trend`, `impact`, `trace`, `guard`, `churn`, `coupling`, `report`, `config`, `schema`, `doctor`, `plugin`, `agent`, `mcp`, `init`, and `update`, configured via `codeint.json`, `codeint.jsonc`, `.codeint/config.json`, or `.codeint/config.jsonc`, with optional whole-repository ceilings in `.codeint/ratchet.json` and an optional Baseline of existing Findings in `.codeint/baseline.json` that `codeint check` hides (`--ignore-baseline` shows them).
 
 ## Guide
@@ -12,9 +12,10 @@
 - [Import boundaries](docs/guide/import-boundaries.md): define architectural zones, `public_files` encapsulation, built-in `layered` and `hexagonal` presets, `allow_external` and `deny_external` third-party package glob rules, and pre-edit `codeint guard` checks.
 - [Test gap](docs/guide/test-gap.md): measure untested Production Function mass from LCOV and Cobertura XML Coverage reports, set up each test tool, and enforce a Test gap Budget.
 - [Hazards](docs/guide/hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.
-- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, and SQL rules, function names, cognitive complexity, manifests, and calibrated Reference ranges.
+- [Built-in Languages](docs/guide/languages.md): TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, SQL, and Shell rules, function names, cognitive complexity, manifests, and calibrated Reference ranges.
 - [Go Guide](docs/guide/go.md): Go terminology mapping, Source sets, Flagged line rules, multi-file Go package imports, entry points, and `go.mod` Dependency hygiene.
 - [SQL Guide](docs/guide/sql.md): generic SQL measurement, PostgreSQL/MySQL/SQLite/DuckDB Dialects, Source sets, templated SQL and rejected statements, and automatic SQL Schema rules.
+- [Shell Guide](docs/guide/shell.md): `.sh`, `.bash`, and `.zsh` measurement, shebang flavor detection, named and top-level `<script>` functions, Source sets, Flagged line rules, 10 secret-free Hazard line rules, and calibrated Reference ranges.
 - [CI and GitHub Actions](docs/guide/ci-and-github-actions.md): reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` `--owner` filtering, `--package` scoping, and SARIF upload.
 - [Adopting codeint on an existing codebase](docs/guide/adopting-on-an-existing-codebase.md): run `codeint init --adopt` to write the starter config (`per_file: true`, zero Budgets for each recorded Metric, commented `new_file_budgets`), `.codeint/ratchet.json`, and `.codeint/baseline.json`, then stop new decay locally and in pull requests while legacy debt shrinks.
 - [Coding-Agent Integration (MCP Server)](docs/guide/mcp.md): automatic `codeint agent status`/`install`, `codeint schema`, and local stdio MCP server (`codeint mcp`) exposing `check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`.
@@ -58,3 +59,4 @@
 - [ADR 0028: Stratified 50-repository current-codebase Reference panels](docs/adr/0028-stratified-reference-panels.md)
 - [ADR 0029: Hand-written lexers for PHP, Dart, Python, and Go Language plugins](docs/adr/0029-hand-written-lexers.md)
 - [ADR 0030: Finding Baseline in `.codeint/baseline.json`](docs/adr/0030-finding-baseline.md)
+- [ADR 0031: Shell Reference ranges](docs/adr/0031-shell-reference-ranges.md)

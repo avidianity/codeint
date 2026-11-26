@@ -186,3 +186,72 @@ pub(crate) fn run_check_json(dir: &Path) -> Value {
     let (stdout, _) = run_codeint_text(dir, &["check", "--format", "json"], 0);
     serde_json::from_str(&stdout).expect("valid json")
 }
+
+pub(crate) fn run_codeint_stdout(dir: &Path, args: &[&str], expected_code: i32) -> String {
+    run_codeint_text(dir, args, expected_code).0
+}
+
+pub(crate) fn run_codeint_json(dir: &Path, args: &[&str], expected_code: i32) -> Value {
+    let mut full = args.to_vec();
+    full.extend(["--format", "json"]);
+    serde_json::from_str(&run_codeint_stdout(dir, &full, expected_code)).expect("valid JSON output")
+}
+
+pub(crate) fn init_git_repo_with(base: &[(&str, &str)], extra: &[(&str, &str)]) -> TempDir {
+    let mut files = base.to_vec();
+    files.extend_from_slice(extra);
+    init_git_repo(&files)
+}
+
+pub(crate) fn check_json_with_config(dir: &Path, config_json: &str) -> Value {
+    std::fs::write(dir.join("codeint.json"), config_json).expect("write codeint.json");
+    run_check_json(dir)
+}
+
+pub(crate) fn assert_import_metrics_absent(report: &Value) {
+    assert!(
+        report["import_metrics_note"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no imports"),
+        "report: {report}"
+    );
+    assert!(report.get("dependencies").is_none(), "report: {report}");
+    let production = &report["source_sets"]["production"];
+    for absent in ["import_cycles", "orphan_files", "boundaries"] {
+        assert!(
+            production.get(absent).is_none(),
+            "{absent} present: {report}"
+        );
+    }
+}
+
+pub(crate) fn finding_names(findings: &Value) -> Vec<&str> {
+    findings
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .filter_map(|finding| finding["name"].as_str())
+        .collect()
+}
+
+pub(crate) fn assert_doctor_counts_language_files(dir: &Path, needle: &str) {
+    let summary = doctor_languages_summary(dir);
+    assert!(summary.contains(needle), "doctor languages: {summary}");
+}
+
+fn doctor_languages_summary(dir: &Path) -> String {
+    let doctor: Value =
+        serde_json::from_str(&run_codeint_stdout(dir, &["doctor", "--format", "json"], 0))
+            .expect("valid doctor json");
+    assert_eq!(doctor["summary"]["errors"], 0, "doctor: {doctor}");
+    doctor["checks"]
+        .as_array()
+        .expect("doctor checks")
+        .iter()
+        .find(|check| check["id"] == "languages")
+        .expect("languages check")["summary"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
+}

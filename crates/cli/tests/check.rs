@@ -2924,7 +2924,7 @@ fn validation_errors_in_codeint_jsonc_name_codeint_jsonc() {
     assert_operational_error(
         &output,
         "codeint: codeint.jsonc names an unknown Language plugin cobol at languages[0].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql\n\
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql, shell\n\
          Name one of the Language plugins listed, or remove the entry from languages.\n",
     );
 }
@@ -3096,7 +3096,7 @@ fn a_languages_entry_that_names_an_unknown_language_plugin_names_it_and_exits_2(
             { "plugin": "cobol", "include": ["scripts"] }
         ] }"#,
         "codeint.json names an unknown Language plugin cobol at languages[1].plugin; \
-         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql",
+         the Language plugins are typescript-javascript, rust, php, dart, python, go, sql, shell",
         "Name one of the Language plugins listed, or remove the entry from languages.",
     );
 }

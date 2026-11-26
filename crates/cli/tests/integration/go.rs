@@ -4,7 +4,7 @@ use std::process::{Command, Output};
 
 use serde_json::{Value, json};
 
-use crate::common::init_git_repo;
+use crate::common::{init_git_repo, run_codeint_json as run_json};
 
 fn run_codeint(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_codeint"))
@@ -24,12 +24,6 @@ fn run_stdout(dir: &Path, args: &[&str], expected_code: i32) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("utf8 stdout")
-}
-
-fn run_json(dir: &Path, args: &[&str], expected_code: i32) -> Value {
-    let mut full = args.to_vec();
-    full.extend(["--format", "json"]);
-    serde_json::from_str(&run_stdout(dir, &full, expected_code)).expect("valid JSON output")
 }
 
 fn check_json(dir: &Path) -> Value {

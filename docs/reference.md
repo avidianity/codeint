@@ -1226,6 +1226,7 @@ Source sets settle in strict priority order from lowest to highest:
 - `go` puts a file in `test` when its name ends in `_test.go` or when any folder in its path is named `testdata`, puts a file in `generated` when a line comment before any code matches `// Code generated ... DO NOT EDIT.`, and puts files under `vendor/` in `vendored`.
   `go` evaluates no build conditions, so platform-specific files are measured like any other file.
 - `sql` puts a file in `generated` when its first 20 lines contain a database dump header (`-- PostgreSQL database dump`, `-- Dumped by pg_dump`, `-- MySQL dump` followed by a space, `-- MariaDB database dump`, or `-- MariaDB dump` followed by a space) or `-- Code generated` with `DO NOT EDIT.` (case-insensitive), when any line starts with a migration tool marker (`--> statement-breakpoint`, `-- atlas:txmode`, or `-- atlas:nolint`), or when its path lies under `prisma/migrations/` or `drizzle/`; puts a file in `test` when any folder in its path is named `test`, `tests`, `fixtures`, or `testdata`, or when its file name ends with `.test.sql` or starts with `test_` (and ends with `.sql`); and puts every other `.sql` file (including hand-written migrations) in `production`.
+- `shell` puts a file in `test` when any folder in its path is named `test`, `tests`, or `spec`, or when its name starts with `test_` or ends with `_test` or `.test` before the `.sh`, `.bash`, or `.zsh` extension; puts Autotools helper scripts such as `ltmain.sh` and `configure.sh`, and files whose header comment contains a generated-file marker (such as `Code generated`, `DO NOT EDIT`, `do not modify by hand`, or `this file is generated`), in `generated`; and puts files under `vendor/` or `third_party/` in `vendored`.
 - Core rules put files under `vendor/` or `third_party/` into `vendored`, and files with generated-file markers (such as `@generated` or `GENERATED CODE`) into `generated`.
 
 Globs under `source_sets` win over every rule.
@@ -1380,7 +1381,7 @@ Each entry of `languages` names a Language plugin, the globs of the folders or f
 Several entries may name one Language plugin; it measures what any of them includes.
 Without `languages`, every Language plugin measures the whole repository; with it, a Language plugin measures only what its entries include.
 When two Language plugins claim the same file extension for the same folder, codeint stops with exit code 2 until `languages` assigns separate folders to each plugin.
-codeint ships seven built-in Language plugins:
+codeint ships eight built-in Language plugins:
 
 | Plugin name | Extensions | Workspace manifest |
 | ----------- | ---------- | ------------------ |
@@ -1391,6 +1392,7 @@ codeint ships seven built-in Language plugins:
 | `python` | `.py` | `pyproject.toml` |
 | `go` | `.go` | `go.mod` |
 | `sql` | `.sql` | none (no imports; belongs to enclosing Workspace package) |
+| `shell` | `.sh`, `.bash`, `.zsh` | none (no imports; belongs to enclosing Workspace package) |
 
 For Go (`go`), each folder with a `go.mod` file below the repository root is one Workspace package (`go.work` is not read), an import of a repository Go package leads to every non-test `.go` file in that folder, standard library and cgo (`"C"`) imports count as built in, every named function and method (`ReceiverType.MethodName`) with a body is one function, function literals inside a function count toward the enclosing function one nesting level deeper (package-level function literals are not separate functions), and decision points are `if`, `for`, `case` except `default`, `&&`, and `||`.
 Go Verbosity applies five Flagged line rules (never flagging idiomatic `if err != nil` checks):
@@ -1401,6 +1403,10 @@ See [docs/guide/go.md](./guide/go.md) for the full Go guide.
 For SQL (`sql`), codeint reads every `.sql` file in two layers with `sqlparser` ([ADR 0018](./adr/0018-sql-through-sqlparser-in-two-layers.md)), supports generic SQL by default plus `postgresql`, `mysql` (covering MariaDB), `sqlite`, and `duckdb` Dialects, defines 2 Flagged line rules and 32 Hazard line rules (27 statement rules and 5 schema-backed rules), builds schemas automatically from repository SQL files, and leaves import Metrics absent because SQL has no imports.
 Calibrated SQL Reference ranges come from a panel of 20 pre-2023 public SQL repositories ([ADR 0022](./adr/0022-sql-reference-ranges.md), source `codeint panel of 20 SQL repositories, ADR 0022, codeint 0.6.0`): Erosion `9.4% to 97.6%`, Duplication `4.2% to 92.1%`, and Verbosity `4.2% to 92.1%` (Import cycles is absent because SQL has no imports).
 See [SQL](#sql) below and [docs/guide/sql.md](./guide/sql.md) for details.
+
+For Shell (`shell`), codeint reads every `.sh`, `.bash`, and `.zsh` file with a hand-written lexer, detects POSIX `sh`, Bash, or Zsh from the first-line shebang and then from the extension, measures each named function plus one `<script>` function for top-level commands, defines 4 Flagged line rules and 10 Hazard line rules, and leaves import Metrics absent because shell scripts have no imports.
+Calibrated Shell Reference ranges come from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md), source `codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0`): Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` (Import cycles is absent because shell scripts have no imports).
+See [Shell](#shell) below and [docs/guide/shell.md](./guide/shell.md) for details.
 
 ```json codeint.json
 {
@@ -1425,7 +1431,8 @@ In a multi-language repository, list each built-in Language plugin with its own 
     { "plugin": "dart", "include": ["lib"], "exclude": [] },
     { "plugin": "python", "include": ["services"], "exclude": [] },
     { "plugin": "go", "include": ["cmd", "internal"], "exclude": [] },
-    { "plugin": "sql", "include": ["db", "analytics"], "exclude": [] }
+    { "plugin": "sql", "include": ["db", "analytics"], "exclude": [] },
+    { "plugin": "shell", "include": ["scripts"], "exclude": [] }
   ]
 }
 ```
@@ -1787,6 +1794,42 @@ All 32 built-in SQL Hazard line rules (27 statement rules and 5 schema-backed ru
 ```sh exit=0
 codeint check
 ```
+
+### Shell
+
+The built-in `shell` Language plugin measures `.sh`, `.bash`, and `.zsh` files with a hand-written lexer and no external parser dependency.
+codeint dispatches files by extension, so extensionless scripts are not measured.
+See [docs/guide/shell.md](./guide/shell.md) for a walkthrough.
+
+- **Flavors**: a first-line shebang naming `sh`, `dash`, or `ash` selects POSIX `sh`, one naming `bash` selects Bash, and one naming `zsh` selects Zsh, directly or through `env`.
+  Without a recognized shebang, `.bash` selects Bash, `.zsh` selects Zsh, and `.sh` selects POSIX `sh`.
+- **Functions and names**: each `name() { ... }` and `function name { ... }` definition is one function with its own name.
+  Commands outside named functions form one function named `<script>` when any exist.
+- **Decision points and Cognitive complexity**: `if`, `elif`, `for`, `while`, `until`, `select`, each `case` branch except a lone `*)` wildcard, `&&`, and `||` each add `1`; Cognitive complexity adds nesting depth for nested control flow.
+- **Source lines**: comments and blank lines are not source lines; single-quoted, double-quoted, and ANSI-C `$'...'` strings, nested `$(...)` substitutions, heredocs (`<<EOF`, `<<-EOF`, `<<'EOF'`), and line continuations are read as code.
+  An unterminated quote, substitution, or heredoc makes the file unparsable.
+- **No imports**: Import cycles, Import boundaries, Orphan files, and Dependency hygiene are absent for shell scripts.
+- **Flagged line rules (Verbosity)**:
+  - `useless-cat`: `cat file | command` with exactly one plain file operand.
+  - `legacy-backticks`: command substitution written with backticks instead of `$(...)`.
+  - `redundant-exit-status-check`: a `[ ... ]`, `[[ ... ]]`, or `test` comparison of `$?` with `0`.
+  - `else-after-return`: an `else` after an `if` branch that always ends in `return` or `exit`.
+- **Reference ranges**: Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md)).
+
+All 10 built-in Shell Hazard line rules:
+
+| Rule | Matches |
+| ---- | ------- |
+| `missing-strict-mode` | A script with top-level commands but no `set -e` and `set -u` (POSIX `sh`), or no `set -e`, `set -u`, and `set -o pipefail` (Bash and Zsh), from `set`, Zsh `setopt`, or shebang flags |
+| `unquoted-variable` | An unquoted `$VAR` or `${VAR}` expansion in a command name, argument, or redirection target |
+| `eval-with-variable` | `eval` with an argument that expands a variable |
+| `pipe-download-to-shell` | `curl` or `wget` piped into a shell interpreter, or a shell reading `<(curl ...)` or `<(wget ...)` |
+| `unchecked-cd` | `cd` outside a condition and not followed by `&&` or `\|\|`, in a script without `set -e` |
+| `unguarded-rm-rf` | Recursive forced `rm` on a path that starts with `$VAR/` or `${VAR}/` without a `${VAR:?}` guard |
+| `hardcoded-secret` | A non-placeholder literal assigned to a name containing `password`, `passwd`, `secret`, `token`, `api_key`, `apikey`, `private_key`, `access_key`, or a similar word, or a literal with a known secret shape such as an AWS access key, a `ghp_` token, or a private key block |
+| `read-without-r` | `read` without `-r` |
+| `posix-sh-bashism` | Bash-only syntax in a POSIX `sh` script: `[[`, `declare`, `function`, `mapfile`, `readarray`, `select`, `shopt`, `source`, `typeset`, `((`, array assignment, `<<<`, `\|&`, `&>`, `&>>`, or process substitution |
+| `insecure-tls-download` | `curl -k`, `curl --insecure`, or `wget --no-check-certificate` |
 
 ### Hazards
 

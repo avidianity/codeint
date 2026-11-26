@@ -11,7 +11,7 @@ Each page below focuses on one topic and links to [docs/reference.md](../referen
 4. [Import boundaries](./import-boundaries.md): define architectural zones, `public_files` encapsulation, built-in `layered` and `hexagonal` presets, `allow_external` / `deny_external` third-party package globs, and pre-edit `codeint guard` checks.
 5. [Test gap](./test-gap.md): measure untested Production Function mass from LCOV and Cobertura XML Coverage reports, set up each test tool, and enforce a Test gap Budget.
 6. [Hazards](./hazards.md): measure Hazard lines next to Software entropy with strict non-leakage, disable named rules, and enforce Budgets and Regression limits.
-7. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, Python, Go, and SQL are measured, plus their calibrated Reference ranges.
+7. [Built-in Languages](./languages.md): how TypeScript/JavaScript (with Vue and Svelte), Rust, PHP, Dart, Python, Go, SQL, and Shell are measured, plus their calibrated Reference ranges.
 8. [CI and GitHub Actions](./ci-and-github-actions.md): gate pull requests with the reusable GitHub Action, single-scan multi-format `codeint report` workflows, `CODEOWNERS` scoping, and SARIF upload.
 9. [Adopting codeint on an existing codebase](./adopting-on-an-existing-codebase.md): freeze legacy Findings with `codeint init --adopt`, then stop new decay with `.codeint/ratchet.json`, `.codeint/baseline.json`, zero Budgets, `new_file_budgets`, and `per_file` checks.
 10. [Coding-Agent Integration (MCP Server)](./mcp.md): set up `codeint mcp` with `codeint agent install`, inspect capabilities with `codeint schema`, and call all eight MCP tools.

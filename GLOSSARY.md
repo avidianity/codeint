@@ -2,7 +2,7 @@
 
 codeint measures the Software entropy of a codebase (Erosion, Cognitive complexity, Test gap, Duplication, Verbosity, Import cycles, Import boundaries, Orphan files, and Dependency hygiene) and reports Hazards next to Software entropy, in any language that has a Language plugin.
 It is for developers whose code is increasingly written by coding agents, so they see Software entropy grow before it compounds.
-Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, and SQL.
+Built-in Language plugins cover TypeScript/JavaScript/Vue/Svelte, Rust, PHP, Dart, Python, Go, SQL, and Shell.
 
 ## Language
 

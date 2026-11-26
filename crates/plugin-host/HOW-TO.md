@@ -18,7 +18,7 @@ let framework_profiles = built_in_language_framework_profiles();
 let ts_plugin = built_in_language_plugin("typescript-javascript");
 ```
 
-- `built_in_language_plugins` returns the static slice of all seven built-in `NamedLanguagePlugin` entries (`typescript-javascript`, `rust`, `php`, `dart`, `python`, `go`, `sql`).
+- `built_in_language_plugins` returns the static slice of all eight built-in `NamedLanguagePlugin` entries (`typescript-javascript`, `rust`, `php`, `dart`, `python`, `go`, `sql`, `shell`).
 - `built_in_language_plugin` looks up a single built-in Language plugin by name.
 - `built_in_language_names` returns the reserved built-in plugin names in registration order.
 - `built_in_language_descriptors` returns each built-in Language plugin's name and claimed extensions for schema and discovery reporting.
