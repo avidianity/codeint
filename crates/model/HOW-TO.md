@@ -134,10 +134,10 @@ impl LanguagePlugin for Plain {
 - A built-in Language plugin implements `LanguagePlugin` directly and borrows `&RepoPath`, `&str`, and `&[RepoPath]` to avoid per-file clones.
 - External WebAssembly Plugins implement the generated `Guest` trait, which bridges into `LanguagePlugin` through a blanket implementation.
 - `RepoPath` implements `AsRef<str>`, so shared path helpers accept `&[RepoPath]` and `&[String]` without cloning paths.
-- Call `codeint_model::scan::find_manifests<P: AsRef<str>>` to match a manifest filename across any `&[P]` slice.
+- Call `codeint_model::scan::find_manifests<P: AsRef<str>>` to match a manifest filename across any `&[P]` slice, and `codeint_model::scan::paths_with_suffix` to collect paths ending with a suffix into a `HashSet<&str>`.
 - Call `validate_workspace_packages` inside `LanguagePlugin::workspace_packages` to convert raw package root strings into validated `Vec<RepoPath>` values.
-- Use `delegate_framework_profile_plugin_methods!` to forward `known_framework_profiles` and `resolve_framework_profiles` to a plugin's framework module and validate the result.
-- Use `empty_framework_profile_plugin_methods!` for built-in Language plugins that define no Framework profiles.
+- Use `impl_builtin_language_plugin!` to wire a built-in Language plugin's `LanguagePlugin` implementation without repeating validation, framework-profile delegation, or empty default methods.
+- Use `empty_framework_profile_plugin_methods!` in test stubs that implement `LanguagePlugin` directly without Framework profiles.
 - `extensions` returns each file extension without its leading dot.
 - `lower` receives a repository-relative path with forward slashes and the whole file as text.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.

@@ -11,12 +11,14 @@ struct RepoModule {
 }
 
 pub(crate) fn find_go_mods<P: AsRef<str>>(repository_paths: &[P]) -> Vec<String> {
-    repository_paths
-        .iter()
-        .map(AsRef::as_ref)
-        .filter(|path| is_go_mod_path(path))
-        .map(str::to_owned)
-        .collect()
+    let mut paths = Vec::new();
+    for path in repository_paths {
+        let path = path.as_ref();
+        if is_go_mod_path(path) {
+            paths.push(path.to_owned());
+        }
+    }
+    paths
 }
 
 pub(crate) fn strip_module_prefix<'a>(spec: &'a str, mod_path: &str) -> Option<&'a str> {
@@ -31,6 +33,7 @@ pub(crate) fn resolve_all<P: AsRef<str>>(
     repository_paths: &[P],
     manifests: &[Manifest],
     requests: &[ImportRequest],
+    _active_profiles: &[String],
 ) -> Vec<Resolution> {
     let pkg_files = index_package_files(repository_paths);
     let repo_dirs = index_repo_dirs(repository_paths);

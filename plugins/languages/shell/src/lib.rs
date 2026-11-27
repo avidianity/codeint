@@ -8,14 +8,9 @@ mod hazards;
 mod lexer;
 mod source_set;
 
-use codeint_model::language::{
-    DeclaredDep, FileModel, ImportRequest, LowerError, Manifest, Resolution, Token, TokenKind,
-};
+use codeint_model::language::{FileModel, LowerError, Token, TokenKind};
 use codeint_model::scan::CoreReferenceRanges;
-use codeint_model::{
-    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, ReferenceRanges, RepoPath,
-    WorkspaceError, path_file_name, token_text_hash,
-};
+use codeint_model::{path_file_name, token_text_hash};
 
 use crate::lexer::{ShellToken, ShellTokenKind};
 
@@ -32,78 +27,32 @@ const SHELL_KEYWORDS_AND_BUILTINS: &[&str] = &[
 
 pub struct Shell;
 
-impl LanguagePlugin for Shell {
-    fn extensions(&self) -> Vec<String> {
-        vec!["sh".to_owned(), "bash".to_owned(), "zsh".to_owned()]
-    }
+const SHELL_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.364, 0.930),
+    (0.218, 0.828),
+    (0.000, 0.031),
+    (0.003, 0.713),
+    None,
+);
 
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
-        lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
-    }
-
-    fn has_imports(&self) -> bool {
-        false
-    }
-
-    fn manifest_paths(&self, _: &[RepoPath]) -> Vec<String> {
-        Vec::default()
-    }
-
-    fn has_hazard_rules(&self) -> bool {
-        true
-    }
-
-    fn workspace_packages(&self, _: Vec<Manifest>) -> Result<Vec<RepoPath>, WorkspaceError> {
-        Ok(Vec::default())
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        SHELL_HAZARD_RULES
-            .iter()
-            .map(|rule| (*rule).to_owned())
-            .collect()
-    }
-
-    fn resolve_imports(
-        &self,
-        _: &[RepoPath],
-        _: Vec<Manifest>,
-        _: Vec<ImportRequest>,
-        _: &[String],
-    ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        Ok(Vec::default())
-    }
-
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        ReferenceRanges::new(
-            CoreReferenceRanges {
-                erosion: (0.364, 0.930),
-                cognitive_complexity: (0.218, 0.828),
-                verbosity: (0.000, 0.031),
-                duplication: (0.003, 0.713),
-                import_cycles: None,
-            }
-            .build("codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0"),
-        )
-    }
-
-    fn declared_dependencies(
-        &self,
-        _: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        Ok(Vec::default())
-    }
-
-    fn entry_points(
-        &self,
-        _: &[RepoPath],
-        _: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
-        Ok(Vec::default())
-    }
-
-    codeint_model::empty_framework_profile_plugin_methods!();
+fn lower_shell(
+    _plugin: &Shell,
+    path: &codeint_model::RepoPath,
+    text: &str,
+) -> Result<FileModel, codeint_model::LowerError> {
+    lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
 }
+
+codeint_model::impl_builtin_language_plugin!(
+    Shell,
+    ["sh", "bash", "zsh"],
+    lower_shell,
+    SHELL_RANGES
+        .build("codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0"),
+    imports(none),
+    frameworks(none),
+    hazards(SHELL_HAZARD_RULES),
+);
 
 fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
     if !is_supported_path(path) {

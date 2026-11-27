@@ -626,12 +626,7 @@ fn build_near_clone_groups(
             .or_default()
             .push(pair);
     }
-    let component_groups: Vec<Vec<MatchedPair>> = components.into_values().collect();
-    let mut unidentified: Vec<UnidentifiedNearGroup> = component_groups
-        .into_par_iter()
-        .filter_map(|component_pairs| unidentified_near_group(model, candidates, &component_pairs))
-        .collect();
-    unidentified.sort_by(|left, right| left.fragments.cmp(&right.fragments));
+    let unidentified = collect_unidentified_near_groups(model, candidates, components);
     let mut identifier = FragmentIdentifier::new("near_clone", model);
     let mut groups = Vec::with_capacity(unidentified.len());
     let mut cluster_inputs = Vec::with_capacity(unidentified.len());
@@ -658,6 +653,20 @@ fn build_near_clone_groups(
         cluster_inputs,
         spans: all_spans,
     }
+}
+
+fn collect_unidentified_near_groups(
+    model: &CodeModel,
+    candidates: &[CandidateBlock],
+    components: BTreeMap<usize, Vec<MatchedPair>>,
+) -> Vec<UnidentifiedNearGroup> {
+    let component_groups: Vec<Vec<MatchedPair>> = components.into_values().collect();
+    let mut unidentified: Vec<UnidentifiedNearGroup> = component_groups
+        .into_par_iter()
+        .filter_map(|component_pairs| unidentified_near_group(model, candidates, &component_pairs))
+        .collect();
+    unidentified.sort_by(|left, right| left.fragments.cmp(&right.fragments));
+    unidentified
 }
 
 fn unidentified_near_group(

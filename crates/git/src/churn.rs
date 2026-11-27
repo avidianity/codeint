@@ -242,6 +242,29 @@ struct TreeDiffer<'a> {
     touched: &'a mut BTreeSet<RepoPath>,
 }
 
+struct TreeCursor<'a, I> {
+    iter: I,
+    next: Option<(EntryRef<'a>, &'a str)>,
+}
+
+impl<'a, I> TreeCursor<'a, I> {
+    fn new<'repo>(commit: CommitId, mut iter: I) -> Result<Self, GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        let next = next_utf8_entry(commit, &mut iter)?;
+        Ok(Self { iter, next })
+    }
+
+    fn advance<'repo>(&mut self, commit: CommitId) -> Result<(), GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        self.next = next_utf8_entry(commit, &mut self.iter)?;
+        Ok(())
+    }
+}
+
 impl TreeDiffer<'_> {
     fn trees(
         &mut self,
@@ -252,50 +275,97 @@ impl TreeDiffer<'_> {
         if old_tree.id == new_tree.id {
             return Ok(());
         }
-        let mut old_iter = old_tree.iter();
-        let mut new_iter = new_tree.iter();
-        let mut old_next = next_utf8_entry(self.commit, &mut old_iter)?;
-        let mut new_next = next_utf8_entry(self.commit, &mut new_iter)?;
-        loop {
-            match (old_next, new_next) {
-                (Some((old, old_name)), Some((new, new_name))) => match old.cmp(&new) {
-                    Ordering::Less => {
-                        let path = join_prefix(prefix, old_name);
-                        self.record_entry(&path, old.mode, old.oid.to_owned())?;
-                        old_next = next_utf8_entry(self.commit, &mut old_iter)?;
-                    }
-                    Ordering::Greater => {
-                        let path = join_prefix(prefix, new_name);
-                        self.record_entry(&path, new.mode, new.oid.to_owned())?;
-                        new_next = next_utf8_entry(self.commit, &mut new_iter)?;
-                    }
-                    Ordering::Equal => {
-                        if old.oid != new.oid || old.mode != new.mode {
-                            let path = join_prefix(prefix, new_name);
-                            self.visit_changed(
-                                &path,
-                                (old.mode, old.oid.to_owned()),
-                                (new.mode, new.oid.to_owned()),
-                            )?;
-                        }
-                        old_next = next_utf8_entry(self.commit, &mut old_iter)?;
-                        new_next = next_utf8_entry(self.commit, &mut new_iter)?;
-                    }
-                },
-                (Some((old, old_name)), None) => {
-                    let path = join_prefix(prefix, old_name);
-                    self.record_entry(&path, old.mode, old.oid.to_owned())?;
-                    old_next = next_utf8_entry(self.commit, &mut old_iter)?;
-                }
-                (None, Some((new, new_name))) => {
-                    let path = join_prefix(prefix, new_name);
-                    self.record_entry(&path, new.mode, new.oid.to_owned())?;
-                    new_next = next_utf8_entry(self.commit, &mut new_iter)?;
-                }
-                (None, None) => break,
+        let mut old_cursor = TreeCursor::new(self.commit, old_tree.iter())?;
+        let mut new_cursor = TreeCursor::new(self.commit, new_tree.iter())?;
+        while self.step_trees(prefix, &mut old_cursor, &mut new_cursor)? {}
+        Ok(())
+    }
+
+    fn step_trees<'repo, 'a, I>(
+        &mut self,
+        prefix: &str,
+        old_cursor: &mut TreeCursor<'a, I>,
+        new_cursor: &mut TreeCursor<'a, I>,
+    ) -> Result<bool, GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        match (old_cursor.next.take(), new_cursor.next.take()) {
+            (Some(old), Some(new)) => {
+                self.diff_pair(prefix, old, new, old_cursor, new_cursor)?;
+                Ok(true)
+            }
+            (Some((old, name)), None) => {
+                self.record_and_advance(prefix, old, name, old_cursor)?;
+                Ok(true)
+            }
+            (None, Some((new, name))) => {
+                self.record_and_advance(prefix, new, name, new_cursor)?;
+                Ok(true)
+            }
+            (None, None) => Ok(false),
+        }
+    }
+
+    fn diff_pair<'repo, 'a, I>(
+        &mut self,
+        prefix: &str,
+        old: (EntryRef<'a>, &'a str),
+        new: (EntryRef<'a>, &'a str),
+        old_cursor: &mut TreeCursor<'a, I>,
+        new_cursor: &mut TreeCursor<'a, I>,
+    ) -> Result<(), GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        match old.0.cmp(&new.0) {
+            Ordering::Less => {
+                new_cursor.next = Some(new);
+                self.record_and_advance(prefix, old.0, old.1, old_cursor)
+            }
+            Ordering::Greater => {
+                old_cursor.next = Some(old);
+                self.record_and_advance(prefix, new.0, new.1, new_cursor)
+            }
+            Ordering::Equal => {
+                self.diff_matching_entries(prefix, old.0, new.0, new.1)?;
+                old_cursor.advance(self.commit)?;
+                new_cursor.advance(self.commit)
             }
         }
-        Ok(())
+    }
+
+    fn diff_matching_entries(
+        &mut self,
+        prefix: &str,
+        old: EntryRef<'_>,
+        new: EntryRef<'_>,
+        name: &str,
+    ) -> Result<(), GitError> {
+        if old.oid == new.oid && old.mode == new.mode {
+            return Ok(());
+        }
+        let path = join_prefix(prefix, name);
+        self.visit_changed(
+            &path,
+            (old.mode, old.oid.to_owned()),
+            (new.mode, new.oid.to_owned()),
+        )
+    }
+
+    fn record_and_advance<'repo, 'a, I>(
+        &mut self,
+        prefix: &str,
+        entry: EntryRef<'a>,
+        name: &str,
+        cursor: &mut TreeCursor<'a, I>,
+    ) -> Result<(), GitError>
+    where
+        I: Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+    {
+        let path = join_prefix(prefix, name);
+        self.record_entry(&path, entry.mode, entry.oid.to_owned())?;
+        cursor.advance(self.commit)
     }
 
     fn visit_changed(

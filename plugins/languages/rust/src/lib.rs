@@ -13,14 +13,8 @@ mod workspaces;
 
 use std::collections::BTreeSet;
 
-use codeint_model::language::{
-    DeclaredDep, FileModel, ImportRequest, LowerError, Manifest, Resolution, SourceSet,
-};
-use codeint_model::{
-    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, ReferenceRanges, RepoPath,
-    WorkspaceError, validate_declared_dependencies, validate_entry_points,
-    validate_workspace_packages,
-};
+use codeint_model::language::{FileModel, LowerError, SourceSet};
+use codeint_model::scan::CoreReferenceRanges;
 
 use crate::cfg_test::excluded_cfg_test_lines;
 use crate::entry_points::entry_points as discover_entry_points;
@@ -34,6 +28,14 @@ pub use rules::flagged_line_rules;
 pub(crate) const EXTENSIONS: [&str; 1] = ["rs"];
 
 pub struct Rust;
+
+const RUST_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.245, 0.704),
+    (0.176, 0.585),
+    (0.000, 0.005),
+    (0.047, 0.377),
+    Some((0.000, 0.611)),
+);
 
 fn lower_rust(path: &str, text: &str) -> Result<FileModel, LowerError> {
     if !path.ends_with(".rs") {
@@ -69,82 +71,32 @@ fn lower_rust(path: &str, text: &str) -> Result<FileModel, LowerError> {
     })
 }
 
-impl LanguagePlugin for Rust {
-    fn extensions(&self) -> Vec<String> {
-        EXTENSIONS.iter().map(ToString::to_string).collect()
-    }
-
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
-        lower_rust(path.as_str(), text).map_err(codeint_model::LowerError::from)
-    }
-
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        ReferenceRanges::new(
-            codeint_model::scan::CoreReferenceRanges {
-                erosion: (0.245, 0.704),
-                cognitive_complexity: (0.176, 0.585),
-                verbosity: (0.000, 0.005),
-                duplication: (0.047, 0.377),
-                import_cycles: Some((0.000, 0.611)),
-            }
-            .build("codeint stratified panel of 100 Rust repositories, ADR 0035, codeint 0.8.0"),
-        )
-    }
-
-    fn resolve_imports(
-        &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-        requests: Vec<ImportRequest>,
-        _active_profiles: &[String],
-    ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        let resolver = RustResolver::new(repository_paths, &manifests, &requests);
-        Ok(requests
-            .iter()
-            .map(|request| resolver.resolve(request))
-            .collect())
-    }
-
-    fn entry_points(
-        &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
-        validate_entry_points(
-            repository_paths,
-            discover_entry_points(repository_paths, &manifests),
-        )
-    }
-
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
-        manifest_paths(repository_paths)
-    }
-
-    fn declared_dependencies(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        validate_declared_dependencies(dependencies::extract_declared(&manifests))
-    }
-
-    fn workspace_packages(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        validate_workspace_packages(workspaces::workspace_packages(&manifests)?)
-    }
-
-    codeint_model::empty_framework_profile_plugin_methods!();
-
-    fn has_hazard_rules(&self) -> bool {
-        false
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports(&self) -> bool {
-        true
-    }
+fn lower_rust_plugin(
+    _plugin: &Rust,
+    path: &codeint_model::RepoPath,
+    text: &str,
+) -> Result<FileModel, codeint_model::LowerError> {
+    lower_rust(path.as_str(), text).map_err(codeint_model::LowerError::from)
 }
+
+codeint_model::impl_builtin_language_plugin!(
+    Rust,
+    EXTENSIONS,
+    lower_rust_plugin,
+    RUST_RANGES.build("codeint stratified panel of 100 Rust repositories, ADR 0035, codeint 0.8.0"),
+    imports(
+        manifest_paths,
+        workspaces::workspace_packages,
+        |paths, manifests, requests, _| {
+            let resolver = RustResolver::new(paths, manifests, requests);
+            requests
+                .iter()
+                .map(|request| resolver.resolve(request))
+                .collect()
+        },
+        dependencies::extract_declared,
+        discover_entry_points,
+    ),
+    frameworks(none),
+    hazards(none),
+);

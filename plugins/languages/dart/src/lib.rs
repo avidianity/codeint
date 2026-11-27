@@ -13,14 +13,9 @@ mod workspaces;
 
 use std::collections::BTreeSet;
 
-use codeint_model::language::{
-    DeclaredDep, FileModel, ImportRequest, LowerError, Manifest, Resolution, Token, TokenKind,
-};
-use codeint_model::{
-    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, ReferenceRanges, RepoPath,
-    WorkspaceError, token_text_hash, validate_declared_dependencies, validate_entry_points,
-    validate_workspace_packages,
-};
+use codeint_model::language::{FileModel, LowerError, Token, TokenKind};
+use codeint_model::scan::CoreReferenceRanges;
+use codeint_model::token_text_hash;
 
 use crate::dependencies::extract_declared;
 use crate::entry_points::discover as discover_entry_points;
@@ -29,6 +24,14 @@ use crate::lexer::{DartKind, DartToken};
 pub use rules::flagged_line_rules;
 
 pub struct Dart;
+
+const DART_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.039, 0.497),
+    (0.000, 0.377),
+    (0.000, 0.011),
+    (0.027, 0.256),
+    Some((0.061, 0.600)),
+);
 
 fn lower_tokens(raw: &[DartToken], import_spans: &BTreeSet<usize>) -> Vec<Token> {
     let mut out = Vec::with_capacity(raw.len());
@@ -80,83 +83,26 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
     })
 }
 
-impl LanguagePlugin for Dart {
-    codeint_model::delegate_framework_profile_plugin_methods!(frameworks);
-
-    fn declared_dependencies(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        validate_declared_dependencies(extract_declared(&manifests))
-    }
-
-    fn workspace_packages(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        validate_workspace_packages(workspaces::discover(&manifests)?)
-    }
-
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
-        resolution::find_pubspecs(repository_paths)
-    }
-
-    fn resolve_imports(
-        &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-        requests: Vec<ImportRequest>,
-        active_profiles: &[String],
-    ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        Ok(resolution::resolve_dart_imports(
-            repository_paths,
-            &manifests,
-            &requests,
-            active_profiles,
-        ))
-    }
-
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
-        lower_dart(path.as_str(), text).map_err(codeint_model::LowerError::from)
-    }
-
-    fn entry_points(
-        &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
-        validate_entry_points(
-            repository_paths,
-            discover_entry_points(repository_paths, &manifests),
-        )
-    }
-
-    fn extensions(&self) -> Vec<String> {
-        vec!["dart".to_owned()]
-    }
-
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        ReferenceRanges::new(
-            codeint_model::scan::CoreReferenceRanges {
-                erosion: (0.039, 0.497),
-                cognitive_complexity: (0.000, 0.377),
-                verbosity: (0.000, 0.011),
-                duplication: (0.027, 0.256),
-                import_cycles: Some((0.061, 0.600)),
-            }
-            .build("codeint stratified panel of 100 Dart repositories, ADR 0035, codeint 0.8.0"),
-        )
-    }
-
-    fn has_hazard_rules(&self) -> bool {
-        false
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn has_imports(&self) -> bool {
-        true
-    }
+fn lower_dart_plugin(
+    _plugin: &Dart,
+    path: &codeint_model::RepoPath,
+    text: &str,
+) -> Result<FileModel, codeint_model::LowerError> {
+    lower_dart(path.as_str(), text).map_err(codeint_model::LowerError::from)
 }
+
+codeint_model::impl_builtin_language_plugin!(
+    Dart,
+    ["dart"],
+    lower_dart_plugin,
+    DART_RANGES.build("codeint stratified panel of 100 Dart repositories, ADR 0035, codeint 0.8.0"),
+    imports(
+        resolution::find_pubspecs,
+        workspaces::discover,
+        resolution::resolve_dart_imports,
+        extract_declared,
+        discover_entry_points,
+    ),
+    frameworks(frameworks),
+    hazards(none),
+);

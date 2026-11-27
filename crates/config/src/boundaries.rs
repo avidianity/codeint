@@ -688,6 +688,31 @@ fn validate_source_zone(
     Ok(())
 }
 
+fn prepare_rule_key(
+    rule_key: &KeyPath,
+    from: &str,
+    entry: &RuleDirectiveValues,
+    by_from: &mut BTreeMap<String, BoundaryDirective>,
+    external: bool,
+) -> Result<KeyPath, ConfigurationFileError> {
+    record_rule_directive(rule_key, from, entry.directive, by_from, |key, zone| {
+        if external {
+            ConfigurationFileError::ConflictingExternalBoundaryDirectives {
+                file: ConfigFileKind::Json,
+                key,
+                from: zone,
+            }
+        } else {
+            ConfigurationFileError::ConflictingBoundaryDirectives {
+                file: ConfigFileKind::Json,
+                key,
+                from: zone,
+            }
+        }
+    })?;
+    Ok(rule_key.child(KeySegment::Key(entry.key_name.to_owned())))
+}
+
 fn compile_internal_rule(
     rule_key: &KeyPath,
     from: &str,
@@ -697,14 +722,7 @@ fn compile_internal_rule(
     known_zones: &[String],
     by_from: &mut BTreeMap<String, BoundaryDirective>,
 ) -> Result<CompiledRule, ConfigurationFileError> {
-    record_rule_directive(rule_key, from, entry.directive, by_from, |key, zone| {
-        ConfigurationFileError::ConflictingBoundaryDirectives {
-            file: ConfigFileKind::Json,
-            key,
-            from: zone,
-        }
-    })?;
-    let targets_key = rule_key.child(KeySegment::Key(entry.key_name.to_owned()));
+    let targets_key = prepare_rule_key(rule_key, from, &entry, by_from, false)?;
     validate_rule_targets(&targets_key, &entry.values, zones, known_zones)?;
     let has_wildcard_target = entry.values.iter().any(|target| target == WILDCARD_ZONE);
     let targets = entry
@@ -727,14 +745,7 @@ fn compile_external_rule(
     reason: Option<String>,
     by_from: &mut BTreeMap<String, BoundaryDirective>,
 ) -> Result<CompiledExternalRule, ConfigurationFileError> {
-    record_rule_directive(rule_key, from, entry.directive, by_from, |key, zone| {
-        ConfigurationFileError::ConflictingExternalBoundaryDirectives {
-            file: ConfigFileKind::Json,
-            key,
-            from: zone,
-        }
-    })?;
-    let patterns_key = rule_key.child(KeySegment::Key(entry.key_name.to_owned()));
+    let patterns_key = prepare_rule_key(rule_key, from, &entry, by_from, true)?;
     let matcher = compile_external_globs(&patterns_key, &entry.values)?;
     Ok(CompiledExternalRule {
         directive: entry.directive,
