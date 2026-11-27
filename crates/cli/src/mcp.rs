@@ -6,14 +6,19 @@ use codeint_config::{
     CalendarDay, ChurnSince, ChurnWindow, CouplingRatio, CouplingSettings, FindingsShown,
     PluginHostConfig, TrendRange,
 };
+use codeint_git::{Repository, ResultCache};
 use codeint_report::McpToolSchema;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::check::{CheckError, CheckScope, WorkspaceRef};
 use crate::{
-    CheckOptions, ChurnOptions, CodeintError, CouplingOptions, DiffOptions, ImpactOptions,
-    TraceOptions, TrendOptions, check, churn, coupling, diff, guard, impact, trace, trend,
+    CheckOptions, CliError, CodeintError, TraceOptions, TrendOptions, check, churn, coupling, diff,
+    guard, impact, trace, trend,
 };
+
+mod workspace_cache;
+use workspace_cache::WorkspaceCache;
 
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -28,6 +33,68 @@ struct OutcomeEnvelope<'a, R> {
     passed: bool,
     failures: &'a [String],
     report: &'a R,
+}
+
+#[derive(Serialize)]
+struct JsonRpcSuccess<T: Serialize> {
+    jsonrpc: &'static str,
+    id: Value,
+    result: T,
+}
+
+#[derive(Serialize)]
+struct JsonRpcErrorBody<'a> {
+    code: i64,
+    message: &'a str,
+}
+
+#[derive(Serialize)]
+struct JsonRpcError<'a> {
+    jsonrpc: &'static str,
+    id: Value,
+    error: JsonRpcErrorBody<'a>,
+}
+
+#[derive(Serialize)]
+struct ToolTextContent {
+    #[serde(rename = "type")]
+    content_type: &'static str,
+    text: String,
+}
+
+#[derive(Serialize)]
+struct ToolCallResult {
+    content: [ToolTextContent; 1],
+    #[serde(rename = "isError")]
+    is_error: bool,
+}
+
+#[derive(Serialize)]
+struct EmptyObject {}
+
+#[derive(Serialize)]
+struct InitializeCapabilities {
+    tools: EmptyObject,
+}
+
+#[derive(Serialize)]
+struct ServerInfo {
+    name: &'static str,
+    version: &'static str,
+}
+
+#[derive(Serialize)]
+struct InitializeResult<'a> {
+    #[serde(rename = "protocolVersion")]
+    protocol_version: &'a str,
+    capabilities: InitializeCapabilities,
+    #[serde(rename = "serverInfo")]
+    server_info: ServerInfo,
+}
+
+#[derive(Serialize)]
+struct ToolsListResult {
+    tools: Vec<McpToolSchema>,
 }
 
 pub(crate) fn serve_stdio(
@@ -55,11 +122,7 @@ fn serve<R: BufRead, W: Write>(
     result_cache: Option<PathBuf>,
     plugin_host: PluginHostConfig,
 ) -> Result<(), std::io::Error> {
-    let ctx = ServerContext {
-        default_folder,
-        result_cache,
-        plugin_host,
-    };
+    let mut ctx = ServerContext::new(default_folder, result_cache, plugin_host);
     let mut line = String::new();
     loop {
         line.clear();
@@ -70,8 +133,7 @@ fn serve<R: BufRead, W: Write>(
         if trimmed.is_empty() {
             continue;
         }
-        if let Some(response) = handle_line(trimmed, &ctx) {
-            writeln!(writer, "{response}")?;
+        if handle_line_to_writer(trimmed, &mut ctx, writer)? {
             writer.flush()?;
         }
     }
@@ -82,17 +144,93 @@ struct ServerContext<'a> {
     default_folder: &'a Path,
     result_cache: Option<PathBuf>,
     plugin_host: PluginHostConfig,
+    workspace_cache: WorkspaceCache,
 }
 
-fn handle_line(line: &str, ctx: &ServerContext<'_>) -> Option<Value> {
+impl<'a> ServerContext<'a> {
+    fn new(
+        default_folder: &'a Path,
+        result_cache: Option<PathBuf>,
+        plugin_host: PluginHostConfig,
+    ) -> ServerContext<'a> {
+        ServerContext {
+            default_folder,
+            result_cache,
+            plugin_host,
+            workspace_cache: WorkspaceCache::default(),
+        }
+    }
+
+    fn with_workspace<T, E>(
+        &mut self,
+        folder: &Path,
+        map_check_error: fn(CheckError) -> E,
+        run: impl FnOnce(WorkspaceRef<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let repository = Repository::discover(folder)
+            .map_err(CheckError::Git)
+            .map_err(map_check_error)?;
+        let (configuration, plugins) = self
+            .workspace_cache
+            .workspace(repository.root(), &self.plugin_host)
+            .map_err(map_check_error)?;
+        run(WorkspaceRef {
+            repository: &repository,
+            configuration,
+            plugins,
+        })
+    }
+}
+
+fn write_json_line<W: Write, T: Serialize>(
+    writer: &mut W,
+    value: &T,
+) -> Result<(), std::io::Error> {
+    serde_json::to_writer(&mut *writer, value).map_err(std::io::Error::other)?;
+    writer.write_all(b"\n")
+}
+
+fn write_rpc_success<W: Write, T: Serialize>(
+    writer: &mut W,
+    id: Value,
+    result: T,
+) -> Result<(), std::io::Error> {
+    write_json_line(
+        writer,
+        &JsonRpcSuccess {
+            jsonrpc: "2.0",
+            id,
+            result,
+        },
+    )
+}
+
+fn write_rpc_error<W: Write>(
+    writer: &mut W,
+    id: Value,
+    code: i64,
+    message: &str,
+) -> Result<(), std::io::Error> {
+    write_json_line(
+        writer,
+        &JsonRpcError {
+            jsonrpc: "2.0",
+            id,
+            error: JsonRpcErrorBody { code, message },
+        },
+    )
+}
+
+fn handle_line_to_writer<W: Write>(
+    line: &str,
+    ctx: &mut ServerContext<'_>,
+    writer: &mut W,
+) -> Result<bool, std::io::Error> {
     let request: Value = match serde_json::from_str(line) {
         Ok(val) => val,
         Err(err) => {
-            return Some(rpc_error(
-                Value::Null,
-                -32700,
-                &format!("Parse error: {err}"),
-            ));
+            write_rpc_error(writer, Value::Null, -32700, &format!("Parse error: {err}"))?;
+            return Ok(true);
         }
     };
     let id = request.get("id").cloned();
@@ -101,41 +239,48 @@ fn handle_line(line: &str, ctx: &ServerContext<'_>) -> Option<Value> {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let params = request.get("params");
-    let response_id = id?;
-    let result = dispatch(method, params, ctx);
-    Some(match result {
-        Ok(value) => json!({ "jsonrpc": "2.0", "id": response_id, "result": value }),
-        Err((code, message)) => rpc_error(response_id, code, &message),
-    })
-}
-
-fn dispatch(
-    method: &str,
-    params: Option<&Value>,
-    ctx: &ServerContext<'_>,
-) -> Result<Value, (i64, String)> {
+    let Some(response_id) = id else {
+        return Ok(false);
+    };
     match method {
-        "initialize" => Ok(handle_initialize(params)),
-        "ping" => Ok(json!({})),
-        "tools/list" => Ok(handle_tools_list()),
-        "tools/call" => handle_tools_call(params, ctx),
-        other => Err((-32601, format!("Method not found: {other}"))),
+        "initialize" => write_rpc_success(writer, response_id, handle_initialize(params))?,
+        "ping" => write_rpc_success(writer, response_id, EmptyObject {})?,
+        "tools/list" => write_rpc_success(
+            writer,
+            response_id,
+            ToolsListResult {
+                tools: tool_definitions(),
+            },
+        )?,
+        "tools/call" => match handle_tools_call(params, ctx) {
+            Ok(result) => write_rpc_success(writer, response_id, result)?,
+            Err((code, message)) => write_rpc_error(writer, response_id, code, &message)?,
+        },
+        other => write_rpc_error(
+            writer,
+            response_id,
+            -32601,
+            &format!("Method not found: {other}"),
+        )?,
     }
+    Ok(true)
 }
 
-fn handle_initialize(params: Option<&Value>) -> Value {
+fn handle_initialize(params: Option<&Value>) -> InitializeResult<'_> {
     let protocol_version = params
         .and_then(|p| p.get("protocolVersion"))
         .and_then(Value::as_str)
         .unwrap_or(DEFAULT_PROTOCOL_VERSION);
-    json!({
-        "protocolVersion": protocol_version,
-        "capabilities": { "tools": {} },
-        "serverInfo": {
-            "name": "codeint",
-            "version": env!("CARGO_PKG_VERSION"),
-        }
-    })
+    InitializeResult {
+        protocol_version,
+        capabilities: InitializeCapabilities {
+            tools: EmptyObject {},
+        },
+        server_info: ServerInfo {
+            name: "codeint",
+            version: env!("CARGO_PKG_VERSION"),
+        },
+    }
 }
 
 fn format_property() -> Value {
@@ -280,16 +425,10 @@ pub(crate) fn tool_definitions() -> Vec<McpToolSchema> {
     ]
 }
 
-fn handle_tools_list() -> Value {
-    json!({
-        "tools": tool_definitions(),
-    })
-}
-
 fn handle_tools_call(
     params: Option<&Value>,
-    ctx: &ServerContext<'_>,
-) -> Result<Value, (i64, String)> {
+    ctx: &mut ServerContext<'_>,
+) -> Result<ToolCallResult, (i64, String)> {
     let name = params
         .and_then(|p| p.get("name"))
         .and_then(Value::as_str)
@@ -301,7 +440,7 @@ fn handle_tools_call(
     dispatch_tool(name, args, ctx)
 }
 
-fn parse_tool_arguments(params: Option<&Value>) -> Result<Option<&Value>, Value> {
+fn parse_tool_arguments(params: Option<&Value>) -> Result<Option<&Value>, ToolCallResult> {
     match params.and_then(|p| p.get("arguments")) {
         None => Ok(None),
         Some(value) if value.is_object() => Ok(Some(value)),
@@ -312,29 +451,32 @@ fn parse_tool_arguments(params: Option<&Value>) -> Result<Option<&Value>, Value>
 fn dispatch_tool(
     name: &str,
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
-) -> Result<Value, (i64, String)> {
-    let handler: fn(Option<&Value>, &ServerContext<'_>, McpFormat) -> Result<Value, Value> =
-        match name {
-            "check" => call_check,
-            "diff" => call_diff,
-            "trend" => call_trend,
-            "guard" => call_guard,
-            "impact" => call_impact,
-            "trace" => call_trace,
-            "churn" => call_churn,
-            "coupling" => call_coupling,
-            other => return Err((-32602, format!("Unknown tool: {other}"))),
-        };
+    ctx: &mut ServerContext<'_>,
+) -> Result<ToolCallResult, (i64, String)> {
+    let handler: fn(
+        Option<&Value>,
+        &mut ServerContext<'_>,
+        McpFormat,
+    ) -> Result<ToolCallResult, ToolCallResult> = match name {
+        "check" => call_check,
+        "diff" => call_diff,
+        "trend" => call_trend,
+        "guard" => call_guard,
+        "impact" => call_impact,
+        "trace" => call_trace,
+        "churn" => call_churn,
+        "coupling" => call_coupling,
+        other => return Err((-32602, format!("Unknown tool: {other}"))),
+    };
     let result = parse_format(args).and_then(|format| handler(args, ctx, format));
     Ok(result.unwrap_or_else(|err| err))
 }
 
 fn call_check(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
+) -> Result<ToolCallResult, ToolCallResult> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let coverage_reports: Vec<PathBuf> = parse_string_array(args, "coverage_reports")?
         .into_iter()
@@ -343,40 +485,66 @@ fn call_check(
     let ignore_baseline = parse_optional_arg(args, "ignore_baseline", false, |value| {
         parse_bool_arg(value, "ignore_baseline")
     })?;
-    let options = CheckOptions {
-        findings: parse_findings(args)?,
-        package: parse_package(args),
+    let findings = parse_findings(args)?;
+    let package = parse_package(args);
+    let scope = CheckScope {
+        findings,
+        package: package.as_deref(),
         owner: None,
-        coverage_reports,
+        coverage_reports: &coverage_reports,
         ignore_baseline,
-        plugin_host: ctx.plugin_host.clone(),
     };
-    Ok(match check(&folder, &options) {
-        Ok(outcome) => render_outcome(outcome.passed, &outcome.failures, &outcome.report, format),
+    let result = ctx
+        .with_workspace(&folder, std::convert::identity, |workspace| {
+            check::check_with_workspace(&folder, scope, workspace)
+        })
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
+    Ok(match result {
+        Ok(report) => {
+            let failures = report.failure_messages();
+            let passed = failures.is_empty();
+            render_outcome(passed, &failures, &report, format)
+        }
         Err(err) => tool_err(&err.mcp_text()),
     })
 }
 
 fn call_diff(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
+) -> Result<ToolCallResult, ToolCallResult> {
     let base_ref = required_str_arg(args, "base_ref")?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    let options = DiffOptions {
-        head_ref: args
-            .and_then(|a| a.get("head_ref"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        findings: parse_findings(args)?,
-        package: parse_package(args),
-        owner: None,
-        result_cache: ctx.result_cache.clone(),
-        plugin_host: ctx.plugin_host.clone(),
+    let head_ref = args
+        .and_then(|a| a.get("head_ref"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let findings = parse_findings(args)?;
+    let package = parse_package(args);
+    let cache = ctx.result_cache.clone().map(ResultCache::in_folder);
+    let refs = diff::Refs {
+        base: base_ref,
+        head: head_ref.as_deref(),
     };
-    Ok(match diff(&folder, base_ref, &options) {
-        Ok(outcome) => render_outcome(outcome.passed, &outcome.failures, &outcome.report, format),
+    let result = ctx
+        .with_workspace(&folder, std::convert::identity, |workspace| {
+            diff::diff_with_workspace(
+                workspace,
+                refs,
+                findings,
+                package.as_deref(),
+                None,
+                cache.as_ref(),
+            )
+        })
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
+    Ok(match result {
+        Ok(report) => {
+            let failures = report.failure_messages();
+            let passed = failures.is_empty();
+            render_outcome(passed, &failures, &report, format)
+        }
         Err(err) => tool_err(&err.mcp_text()),
     })
 }
@@ -386,7 +554,7 @@ fn render_outcome<R: Serialize>(
     failures: &[String],
     report: &R,
     format: McpFormat,
-) -> Value {
+) -> ToolCallResult {
     let envelope = OutcomeEnvelope {
         passed,
         failures,
@@ -398,14 +566,14 @@ fn render_outcome<R: Serialize>(
 fn render_mcp_tool<T: Serialize>(
     result: Result<T, CodeintError>,
     format: McpFormat,
-) -> Result<Value, Value> {
+) -> Result<ToolCallResult, ToolCallResult> {
     Ok(match result {
         Ok(report) => render_mcp_value(&report, format),
         Err(err) => tool_err(&err.mcp_text()),
     })
 }
 
-fn render_mcp_value<T: Serialize>(value: &T, format: McpFormat) -> Value {
+fn render_mcp_value<T: Serialize>(value: &T, format: McpFormat) -> ToolCallResult {
     let rendered = match format {
         McpFormat::Toon => codeint_report::render_toon(value).map_err(|err| err.to_string()),
         McpFormat::Json => serde_json::to_string(value).map_err(|err| err.to_string()),
@@ -416,7 +584,7 @@ fn render_mcp_value<T: Serialize>(value: &T, format: McpFormat) -> Value {
     }
 }
 
-fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, Value> {
+fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, ToolCallResult> {
     args.and_then(|a| a.get(name))
         .and_then(Value::as_str)
         .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
@@ -424,19 +592,23 @@ fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, 
 
 fn call_guard(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
+) -> Result<ToolCallResult, ToolCallResult> {
     let file = required_str_arg(args, "file")?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    render_mcp_tool(guard(&folder, Path::new(file)), format)
+    let result = guard::guard_with_config(&folder, Path::new(file), |root| {
+        ctx.workspace_cache.configuration(root)
+    })
+    .map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)));
+    render_mcp_tool(result, format)
 }
 
 fn call_trend(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
+) -> Result<ToolCallResult, ToolCallResult> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
         Some(day_str) => match CalendarDay::from_str(day_str) {
@@ -445,19 +617,20 @@ fn call_trend(
         },
         None => TrendOptions::default().range,
     };
-    let options = TrendOptions {
-        range,
-        result_cache: ctx.result_cache.clone(),
-        plugin_host: ctx.plugin_host.clone(),
-    };
-    render_mcp_tool(trend(&folder, &options), format)
+    let cache = ctx.result_cache.clone().map(ResultCache::in_folder);
+    let result = ctx
+        .with_workspace(&folder, std::convert::identity, |workspace| {
+            trend::trend_with_workspace(workspace, range, cache.as_ref())
+        })
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
+    render_mcp_tool(result, format)
 }
 
 fn call_impact(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
+) -> Result<ToolCallResult, ToolCallResult> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let paths = parse_string_array(args, "paths")?;
     let changed = args
@@ -476,21 +649,28 @@ fn call_impact(
         )?),
         None => None,
     };
-    let options = ImpactOptions {
-        paths,
-        changed,
+    let package = parse_package(args);
+    let plugin_host = ctx.plugin_host.clone();
+    let request = impact::ImpactRequest {
+        paths: &paths,
+        changed: changed.as_deref(),
         depth,
-        package: parse_package(args),
-        plugin_host: ctx.plugin_host.clone(),
+        package: package.as_deref(),
+        plugin_host: &plugin_host,
     };
-    render_mcp_tool(impact(&folder, &options), format)
+    let result = ctx
+        .with_workspace(&folder, impact::ImpactCommandError::Check, |workspace| {
+            impact::impact_with_workspace(&folder, workspace, &request)
+        })
+        .map_err(|err| CodeintError::from_cli_error(CliError::Impact(err)));
+    render_mcp_tool(result, format)
 }
 
 fn call_trace(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
+) -> Result<ToolCallResult, ToolCallResult> {
     let from = required_str_arg(args, "from")?;
     let to = required_str_arg(args, "to")?;
     let max_paths = parse_optional_arg(
@@ -500,47 +680,60 @@ fn call_trace(
         |value| parse_positive_usize(value, "max_paths"),
     )?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    let options = TraceOptions {
-        all: args
-            .and_then(|a| a.get("all"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        max_paths,
-        package: parse_package(args),
-        plugin_host: ctx.plugin_host.clone(),
-    };
-    render_mcp_tool(trace(&folder, from, to, &options), format)
+    let all = args
+        .and_then(|a| a.get("all"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let package = parse_package(args);
+    let result = ctx
+        .with_workspace(&folder, trace::TraceCommandError::Check, |workspace| {
+            trace::trace_with_workspace(
+                &folder,
+                workspace,
+                from,
+                to,
+                all,
+                max_paths,
+                package.as_deref(),
+            )
+        })
+        .map_err(|err| CodeintError::from_cli_error(CliError::Trace(err)));
+    render_mcp_tool(result, format)
 }
 
 fn call_churn(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
-    let options = ChurnOptions {
-        window: parse_churn_window(args)?,
-        findings: parse_findings(args)?,
-        plugin_host: ctx.plugin_host.clone(),
-    };
+) -> Result<ToolCallResult, ToolCallResult> {
+    let window = parse_churn_window(args)?;
+    let findings = parse_findings(args)?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    render_mcp_tool(churn(&folder, &options), format)
+    let result = ctx
+        .with_workspace(&folder, std::convert::identity, |workspace| {
+            churn::churn_with_workspace(workspace, window, findings)
+        })
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
+    render_mcp_tool(result, format)
 }
 
 fn call_coupling(
     args: Option<&Value>,
-    ctx: &ServerContext<'_>,
+    ctx: &mut ServerContext<'_>,
     format: McpFormat,
-) -> Result<Value, Value> {
-    let options = CouplingOptions {
-        settings: parse_coupling_settings(args)?,
-        findings: parse_findings(args)?,
-        plugin_host: ctx.plugin_host.clone(),
-    };
+) -> Result<ToolCallResult, ToolCallResult> {
+    let settings = parse_coupling_settings(args)?;
+    let findings = parse_findings(args)?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    render_mcp_tool(coupling(&folder, &options), format)
+    let result = ctx
+        .with_workspace(&folder, std::convert::identity, |workspace| {
+            coupling::coupling_with_workspace(workspace, settings, findings)
+        })
+        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
+    render_mcp_tool(result, format)
 }
 
-fn parse_format(args: Option<&Value>) -> Result<McpFormat, Value> {
+fn parse_format(args: Option<&Value>) -> Result<McpFormat, ToolCallResult> {
     parse_optional_arg(args, "format", McpFormat::Toon, |value| {
         match value.as_str() {
             Some("toon") => Ok(McpFormat::Toon),
@@ -552,7 +745,7 @@ fn parse_format(args: Option<&Value>) -> Result<McpFormat, Value> {
     })
 }
 
-fn parse_string_array(args: Option<&Value>, name: &str) -> Result<Vec<String>, Value> {
+fn parse_string_array(args: Option<&Value>, name: &str) -> Result<Vec<String>, ToolCallResult> {
     match args.and_then(|a| a.get(name)) {
         Some(Value::Array(items)) => items
             .iter()
@@ -571,14 +764,14 @@ fn parse_string_array(args: Option<&Value>, name: &str) -> Result<Vec<String>, V
     }
 }
 
-fn parse_usize_arg(value: &Value, error_message: &str) -> Result<usize, Value> {
+fn parse_usize_arg(value: &Value, error_message: &str) -> Result<usize, ToolCallResult> {
     value
         .as_u64()
         .and_then(|n| usize::try_from(n).ok())
         .ok_or_else(|| tool_err(error_message))
 }
 
-fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, Value> {
+fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, ToolCallResult> {
     let defaults = CouplingSettings::default();
     let window = parse_churn_window(args)?;
     let max_commit_files = parse_optional_arg(
@@ -605,7 +798,7 @@ fn parse_coupling_settings(args: Option<&Value>) -> Result<CouplingSettings, Val
     })
 }
 
-fn parse_bool_arg(value: &Value, name: &str) -> Result<bool, Value> {
+fn parse_bool_arg(value: &Value, name: &str) -> Result<bool, ToolCallResult> {
     value
         .as_bool()
         .ok_or_else(|| tool_err(&format!("Argument {name} must be a boolean")))
@@ -615,15 +808,15 @@ fn parse_optional_arg<T>(
     args: Option<&Value>,
     name: &str,
     default: T,
-    parse: impl FnOnce(&Value) -> Result<T, Value>,
-) -> Result<T, Value> {
+    parse: impl FnOnce(&Value) -> Result<T, ToolCallResult>,
+) -> Result<T, ToolCallResult> {
     match args.and_then(|a| a.get(name)).filter(|v| !v.is_null()) {
         Some(value) => parse(value),
         None => Ok(default),
     }
 }
 
-fn parse_positive_usize(value: &Value, name: &str) -> Result<usize, Value> {
+fn parse_positive_usize(value: &Value, name: &str) -> Result<usize, ToolCallResult> {
     value
         .as_u64()
         .and_then(|n| usize::try_from(n).ok())
@@ -631,14 +824,14 @@ fn parse_positive_usize(value: &Value, name: &str) -> Result<usize, Value> {
         .ok_or_else(|| tool_err(&format!("Argument {name} must be a positive integer")))
 }
 
-fn parse_ratio(value: &Value) -> Result<CouplingRatio, Value> {
+fn parse_ratio(value: &Value) -> Result<CouplingRatio, ToolCallResult> {
     let ratio = value
         .as_f64()
         .ok_or_else(|| tool_err("Argument min_ratio must be a number between 0 and 1"))?;
     CouplingRatio::new(ratio).map_err(|err| tool_err(&format!("Invalid min_ratio: {err}")))
 }
 
-fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, Value> {
+fn parse_churn_window(args: Option<&Value>) -> Result<ChurnWindow, ToolCallResult> {
     let since_val = args.and_then(|a| a.get("since")).filter(|v| !v.is_null());
     let commits_val = args.and_then(|a| a.get("commits")).filter(|v| !v.is_null());
     if since_val.is_some() && commits_val.is_some() {
@@ -671,7 +864,7 @@ fn parse_package(args: Option<&Value>) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> Result<PathBuf, Value> {
+fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> Result<PathBuf, ToolCallResult> {
     parse_optional_arg(args, "path", default_folder.to_path_buf(), |value| {
         let path = value
             .as_str()
@@ -688,7 +881,7 @@ fn resolve_folder(args: Option<&Value>, default_folder: &Path) -> Result<PathBuf
     })
 }
 
-fn parse_findings(args: Option<&Value>) -> Result<FindingsShown, Value> {
+fn parse_findings(args: Option<&Value>) -> Result<FindingsShown, ToolCallResult> {
     let all = parse_optional_arg(args, "all", false, |value| parse_bool_arg(value, "all"))?;
     Ok(if all {
         FindingsShown::All
@@ -697,24 +890,25 @@ fn parse_findings(args: Option<&Value>) -> Result<FindingsShown, Value> {
     })
 }
 
-fn tool_ok_text(text: String) -> Value {
-    json!({
-        "content": [{ "type": "text", "text": text }],
-        "isError": false,
-    })
+fn tool_ok_text(text: String) -> ToolCallResult {
+    ToolCallResult {
+        content: [ToolTextContent {
+            content_type: "text",
+            text,
+        }],
+        is_error: false,
+    }
 }
 
-fn tool_err(message: &str) -> Value {
-    json!({
-        "content": [{ "type": "text", "text": message }],
-        "isError": true,
-    })
+fn tool_err(message: &str) -> ToolCallResult {
+    ToolCallResult {
+        content: [ToolTextContent {
+            content_type: "text",
+            text: message.to_owned(),
+        }],
+        is_error: true,
+    }
 }
 
-fn rpc_error(id: Value, code: i64, message: &str) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "error": { "code": code, "message": message },
-    })
-}
+#[cfg(test)]
+mod tests;
