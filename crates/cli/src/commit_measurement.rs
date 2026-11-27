@@ -39,6 +39,30 @@ struct PluginIdentity {
     version: String,
 }
 
+pub(crate) enum SnapshotRef<'a> {
+    Borrowed(&'a Snapshot),
+    Owned(Snapshot),
+}
+
+impl<'a> SnapshotRef<'a> {
+    pub(crate) fn get_or_open<E>(
+        snapshot: Option<&'a Snapshot>,
+        open: impl FnOnce() -> Result<Snapshot, E>,
+    ) -> Result<Self, E> {
+        match snapshot {
+            Some(opened) => Ok(Self::Borrowed(opened)),
+            None => Ok(Self::Owned(open()?)),
+        }
+    }
+
+    pub(crate) fn as_snapshot(&self) -> &Snapshot {
+        match self {
+            Self::Borrowed(snapshot) => snapshot,
+            Self::Owned(snapshot) => snapshot,
+        }
+    }
+}
+
 pub(crate) struct CommitMeasurer<'run> {
     repository: &'run Repository,
     configuration: &'run Configuration,
@@ -132,16 +156,13 @@ impl<'run> CommitMeasurer<'run> {
         {
             return Ok(cached);
         }
-        let owned_snapshot;
-        let tree = match snapshot {
-            Some(opened) => opened,
-            None => {
-                owned_snapshot = self.repository.commit(commit)?;
-                &owned_snapshot
-            }
-        };
-        let measurement =
-            measure_all_languages_selected(tree, self.plugins, self.configuration, selected)?;
+        let tree = SnapshotRef::get_or_open(snapshot, || self.repository.commit(commit))?;
+        let measurement = measure_all_languages_selected(
+            tree.as_snapshot(),
+            self.plugins,
+            self.configuration,
+            selected,
+        )?;
         if let Some(cache) = self.result_cache
             && let Err(error) = cache.write(commit, &self.settings, &measurement)
         {

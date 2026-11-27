@@ -10,7 +10,8 @@ use codeint_report::{
 
 use crate::check::{CheckError, PreparedRun, SelectedPackage, WorkspaceContext};
 use crate::commit_measurement::{
-    CommitMeasurer, measure_all_languages_for_package, measure_all_languages_with_new_files,
+    CommitMeasurer, SnapshotRef, measure_all_languages_for_package,
+    measure_all_languages_with_new_files,
 };
 
 pub(crate) struct Refs<'a> {
@@ -248,32 +249,18 @@ fn measure_head_without_new_files(
     result_cache: Option<&ResultCache>,
 ) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
     let Some(commit) = head_commit else {
-        let owned_snapshot;
-        let tree = match head_snapshot {
-            Some(opened) => opened,
-            None => {
-                owned_snapshot = context.repository.working_tree()?;
-                &owned_snapshot
-            }
-        };
+        let tree = SnapshotRef::get_or_open(head_snapshot, || context.repository.working_tree())?;
         return measure_all_languages_for_package(
-            tree,
+            tree.as_snapshot(),
             &context.plugins,
             &context.configuration,
             package,
         );
     };
     if let Some(requested) = package {
-        let owned_snapshot;
-        let tree = match head_snapshot {
-            Some(opened) => opened,
-            None => {
-                owned_snapshot = context.repository.commit(commit)?;
-                &owned_snapshot
-            }
-        };
+        let tree = SnapshotRef::get_or_open(head_snapshot, || context.repository.commit(commit))?;
         measure_all_languages_for_package(
-            tree,
+            tree.as_snapshot(),
             &context.plugins,
             &context.configuration,
             Some(requested),
