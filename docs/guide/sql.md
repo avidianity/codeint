@@ -129,13 +129,14 @@ See [Hazards](./hazards.md) for how Hazards works and [docs/reference.md#sql](..
 
 ## Reference ranges
 
-Calibrated SQL Reference ranges come from a stratified panel of 50 current public SQL repositories ([ADR 0028](../adr/0028-stratified-reference-panels.md), source `codeint stratified panel of 50 SQL repositories, ADR 0028, codeint 0.6.0`):
+Calibrated SQL Reference ranges come from a stratified panel of 77 current public SQL repositories ([ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md), source `codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0`):
 
 | Metric | Reference range |
 | ------ | --------------- |
-| Erosion | 0.0% to 79.5% |
-| Duplication | 0.1% to 90.9% |
+| Erosion | 0.0% to 91.8% |
+| Cognitive complexity | 0.0% to 90.2% |
+| Duplication | 0.0% to 90.9% |
 | Verbosity | 0.0% to 0.0% |
 | Import cycles | N/A |
 
-`codeint check` displays these Reference ranges next to SQL values for Erosion, Duplication, and Verbosity; Import cycles stays absent because SQL has no runtime imports.
+`codeint check` displays these Reference ranges next to SQL values for Erosion, Cognitive complexity, Duplication, and Verbosity; Import cycles stays absent because SQL has no runtime imports.

@@ -12,7 +12,7 @@ use codeint_model::language::{
     DeclaredDep, FileModel, Guest, ImportRequest, LowerError, Manifest, ReferenceRange, Resolution,
     Token, TokenKind, WorkspaceError,
 };
-use codeint_model::scan::build_reference_ranges;
+use codeint_model::scan::CoreReferenceRanges;
 use codeint_model::{path_file_name, token_text_hash};
 
 use crate::lexer::{ShellToken, ShellTokenKind};
@@ -72,14 +72,14 @@ impl Guest for Shell {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        build_reference_ranges(
-            "codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0",
-            [
-                ("erosion", 1, 0.416, 0.927),
-                ("verbosity", 2, 0.000, 0.025),
-                ("duplication", 1, 0.008, 0.751),
-            ],
-        )
+        CoreReferenceRanges {
+            erosion: (0.364, 0.930),
+            cognitive_complexity: (0.218, 0.828),
+            verbosity: (0.000, 0.031),
+            duplication: (0.003, 0.713),
+            import_cycles: None,
+        }
+        .build("codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0")
     }
 
     fn declared_dependencies(_: Vec<Manifest>) -> Vec<DeclaredDep> {

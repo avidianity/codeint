@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use codeint_model::language::{
-    DeclaredDep, FileModel, Function, ImportRequest, Manifest, ReferenceRange, Resolution,
+    DeclaredDep, FileModel, Function, ImportRequest, Manifest, Resolution,
 };
 use codeint_model::{
     InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges,
@@ -184,22 +184,15 @@ impl LanguagePlugin for Sql {
     }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        let source = "codeint stratified panel of 50 SQL repositories, ADR 0028, codeint 0.6.0";
         ReferenceRanges::new(
-            [
-                ("erosion", 1, 0.000, 0.795),
-                ("verbosity", 2, 0.000, 0.000),
-                ("duplication", 1, 0.001, 0.909),
-            ]
-            .into_iter()
-            .map(|(metric, metric_version, low, high)| ReferenceRange {
-                metric: metric.to_owned(),
-                metric_version,
-                low,
-                high,
-                source: source.to_owned(),
-            })
-            .collect(),
+            codeint_model::scan::CoreReferenceRanges {
+                erosion: (0.000, 0.918),
+                cognitive_complexity: (0.000, 0.902),
+                verbosity: (0.000, 0.000),
+                duplication: (0.000, 0.909),
+                import_cycles: None,
+            }
+            .build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
         )
     }
 

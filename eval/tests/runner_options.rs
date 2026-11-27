@@ -155,39 +155,53 @@ fn parallel_jobs_preserves_manifest_order_and_apply_verdicts_rerenders_summary()
     assert!(markdown.contains("agent-reviewed"), "{markdown}");
 }
 
-#[test]
-fn missing_declared_language_fails_repository_instead_of_falling_back() {
+fn run_single_repo_eval(
+    repo_dir: &str,
+    relative_file: &str,
+    file_body: &str,
+    entry_name: &str,
+    language: &str,
+    fake_report: &str,
+    expected_code: i32,
+) -> (Value, String) {
     let work = TempDir::new().expect("work");
     let scratch = TempDir::new().expect("scratch");
-    let (folder, commit) = init_repo(
-        work.path(),
-        "py_only",
-        "src/app.py",
-        "def f():\n    return 1\n",
-    );
-    let fake_codeint = write_fake_codeint(
-        work.path(),
-        "fake-codeint-multi.sh",
-        r#"{"languages":{"python":{"source_sets":{"production":{"source_lines":3000,"import_cycles":{"ratio":0.0,"metric_version":1}}}}},"source_sets":{"production":{"source_lines":3000,"import_cycles":{"ratio":0.0,"metric_version":1},"verbosity":{"findings":[]},"orphan_files":{"findings":[]}}}}"#,
-    );
-
+    let (folder, commit) = init_repo(work.path(), repo_dir, relative_file, file_body);
+    let fake_codeint = write_fake_codeint(work.path(), "fake-codeint.sh", fake_report);
     let manifest = work.path().join("manifest.json");
     let body = json!({
-        "measured_on": "2026-11-26",
-        "repositories": [
-            {"name": "local/misclassified-sql", "language": "sql", "bucket": "small", "url": format!("file://{}", folder.display()), "commit": commit}
-        ]
+        "measured_on": "2026-11-27",
+        "repositories": [{
+            "name": entry_name,
+            "language": language,
+            "bucket": "small",
+            "url": format!("file://{}", folder.display()),
+            "commit": commit
+        }]
     });
     std::fs::write(&manifest, body.to_string()).expect("manifest");
     let out = work.path().join("out");
-
     let run = run_eval(&manifest, &fake_codeint, &out, scratch.path(), &[]);
-    assert_eq!(run.status.code(), Some(1), "{run:?}");
-
+    assert_eq!(run.status.code(), Some(expected_code), "{run:?}");
     let summary: Value = serde_json::from_str(
         &std::fs::read_to_string(out.join("evaluation-summary.json")).expect("summary"),
     )
     .expect("json");
+    let markdown = std::fs::read_to_string(out.join("evaluation.md")).expect("markdown");
+    (summary, markdown)
+}
+
+#[test]
+fn missing_declared_language_fails_repository_instead_of_falling_back() {
+    let (summary, _) = run_single_repo_eval(
+        "py_only",
+        "src/app.py",
+        "def f():\n    return 1\n",
+        "local/misclassified-sql",
+        "sql",
+        r#"{"languages":{"python":{"source_sets":{"production":{"source_lines":3000,"import_cycles":{"ratio":0.0,"metric_version":1}}}}},"source_sets":{"production":{"source_lines":3000,"import_cycles":{"ratio":0.0,"metric_version":1},"verbosity":{"findings":[]},"orphan_files":{"findings":[]}}}}"#,
+        1,
+    );
     assert_eq!(summary["passed"], false);
     assert_eq!(summary["repositories"][0]["passed"], false);
     assert!(
@@ -199,5 +213,30 @@ fn missing_declared_language_fails_repository_instead_of_falling_back() {
     assert!(
         summary["panels"][0]["metrics"]["import_cycles"].is_null(),
         "{summary}"
+    );
+}
+
+#[test]
+fn cognitive_complexity_is_collected_into_panel_distributions_and_markdown_tables() {
+    let (summary, markdown) = run_single_repo_eval(
+        "sql_repo",
+        "src/a.sql",
+        "SELECT 1;\n",
+        "local/sql",
+        "sql",
+        r#"{"source_sets":{"production":{"source_lines":3000,"erosion":{"ratio":0.25,"metric_version":1},"cognitive_complexity":{"ratio":0.125,"metric_version":1},"verbosity":{"ratio":0.0,"metric_version":2,"findings":[]},"duplication":{"ratio":0.05,"metric_version":1},"orphan_files":{"findings":[]}}}}"#,
+        0,
+    );
+    assert_eq!(
+        summary["panels"][0]["metrics"]["cognitive_complexity"]["version"],
+        1
+    );
+    assert_eq!(
+        summary["panels"][0]["metrics"]["cognitive_complexity"]["distribution"]["p10"],
+        0.125
+    );
+    assert!(
+        markdown.contains("| Cognitive complexity | 1 |"),
+        "{markdown}"
     );
 }

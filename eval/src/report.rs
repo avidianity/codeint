@@ -88,8 +88,9 @@ fn write_header(out: &mut String, summary: &EvaluationSummary) {
     );
 }
 
-const METRIC_TITLES: [(&str, &str); 4] = [
+const METRIC_TITLES: [(&str, &str); 5] = [
     ("erosion", "Erosion"),
+    ("cognitive_complexity", "Cognitive complexity"),
     ("verbosity", "Verbosity"),
     ("duplication", "Duplication"),
     ("import_cycles", "Import cycles"),

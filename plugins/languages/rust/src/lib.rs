@@ -75,15 +75,14 @@ impl Guest for Rust {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        codeint_model::scan::build_reference_ranges(
-            "codeint stratified panel of 50 Rust repositories, ADR 0028, codeint 0.6.0",
-            [
-                ("erosion", 1, 0.212, 0.716),
-                ("verbosity", 2, 0.000, 0.005),
-                ("duplication", 1, 0.041, 0.314),
-                ("import_cycles", 1, 0.000, 0.574),
-            ],
-        )
+        codeint_model::scan::CoreReferenceRanges {
+            erosion: (0.245, 0.704),
+            cognitive_complexity: (0.176, 0.585),
+            verbosity: (0.000, 0.005),
+            duplication: (0.047, 0.377),
+            import_cycles: Some((0.000, 0.611)),
+        }
+        .build("codeint stratified panel of 100 Rust repositories, ADR 0035, codeint 0.8.0")
     }
 
     fn resolve_imports(

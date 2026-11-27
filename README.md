@@ -40,16 +40,16 @@ It ships with eight built-in Language plugins covering TypeScript/JavaScript (wi
 codeint reports every Metric side by side and never collapses them into one grade or index ([ADR 0003](./docs/adr/0003-no-combined-score.md)).
 A single score hides regressions when one Metric improves while another worsens.
 
-Four core Metrics are calibrated against stratified panels of current public repositories ([ADR 0028](./docs/adr/0028-stratified-reference-panels.md)):
+Five core Metrics are calibrated against stratified panels of current public repositories ([ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md)):
 
 - **Erosion**: share of Function mass (`cyclomatic_complexity * sqrt(source_lines)`) in functions with cyclomatic complexity over 10, reported with function names.
+- **Cognitive complexity**: share of total nesting-weighted cognitive complexity held by functions scoring over 15.
 - **Duplication**: share of source lines in exact Clone groups (at least 75 normalized tokens and 14 distinct normalized tokens, catching renamed copy-paste while ignoring import lists and data tables), grouped into Clone families across three or more locations, with opt-in shingle-based near-clone detection.
 - **Verbosity**: share of source lines in zero-false-positive Flagged lines (independent of Duplication, [ADR 0024](./docs/adr/0024-verbosity-decoupling.md)).
 - **Import cycles**: share of modules in at least one runtime Import cycle.
 
 Additional independent Metrics and structural checks run in the same pass:
 
-- **Cognitive complexity**: share of total nesting-weighted cognitive complexity held by functions scoring over 15.
 - **Test gap**: share of total Production Function mass not executed by tests, read from user-named LCOV or Cobertura XML Coverage reports without running your test suite, listing the heaviest untested functions first ([Test gap guide](./docs/guide/test-gap.md), [ADR 0017](./docs/adr/0017-test-gap-from-coverage-reports.md)).
 - **Orphan files**: Production files unreachable from manifest-declared, program-start, and configured `entry_points`, classified as `unreferenced` or `test-only`.
 - **Dependency hygiene**: three independent Metrics (`unused_dependencies`, `unlisted_dependencies`, and `dev_in_production_dependencies`) comparing `package.json`, `Cargo.toml`, `pyproject.toml`, `composer.json`, `pubspec.yaml`, and `go.mod` against imported external packages while excluding standard-library built-ins.
@@ -88,23 +88,23 @@ Read [docs/guide/philosophy-and-architecture.md](./docs/guide/philosophy-and-arc
 
 ## Calibrated Reference ranges
 
-10th to 90th percentile across stratified panels of 50 current public repositories per built-in language and 20 current public repositories per calibrated Framework profile ([ADR 0028](./docs/adr/0028-stratified-reference-panels.md)):
+10th to 90th percentile across stratified panels of up to 100 current public repositories per built-in language (77 for SQL under the `200+`-star floor) and 50 current public repositories per calibrated Framework profile, sampled round-robin across three star bands ([ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md)):
 
-| Language | Erosion | Duplication | Verbosity | Import cycles | Docs |
-| -------- | ------- | ----------- | --------- | ------------- | ---- |
-| TypeScript / JavaScript | 20.6% to 73.1% | 0.6% to 19.4% | 0.0% to 0.1% | 0.0% to 18.4% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| React (`.jsx` / `.tsx`) | 27.9% to 55.1% | 2.9% to 45.6% | 0.0% to 0.1% | 0.0% to 8.3% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| Vue 2 (`.vue`) | 9.9% to 57.6% | 1.5% to 28.7% | 0.0% to 0.3% | 0.0% to 11.5% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| Vue 3 (`.vue`) | 10.1% to 45.2% | 1.2% to 19.4% | 0.0% to 0.1% | 0.0% to 7.4% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| Rust | 21.2% to 71.6% | 4.1% to 31.4% | 0.0% to 0.5% | 0.0% to 57.4% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| PHP | 8.4% to 63.0% | 1.7% to 18.9% | 0.0% to 0.5% | 0.0% to 14.5% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| Dart | 2.3% to 47.9% | 2.4% to 26.2% | 0.0% to 0.8% | 1.3% to 48.5% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| Python | 33.1% to 73.4% | 0.8% to 17.2% | 0.0% to 0.9% | 0.0% to 43.7% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| Go | 32.5% to 67.4% | 2.5% to 18.1% | 0.0% to 0.2% | 0.0% to 0.0% | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| SQL | 0.0% to 79.5% | 0.1% to 90.9% | 0.0% to 0.0% | N/A | [ADR 0028](./docs/adr/0028-stratified-reference-panels.md) |
-| Shell | 41.6% to 92.7% | 0.8% to 75.1% | 0.0% to 2.5% | N/A | [ADR 0031](./docs/adr/0031-shell-reference-ranges.md) |
+| Language | Erosion | Cognitive complexity | Duplication | Verbosity | Import cycles | Docs |
+| -------- | ------- | -------------------- | ----------- | --------- | ------------- | ---- |
+| TypeScript / JavaScript | 18.7% to 67.1% | 12.1% to 53.2% | 1.8% to 25.2% | 0.0% to 0.2% | 0.0% to 18.2% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| React (`.jsx` / `.tsx`) | 5.4% to 56.6% | 3.8% to 39.9% | 2.6% to 31.5% | 0.0% to 0.1% | 0.0% to 20.2% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| Vue 2 (`.vue`) | 2.5% to 47.9% | 3.3% to 40.6% | 2.3% to 26.7% | 0.0% to 0.3% | 0.0% to 12.8% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| Vue 3 (`.vue`) | 4.2% to 43.8% | 2.2% to 29.7% | 2.1% to 29.7% | 0.0% to 0.2% | 0.0% to 32.5% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| Rust | 24.5% to 70.4% | 17.6% to 58.5% | 4.7% to 37.7% | 0.0% to 0.5% | 0.0% to 61.1% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| PHP | 6.4% to 59.1% | 4.4% to 54.2% | 2.5% to 20.9% | 0.0% to 0.4% | 0.0% to 13.3% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| Dart | 3.9% to 49.7% | 0.0% to 37.7% | 2.7% to 25.6% | 0.0% to 1.1% | 6.1% to 60.0% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| Python | 23.9% to 71.7% | 24.9% to 63.7% | 1.1% to 22.0% | 0.0% to 1.1% | 0.0% to 44.6% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| Go | 30.4% to 74.6% | 30.6% to 67.1% | 3.4% to 24.3% | 0.0% to 0.4% | 0.0% to 0.0% | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| SQL | 0.0% to 91.8% | 0.0% to 90.2% | 0.0% to 90.9% | 0.0% to 0.0% | N/A | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
+| Shell | 36.4% to 93.0% | 21.8% to 82.8% | 0.3% to 71.3% | 0.0% to 3.1% | N/A | [ADR 0035](./docs/adr/0035-stratified-100-repository-reference-panels.md) |
 
-See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings, and [docs/evaluation.md](./docs/evaluation.md) for the full 410-repository Evaluation suite report, native-parser recall, and agent-reviewed audit.
+See [docs/guide/languages.md](./docs/guide/languages.md) for per-language rules and sample repository timings, and [docs/evaluation.md](./docs/evaluation.md) for the full 927-repository Evaluation suite report, native-parser recall, and agent-reviewed audit.
 
 ## Quick start
 

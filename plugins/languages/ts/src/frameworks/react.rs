@@ -6,7 +6,7 @@ use super::{
 };
 
 const REACT_REFERENCE_SOURCE: &str =
-    "codeint stratified panel of 20 React repositories, ADR 0028, codeint 0.6.0";
+    "codeint stratified panel of 50 React repositories, ADR 0035, codeint 0.8.0";
 
 const MAIN_ENTRIES: [&str; 4] = ["src/main.tsx", "src/main.jsx", "src/main.ts", "src/main.js"];
 const INDEX_ENTRIES: [&str; 4] = [
@@ -68,10 +68,11 @@ fn reference_ranges(ctx: &PackageContext<'_>) -> Option<Vec<ReferenceRange>> {
         &["jsx", "tsx"],
         REACT_REFERENCE_SOURCE,
         [
-            ("erosion", 1, 0.279, 0.551),
+            ("erosion", 1, 0.054, 0.566),
+            ("cognitive_complexity", 1, 0.038, 0.399),
             ("verbosity", 2, 0.000, 0.001),
-            ("duplication", 1, 0.029, 0.456),
-            ("import_cycles", 1, 0.000, 0.083),
+            ("duplication", 1, 0.026, 0.315),
+            ("import_cycles", 1, 0.000, 0.202),
         ],
     )
 }

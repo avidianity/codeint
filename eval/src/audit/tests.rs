@@ -32,3 +32,40 @@ fn seed_depends_on_the_set_of_commits_not_their_order() {
     assert_eq!(seed_for(&first), seed_for(&second));
     assert_ne!(seed_for(&first), seed_for(&["c".repeat(40)]));
 }
+
+#[test]
+fn polyglot_duplicate_repository_commits_and_findings_are_deduplicated() {
+    let sha = "a".repeat(40);
+    assert_eq!(
+        seed_for(&[sha.clone(), sha.clone()]),
+        seed_for(std::slice::from_ref(&sha))
+    );
+    let report = serde_json::json!({
+        "source_sets": {
+            "production": {
+                "verbosity": {
+                    "findings": [{"path": "src/a.py", "line": 4, "rule": "else-after-return"}]
+                },
+                "orphan_files": {
+                    "findings": [{"path": "src/dead.py", "kind": "unreferenced"}]
+                }
+            }
+        }
+    });
+    let mut pop = AuditPopulation::default();
+    pop.add_repository("owner/polyglot", &sha, &report, &[]);
+    pop.add_repository("owner/polyglot", &sha, &report, &[]);
+    let samples = pop.draw(10);
+    let flagged = samples
+        .iter()
+        .find(|s| s.category == AuditCategory::FlaggedLines)
+        .expect("flagged sample");
+    let orphans = samples
+        .iter()
+        .find(|s| s.category == AuditCategory::OrphanFiles)
+        .expect("orphan sample");
+    assert_eq!(flagged.population, 1);
+    assert_eq!(flagged.items.len(), 1);
+    assert_eq!(orphans.population, 1);
+    assert_eq!(orphans.items.len(), 1);
+}

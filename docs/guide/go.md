@@ -120,13 +120,14 @@ In a multi-module repository, each Go module is checked independently against it
 
 ## Reference ranges
 
-Calibrated Go Reference ranges come from a stratified panel of 50 current public Go repositories (10th to 90th percentile, [ADR 0028](../adr/0028-stratified-reference-panels.md), source `codeint stratified panel of 50 Go repositories, ADR 0028, codeint 0.6.0`):
+Calibrated Go Reference ranges come from a stratified panel of 100 current public Go repositories (10th to 90th percentile, [ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md), source `codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0`):
 
 | Metric | Reference range |
 | ------ | --------------- |
-| Erosion | 32.5% to 67.4% |
-| Duplication | 2.5% to 18.1% |
-| Verbosity | 0.0% to 0.2% |
+| Erosion | 30.4% to 74.6% |
+| Cognitive complexity | 30.6% to 67.1% |
+| Duplication | 3.4% to 24.3% |
+| Verbosity | 0.0% to 0.4% |
 | Import cycles | 0.0% to 0.0% |
 
 See [Built-in Languages](./languages.md) and [docs/reference.md](../reference.md) for all languages, CLI commands, options, and configuration keys.

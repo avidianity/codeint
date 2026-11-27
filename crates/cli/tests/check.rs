@@ -186,16 +186,19 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          ratio: 0\n      \
          metric_version: 1\n      \
          reference_range:\n        \
-         low: 0.206\n        \
-         high: 0.731\n        \
-         source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n      \
+         low: 0.187\n        \
+         high: 0.671\n        \
+         source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n      \
          eroded_function_mass: 0\n      \
          total_function_mass: 0\n      \
          findings: []\n    \
          cognitive_complexity:\n      \
          ratio: 0\n      \
          metric_version: 1\n      \
-         reference_range: no published Reference range for this language\n      \
+         reference_range:\n        \
+         low: 0.121\n        \
+         high: 0.532\n        \
+         source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n      \
          complex_cognitive_complexity: 0\n      \
          total_cognitive_complexity: 0\n      \
          findings: []\n    \
@@ -203,9 +206,9 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          ratio: 0\n      \
          metric_version: 1\n      \
          reference_range:\n        \
-         low: 0.006\n        \
-         high: 0.194\n        \
-         source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n      \
+         low: 0.018\n        \
+         high: 0.252\n        \
+         source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n      \
          clone_lines: 0\n      \
          clone_groups: []\n    \
          verbosity:\n      \
@@ -213,8 +216,8 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          metric_version: 2\n      \
          reference_range:\n        \
          low: 0\n        \
-         high: 0.001\n        \
-         source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n      \
+         high: 0.002\n        \
+         source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n      \
          verbose_lines: 0\n      \
          flagged_lines: 0\n      \
          findings: []\n    \
@@ -223,8 +226,8 @@ fn report_without_findings(files: usize, source_lines: u64) -> String {
          metric_version: 1\n      \
          reference_range:\n        \
          low: 0\n        \
-         high: 0.184\n        \
-         source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n      \
+         high: 0.182\n        \
+         source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n      \
          modules_in_import_cycles: 0\n      \
          modules: {files}\n      \
          findings: []\n      \
@@ -280,8 +283,8 @@ fn check_reports_verbosity_as_the_share_of_source_lines_that_are_flagged_and_nam
          metric_version: 2\n  \
          reference_range:\n    \
          low: 0\n    \
-         high: 0.001\n    \
-         source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n  \
+         high: 0.002\n    \
+         source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n  \
          verbose_lines: 3\n  \
          flagged_lines: 3\n  \
          findings[3]{id,path,line,rule}:\n    \
@@ -330,8 +333,8 @@ fn verbosity_counts_only_flagged_lines_even_when_lines_are_also_duplicated() {
             "  metric_version: 2\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.001\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.002\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  verbose_lines: 3\n",
             "  flagged_lines: 3\n",
             "  findings[3]{id,path,line,rule}:\n",
@@ -630,9 +633,9 @@ fn erosion_reports_the_ratio_its_numerator_and_each_eroded_function() {
             "  ratio: 0.8889\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 48\n",
             "  total_function_mass: 54\n",
             "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
@@ -660,9 +663,9 @@ fn a_function_with_10_if_statements_is_eroded_and_one_with_9_is_not() {
             "  ratio: 0.7094\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 84.561\n",
             "  total_function_mass: 119.202\n",
             "  findings[2]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
@@ -689,9 +692,9 @@ fn a_repository_without_functions_reports_erosion_0() {
             "  ratio: 0\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 0\n",
             "  findings: []\n",
@@ -711,12 +714,13 @@ fn the_typescript_and_javascript_report_shows_the_approved_reference_ranges_with
     let output = repository.codeint(&["check"]);
 
     assert_success(&output);
-    let source = "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0";
+    let source = "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0";
     for (metric, low, high) in [
-        ("erosion", "0.206", "0.731"),
-        ("duplication", "0.006", "0.194"),
-        ("verbosity", "0", "0.001"),
-        ("import_cycles", "0", "0.184"),
+        ("erosion", "0.187", "0.671"),
+        ("cognitive_complexity", "0.121", "0.532"),
+        ("duplication", "0.018", "0.252"),
+        ("verbosity", "0", "0.002"),
+        ("import_cycles", "0", "0.182"),
     ] {
         let expected = format!(
             "  reference_range:\n    low: {low}\n    high: {high}\n    source: \"{source}\"\n"
@@ -754,9 +758,9 @@ fn a_callback_with_11_if_statements_is_the_finding_and_not_its_parent() {
             "  ratio: 0.9683\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 43.2666\n",
             "  total_function_mass: 44.6808\n",
             "  findings[1]{id,path,line,end_line,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
@@ -900,9 +904,9 @@ fn every_kind_of_decision_point_counts_toward_erosion() {
             "  ratio: 1\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 46.669\n",
             "  total_function_mass: 46.669\n",
             "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
@@ -941,9 +945,9 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
             "  ratio: 0.5338\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 39.6611\n",
             "  total_function_mass: 74.3021\n",
             "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
@@ -957,9 +961,9 @@ fn functions_of_test_files_count_toward_the_test_source_set_only() {
             "  ratio: 1\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 44.8999\n",
             "  total_function_mass: 44.8999\n",
             "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
@@ -1088,9 +1092,9 @@ fn a_source_set_without_files_is_left_out_of_the_report() {
             "  ratio: 0\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.206\n",
-            "    high: 0.731\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.187\n",
+            "    high: 0.671\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  eroded_function_mass: 0\n",
             "  total_function_mass: 1.7321\n",
             "  findings: []\n",
@@ -1394,7 +1398,7 @@ fn assert_unwritable_output(output: &Output, path: &str) {
     );
 }
 
-const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  metric_version: 1\n  reference_range:\n    low: 0.006\n    high: 0.194\n    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n  clone_lines: 0\n  clone_groups: []\n";
+const NO_DUPLICATION: &str = "duplication:\n  ratio: 0\n  metric_version: 1\n  reference_range:\n    low: 0.018\n    high: 0.252\n    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n  clone_lines: 0\n  clone_groups: []\n";
 
 const CART_TOTAL: &str = concat!(
     "export function total(items: { price: number; discount: number; quantity: number }[]): number {\n",
@@ -1429,9 +1433,9 @@ fn two_copies_of_one_function_across_files_form_one_clone_group_with_both_locati
             "  ratio: 0.9\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.006\n",
-            "    high: 0.194\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.018\n",
+            "    high: 0.252\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1484,9 +1488,9 @@ fn copies_that_differ_only_in_names_and_literal_values_form_one_clone_group() {
             "  ratio: 1\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.006\n",
-            "    high: 0.194\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.018\n",
+            "    high: 0.252\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1564,9 +1568,9 @@ fn a_copy_of_74_tokens_is_not_a_clone_group_and_a_copy_of_75_tokens_is() {
             "  ratio: 1\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.006\n",
-            "    high: 0.194\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.018\n",
+            "    high: 0.252\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  clone_lines: 20\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1717,9 +1721,9 @@ fn a_copied_function_after_a_shared_import_list_forms_a_clone_group_of_the_funct
             "  ratio: 0.4737\n",
             "  metric_version: 1\n",
             "  reference_range:\n",
-            "    low: 0.006\n",
-            "    high: 0.194\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    low: 0.018\n",
+            "    high: 0.252\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  clone_lines: 18\n",
             "  clone_groups[1]:\n",
             "    - id: <id>\n",
@@ -1759,8 +1763,8 @@ fn no_import_cycles(modules: usize) -> String {
          \x20 metric_version: 1\n\
          \x20 reference_range:\n\
          \x20   low: 0\n\
-         \x20   high: 0.184\n\
-         \x20   source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n\
+         \x20   high: 0.182\n\
+         \x20   source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n\
          \x20 modules_in_import_cycles: 0\n\
          \x20 modules: {modules}\n\
          \x20 findings: []\n\
@@ -1806,8 +1810,8 @@ fn three_files_that_import_each_other_in_a_ring_form_one_import_cycle() {
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
@@ -1854,8 +1858,8 @@ fn a_cycle_through_a_tsconfig_path_alias_is_an_import_cycle() {
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -1918,8 +1922,8 @@ fn a_cycle_through_the_exports_of_a_workspace_package_is_an_import_cycle() {
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -1993,8 +1997,8 @@ fn dynamic_import_and_require_are_runtime_imports_that_close_a_cycle() {
             "1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 4\n",
             "  findings[1]:\n",
@@ -2063,8 +2067,8 @@ fn a_mixed_import_or_reexport_with_one_value_specifier_closes_an_import_cycle() 
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 3\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -2108,8 +2112,8 @@ fn each_import_cycle_is_a_finding_and_the_ratio_counts_every_module_in_one() {
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 5\n",
             "  modules: 7\n",
             "  findings[3]:\n",
@@ -2215,8 +2219,8 @@ fn each_source_set_finds_import_cycles_only_among_its_own_modules() {
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 2\n",
             "  findings[1]:\n",
@@ -2255,8 +2259,8 @@ fn unresolved_imports_are_counted_and_listed_and_the_import_cycle_is_still_found
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 2\n",
             "  modules: 3\n",
             "  findings[1]:\n",
@@ -2386,8 +2390,8 @@ fn an_unresolved_import_of_a_test_file_is_reported_in_the_test_source_set_only()
             "  metric_version: 1\n",
             "  reference_range:\n",
             "    low: 0\n",
-            "    high: 0.184\n",
-            "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+            "    high: 0.182\n",
+            "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
             "  modules_in_import_cycles: 0\n",
             "  modules: 1\n",
             "  findings: []\n",
@@ -3364,9 +3368,9 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "ratio": 0.0,
         "metric_version": 1,
         "reference_range": {
-          "low": 0.206,
-          "high": 0.731,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "low": 0.187,
+          "high": 0.671,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "eroded_function_mass": 0.0,
         "total_function_mass": 5.2915,
@@ -3375,7 +3379,11 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
       "cognitive_complexity": {
         "ratio": 0.0,
         "metric_version": 1,
-        "reference_range": "no published Reference range for this language",
+        "reference_range": {
+          "low": 0.121,
+          "high": 0.532,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
+        },
         "complex_cognitive_complexity": 0,
         "total_cognitive_complexity": 2,
         "findings": []
@@ -3384,9 +3392,9 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "ratio": 0.0,
         "metric_version": 1,
         "reference_range": {
-          "low": 0.006,
-          "high": 0.194,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "low": 0.018,
+          "high": 0.252,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "clone_lines": 0,
         "clone_groups": []
@@ -3396,8 +3404,8 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "metric_version": 2,
         "reference_range": {
           "low": 0.0,
-          "high": 0.001,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "high": 0.002,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "verbose_lines": 1,
         "flagged_lines": 1,
@@ -3415,8 +3423,8 @@ fn format_json_prints_the_report_as_json_with_the_documented_shape() {
         "metric_version": 1,
         "reference_range": {
           "low": 0.0,
-          "high": 0.184,
-          "source": "codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0"
+          "high": 0.182,
+          "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
         },
         "modules_in_import_cycles": 0,
         "modules": 1,
@@ -3689,9 +3697,9 @@ const TWO_PACKAGE_EROSION: &str = concat!(
     "  ratio: 0.8209\n",
     "  metric_version: 1\n",
     "  reference_range:\n",
-    "    low: 0.206\n",
-    "    high: 0.731\n",
-    "    source: \"codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0\"\n",
+    "    low: 0.187\n",
+    "    high: 0.671\n",
+    "    source: \"codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0\"\n",
     "  eroded_function_mass: 44.8999\n",
     "  total_function_mass: 54.6978\n",
     "  findings[1]{id,path,line,end_line,name,cyclomatic_complexity,cognitive_complexity,source_lines,function_mass}:\n",
@@ -4211,7 +4219,7 @@ fn format_markdown_lists_each_metric_over_its_budget_after_the_metric_table_and_
     assert_eq!(output.status.code(), Some(1));
     assert!(
         stdout(&output).contains(
-            "| 0 to 0.184, source: codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0 |\n\
+            "| 0 to 0.182, source: codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0 |\n\
              \n\
              ## Over Budget\n\
              \n\
@@ -4235,7 +4243,7 @@ fn format_markdown_lists_the_ratios_of_each_workspace_package_after_the_metric_t
     assert_success(&output);
     assert!(
         stdout(&output).contains(
-            "| 0 to 0.184, source: codeint stratified panel of 50 TypeScript and JavaScript repositories, ADR 0028, codeint 0.6.0 |\n\
+            "| 0 to 0.182, source: codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0 |\n\
              \n\
              ## Workspace packages\n\
              \n\
@@ -5144,7 +5152,11 @@ fn cognitive_complexity_reports_independently_with_budgets_and_no_uncalibrated_r
     assert_eq!(cog["total_cognitive_complexity"], 22);
     assert_eq!(
         cog["reference_range"],
-        "no published Reference range for this language"
+        serde_json::json!({
+            "low": 0.121,
+            "high": 0.532,
+            "source": "codeint stratified panel of 100 TypeScript and JavaScript repositories, ADR 0035, codeint 0.8.0"
+        })
     );
     let cog_findings = cog["findings"].as_array().expect("cog findings");
     assert_eq!(cog_findings.len(), 1);
@@ -5384,8 +5396,8 @@ fn three_plus_copies_cluster_into_worst_first_clone_families_across_formats_with
     assert!(verbosity.get("clone_lines").is_none());
     assert_eq!(verbosity["verbose_lines"], 0);
     assert_eq!(verbosity["ratio"], 0.0);
-    assert_eq!(duplication["reference_range"]["low"], 0.006);
-    assert_eq!(duplication["reference_range"]["high"], 0.194);
+    assert_eq!(duplication["reference_range"]["low"], 0.018);
+    assert_eq!(duplication["reference_range"]["high"], 0.252);
 
     assert_eq!(families.len(), 2);
     assert_eq!(families[0]["duplicated_lines"], 30);
@@ -5531,7 +5543,7 @@ fn near_clone_detection_catches_one_line_edit_when_enabled_preserves_verbosity_a
     assert!(verb.get("clone_lines").is_none());
     assert_eq!(verb["verbose_lines"], 0);
     assert_eq!(verb["reference_range"]["low"], 0.0);
-    assert_eq!(verb["reference_range"]["high"], 0.001);
+    assert_eq!(verb["reference_range"]["high"], 0.002);
 
     let groups = dup["clone_groups"].as_array().expect("clone_groups");
     assert_eq!(groups.len(), 1);
@@ -5982,11 +5994,12 @@ fn go_check_displays_calibrated_reference_ranges_next_to_go_values() {
                 "package main\n\nfunc classify(x int) int {\n\tif x > 0 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n",
             ),
         ],
-        "codeint stratified panel of 50 Go repositories, ADR 0028, codeint 0.6.0",
+        "codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0",
         &[
-            ("erosion", 0.325, 0.674),
-            ("verbosity", 0.000, 0.002),
-            ("duplication", 0.025, 0.181),
+            ("erosion", 0.304, 0.746),
+            ("cognitive_complexity", 0.306, 0.671),
+            ("verbosity", 0.000, 0.004),
+            ("duplication", 0.034, 0.243),
             ("import_cycles", 0.0, 0.0),
         ],
     );
@@ -5999,11 +6012,12 @@ fn sql_check_displays_calibrated_reference_ranges_next_to_sql_values() {
             "queries/orders.sql",
             "CREATE VIEW active_orders AS\nSELECT id, total\nFROM orders\nWHERE status = 'open' AND total > 0;\n",
         )],
-        "codeint stratified panel of 50 SQL repositories, ADR 0028, codeint 0.6.0",
+        "codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0",
         &[
-            ("erosion", 0.000, 0.795),
+            ("erosion", 0.000, 0.918),
+            ("cognitive_complexity", 0.000, 0.902),
             ("verbosity", 0.000, 0.000),
-            ("duplication", 0.001, 0.909),
+            ("duplication", 0.000, 0.909),
         ],
     );
     assert_eq!(

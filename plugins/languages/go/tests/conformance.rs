@@ -52,21 +52,27 @@ fn go_plugin_shell_lexer_literals_comments_and_unparsable_files() {
     assert!(!Go.has_hazard_rules());
     assert!(Go.hazard_rules().is_empty());
     let ranges = Go.reference_ranges().unwrap();
-    let src_label = "codeint stratified panel of 50 Go repositories, ADR 0028, codeint 0.6.0";
-    let actual: Vec<(&str, f64, f64, &str)> =
-        ["erosion", "verbosity", "duplication", "import_cycles"]
-            .into_iter()
-            .map(|key| {
-                let r = ranges.for_metric(key).expect("calibrated Go range");
-                (key, r.low, r.high, r.source.as_str())
-            })
-            .collect();
+    let src_label = "codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0";
+    let actual: Vec<(&str, f64, f64, &str)> = [
+        "erosion",
+        "cognitive_complexity",
+        "verbosity",
+        "duplication",
+        "import_cycles",
+    ]
+    .into_iter()
+    .map(|key| {
+        let r = ranges.for_metric(key).expect("calibrated Go range");
+        (key, r.low, r.high, r.source.as_str())
+    })
+    .collect();
     assert_eq!(
         actual,
         [
-            ("erosion", 0.325, 0.674, src_label),
-            ("verbosity", 0.000, 0.002, src_label),
-            ("duplication", 0.025, 0.181, src_label),
+            ("erosion", 0.304, 0.746, src_label),
+            ("cognitive_complexity", 0.306, 0.671, src_label),
+            ("verbosity", 0.000, 0.004, src_label),
+            ("duplication", 0.034, 0.243, src_label),
             ("import_cycles", 0.000, 0.000, src_label),
         ]
     );

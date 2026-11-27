@@ -239,7 +239,7 @@ fn framework_profiles_wire_entry_points_import_hints_and_report_visibility_acros
 
     let web_scoped = run_json(repo.path(), &["check", "--package", "packages/web"]);
     assert_eq!(web_scoped["framework_profiles"], json!(["vue3"]));
-    assert_erosion_source_contains(&web_scoped, "20 Vue 3 repositories");
+    assert_erosion_source_contains(&web_scoped, "50 Vue 3 repositories");
 
     let toon = check_format_text(repo.path(), "toon");
     assert!(toon.contains("framework_profiles"), "{toon}");
@@ -270,7 +270,7 @@ fn disabling_framework_profile_disables_fallback_import_hints_and_conventions() 
 
     let report = run_json(repo.path(), &["check"]);
     assert!(report.get("framework_profiles").is_none());
-    assert_erosion_source_contains(&report, "50 TypeScript and JavaScript repositories");
+    assert_erosion_source_contains(&report, "100 TypeScript and JavaScript repositories");
     let unlisted = report["dependencies"]["unlisted_dependencies"]["findings"]
         .as_array()
         .expect("unlisted");
@@ -362,8 +362,8 @@ fn sibling_framework_conflict_is_order_independent_and_emits_reference_range_not
 
     assert_eq!(report_a["framework_profiles"], json!(["react", "vue3"]));
     assert_eq!(report_b["framework_profiles"], json!(["react", "vue3"]));
-    assert_erosion_source_contains(&report_a, "50 TypeScript and JavaScript repositories");
-    assert_erosion_source_contains(&report_b, "50 TypeScript and JavaScript repositories");
+    assert_erosion_source_contains(&report_a, "100 TypeScript and JavaScript repositories");
+    assert_erosion_source_contains(&report_b, "100 TypeScript and JavaScript repositories");
     assert_zero_unresolved(&report_a);
     assert_zero_unresolved(&report_b);
 

@@ -60,13 +60,21 @@ fn plugin_metadata_capabilities_and_no_imports_contract() {
             )
         })
         .collect();
-    let source = "codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0".to_owned();
+    let source =
+        "codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0".to_owned();
     assert_eq!(
         ranges,
         [
-            ("duplication".to_owned(), 1, 0.008, 0.751, source.clone()),
-            ("erosion".to_owned(), 1, 0.416, 0.927, source.clone()),
-            ("verbosity".to_owned(), 2, 0.000, 0.025, source),
+            (
+                "cognitive_complexity".to_owned(),
+                1,
+                0.218,
+                0.828,
+                source.clone()
+            ),
+            ("duplication".to_owned(), 1, 0.003, 0.713, source.clone()),
+            ("erosion".to_owned(), 1, 0.364, 0.930, source.clone()),
+            ("verbosity".to_owned(), 2, 0.000, 0.031, source),
         ]
     );
     assert!(Shell.known_framework_profiles().is_empty());

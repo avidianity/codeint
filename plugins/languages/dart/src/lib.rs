@@ -126,15 +126,14 @@ impl Guest for Dart {
     }
 
     fn reference_ranges() -> Vec<ReferenceRange> {
-        codeint_model::scan::build_reference_ranges(
-            "codeint stratified panel of 50 Dart repositories, ADR 0028, codeint 0.6.0",
-            [
-                ("erosion", 1, 0.023, 0.479),
-                ("verbosity", 2, 0.000, 0.008),
-                ("duplication", 1, 0.024, 0.262),
-                ("import_cycles", 1, 0.013, 0.485),
-            ],
-        )
+        codeint_model::scan::CoreReferenceRanges {
+            erosion: (0.039, 0.497),
+            cognitive_complexity: (0.000, 0.377),
+            verbosity: (0.000, 0.011),
+            duplication: (0.027, 0.256),
+            import_cycles: Some((0.061, 0.600)),
+        }
+        .build("codeint stratified panel of 100 Dart repositories, ADR 0035, codeint 0.8.0")
     }
 
     fn has_hazard_rules() -> bool {

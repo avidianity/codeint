@@ -112,7 +112,7 @@ fn react_profile_detects_app_conventions_excludes_peer_only_libraries_and_sets_a
     assert_eq!(app.active_profiles, vec!["react"]);
     assert_eq!(app.entry_points, vec!["src/main.tsx"]);
     assert!(app.generated_paths.is_empty());
-    assert_panel_range(&app, "20 React repositories");
+    assert_panel_range(&app, "50 React repositories");
     assert!(app.reference_ranges.iter().all(|range| {
         let expected = if range.metric == "verbosity" { 2 } else { 1 };
         range.metric_version == expected
@@ -155,7 +155,7 @@ fn vue2_and_vue3_profiles_separate_versions_emit_conventions_and_honor_active_pr
     assert_eq!(vue2.active_profiles, vec!["vue2"]);
     assert_eq!(vue2.entry_points, vec!["src/main.js", "vue.config.js"]);
     assert_eq!(vue2.generated_paths, vec!["dist/bundle.js"]);
-    assert_panel_range(&vue2, "20 Vue 2 repositories");
+    assert_panel_range(&vue2, "50 Vue 2 repositories");
 
     let vue3_files = [
         "package.json",
@@ -177,7 +177,7 @@ fn vue2_and_vue3_profiles_separate_versions_emit_conventions_and_honor_active_pr
         vue3.generated_paths,
         vec!["auto-imports.d.ts", "components.d.ts"]
     );
-    assert_panel_range(&vue3, "20 Vue 3 repositories");
+    assert_panel_range(&vue3, "50 Vue 3 repositories");
 
     assert_alias_honors_profile(
         &vue3_files,
@@ -336,8 +336,8 @@ fn assert_panel_range(resolved: &FrameworkProfileResult, panel: &str) {
         resolved
             .reference_ranges
             .iter()
-            .any(|range| range.source.contains(panel) && range.source.contains("ADR 0028")),
-        "expected {panel} ADR 0028 range in {:?}",
+            .any(|range| range.source.contains(panel) && range.source.contains("ADR 0035")),
+        "expected {panel} ADR 0035 range in {:?}",
         resolved.reference_ranges
     );
 }
@@ -388,7 +388,7 @@ fn nextjs_profile_detects_conventions_excludes_libraries_and_inherits_react_rang
         src/proxy.ts",
         &[".next/types/routes.ts", "next-env.d.ts", "out/chunk.js"],
     );
-    assert_panel_range(&app, "20 React repositories");
+    assert_panel_range(&app, "50 React repositories");
     assert_eq!(app.reference_range_note, None);
 
     for (specifier, resolved_path, external) in [
@@ -450,7 +450,7 @@ fn nuxt_profile_handles_v3_v4_conventions_aliases_virtual_modules_and_vue_ranges
         shared/utils/math.ts",
         &[".nuxt/types/imports.ts", ".output/server/index.mjs"],
     );
-    assert_panel_range(&v4, "20 Vue 3 repositories");
+    assert_panel_range(&v4, "50 Vue 3 repositories");
     assert_eq!(v4.reference_range_note, None);
 
     for (specifier, resolved_path, external) in [
@@ -493,7 +493,7 @@ fn nuxt_profile_handles_v3_v4_conventions_aliases_virtual_modules_and_vue_ranges
         r#"{"dependencies":{"nuxt":"^2.17.0","vue":"^2.7.16"}}"#,
     );
     assert_eq!(v2.active_profiles, vec!["nuxt", "vue2"]);
-    assert_panel_range(&v2, "20 Vue 2 repositories");
+    assert_panel_range(&v2, "50 Vue 2 repositories");
 
     assert_no_profiles(
         &[

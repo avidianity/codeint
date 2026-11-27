@@ -311,6 +311,43 @@ pub fn resolve_relative_file(
     }
 }
 
+pub struct CoreReferenceRanges {
+    pub erosion: (f64, f64),
+    pub cognitive_complexity: (f64, f64),
+    pub verbosity: (f64, f64),
+    pub duplication: (f64, f64),
+    pub import_cycles: Option<(f64, f64)>,
+}
+
+impl CoreReferenceRanges {
+    pub fn build(self, source: &str) -> Vec<ReferenceRange> {
+        let mut ranges = build_reference_ranges(
+            source,
+            [
+                ("erosion", 1, self.erosion.0, self.erosion.1),
+                (
+                    "cognitive_complexity",
+                    1,
+                    self.cognitive_complexity.0,
+                    self.cognitive_complexity.1,
+                ),
+                ("verbosity", 2, self.verbosity.0, self.verbosity.1),
+                ("duplication", 1, self.duplication.0, self.duplication.1),
+            ],
+        );
+        if let Some((low, high)) = self.import_cycles {
+            ranges.push(ReferenceRange {
+                metric: "import_cycles".to_owned(),
+                metric_version: 1,
+                low,
+                high,
+                source: source.to_owned(),
+            });
+        }
+        ranges
+    }
+}
+
 pub fn build_reference_ranges<const N: usize>(
     source: &str,
     entries: [(&str, u32, f64, f64); N],

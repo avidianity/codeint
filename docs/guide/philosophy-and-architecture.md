@@ -17,10 +17,11 @@ codeint measures **Software entropy** directly from the shape of source code so 
 codeint reports every Metric side by side and never collapses them into a single grade or index ([ADR 0003](../adr/0003-no-combined-score.md)).
 A combined score hides regressions when one Metric improves while another worsens.
 
-Four core Metrics are calibrated against stratified panels of current public repositories ([ADR 0028](../adr/0028-stratified-reference-panels.md)):
+Five core Metrics are calibrated against stratified panels of current public repositories ([ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md)):
 
 - **Erosion**: the share of total **Function mass** (`cyclomatic_complexity * sqrt(source_lines)`) held by functions with cyclomatic complexity over 10, reported with function names.
   Weighting by both complexity and size highlights the few large, tangled functions that hurt maintainability most.
+- **Cognitive complexity**: the share of total nesting-weighted cognitive complexity held by functions scoring over 15.
 - **Duplication**: the share of source lines inside **Clone groups** (two or more fragments matching at least 75 normalized tokens and 14 distinct normalized tokens, [ADR 0007](../adr/0007-default-minimum-clone-size.md)).
   Normalizing identifiers and literals catches renamed copy-paste while ignoring import blocks and repetitive data tables, clusters three or more overlapping locations into **Clone families**, and supports opt-in shingle-based near-clone detection.
 - **Verbosity**: the share of source lines that are **Flagged lines** (independent of Duplication, [ADR 0024](../adr/0024-verbosity-decoupling.md)).
@@ -29,7 +30,6 @@ Four core Metrics are calibrated against stratified panels of current public rep
 
 Additional independent Metrics and structural checks run alongside them:
 
-- **Cognitive complexity**: the share of total nesting-weighted cognitive complexity held by functions scoring over 15.
 - **Test gap**: the share of total Production Function mass not executed by tests, computed from user-named LCOV or Cobertura XML Coverage reports ([ADR 0017](../adr/0017-test-gap-from-coverage-reports.md), [Test gap](./test-gap.md)).
   codeint never runs tests, leaves Test gap absent without a Coverage report, and publishes no Reference range for it.
 - **Orphan files**: Production files unreachable through runtime imports from manifest-declared, program-start, and configured `entry_points`, classified as `unreferenced` or `test-only`.
@@ -46,7 +46,7 @@ Test fixtures, generated code (`*.g.dart`, `*.pb.dart`, `@generated`), and third
 ### 3. Stratified current-codebase Reference ranges
 
 Raw ratios are hard to interpret without context.
-For each built-in language, codeint measures a stratified panel of 50 current public repositories across small, medium, and large codebases (and 20 current public repositories for each calibrated Framework profile) and publishes the 10th to 90th percentile as its **Reference range** ([ADR 0028](../adr/0028-stratified-reference-panels.md); Shell recorded in [ADR 0031](../adr/0031-shell-reference-ranges.md)).
+For each built-in language, codeint measures a stratified panel of up to 100 current public repositories across small, medium, and large codebases sampled round-robin across three star bands (and 50 current public repositories for each calibrated Framework profile) and publishes the 10th to 90th percentile as its **Reference range** ([ADR 0035](../adr/0035-stratified-100-repository-reference-panels.md)).
 
 ### 4. Budgets and Regressions
 
