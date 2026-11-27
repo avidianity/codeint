@@ -6,8 +6,11 @@ use serde_json::Value;
 
 use crate::workspaces::COMPOSER_MANIFEST;
 
-pub(crate) fn extract(repository_paths: &[String], manifests: &[Manifest]) -> Vec<String> {
-    let available: HashSet<&str> = repository_paths.iter().map(String::as_str).collect();
+pub(crate) fn extract<P: AsRef<str>>(
+    repository_paths: &[P],
+    manifests: &[Manifest],
+) -> Vec<String> {
+    let available: HashSet<&str> = repository_paths.iter().map(AsRef::as_ref).collect();
     let available_ref = &available;
     let nested_suffix = format!("/{COMPOSER_MANIFEST}");
     let collected: BTreeSet<String> = manifests

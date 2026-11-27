@@ -14,11 +14,13 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
-    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, Token, TokenKind,
-    WorkspaceError,
+    DeclaredDep, FileModel, ImportRequest, LowerError, Manifest, Resolution, Token, TokenKind,
 };
-use codeint_model::token_text_hash;
+use codeint_model::{
+    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, ReferenceRanges, RepoPath,
+    WorkspaceError, token_text_hash, validate_declared_dependencies, validate_entry_points,
+    validate_workspace_packages,
+};
 
 use crate::dependencies::extract_declared;
 use crate::entry_points::discover as discover_entry_points;
@@ -78,73 +80,83 @@ fn lower_dart(path: &str, text: &str) -> Result<FileModel, LowerError> {
     })
 }
 
-impl Guest for Dart {
-    fn known_framework_profiles() -> Vec<String> {
-        frameworks::known_profiles()
+impl LanguagePlugin for Dart {
+    codeint_model::delegate_framework_profile_plugin_methods!(frameworks);
+
+    fn declared_dependencies(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        validate_declared_dependencies(extract_declared(&manifests))
     }
 
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        extract_declared(&manifests)
+    fn workspace_packages(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        validate_workspace_packages(workspaces::discover(&manifests)?)
     }
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        workspaces::discover(&manifests)
-    }
-
-    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        resolution::find_pubspecs(&repository_paths)
+    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+        resolution::find_pubspecs(repository_paths)
     }
 
     fn resolve_imports(
-        repository_paths: Vec<String>,
+        &self,
+        repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        active_profiles: Vec<String>,
-    ) -> Vec<Resolution> {
-        resolution::resolve_dart_imports(&repository_paths, &manifests, &requests, &active_profiles)
+        active_profiles: &[String],
+    ) -> Result<Vec<Resolution>, LanguagePluginError> {
+        Ok(resolution::resolve_dart_imports(
+            repository_paths,
+            &manifests,
+            &requests,
+            active_profiles,
+        ))
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        lower_dart(&path, &text)
+    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
+        lower_dart(path.as_str(), text).map_err(codeint_model::LowerError::from)
     }
 
-    fn resolve_framework_profiles(
-        package_root: String,
-        files: Vec<String>,
+    fn entry_points(
+        &self,
+        repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
-        selection: FrameworkProfileSelection,
-    ) -> Result<FrameworkProfileResult, String> {
-        frameworks::resolve_framework_profiles(package_root, files, manifests, selection)
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        validate_entry_points(
+            repository_paths,
+            discover_entry_points(repository_paths, &manifests),
+        )
     }
 
-    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
-        discover_entry_points(&repository_paths, &manifests)
-    }
-
-    fn extensions() -> Vec<String> {
+    fn extensions(&self) -> Vec<String> {
         vec!["dart".to_owned()]
     }
 
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        codeint_model::scan::CoreReferenceRanges {
-            erosion: (0.039, 0.497),
-            cognitive_complexity: (0.000, 0.377),
-            verbosity: (0.000, 0.011),
-            duplication: (0.027, 0.256),
-            import_cycles: Some((0.061, 0.600)),
-        }
-        .build("codeint stratified panel of 100 Dart repositories, ADR 0035, codeint 0.8.0")
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        ReferenceRanges::new(
+            codeint_model::scan::CoreReferenceRanges {
+                erosion: (0.039, 0.497),
+                cognitive_complexity: (0.000, 0.377),
+                verbosity: (0.000, 0.011),
+                duplication: (0.027, 0.256),
+                import_cycles: Some((0.061, 0.600)),
+            }
+            .build("codeint stratified panel of 100 Dart repositories, ADR 0035, codeint 0.8.0"),
+        )
     }
 
-    fn has_hazard_rules() -> bool {
+    fn has_hazard_rules(&self) -> bool {
         false
     }
 
-    fn hazard_rules() -> Vec<String> {
+    fn hazard_rules(&self) -> Vec<String> {
         Vec::new()
     }
 
-    fn has_imports() -> bool {
+    fn has_imports(&self) -> bool {
         true
     }
 }

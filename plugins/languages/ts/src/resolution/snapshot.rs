@@ -24,18 +24,21 @@ enum Entry {
 }
 
 impl Snapshot {
-    pub(super) fn new(
-        repository_paths: &[String],
+    pub(super) fn new<P: AsRef<str>>(
+        repository_paths: &[P],
         manifests: Vec<Manifest>,
         links: Vec<PackageLink>,
     ) -> Snapshot {
         let mut snapshot = Snapshot {
-            files: repository_paths.iter().cloned().collect(),
+            files: repository_paths
+                .iter()
+                .map(|path| path.as_ref().to_owned())
+                .collect(),
             ..Snapshot::default()
         };
         snapshot.folders.insert(String::new());
         for path in repository_paths {
-            snapshot.add_folders_above(path);
+            snapshot.add_folders_above(path.as_ref());
         }
         for link in links {
             let link_path = format!("{PACKAGE_FOLDER}/{}", link.name);

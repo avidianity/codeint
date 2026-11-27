@@ -78,16 +78,16 @@ pub(super) fn detect(package_root: &str, manifests: &[Manifest]) -> bool {
     parse_local_pubspec(package_root, manifests).is_some_and(|pubspec| pubspec.is_flutter_package())
 }
 
-pub(super) fn entry_points(
+pub(super) fn entry_points<P: AsRef<str>>(
     package_root: &str,
-    files: &[String],
+    files: &[P],
     manifests: &[Manifest],
 ) -> Vec<String> {
     let pubspec = parse_local_pubspec(package_root, manifests);
     let is_plugin = pubspec.as_ref().is_some_and(FlutterPubspec::is_plugin);
     let has_app_main = files
         .iter()
-        .filter_map(|full| rel_path(package_root, full))
+        .filter_map(|full| rel_path(package_root, full.as_ref()))
         .any(is_app_main_rel);
     let is_app = !is_plugin && has_app_main;
     let package_entry = pubspec
@@ -97,6 +97,7 @@ pub(super) fn entry_points(
 
     files
         .iter()
+        .map(AsRef::as_ref)
         .filter(|full| {
             let Some(rel) = rel_path(package_root, full) else {
                 return false;
@@ -113,18 +114,19 @@ pub(super) fn entry_points(
                 package_entry.as_deref() == Some(rel)
             }
         })
-        .cloned()
+        .map(str::to_owned)
         .collect()
 }
 
-pub(super) fn generated_paths(package_root: &str, files: &[String]) -> Vec<String> {
+pub(super) fn generated_paths<P: AsRef<str>>(package_root: &str, files: &[P]) -> Vec<String> {
     files
         .iter()
+        .map(AsRef::as_ref)
         .filter(|full| {
             rel_path(package_root, full)
                 .is_some_and(|rel| rel.ends_with(".dart") && is_generated_rel(rel))
         })
-        .cloned()
+        .map(str::to_owned)
         .collect()
 }
 

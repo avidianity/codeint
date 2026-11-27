@@ -237,12 +237,13 @@ pub fn normalize_relative_path(base_dir: &str, rel: &str) -> Option<String> {
     Some(segments.join("/"))
 }
 
-pub fn find_manifests(repository_paths: &[String], filename: &str) -> Vec<String> {
+pub fn find_manifests<P: AsRef<str>>(repository_paths: &[P], filename: &str) -> Vec<String> {
     let nested = format!("/{filename}");
     repository_paths
         .iter()
-        .filter(|path| path.as_str() == filename || path.ends_with(&nested))
-        .cloned()
+        .map(AsRef::as_ref)
+        .filter(|path| *path == filename || path.ends_with(&nested))
+        .map(str::to_owned)
         .collect()
 }
 

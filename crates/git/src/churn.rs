@@ -1,10 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 
 use codeint_model::RepoPath;
 use gix::ObjectId;
-use gix::objs::tree::EntryMode;
+use gix::objs::tree::{EntryMode, EntryRef};
 
 use crate::{CommitId, GitError, Repository};
+
+#[cfg(test)]
+mod tests;
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
@@ -248,41 +252,47 @@ impl TreeDiffer<'_> {
         if old_tree.id == new_tree.id {
             return Ok(());
         }
-        let old_entries = tree_entries(self.commit, old_tree)?;
-        let new_entries = tree_entries(self.commit, new_tree)?;
-        self.visit_present(prefix, &old_entries, &new_entries)?;
-        self.visit_removed(prefix, &old_entries, &new_entries)
-    }
-
-    fn visit_present(
-        &mut self,
-        prefix: &str,
-        old_entries: &HashMap<String, (EntryMode, ObjectId)>,
-        new_entries: &HashMap<String, (EntryMode, ObjectId)>,
-    ) -> Result<(), GitError> {
-        for (name, &(new_mode, new_oid)) in new_entries {
-            let path = join_prefix(prefix, name);
-            match old_entries.get(name) {
-                None => self.record_entry(&path, new_mode, new_oid)?,
-                Some(&(old_mode, old_oid)) if old_oid == new_oid && old_mode == new_mode => {}
-                Some(&(old_mode, old_oid)) => {
-                    self.visit_changed(&path, (old_mode, old_oid), (new_mode, new_oid))?;
+        let mut old_iter = old_tree.iter();
+        let mut new_iter = new_tree.iter();
+        let mut old_next = next_utf8_entry(self.commit, &mut old_iter)?;
+        let mut new_next = next_utf8_entry(self.commit, &mut new_iter)?;
+        loop {
+            match (old_next, new_next) {
+                (Some((old, old_name)), Some((new, new_name))) => match old.cmp(&new) {
+                    Ordering::Less => {
+                        let path = join_prefix(prefix, old_name);
+                        self.record_entry(&path, old.mode, old.oid.to_owned())?;
+                        old_next = next_utf8_entry(self.commit, &mut old_iter)?;
+                    }
+                    Ordering::Greater => {
+                        let path = join_prefix(prefix, new_name);
+                        self.record_entry(&path, new.mode, new.oid.to_owned())?;
+                        new_next = next_utf8_entry(self.commit, &mut new_iter)?;
+                    }
+                    Ordering::Equal => {
+                        if old.oid != new.oid || old.mode != new.mode {
+                            let path = join_prefix(prefix, new_name);
+                            self.visit_changed(
+                                &path,
+                                (old.mode, old.oid.to_owned()),
+                                (new.mode, new.oid.to_owned()),
+                            )?;
+                        }
+                        old_next = next_utf8_entry(self.commit, &mut old_iter)?;
+                        new_next = next_utf8_entry(self.commit, &mut new_iter)?;
+                    }
+                },
+                (Some((old, old_name)), None) => {
+                    let path = join_prefix(prefix, old_name);
+                    self.record_entry(&path, old.mode, old.oid.to_owned())?;
+                    old_next = next_utf8_entry(self.commit, &mut old_iter)?;
                 }
-            }
-        }
-        Ok(())
-    }
-
-    fn visit_removed(
-        &mut self,
-        prefix: &str,
-        old_entries: &HashMap<String, (EntryMode, ObjectId)>,
-        new_entries: &HashMap<String, (EntryMode, ObjectId)>,
-    ) -> Result<(), GitError> {
-        for (name, &(old_mode, old_oid)) in old_entries {
-            if !new_entries.contains_key(name) {
-                let path = join_prefix(prefix, name);
-                self.record_entry(&path, old_mode, old_oid)?;
+                (None, Some((new, new_name))) => {
+                    let path = join_prefix(prefix, new_name);
+                    self.record_entry(&path, new.mode, new.oid.to_owned())?;
+                    new_next = next_utf8_entry(self.commit, &mut new_iter)?;
+                }
+                (None, None) => break,
             }
         }
         Ok(())
@@ -316,9 +326,10 @@ impl TreeDiffer<'_> {
     }
 
     fn collect_blobs(&mut self, prefix: &str, tree: &gix::Tree<'_>) -> Result<(), GitError> {
-        for (name, (mode, oid)) in tree_entries(self.commit, tree)? {
-            let path = join_prefix(prefix, &name);
-            self.record_entry(&path, mode, oid)?;
+        let mut iter = tree.iter();
+        while let Some((entry, name)) = next_utf8_entry(self.commit, &mut iter)? {
+            let path = join_prefix(prefix, name);
+            self.record_entry(&path, entry.mode, entry.oid.to_owned())?;
         }
         Ok(())
     }
@@ -334,22 +345,17 @@ fn find_tree(
         .map_err(|source| GitError::CommitTree { commit, source })
 }
 
-fn tree_entries(
+fn next_utf8_entry<'repo, 'a>(
     commit: CommitId,
-    tree: &gix::Tree<'_>,
-) -> Result<HashMap<String, (EntryMode, ObjectId)>, GitError> {
-    let mut map = HashMap::new();
-    for entry in tree.iter() {
-        let entry = entry.map_err(|source| GitError::CommitTree { commit, source })?;
-        let Ok(name) = std::str::from_utf8(entry.inner.filename) else {
-            continue;
-        };
-        map.insert(
-            name.to_owned(),
-            (entry.inner.mode, entry.inner.oid.to_owned()),
-        );
+    iter: &mut impl Iterator<Item = Result<gix::object::tree::EntryRef<'repo, 'a>, gix::Error>>,
+) -> Result<Option<(EntryRef<'a>, &'a str)>, GitError> {
+    for item in iter {
+        let entry = item.map_err(|source| GitError::CommitTree { commit, source })?;
+        if let Ok(name) = std::str::from_utf8(entry.inner.filename) {
+            return Ok(Some((entry.inner, name)));
+        }
     }
-    Ok(map)
+    Ok(None)
 }
 
 fn join_prefix(prefix: &str, name: &str) -> String {
