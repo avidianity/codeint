@@ -58,6 +58,11 @@ struct EntryAddress {
 
 static TEMPORARY_FILES_OF_THIS_PROCESS: AtomicU64 = AtomicU64::new(0);
 
+const MAX_ENTRY_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const STALE_TEMP_AGE: Duration = Duration::from_secs(60 * 60);
+const MAX_FUTURE_CLOCK_SKEW: Duration = Duration::from_secs(300);
+const MAX_ENTRIES: usize = 5_000;
+
 impl ResultCache {
     pub fn in_folder(folder: PathBuf) -> ResultCache {
         ResultCache { folder }
@@ -132,33 +137,14 @@ impl ResultCache {
     }
 
     fn prune(&self, keep: &Path) {
-        const MAX_ENTRY_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-        const MAX_ENTRIES: usize = 5_000;
-
         let Ok(entries) = std::fs::read_dir(&self.folder) else {
             return;
         };
         let now = SystemTime::now();
         let mut live = Vec::new();
         for entry in entries.flatten() {
-            if !entry.file_type().is_ok_and(|file_type| file_type.is_file()) {
-                continue;
-            }
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                continue;
-            }
-            let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) else {
-                continue;
-            };
-            let expired = path != keep
-                && now
-                    .duration_since(modified)
-                    .is_ok_and(|age| age > MAX_ENTRY_AGE);
-            if expired {
-                let _ = std::fs::remove_file(&path);
-            } else {
-                live.push((path, modified));
+            if let Some(retained) = inspect_cache_entry(&entry, keep, now) {
+                live.push(retained);
             }
         }
         if live.len() <= MAX_ENTRIES {
@@ -199,6 +185,74 @@ impl ResultCache {
             ".writing-{}-{since_epoch}-{sequence}.tmp",
             std::process::id()
         ))
+    }
+}
+
+enum CacheFileKind {
+    Entry,
+    Temporary,
+}
+
+fn classify_cache_file(path: &Path) -> Option<CacheFileKind> {
+    if is_temporary_file(path) {
+        Some(CacheFileKind::Temporary)
+    } else if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+        Some(CacheFileKind::Entry)
+    } else {
+        None
+    }
+}
+
+fn is_temporary_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with(".writing-") && name.ends_with(".tmp"))
+}
+
+fn effective_modified(modified: SystemTime, now: SystemTime) -> SystemTime {
+    if modified
+        .duration_since(now)
+        .is_ok_and(|ahead| ahead > MAX_FUTURE_CLOCK_SKEW)
+    {
+        UNIX_EPOCH
+    } else {
+        modified
+    }
+}
+
+fn is_older_than(modified: SystemTime, now: SystemTime, max_age: Duration) -> bool {
+    now.duration_since(modified).is_ok_and(|age| age > max_age)
+}
+
+fn inspect_cache_entry(
+    entry: &std::fs::DirEntry,
+    keep: &Path,
+    now: SystemTime,
+) -> Option<(PathBuf, SystemTime)> {
+    if !entry.file_type().is_ok_and(|file_type| file_type.is_file()) {
+        return None;
+    }
+    let path = entry.path();
+    let kind = classify_cache_file(&path)?;
+    let modified = entry
+        .metadata()
+        .and_then(|metadata| metadata.modified())
+        .ok()?;
+    let effective = effective_modified(modified, now);
+    match kind {
+        CacheFileKind::Temporary => {
+            if is_older_than(effective, now, STALE_TEMP_AGE) {
+                let _ = std::fs::remove_file(&path);
+            }
+            None
+        }
+        CacheFileKind::Entry => {
+            if path != keep && is_older_than(effective, now, MAX_ENTRY_AGE) {
+                let _ = std::fs::remove_file(&path);
+                return None;
+            }
+            Some((path, effective))
+        }
     }
 }
 

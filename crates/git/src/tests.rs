@@ -400,6 +400,68 @@ fn result_cache_prune_ignores_json_subdirectories_and_symlinks() {
     assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
 }
 
+fn seeded_cache(label: &str) -> (TempRepo, PathBuf, ResultCache, crate::CommitId) {
+    let temp = TempRepo::seed(label, &[("a.txt", "one\n")], "first");
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let head = repo.resolve("HEAD").expect("first commit");
+    let cache_dir = temp.path().join(".cache");
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+    (temp, cache_dir, cache, head)
+}
+
+#[test]
+fn result_cache_prune_evicts_future_dated_entries_while_preserving_small_clock_skew() {
+    let (_temp, cache_dir, cache, first) = seeded_cache("result-cache-future-mtime");
+    let future_path = seed_cache_entry(&cache_dir, "future.json", 0);
+    set_mtime(
+        &future_path,
+        SystemTime::now() + Duration::from_secs(365 * 24 * 60 * 60),
+    );
+    let jitter_path = seed_cache_entry(&cache_dir, "jitter.json", 0);
+    set_mtime(&jitter_path, SystemTime::now() + Duration::from_secs(60));
+    seed_filler_cache_entries(&cache_dir, 4_999, 1800);
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+
+    assert!(
+        !future_path.exists(),
+        "future-dated entry beyond clock skew tolerance must be evicted"
+    );
+    assert!(
+        jitter_path.exists(),
+        "entry within clock skew tolerance should remain"
+    );
+    assert_eq!(cache_json_files(&cache_dir).len(), 5_000);
+}
+
+#[test]
+fn result_cache_prune_removes_stale_temporary_files_and_keeps_fresh_ones() {
+    let (_temp, cache_dir, cache, first) = seeded_cache("result-cache-stale-temp");
+    let stale_temp = seed_cache_entry(&cache_dir, ".writing-99-1-0.tmp", 90 * 24 * 60 * 60);
+    let future_temp = seed_cache_entry(&cache_dir, ".writing-99-2-0.tmp", 0);
+    set_mtime(
+        &future_temp,
+        SystemTime::now() + Duration::from_secs(365 * 24 * 60 * 60),
+    );
+    let fresh_temp = seed_cache_entry(&cache_dir, ".writing-current.tmp", 0);
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+
+    assert!(
+        !stale_temp.exists(),
+        "stale orphaned temporary file must be removed"
+    );
+    assert!(
+        !future_temp.exists(),
+        "future-dated temporary file must be removed"
+    );
+    assert!(
+        fresh_temp.exists(),
+        "fresh in-flight temporary file must remain untouched"
+    );
+}
+
 #[test]
 fn parallel_commit_reader_streams_blobs_identically_across_threads() {
     let temp = TempRepo::new("parallel-commit-reader");
