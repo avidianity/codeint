@@ -9,23 +9,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::CommitId;
 
-const MAX_ENTRY_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-const MAX_ENTRIES: usize = 5_000;
-
 #[derive(Debug, thiserror::Error)]
 pub enum ResultCacheError {
-    #[error("cannot describe the settings of the cached result")]
-    Settings(#[source] serde_json::Error),
-    #[error("cannot name the cache entry")]
-    EntryName(#[source] gix::Error),
-    #[error("cannot describe the result to cache")]
-    Result(#[source] serde_json::Error),
     #[error("cannot write the cache entry {}", path.display())]
     Write {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
+    #[error("cannot describe the settings of the cached result")]
+    Settings(#[source] serde_json::Error),
     #[error("{failure}, and cannot remove the unfinished file {}", path.display())]
     Unfinished {
         path: PathBuf,
@@ -33,6 +26,10 @@ pub enum ResultCacheError {
         #[source]
         source: std::io::Error,
     },
+    #[error("cannot name the cache entry")]
+    EntryName(#[source] gix::Error),
+    #[error("cannot describe the result to cache")]
+    Result(#[source] serde_json::Error),
 }
 
 pub struct ResultCache {
@@ -135,6 +132,9 @@ impl ResultCache {
     }
 
     fn prune(&self, keep: &Path) {
+        const MAX_ENTRY_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+        const MAX_ENTRIES: usize = 5_000;
+
         let Ok(entries) = std::fs::read_dir(&self.folder) else {
             return;
         };

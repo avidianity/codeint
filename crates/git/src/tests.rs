@@ -253,6 +253,22 @@ fn set_mtime(path: &Path, time: SystemTime) {
     file.set_modified(time).expect("set_modified");
 }
 
+fn seed_cache_entry(cache_dir: &Path, name: &str, age_seconds: u64) -> PathBuf {
+    let path = cache_dir.join(name);
+    fs::write(&path, "{}").expect("write cache entry");
+    set_mtime(&path, SystemTime::now() - Duration::from_secs(age_seconds));
+    path
+}
+
+fn seed_filler_cache_entries(cache_dir: &Path, count: usize, age_seconds: u64) {
+    let modified = SystemTime::now() - Duration::from_secs(age_seconds);
+    for index in 0..count {
+        let filler = cache_dir.join(format!("filler-{index:05}.json"));
+        fs::write(&filler, "{}").expect("write filler");
+        set_mtime(&filler, modified);
+    }
+}
+
 #[test]
 fn result_cache_prunes_entries_untouched_for_more_than_thirty_days_and_refreshes_on_hit() {
     let temp = TempRepo::new("result-cache-age-prune");
@@ -307,9 +323,11 @@ fn result_cache_enforces_five_thousand_entry_cap_evicting_oldest_touched() {
     fs::create_dir_all(&cache_dir).expect("create cache dir");
     let cache = ResultCache::in_folder(cache_dir.clone());
 
-    let oldest_path = cache_dir.join("0000000000000000000000000000000000000000-oldest.json");
-    fs::write(&oldest_path, "{}").expect("write oldest");
-    set_mtime(&oldest_path, SystemTime::now() - Duration::from_secs(3600));
+    let oldest_path = seed_cache_entry(
+        &cache_dir,
+        "0000000000000000000000000000000000000000-oldest.json",
+        3600,
+    );
 
     cache.write(first, &"settings", &1u32).expect("write first");
     let first_path = cache_json_files(&cache_dir)
@@ -318,12 +336,7 @@ fn result_cache_enforces_five_thousand_entry_cap_evicting_oldest_touched() {
         .expect("first cache file");
     set_mtime(&first_path, SystemTime::now() - Duration::from_secs(3500));
 
-    let mid_time = SystemTime::now() - Duration::from_secs(1800);
-    for index in 0..4_998usize {
-        let filler = cache_dir.join(format!("filler-{index:05}.json"));
-        fs::write(&filler, "{}").expect("write filler");
-        set_mtime(&filler, mid_time);
-    }
+    seed_filler_cache_entries(&cache_dir, 4_998, 1800);
     assert_eq!(cache_json_files(&cache_dir).len(), 5_000);
 
     assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
@@ -365,16 +378,12 @@ fn result_cache_prune_ignores_json_subdirectories_and_symlinks() {
         link
     };
 
-    let oldest_path = cache_dir.join("0000000000000000000000000000000000000000-oldest.json");
-    fs::write(&oldest_path, "{}").expect("write oldest");
-    set_mtime(&oldest_path, SystemTime::now() - Duration::from_secs(3600));
-
-    let mid_time = SystemTime::now() - Duration::from_secs(1800);
-    for index in 0..4_998usize {
-        let filler = cache_dir.join(format!("filler-{index:05}.json"));
-        fs::write(&filler, "{}").expect("write filler");
-        set_mtime(&filler, mid_time);
-    }
+    let oldest_path = seed_cache_entry(
+        &cache_dir,
+        "0000000000000000000000000000000000000000-oldest.json",
+        3600,
+    );
+    seed_filler_cache_entries(&cache_dir, 4_998, 1800);
 
     cache.write(first, &"settings", &1u32).expect("write first");
 
