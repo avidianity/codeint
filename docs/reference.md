@@ -747,7 +747,9 @@ codeint 0.8.0 is already up to date (v0.8.0)
 
 `codeint mcp` runs a local Model Context Protocol (MCP) server over standard input and standard output with no open network port.
 It exposes eight read-only tools (`check`, `diff`, `trend`, `guard`, `impact`, `trace`, `churn`, and `coupling`) so coding agents can measure Software entropy and Hazards, inspect architectural boundaries, reverse-dependency blast radius, and import paths, rank high-churn eroded or duplicated files, detect co-change coupling, and fix Regressions before opening a pull request.
-The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, and `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`).
+Every MCP tool accepts an optional `format` argument (`"toon"`, the default, or `"json"`) and ignores the repository-configured `format` key so coding agents receive compact TOON output by default while callers that require strict JSON can pass `"format": "json"`.
+Invalid `format` values and `trace` calls with `max_paths` less than `1` are rejected during argument validation, and all eight tools return MCP-tailored error remedies that name MCP arguments instead of CLI flags.
+The `check` MCP tool takes `path`, `package`, `coverage_reports`, `all`, `ignore_baseline` (boolean, `false` by default; the same meaning as `codeint check --ignore-baseline`), and `format`.
 Its stale-Baseline error names `ignore_baseline: true` as the way to show every Finding.
 It uses `coverage_reports` from `codeint.json`, returning Test gap (or its absent form and reason), Test gap Findings ordered heaviest untested Function mass first, any Test gap Budget failure, and the missing-report error when `budgets.production.test_gap` is set with Test gap absent.
 When a measured language defines Hazard line rules (such as SQL), `check`, `diff`, and `trend` also return `hazards`, Hazard line Findings (path, line, and rule name only), `sql_schemas`, and `rejected_statements`.

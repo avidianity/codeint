@@ -46,20 +46,59 @@ pub(crate) fn remedy(error: &CliError) -> Cow<'static, str> {
 }
 
 pub(crate) fn mcp_remedy(error: &CliError) -> Cow<'static, str> {
+    mcp_specific_remedy(error).unwrap_or_else(|| remedy(error))
+}
+
+fn mcp_specific_remedy(error: &CliError) -> Option<Cow<'static, str>> {
     match error {
-        CliError::Check(CheckError::BaselineVersionMismatch {
+        CliError::Check(error) => mcp_check_remedy(error),
+        CliError::Guard(GuardError::Git(error)) => mcp_git_remedy(error),
+        CliError::Impact(ImpactCommandError::MissingTargets) => Some(Cow::Borrowed(
+            "Pass one or more repository file paths in paths, or pass changed with a base Git ref to analyze changed files.",
+        )),
+        CliError::Impact(ImpactCommandError::Check(error)) => mcp_check_remedy(error),
+        CliError::Trace(TraceCommandError::Check(error)) => mcp_check_remedy(error),
+        CliError::Trace(TraceCommandError::Trace(TraceError::InvalidMaxPaths)) => Some(
+            Cow::Borrowed("Pass a positive integer (at least 1) for max_paths."),
+        ),
+        _ => None,
+    }
+}
+
+fn mcp_check_remedy(error: &CheckError) -> Option<Cow<'static, str>> {
+    match error {
+        CheckError::BaselineVersionMismatch {
             supports_ignore_baseline: true,
             ..
-        }) => Cow::Borrowed(
+        } => Some(Cow::Borrowed(
             "Run codeint baseline update to refresh the Baseline for the updated Metric versions, or pass ignore_baseline: true to show every Finding.",
-        ),
-        CliError::Check(CheckError::BaselineVersionMismatch {
+        )),
+        CheckError::BaselineVersionMismatch {
             supports_ignore_baseline: false,
             ..
-        }) => Cow::Borrowed(
+        } => Some(Cow::Borrowed(
             "Run codeint baseline update to refresh the Baseline for the updated Metric versions.",
-        ),
-        other => remedy(other),
+        )),
+        CheckError::UnknownWorkspacePackage { .. } => Some(Cow::Borrowed(
+            "Pass one of the discovered Workspace package paths in package, or omit package to measure the whole repository.",
+        )),
+        CheckError::TestGapBudgetWithoutCoverage { .. } => Some(Cow::Borrowed(
+            "Name at least one LCOV or Cobertura XML Coverage report in coverage_reports in codeint.json or pass coverage_reports, or remove budgets.production.test_gap.",
+        )),
+        CheckError::Git(error) => mcp_git_remedy(error),
+        _ => None,
+    }
+}
+
+fn mcp_git_remedy(error: &GitError) -> Option<Cow<'static, str>> {
+    match error {
+        GitError::NotInRepository { .. } => Some(Cow::Borrowed(
+            "Run the MCP server inside a Git repository, or pass a folder inside one in path.",
+        )),
+        GitError::NoMergeBase { .. } => Some(Cow::Borrowed(
+            "Pass a base_ref that shares history with the head, which is HEAD unless you pass head_ref; in a shallow clone, fetch more history: git fetch --unshallow",
+        )),
+        _ => None,
     }
 }
 

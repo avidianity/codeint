@@ -438,3 +438,250 @@ fn mcp_check_tool_bypasses_the_baseline_with_ignore_baseline() {
         "boolean"
     );
 }
+
+#[test]
+fn mcp_all_eight_tools_default_to_toon_and_support_json_format() {
+    let repo = init_git_repo(&[
+        ("codeint.json", r#"{ "format": "text" }"#),
+        (
+            "src/a.ts",
+            "import { b } from './b';\nexport function a(x: number): number { return b(x) + 1; }\n",
+        ),
+        (
+            "src/b.ts",
+            "export function b(x: number): number { return x * 2; }\n",
+        ),
+    ]);
+
+    let list_responses = send_mcp_requests(
+        repo.path(),
+        &[json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})],
+    );
+    let tools = list_responses[0]["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 8);
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap();
+        let format_prop = &tool["inputSchema"]["properties"]["format"];
+        assert_eq!(format_prop["type"], "string", "tool {name} format type");
+        assert_eq!(
+            format_prop["enum"],
+            json!(["toon", "json"]),
+            "tool {name} format enum"
+        );
+        assert_eq!(format_prop["default"], "toon", "tool {name} format default");
+    }
+
+    let cases: Vec<(&str, Value)> = vec![
+        ("check", json!({})),
+        ("diff", json!({"base_ref": "main"})),
+        ("trend", json!({})),
+        ("guard", json!({"file": "src/a.ts"})),
+        ("impact", json!({"paths": ["src/b.ts"]})),
+        ("trace", json!({"from": "src/a.ts", "to": "src/b.ts"})),
+        ("churn", json!({"commits": 5})),
+        ("coupling", json!({"commits": 5})),
+    ];
+
+    let mut requests = Vec::new();
+    let mut id = 1u64;
+    for (name, base_args) in &cases {
+        requests.push(mcp_tool_call(id, name, base_args.clone()));
+        id += 1;
+        let mut toon_args = base_args.clone();
+        toon_args["format"] = json!("toon");
+        requests.push(mcp_tool_call(id, name, toon_args));
+        id += 1;
+        let mut json_args = base_args.clone();
+        json_args["format"] = json!("json");
+        requests.push(mcp_tool_call(id, name, json_args));
+        id += 1;
+    }
+
+    let responses = send_mcp_requests(repo.path(), &requests);
+    assert_eq!(responses.len(), cases.len() * 3);
+
+    for (idx, (name, _)) in cases.iter().enumerate() {
+        let default_resp = &responses[idx * 3];
+        let toon_resp = &responses[idx * 3 + 1];
+        let json_resp = &responses[idx * 3 + 2];
+
+        assert_eq!(default_resp["result"]["isError"], false, "{name} default");
+        assert_eq!(toon_resp["result"]["isError"], false, "{name} toon");
+        assert_eq!(json_resp["result"]["isError"], false, "{name} json");
+
+        let default_text = default_resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap();
+        let toon_text = toon_resp["result"]["content"][0]["text"].as_str().unwrap();
+        let json_text = json_resp["result"]["content"][0]["text"].as_str().unwrap();
+
+        assert!(
+            !default_text.trim_start().starts_with('{'),
+            "{name} default output must be TOON, not JSON: {default_text}"
+        );
+        assert_eq!(
+            default_text, toon_text,
+            "{name} default output must match explicit format=toon"
+        );
+
+        let mut decoded_toon: Value = toon_format::decode_default(default_text)
+            .unwrap_or_else(|err| panic!("{name} invalid TOON: {err}\n{default_text}"));
+        let mut parsed_json: Value = serde_json::from_str(json_text)
+            .unwrap_or_else(|err| panic!("{name} invalid JSON: {err}\n{json_text}"));
+        normalize_json_numbers(&mut decoded_toon);
+        normalize_json_numbers(&mut parsed_json);
+        assert_eq!(
+            decoded_toon, parsed_json,
+            "{name} TOON and JSON payloads must match"
+        );
+    }
+}
+
+fn normalize_json_numbers(value: &mut Value) {
+    match value {
+        Value::Number(number) => {
+            if let Some(float) = number.as_f64()
+                && let Some(normalized) = serde_json::Number::from_f64(float)
+            {
+                *number = normalized;
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                normalize_json_numbers(item);
+            }
+        }
+        Value::Object(map) => {
+            for entry in map.values_mut() {
+                normalize_json_numbers(entry);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn mcp_tools_reject_invalid_format_values() {
+    let repo = init_sample_repo();
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            mcp_tool_call(1, "check", json!({"format": "text"})),
+            mcp_tool_call(2, "diff", json!({"base_ref": "main", "format": "sarif"})),
+            mcp_tool_call(3, "trend", json!({"format": "markdown"})),
+            mcp_tool_call(4, "guard", json!({"file": "app.ts", "format": "yaml"})),
+            mcp_tool_call(5, "impact", json!({"paths": ["app.ts"], "format": 42})),
+            mcp_tool_call(
+                6,
+                "trace",
+                json!({"from": "app.ts", "to": "app.ts", "format": true}),
+            ),
+            mcp_tool_call(7, "churn", json!({"format": ""})),
+            mcp_tool_call(8, "coupling", json!({"format": ["json"]})),
+        ],
+    );
+    assert_eq!(responses.len(), 8);
+    for (idx, resp) in responses.iter().enumerate() {
+        assert_tool_err_contains(resp, "format");
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("toon") && text.contains("json"),
+            "response {idx} must name allowed formats: {text}"
+        );
+    }
+}
+
+#[test]
+fn mcp_all_eight_tools_return_unified_mcp_error_remedies() {
+    let repo = init_git_repo(&[
+        (
+            "codeint.json",
+            r#"{ "budgets": { "production": { "test_gap": 0.5 } } }"#,
+        ),
+        ("app.ts", "export const x = 1;\n"),
+    ]);
+    let non_git = TempDir::new().unwrap();
+    let non_git_path = non_git.path().to_string_lossy().into_owned();
+
+    let responses = send_mcp_requests(
+        repo.path(),
+        &[
+            mcp_tool_call(1, "check", json!({})),
+            mcp_tool_call(
+                2,
+                "diff",
+                json!({"base_ref": "main", "package": "packages/missing"}),
+            ),
+            mcp_tool_call(3, "trend", json!({"path": non_git_path})),
+            mcp_tool_call(4, "guard", json!({"file": "app.ts", "path": non_git_path})),
+            mcp_tool_call(5, "impact", json!({})),
+            mcp_tool_call(
+                6,
+                "trace",
+                json!({"from": "app.ts", "to": "app.ts", "package": "packages/missing"}),
+            ),
+            mcp_tool_call(7, "churn", json!({"path": non_git_path})),
+            mcp_tool_call(8, "coupling", json!({"path": non_git_path})),
+        ],
+    );
+    assert_eq!(responses.len(), 8);
+
+    let forbidden_cli_hints = [
+        "--coverage-report",
+        "--package",
+        "--changed",
+        "--head",
+        "--max-paths",
+        "--ignore-baseline",
+        "codeint check <path>",
+    ];
+    for (idx, resp) in responses.iter().enumerate() {
+        assert_eq!(resp["result"]["isError"], true, "case {idx} must error");
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        for hint in forbidden_cli_hints {
+            assert!(
+                !text.contains(hint),
+                "case {idx} leaked CLI hint {hint:?}: {text}"
+            );
+        }
+    }
+
+    assert_tool_err_contains(&responses[0], "coverage_reports");
+    assert_tool_err_contains(&responses[1], "package");
+    assert_tool_err_contains(&responses[4], "changed");
+    assert_tool_err_contains(&responses[5], "package");
+}
+
+#[test]
+fn mcp_trace_rejects_zero_max_paths_at_argument_validation() {
+    let non_git = TempDir::new().unwrap();
+    let responses = send_mcp_requests(
+        non_git.path(),
+        &[
+            mcp_tool_call(
+                1,
+                "trace",
+                json!({"from": "src/a.ts", "to": "src/b.ts", "max_paths": 0}),
+            ),
+            mcp_tool_call(
+                2,
+                "trace",
+                json!({"from": "src/a.ts", "to": "src/b.ts", "max_paths": -1}),
+            ),
+            mcp_tool_call(
+                3,
+                "trace",
+                json!({"from": "src/a.ts", "to": "src/b.ts", "max_paths": "2"}),
+            ),
+        ],
+    );
+    assert_eq!(responses.len(), 3);
+    for (idx, resp) in responses.iter().enumerate() {
+        assert_tool_err_contains(resp, "max_paths");
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            !text.contains("--max-paths") && !text.contains("not inside a Git repository"),
+            "case {idx} must fail at argument validation without CLI flag hints: {text}"
+        );
+    }
+}
