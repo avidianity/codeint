@@ -123,6 +123,12 @@ impl Borrow<str> for RepoPath {
     }
 }
 
+impl AsRef<str> for RepoPath {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Display for RepoPath {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
@@ -457,6 +463,13 @@ pub fn validate_hazard_lines(
     Ok(())
 }
 
+pub fn validate_workspace_packages(roots: Vec<String>) -> Result<Vec<RepoPath>, WorkspaceError> {
+    roots
+        .into_iter()
+        .map(|root| Ok(RepoPath::new(root)?))
+        .collect()
+}
+
 pub fn validate_declared_dependencies(
     deps: Vec<DeclaredDep>,
 ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
@@ -586,6 +599,32 @@ macro_rules! empty_framework_profile_plugin_methods {
     };
 }
 
+#[macro_export]
+macro_rules! delegate_framework_profile_plugin_methods {
+    ($module:ident) => {
+        fn known_framework_profiles(&self) -> ::std::vec::Vec<::std::string::String> {
+            $module::known_profiles()
+        }
+
+        fn resolve_framework_profiles(
+            &self,
+            package_root: &str,
+            files: &[$crate::RepoPath],
+            manifests: ::std::vec::Vec<$crate::Manifest>,
+            selection: $crate::FrameworkProfileSelection,
+        ) -> ::std::result::Result<$crate::FrameworkProfileResult, $crate::LanguagePluginError> {
+            let result =
+                $module::resolve_framework_profiles(package_root, files, &manifests, selection)
+                    .map_err(|message| $crate::LanguagePluginError::FrameworkProfile { message })?;
+            $crate::validate_framework_profile_result(
+                &self.known_framework_profiles(),
+                files,
+                result,
+            )
+        }
+    };
+}
+
 pub trait LanguagePlugin: Sync {
     fn extensions(&self) -> Vec<String>;
 
@@ -651,10 +690,7 @@ impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {
         &self,
         manifests: Vec<Manifest>,
     ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        Plugin::workspace_packages(manifests)?
-            .into_iter()
-            .map(|root| Ok(RepoPath::new(root)?))
-            .collect()
+        validate_workspace_packages(Plugin::workspace_packages(manifests)?)
     }
 
     fn resolve_imports(

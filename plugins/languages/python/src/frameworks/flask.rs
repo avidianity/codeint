@@ -1,3 +1,4 @@
+use codeint_model::RepoPath;
 use codeint_model::language::Manifest;
 
 use super::{
@@ -77,6 +78,6 @@ fn generated_paths(pkg: &PythonPackage<'_>) -> Vec<String> {
     pkg.matching_py_files(|rel| rel.starts_with("instance/"))
 }
 
-fn fallback_roots(repository_paths: &[String], _manifests: &[Manifest]) -> Vec<String> {
+fn fallback_roots(repository_paths: &[RepoPath], _manifests: &[Manifest]) -> Vec<String> {
     fallback_roots_for_filenames(repository_paths, &["app.py", "wsgi.py", "run.py"])
 }

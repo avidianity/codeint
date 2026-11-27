@@ -20,10 +20,13 @@ const NON_PACKAGE_DIRS: [&str; 14] = [
     "vendor",
 ];
 
-pub(crate) fn discover(repository_paths: &[String], manifests: &[Manifest]) -> Vec<String> {
+pub(crate) fn discover<P: AsRef<str>>(
+    repository_paths: &[P],
+    manifests: &[Manifest],
+) -> Vec<String> {
     let py_files: HashSet<&str> = repository_paths
         .iter()
-        .map(String::as_str)
+        .map(AsRef::as_ref)
         .filter(|path| path.ends_with(".py"))
         .collect();
     let mut entries = BTreeSet::new();

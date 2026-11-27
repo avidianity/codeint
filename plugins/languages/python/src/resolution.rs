@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use codeint_model::RepoPath;
 use codeint_model::language::{ImportRequest, Manifest, Resolution};
 
 use crate::dependencies::{is_requirements_file, normalize_pep503};
@@ -9,22 +10,21 @@ use crate::stdlib::is_stdlib_module;
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn find_python_manifests(repository_paths: &[String]) -> Vec<String> {
+pub(crate) fn find_python_manifests<P: AsRef<str>>(repository_paths: &[P]) -> Vec<String> {
     repository_paths
         .iter()
+        .map(AsRef::as_ref)
         .filter(|path| {
             if has_ignored_dir(path) {
                 return false;
             }
-            let file_name = path
-                .rsplit_once('/')
-                .map_or(path.as_str(), |(_, name)| name);
+            let file_name = path.rsplit_once('/').map_or(*path, |(_, name)| name);
             file_name == "pyproject.toml"
                 || file_name == "setup.cfg"
                 || file_name == "Pipfile"
                 || is_requirements_file(file_name)
         })
-        .cloned()
+        .map(str::to_owned)
         .collect()
 }
 
@@ -34,19 +34,24 @@ pub(crate) fn resolve_all(
     manifests: &[Manifest],
     requests: &[ImportRequest],
 ) -> Vec<Resolution> {
-    resolve_with_profiles(repository_paths, manifests, requests, &[])
+    let paths: Vec<RepoPath> = repository_paths
+        .iter()
+        .map(|path| RepoPath::new(path).expect("valid test repo path"))
+        .collect();
+    resolve_with_profiles(&paths, manifests, requests, &[])
 }
 
 pub(crate) fn resolve_with_profiles(
-    repository_paths: &[String],
+    repository_paths: &[RepoPath],
     manifests: &[Manifest],
     requests: &[ImportRequest],
     active_profiles: &[String],
 ) -> Vec<Resolution> {
     let py_files: HashSet<String> = repository_paths
         .iter()
+        .map(RepoPath::as_str)
         .filter(|path| path.ends_with(".py"))
-        .cloned()
+        .map(str::to_owned)
         .collect();
     let module_map = build_module_map(&py_files, manifests);
     let fallback_map = if active_profiles.is_empty() {

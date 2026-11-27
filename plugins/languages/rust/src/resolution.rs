@@ -25,11 +25,12 @@ struct PackageDeclaredDeps {
     dev: HashSet<String>,
 }
 
-pub(crate) fn manifest_paths(repository_paths: &[String]) -> Vec<String> {
+pub(crate) fn manifest_paths<P: AsRef<str>>(repository_paths: &[P]) -> Vec<String> {
     repository_paths
         .iter()
+        .map(AsRef::as_ref)
         .filter(|path| *path == CARGO_MANIFEST || path.ends_with(&format!("/{CARGO_MANIFEST}")))
-        .cloned()
+        .map(str::to_owned)
         .collect()
 }
 
@@ -47,12 +48,15 @@ pub(crate) struct RustResolver {
 }
 
 impl RustResolver {
-    pub(crate) fn new(
-        repository_paths: &[String],
+    pub(crate) fn new<P: AsRef<str>>(
+        repository_paths: &[P],
         manifests: &[Manifest],
         requests: &[ImportRequest],
     ) -> RustResolver {
-        let files: HashSet<String> = repository_paths.iter().cloned().collect();
+        let files: HashSet<String> = repository_paths
+            .iter()
+            .map(|path| path.as_ref().to_owned())
+            .collect();
         let (parsed, mut crate_roots) = parse_cargo_manifests(manifests);
         crate_roots.sort_by_key(|root| std::cmp::Reverse(root.len()));
         let (package_local_crates, workspace_local_crates) =

@@ -10,22 +10,21 @@ pub(crate) fn known_profiles() -> Vec<String> {
     vec![flutter::NAME.to_owned()]
 }
 
-pub(crate) fn resolve_framework_profiles(
-    root: String,
-    files: Vec<String>,
-    manifests: Vec<Manifest>,
+pub(crate) fn resolve_framework_profiles<P: AsRef<str>>(
+    root: &str,
+    files: &[P],
+    manifests: &[Manifest],
     selection: FrameworkProfileSelection,
 ) -> Result<FrameworkProfileResult, String> {
-    let active = is_flutter_selected(&root, &manifests, selection)?;
+    let active = is_flutter_selected(root, manifests, selection)?;
     if !active {
         return Ok(codeint_model::empty_framework_profile_result());
     }
-    let entry_points: BTreeSet<String> = flutter::entry_points(&root, &files, &manifests)
+    let entry_points: BTreeSet<String> = flutter::entry_points(root, files, manifests)
         .into_iter()
         .collect();
-    let generated_paths: BTreeSet<String> = flutter::generated_paths(&root, &files)
-        .into_iter()
-        .collect();
+    let generated_paths: BTreeSet<String> =
+        flutter::generated_paths(root, files).into_iter().collect();
     Ok(FrameworkProfileResult {
         active_profiles: vec![flutter::NAME.to_owned()],
         entry_points: entry_points.into_iter().collect(),
