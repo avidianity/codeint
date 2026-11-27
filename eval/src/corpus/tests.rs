@@ -44,10 +44,14 @@ fn manifest(repositories: &str, case_studies: &str) -> String {
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
-fn repository(panel: &str) -> String {
+fn repository_in(language: &str, panel: &str) -> String {
     format!(
-        r#"{{"name":"owner/name","language":"typescript-javascript","bucket":"small","url":"https://github.com/owner/name","commit":"{SHA}"{panel}}}"#
+        r#"{{"name":"owner/name","language":"{language}","bucket":"small","url":"https://github.com/owner/name","commit":"{SHA}"{panel}}}"#
     )
+}
+
+fn repository(panel: &str) -> String {
+    repository_in("typescript-javascript", panel)
 }
 
 fn load(text: &str) -> Result<Corpus, EvaluationError> {
@@ -75,22 +79,13 @@ fn one_repository_may_join_several_panels_but_not_the_same_panel_twice() {
 
 #[test]
 fn one_repository_may_join_two_different_base_language_panels_but_not_the_same_language_twice() {
-    let python = format!(
-        r#"{{"name":"owner/polyglot","language":"python","bucket":"small","url":"https://github.com/owner/polyglot","commit":"{SHA}"}}"#
-    );
-    let shell = format!(
-        r#"{{"name":"owner/polyglot","language":"shell","bucket":"small","url":"https://github.com/owner/polyglot","commit":"{SHA}"}}"#
-    );
-    let both = format!("{python},{shell}");
-    assert_eq!(
-        load(&manifest(&both, ""))
-            .expect("polyglot repository may appear in distinct base language panels")
-            .repositories
-            .len(),
-        2
-    );
-    let duplicate = format!("{python},{python}");
-    assert!(load(&manifest(&duplicate, "")).is_err());
+    let python = repository_in("python", "");
+    let shell = repository_in("shell", "");
+    let loaded = load(&manifest(&format!("{python},{shell}"), ""))
+        .expect("polyglot repository may appear in distinct base language panels");
+    assert_eq!(loaded.repositories.len(), 2);
+    let duplicate = load(&manifest(&format!("{python},{python}"), ""));
+    assert!(duplicate.is_err_and(|error| error.to_string().contains("(python)")));
 }
 
 #[test]

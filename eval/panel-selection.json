@@ -18391,12 +18391,6 @@
           "reason": "excluded term tutorial"
         },
         {
-          "name": "sorin-ionescu/prezto",
-          "stars": 14582,
-          "band": "10000+",
-          "reason": "small bucket full"
-        },
-        {
           "name": "vinceliuice/Qogir-icon-theme",
           "stars": 948,
           "band": "200-999",
@@ -18775,12 +18769,6 @@
           "reason": "Production lines 183 < 2000"
         },
         {
-          "name": "1N3/Sn1per",
-          "stars": 11588,
-          "band": "10000+",
-          "reason": "small bucket full"
-        },
-        {
           "name": "jenv/jenv",
           "stars": 6684,
           "band": "1000-9999",
@@ -18869,12 +18857,6 @@
           "stars": 11053,
           "band": "10000+",
           "reason": "excluded term course"
-        },
-        {
-          "name": "mishakorzik/AllHackingTools",
-          "stars": 6580,
-          "band": "1000-9999",
-          "reason": "small bucket full"
         },
         {
           "name": "zfsonlinux/zfs-auto-snapshot",
@@ -19117,12 +19099,6 @@
           "reason": "Production lines 443 < 2000"
         },
         {
-          "name": "zplug/zplug",
-          "stars": 6054,
-          "band": "1000-9999",
-          "reason": "small bucket full"
-        },
-        {
           "name": "dunwu/blog",
           "stars": 916,
           "band": "200-999",
@@ -19132,12 +19108,6 @@
           "name": "007revad/Synology_HDD_db",
           "stars": 6051,
           "band": "1000-9999",
-          "reason": "small bucket full"
-        },
-        {
-          "name": "z-shell/zi",
-          "stars": 916,
-          "band": "200-999",
           "reason": "small bucket full"
         },
         {
@@ -21037,12 +21007,6 @@
           "reason": "Production lines 139 < 2000"
         },
         {
-          "name": "dragoonDorise/EmuDeck",
-          "stars": 3549,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "DNSCrypt/dnscrypt-server-docker",
           "stars": 825,
           "band": "200-999",
@@ -21511,12 +21475,6 @@
           "reason": "timeout"
         },
         {
-          "name": "Chachamaru127/claude-code-harness",
-          "stars": 3225,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "R0X4R/Garud",
           "stars": 808,
           "band": "200-999",
@@ -21961,12 +21919,6 @@
           "reason": "Production lines 1444 < 2000"
         },
         {
-          "name": "zoddDev/dotfiles",
-          "stars": 792,
-          "band": "200-999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "liandu2024/Open-Box",
           "stars": 2913,
           "band": "1000-9999",
@@ -22357,12 +22309,6 @@
           "reason": "excluded term tutorial"
         },
         {
-          "name": "linuxeye/lnmp",
-          "stars": 2738,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "diracdeltas/tweets",
           "stars": 775,
           "band": "200-999",
@@ -22615,12 +22561,6 @@
           "reason": "Production lines 208 < 2000"
         },
         {
-          "name": "alexbelgium/hassio-addons",
-          "stars": 2660,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "ravindu644/Android-Kernel-Tutorials",
           "stars": 764,
           "band": "200-999",
@@ -22793,12 +22733,6 @@
           "stars": 760,
           "band": "200-999",
           "reason": "repo size 13KB < 150KB pre-screen"
-        },
-        {
-          "name": "matryer/xbar-plugins",
-          "stars": 2614,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
         },
         {
           "name": "screetsec/Vegile",
@@ -23255,12 +23189,6 @@
           "stars": 2417,
           "band": "1000-9999",
           "reason": "repo size 86KB < 150KB pre-screen"
-        },
-        {
-          "name": "oneinstack/oneinstack",
-          "stars": 2460,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
         },
         {
           "name": "games-on-whales/gow",
@@ -24353,12 +24281,6 @@
           "stars": 718,
           "band": "200-999",
           "reason": "Production lines 94 < 2000"
-        },
-        {
-          "name": "Gentleman-Programming/Gentleman.Dots",
-          "stars": 2144,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
         },
         {
           "name": "djmaze/resticker",
@@ -33583,12 +33505,6 @@
           "reason": "Framework profile vue2 not active"
         },
         {
-          "name": "HolodexNet/Holodex",
-          "stars": 675,
-          "band": "200-999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "Coffcer/vue-chat",
           "stars": 1776,
           "band": "1000-9999",
@@ -34207,12 +34123,6 @@
           "reason": "Framework profile vue2 not active"
         },
         {
-          "name": "FXLP/MarkTool",
-          "stars": 624,
-          "band": "200-999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "PowerDos/Mall-Vue",
           "stars": 1413,
           "band": "1000-9999",
@@ -34247,12 +34157,6 @@
           "stars": 622,
           "band": "200-999",
           "reason": "Production lines 1934 < 2000"
-        },
-        {
-          "name": "ITmonkey-cn/shopro-uniapp",
-          "stars": 1398,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
         },
         {
           "name": "JaimeCheng/vue-esign",
@@ -34399,12 +34303,6 @@
           "reason": "Production lines 836 < 2000"
         },
         {
-          "name": "auto-i18n/auto-i18n-translation-plugins",
-          "stars": 611,
-          "band": "200-999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "staskjs/vue-slick",
           "stars": 611,
           "band": "200-999",
@@ -34415,12 +34313,6 @@
           "stars": 1349,
           "band": "1000-9999",
           "reason": "Framework profile vue2 not active"
-        },
-        {
-          "name": "MegEngine/MegSpot",
-          "stars": 610,
-          "band": "200-999",
-          "reason": "medium bucket full"
         },
         {
           "name": "climblee/uv-ui",
@@ -34609,12 +34501,6 @@
           "reason": "Production lines 279 < 2000"
         },
         {
-          "name": "Akryum/guijs",
-          "stars": 1280,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "tecoholic/ner-annotator",
           "stars": 595,
           "band": "200-999",
@@ -34739,12 +34625,6 @@
           "stars": 590,
           "band": "200-999",
           "reason": "Production lines 1217 < 2000"
-        },
-        {
-          "name": "SNFocus/approvalFlow",
-          "stars": 1246,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
         },
         {
           "name": "egoist/vue-feather-icons",
@@ -34885,12 +34765,6 @@
           "reason": "Generated+Vendored 5069 > Production 3893"
         },
         {
-          "name": "ClickerMonkey/dayspan-vuetify",
-          "stars": 1180,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
-        },
-        {
           "name": "cscan/vue-excel-editor",
           "stars": 577,
           "band": "200-999",
@@ -34943,12 +34817,6 @@
           "stars": 1132,
           "band": "1000-9999",
           "reason": "excluded term tutorial"
-        },
-        {
-          "name": "Tucsky/aggr",
-          "stars": 1162,
-          "band": "1000-9999",
-          "reason": "medium bucket full"
         },
         {
           "name": "johnsusek/praeco",

@@ -89,10 +89,8 @@ fn manifest_error(path: &Path, message: String) -> EvaluationError {
 
 impl CorpusEntry {
     pub fn label(&self) -> String {
-        match &self.panel {
-            Some(panel) => format!("{} ({panel})", self.name),
-            None => self.name.clone(),
-        }
+        let scope = self.panel.as_deref().unwrap_or(self.language.as_str());
+        format!("{} ({scope})", self.name)
     }
 }
 

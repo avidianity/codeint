@@ -45,7 +45,7 @@ cargo run --release --locked -p codeint-eval -- --language python --output-dir d
   A failed clone, a failed measurement, or a failed oracle is recorded as that repository's `error`.
 - The runner times `codeint check --format json --all` `--runs` times and reports the median wall time.
   It reads peak resident memory (RSS) from `/usr/bin/time` (`-l` on macOS, `-v` elsewhere); without that program, peak RSS is absent.
-- A repository's measured size bucket comes from its Production source lines, with the bands of [ADR 0028](../docs/adr/0028-stratified-reference-panels.md).
+- A repository's measured size bucket comes from its Production source lines, with the bands of [ADR 0035](../docs/adr/0035-stratified-100-repository-reference-panels.md).
   The `bucket` field of the manifest is the declared bucket; the report shows both.
 - Each corpus entry names a public repository, its URL, and an exact 40-digit commit SHA.
   Never commit third-party source code; the manifest holds only references.

@@ -1470,15 +1470,15 @@ codeint ships eight built-in Language plugins:
 For Go (`go`), each folder with a `go.mod` file below the repository root is one Workspace package (`go.work` is not read), an import of a repository Go package leads to every non-test `.go` file in that folder, standard library and cgo (`"C"`) imports count as built in, every named function and method (`ReceiverType.MethodName`) with a body is one function, function literals inside a function count toward the enclosing function one nesting level deeper (package-level function literals are not separate functions), and decision points are `if`, `for`, `case` except `default`, `&&`, and `||`.
 Go Verbosity applies five Flagged line rules (never flagging idiomatic `if err != nil` checks):
 `else-after-return` (an `else` after a branch chain that always returns, silent when an `if` short variable is used in `else`), `if-else-returns-boolean` (an `if`/`else` or `if` followed by `return` returning `true` and `false`), `conditional-yields-boolean` (an `if`/`else` assigning `true` and `false` to the same variable), `trailing-bare-return` (a bare `return` as the last statement of a function with no results), and `redundant-break` (an unlabeled `break` as the last statement of a `switch` or `select` `case`).
-Calibrated Go Reference ranges come from a stratified panel of 50 current public Go repositories ([ADR 0028](./adr/0028-stratified-reference-panels.md), source `codeint stratified panel of 50 Go repositories, ADR 0028, codeint 0.6.0`): Erosion `32.5% to 67.4%`, Duplication `2.5% to 18.1%`, Verbosity `0.0% to 0.2%`, and Import cycles `0.0% to 0.0%`.
+Calibrated Go Reference ranges come from a stratified panel of 100 current public Go repositories ([ADR 0035](./adr/0035-stratified-100-repository-reference-panels.md), source `codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0`): Erosion `30.4% to 74.6%`, Cognitive complexity `30.6% to 67.1%`, Duplication `3.4% to 24.3%`, Verbosity `0.0% to 0.4%`, and Import cycles `0.0% to 0.0%`.
 See [docs/guide/go.md](./guide/go.md) for the full Go guide.
 
 For SQL (`sql`), codeint reads every `.sql` file in two layers with `sqlparser` ([ADR 0018](./adr/0018-sql-through-sqlparser-in-two-layers.md)), supports generic SQL by default plus `postgresql`, `mysql` (covering MariaDB), `sqlite`, and `duckdb` Dialects, defines 2 Flagged line rules and 32 Hazard line rules (27 statement rules and 5 schema-backed rules), builds schemas automatically from repository SQL files, and leaves import Metrics absent because SQL has no imports.
-Calibrated SQL Reference ranges come from a stratified panel of 50 current public SQL repositories ([ADR 0028](./adr/0028-stratified-reference-panels.md), source `codeint stratified panel of 50 SQL repositories, ADR 0028, codeint 0.6.0`): Erosion `0.0% to 79.5%`, Duplication `0.1% to 90.9%`, and Verbosity `0.0% to 0.0%` (Import cycles is absent because SQL has no imports).
+Calibrated SQL Reference ranges come from a stratified panel of 77 current public SQL repositories ([ADR 0035](./adr/0035-stratified-100-repository-reference-panels.md), source `codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0`): Erosion `0.0% to 91.8%`, Cognitive complexity `0.0% to 90.2%`, Duplication `0.0% to 90.9%`, and Verbosity `0.0% to 0.0%` (Import cycles is absent because SQL has no imports).
 See [SQL](#sql) below and [docs/guide/sql.md](./guide/sql.md) for details.
 
 For Shell (`shell`), codeint reads every `.sh`, `.bash`, and `.zsh` file with a hand-written lexer, detects POSIX `sh`, Bash, or Zsh from the first-line shebang and then from the extension, measures each named function plus one `<script>` function for top-level commands, defines 4 Flagged line rules and 10 Hazard line rules, and leaves import Metrics absent because shell scripts have no imports.
-Calibrated Shell Reference ranges come from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md), source `codeint panel of 50 Shell repositories, ADR 0031, codeint 0.6.0`): Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` (Import cycles is absent because shell scripts have no imports).
+Calibrated Shell Reference ranges come from a stratified panel of 100 current public Shell repositories ([ADR 0035](./adr/0035-stratified-100-repository-reference-panels.md), source `codeint stratified panel of 100 Shell repositories, ADR 0035, codeint 0.8.0`): Erosion `36.4% to 93.0%`, Cognitive complexity `21.8% to 82.8%`, Duplication `0.3% to 71.3%`, and Verbosity `0.0% to 3.1%` (Import cycles is absent because shell scripts have no imports).
 See [Shell](#shell) below and [docs/guide/shell.md](./guide/shell.md) for details.
 
 ```json codeint.json
@@ -1808,7 +1808,7 @@ See [docs/guide/sql.md](./guide/sql.md) for a walkthrough and monorepo examples.
 - **Flagged line rules (Verbosity)**:
   - `or-chain-collapses-to-in`: three or more `OR` equality comparisons of the same column against constant literals.
   - `having-without-aggregate`: a `HAVING` condition that contains no aggregate function.
-- **Reference ranges**: calibrated across a stratified panel of 50 current public SQL repositories ([ADR 0028](./adr/0028-stratified-reference-panels.md), source `codeint stratified panel of 50 SQL repositories, ADR 0028, codeint 0.6.0`): Erosion `0.0% to 79.5%`, Duplication `0.1% to 90.9%`, and Verbosity `0.0% to 0.0%` (Import cycles is absent).
+- **Reference ranges**: calibrated across a stratified panel of 77 current public SQL repositories ([ADR 0035](./adr/0035-stratified-100-repository-reference-panels.md), source `codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0`): Erosion `0.0% to 91.8%`, Cognitive complexity `0.0% to 90.2%`, Duplication `0.0% to 90.9%`, and Verbosity `0.0% to 0.0%` (Import cycles is absent).
 
 All 32 built-in SQL Hazard line rules (27 statement rules and 5 schema-backed rules):
 
@@ -1887,7 +1887,7 @@ See [docs/guide/shell.md](./guide/shell.md) for a walkthrough.
   - `legacy-backticks`: command substitution written with backticks instead of `$(...)`.
   - `redundant-exit-status-check`: a `[ ... ]`, `[[ ... ]]`, or `test` comparison of `$?` with `0`.
   - `else-after-return`: an `else` after an `if` branch that always ends in `return` or `exit`.
-- **Reference ranges**: Erosion `41.6% to 92.7%`, Duplication `0.8% to 75.1%`, and Verbosity `0.0% to 2.5%` from a stratified panel of 50 current public Shell repositories ([ADR 0031](./adr/0031-shell-reference-ranges.md)).
+- **Reference ranges**: Erosion `36.4% to 93.0%`, Cognitive complexity `21.8% to 82.8%`, Duplication `0.3% to 71.3%`, and Verbosity `0.0% to 3.1%` from a stratified panel of 100 current public Shell repositories ([ADR 0035](./adr/0035-stratified-100-repository-reference-panels.md)).
 
 All 10 built-in Shell Hazard line rules:
 

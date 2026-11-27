@@ -93,11 +93,16 @@ impl AuditPopulation {
             (AuditCategory::OrphanFiles, self.orphan_files),
         ]
         .into_iter()
-        .map(|(category, items)| AuditSample {
-            category,
-            seed: format!("{seed:016x}"),
-            population: items.len() as u64,
-            items: seeded_sample(items, seed, size),
+        .map(|(category, mut items)| {
+            items.sort();
+            items.dedup();
+            let population = items.len() as u64;
+            AuditSample {
+                category,
+                seed: format!("{seed:016x}"),
+                population,
+                items: seeded_sample(items, seed, size),
+            }
         })
         .collect()
     }
@@ -106,6 +111,7 @@ impl AuditPopulation {
 fn seed_for(commits: &[String]) -> u64 {
     let mut sorted = commits.to_vec();
     sorted.sort();
+    sorted.dedup();
     sorted
         .iter()
         .fold(StableHasher::new(), |hasher, commit| {
