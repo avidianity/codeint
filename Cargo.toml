@@ -26,7 +26,7 @@ codeint-model = { path = "crates/model" }
 codeint-plugin-host = { path = "crates/plugin-host" }
 codeint-report = { path = "crates/report" }
 dlmalloc = { version = "=0.2.14", features = ["global"] }
-gix = { version = "=0.90.0", default-features = false, features = ["dirwalk", "revision", "sha1"] }
+gix = { version = "=0.90.0", default-features = false, features = ["dirwalk", "parallel", "revision", "sha1"] }
 globset = "=0.4.21"
 jsonc-parser = { version = "=0.34.0", features = ["serde", "serde_json", "preserve_order"] }
 oxc_allocator = "=0.159.0"

@@ -37,7 +37,8 @@ let bytes = base.read(&base.files()[0])?;
 
 - `merge_base_with_head` resolves the base ref to a commit, as `git rev-parse` does, and returns its best merge-base with HEAD.
   It fails with `GitError::UnknownRef` that names the ref when the ref names no commit.
-- `commit` lists the files of a commit from Git objects and reads each blob on demand; it never checks out the commit and never writes the index.
+- `commit` lists the files of a commit from Git objects and reads each blob on demand through a thread-safe repository handle; it never checks out the commit and never writes the index.
+- Call `parallel_reader().thread_local()` inside worker threads to stream blobs in parallel without buffering a commit tree in memory, and `blob_id(path)` to key caches on a commit file's blob object id.
 - A commit `Snapshot` follows the same rules as the working tree: regular and executable files are files, symbolic links are left out, and submodules are listed.
 - Measure both `Snapshot` values with the same code; the caller never knows which kind it holds.
 - `CommitId` displays as the full hexadecimal object id; use it to name the commit in a report or a cache key.
@@ -92,7 +93,7 @@ let measurement = match cache.read(merge_base, &settings) {
 - `settings` is any `Serialize` value that holds everything, other than the commit, that changes the result: the codeint version, each Plugin and its version, and the effective `Configuration`.
   A different value names a different entry.
 - An entry is a JSON file named `{commit}-{SHA-1 of the settings}.json` that also stores the commit and the settings text; `read` returns the result only when both match.
-- `read` returns `None` for a missing, unreadable, or unparsable entry, so the caller measures again and `write` replaces the entry.
-- `write` writes a temporary file in the same folder and renames it over the entry, so a reader never sees half an entry, and two runs that race leave one whole entry.
+- `read` returns `None` for a missing, unreadable, or unparsable entry, so the caller measures again and `write` replaces the entry, and refreshes the entry's modification time on a cache hit.
+- `write` writes a temporary file in the same folder and renames it over the entry, so a reader never sees half an entry, and two runs that race leave one whole entry; after writing, it prunes entries untouched for more than 30 days and evicts the oldest-touched entries when more than 5,000 remain.
 - A `write` failure must not fail the run: report it on standard error and continue.
 - The result type must read back exactly what it wrote; floating-point numbers round-trip because the git crate enables the `float_roundtrip` feature of serde_json.

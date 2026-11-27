@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use codeint_config::{
@@ -31,8 +31,8 @@ mod sql;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use coverage::{CoverageReportDigest, hash_configured_coverage_reports};
 pub(crate) use errors::CheckError;
+pub(crate) use lowering::LoweringCache;
 pub(crate) use manifests::{find_workspace, read_manifests};
 #[cfg(test)]
 use package_filter::filter_model_to_package;
@@ -541,16 +541,65 @@ pub(crate) fn measure_snapshot(
     plugins: &[NamedLanguagePlugin<'_>],
     configuration: &Configuration,
 ) -> Result<MeasuredSnapshot, CheckError> {
+    measure_snapshot_with_cache(tree, plugins, configuration, None)
+}
+
+pub(crate) fn measure_snapshot_with_cache(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    configuration: &Configuration,
+    lowering_cache: Option<&LoweringCache>,
+) -> Result<MeasuredSnapshot, CheckError> {
+    let versions = plugin_versions(plugins, configuration);
+    measure_snapshot_with_versions(tree, plugins, &versions, configuration, lowering_cache)
+}
+
+fn measure_snapshot_with_versions(
+    tree: &Snapshot,
+    plugins: &[NamedLanguagePlugin<'_>],
+    plugin_versions: &[String],
+    configuration: &Configuration,
+    lowering_cache: Option<&LoweringCache>,
+) -> Result<MeasuredSnapshot, CheckError> {
     let names: Vec<&str> = plugins.iter().map(|plugin| plugin.name).collect();
     let coverage = configuration.languages.coverage_of(&names)?;
-    measure(tree, plugins, &coverage, configuration)
+    measure(
+        tree,
+        plugins,
+        plugin_versions,
+        &coverage,
+        configuration,
+        lowering_cache,
+    )
+}
+
+fn plugin_versions(
+    plugins: &[NamedLanguagePlugin<'_>],
+    configuration: &Configuration,
+) -> Vec<String> {
+    let external_versions: HashMap<&str, String> = configuration
+        .plugins
+        .iter()
+        .map(|declared| (declared.name.as_str(), declared.sha256.to_hex()))
+        .collect();
+    plugins
+        .iter()
+        .map(|named| {
+            external_versions
+                .get(named.name)
+                .cloned()
+                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned())
+        })
+        .collect()
 }
 
 fn measure(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
+    plugin_versions: &[String],
     coverage: &[LanguageCoverage<'_>],
     configuration: &Configuration,
+    lowering_cache: Option<&LoweringCache>,
 ) -> Result<MeasuredSnapshot, CheckError> {
     let config_file = configuration.config_file();
     let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
@@ -561,8 +610,15 @@ fn measure(
     let manifest_warnings = discovery.warnings();
     let plugin_members = discovery.members_by_plugin;
     let manifests_by_plugin = discovery.manifests_by_plugin;
-    let outcomes =
-        lowering::lower_covered_files(tree, plugins, &covered_files, &sql_dialects, config_file)?;
+    let outcomes = lowering::lower_covered_files(
+        tree,
+        plugins,
+        plugin_versions,
+        &covered_files,
+        &sql_dialects,
+        config_file,
+        lowering_cache,
+    )?;
     let mut collected = lowering::collect_plugin_models(plugins.len(), workspace.clone(), outcomes);
     let profiles_by_plugin = frameworks::resolve_all_language_profiles(
         tree,

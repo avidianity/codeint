@@ -4,7 +4,7 @@ use codeint_config::{CalendarDay, PluginHostConfig, TrendRange};
 use codeint_git::{CommitRange, ResultCache};
 use codeint_report::{TrendPoint, TrendReport};
 
-use crate::check::{CheckError, WorkspaceContext};
+use crate::check::{CheckError, LoweringCache, WorkspaceContext};
 use crate::commit_measurement::CommitMeasurer;
 
 pub(crate) fn trend(
@@ -14,11 +14,13 @@ pub(crate) fn trend(
     plugin_host: &PluginHostConfig,
 ) -> Result<TrendReport, CheckError> {
     let context = WorkspaceContext::load(folder, plugin_host)?;
+    let lowering_cache = LoweringCache::new();
     let measurer = CommitMeasurer::new(
         &context.repository,
         &context.configuration,
         &context.plugins,
         result_cache,
+        Some(&lowering_cache),
     );
     let points = context
         .repository

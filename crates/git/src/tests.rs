@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use codeint_model::RepoPath;
 
-use crate::Repository;
+use crate::{Repository, ResultCache};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -222,4 +222,155 @@ fn mode_change_falls_back_safely_without_false_positive_or_miss() {
         .changed_files_since("main")
         .expect("changed_files_since after edit");
     assert_eq!(changed.files, repo_paths(&["script.sh"]));
+}
+
+fn cache_json_files(folder: &Path) -> Vec<PathBuf> {
+    fs::read_dir(folder)
+        .expect("read cache folder")
+        .map(|entry| entry.expect("dir entry").path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .collect()
+}
+
+fn set_mtime(path: &Path, time: SystemTime) {
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("open for mtime");
+    file.set_modified(time).expect("set_modified");
+}
+
+#[test]
+fn result_cache_prunes_entries_untouched_for_more_than_thirty_days_and_refreshes_on_hit() {
+    let temp = TempRepo::new("result-cache-age-prune");
+    temp.write("a.txt", "one\n");
+    temp.commit_all("first");
+    temp.write("a.txt", "two\n");
+    temp.commit_all("second");
+    temp.write("a.txt", "three\n");
+    temp.commit_all("third");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let first = repo.resolve("HEAD~2").expect("first commit");
+    let second = repo.resolve("HEAD~1").expect("second commit");
+    let third = repo.resolve("HEAD").expect("third commit");
+
+    let cache_dir = temp.path().join(".cache");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+    cache.write(first, &"settings", &1u32).expect("write first");
+    cache
+        .write(second, &"settings", &2u32)
+        .expect("write second");
+
+    let thirty_one_days = Duration::from_secs(31 * 24 * 60 * 60);
+    let stale_time = SystemTime::now() - thirty_one_days;
+    for path in cache_json_files(&cache_dir) {
+        set_mtime(&path, stale_time);
+    }
+
+    assert_eq!(cache.read::<u32>(second, &"settings"), Some(2));
+
+    cache.write(third, &"settings", &3u32).expect("write third");
+
+    assert_eq!(cache.read::<u32>(first, &"settings"), None);
+    assert_eq!(cache.read::<u32>(second, &"settings"), Some(2));
+    assert_eq!(cache.read::<u32>(third, &"settings"), Some(3));
+    assert_eq!(cache_json_files(&cache_dir).len(), 2);
+}
+
+#[test]
+fn result_cache_enforces_five_thousand_entry_cap_evicting_oldest_touched() {
+    let temp = TempRepo::new("result-cache-cap-prune");
+    temp.write("a.txt", "one\n");
+    temp.commit_all("first");
+    temp.write("a.txt", "two\n");
+    temp.commit_all("second");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let first = repo.resolve("HEAD~1").expect("first commit");
+    let second = repo.resolve("HEAD").expect("second commit");
+
+    let cache_dir = temp.path().join(".cache");
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+    let cache = ResultCache::in_folder(cache_dir.clone());
+
+    let oldest_path = cache_dir.join("0000000000000000000000000000000000000000-oldest.json");
+    fs::write(&oldest_path, "{}").expect("write oldest");
+    set_mtime(&oldest_path, SystemTime::now() - Duration::from_secs(3600));
+
+    cache.write(first, &"settings", &1u32).expect("write first");
+    let first_path = cache_json_files(&cache_dir)
+        .into_iter()
+        .find(|path| path != &oldest_path)
+        .expect("first cache file");
+    set_mtime(&first_path, SystemTime::now() - Duration::from_secs(3500));
+
+    let mid_time = SystemTime::now() - Duration::from_secs(1800);
+    for index in 0..4_998usize {
+        let filler = cache_dir.join(format!("filler-{index:05}.json"));
+        fs::write(&filler, "{}").expect("write filler");
+        set_mtime(&filler, mid_time);
+    }
+    assert_eq!(cache_json_files(&cache_dir).len(), 5_000);
+
+    assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
+
+    cache
+        .write(second, &"settings", &2u32)
+        .expect("write second");
+
+    assert_eq!(cache_json_files(&cache_dir).len(), 5_000);
+    assert!(!oldest_path.exists(), "oldest untouched entry was evicted");
+    assert_eq!(cache.read::<u32>(first, &"settings"), Some(1));
+    assert_eq!(cache.read::<u32>(second, &"settings"), Some(2));
+}
+
+#[test]
+fn parallel_commit_reader_streams_blobs_identically_across_threads() {
+    let temp = TempRepo::new("parallel-commit-reader");
+    for index in 0..32usize {
+        temp.write(
+            &format!("dir_{}/file_{index:02}.txt", index % 4),
+            &format!("blob body {index}\nline two {index}\n"),
+        );
+    }
+    temp.commit_all("initial");
+
+    let repo = Repository::discover(temp.path()).expect("discover");
+    let head = repo.resolve("HEAD").expect("resolve HEAD");
+    let commit_snapshot = repo.commit(head).expect("commit snapshot");
+    let working_snapshot = repo.working_tree().expect("working tree");
+
+    for path in commit_snapshot.files() {
+        assert!(commit_snapshot.blob_id(path).is_some());
+        assert!(working_snapshot.blob_id(path).is_none());
+    }
+
+    let expected: Vec<(RepoPath, Vec<u8>)> = commit_snapshot
+        .files()
+        .iter()
+        .map(|path| (path.clone(), commit_snapshot.read(path).expect("read")))
+        .collect();
+
+    let reader = commit_snapshot.parallel_reader();
+    let files = commit_snapshot.files();
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            handles.push(scope.spawn(move || {
+                let local = reader.thread_local();
+                files
+                    .iter()
+                    .map(|path| {
+                        assert!(local.blob_id(path).is_some());
+                        (path.clone(), local.read(path).expect("parallel read"))
+                    })
+                    .collect::<Vec<_>>()
+            }));
+        }
+        for handle in handles {
+            let actual = handle.join().expect("worker thread");
+            assert_eq!(actual, expected);
+        }
+    });
 }

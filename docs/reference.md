@@ -2019,8 +2019,8 @@ A plugin trap, an error that names a path codeint did not pass, and an error tha
 
 codeint caches the measurement of each commit it reads from Git objects, so a second `codeint diff` against the same base reads it back instead of measuring the commit again.
 That covers the merge-base, the head ref of `--head`, and each commit of `codeint trend`.
-An entry belongs to one commit and to the settings that shape a measurement: the codeint version, the Plugin interface version, every Metric version (all built-in Metrics and every loaded external Metric plugin), each Language plugin and its version, the effective `codeint.json`, and (when Coverage reports are named) the list and content of those Coverage reports.
-Any change to `codeint.json` other than its `$schema` address, any bump to a Metric version, or any change to the named Coverage reports measures again instead of serving a stale cached result.
+An entry belongs to one commit and to the settings that shape a measurement: the codeint version, the Plugin interface version, every Metric version (all built-in Metrics and every loaded external Metric plugin), each Language plugin and its version, and the effective `codeint.json`.
+Any change to `codeint.json` other than its `$schema` address or `format`, or any bump to a Metric version, measures again instead of serving a stale cached result; changing local working-tree Coverage report files does not invalidate cached historical commits.
 The working tree is never cached, because it has no commit.
 
 The cache lives in the `codeint` folder of your user cache folder:
@@ -2039,6 +2039,7 @@ CODEINT_CACHE_DIR=.cache/codeint codeint trend
 Without any of these variables, codeint runs without a cache.
 
 Deleting the folder is always safe.
+codeint automatically prunes cached entries untouched for more than 30 days and evicts the oldest-touched entries when more than 5,000 entries accumulate.
 codeint ignores an entry it cannot read or parse and writes it again.
 When it cannot write an entry, it prints a warning to standard error and the run still succeeds:
 

@@ -98,6 +98,9 @@ const HEAD: &str = "HEAD";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CommitId(gix::ObjectId);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BlobId(gix::ObjectId);
+
 pub struct Repository {
     repository: gix::Repository,
     root: PathBuf,
@@ -121,15 +124,42 @@ enum Contents {
         stat_options: StatOptions,
     },
     Commit {
-        repository: Box<gix::Repository>,
+        repository: Box<gix::ThreadSafeRepository>,
         commit: CommitId,
         blobs: HashMap<RepoPath, gix::ObjectId>,
     },
 }
 
 #[derive(Clone, Copy)]
-pub struct WorkingTreeReader<'snapshot> {
-    root: &'snapshot Path,
+pub struct ParallelSnapshotReader<'snapshot> {
+    source: ParallelSource<'snapshot>,
+}
+
+#[derive(Clone, Copy)]
+enum ParallelSource<'snapshot> {
+    WorkingTree {
+        root: &'snapshot Path,
+    },
+    Commit {
+        repository: &'snapshot gix::ThreadSafeRepository,
+        commit: CommitId,
+        blobs: &'snapshot HashMap<RepoPath, gix::ObjectId>,
+    },
+}
+
+pub struct ThreadLocalSnapshotReader<'snapshot> {
+    source: ThreadLocalSource<'snapshot>,
+}
+
+enum ThreadLocalSource<'snapshot> {
+    WorkingTree {
+        root: &'snapshot Path,
+    },
+    Commit {
+        repository: Box<gix::Repository>,
+        commit: CommitId,
+        blobs: &'snapshot HashMap<RepoPath, gix::ObjectId>,
+    },
 }
 
 impl std::fmt::Display for CommitId {
@@ -242,7 +272,7 @@ impl Repository {
             files,
             submodules,
             contents: Contents::Commit {
-                repository: Box::new(self.repository.clone()),
+                repository: Box::new(self.repository.clone().into_sync()),
                 commit,
                 blobs,
             },
@@ -321,17 +351,68 @@ impl Snapshot {
         }
     }
 
-    pub fn working_tree_reader(&self) -> Option<WorkingTreeReader<'_>> {
+    pub fn blob_id(&self, path: &RepoPath) -> Option<BlobId> {
         match &self.contents {
-            Contents::WorkingTree { root, .. } => Some(WorkingTreeReader { root }),
-            Contents::Commit { .. } => None,
+            Contents::Commit { blobs, .. } => blobs.get(path).copied().map(BlobId),
+            Contents::WorkingTree { .. } => None,
+        }
+    }
+
+    pub fn parallel_reader(&self) -> ParallelSnapshotReader<'_> {
+        let source = match &self.contents {
+            Contents::WorkingTree { root, .. } => ParallelSource::WorkingTree { root },
+            Contents::Commit {
+                repository,
+                commit,
+                blobs,
+            } => ParallelSource::Commit {
+                repository,
+                commit: *commit,
+                blobs,
+            },
+        };
+        ParallelSnapshotReader { source }
+    }
+
+    pub fn read(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
+        self.parallel_reader().thread_local().read(path)
+    }
+}
+
+impl<'snapshot> ParallelSnapshotReader<'snapshot> {
+    pub fn thread_local(self) -> ThreadLocalSnapshotReader<'snapshot> {
+        let source = match self.source {
+            ParallelSource::WorkingTree { root } => ThreadLocalSource::WorkingTree { root },
+            ParallelSource::Commit {
+                repository,
+                commit,
+                blobs,
+            } => ThreadLocalSource::Commit {
+                repository: Box::new(repository.to_thread_local()),
+                commit,
+                blobs,
+            },
+        };
+        ThreadLocalSnapshotReader { source }
+    }
+}
+
+impl ThreadLocalSnapshotReader<'_> {
+    pub fn blob_id(&self, path: &RepoPath) -> Option<BlobId> {
+        match &self.source {
+            ThreadLocalSource::Commit { blobs, .. } => blobs.get(path).copied().map(BlobId),
+            ThreadLocalSource::WorkingTree { .. } => None,
         }
     }
 
     pub fn read(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
-        match &self.contents {
-            Contents::WorkingTree { root, .. } => WorkingTreeReader { root }.read(path),
-            Contents::Commit {
+        match &self.source {
+            ThreadLocalSource::WorkingTree { root } => std::fs::read(root.join(path.as_str()))
+                .map_err(|source| GitError::Read {
+                    path: path.clone(),
+                    source,
+                }),
+            ThreadLocalSource::Commit {
                 repository,
                 commit,
                 blobs,
@@ -350,15 +431,6 @@ impl Snapshot {
                     })
             }
         }
-    }
-}
-
-impl WorkingTreeReader<'_> {
-    pub fn read(self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
-        std::fs::read(self.root.join(path.as_str())).map_err(|source| GitError::Read {
-            path: path.clone(),
-            source,
-        })
     }
 }
 

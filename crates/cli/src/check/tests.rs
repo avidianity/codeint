@@ -15,7 +15,10 @@ use codeint_model::{
 use serde_json::Value;
 use tempfile::TempDir;
 
-use super::{CheckError, NamedLanguagePlugin, check_with, measure_snapshot};
+use super::{
+    CheckError, LoweringCache, NamedLanguagePlugin, check_with, measure_snapshot,
+    measure_snapshot_with_cache, measure_snapshot_with_versions,
+};
 
 struct Alpha;
 
@@ -1746,4 +1749,159 @@ fn workspace_error_that_is_not_a_manifest_error_stays_fatal() {
         fatal_picky_error("escape"),
         codeint_model::WorkspaceError::InvalidPackageRoot(_)
     ));
+}
+
+struct CountingPathAwarePlugin;
+
+static COUNTING_LOWER_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+impl Guest for CountingPathAwarePlugin {
+    fn extensions() -> Vec<String> {
+        vec!["alpha".to_owned()]
+    }
+
+    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+        COUNTING_LOWER_CALLS.fetch_add(1, Ordering::Relaxed);
+        let source_set = if path.ends_with(".test.alpha") {
+            SourceSet::Test
+        } else {
+            SourceSet::Production
+        };
+        lines_in(source_set, &text)
+    }
+
+    fn reference_ranges() -> Vec<ReferenceRange> {
+        erosion_range(0.0, 1.0, "counting")
+    }
+
+    without_workspaces!();
+    every_import_is_external!();
+}
+
+fn commit_all(root: &std::path::Path, message: &str) {
+    let git_env = [
+        ("GIT_AUTHOR_NAME", "Tester"),
+        ("GIT_AUTHOR_EMAIL", "tester@example.invalid"),
+        ("GIT_COMMITTER_NAME", "Tester"),
+        ("GIT_COMMITTER_EMAIL", "tester@example.invalid"),
+        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+    ];
+    for args in [&["add", "--all"][..], &["commit", "-q", "-m", message][..]] {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .envs(git_env)
+            .output()
+            .expect("spawn git");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn lowering_cache_reuses_unchanged_blobs_across_commits_and_isolates_paths_and_versions() {
+    COUNTING_LOWER_CALLS.store(0, Ordering::Relaxed);
+    let folder = repository(&[
+        ("src/app.alpha", "identical content\n"),
+        ("src/app.test.alpha", "identical content\n"),
+        ("src/changing.alpha", "v1\n"),
+    ]);
+    commit_all(folder.path(), "first");
+
+    fs::write(folder.path().join("src/changing.alpha"), "v2\nline2\n").expect("update changing");
+    commit_all(folder.path(), "second");
+
+    let repo = Repository::discover(folder.path()).expect("discover");
+    let first_tree = repo
+        .commit(repo.resolve("HEAD~1").expect("first commit"))
+        .expect("first tree");
+    let second_tree = repo
+        .commit(repo.resolve("HEAD").expect("second commit"))
+        .expect("second tree");
+
+    let prod_path = RepoPath::new("src/app.alpha").expect("prod path");
+    let test_path = RepoPath::new("src/app.test.alpha").expect("test path");
+    assert_eq!(
+        first_tree.blob_id(&prod_path),
+        first_tree.blob_id(&test_path)
+    );
+
+    let plugins = [NamedLanguagePlugin {
+        name: "counting-alpha",
+        plugin: &CountingPathAwarePlugin,
+    }];
+    let cache = LoweringCache::new();
+    let config = Configuration::default();
+    let measure_version = |tree: &codeint_git::Snapshot, version: &str| {
+        measure_snapshot_with_versions(tree, &plugins, &[version.to_owned()], &config, Some(&cache))
+            .expect("measure commit")
+    };
+    let source_set_of = |measured: &super::MeasuredSnapshot, path: &RepoPath| {
+        measured.languages[0]
+            .model
+            .files
+            .iter()
+            .find(|file| &file.path == path)
+            .expect("measured file")
+            .model
+            .source_set
+    };
+
+    let first_measured = measure_version(&first_tree, "1.0.0");
+    assert_eq!(COUNTING_LOWER_CALLS.load(Ordering::Relaxed), 3);
+    assert_eq!(
+        source_set_of(&first_measured, &prod_path),
+        SourceSet::Production
+    );
+    assert_eq!(source_set_of(&first_measured, &test_path), SourceSet::Test);
+
+    let second_measured = measure_version(&second_tree, "1.0.0");
+    assert_eq!(COUNTING_LOWER_CALLS.load(Ordering::Relaxed), 4);
+    assert_eq!(
+        source_set_of(&second_measured, &prod_path),
+        SourceSet::Production
+    );
+    assert_eq!(source_set_of(&second_measured, &test_path), SourceSet::Test);
+
+    let _version_bump = measure_version(&second_tree, "2.0.0");
+    assert_eq!(COUNTING_LOWER_CALLS.load(Ordering::Relaxed), 7);
+}
+
+#[test]
+fn lowering_cache_isolates_sql_dialects_for_identical_blob() {
+    let folder = repository(&[(
+        "db/query.sql",
+        "SELECT 1::int;\nCREATE TABLE items (id INT);\n",
+    )]);
+    commit_all(folder.path(), "sql");
+
+    let repo = Repository::discover(folder.path()).expect("discover");
+    let tree = repo
+        .commit(repo.resolve("HEAD").expect("resolve HEAD"))
+        .expect("commit tree");
+    let plugins = codeint_plugin_host::built_in_language_plugins();
+    let cache = LoweringCache::new();
+
+    let measure_dialect = |dialect: &str| {
+        fs::write(
+            folder.path().join("codeint.json"),
+            format!(
+                r#"{{ "sql": {{ "dialects": [{{ "dialect": "{dialect}", "include": ["db/**"] }}] }} }}"#
+            ),
+        )
+        .expect("write sql config");
+        let config = codeint_config::read_configuration(folder.path()).expect("read sql config");
+        measure_snapshot_with_cache(&tree, plugins, &config, Some(&cache)).expect("measure sql")
+    };
+
+    let pg = measure_dialect("postgresql");
+    let mysql = measure_dialect("mysql");
+
+    assert_ne!(pg.sql_schemas, mysql.sql_schemas);
+    assert_eq!(pg.sql_schemas[0].dialect, "postgresql");
+    assert_eq!(mysql.sql_schemas[0].dialect, "mysql");
 }
