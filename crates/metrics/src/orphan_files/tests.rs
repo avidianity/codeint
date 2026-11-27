@@ -591,21 +591,29 @@ fn multi_file_resolved_imports_mark_all_targets_and_transitive_folders_reachable
     );
 }
 
+fn tagged_files<'a>(prod: &[&'a str], tests: &[&'a str]) -> Vec<(&'a str, SourceSet)> {
+    prod.iter()
+        .map(|&path| (path, SourceSet::Production))
+        .chain(tests.iter().map(|&path| (path, SourceSet::Test)))
+        .collect()
+}
+
 #[test]
 fn linear_test_only_traversal_handles_cycles_diamonds_direct_precedence_and_deep_chains() {
-    let model = build_model(
+    let files = tagged_files(
         &[
-            ("src/entry.ts", SourceSet::Production),
-            ("src/direct_and_upstream.ts", SourceSet::Production),
-            ("src/direct_and_downstream.ts", SourceSet::Production),
-            ("src/leaf_after_both.ts", SourceSet::Production),
-            ("src/cycle_a.ts", SourceSet::Production),
-            ("src/cycle_b.ts", SourceSet::Production),
-            ("src/cycle_tail.ts", SourceSet::Production),
-            ("tests/t1.test.ts", SourceSet::Test),
-            ("tests/t2.test.ts", SourceSet::Test),
-            ("tests/t3.test.ts", SourceSet::Test),
+            "src/entry.ts",
+            "src/direct_and_upstream.ts",
+            "src/direct_and_downstream.ts",
+            "src/leaf_after_both.ts",
+            "src/cycle_a.ts",
+            "src/cycle_b.ts",
+            "src/cycle_tail.ts",
         ],
+        &["tests/t1.test.ts", "tests/t2.test.ts", "tests/t3.test.ts"],
+    );
+    let model = build_model(
+        &files,
         &[
             ("tests/t1.test.ts", "src/direct_and_upstream.ts"),
             ("src/direct_and_upstream.ts", "src/direct_and_downstream.ts"),
@@ -622,21 +630,15 @@ fn linear_test_only_traversal_handles_cycles_diamonds_direct_precedence_and_deep
     let measured = OrphanFiles::measure(&model, &[repo_path("src/entry.ts")])
         .expect("entry point activates orphan-file detection");
 
-    let summary: Vec<(&str, OrphanFileKind, Vec<&str>)> = measured
-        .findings()
-        .iter()
-        .map(|finding| {
-            (
-                finding.path.as_str(),
-                finding.kind,
-                finding
-                    .test_importers
-                    .iter()
-                    .map(RepoPath::as_str)
-                    .collect(),
-            )
-        })
-        .collect();
+    let mut summary = Vec::new();
+    for finding in measured.findings() {
+        let importers: Vec<&str> = finding
+            .test_importers
+            .iter()
+            .map(RepoPath::as_str)
+            .collect();
+        summary.push((finding.path.as_str(), finding.kind, importers));
+    }
     assert_eq!(
         summary,
         vec![

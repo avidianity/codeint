@@ -582,26 +582,109 @@ macro_rules! empty_framework_profile_guest_methods {
 
 #[macro_export]
 macro_rules! empty_framework_profile_plugin_methods {
-    () => {
-        fn known_framework_profiles(&self) -> ::std::vec::Vec<::std::string::String> {
-            ::std::vec::Vec::new()
-        }
-
-        fn resolve_framework_profiles(
-            &self,
-            _package_root: &str,
-            _files: &[$crate::RepoPath],
-            _manifests: ::std::vec::Vec<$crate::Manifest>,
-            _selection: $crate::FrameworkProfileSelection,
-        ) -> ::std::result::Result<$crate::FrameworkProfileResult, $crate::LanguagePluginError> {
-            ::std::result::Result::Ok($crate::empty_framework_profile_result())
-        }
-    };
+    () => {};
 }
 
 #[macro_export]
-macro_rules! delegate_framework_profile_plugin_methods {
-    ($module:ident) => {
+macro_rules! impl_builtin_language_plugin {
+    (
+        $plugin:ty,
+        $extensions:expr,
+        $lower:path,
+        $ranges:expr,
+        imports($($imports:tt)*),
+        frameworks($($frameworks:tt)*),
+        hazards($($hazards:tt)*) $(,)?
+    ) => {
+        impl $crate::LanguagePlugin for $plugin {
+            fn extensions(&self) -> ::std::vec::Vec<::std::string::String> {
+                $extensions
+                    .iter()
+                    .map(::std::string::ToString::to_string)
+                    .collect()
+            }
+
+            fn lower(
+                &self,
+                path: &$crate::RepoPath,
+                text: &str,
+            ) -> ::std::result::Result<$crate::FileModel, $crate::LowerError> {
+                $lower(self, path, text)
+            }
+
+            fn reference_ranges(
+                &self,
+            ) -> ::std::result::Result<$crate::ReferenceRanges, $crate::InvalidReferenceRange> {
+                $crate::ReferenceRanges::new($ranges)
+            }
+
+            $crate::impl_builtin_language_plugin!(@imports $($imports)*);
+            $crate::impl_builtin_language_plugin!(@frameworks $($frameworks)*);
+            $crate::impl_builtin_language_plugin!(@hazards $($hazards)*);
+        }
+    };
+    (@imports none) => {};
+    (@imports $manifest_paths:path, $workspace_packages:path, $resolve_imports:expr, $declared_dependencies:path, $entry_points:path $(,)?) => {
+        fn has_imports(&self) -> bool {
+            true
+        }
+
+        fn manifest_paths(&self, repository_paths: &[$crate::RepoPath]) -> ::std::vec::Vec<::std::string::String> {
+            $manifest_paths(repository_paths)
+        }
+
+        fn workspace_packages(
+            &self,
+            manifests: ::std::vec::Vec<$crate::Manifest>,
+        ) -> ::std::result::Result<::std::vec::Vec<$crate::RepoPath>, $crate::WorkspaceError> {
+            $crate::validate_workspace_packages($workspace_packages(&manifests)?)
+        }
+
+        fn resolve_imports(
+            &self,
+            repository_paths: &[$crate::RepoPath],
+            manifests: ::std::vec::Vec<$crate::Manifest>,
+            requests: ::std::vec::Vec<$crate::language::ImportRequest>,
+            active_profiles: &[::std::string::String],
+        ) -> ::std::result::Result<
+            ::std::vec::Vec<$crate::language::Resolution>,
+            $crate::LanguagePluginError,
+        > {
+            let resolve: fn(
+                &[$crate::RepoPath],
+                &[$crate::Manifest],
+                &[$crate::language::ImportRequest],
+                &[::std::string::String],
+            ) -> ::std::vec::Vec<$crate::language::Resolution> = $resolve_imports;
+            ::std::result::Result::Ok(resolve(
+                repository_paths,
+                &manifests,
+                &requests,
+                active_profiles,
+            ))
+        }
+
+        fn declared_dependencies(
+            &self,
+            manifests: ::std::vec::Vec<$crate::Manifest>,
+        ) -> ::std::result::Result<
+            ::std::vec::Vec<$crate::DeclaredDep>,
+            $crate::LanguagePluginError,
+        > {
+            $crate::validate_declared_dependencies($declared_dependencies(&manifests))
+        }
+
+        fn entry_points(
+            &self,
+            repository_paths: &[$crate::RepoPath],
+            manifests: ::std::vec::Vec<$crate::Manifest>,
+        ) -> ::std::result::Result<::std::vec::Vec<$crate::RepoPath>, $crate::LanguagePluginError>
+        {
+            $crate::validate_entry_points(repository_paths, $entry_points(repository_paths, &manifests))
+        }
+    };
+    (@frameworks none) => {};
+    (@frameworks $module:ident) => {
         fn known_framework_profiles(&self) -> ::std::vec::Vec<::std::string::String> {
             $module::known_profiles()
         }
@@ -623,6 +706,16 @@ macro_rules! delegate_framework_profile_plugin_methods {
             )
         }
     };
+    (@hazards none) => {};
+    (@hazards $rules:expr) => {
+        fn has_hazard_rules(&self) -> bool {
+            true
+        }
+
+        fn hazard_rules(&self) -> ::std::vec::Vec<::std::string::String> {
+            $rules.iter().map(|rule| (*rule).to_owned()).collect()
+        }
+    };
 }
 
 pub trait LanguagePlugin: Sync {
@@ -630,47 +723,69 @@ pub trait LanguagePlugin: Sync {
 
     fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError>;
 
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String>;
+    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
+        Vec::new()
+    }
 
-    fn workspace_packages(&self, manifests: Vec<Manifest>)
-    -> Result<Vec<RepoPath>, WorkspaceError>;
+    fn workspace_packages(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        Ok(Vec::new())
+    }
 
     fn resolve_imports(
         &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-        requests: Vec<language::ImportRequest>,
-        active_profiles: &[String],
-    ) -> Result<Vec<language::Resolution>, LanguagePluginError>;
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+        _requests: Vec<language::ImportRequest>,
+        _active_profiles: &[String],
+    ) -> Result<Vec<language::Resolution>, LanguagePluginError> {
+        Ok(Vec::new())
+    }
 
     fn declared_dependencies(
         &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError>;
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        Ok(Vec::new())
+    }
 
     fn entry_points(
         &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError>;
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        Ok(Vec::new())
+    }
 
     fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange>;
 
-    fn known_framework_profiles(&self) -> Vec<String>;
+    fn known_framework_profiles(&self) -> Vec<String> {
+        Vec::new()
+    }
 
     fn resolve_framework_profiles(
         &self,
-        package_root: &str,
-        files: &[RepoPath],
-        manifests: Vec<Manifest>,
-        selection: FrameworkProfileSelection,
-    ) -> Result<FrameworkProfileResult, LanguagePluginError>;
+        _package_root: &str,
+        _files: &[RepoPath],
+        _manifests: Vec<Manifest>,
+        _selection: FrameworkProfileSelection,
+    ) -> Result<FrameworkProfileResult, LanguagePluginError> {
+        Ok(empty_framework_profile_result())
+    }
 
-    fn has_hazard_rules(&self) -> bool;
+    fn has_hazard_rules(&self) -> bool {
+        false
+    }
 
-    fn hazard_rules(&self) -> Vec<String>;
+    fn hazard_rules(&self) -> Vec<String> {
+        Vec::new()
+    }
 
-    fn has_imports(&self) -> bool;
+    fn has_imports(&self) -> bool {
+        false
+    }
 }
 
 impl<Plugin: language::Guest + Sync> LanguagePlugin for Plugin {

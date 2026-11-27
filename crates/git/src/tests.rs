@@ -10,31 +10,44 @@ use crate::{Repository, ResultCache};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-struct TempRepo {
+pub(crate) struct TempRepo {
     root: PathBuf,
 }
 
 impl TempRepo {
-    fn new(label: &str) -> TempRepo {
-        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let root =
-            std::env::temp_dir().join(format!("codeint-git-{label}-{}-{id}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+    pub(crate) fn new(label: &str) -> TempRepo {
+        let root = std::env::temp_dir().join(format!(
+            "codeint-git-{label}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::remove_dir_all(&root).ok();
         fs::create_dir_all(&root).expect("create temp repo");
         git(&root, &["init", "-q", "-b", "main"]);
         TempRepo { root }
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn seed(label: &str, files: &[(&str, &str)], message: &str) -> TempRepo {
+        let repo = TempRepo::new(label);
+        repo.write_all(files);
+        repo.commit_all(message);
+        repo
+    }
+
+    pub(crate) fn path(&self) -> &Path {
         &self.root
     }
 
-    fn write(&self, relative: &str, body: &str) {
+    pub(crate) fn write(&self, relative: &str, body: &str) {
         let target = self.root.join(relative);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).expect("mkdir");
+        fs::create_dir_all(target.parent().expect("relative path has parent")).expect("mkdir");
+        fs::write(&target, body).expect("write");
+    }
+
+    pub(crate) fn write_all(&self, files: &[(&str, &str)]) {
+        for &(relative, body) in files {
+            self.write(relative, body);
         }
-        fs::write(target, body).expect("write");
     }
 
     fn backdate(&self, relative: &str, seconds_ago: u64) {
@@ -47,7 +60,7 @@ impl TempRepo {
         file.set_modified(past).expect("set_modified");
     }
 
-    fn commit_all(&self, message: &str) {
+    pub(crate) fn commit_all(&self, message: &str) {
         git(&self.root, &["add", "--all"]);
         git(&self.root, &["commit", "-q", "-m", message]);
     }
@@ -59,7 +72,7 @@ impl Drop for TempRepo {
     }
 }
 
-fn git(cwd: &Path, args: &[&str]) -> String {
+pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)

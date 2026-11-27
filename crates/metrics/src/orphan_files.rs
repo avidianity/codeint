@@ -326,37 +326,145 @@ fn compute_reaching_test_importers(
     let (scc_of, sccs) = tarjan_test_reachable_sccs(forward, reached_by_test, count);
     let mut scc_importers: Vec<BTreeSet<usize>> = sccs
         .iter()
-        .map(|members| {
-            let mut importers = BTreeSet::new();
-            for &member in members {
-                importers.extend(direct_test_importers[member].iter().copied());
-            }
-            importers
-        })
+        .map(|members| collect_direct_scc_importers(members, direct_test_importers))
         .collect();
     let mut seen_target_scc = vec![usize::MAX; sccs.len()];
     for scc_id in (0..sccs.len()).rev() {
         if scc_importers[scc_id].is_empty() {
             continue;
         }
-        let (lower, upper) = scc_importers.split_at_mut(scc_id);
-        let source_importers = &upper[0];
-        for &member in &sccs[scc_id] {
-            for &target in &forward[member] {
-                if !reached_by_test[target] {
-                    continue;
-                }
-                let target_scc = scc_of[target];
-                if target_scc != scc_id && seen_target_scc[target_scc] != scc_id {
-                    seen_target_scc[target_scc] = scc_id;
-                    lower[target_scc].extend(source_importers.iter().copied());
-                }
-            }
-        }
+        propagate_scc_importers(
+            scc_id,
+            &sccs[scc_id],
+            forward,
+            reached_by_test,
+            &scc_of,
+            &mut scc_importers,
+            &mut seen_target_scc,
+        );
     }
     ReachingTestImporters {
         scc_of,
         scc_importers,
+    }
+}
+
+fn collect_direct_scc_importers(
+    members: &[usize],
+    direct_test_importers: &[BTreeSet<usize>],
+) -> BTreeSet<usize> {
+    let mut importers = BTreeSet::new();
+    for &member in members {
+        importers.extend(direct_test_importers[member].iter().copied());
+    }
+    importers
+}
+
+fn propagate_scc_importers(
+    scc_id: usize,
+    members: &[usize],
+    forward: &[Vec<usize>],
+    reached_by_test: &[bool],
+    scc_of: &[usize],
+    scc_importers: &mut [BTreeSet<usize>],
+    seen_target_scc: &mut [usize],
+) {
+    let (lower, upper) = scc_importers.split_at_mut(scc_id);
+    let source_importers = &upper[0];
+    for &member in members {
+        for &target in &forward[member] {
+            if !reached_by_test[target] {
+                continue;
+            }
+            let target_scc = scc_of[target];
+            if target_scc != scc_id && seen_target_scc[target_scc] != scc_id {
+                seen_target_scc[target_scc] = scc_id;
+                lower[target_scc].extend(source_importers.iter().copied());
+            }
+        }
+    }
+}
+
+struct TarjanState<'a> {
+    forward: &'a [Vec<usize>],
+    reached_by_test: &'a [bool],
+    next_index: usize,
+    index: Vec<Option<usize>>,
+    lowlink: Vec<usize>,
+    on_stack: Vec<bool>,
+    tarjan_stack: Vec<usize>,
+    call_stack: Vec<(usize, usize)>,
+    scc_of: Vec<usize>,
+    sccs: Vec<Vec<usize>>,
+}
+
+impl<'a> TarjanState<'a> {
+    fn new(forward: &'a [Vec<usize>], reached_by_test: &'a [bool], count: usize) -> Self {
+        Self {
+            forward,
+            reached_by_test,
+            next_index: 0,
+            index: vec![None; count],
+            lowlink: vec![0; count],
+            on_stack: vec![false; count],
+            tarjan_stack: Vec::new(),
+            call_stack: Vec::new(),
+            scc_of: vec![0; count],
+            sccs: Vec::new(),
+        }
+    }
+
+    fn visit_node(&mut self, node: usize) {
+        self.index[node] = Some(self.next_index);
+        self.lowlink[node] = self.next_index;
+        self.next_index += 1;
+        self.tarjan_stack.push(node);
+        self.on_stack[node] = true;
+        self.call_stack.push((node, 0));
+    }
+
+    fn step_current_frame(&mut self) {
+        let frame_idx = self.call_stack.len() - 1;
+        let (current, start_edge) = self.call_stack[frame_idx];
+        for (offset, &target) in self.forward[current][start_edge..].iter().enumerate() {
+            if !self.reached_by_test[target] {
+                continue;
+            }
+            if let Some(target_index) = self.index[target] {
+                if self.on_stack[target] {
+                    self.lowlink[current] = self.lowlink[current].min(target_index);
+                }
+            } else {
+                self.call_stack[frame_idx].1 = start_edge + offset + 1;
+                self.visit_node(target);
+                return;
+            }
+        }
+        self.call_stack.pop();
+        self.finish_node(current);
+    }
+
+    fn finish_node(&mut self, current: usize) {
+        if Some(self.lowlink[current]) == self.index[current] {
+            self.pop_scc_component(current);
+        }
+        if let Some(&(parent, _)) = self.call_stack.last() {
+            self.lowlink[parent] = self.lowlink[parent].min(self.lowlink[current]);
+        }
+    }
+
+    fn pop_scc_component(&mut self, root: usize) {
+        let scc_id = self.sccs.len();
+        let mut members = Vec::new();
+        while let Some(member) = self.tarjan_stack.pop() {
+            self.on_stack[member] = false;
+            self.scc_of[member] = scc_id;
+            members.push(member);
+            if member == root {
+                break;
+            }
+        }
+        self.sccs.push(members);
     }
 }
 
@@ -365,73 +473,17 @@ fn tarjan_test_reachable_sccs(
     reached_by_test: &[bool],
     count: usize,
 ) -> (Vec<usize>, Vec<Vec<usize>>) {
-    let mut next_index = 0usize;
-    let mut index = vec![None; count];
-    let mut lowlink = vec![0usize; count];
-    let mut on_stack = vec![false; count];
-    let mut tarjan_stack = Vec::new();
-    let mut call_stack = Vec::new();
-    let mut scc_of = vec![0usize; count];
-    let mut sccs = Vec::new();
-
-    for start in 0..count {
-        if !reached_by_test[start] || index[start].is_some() {
+    let mut state = TarjanState::new(forward, reached_by_test, count);
+    for (start, &reached) in reached_by_test.iter().enumerate().take(count) {
+        if !reached || state.index[start].is_some() {
             continue;
         }
-        index[start] = Some(next_index);
-        lowlink[start] = next_index;
-        next_index += 1;
-        tarjan_stack.push(start);
-        on_stack[start] = true;
-        call_stack.push((start, 0usize));
-
-        while let Some((node, edge_idx)) = call_stack.last_mut() {
-            let current = *node;
-            let mut descended = false;
-            while *edge_idx < forward[current].len() {
-                let target = forward[current][*edge_idx];
-                *edge_idx += 1;
-                if !reached_by_test[target] {
-                    continue;
-                }
-                if let Some(target_index) = index[target] {
-                    if on_stack[target] {
-                        lowlink[current] = lowlink[current].min(target_index);
-                    }
-                } else {
-                    index[target] = Some(next_index);
-                    lowlink[target] = next_index;
-                    next_index += 1;
-                    tarjan_stack.push(target);
-                    on_stack[target] = true;
-                    call_stack.push((target, 0));
-                    descended = true;
-                    break;
-                }
-            }
-            if descended {
-                continue;
-            }
-            call_stack.pop();
-            if Some(lowlink[current]) == index[current] {
-                let scc_id = sccs.len();
-                let mut members = Vec::new();
-                while let Some(member) = tarjan_stack.pop() {
-                    on_stack[member] = false;
-                    scc_of[member] = scc_id;
-                    members.push(member);
-                    if member == current {
-                        break;
-                    }
-                }
-                sccs.push(members);
-            }
-            if let Some(&(parent, _)) = call_stack.last() {
-                lowlink[parent] = lowlink[parent].min(lowlink[current]);
-            }
+        state.visit_node(start);
+        while !state.call_stack.is_empty() {
+            state.step_current_frame();
         }
     }
-    (scc_of, sccs)
+    (state.scc_of, state.sccs)
 }
 
 fn sorted_importer_paths(indices: &BTreeSet<usize>, model: &CodeModel) -> Vec<RepoPath> {

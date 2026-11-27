@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use codeint_model::language::Manifest;
-use codeint_model::scan::normalize_relative_path;
+use codeint_model::scan::{normalize_relative_path, paths_with_suffix};
 
 const NON_PACKAGE_DIRS: [&str; 14] = [
     "benchmark",
@@ -24,11 +24,7 @@ pub(crate) fn discover<P: AsRef<str>>(
     repository_paths: &[P],
     manifests: &[Manifest],
 ) -> Vec<String> {
-    let py_files: HashSet<&str> = repository_paths
-        .iter()
-        .map(AsRef::as_ref)
-        .filter(|path| path.ends_with(".py"))
-        .collect();
+    let py_files = paths_with_suffix(repository_paths, ".py");
     let mut entries = BTreeSet::new();
     for (base_dir, doc) in parsed_pyprojects(manifests) {
         let roots = package_search_roots(base_dir);

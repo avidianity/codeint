@@ -13,101 +13,15 @@ mod workspaces;
 
 use std::collections::BTreeSet;
 
-use codeint_model::language::{
-    DeclaredDep, FileModel, ImportRequest, LowerError, Manifest, Resolution, Token, TokenKind,
-};
+use codeint_model::language::{FileModel, LowerError, Token, TokenKind};
 use codeint_model::scan::CoreReferenceRanges;
-use codeint_model::{
-    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, ReferenceRanges, RepoPath,
-    WorkspaceError, token_text_hash, validate_declared_dependencies, validate_entry_points,
-    validate_workspace_packages,
-};
+use codeint_model::token_text_hash;
 
 use crate::lexer::{GoKind, GoToken};
 
 pub use rules::flagged_line_rules;
 
 pub struct Go;
-
-impl LanguagePlugin for Go {
-    fn extensions(&self) -> Vec<String> {
-        vec!["go".to_owned()]
-    }
-
-    fn has_imports(&self) -> bool {
-        true
-    }
-
-    fn has_hazard_rules(&self) -> bool {
-        false
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-        ReferenceRanges::new(
-            CoreReferenceRanges {
-                erosion: (0.304, 0.746),
-                cognitive_complexity: (0.306, 0.671),
-                verbosity: (0.000, 0.004),
-                duplication: (0.034, 0.243),
-                import_cycles: Some((0.000, 0.000)),
-            }
-            .build("codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0"),
-        )
-    }
-
-    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
-        lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
-    }
-
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
-        resolution::find_go_mods(repository_paths)
-    }
-
-    fn workspace_packages(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, WorkspaceError> {
-        validate_workspace_packages(workspaces::discover(&manifests)?)
-    }
-
-    fn resolve_imports(
-        &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-        requests: Vec<ImportRequest>,
-        _active_profiles: &[String],
-    ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        Ok(resolution::resolve_all(
-            repository_paths,
-            &manifests,
-            &requests,
-        ))
-    }
-
-    fn declared_dependencies(
-        &self,
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        validate_declared_dependencies(dependencies::extract_declared(&manifests))
-    }
-
-    fn entry_points(
-        &self,
-        repository_paths: &[RepoPath],
-        manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
-        validate_entry_points(
-            repository_paths,
-            entry_points::discover(repository_paths, &manifests),
-        )
-    }
-
-    codeint_model::empty_framework_profile_plugin_methods!();
-}
 
 fn lower_file(path: &str, text: &str) -> Result<FileModel, LowerError> {
     if !path.ends_with(".go") {
@@ -159,3 +73,35 @@ fn build_duplication_tokens(raw: &[GoToken], import_indices: &BTreeSet<usize>) -
         })
         .collect()
 }
+
+fn lower_go(
+    _plugin: &Go,
+    path: &codeint_model::RepoPath,
+    text: &str,
+) -> Result<FileModel, codeint_model::LowerError> {
+    lower_file(path.as_str(), text).map_err(codeint_model::LowerError::from)
+}
+
+const GO_RANGES: CoreReferenceRanges = CoreReferenceRanges::new(
+    (0.304, 0.746),
+    (0.306, 0.671),
+    (0.000, 0.004),
+    (0.034, 0.243),
+    Some((0.000, 0.000)),
+);
+
+codeint_model::impl_builtin_language_plugin!(
+    Go,
+    ["go"],
+    lower_go,
+    GO_RANGES.build("codeint stratified panel of 100 Go repositories, ADR 0035, codeint 0.8.0"),
+    imports(
+        resolution::find_go_mods,
+        workspaces::discover,
+        resolution::resolve_all,
+        dependencies::extract_declared,
+        entry_points::discover,
+    ),
+    frameworks(none),
+    hazards(none),
+);

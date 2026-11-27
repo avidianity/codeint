@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use codeint_model::language::Manifest;
-use codeint_model::scan::normalize_relative_path;
+use codeint_model::scan::{normalize_relative_path, paths_with_suffix};
 use serde::Deserialize;
 
 use crate::workspaces::PUBSPEC_MANIFEST;
@@ -15,11 +15,7 @@ pub(crate) fn discover<P: AsRef<str>>(
     repository_paths: &[P],
     manifests: &[Manifest],
 ) -> Vec<String> {
-    let dart_files: HashSet<&str> = repository_paths
-        .iter()
-        .map(AsRef::as_ref)
-        .filter(|path| path.ends_with(".dart"))
-        .collect();
+    let dart_files = paths_with_suffix(repository_paths, ".dart");
     let suffix = format!("/{PUBSPEC_MANIFEST}");
     let mut results = BTreeSet::new();
     for manifest in manifests {

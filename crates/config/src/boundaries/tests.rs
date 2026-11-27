@@ -11,46 +11,46 @@ fn repo_path(text: &str) -> RepoPath {
     RepoPath::new(text).expect("valid repo path")
 }
 
+fn to_strings(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| (*item).to_owned()).collect()
+}
+
 fn zone(patterns: &[&str]) -> BoundaryZoneFile {
     BoundaryZoneFile {
-        patterns: patterns
-            .iter()
-            .map(|pattern| (*pattern).to_owned())
-            .collect(),
+        patterns: to_strings(patterns),
         public_files: Vec::new(),
+    }
+}
+
+fn base_rule(from: &str, reason: Option<&str>) -> BoundaryRuleFile {
+    BoundaryRuleFile {
+        from: from.to_owned(),
+        allow: None,
+        deny: None,
+        allow_external: None,
+        deny_external: None,
+        reason: reason.map(str::to_owned),
     }
 }
 
 fn rule_allow(from: &str, allow: &[&str], reason: Option<&str>) -> BoundaryRuleFile {
     BoundaryRuleFile {
-        from: from.to_owned(),
-        allow: Some(allow.iter().map(|target| (*target).to_owned()).collect()),
-        deny: None,
-        allow_external: None,
-        deny_external: None,
-        reason: reason.map(str::to_owned),
+        allow: Some(to_strings(allow)),
+        ..base_rule(from, reason)
     }
 }
 
 fn rule_deny(from: &str, deny: &[&str], reason: Option<&str>) -> BoundaryRuleFile {
     BoundaryRuleFile {
-        from: from.to_owned(),
-        allow: None,
-        deny: Some(deny.iter().map(|target| (*target).to_owned()).collect()),
-        allow_external: None,
-        deny_external: None,
-        reason: reason.map(str::to_owned),
+        deny: Some(to_strings(deny)),
+        ..base_rule(from, reason)
     }
 }
 
 fn rule_deny_external(from: &str, deny: &[&str], reason: Option<&str>) -> BoundaryRuleFile {
     BoundaryRuleFile {
-        from: from.to_owned(),
-        allow: None,
-        deny: None,
-        allow_external: None,
-        deny_external: Some(deny.iter().map(|target| (*target).to_owned()).collect()),
-        reason: reason.map(str::to_owned),
+        deny_external: Some(to_strings(deny)),
+        ..base_rule(from, reason)
     }
 }
 
