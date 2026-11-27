@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::path::Path;
 
 use codeint_config::PluginHostConfig;
 use codeint_git::Repository;
@@ -6,6 +7,17 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::{McpFormat, OutcomeEnvelope, ServerContext, handle_line_to_writer, render_mcp_value};
+
+fn run_git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .expect("git command");
+    assert!(status.success(), "git {args:?} failed");
+}
 
 fn init_test_repo(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().expect("tempdir");
@@ -17,14 +29,10 @@ fn init_test_repo(files: &[(&str, &str)]) -> TempDir {
         }
         std::fs::write(full, content).expect("write file");
     }
-    let status = std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(dir.path())
-        .status()
-        .expect("git add");
-    assert!(status.success());
-    let status = std::process::Command::new("git")
-        .args([
+    run_git(dir.path(), &["add", "."]);
+    run_git(
+        dir.path(),
+        &[
             "-c",
             "user.name=Test",
             "-c",
@@ -33,11 +41,8 @@ fn init_test_repo(files: &[(&str, &str)]) -> TempDir {
             "-q",
             "-m",
             "initial",
-        ])
-        .current_dir(dir.path())
-        .status()
-        .expect("git commit");
-    assert!(status.success());
+        ],
+    );
     dir
 }
 
@@ -56,6 +61,38 @@ fn tool_call(id: u64, name: &str, arguments: Value) -> Value {
         "method": "tools/call",
         "params": { "name": name, "arguments": arguments }
     })
+}
+
+fn assert_cache_counts(ctx: &ServerContext<'_>, config_loads: usize, plugin_loads: usize) {
+    assert_eq!(ctx.workspace_cache.config_load_count(), config_loads);
+    assert_eq!(ctx.workspace_cache.plugin_load_count(), plugin_loads);
+}
+
+fn assert_tool_ok(
+    ctx: &mut ServerContext<'_>,
+    id: u64,
+    name: &str,
+    arguments: Value,
+    config_loads: usize,
+    plugin_loads: usize,
+) {
+    let response = call(ctx, tool_call(id, name, arguments));
+    assert_eq!(response["result"]["isError"], false);
+    assert_cache_counts(ctx, config_loads, plugin_loads);
+}
+
+fn assert_json_check_passed(
+    ctx: &mut ServerContext<'_>,
+    id: u64,
+    expected_passed: bool,
+    config_loads: usize,
+    plugin_loads: usize,
+) {
+    let response = call(ctx, tool_call(id, "check", json!({"format": "json"})));
+    let payload: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["passed"], expected_passed);
+    assert_cache_counts(ctx, config_loads, plugin_loads);
 }
 
 #[test]
@@ -83,52 +120,33 @@ fn direct_serialization_matches_toon_and_json_formats() {
     );
 }
 
+fn init_app_repo(source: &str) -> TempDir {
+    init_test_repo(&[("app.ts", source)])
+}
+
+fn new_context(repo: &TempDir) -> ServerContext<'_> {
+    ServerContext::new(repo.path(), None, PluginHostConfig::default())
+}
+
 #[test]
 fn sequential_calls_on_unchanged_repo_reuse_cached_workspace_config_and_plugins() {
-    let repo = init_test_repo(&[(
-        "app.ts",
-        "export function greet(x: number): number {\n  return x + 1;\n}\n",
-    )]);
-    let mut ctx = ServerContext::new(repo.path(), None, PluginHostConfig::default());
+    let repo = init_app_repo("export function greet(x: number): number {\n  return x + 1;\n}\n");
+    let mut ctx = new_context(&repo);
 
-    let first = call(&mut ctx, tool_call(1, "check", json!({})));
-    assert_eq!(first["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 1);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 1);
-
-    let second = call(&mut ctx, tool_call(2, "diff", json!({"base_ref": "main"})));
-    assert_eq!(second["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 1);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 1);
-
-    let third = call(
-        &mut ctx,
-        tool_call(3, "impact", json!({"paths": ["app.ts"]})),
-    );
-    assert_eq!(third["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 1);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 1);
-
-    let fourth = call(&mut ctx, tool_call(4, "guard", json!({"file": "app.ts"})));
-    assert_eq!(fourth["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 1);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 1);
+    assert_tool_ok(&mut ctx, 1, "check", json!({}), 1, 1);
+    assert_tool_ok(&mut ctx, 2, "diff", json!({"base_ref": "main"}), 1, 1);
+    assert_tool_ok(&mut ctx, 3, "impact", json!({"paths": ["app.ts"]}), 1, 1);
+    assert_tool_ok(&mut ctx, 4, "guard", json!({"file": "app.ts"}), 1, 1);
 }
 
 #[test]
 fn config_add_modify_and_delete_invalidate_workspace_cache() {
-    let repo = init_test_repo(&[(
-        "app.ts",
+    let repo = init_app_repo(
         "export function f(x: number): number {\n  if (x === 1) return 1;\n  if (x === 2) return 2;\n  if (x === 3) return 3;\n  if (x === 4) return 4;\n  if (x === 5) return 5;\n  if (x === 6) return 6;\n  if (x === 7) return 7;\n  if (x === 8) return 8;\n  if (x === 9) return 9;\n  if (x === 10) return 10;\n  if (x === 11) return 11;\n  if (x === 12) return 12;\n  return 0;\n}\n",
-    )]);
-    let mut ctx = ServerContext::new(repo.path(), None, PluginHostConfig::default());
+    );
+    let mut ctx = new_context(&repo);
 
-    let r1 = call(&mut ctx, tool_call(1, "check", json!({"format": "json"})));
-    let p1: Value =
-        serde_json::from_str(r1["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(p1["passed"], true);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 1);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 1);
+    assert_json_check_passed(&mut ctx, 1, true, 1, 1);
 
     let config_path = repo.path().join("codeint.json");
     std::fs::write(
@@ -136,37 +154,19 @@ fn config_add_modify_and_delete_invalidate_workspace_cache() {
         r#"{ "budgets": { "production": { "erosion": 0.00 } } }"#,
     )
     .expect("add codeint.json");
-    let r2 = call(&mut ctx, tool_call(2, "check", json!({"format": "json"})));
-    let p2: Value =
-        serde_json::from_str(r2["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(p2["passed"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 2);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 2);
+    assert_json_check_passed(&mut ctx, 2, false, 2, 2);
 
     std::fs::write(
         &config_path,
         r#"{ "budgets": { "production": { "erosion": 1.00 } } }"#,
     )
     .expect("same-length modify codeint.json");
-    let r3 = call(&mut ctx, tool_call(3, "check", json!({"format": "json"})));
-    let p3: Value =
-        serde_json::from_str(r3["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(p3["passed"], true);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 3);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 3);
+    assert_json_check_passed(&mut ctx, 3, true, 3, 3);
 
     std::fs::remove_file(&config_path).expect("delete codeint.json");
-    let r4 = call(&mut ctx, tool_call(4, "check", json!({"format": "json"})));
-    let p4: Value =
-        serde_json::from_str(r4["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(p4["passed"], true);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 4);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 4);
+    assert_json_check_passed(&mut ctx, 4, true, 4, 4);
 
-    let r5 = call(&mut ctx, tool_call(5, "check", json!({"format": "json"})));
-    assert_eq!(r5["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 4);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 4);
+    assert_tool_ok(&mut ctx, 5, "check", json!({"format": "json"}), 4, 4);
 
     let mut reader = Cursor::new(format!(
         "{}\n",
@@ -187,33 +187,20 @@ fn config_add_modify_and_delete_invalidate_workspace_cache() {
 
 #[test]
 fn ambiguous_config_workspace_switch_and_plugin_host_change_invalidate_appropriately() {
-    let repo_a = init_test_repo(&[(
-        "app.ts",
-        "export function a(x: number): number {\n  return x + 1;\n}\n",
-    )]);
-    let repo_b = init_test_repo(&[(
-        "app.ts",
-        "export function b(x: number): number {\n  return x + 2;\n}\n",
-    )]);
-    let mut ctx = ServerContext::new(repo_a.path(), None, PluginHostConfig::default());
+    let repo_a = init_app_repo("export function a(x: number): number {\n  return x + 1;\n}\n");
+    let repo_b = init_app_repo("export function b(x: number): number {\n  return x + 2;\n}\n");
+    let mut ctx = new_context(&repo_a);
 
-    let r_a1 = call(&mut ctx, tool_call(1, "check", json!({})));
-    assert_eq!(r_a1["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 1);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 1);
-
-    let r_b1 = call(
+    assert_tool_ok(&mut ctx, 1, "check", json!({}), 1, 1);
+    assert_tool_ok(
         &mut ctx,
-        tool_call(2, "check", json!({"path": repo_b.path().to_string_lossy()})),
+        2,
+        "check",
+        json!({"path": repo_b.path().to_string_lossy()}),
+        2,
+        2,
     );
-    assert_eq!(r_b1["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 2);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 2);
-
-    let r_a2 = call(&mut ctx, tool_call(3, "check", json!({})));
-    assert_eq!(r_a2["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 2);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 2);
+    assert_tool_ok(&mut ctx, 3, "check", json!({}), 2, 2);
 
     std::fs::write(repo_a.path().join("codeint.json"), "{}").expect("write codeint.json");
     std::fs::write(repo_a.path().join("codeint.yaml"), "{}\n").expect("write codeint.yaml");
@@ -221,14 +208,8 @@ fn ambiguous_config_workspace_switch_and_plugin_host_change_invalidate_appropria
     assert_eq!(ambiguous["result"]["isError"], true);
 
     std::fs::remove_file(repo_a.path().join("codeint.yaml")).expect("remove codeint.yaml");
-    let recovered = call(&mut ctx, tool_call(5, "check", json!({})));
-    assert_eq!(recovered["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 3);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 3);
+    assert_tool_ok(&mut ctx, 5, "check", json!({}), 3, 3);
 
     ctx.plugin_host.cache_dir = Some(repo_a.path().join(".custom-plugin-cache"));
-    let host_changed = call(&mut ctx, tool_call(6, "check", json!({})));
-    assert_eq!(host_changed["result"]["isError"], false);
-    assert_eq!(ctx.workspace_cache.config_load_count(), 3);
-    assert_eq!(ctx.workspace_cache.plugin_load_count(), 4);
+    assert_tool_ok(&mut ctx, 6, "check", json!({}), 3, 4);
 }

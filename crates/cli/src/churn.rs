@@ -6,16 +6,6 @@ use codeint_report::{ChurnHistoryInput, ChurnReport};
 
 use crate::check::{CheckError, WorkspaceContext, WorkspaceRef, measure_with};
 
-pub(crate) fn churn(
-    folder: &Path,
-    window: ChurnWindow,
-    findings: FindingsShown,
-    plugin_host: &PluginHostConfig,
-) -> Result<ChurnReport, CheckError> {
-    let context = WorkspaceContext::load(folder, plugin_host)?;
-    churn_with_workspace(context.as_ref(), window, findings)
-}
-
 pub(crate) fn churn_with_workspace(
     workspace: WorkspaceRef<'_>,
     window: ChurnWindow,
@@ -32,6 +22,16 @@ pub(crate) fn churn_with_workspace(
         touches_by_file: history.touches_by_file,
     };
     Ok(ChurnReport::summarize(languages, &input, findings))
+}
+
+pub(crate) fn churn(
+    folder: &Path,
+    window: ChurnWindow,
+    findings: FindingsShown,
+    plugin_host: &PluginHostConfig,
+) -> Result<ChurnReport, CheckError> {
+    let context = WorkspaceContext::load(folder, plugin_host)?;
+    churn_with_workspace(context.as_ref(), window, findings)
 }
 
 pub(crate) fn churn_range(window: ChurnWindow) -> ChurnRange {

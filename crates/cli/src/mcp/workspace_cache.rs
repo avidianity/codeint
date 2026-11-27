@@ -61,7 +61,7 @@ impl FileFingerprint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ConfigFingerprint([FileFingerprint; 10]);
+struct ConfigFingerprint([FileFingerprint; ConfigFileKind::ALL.len()]);
 
 impl ConfigFingerprint {
     fn capture(repo_root: &Path) -> ConfigFingerprint {
@@ -126,8 +126,8 @@ impl WorkspaceCache {
         let cached = match entry.plugins {
             Some(ref cached) => cached,
             None => {
-                let loaded = LoadedPlugins::load(repo_root, &entry.configuration, plugin_host)?;
                 let local_plugins = capture_local_plugins(repo_root, &entry.configuration);
+                let loaded = LoadedPlugins::load(repo_root, &entry.configuration, plugin_host)?;
                 self.plugin_loads += 1;
                 entry.plugins.insert(CachedPlugins {
                     plugin_host: plugin_host.clone(),

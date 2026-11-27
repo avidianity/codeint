@@ -180,6 +180,14 @@ impl<'a> ServerContext<'a> {
             plugins,
         })
     }
+
+    fn with_check_workspace<T>(
+        &mut self,
+        folder: &Path,
+        run: impl FnOnce(WorkspaceRef<'_>) -> Result<T, CheckError>,
+    ) -> Result<T, CheckError> {
+        self.with_workspace(folder, std::convert::identity, run)
+    }
 }
 
 fn write_json_line<W: Write, T: Serialize>(
@@ -233,37 +241,54 @@ fn handle_line_to_writer<W: Write>(
             return Ok(true);
         }
     };
-    let id = request.get("id").cloned();
+    let Some(response_id) = request.get("id").cloned() else {
+        return Ok(false);
+    };
     let method = request
         .get("method")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let params = request.get("params");
-    let Some(response_id) = id else {
-        return Ok(false);
-    };
+    dispatch_rpc_method(writer, response_id, method, request.get("params"), ctx)?;
+    Ok(true)
+}
+
+fn dispatch_rpc_method<W: Write>(
+    writer: &mut W,
+    response_id: Value,
+    method: &str,
+    params: Option<&Value>,
+    ctx: &mut ServerContext<'_>,
+) -> Result<(), std::io::Error> {
     match method {
-        "initialize" => write_rpc_success(writer, response_id, handle_initialize(params))?,
-        "ping" => write_rpc_success(writer, response_id, EmptyObject {})?,
+        "initialize" => write_rpc_success(writer, response_id, handle_initialize(params)),
+        "ping" => write_rpc_success(writer, response_id, EmptyObject {}),
         "tools/list" => write_rpc_success(
             writer,
             response_id,
             ToolsListResult {
                 tools: tool_definitions(),
             },
-        )?,
-        "tools/call" => match handle_tools_call(params, ctx) {
-            Ok(result) => write_rpc_success(writer, response_id, result)?,
-            Err((code, message)) => write_rpc_error(writer, response_id, code, &message)?,
-        },
+        ),
+        "tools/call" => write_tools_call_response(writer, response_id, params, ctx),
         other => write_rpc_error(
             writer,
             response_id,
             -32601,
             &format!("Method not found: {other}"),
-        )?,
+        ),
     }
-    Ok(true)
+}
+
+fn write_tools_call_response<W: Write>(
+    writer: &mut W,
+    response_id: Value,
+    params: Option<&Value>,
+    ctx: &mut ServerContext<'_>,
+) -> Result<(), std::io::Error> {
+    match handle_tools_call(params, ctx) {
+        Ok(result) => write_rpc_success(writer, response_id, result),
+        Err((code, message)) => write_rpc_error(writer, response_id, code, &message),
+    }
 }
 
 fn handle_initialize(params: Option<&Value>) -> InitializeResult<'_> {
@@ -494,19 +519,10 @@ fn call_check(
         coverage_reports: &coverage_reports,
         ignore_baseline,
     };
-    let result = ctx
-        .with_workspace(&folder, std::convert::identity, |workspace| {
-            check::check_with_workspace(&folder, scope, workspace)
-        })
-        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
-    Ok(match result {
-        Ok(report) => {
-            let failures = report.failure_messages();
-            let passed = failures.is_empty();
-            render_outcome(passed, &failures, &report, format)
-        }
-        Err(err) => tool_err(&err.mcp_text()),
-    })
+    let result = ctx.with_check_workspace(&folder, |workspace| {
+        check::check_with_workspace(&folder, scope, workspace)
+    });
+    render_check_outcome(result, codeint_report::Report::failure_messages, format)
 }
 
 fn call_diff(
@@ -527,25 +543,31 @@ fn call_diff(
         base: base_ref,
         head: head_ref.as_deref(),
     };
-    let result = ctx
-        .with_workspace(&folder, std::convert::identity, |workspace| {
-            diff::diff_with_workspace(
-                workspace,
-                refs,
-                findings,
-                package.as_deref(),
-                None,
-                cache.as_ref(),
-            )
-        })
-        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
+    let result = ctx.with_check_workspace(&folder, |workspace| {
+        diff::diff_with_workspace(
+            workspace,
+            refs,
+            findings,
+            package.as_deref(),
+            None,
+            cache.as_ref(),
+        )
+    });
+    render_check_outcome(result, codeint_report::DiffReport::failure_messages, format)
+}
+
+fn render_check_outcome<R: Serialize>(
+    result: Result<R, CheckError>,
+    failure_messages: fn(&R) -> Vec<String>,
+    format: McpFormat,
+) -> Result<ToolCallResult, ToolCallResult> {
     Ok(match result {
         Ok(report) => {
-            let failures = report.failure_messages();
+            let failures = failure_messages(&report);
             let passed = failures.is_empty();
             render_outcome(passed, &failures, &report, format)
         }
-        Err(err) => tool_err(&err.mcp_text()),
+        Err(err) => tool_err(&CodeintError::from_cli_error(CliError::Check(err)).mcp_text()),
     })
 }
 
@@ -563,13 +585,14 @@ fn render_outcome<R: Serialize>(
     render_mcp_value(&envelope, format)
 }
 
-fn render_mcp_tool<T: Serialize>(
-    result: Result<T, CodeintError>,
+fn render_cli_tool<T: Serialize, E>(
+    result: Result<T, E>,
+    wrap_error: fn(E) -> CliError,
     format: McpFormat,
 ) -> Result<ToolCallResult, ToolCallResult> {
     Ok(match result {
         Ok(report) => render_mcp_value(&report, format),
-        Err(err) => tool_err(&err.mcp_text()),
+        Err(err) => tool_err(&CodeintError::from_cli_error(wrap_error(err)).mcp_text()),
     })
 }
 
@@ -599,9 +622,8 @@ fn call_guard(
     let folder = resolve_folder(args, ctx.default_folder)?;
     let result = guard::guard_with_config(&folder, Path::new(file), |root| {
         ctx.workspace_cache.configuration(root)
-    })
-    .map_err(|err| CodeintError::from_cli_error(CliError::Guard(err)));
-    render_mcp_tool(result, format)
+    });
+    render_cli_tool(result, CliError::Guard, format)
 }
 
 fn call_trend(
@@ -618,12 +640,10 @@ fn call_trend(
         None => TrendOptions::default().range,
     };
     let cache = ctx.result_cache.clone().map(ResultCache::in_folder);
-    let result = ctx
-        .with_workspace(&folder, std::convert::identity, |workspace| {
-            trend::trend_with_workspace(workspace, range, cache.as_ref())
-        })
-        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
-    render_mcp_tool(result, format)
+    let result = ctx.with_check_workspace(&folder, |workspace| {
+        trend::trend_with_workspace(workspace, range, cache.as_ref())
+    });
+    render_cli_tool(result, CliError::Check, format)
 }
 
 fn call_impact(
@@ -658,12 +678,10 @@ fn call_impact(
         package: package.as_deref(),
         plugin_host: &plugin_host,
     };
-    let result = ctx
-        .with_workspace(&folder, impact::ImpactCommandError::Check, |workspace| {
-            impact::impact_with_workspace(&folder, workspace, &request)
-        })
-        .map_err(|err| CodeintError::from_cli_error(CliError::Impact(err)));
-    render_mcp_tool(result, format)
+    let result = ctx.with_workspace(&folder, impact::ImpactCommandError::Check, |workspace| {
+        impact::impact_with_workspace(&folder, workspace, &request)
+    });
+    render_cli_tool(result, CliError::Impact, format)
 }
 
 fn call_trace(
@@ -685,20 +703,18 @@ fn call_trace(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let package = parse_package(args);
-    let result = ctx
-        .with_workspace(&folder, trace::TraceCommandError::Check, |workspace| {
-            trace::trace_with_workspace(
-                &folder,
-                workspace,
-                from,
-                to,
-                all,
-                max_paths,
-                package.as_deref(),
-            )
-        })
-        .map_err(|err| CodeintError::from_cli_error(CliError::Trace(err)));
-    render_mcp_tool(result, format)
+    let result = ctx.with_workspace(&folder, trace::TraceCommandError::Check, |workspace| {
+        trace::trace_with_workspace(
+            &folder,
+            workspace,
+            from,
+            to,
+            all,
+            max_paths,
+            package.as_deref(),
+        )
+    });
+    render_cli_tool(result, CliError::Trace, format)
 }
 
 fn call_churn(
@@ -709,12 +725,10 @@ fn call_churn(
     let window = parse_churn_window(args)?;
     let findings = parse_findings(args)?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    let result = ctx
-        .with_workspace(&folder, std::convert::identity, |workspace| {
-            churn::churn_with_workspace(workspace, window, findings)
-        })
-        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
-    render_mcp_tool(result, format)
+    let result = ctx.with_check_workspace(&folder, |workspace| {
+        churn::churn_with_workspace(workspace, window, findings)
+    });
+    render_cli_tool(result, CliError::Check, format)
 }
 
 fn call_coupling(
@@ -725,12 +739,10 @@ fn call_coupling(
     let settings = parse_coupling_settings(args)?;
     let findings = parse_findings(args)?;
     let folder = resolve_folder(args, ctx.default_folder)?;
-    let result = ctx
-        .with_workspace(&folder, std::convert::identity, |workspace| {
-            coupling::coupling_with_workspace(workspace, settings, findings)
-        })
-        .map_err(|err| CodeintError::from_cli_error(CliError::Check(err)));
-    render_mcp_tool(result, format)
+    let result = ctx.with_check_workspace(&folder, |workspace| {
+        coupling::coupling_with_workspace(workspace, settings, findings)
+    });
+    render_cli_tool(result, CliError::Check, format)
 }
 
 fn parse_format(args: Option<&Value>) -> Result<McpFormat, ToolCallResult> {
