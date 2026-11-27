@@ -85,6 +85,15 @@ fn repo_path(path: &str) -> RepoPath {
     RepoPath::new(path).expect("valid repo path")
 }
 
+fn first_parent_ids_since(temp: &TempRepo, unix_seconds: i64) -> Vec<CommitId> {
+    let repo = Repository::discover(temp.path()).expect("discover repo");
+    repo.first_parent_history(CommitRange::CommittedSince { unix_seconds })
+        .expect("walk history")
+        .into_iter()
+        .map(|entry| entry.commit)
+        .collect()
+}
+
 #[test]
 fn first_parent_history_tolerates_14_day_skew_and_stops_beyond_14_days() {
     let temp = TempRepo::init();
@@ -114,15 +123,10 @@ fn first_parent_history_tolerates_14_day_skew_and_stops_beyond_14_days() {
         "2026-05-15T12:00:00Z",
     );
 
-    let repo = Repository::discover(temp.path()).expect("discover repo");
-    let commits = repo
-        .first_parent_history(CommitRange::CommittedSince {
-            unix_seconds: MAY_10_UTC,
-        })
-        .expect("walk history");
-
-    let ids: Vec<CommitId> = commits.iter().map(|entry| entry.commit).collect();
-    assert_eq!(ids, vec![behind_skew, head]);
+    assert_eq!(
+        first_parent_ids_since(&temp, MAY_10_UTC),
+        vec![behind_skew, head]
+    );
 }
 
 #[test]
@@ -154,15 +158,10 @@ fn first_parent_history_exact_14_day_boundary_scans_at_14_days_and_stops_past_it
         &format!("@{} +0000", MAY_10_UTC + 3 * SECONDS_PER_DAY),
     );
 
-    let repo = Repository::discover(temp.path()).expect("discover repo");
-    let commits = repo
-        .first_parent_history(CommitRange::CommittedSince {
-            unix_seconds: MAY_10_UTC,
-        })
-        .expect("walk history");
-
-    let ids: Vec<CommitId> = commits.iter().map(|entry| entry.commit).collect();
-    assert_eq!(ids, vec![reachable, head]);
+    assert_eq!(
+        first_parent_ids_since(&temp, MAY_10_UTC),
+        vec![reachable, head]
+    );
 }
 
 #[test]
