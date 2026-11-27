@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# Client SDK architecture, parity, and Dart SDK
+# Client SDK architecture, parity, and Dart client SDK
 
 The Owner decided this on 2026-11-28 while expanding codeint v0.8.0 client SDKs beyond TypeScript and Rust.
 
@@ -49,15 +49,15 @@ Both client SDKs drifted behind the CLI as new commands and Metrics landed:
    - `CODEINT_BIN` environment variable;
    - a version-matching `codeint` binary on `PATH`;
    - a version-pinned GitHub Release download verified against `SHA256SUMS` in a local user cache.
-   Verified-cache SDKs support `allowDownload: false` for offline CI.
+   Verified-cache client SDKs support `allowDownload: false` for offline CI.
    They also expose an explicit pre-install helper (`dart run codeint:install` and `ensureBinary`).
 4. **In-process Rust parity and deferred crates.io publishing**:
    Keep the Rust client SDK in-process inside `codeint-cli` at full eighteen-operation parity for workspace and Git callers.
    Defer publishing workspace crates to crates.io while [ADR 0006](./0006-exact-dependency-pins.md) enforces exact version pins.
    Exact pins across `codeint-cli` and its internal runtime crates would conflict with downstream Cargo graphs.
    A thin subprocess-wrapper Rust crate can publish to crates.io later without relaxing ADR 0006.
-5. **Monorepo layout, schema contract, and CI checks**:
-   Keep all client SDKs in this repository so CLI changes, JSON Schemas, and SDKs update together.
+5. **Monorepo layout, JSON Schema contract, and CI checks**:
+   Keep all client SDKs in this repository so CLI changes, JSON Schemas, and client SDKs update together.
    Keep `npm/` at its current path and place new client SDKs under `sdks/<language>/`, starting with `sdks/dart/`.
    Export report JSON Schemas from `codeint-report` and validate live CLI JSON outputs in automated tests.
    Run TypeScript, Rust, and Dart client SDK tests offline against the built binary in CI on non-docs pull requests.
@@ -73,7 +73,7 @@ Both client SDKs drifted behind the CLI as new commands and Metrics landed:
 ## Considered options
 
 - **Expose a C-ABI shared library (`cdylib`) for non-Rust client SDKs.**
-  Rejected: FFI requires `unsafe` Rust violating [ADR 0004](./0004-forbid-unsafe-code.md), adds C headers, and still ships per-platform binaries.
+  Rejected: a C-ABI foreign-function interface requires `unsafe` Rust violating [ADR 0004](./0004-forbid-unsafe-code.md), adds C headers, and still ships per-platform binaries.
 - **Bundle all six platform binaries directly inside the pub.dev Dart archive.**
   Rejected: pub.dev caps archives at 100 MB and lacks per-platform packages, so bundling six binaries bloats every install.
 - **Require Dart users to install `codeint` on `PATH` with no download fallback.**
@@ -81,7 +81,7 @@ Both client SDKs drifted behind the CLI as new commands and Metrics landed:
 - **Publish `codeint-cli` and its internal workspace crates to crates.io in Wave 1.**
   Rejected: exact `=` dependency pins from [ADR 0006](./0006-exact-dependency-pins.md) conflict with downstream Rust dependency graphs on crates.io.
 - **Host each client SDK in a separate Git repository.**
-  Rejected: separate repositories split schema updates across pull requests and cause the drift seen in `npm/codeint`.
+  Rejected: separate repositories split JSON Schema updates across pull requests and cause the drift seen in `npm/codeint`.
 
 ## Consequences
 
