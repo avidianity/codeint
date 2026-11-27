@@ -328,3 +328,110 @@ fn external_imports_are_ignored_when_no_external_rules_exist_and_checked_when_co
     );
     assert_ne!(findings[0].id, findings[1].id);
 }
+
+struct CountingPolicy {
+    inner: StubPolicy,
+    strict: bool,
+    zone_calls: std::cell::RefCell<BTreeMap<String, usize>>,
+}
+
+impl BoundaryPolicy for CountingPolicy {
+    fn zone_of(&self, target: &RepoPath) -> Option<&str> {
+        *self
+            .zone_calls
+            .borrow_mut()
+            .entry(target.as_str().to_owned())
+            .or_default() += 1;
+        self.inner.zone_of(target)
+    }
+
+    fn has_public_files(&self, zone: &str) -> bool {
+        self.inner.has_public_files(zone)
+    }
+
+    fn is_public_file(&self, zone: &str, target: &RepoPath) -> bool {
+        self.inner.is_public_file(zone, target)
+    }
+
+    fn check_import(&self, source_zone: &str, target_zone: &str) -> BoundaryEdgeCheck {
+        self.inner.check_import(source_zone, target_zone)
+    }
+
+    fn has_external_rules(&self) -> bool {
+        self.inner.has_external_rules()
+    }
+
+    fn check_external_import(&self, source_zone: &str, package: &str) -> BoundaryEdgeCheck {
+        self.inner.check_external_import(source_zone, package)
+    }
+
+    fn strict_zones(&self) -> bool {
+        self.strict
+    }
+}
+
+#[test]
+fn boundary_evaluation_memoizes_zone_lookup_once_per_unique_file() {
+    let model = CodeModel {
+        files: vec![
+            production_file("ui/page.ts"),
+            production_file("core/a.ts"),
+            production_file("core/b.ts"),
+            production_file("misc/unzoned.ts"),
+        ],
+        runtime_imports: vec![
+            RuntimeImport {
+                importer: path("ui/page.ts"),
+                specifier: "../core/a".to_owned(),
+                resolution: ImportResolution::Resolved(vec![path("core/a.ts")]),
+            },
+            RuntimeImport {
+                importer: path("ui/page.ts"),
+                specifier: "../core/b".to_owned(),
+                resolution: ImportResolution::Resolved(vec![path("core/b.ts")]),
+            },
+            RuntimeImport {
+                importer: path("ui/page.ts"),
+                specifier: "axios".to_owned(),
+                resolution: ImportResolution::External("axios".to_owned()),
+            },
+            RuntimeImport {
+                importer: path("core/a.ts"),
+                specifier: "./b".to_owned(),
+                resolution: ImportResolution::Resolved(vec![path("core/b.ts")]),
+            },
+            RuntimeImport {
+                importer: path("misc/unzoned.ts"),
+                specifier: "../core/a".to_owned(),
+                resolution: ImportResolution::Resolved(vec![path("core/a.ts")]),
+            },
+        ],
+        ..CodeModel::default()
+    };
+    let policy = CountingPolicy {
+        inner: StubPolicy::new(&[
+            ("ui/page.ts", "ui"),
+            ("core/a.ts", "core"),
+            ("core/b.ts", "core"),
+        ])
+        .with_external_decision(
+            "ui",
+            "axios",
+            BoundaryEdgeCheck::DeniedByDenyRule {
+                reason: Some("no direct http in ui".to_owned()),
+            },
+        ),
+        strict: true,
+        zone_calls: std::cell::RefCell::new(BTreeMap::new()),
+    };
+
+    let measured = Boundaries::measure(&model, &policy);
+
+    assert_eq!(measured.resolved_imports(), 5);
+    assert_eq!(measured.findings().len(), 2);
+    let calls = policy.zone_calls.borrow();
+    for (file, count) in calls.iter() {
+        assert_eq!(*count, 1, "expected exactly 1 zone_of lookup for {file}");
+    }
+    assert_eq!(calls.len(), 4);
+}

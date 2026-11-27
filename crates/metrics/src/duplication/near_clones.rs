@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use codeint_model::{CodeModel, StableHasher, Token};
+use rayon::prelude::*;
 
 use super::{
     CloneGroup, DisjointSet, Fragment, FragmentIdentifier, GroupClusterInput, SearchedRun,
@@ -95,19 +96,21 @@ fn extract_candidates(
     window: usize,
     minimum_distinct: usize,
 ) -> Vec<CandidateBlock> {
-    let mut spans = Vec::new();
-    for run in runs {
-        if run.tokens.len() < window {
-            continue;
-        }
-        collect_run_candidate_spans(model, run, window, minimum_distinct, &mut spans);
-    }
-    spans.sort_unstable();
+    let mut spans: Vec<TokenSpan> = runs
+        .par_iter()
+        .filter(|run| run.tokens.len() >= window)
+        .flat_map_iter(|run| {
+            let mut run_spans = Vec::new();
+            collect_run_candidate_spans(model, run, window, minimum_distinct, &mut run_spans);
+            run_spans
+        })
+        .collect();
+    spans.par_sort_unstable();
     spans.dedup();
     let shingle_len = SHINGLE_LEN.min(window).max(1);
     let seeds = minhash_seeds();
     spans
-        .into_iter()
+        .into_par_iter()
         .filter_map(|span| {
             let tokens = &model.files[span.file].model.tokens[span.start_token..span.end_token];
             let shingles = tagged_shingles(tokens, shingle_len);
@@ -340,24 +343,32 @@ fn collect_candidate_pairs(
     min_similarity: f64,
 ) -> Vec<(usize, usize)> {
     let (bands, rows) = lsh_band_shape(min_similarity);
+    let band_entries: Vec<Vec<(u64, usize)>> = (0..bands)
+        .into_par_iter()
+        .map(|band| {
+            let start = band * rows;
+            let mut entries: Vec<(u64, usize)> = candidates
+                .iter()
+                .enumerate()
+                .map(|(idx, candidate)| {
+                    let key = candidate.signature[start..start + rows]
+                        .iter()
+                        .fold(
+                            StableHasher::new().write_u64(band as u64),
+                            |hasher, &val| hasher.write_u64(val),
+                        )
+                        .finish();
+                    (key, idx)
+                })
+                .collect();
+            entries.sort_unstable();
+            entries
+        })
+        .collect();
     let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
     let mut partner_counts = vec![0usize; candidates.len()];
-    let mut bucket_entries: Vec<(u64, usize)> = Vec::with_capacity(candidates.len());
-    for band in 0..bands {
-        bucket_entries.clear();
-        let start = band * rows;
-        for (idx, candidate) in candidates.iter().enumerate() {
-            let key = candidate.signature[start..start + rows]
-                .iter()
-                .fold(
-                    StableHasher::new().write_u64(band as u64),
-                    |hasher, &val| hasher.write_u64(val),
-                )
-                .finish();
-            bucket_entries.push((key, idx));
-        }
-        bucket_entries.sort_unstable();
-        for bucket in bucket_entries.chunk_by(|left, right| left.0 == right.0) {
+    for entries in &band_entries {
+        for bucket in entries.chunk_by(|left, right| left.0 == right.0) {
             if bucket.len() < 2 {
                 continue;
             }
@@ -365,7 +376,7 @@ fn collect_candidate_pairs(
         }
     }
     let mut pairs: Vec<(usize, usize)> = seen_pairs.into_iter().collect();
-    pairs.sort_unstable();
+    pairs.par_sort_unstable();
     pairs
 }
 
@@ -440,32 +451,33 @@ fn verify_pairs(
     exact_by_file: &HashMap<usize, Vec<(usize, TokenSpan)>>,
     min_similarity: f64,
 ) -> Vec<MatchedPair> {
-    let mut matched = Vec::new();
-    for &(left, right) in pairs {
-        let a = &candidates[left];
-        let b = &candidates[right];
-        if spans_overlap_same_file(a.span, b.span) {
-            continue;
-        }
-        if !length_ratio_admits(a.shingles.len(), b.shingles.len(), min_similarity) {
-            continue;
-        }
-        let similarity = jaccard_sorted(&a.shingles, &b.shingles);
-        if similarity < min_similarity {
-            continue;
-        }
-        if normalized_tokens_equal(model, a.span, b.span)
-            || covered_by_same_exact_group(a.span, b.span, exact_by_file)
-        {
-            continue;
-        }
-        matched.push(MatchedPair {
-            left,
-            right,
-            similarity,
-        });
-    }
-    matched
+    pairs
+        .par_iter()
+        .filter_map(|&(left, right)| {
+            let a = &candidates[left];
+            let b = &candidates[right];
+            if spans_overlap_same_file(a.span, b.span) {
+                return None;
+            }
+            if !length_ratio_admits(a.shingles.len(), b.shingles.len(), min_similarity) {
+                return None;
+            }
+            let similarity = jaccard_sorted(&a.shingles, &b.shingles);
+            if similarity < min_similarity {
+                return None;
+            }
+            if normalized_tokens_equal(model, a.span, b.span)
+                || covered_by_same_exact_group(a.span, b.span, exact_by_file)
+            {
+                return None;
+            }
+            Some(MatchedPair {
+                left,
+                right,
+                similarity,
+            })
+        })
+        .collect()
 }
 
 fn spans_overlap_same_file(left: TokenSpan, right: TokenSpan) -> bool {
@@ -614,8 +626,9 @@ fn build_near_clone_groups(
             .or_default()
             .push(pair);
     }
-    let mut unidentified: Vec<UnidentifiedNearGroup> = components
-        .into_values()
+    let component_groups: Vec<Vec<MatchedPair>> = components.into_values().collect();
+    let mut unidentified: Vec<UnidentifiedNearGroup> = component_groups
+        .into_par_iter()
         .filter_map(|component_pairs| unidentified_near_group(model, candidates, &component_pairs))
         .collect();
     unidentified.sort_by(|left, right| left.fragments.cmp(&right.fragments));

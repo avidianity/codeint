@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use codeint_model::{CodeModel, ImportResolution, Metric, RepoPath, token_text_hash};
 
@@ -83,10 +83,32 @@ struct PendingFinding {
     message: String,
 }
 
+struct ZoneCache<'a> {
+    policy: &'a dyn BoundaryPolicy,
+    zones: HashMap<&'a RepoPath, Option<&'a str>>,
+}
+
+impl<'a> ZoneCache<'a> {
+    fn new(policy: &'a dyn BoundaryPolicy, capacity: usize) -> ZoneCache<'a> {
+        ZoneCache {
+            policy,
+            zones: HashMap::with_capacity(capacity),
+        }
+    }
+
+    fn zone_of(&mut self, path: &'a RepoPath) -> Option<&'a str> {
+        *self
+            .zones
+            .entry(path)
+            .or_insert_with(|| self.policy.zone_of(path))
+    }
+}
+
 impl Boundaries {
     pub fn measure(model: &CodeModel, policy: &dyn BoundaryPolicy) -> Boundaries {
-        let (resolved_imports, mut pending) = evaluate_imports(model, policy);
-        collect_unzoned_files(model, policy, &mut pending);
+        let mut zone_cache = ZoneCache::new(policy, model.files.len());
+        let (resolved_imports, mut pending) = evaluate_imports(model, policy, &mut zone_cache);
+        collect_unzoned_files(model, policy, &mut zone_cache, &mut pending);
         let findings = assign_finding_ids(pending);
         Boundaries {
             resolved_imports,
@@ -113,9 +135,10 @@ impl Boundaries {
     }
 }
 
-fn evaluate_imports(
-    model: &CodeModel,
-    policy: &dyn BoundaryPolicy,
+fn evaluate_imports<'a>(
+    model: &'a CodeModel,
+    policy: &'a dyn BoundaryPolicy,
+    zone_cache: &mut ZoneCache<'a>,
 ) -> (usize, Vec<PendingFinding>) {
     let mut resolved_imports = 0usize;
     let mut pending = Vec::new();
@@ -128,6 +151,7 @@ fn evaluate_imports(
                     targets,
                     &runtime_import.specifier,
                     policy,
+                    zone_cache,
                     &mut pending,
                 );
             }
@@ -138,6 +162,7 @@ fn evaluate_imports(
                     package,
                     &runtime_import.specifier,
                     policy,
+                    zone_cache,
                 ) {
                     pending.push(finding);
                 }
@@ -150,11 +175,12 @@ fn evaluate_imports(
     (resolved_imports, pending)
 }
 
-fn evaluate_resolved_targets(
-    importer: &RepoPath,
-    targets: &[RepoPath],
+fn evaluate_resolved_targets<'a>(
+    importer: &'a RepoPath,
+    targets: &'a [RepoPath],
     specifier: &str,
-    policy: &dyn BoundaryPolicy,
+    policy: &'a dyn BoundaryPolicy,
+    zone_cache: &mut ZoneCache<'a>,
     pending: &mut Vec<PendingFinding>,
 ) -> usize {
     let mut counted = 0usize;
@@ -164,20 +190,21 @@ fn evaluate_resolved_targets(
             continue;
         }
         counted += 1;
-        if let Some(finding) = check_import_edge(importer, target, specifier, policy) {
+        if let Some(finding) = check_import_edge(importer, target, specifier, policy, zone_cache) {
             pending.push(finding);
         }
     }
     counted
 }
 
-fn check_external_import_edge(
-    importer: &RepoPath,
+fn check_external_import_edge<'a>(
+    importer: &'a RepoPath,
     package: &str,
     specifier: &str,
-    policy: &dyn BoundaryPolicy,
+    policy: &'a dyn BoundaryPolicy,
+    zone_cache: &mut ZoneCache<'a>,
 ) -> Option<PendingFinding> {
-    let source_zone = policy.zone_of(importer)?;
+    let source_zone = zone_cache.zone_of(importer)?;
     match policy.check_external_import(source_zone, package) {
         BoundaryEdgeCheck::Allowed => None,
         BoundaryEdgeCheck::DeniedByDenyRule { reason } => Some(external_package_finding(
@@ -220,13 +247,15 @@ fn external_package_finding(
     }
 }
 
-fn check_import_edge(
-    importer: &RepoPath,
-    target: &RepoPath,
+fn check_import_edge<'a>(
+    importer: &'a RepoPath,
+    target: &'a RepoPath,
     specifier: &str,
-    policy: &dyn BoundaryPolicy,
+    policy: &'a dyn BoundaryPolicy,
+    zone_cache: &mut ZoneCache<'a>,
 ) -> Option<PendingFinding> {
-    let (Some(source_zone), Some(target_zone)) = (policy.zone_of(importer), policy.zone_of(target))
+    let (Some(source_zone), Some(target_zone)) =
+        (zone_cache.zone_of(importer), zone_cache.zone_of(target))
     else {
         return None;
     };
@@ -311,16 +340,17 @@ fn check_public_files_edge(
     })
 }
 
-fn collect_unzoned_files(
-    model: &CodeModel,
+fn collect_unzoned_files<'a>(
+    model: &'a CodeModel,
     policy: &dyn BoundaryPolicy,
+    zone_cache: &mut ZoneCache<'a>,
     pending: &mut Vec<PendingFinding>,
 ) {
     if !policy.strict_zones() {
         return;
     }
     for file in &model.files {
-        if policy.zone_of(&file.path).is_none() {
+        if zone_cache.zone_of(&file.path).is_none() {
             pending.push(PendingFinding {
                 kind: BoundaryFindingKind::UnzonedFile,
                 importer: file.path.clone(),

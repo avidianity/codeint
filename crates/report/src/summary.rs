@@ -150,24 +150,73 @@ impl Measured {
             NearCloneConfig::new(duplication_config.min_similarity.ratio())
                 .expect("validated min_similarity is in (0, 1]")
         });
-        let duplication = Duplication::measure_with_near_clones(
-            model,
-            MinimumCloneTokens::DEFAULT,
-            MinimumDistinctTokens::DEFAULT,
-            near_clones,
+        let (
+            duplication,
+            (
+                (erosion, cognitive_complexity),
+                ((verbosity, import_cycles), (boundaries, (test_gap, hazards))),
+            ),
+        ) = rayon::join(
+            || {
+                Duplication::measure_with_near_clones(
+                    model,
+                    MinimumCloneTokens::DEFAULT,
+                    MinimumDistinctTokens::DEFAULT,
+                    near_clones,
+                )
+            },
+            || {
+                rayon::join(
+                    || {
+                        rayon::join(
+                            || Erosion::measure(model),
+                            || CognitiveComplexity::measure(model),
+                        )
+                    },
+                    || {
+                        rayon::join(
+                            || {
+                                rayon::join(
+                                    || Verbosity::measure(model),
+                                    || models.import_model.map(ImportCycles::measure),
+                                )
+                            },
+                            || {
+                                rayon::join(
+                                    || {
+                                        models.import_model.and_then(|imports| {
+                                            boundaries.map(|config| {
+                                                Boundaries::measure(
+                                                    imports,
+                                                    &ConfigBoundaryPolicy(config),
+                                                )
+                                            })
+                                        })
+                                    },
+                                    || {
+                                        rayon::join(
+                                            || models.coverage_model.and_then(TestGap::measure),
+                                            || {
+                                                models.hazards_model.and_then(|hazards_model| {
+                                                    Hazards::measure(
+                                                        hazards_model,
+                                                        disabled_hazard_rules,
+                                                    )
+                                                })
+                                            },
+                                        )
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+            },
         );
-        let import_cycles = models.import_model.map(ImportCycles::measure);
-        let boundaries = models.import_model.and_then(|imports| {
-            boundaries.map(|config| Boundaries::measure(imports, &ConfigBoundaryPolicy(config)))
-        });
-        let test_gap = models.coverage_model.and_then(TestGap::measure);
-        let hazards = models
-            .hazards_model
-            .and_then(|hazards_model| Hazards::measure(hazards_model, disabled_hazard_rules));
         Measured {
-            erosion: Erosion::measure(model),
-            cognitive_complexity: CognitiveComplexity::measure(model),
-            verbosity: Verbosity::measure(model),
+            erosion,
+            cognitive_complexity,
+            verbosity,
             duplication,
             import_cycles,
             boundaries,

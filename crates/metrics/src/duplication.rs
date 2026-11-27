@@ -1,8 +1,9 @@
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
 
 use codeint_model::{CodeModel, Metric, Package, RepoPath, StableHasher, Token, TokenKind};
+use rayon::prelude::*;
 
 use crate::line_share::{LineShare, line_shares_by_package};
 
@@ -65,53 +66,58 @@ impl Duplication {
         let window = minimum.0.get();
         let runs = searched_runs(model);
         let classes = equal_window_classes(model, &runs, window);
-        let mut exact_lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
-        let mut unidentified_groups = Vec::new();
-        for (tokens, starts) in maximal_runs(&classes, window) {
-            let starts = without_overlaps(starts, tokens);
-            if starts.len() < 2 {
-                continue;
-            }
-            let first = starts[0];
-            let first_fragment =
-                &model.files[first.file].model.tokens[first.token..first.token + tokens];
-            if distinct_normalized_tokens(first_fragment) < minimum_distinct.0 {
-                continue;
-            }
-            let normalized_content: Vec<u64> = model.files[first.file].model.tokens
-                [first.token..first.token + tokens]
-                .iter()
-                .map(|token| normalized(token).hash_input())
-                .collect();
-            let mut fragments = Vec::with_capacity(starts.len());
-            let mut spans = Vec::with_capacity(starts.len());
-            for Position { file, token } in starts {
-                let covered = &model.files[file].model.tokens[token..token + tokens];
-                exact_lines_by_file
-                    .entry(file)
-                    .or_default()
-                    .extend(covered.iter().map(|covered| covered.line));
-                fragments.push(fragment(&model.files[file].path, covered));
-                spans.push(TokenSpan {
-                    file,
-                    start_token: token,
-                    end_token: token + tokens,
-                });
-            }
-            fragments.sort();
-            unidentified_groups.push(UnidentifiedGroup {
-                tokens,
-                fragments,
-                spans,
-                normalized_content,
-            });
-        }
+        let mut unidentified_groups: Vec<UnidentifiedGroup> = maximal_runs(&classes, window)
+            .into_par_iter()
+            .filter_map(|(tokens, starts)| {
+                let starts = without_overlaps(starts, tokens);
+                if starts.len() < 2 {
+                    return None;
+                }
+                let first = starts[0];
+                let first_fragment =
+                    &model.files[first.file].model.tokens[first.token..first.token + tokens];
+                if distinct_normalized_tokens(first_fragment) < minimum_distinct.0 {
+                    return None;
+                }
+                let normalized_content: Vec<u64> = first_fragment
+                    .iter()
+                    .map(|token| normalized(token).hash_input())
+                    .collect();
+                let mut fragments = Vec::with_capacity(starts.len());
+                let mut spans = Vec::with_capacity(starts.len());
+                for Position { file, token } in starts {
+                    let covered = &model.files[file].model.tokens[token..token + tokens];
+                    fragments.push(fragment(&model.files[file].path, covered));
+                    spans.push(TokenSpan {
+                        file,
+                        start_token: token,
+                        end_token: token + tokens,
+                    });
+                }
+                fragments.sort();
+                Some(UnidentifiedGroup {
+                    tokens,
+                    fragments,
+                    spans,
+                    normalized_content,
+                })
+            })
+            .collect();
         unidentified_groups.sort_by(|left, right| {
             right
                 .tokens
                 .cmp(&left.tokens)
                 .then_with(|| left.fragments.cmp(&right.fragments))
         });
+        let mut exact_lines_by_file: Vec<Vec<u32>> = vec![Vec::new(); model.files.len()];
+        for group in &unidentified_groups {
+            for span in &group.spans {
+                let covered =
+                    &model.files[span.file].model.tokens[span.start_token..span.end_token];
+                extend_lines_from_tokens(&mut exact_lines_by_file[span.file], covered);
+            }
+        }
+        compact_line_sets(&mut exact_lines_by_file);
         let mut identifier = FragmentIdentifier::new(Metric::Duplication.key(), model);
         let mut clone_groups = Vec::with_capacity(unidentified_groups.len());
         let mut cluster_inputs = Vec::with_capacity(unidentified_groups.len());
@@ -144,11 +150,9 @@ impl Duplication {
             for span in near.spans {
                 let covered =
                     &model.files[span.file].model.tokens[span.start_token..span.end_token];
-                total_lines_by_file
-                    .entry(span.file)
-                    .or_default()
-                    .extend(covered.iter().map(|token| token.line));
+                extend_lines_from_tokens(&mut total_lines_by_file[span.file], covered);
             }
+            compact_line_sets(&mut total_lines_by_file);
             clone_groups.extend(near.groups);
             cluster_inputs.extend(near.cluster_inputs);
             clone_groups.sort_by(|left, right| {
@@ -189,13 +193,15 @@ impl Duplication {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CloneLines(BTreeMap<RepoPath, BTreeSet<u32>>);
+pub struct CloneLines(BTreeMap<RepoPath, Vec<u32>>);
 
 impl CloneLines {
-    fn of_files(model: &CodeModel, lines_by_file: BTreeMap<usize, BTreeSet<u32>>) -> CloneLines {
+    fn of_files(model: &CodeModel, lines_by_file: Vec<Vec<u32>>) -> CloneLines {
         CloneLines(
             lines_by_file
                 .into_iter()
+                .enumerate()
+                .filter(|(_, lines)| !lines.is_empty())
                 .map(|(file, lines)| (model.files[file].path.clone(), lines))
                 .collect(),
         )
@@ -212,7 +218,28 @@ impl CloneLines {
     }
 
     pub fn contains(&self, path: &RepoPath, line: u32) -> bool {
-        self.0.get(path).is_some_and(|lines| lines.contains(&line))
+        self.0
+            .get(path)
+            .is_some_and(|lines| lines.binary_search(&line).is_ok())
+    }
+}
+
+fn extend_lines_from_tokens(target: &mut Vec<u32>, covered: &[Token]) {
+    let mut previous = target.last().copied();
+    for token in covered {
+        if previous != Some(token.line) {
+            target.push(token.line);
+            previous = Some(token.line);
+        }
+    }
+}
+
+fn compact_line_sets(lines_by_file: &mut [Vec<u32>]) {
+    for lines in lines_by_file {
+        if lines.len() > 1 {
+            lines.sort_unstable();
+            lines.dedup();
+        }
     }
 }
 
@@ -529,15 +556,19 @@ fn merge_overlapping_spans(mut spans: Vec<TokenSpan>) -> Vec<TokenSpan> {
 }
 
 fn unique_line_count(model: &CodeModel, spans: &[TokenSpan]) -> u64 {
-    let mut lines_by_file: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+    let mut lines_by_file: HashMap<usize, Vec<u32>> = HashMap::new();
     for span in spans {
         let covered = &model.files[span.file].model.tokens[span.start_token..span.end_token];
-        lines_by_file
-            .entry(span.file)
-            .or_default()
-            .extend(covered.iter().map(|token| token.line));
+        extend_lines_from_tokens(lines_by_file.entry(span.file).or_default(), covered);
     }
-    lines_by_file.values().map(|lines| lines.len() as u64).sum()
+    lines_by_file
+        .values_mut()
+        .map(|lines| {
+            lines.sort_unstable();
+            lines.dedup();
+            lines.len() as u64
+        })
+        .sum()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -648,47 +679,52 @@ fn equal_window_classes(
     runs: &[SearchedRun<'_>],
     window: usize,
 ) -> WindowClasses {
-    let window_count = runs
-        .iter()
-        .map(|run| (run.tokens.len() + 1).saturating_sub(window))
-        .sum();
     let first_token_indexes = FirstTokenIndexes::new(runs);
-    let mut windows: Vec<(u64, usize)> = Vec::with_capacity(window_count);
-    for (run, first_token_index) in runs.iter().zip(&first_token_indexes.0) {
-        windows.extend(
+    let mut windows: Vec<(u64, usize)> = runs
+        .par_iter()
+        .zip(first_token_indexes.0.par_iter())
+        .flat_map_iter(|(run, &first_token_index)| {
             rolling_window_hashes(run.tokens, window)
                 .enumerate()
-                .map(|(token, hash)| (hash, first_token_index + token)),
-        );
-    }
-    windows.sort_unstable();
+                .map(move |(token, hash)| (hash, first_token_index + token))
+        })
+        .collect();
+    windows.par_sort_unstable();
+    let candidate_chunks: Vec<&[(u64, usize)]> = windows
+        .chunk_by(|left, right| left.0 == right.0)
+        .filter(|same_hash| same_hash.len() >= 2)
+        .collect();
+    let grouped: Vec<Vec<Vec<Position>>> = candidate_chunks
+        .into_par_iter()
+        .map(|same_hash| {
+            let normalized_window = |position: Position| {
+                model.files[position.file].model.tokens[position.token..position.token + window]
+                    .iter()
+                    .map(normalized)
+            };
+            let mut equal_text: Vec<Vec<Position>> = Vec::new();
+            for position in same_hash
+                .iter()
+                .map(|&(_, index)| first_token_indexes.position(runs, index))
+            {
+                match equal_text
+                    .iter_mut()
+                    .find(|starts| normalized_window(starts[0]).eq(normalized_window(position)))
+                {
+                    Some(starts) => starts.push(position),
+                    None => equal_text.push(vec![position]),
+                }
+            }
+            equal_text.retain(|starts| starts.len() >= 2);
+            equal_text
+        })
+        .collect();
     let mut classes = WindowClasses {
         starts: Vec::new(),
         class_at: HashMap::new(),
     };
-    for same_hash in windows.chunk_by(|left, right| left.0 == right.0) {
-        if same_hash.len() < 2 {
-            continue;
-        }
-        let normalized_window = |position: Position| {
-            model.files[position.file].model.tokens[position.token..position.token + window]
-                .iter()
-                .map(normalized)
-        };
-        let mut equal_text: Vec<Vec<Position>> = Vec::new();
-        for position in same_hash
-            .iter()
-            .map(|&(_, index)| first_token_indexes.position(runs, index))
-        {
-            match equal_text
-                .iter_mut()
-                .find(|starts| normalized_window(starts[0]).eq(normalized_window(position)))
-            {
-                Some(starts) => starts.push(position),
-                None => equal_text.push(vec![position]),
-            }
-        }
-        for starts in equal_text.into_iter().filter(|starts| starts.len() >= 2) {
+    for equal_text in grouped {
+        for starts in equal_text {
             let class = classes.starts.len();
             classes
                 .class_at
@@ -729,7 +765,7 @@ fn mixed(id: u64) -> u64 {
 fn maximal_runs(classes: &WindowClasses, window: usize) -> Vec<(usize, Vec<Position>)> {
     let successor: Vec<Option<usize>> = classes
         .starts
-        .iter()
+        .par_iter()
         .map(|starts| {
             let next = *classes.class_at.get(&starts[0].next())?;
             let next_starts = &classes.starts[next];
