@@ -147,11 +147,19 @@ impl LanguagePlugin for Sql {
             .map(|output| output.file_model)
     }
 
+    fn has_imports(&self) -> bool {
+        false
+    }
+
     fn manifest_paths(
         &self,
         _repository_paths: &[RepoPath],
     ) -> Result<Vec<String>, LanguagePluginError> {
         Ok(Vec::new())
+    }
+
+    fn has_hazard_rules(&self) -> bool {
+        true
     }
 
     fn workspace_packages(
@@ -161,6 +169,13 @@ impl LanguagePlugin for Sql {
         Ok(Vec::new())
     }
 
+    fn hazard_rules(&self) -> Vec<String> {
+        SQL_HAZARD_RULES
+            .iter()
+            .map(|rule| (*rule).to_owned())
+            .collect()
+    }
+
     fn resolve_imports(
         &self,
         _repository_paths: &[RepoPath],
@@ -168,21 +183,6 @@ impl LanguagePlugin for Sql {
         _requests: Vec<ImportRequest>,
         _active_profiles: &[String],
     ) -> Result<Vec<Resolution>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    fn declared_dependencies(
-        &self,
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
-        Ok(Vec::new())
-    }
-
-    fn entry_points(
-        &self,
-        _repository_paths: &[RepoPath],
-        _manifests: Vec<Manifest>,
-    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
         Ok(Vec::new())
     }
 
@@ -200,21 +200,21 @@ impl LanguagePlugin for Sql {
         .map_err(LanguagePluginError::InvalidReferenceRange)
     }
 
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        Ok(Vec::new())
+    }
+
     codeint_model::empty_framework_profile_plugin_methods!();
 
-    fn has_hazard_rules(&self) -> bool {
-        true
-    }
-
-    fn hazard_rules(&self) -> Vec<String> {
-        SQL_HAZARD_RULES
-            .iter()
-            .map(|rule| (*rule).to_owned())
-            .collect()
-    }
-
-    fn has_imports(&self) -> bool {
-        false
+    fn entry_points(
+        &self,
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 }
 

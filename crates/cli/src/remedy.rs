@@ -720,7 +720,9 @@ fn plugin_test_remedy(error: &PluginTestError) -> &'static str {
 }
 
 fn plugin_host_remedy(error: &PluginHostError, file: ConfigFileKind) -> Cow<'static, str> {
-    plugin_load_remedy(error, file).unwrap_or_else(|| plugin_runtime_remedy(error, file))
+    plugin_load_remedy(error, file)
+        .or_else(|| plugin_download_remedy(error, file))
+        .unwrap_or_else(|| plugin_runtime_remedy(error, file))
 }
 
 fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<Cow<'static, str>> {
@@ -742,6 +744,15 @@ fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<C
         PluginHostError::IncompatibleContractVersion { .. } => Cow::Owned(format!(
             "Rebuild the plugin against codeint:plugin@0.4.0 and update its sha256 in {file}."
         )),
+        _ => return None,
+    })
+}
+
+fn plugin_download_remedy(
+    error: &PluginHostError,
+    file: ConfigFileKind,
+) -> Option<Cow<'static, str>> {
+    Some(match error {
         PluginHostError::NonHttpsUrl { .. } => Cow::Owned(format!(
             "Use an https:// URL for the plugin in {file}; plain HTTP and other schemes are refused."
         )),

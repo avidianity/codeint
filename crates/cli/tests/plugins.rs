@@ -973,6 +973,22 @@ fn plugin_max_download_mb_env_var_validates_and_enforces_cap() {
     assert_eq!(allowed["files"], 1);
 }
 
+fn assert_manifest_paths_probe_error(repo: &Path, expected_snippets: &[&str], context: &str) {
+    let output = run_codeint_with_env(repo, &["check"], &[]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for snippet in expected_snippets {
+        assert!(
+            stderr.contains(snippet),
+            "{context}, missing {snippet:?}: {stderr}"
+        );
+    }
+    assert!(
+        !stderr.contains("cannot resolve runtime imports"),
+        "{context}, got: {stderr}"
+    );
+}
+
 #[test]
 fn manifest_paths_timeout_and_trap_report_language_plugin_error_and_remedy() {
     let (timeout_repo, _hash) = init_single_probe_repo(
@@ -983,16 +999,10 @@ fn manifest_paths_timeout_and_trap_report_language_plugin_error_and_remedy() {
     );
     write_file(timeout_repo.path(), "loop-manifest-paths", "trigger\n");
     write_file(timeout_repo.path(), "src/app.loop", "ok\n");
-
-    let timeout_output = run_codeint_with_env(timeout_repo.path(), &["check"], &[]);
-    assert_eq!(timeout_output.status.code(), Some(2));
-    let timeout_stderr = String::from_utf8_lossy(&timeout_output.stderr);
-    assert!(
-        timeout_stderr.contains("loop-manifests")
-            && timeout_stderr.contains("50 ms")
-            && timeout_stderr.contains("plugin_limits.timeout_ms")
-            && !timeout_stderr.contains("cannot resolve runtime imports"),
-        "expected Language plugin timeout error and plugin_limits remedy, got: {timeout_stderr}"
+    assert_manifest_paths_probe_error(
+        timeout_repo.path(),
+        &["loop-manifests", "50 ms", "plugin_limits.timeout_ms"],
+        "expected Language plugin timeout error and plugin_limits remedy",
     );
 
     let (trap_repo, _trap_hash) = init_single_probe_repo(
@@ -1002,15 +1012,10 @@ fn manifest_paths_timeout_and_trap_report_language_plugin_error_and_remedy() {
         "",
     );
     write_file(trap_repo.path(), "src/app.probe", "ok\n");
-
-    let trap_output = run_codeint_with_env(trap_repo.path(), &["check"], &[]);
-    assert_eq!(trap_output.status.code(), Some(2));
-    let trap_stderr = String::from_utf8_lossy(&trap_output.stderr);
-    assert!(
-        trap_stderr.contains("trap-manifests")
-            && trap_stderr.contains("manifest-paths")
-            && !trap_stderr.contains("cannot resolve runtime imports"),
-        "expected Language plugin trap error instead of runtime imports error, got: {trap_stderr}"
+    assert_manifest_paths_probe_error(
+        trap_repo.path(),
+        &["trap-manifests", "manifest-paths"],
+        "expected Language plugin trap error instead of runtime imports error",
     );
 }
 
