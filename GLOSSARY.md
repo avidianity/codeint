@@ -180,7 +180,8 @@ _Avoid_: analyzer, detector, rule
 - A **Ratchet** stores one ceiling and **Metric version** per measured **Metric** and applies to whole-repository runs only.
 - A **Baseline** stores the **Finding** identifiers and **Metric version** of each measured **Metric**; a **Budget** applies to the **Findings** that the **Baseline** does not hide.
 - Every source file belongs to exactly one **Source set**.
-- A **Tooling file** stays in the Production **Source set** for code-shape **Metrics** and **Hazards**, and is excluded from **Orphan files** and **Dependency hygiene** dev-in-production checks unless explicitly listed as an entry point.
+- A **Tooling file** stays in the Production **Source set** for all Production **Metrics** and **Hazards** except **Orphan files** and **Dependency hygiene** dev-in-production checks.
+  Listing a **Tooling file** under `entry_points` overrides that exclusion.
 
 ## Flagged ambiguities
 

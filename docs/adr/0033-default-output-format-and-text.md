@@ -61,6 +61,7 @@ Issue #533 asks for a repository-level default output format setting and real co
 
 The Owner amended MCP tool output defaults on 2026-11-28:
 
-- MCP tools continue to ignore the repository-configured `format` key, keeping their own machine contract independent of terminal preferences.
-- Each MCP tool accepts an optional `format` parameter (`"toon"` or `"json"`), defaulting to `"toon"` so coding agents save context tokens while callers that require strict JSON can pass `"format": "json"`.
-- All eight MCP tools return MCP-tailored error remedies consistently rather than CLI flag remedies.
+- MCP tools keep ignoring the repository-configured `format` key so their machine contract stays independent of terminal preferences.
+- Each MCP tool accepts an optional `format` parameter (`"toon"` or `"json"`), defaulting to `"toon"`.
+  Coding agents save context tokens by default, while callers that require strict JSON can pass `"format": "json"`.
+- All eight MCP tools return MCP-tailored error remedies instead of CLI flag remedies.

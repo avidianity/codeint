@@ -5,7 +5,6 @@ status: accepted
 # 0009. Exclude inline `#[cfg(test)]` blocks from Rust Production measurements
 
 Date: 2026-11-22
-Status: Accepted
 
 ## Context
 

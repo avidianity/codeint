@@ -1,5 +1,5 @@
 ---
-status: superseded by ADR 0035
+status: superseded by ADR-0035
 ---
 
 # SQL Reference ranges come from a panel of 20 public repositories
