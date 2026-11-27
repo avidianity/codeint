@@ -2127,6 +2127,34 @@ fn manifest_paths_and_reference_ranges_propagate_wasm_traps_instead_of_returning
 }
 
 #[test]
+fn manifest_paths_epoch_timeout_returns_time_limit_error_instead_of_empty() {
+    let loop_wasm = sandbox_probe_wasm("loop_language_plugin.wasm");
+    let plugin = load_language_plugin_with_limits(
+        Path::new("."),
+        &declaration_for("loop-manifests", &loop_wasm),
+        &PluginHostConfig::default(),
+        PluginLimits {
+            memory_mb: 4,
+            timeout_ms: 50,
+        },
+    )
+    .expect("loop language plugin loads");
+    let repo_paths = vec![RepoPath::new("loop-manifest-paths").expect("valid repo path")];
+    let error = choose_manifests(&plugin, &repo_paths)
+        .expect_err("timing out manifest-paths must return TimeLimitExceeded instead of empty");
+    assert!(
+        matches!(
+            error,
+            ResolveError::Plugin(LanguagePluginError::TimeLimitExceeded {
+                ref plugin,
+                timeout_ms: 50,
+            }) if plugin == "loop-manifests"
+        ),
+        "unexpected manifest-paths timeout error: {error}"
+    );
+}
+
+#[test]
 fn sequential_calls_to_stateful_wasm_plugins_execute_in_fresh_stores() {
     let lang_wasm = sandbox_probe_wasm("stateful_language_plugin.wasm");
     let lang_plugin = load_language_plugin(

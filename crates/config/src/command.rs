@@ -55,6 +55,8 @@ pub enum ConfigError {
     MissingOutputFolder { path: PathBuf, folder: PathBuf },
     #[error("cannot determine the home folder for agent configuration")]
     MissingAgentHome,
+    #[error("CODEINT_PLUGIN_MAX_DOWNLOAD_MB must be a positive integer in MiB, got {value:?}")]
+    InvalidPluginMaxDownloadMb { value: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

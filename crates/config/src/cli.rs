@@ -17,6 +17,8 @@ use crate::resolved::ConfigOverrides;
 use crate::result_cache_folder;
 
 mod args;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use args::Arguments;
 
@@ -27,8 +29,10 @@ use args::{
 };
 
 const TEST_CA_CERT_VARIABLE: &str = "CODEINT_TEST_CA_CERT";
+const PLUGIN_MAX_DOWNLOAD_MB_VARIABLE: &str = "CODEINT_PLUGIN_MAX_DOWNLOAD_MB";
 const RELEASE_BASE_URL_VARIABLE: &str = "CODEINT_RELEASE_BASE_URL";
 const PLUGIN_CACHE_SUBDIR: &str = "plugins";
+const BYTES_PER_MIB: u64 = 1024 * 1024;
 
 pub fn read_invocation() -> Result<Invocation, ConfigError> {
     let arguments = Arguments::parse();
@@ -81,12 +85,12 @@ fn build_auxiliary_command(
             folder: current_folder.to_path_buf(),
             adopt,
             format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
         }),
         CommandArguments::Update { check, version } => Ok(build_update_command(check, version)),
         CommandArguments::Mcp => Ok(Command::Mcp {
             result_cache: result_cache_folder_of_this_process(current_folder),
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
             folder: current_folder.to_path_buf(),
         }),
         CommandArguments::Guard { path, format } => Ok(Command::Guard {
@@ -148,7 +152,7 @@ fn build_tooling_command(
         CommandArguments::Doctor { path, format } => Ok(Command::Doctor {
             folder: existing_folder(current_folder, path)?,
             format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
         }),
         CommandArguments::Agent { command } => build_agent_command(current_folder, command),
         CommandArguments::Ratchet { command } => build_ratchet_command(current_folder, command),
@@ -283,7 +287,7 @@ fn build_ratchet_command(
             reset,
             coverage_reports,
             format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
         })),
     }
 }
@@ -303,7 +307,7 @@ fn build_baseline_command(
             reset,
             coverage_reports,
             format,
-            plugin_host: plugin_host_config_of_this_process(current_folder),
+            plugin_host: plugin_host_config_of_this_process(current_folder)?,
         })),
     }
 }
@@ -337,7 +341,7 @@ fn build_churn_command(
         destination: report_destination(current_folder, history.output.output)?,
         findings: findings_shown(history.all),
         format: history.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -361,7 +365,7 @@ fn build_coupling_command(
         destination: report_destination(current_folder, history.output.output)?,
         findings: findings_shown(history.all),
         format: history.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -385,7 +389,7 @@ fn build_check_command(
         owner: report.owner,
         coverage_reports: selection.coverage_reports,
         ignore_baseline: selection.ignore_baseline,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -405,7 +409,7 @@ fn build_diff_command(
         package: report.package,
         owner: report.owner,
         result_cache: result_cache_folder_of_this_process(current_folder),
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -421,7 +425,7 @@ fn build_trend_command(
         destination: report_destination(current_folder, output)?,
         format,
         result_cache: result_cache_folder_of_this_process(current_folder),
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -437,7 +441,7 @@ fn build_impact_command(
         package: args.package,
         destination: report_destination(current_folder, args.output.output)?,
         format: args.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -454,7 +458,7 @@ fn build_trace_command(
         package: args.package,
         destination: report_destination(current_folder, args.output.output)?,
         format: args.format,
-        plugin_host: plugin_host_config_of_this_process(current_folder),
+        plugin_host: plugin_host_config_of_this_process(current_folder)?,
     })
 }
 
@@ -480,18 +484,45 @@ fn result_cache_folder_of_this_process(current_folder: &Path) -> Option<PathBuf>
     )
 }
 
-fn plugin_host_config_of_this_process(current_folder: &Path) -> PluginHostConfig {
+fn plugin_host_config_of_this_process(
+    current_folder: &Path,
+) -> Result<PluginHostConfig, ConfigError> {
     let cache_dir = result_cache_folder_of_this_process(current_folder)
         .map(|dir| dir.join(PLUGIN_CACHE_SUBDIR));
     let ca_cert = std::env::var_os(TEST_CA_CERT_VARIABLE)
         .filter(|value| !value.is_empty())
         .map(|value| current_folder.join(value));
-    PluginHostConfig {
+    let max_download_bytes = parse_plugin_max_download_bytes(read_env_var)?;
+    Ok(PluginHostConfig {
         cache_dir,
         ca_cert,
         download_timeout_seconds: DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
-        max_download_bytes: DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES,
+        max_download_bytes,
+    })
+}
+
+fn parse_plugin_max_download_bytes(
+    lookup: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<u64, ConfigError> {
+    let Some(raw) = lookup(PLUGIN_MAX_DOWNLOAD_MB_VARIABLE) else {
+        return Ok(DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES);
+    };
+    if raw.is_empty() {
+        return Ok(DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES);
     }
+    let Some(text) = raw.to_str() else {
+        return Err(ConfigError::InvalidPluginMaxDownloadMb {
+            value: raw.to_string_lossy().into_owned(),
+        });
+    };
+    let parsed = text
+        .parse::<u64>()
+        .ok()
+        .filter(|&mb| mb > 0)
+        .and_then(|mb| mb.checked_mul(BYTES_PER_MIB));
+    parsed.ok_or_else(|| ConfigError::InvalidPluginMaxDownloadMb {
+        value: text.to_owned(),
+    })
 }
 
 fn existing_folder(current_folder: &Path, path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {

@@ -376,6 +376,9 @@ fn config_remedy(error: &ConfigError) -> &'static str {
         ConfigError::MissingAgentHome => {
             "Pass --config-root <DIR>, or set CODEINT_AGENT_HOME or HOME."
         }
+        ConfigError::InvalidPluginMaxDownloadMb { .. } => {
+            "Set CODEINT_PLUGIN_MAX_DOWNLOAD_MB to a positive integer in MiB (for example 100), or unset it to use the 50 MiB default."
+        }
     }
 }
 
@@ -752,7 +755,7 @@ fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<C
             "Check that curl is installed, the HTTPS URL is reachable, and its TLS certificate is valid.",
         ),
         PluginHostError::DownloadTooLarge { .. } => Cow::Borrowed(
-            "Check that the HTTPS URL points to a valid WebAssembly Plugin within the download size cap.",
+            "Check that the HTTPS URL points to a valid WebAssembly Plugin, or set CODEINT_PLUGIN_MAX_DOWNLOAD_MB to raise the download size cap.",
         ),
         _ => return None,
     })

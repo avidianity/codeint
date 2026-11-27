@@ -9,7 +9,8 @@ use wasmtime::Store;
 
 use crate::PluginHostError;
 use crate::limits::{
-    LiftedSize, LimitTrap, PluginStoreState, classify_trap, enforce_lifted_budget, slice_budget,
+    LiftedBudget, LiftedSize, LimitTrap, PluginStoreState, classify_trap, enforce_lifted_budget,
+    slice_budget,
 };
 use crate::wasm::{
     ContractSpec, SandboxedComponent, VerifiedComponent, instantiate_sandboxed_component,
@@ -139,7 +140,7 @@ impl WasmMetricPlugin {
 }
 
 impl LiftedSize for guest_metric::Measurement {
-    fn lifted_budget(&self) -> (usize, usize) {
+    fn lifted_budget(&self) -> LiftedBudget {
         slice_budget(&self.findings, |finding| {
             finding
                 .id
@@ -155,18 +156,19 @@ pub(crate) fn enforce_metric_lifted_budget(
     limits: PluginLimits,
     measurement: &guest_metric::Measurement,
 ) -> Result<(), MetricPluginError> {
-    let (elements, bytes) = measurement.lifted_budget();
-    enforce_lifted_budget(plugin_name, limits, elements, bytes).map_err(|error| match error {
-        PluginHostError::MemoryLimitExceeded { name, memory_mb } => {
-            MetricPluginError::MemoryLimitExceeded {
-                plugin: name,
-                memory_mb,
+    enforce_lifted_budget(plugin_name, limits, measurement.lifted_budget()).map_err(|error| {
+        match error {
+            PluginHostError::MemoryLimitExceeded { name, memory_mb } => {
+                MetricPluginError::MemoryLimitExceeded {
+                    plugin: name,
+                    memory_mb,
+                }
             }
+            other => MetricPluginError::Call {
+                plugin: plugin_name.to_owned(),
+                reason: other.to_string(),
+            },
         }
-        other => MetricPluginError::Call {
-            plugin: plugin_name.to_owned(),
-            reason: other.to_string(),
-        },
     })
 }
 

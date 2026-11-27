@@ -207,26 +207,45 @@ pub(crate) fn classify_trap(store: &Store<PluginStoreState>, error: &wasmtime::E
     }
 }
 
-pub(crate) trait LiftedSize {
-    fn lifted_budget(&self) -> (usize, usize);
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct LiftedBudget {
+    pub(crate) elements: usize,
+    pub(crate) bytes: usize,
 }
 
-pub(crate) fn slice_budget<T>(items: &[T], extra_bytes: fn(&T) -> usize) -> (usize, usize) {
+impl LiftedBudget {
+    pub(crate) fn new(elements: usize, bytes: usize) -> LiftedBudget {
+        LiftedBudget { elements, bytes }
+    }
+
+    pub(crate) fn saturating_add(self, other: LiftedBudget) -> LiftedBudget {
+        LiftedBudget {
+            elements: self.elements.saturating_add(other.elements),
+            bytes: self.bytes.saturating_add(other.bytes),
+        }
+    }
+}
+
+pub(crate) trait LiftedSize {
+    fn lifted_budget(&self) -> LiftedBudget;
+}
+
+pub(crate) fn slice_budget<T>(items: &[T], extra_bytes: fn(&T) -> usize) -> LiftedBudget {
     let base = items.len().saturating_mul(size_of::<T>());
     let bytes = items
         .iter()
         .fold(base, |acc, item| acc.saturating_add(extra_bytes(item)));
-    (items.len(), bytes)
+    LiftedBudget::new(items.len(), bytes)
 }
 
 impl LiftedSize for String {
-    fn lifted_budget(&self) -> (usize, usize) {
-        (1, self.len())
+    fn lifted_budget(&self) -> LiftedBudget {
+        LiftedBudget::new(1, self.len())
     }
 }
 
 impl LiftedSize for Vec<String> {
-    fn lifted_budget(&self) -> (usize, usize) {
+    fn lifted_budget(&self) -> LiftedBudget {
         slice_budget(self, String::len)
     }
 }
@@ -234,12 +253,11 @@ impl LiftedSize for Vec<String> {
 pub(crate) fn enforce_lifted_budget(
     name: &str,
     limits: PluginLimits,
-    elements: usize,
-    bytes: usize,
+    budget: LiftedBudget,
 ) -> Result<(), PluginHostError> {
     let max_bytes = limits.memory_bytes();
     let max_elements = (max_bytes / LIFTED_BYTES_PER_ELEMENT).max(1);
-    if elements > max_elements || bytes > max_bytes {
+    if budget.elements > max_elements || budget.bytes > max_bytes {
         return Err(PluginHostError::MemoryLimitExceeded {
             name: name.to_owned(),
             memory_mb: limits.memory_mb,

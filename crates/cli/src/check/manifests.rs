@@ -18,6 +18,7 @@ use super::package_filter::SelectedPackage;
 pub(crate) fn read_manifests(
     tree: &Snapshot,
     plugins: &[NamedLanguagePlugin<'_>],
+    config_file: ConfigFileKind,
 ) -> Result<Vec<Vec<Manifest>>, CheckError> {
     plugins
         .iter()
@@ -26,9 +27,12 @@ pub(crate) fn read_manifests(
                 return Ok(Vec::new());
             }
             choose_manifests(named.plugin, tree.files())
-                .map_err(|source| CheckError::Resolve {
-                    plugin: named.name.to_owned(),
-                    source,
+                .map_err(|source| match source {
+                    ResolveError::Plugin(error) => CheckError::language_plugin(config_file, error),
+                    other => CheckError::Resolve {
+                        plugin: named.name.to_owned(),
+                        source: other,
+                    },
                 })?
                 .into_iter()
                 .map(|path| {

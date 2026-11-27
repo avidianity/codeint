@@ -563,7 +563,8 @@ fn measure(
     let covered_files = lowering::assign_files_to_plugins(tree, plugins, coverage, config_file)?;
     let sql_dialects =
         sql::resolve_sql_dialects(plugins, &covered_files, &configuration.sql, config_file)?;
-    let discovery = manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins)?)?;
+    let discovery =
+        manifests::find_plugin_workspaces(plugins, read_manifests(tree, plugins, config_file)?)?;
     let workspace = discovery.workspace();
     let manifest_warnings = discovery.warnings();
     let plugin_members = discovery.members_by_plugin;

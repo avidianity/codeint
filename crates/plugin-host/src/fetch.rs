@@ -147,8 +147,7 @@ fn download_to_file(
             reason: "cannot capture curl stdout".to_owned(),
         })?;
     let mut temp_file = File::create(temp_path).map_err(|source| {
-        let _ = child.kill();
-        let _ = child.wait();
+        abort_download(&mut child, temp_path);
         PluginHostError::CacheWrite {
             name: declaration.name.clone(),
             path: temp_path.to_path_buf(),
@@ -162,9 +161,7 @@ fn download_to_file(
 
     match copy_result {
         Ok(BoundedCopy::Exceeded) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = std::fs::remove_file(temp_path);
+            abort_download(&mut child, temp_path);
             return Err(PluginHostError::DownloadTooLarge {
                 name: declaration.name.clone(),
                 url: url.to_owned(),
@@ -172,9 +169,7 @@ fn download_to_file(
             });
         }
         Err(source) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = std::fs::remove_file(temp_path);
+            abort_download(&mut child, temp_path);
             return Err(PluginHostError::CacheWrite {
                 name: declaration.name.clone(),
                 path: temp_path.to_path_buf(),
@@ -214,6 +209,12 @@ fn download_to_file(
         });
     }
     Ok(())
+}
+
+fn abort_download(child: &mut std::process::Child, temp_path: &Path) {
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_file(temp_path);
 }
 
 enum BoundedCopy {
