@@ -301,16 +301,24 @@ fn collect_structured_replacements(
         });
         has_key = true;
     }
-    let form = match (kind.syntax(), has_directive, has_key) {
-        (ConfigSyntax::Toml, true, true) => RewrittenSchemaForm::TomlDirectiveAndKey,
-        (ConfigSyntax::Toml, true, false) => RewrittenSchemaForm::TomlDirective,
-        (ConfigSyntax::Toml, false, true) => RewrittenSchemaForm::TomlKey,
-        (ConfigSyntax::Yaml, true, true) => RewrittenSchemaForm::YamlDirectiveAndKey,
-        (ConfigSyntax::Yaml, true, false) => RewrittenSchemaForm::YamlDirective,
-        (ConfigSyntax::Yaml, false, true) => RewrittenSchemaForm::YamlKey,
-        _ => return None,
-    };
+    let form = structured_schema_form(kind.syntax(), has_directive, has_key)?;
     Some((replacements, form))
+}
+
+fn structured_schema_form(
+    syntax: ConfigSyntax,
+    has_directive: bool,
+    has_key: bool,
+) -> Option<RewrittenSchemaForm> {
+    match (syntax, has_directive, has_key) {
+        (ConfigSyntax::Toml, true, true) => Some(RewrittenSchemaForm::TomlDirectiveAndKey),
+        (ConfigSyntax::Toml, true, false) => Some(RewrittenSchemaForm::TomlDirective),
+        (ConfigSyntax::Toml, false, true) => Some(RewrittenSchemaForm::TomlKey),
+        (ConfigSyntax::Yaml, true, true) => Some(RewrittenSchemaForm::YamlDirectiveAndKey),
+        (ConfigSyntax::Yaml, true, false) => Some(RewrittenSchemaForm::YamlDirective),
+        (ConfigSyntax::Yaml, false, true) => Some(RewrittenSchemaForm::YamlKey),
+        _ => None,
+    }
 }
 
 fn format_scalar_replacement(original: &str, new_url: &str) -> String {

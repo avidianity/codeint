@@ -89,10 +89,7 @@ pub(crate) fn update(
     }
     let current = env!("CARGO_PKG_VERSION");
     let current_tag = format!("v{current}");
-    let target_tag = match requested_version {
-        Some(tag) => validate_requested_version(tag)?,
-        None => resolve_latest_tag(release_base_url)?,
-    };
+    let target_tag = resolve_target_tag(requested_version, release_base_url)?;
     if target_tag == current_tag && (requested_version.is_none() || check_only) {
         let base = format!("codeint {current} is already up to date ({target_tag})");
         return Ok(if check_only {
@@ -105,6 +102,16 @@ pub(crate) fn update(
         return Ok(format!("Update available: {current_tag} -> {target_tag}"));
     }
     perform_binary_update(&exe_path, &target_tag, release_base_url)
+}
+
+fn resolve_target_tag(
+    requested_version: Option<&str>,
+    release_base_url: Option<&str>,
+) -> Result<String, UpdateError> {
+    match requested_version {
+        Some(tag) => validate_requested_version(tag),
+        None => resolve_latest_tag(release_base_url),
+    }
 }
 
 fn perform_binary_update(

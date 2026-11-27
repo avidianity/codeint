@@ -24,6 +24,24 @@ fn has_flag_pair(args: &[String], flag: &str, value: &str) -> bool {
         .any(|pair| pair[0] == flag && pair[1] == value)
 }
 
+fn assert_rejects_release_tag(invalid_tag: &str) {
+    assert!(
+        matches!(
+            validate_release_tag(invalid_tag),
+            Err(UpdateError::LatestRelease { .. })
+        ),
+        "expected {invalid_tag:?} to be rejected"
+    );
+    let payload = serde_json::json!({ "tag_name": invalid_tag }).to_string();
+    assert!(
+        matches!(
+            extract_tag_name(&payload),
+            Err(UpdateError::LatestRelease { .. })
+        ),
+        "expected JSON tag_name {invalid_tag:?} to fail as LatestRelease"
+    );
+}
+
 #[test]
 fn build_curl_text_args_enforces_https_tls12_timeouts_and_url_terminator() {
     let url = "-https://example.invalid/releases/latest";
@@ -100,21 +118,7 @@ fn extract_tag_name_parses_semver_json_and_rejects_malformed_or_traversal_tags()
         "v1.2.3#fragment",
         "v1.2.3 extra",
     ] {
-        assert!(
-            matches!(
-                validate_release_tag(invalid_tag),
-                Err(UpdateError::LatestRelease { .. })
-            ),
-            "expected {invalid_tag:?} to be rejected"
-        );
-        let payload = serde_json::json!({ "tag_name": invalid_tag }).to_string();
-        assert!(
-            matches!(
-                extract_tag_name(&payload),
-                Err(UpdateError::LatestRelease { .. })
-            ),
-            "expected JSON tag_name {invalid_tag:?} to be rejected"
-        );
+        assert_rejects_release_tag(invalid_tag);
     }
 }
 
@@ -133,21 +137,7 @@ fn validate_release_tag_enforces_semver_prerelease_leading_zero_rules() {
     }
 
     for invalid_tag in ["v1.2.3-01", "v1.2.3-rc.007", "v1.2.3-00"] {
-        assert!(
-            matches!(
-                validate_release_tag(invalid_tag),
-                Err(UpdateError::LatestRelease { .. })
-            ),
-            "expected leading-zero prerelease tag {invalid_tag:?} to be rejected"
-        );
-        let payload = serde_json::json!({ "tag_name": invalid_tag }).to_string();
-        assert!(
-            matches!(
-                extract_tag_name(&payload),
-                Err(UpdateError::LatestRelease { .. })
-            ),
-            "expected JSON tag_name {invalid_tag:?} to fail as LatestRelease"
-        );
+        assert_rejects_release_tag(invalid_tag);
     }
 }
 
