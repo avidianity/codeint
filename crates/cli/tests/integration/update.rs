@@ -382,3 +382,214 @@ fn update_handles_duplicate_schema_keys_and_json_escapes() {
         ],
     );
 }
+
+#[cfg(unix)]
+fn write_executable_script(path: &Path, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::write(path, body).expect("write script");
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("chmod script");
+}
+
+#[cfg(unix)]
+fn find_system_tar() -> PathBuf {
+    ["/usr/bin/tar", "/bin/tar"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+        .expect("could not find tar in /usr/bin or /bin")
+}
+
+#[cfg(unix)]
+#[test]
+fn update_passes_hardened_tls_timeout_and_terminator_flags_to_curl() {
+    let temp = TempDir::new().expect("temp");
+    let install_dir = temp.path().join("bin");
+    let fake_bin = temp.path().join("fake-bin");
+    let args_log = temp.path().join("curl-args.txt");
+    fs::create_dir_all(&install_dir).expect("install dir");
+    fs::create_dir_all(&fake_bin).expect("fake bin");
+    let exe = copy_codeint_to(&install_dir);
+
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"{}\"\nprintf '{{\"tag_name\":\"v9.9.9\"}}'\n",
+        args_log.display()
+    );
+    write_executable_script(&fake_bin.join("curl"), &script);
+    let joined_path = format!("{}:/usr/bin:/bin", fake_bin.display());
+
+    let output = Command::new(&exe)
+        .current_dir(temp.path())
+        .args(["update", "--check"])
+        .env("PATH", &joined_path)
+        .env_remove("CODEINT_RELEASE_BASE_URL")
+        .output()
+        .expect("run update");
+    assert!(output.status.success(), "{output:?}");
+
+    let recorded = fs::read_to_string(&args_log).expect("read curl args");
+    let args: Vec<&str> = recorded.lines().collect();
+    let has_flag_pair = |flag: &str, value: &str| {
+        args.windows(2)
+            .any(|pair| pair[0] == flag && pair[1] == value)
+    };
+    assert!(
+        has_flag_pair("--proto", "=https"),
+        "missing --proto =https in curl args: {args:?}"
+    );
+    assert!(
+        args.contains(&"--tlsv1.2"),
+        "missing --tlsv1.2 in curl args: {args:?}"
+    );
+    assert!(
+        has_flag_pair("--proto-redir", "=https"),
+        "missing --proto-redir =https in curl args: {args:?}"
+    );
+    assert!(
+        args.contains(&"--connect-timeout"),
+        "missing --connect-timeout in curl args: {args:?}"
+    );
+    assert!(
+        args.contains(&"--max-time"),
+        "missing --max-time in curl args: {args:?}"
+    );
+    let url_index = args.len().checked_sub(1).expect("at least one arg");
+    assert!(
+        url_index >= 1 && args[url_index - 1] == "--",
+        "missing -- terminator before URL in curl args: {args:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn update_parses_github_release_json_and_rejects_malformed_payloads() {
+    let temp = TempDir::new().expect("temp");
+    let install_dir = temp.path().join("bin");
+    let fake_bin = temp.path().join("fake-bin");
+    let payload_file = temp.path().join("release.json");
+    fs::create_dir_all(&install_dir).expect("install dir");
+    fs::create_dir_all(&fake_bin).expect("fake bin");
+    let exe = copy_codeint_to(&install_dir);
+
+    let script = format!("#!/bin/sh\ncat \"{}\"\n", payload_file.display());
+    write_executable_script(&fake_bin.join("curl"), &script);
+    let joined_path = format!("{}:/usr/bin:/bin", fake_bin.display());
+
+    fs::write(
+        &payload_file,
+        r#"{"body":"Mentioned \"tag_name\": \"v0.0.1\" in notes","tag_name":"v9.8.7"}"#,
+    )
+    .expect("write release json");
+    let valid_output = Command::new(&exe)
+        .current_dir(temp.path())
+        .args(["update", "--check"])
+        .env("PATH", &joined_path)
+        .env_remove("CODEINT_RELEASE_BASE_URL")
+        .output()
+        .expect("run update");
+    assert!(valid_output.status.success(), "{valid_output:?}");
+    let stdout = String::from_utf8_lossy(&valid_output.stdout);
+    assert!(
+        stdout.contains("v9.8.7"),
+        "expected parsed top-level tag v9.8.7, got: {stdout}"
+    );
+
+    fs::write(&payload_file, r#"{"tag_name":"v9.8.7""#).expect("write malformed json");
+    let malformed_output = Command::new(&exe)
+        .current_dir(temp.path())
+        .args(["update", "--check"])
+        .env("PATH", &joined_path)
+        .env_remove("CODEINT_RELEASE_BASE_URL")
+        .output()
+        .expect("run update on malformed json");
+    assert_eq!(
+        malformed_output.status.code(),
+        Some(2),
+        "malformed JSON should fail with exit code 2, got: {malformed_output:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn update_verifies_checksum_in_process_without_external_checksum_binaries() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().expect("temp");
+    let install_dir = temp.path().join("bin");
+    let release_dir = temp.path().join("release");
+    let minimal_bin = temp.path().join("minimal-bin");
+    fs::create_dir_all(&install_dir).expect("install dir");
+    fs::create_dir_all(&release_dir).expect("release dir");
+    fs::create_dir_all(&minimal_bin).expect("minimal bin");
+
+    let tar_path = find_system_tar();
+    symlink(&tar_path, minimal_bin.join("tar")).expect("symlink tar");
+
+    let exe = copy_codeint_to(&install_dir);
+    let new_payload = b"#!/bin/sh\necho pure-rust-sha256\n";
+    let digest = stage_release_archive(&release_dir, new_payload);
+    fs::write(release_dir.join("LATEST"), "v9.9.9\n").expect("latest");
+    fs::write(
+        release_dir.join("SHA256SUMS"),
+        format!("{digest}  {}\n", host_archive_name()),
+    )
+    .expect("sums");
+
+    let output = Command::new(&exe)
+        .current_dir(temp.path())
+        .arg("update")
+        .env("PATH", &minimal_bin)
+        .env("CODEINT_RELEASE_BASE_URL", &release_dir)
+        .output()
+        .expect("run update");
+    assert!(
+        output.status.success(),
+        "expected pure-Rust SHA-256 verification without sha256sum/shasum, got: {output:?}"
+    );
+    assert_eq!(fs::read(&exe).expect("read replaced"), new_payload);
+}
+
+#[test]
+fn update_reports_format_specific_schema_directive_notice_for_json_toml_and_yaml() {
+    let cases = [
+        (
+            "codeint.json",
+            "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\"\n}\n",
+            "Updated $schema in",
+        ),
+        (
+            "codeint.jsonc",
+            "{\n  \"$schema\": \"https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\",\n}\n",
+            "Updated $schema in",
+        ),
+        (
+            "codeint.toml",
+            "#:schema https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\n\nformat = \"text\"\n",
+            "#:schema",
+        ),
+        (
+            "codeint.yaml",
+            "# yaml-language-server: $schema=https://raw.githubusercontent.com/avidianity/codeint/v0.1.0/schema/codeint.schema.json\nformat: text\n",
+            "# yaml-language-server: $schema=",
+        ),
+    ];
+
+    for (file_name, original, expected_directive) in cases {
+        let temp = TempDir::new().expect("temp");
+        let repo_dir = temp.path().join("repo");
+        fs::create_dir_all(repo_dir.join(".git")).expect("git dir");
+        fs::write(repo_dir.join(file_name), original).expect("write config");
+
+        let output = run_update_in_repo(&temp, &repo_dir, "v9.9.9");
+        assert!(output.status.success(), "{output:?}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(expected_directive),
+            "expected {file_name} notice to mention {expected_directive:?}, got: {stdout}"
+        );
+        assert!(
+            stdout.contains("v9.9.9/schema/codeint.schema.json"),
+            "expected {file_name} notice to include updated URL, got: {stdout}"
+        );
+    }
+}

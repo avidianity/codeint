@@ -1,11 +1,27 @@
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+
+use codeint_config::{ConfigFileKind, ConfigSyntax};
+use codeint_plugin_host::{sha256, sha256_hex};
+use serde::Deserialize;
+
+#[cfg(test)]
+mod tests;
 
 const LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/avidianity/codeint/releases/latest";
 const DEFAULT_RELEASE_DOWNLOAD_BASE: &str =
     "https://github.com/avidianity/codeint/releases/download";
+const CURL_CONNECT_TIMEOUT_SECONDS: &str = "15";
+const CURL_METADATA_MAX_TIME_SECONDS: &str = "30";
+const CURL_DOWNLOAD_MAX_TIME_SECONDS: &str = "300";
+
+#[derive(Deserialize)]
+struct LatestReleaseResponse {
+    tag_name: String,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UpdateError {
@@ -85,7 +101,7 @@ fn perform_binary_update(
 }
 
 fn append_schema_sync(mut message: String, target_tag: &str) -> String {
-    if let Some(updated) = sync_codeint_json_schema(target_tag) {
+    if let Some(updated) = sync_config_schema(target_tag) {
         message.push_str(&format!("\n{updated}"));
     }
     message
@@ -107,17 +123,34 @@ fn find_config_file(start: &Path) -> Option<codeint_config::DiscoveredConfigFile
     None
 }
 
-fn sync_codeint_json_schema(target_tag: &str) -> Option<String> {
+fn sync_config_schema(target_tag: &str) -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
     let discovered = find_config_file(&cwd)?;
     let text = fs::read_to_string(&discovered.path).ok()?;
     let (updated, new_url) =
         codeint_config::rewrite_schema_tag(discovered.kind, &text, target_tag)?;
     fs::write(&discovered.path, updated).ok()?;
-    Some(format!(
-        "Updated $schema in {} to {new_url}",
-        discovered.path.display()
+    Some(format_schema_sync_notice(
+        discovered.kind,
+        &discovered.path,
+        &new_url,
     ))
+}
+
+fn format_schema_sync_notice(kind: ConfigFileKind, path: &Path, new_url: &str) -> String {
+    match kind.syntax() {
+        ConfigSyntax::Json => format!("Updated $schema in {} to {new_url}", path.display()),
+        ConfigSyntax::Toml => {
+            format!(
+                "Updated #:schema directive in {} to {new_url}",
+                path.display()
+            )
+        }
+        ConfigSyntax::Yaml => format!(
+            "Updated # yaml-language-server: $schema= directive in {} to {new_url}",
+            path.display()
+        ),
+    }
 }
 
 fn is_node_modules_install(path: &Path) -> bool {
@@ -170,21 +203,21 @@ fn resolve_latest_tag(release_base_url: Option<&str>) -> Result<String, UpdateEr
     }
 
     let body = fetch_text_http(LATEST_RELEASE_API_URL)?;
-    extract_tag_name(&body).ok_or_else(|| UpdateError::LatestRelease {
-        detail: "GitHub Releases API response did not include tag_name".to_owned(),
-    })
+    extract_tag_name(&body)
 }
 
-fn extract_tag_name(json_text: &str) -> Option<String> {
-    let key = "\"tag_name\"";
-    let idx = json_text.find(key)?;
-    let rest = &json_text[idx + key.len()..];
-    let colon = rest.find(':')?;
-    let after_colon = rest[colon + 1..].trim_start();
-    let after_quote = after_colon.strip_prefix('"')?;
-    let end_quote = after_quote.find('"')?;
-    let tag = &after_quote[..end_quote];
-    (!tag.is_empty()).then(|| normalize_tag(tag))
+fn extract_tag_name(json_text: &str) -> Result<String, UpdateError> {
+    let release: LatestReleaseResponse =
+        serde_json::from_str(json_text).map_err(|error| UpdateError::LatestRelease {
+            detail: format!("invalid GitHub Releases API JSON: {error}"),
+        })?;
+    let trimmed = release.tag_name.trim();
+    if trimmed.is_empty() {
+        return Err(UpdateError::LatestRelease {
+            detail: "GitHub Releases API response contained an empty tag_name".to_owned(),
+        });
+    }
+    Ok(normalize_tag(trimmed))
 }
 
 fn detect_target() -> Result<(&'static str, &'static str), UpdateError> {
@@ -236,14 +269,7 @@ fn install_verified_archive(
             file: archive_name.to_owned(),
         }
     })?;
-    let actual = compute_sha256(&archive_path)?;
-    if actual != expected {
-        return Err(UpdateError::ChecksumMismatch {
-            file: archive_name.to_owned(),
-            expected,
-            actual,
-        });
-    }
+    verify_archive_sha256(&archive_path, archive_name, &expected)?;
 
     let extract_dir = stage_dir.join("extracted");
     fs::create_dir_all(&extract_dir).map_err(|source| UpdateError::Replace {
@@ -277,6 +303,45 @@ fn local_path_from_base(base: &str) -> Option<PathBuf> {
     }
 }
 
+fn build_curl_base_args(max_time_seconds: &str) -> Vec<OsString> {
+    [
+        "--proto",
+        "=https",
+        "--tlsv1.2",
+        "--proto-redir",
+        "=https",
+        "--connect-timeout",
+        CURL_CONNECT_TIMEOUT_SECONDS,
+        "--max-time",
+        max_time_seconds,
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+    ]
+    .into_iter()
+    .map(OsString::from)
+    .collect()
+}
+
+fn build_curl_download_args(url: &str, destination: &Path) -> Vec<OsString> {
+    let mut args = build_curl_base_args(CURL_DOWNLOAD_MAX_TIME_SECONDS);
+    args.push(OsString::from("--output"));
+    args.push(destination.as_os_str().to_owned());
+    args.push(OsString::from("--"));
+    args.push(OsString::from(url));
+    args
+}
+
+fn build_curl_text_args(url: &str) -> Vec<OsString> {
+    let mut args = build_curl_base_args(CURL_METADATA_MAX_TIME_SECONDS);
+    args.push(OsString::from("--header"));
+    args.push(OsString::from("Accept: application/vnd.github+json"));
+    args.push(OsString::from("--"));
+    args.push(OsString::from(url));
+    args
+}
+
 fn fetch_asset(base: &str, filename: &str, destination: &Path) -> Result<(), UpdateError> {
     if let Some(dir) = local_path_from_base(base) {
         let source_path = dir.join(filename);
@@ -287,35 +352,40 @@ fn fetch_asset(base: &str, filename: &str, destination: &Path) -> Result<(), Upd
         return Ok(());
     }
     let url = format!("{base}/{filename}");
-    let status = Command::new("curl")
-        .args(["-fsSL", "-o"])
-        .arg(destination)
-        .arg(&url)
-        .status()
+    let output = Command::new("curl")
+        .args(build_curl_download_args(&url, destination))
+        .output()
         .map_err(|error| UpdateError::Download {
             url: url.clone(),
             detail: error.to_string(),
         })?;
-    if !status.success() {
-        return Err(UpdateError::Download {
-            url,
-            detail: format!("curl exited with {status}"),
-        });
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let detail = if stderr.is_empty() {
+            format!("curl exited with {}", output.status)
+        } else {
+            stderr
+        };
+        return Err(UpdateError::Download { url, detail });
     }
     Ok(())
 }
 
 fn fetch_text_http(url: &str) -> Result<String, UpdateError> {
     let output = Command::new("curl")
-        .args(["-fsSL", "-H", "Accept: application/vnd.github+json", url])
+        .args(build_curl_text_args(url))
         .output()
         .map_err(|error| UpdateError::LatestRelease {
             detail: error.to_string(),
         })?;
     if !output.status.success() {
-        return Err(UpdateError::LatestRelease {
-            detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        });
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let detail = if stderr.is_empty() {
+            format!("curl exited with {}", output.status)
+        } else {
+            stderr
+        };
+        return Err(UpdateError::LatestRelease { detail });
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -338,52 +408,61 @@ fn parse_expected_sha256(checksums: &str, archive_name: &str) -> Option<String> 
     None
 }
 
-fn compute_sha256(path: &Path) -> Result<String, UpdateError> {
-    #[cfg(windows)]
-    {
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash.ToLowerInvariant()",
-            ])
-            .arg(path)
-            .output()
-            .map_err(|error| UpdateError::ChecksumTool {
-                detail: error.to_string(),
-            })?;
-        if !output.status.success() {
-            return Err(UpdateError::ChecksumTool {
-                detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            });
-        }
-        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned());
+fn compute_sha256(path: &Path) -> Result<[u8; 32], UpdateError> {
+    let bytes = fs::read(path).map_err(|error| UpdateError::ChecksumTool {
+        detail: error.to_string(),
+    })?;
+    Ok(sha256(&bytes))
+}
+
+fn parse_sha256_hex(hex: &str) -> Option<[u8; 32]> {
+    let bytes = hex.as_bytes();
+    if bytes.len() != 64 {
+        return None;
     }
-    #[cfg(not(windows))]
-    {
-        let attempt = Command::new("sha256sum").arg(path).output().or_else(|_| {
-            Command::new("shasum")
-                .args(["-a", "256"])
-                .arg(path)
-                .output()
+    let (pairs, _) = bytes.as_chunks::<2>();
+    let mut digest = [0u8; 32];
+    for (slot, pair) in digest.iter_mut().zip(pairs) {
+        let high = decode_hex_nibble(pair[0])?;
+        let low = decode_hex_nibble(pair[1])?;
+        *slot = (high << 4) | low;
+    }
+    Some(digest)
+}
+
+fn decode_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn constant_time_equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
+    let mut diff = 0u8;
+    for (a, b) in left.iter().zip(right.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
+fn verify_archive_sha256(
+    archive_path: &Path,
+    archive_name: &str,
+    expected_hex: &str,
+) -> Result<(), UpdateError> {
+    let actual_digest = compute_sha256(archive_path)?;
+    let matches = parse_sha256_hex(expected_hex)
+        .is_some_and(|expected_digest| constant_time_equal(&actual_digest, &expected_digest));
+    if !matches {
+        return Err(UpdateError::ChecksumMismatch {
+            file: archive_name.to_owned(),
+            expected: expected_hex.to_owned(),
+            actual: sha256_hex(&actual_digest),
         });
-        let output = attempt.map_err(|error| UpdateError::ChecksumTool {
-            detail: error.to_string(),
-        })?;
-        if !output.status.success() {
-            return Err(UpdateError::ChecksumTool {
-                detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            });
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        stdout
-            .split_whitespace()
-            .next()
-            .map(|hash| hash.to_ascii_lowercase())
-            .ok_or_else(|| UpdateError::ChecksumTool {
-                detail: "checksum tool returned empty output".to_owned(),
-            })
     }
+    Ok(())
 }
 
 fn extract_archive(archive: &Path, destination: &Path, ext: &str) -> Result<(), UpdateError> {
