@@ -343,7 +343,11 @@ fn update_remedy(error: &UpdateError) -> &'static str {
         UpdateError::ChecksumMismatch { .. } | UpdateError::MissingChecksum { .. } => {
             "Do not use the downloaded archive; retry codeint update or verify the release on GitHub."
         }
-        UpdateError::LatestRelease { .. } | UpdateError::Download { .. } => {
+        UpdateError::LatestRelease { .. }
+        | UpdateError::LatestReleaseJson(_)
+        | UpdateError::LatestReleaseIo { .. }
+        | UpdateError::Download { .. }
+        | UpdateError::DownloadIo { .. } => {
             "Check your network connection and GitHub Releases availability, then run codeint update again."
         }
         UpdateError::Replace { .. } => {
@@ -351,8 +355,9 @@ fn update_remedy(error: &UpdateError) -> &'static str {
         }
         UpdateError::CurrentExecutable(_)
         | UpdateError::UnsupportedPlatform
-        | UpdateError::ChecksumTool { .. }
-        | UpdateError::Extract { .. } => {
+        | UpdateError::ReadArchive { .. }
+        | UpdateError::Extract { .. }
+        | UpdateError::ExtractIo(_) => {
             "Reinstall codeint from https://github.com/avidianity/codeint/releases."
         }
     }

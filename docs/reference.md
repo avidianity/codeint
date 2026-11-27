@@ -728,7 +728,7 @@ codeint trace src/sign.ts src/parse.ts --package packages/missing
 | `-h, --help` | Print the help of `codeint update` |
 
 `codeint update` downloads the matching platform archive and `SHA256SUMS` from GitHub Releases, verifies the SHA-256 digest before touching the binary, and atomically replaces a standalone `codeint` executable in place.
-When run inside a repository whose configuration file uses the codeint schema URL (`$schema` in JSON/JSONC, `#:schema` in TOML, or `# yaml-language-server: $schema=` in YAML), `codeint update` also updates that schema tag to match the installed release.
+When run inside a repository whose configuration file uses the codeint schema URL (`$schema` in JSON/JSONC, `#:schema` or top-level `$schema` in TOML, or `# yaml-language-server: $schema=` or top-level `$schema` in YAML), `codeint update` also updates that schema tag to match the installed release.
 If the running binary lives inside `node_modules`, `codeint update` refuses to overwrite it and exits `2` with the package-manager update command instead.
 
 ```sh exit=0
