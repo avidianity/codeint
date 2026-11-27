@@ -2318,15 +2318,10 @@ fn unresolved_import_row(importer: &str, index: usize) -> String {
     format!("{importer},./missing{index:02}")
 }
 
-fn unresolved_import_rows_of_both_files(later_from: usize) -> Vec<String> {
+fn unresolved_import_rows_of_both_files(later_to: usize) -> Vec<String> {
     (1..=11)
-        .rev()
         .map(|index| unresolved_import_row("src/earlier.ts", index))
-        .chain(
-            (later_from..=21)
-                .rev()
-                .map(|index| unresolved_import_row("src/later.ts", index)),
-        )
+        .chain((12..=later_to).map(|index| unresolved_import_row("src/later.ts", index)))
         .collect()
 }
 
@@ -2343,7 +2338,7 @@ fn the_report_lists_the_first_20_unresolved_imports_by_importer_and_says_how_man
         "count: 21".to_string(),
         "imports[20]{importer,specifier,reason}:".to_string(),
     ];
-    expected.extend(unresolved_import_rows_of_both_files(13));
+    expected.extend(unresolved_import_rows_of_both_files(20));
     expected.push("imports_left_out: 1".to_string());
     assert_eq!(unresolved_import_rows(&output), expected);
 }
@@ -2361,7 +2356,7 @@ fn all_lists_every_unresolved_import() {
         "count: 21".to_string(),
         "imports[21]{importer,specifier,reason}:".to_string(),
     ];
-    expected.extend(unresolved_import_rows_of_both_files(12));
+    expected.extend(unresolved_import_rows_of_both_files(21));
     assert_eq!(unresolved_import_rows(&output), expected);
 }
 

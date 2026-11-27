@@ -347,3 +347,22 @@ fn resolve_runtime_imports_propagates_plugin_memory_limit_errors() {
         "unexpected error: {error:?}"
     );
 }
+
+#[test]
+fn a_plugin_that_resolves_to_an_empty_external_package_is_an_error() {
+    for empty_package in ["", "   "] {
+        let plugin = Answering::of(vec![Resolution::External(empty_package.to_owned())]);
+        let a = importer("a.ts", &["mystery"]);
+
+        let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a], &[]);
+
+        assert!(
+            matches!(
+                &result,
+                Err(ResolveError::EmptyExternalPackage { importer, specifier })
+                    if importer.as_str() == "a.ts" && specifier == "mystery"
+            ),
+            "empty external package {empty_package:?} must be rejected, got {result:?}"
+        );
+    }
+}

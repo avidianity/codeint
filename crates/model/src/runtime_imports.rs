@@ -30,6 +30,13 @@ pub enum ResolveError {
         specifier: String,
     },
     #[error(
+        "the Language plugin resolved {specifier:?} in {importer} to an empty external package name"
+    )]
+    EmptyExternalPackage {
+        importer: RepoPath,
+        specifier: String,
+    },
+    #[error(
         "the Language plugin resolved {specifier:?} in {importer} to {target:?}, which is not a file of the repository"
     )]
     UnknownTarget {
@@ -127,7 +134,16 @@ fn validate_resolution(
             validate_resolved_targets(importer, specifier, targets, known_paths)
                 .map(ImportResolution::Resolved)
         }
-        language::Resolution::External(package) => Ok(ImportResolution::External(package)),
+        language::Resolution::External(package) => {
+            if package.trim().is_empty() {
+                Err(ResolveError::EmptyExternalPackage {
+                    importer: importer.clone(),
+                    specifier: specifier.to_owned(),
+                })
+            } else {
+                Ok(ImportResolution::External(package))
+            }
+        }
         language::Resolution::Builtin => Ok(ImportResolution::Builtin),
         language::Resolution::Unresolved(reason) => Ok(ImportResolution::Unresolved { reason }),
     }

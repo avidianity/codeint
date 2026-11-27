@@ -170,7 +170,12 @@ fn unresolved_imports(model: &CodeModel) -> Vec<UnresolvedImport> {
             | ImportResolution::Builtin => None,
         })
         .collect();
-    unresolved.sort_by(|left, right| left.importer.cmp(&right.importer));
+    unresolved.sort_by(|left, right| {
+        left.importer
+            .cmp(&right.importer)
+            .then_with(|| left.specifier.cmp(&right.specifier))
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
     unresolved
 }
 
