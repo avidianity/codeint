@@ -30,7 +30,15 @@ fn plugin_max_download_bytes_parses_positive_mib_override() {
 
 #[test]
 fn plugin_max_download_bytes_rejects_zero_negative_non_numeric_and_overflow() {
-    for bad in ["0", "-1", "abc", "12.5", "18446744073709551615"] {
+    for bad in [
+        "0",
+        "-1",
+        "abc",
+        "12.5",
+        "8796093022208",
+        "10000000000000",
+        "18446744073709551615",
+    ] {
         let error = parse_plugin_max_download_bytes(|name| {
             (name == PLUGIN_MAX_DOWNLOAD_MB_VARIABLE).then(|| OsString::from(bad))
         })
@@ -40,4 +48,14 @@ fn plugin_max_download_bytes_rejects_zero_negative_non_numeric_and_overflow() {
             "expected InvalidPluginMaxDownloadMb for {bad:?}, got {error}"
         );
     }
+}
+
+#[test]
+fn plugin_max_download_bytes_accepts_signed_64_bit_boundary() {
+    let parsed = parse_plugin_max_download_bytes(|name| {
+        (name == PLUGIN_MAX_DOWNLOAD_MB_VARIABLE).then(|| OsString::from("8796093022207"))
+    })
+    .expect("maximum signed 64-bit MiB boundary must succeed");
+    assert_eq!(parsed, 8_796_093_022_207 * 1024 * 1024);
+    assert!(parsed <= i64::MAX as u64);
 }

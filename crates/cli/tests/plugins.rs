@@ -924,7 +924,7 @@ fn plugin_max_download_mb_env_var_validates_and_enforces_cap() {
     );
     write_file(repo.path(), "src/app.mini", "fn main() {\n  return 1\n}\n");
 
-    for bad in ["0", "-2", "not-a-number"] {
+    for bad in ["0", "-2", "not-a-number", "8796093022208", "10000000000000"] {
         let output = run_codeint_with_env(
             repo.path(),
             &["check"],

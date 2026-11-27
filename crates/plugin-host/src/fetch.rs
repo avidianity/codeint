@@ -9,6 +9,9 @@ use codeint_config::{PluginDeclaration, PluginHostConfig};
 use crate::sha256::{format_hex, sha256};
 use crate::{PluginHostError, constant_time_equal};
 
+#[cfg(test)]
+mod tests;
+
 const CURL_FILESIZE_EXCEEDED_EXIT_CODE: i32 = 63;
 const DOWNLOAD_CHUNK_BYTES: usize = 64 * 1024;
 
@@ -168,7 +171,15 @@ fn download_to_file(
                 max_bytes,
             });
         }
-        Err(source) => {
+        Err(BoundedCopyError::Read(source)) => {
+            abort_download(&mut child, temp_path);
+            return Err(PluginHostError::Download {
+                name: declaration.name.clone(),
+                url: url.to_owned(),
+                reason: format!("cannot read curl stdout: {source}"),
+            });
+        }
+        Err(BoundedCopyError::Write(source)) => {
             abort_download(&mut child, temp_path);
             return Err(PluginHostError::CacheWrite {
                 name: declaration.name.clone(),
@@ -217,20 +228,31 @@ fn abort_download(child: &mut std::process::Child, temp_path: &Path) {
     let _ = std::fs::remove_file(temp_path);
 }
 
+#[derive(Debug)]
 enum BoundedCopy {
     Completed,
     Exceeded,
+}
+
+#[derive(Debug)]
+enum BoundedCopyError {
+    Read(std::io::Error),
+    Write(std::io::Error),
 }
 
 fn copy_bounded(
     reader: &mut impl Read,
     writer: &mut impl Write,
     max_bytes: u64,
-) -> std::io::Result<BoundedCopy> {
+) -> Result<BoundedCopy, BoundedCopyError> {
     let mut buffer = [0u8; DOWNLOAD_CHUNK_BYTES];
     let mut total: u64 = 0;
     loop {
-        let read = reader.read(&mut buffer)?;
+        let read = match reader.read(&mut buffer) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(BoundedCopyError::Read(error)),
+        };
         if read == 0 {
             return Ok(BoundedCopy::Completed);
         }
@@ -238,7 +260,9 @@ fn copy_bounded(
         if total > max_bytes {
             return Ok(BoundedCopy::Exceeded);
         }
-        writer.write_all(&buffer[..read])?;
+        writer
+            .write_all(&buffer[..read])
+            .map_err(BoundedCopyError::Write)?;
     }
 }
 

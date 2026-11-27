@@ -10,6 +10,7 @@ use crate::resolved::ConfigOverrides;
 
 pub(crate) const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
 pub const DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
+pub(crate) const MAX_PLUGIN_DOWNLOAD_MIB: u64 = (i64::MAX as u64) / (1024 * 1024);
 pub(crate) const WORST_FINDINGS_PER_METRIC: usize = 20;
 pub const DEFAULT_MAX_TRACE_PATHS: usize = 10;
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
@@ -55,7 +56,9 @@ pub enum ConfigError {
     MissingOutputFolder { path: PathBuf, folder: PathBuf },
     #[error("cannot determine the home folder for agent configuration")]
     MissingAgentHome,
-    #[error("CODEINT_PLUGIN_MAX_DOWNLOAD_MB must be a positive integer in MiB, got {value:?}")]
+    #[error(
+        "CODEINT_PLUGIN_MAX_DOWNLOAD_MB must be a positive integer in MiB up to {MAX_PLUGIN_DOWNLOAD_MIB}, got {value:?}"
+    )]
     InvalidPluginMaxDownloadMb { value: String },
 }
 

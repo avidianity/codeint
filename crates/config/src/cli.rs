@@ -9,8 +9,9 @@ use crate::churn::{ChurnSince, ChurnWindow};
 use crate::command::{
     AgentCommand, BaselineCommand, Command, ConfigError, ConfigFormat,
     DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS, DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES, FindingsShown,
-    Invocation, PluginCommand, PluginHostConfig, RatchetCommand, ReportDestination, ReportInput,
-    ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange, WORST_FINDINGS_PER_METRIC,
+    Invocation, MAX_PLUGIN_DOWNLOAD_MIB, PluginCommand, PluginHostConfig, RatchetCommand,
+    ReportDestination, ReportInput, ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange,
+    WORST_FINDINGS_PER_METRIC,
 };
 use crate::coupling::{CouplingRatio, CouplingSettings};
 use crate::resolved::ConfigOverrides;
@@ -518,7 +519,7 @@ fn parse_plugin_max_download_bytes(
     let parsed = text
         .parse::<u64>()
         .ok()
-        .filter(|&mb| mb > 0)
+        .filter(|&mb| mb > 0 && mb <= MAX_PLUGIN_DOWNLOAD_MIB)
         .and_then(|mb| mb.checked_mul(BYTES_PER_MIB));
     parsed.ok_or_else(|| ConfigError::InvalidPluginMaxDownloadMb {
         value: text.to_owned(),
