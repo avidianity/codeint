@@ -751,6 +751,9 @@ fn plugin_load_remedy(error: &PluginHostError, file: ConfigFileKind) -> Option<C
         PluginHostError::Download { .. } => Cow::Borrowed(
             "Check that curl is installed, the HTTPS URL is reachable, and its TLS certificate is valid.",
         ),
+        PluginHostError::DownloadTooLarge { .. } => Cow::Borrowed(
+            "Check that the HTTPS URL points to a valid WebAssembly Plugin within the download size cap.",
+        ),
         _ => return None,
     })
 }

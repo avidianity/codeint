@@ -1,7 +1,7 @@
 use crate::language::{DeclaredDep, ImportRequest, Resolution, SourceSet};
 use crate::{
-    FileModel, InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
-    ReferenceRanges, RepoPath, SourceFile, WorkspaceError,
+    FileModel, LanguagePlugin, LanguagePluginError, LowerError, Manifest, ReferenceRanges,
+    RepoPath, SourceFile, WorkspaceError,
 };
 
 use super::{
@@ -23,8 +23,8 @@ impl Answering {
 
 macro_rules! stub_non_import_language_methods {
     ($has_imports:expr) => {
-        fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
-            ReferenceRanges::new(Vec::new())
+        fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
+            ReferenceRanges::new(Vec::new()).map_err(LanguagePluginError::InvalidReferenceRange)
         }
 
         crate::empty_framework_profile_plugin_methods!();
@@ -67,8 +67,11 @@ impl LanguagePlugin for Answering {
         Err(LowerError::TooLarge)
     }
 
-    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        vec!["package.json".to_owned()]
+    fn manifest_paths(
+        &self,
+        _repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        Ok(vec!["package.json".to_owned()])
     }
 
     fn workspace_packages(
@@ -250,7 +253,10 @@ fn no_imports_plugin_is_never_asked_for_manifests_or_import_resolution() {
             Err(LowerError::TooLarge)
         }
 
-        fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
+        fn manifest_paths(
+            &self,
+            _repository_paths: &[RepoPath],
+        ) -> Result<Vec<String>, LanguagePluginError> {
             panic!("manifest_paths must not be called when has_imports is false");
         }
 

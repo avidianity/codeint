@@ -16,8 +16,8 @@ use codeint_model::language::{
     DeclaredDep, FileModel, Function, ImportRequest, Manifest, Resolution,
 };
 use codeint_model::{
-    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges,
-    RepoPath, Token, WorkspaceError,
+    LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges, RepoPath, Token,
+    WorkspaceError,
 };
 
 pub use flagged::flagged_line_rules;
@@ -147,8 +147,11 @@ impl LanguagePlugin for Sql {
             .map(|output| output.file_model)
     }
 
-    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        Vec::new()
+    fn manifest_paths(
+        &self,
+        _repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn workspace_packages(
@@ -183,7 +186,7 @@ impl LanguagePlugin for Sql {
         Ok(Vec::new())
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
         ReferenceRanges::new(
             codeint_model::scan::CoreReferenceRanges {
                 erosion: (0.000, 0.918),
@@ -194,6 +197,7 @@ impl LanguagePlugin for Sql {
             }
             .build("codeint stratified panel of 77 SQL repositories, ADR 0035, codeint 0.8.0"),
         )
+        .map_err(LanguagePluginError::InvalidReferenceRange)
     }
 
     codeint_model::empty_framework_profile_plugin_methods!();

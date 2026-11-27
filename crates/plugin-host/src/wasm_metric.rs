@@ -8,9 +8,11 @@ use codeint_model::{
 use wasmtime::Store;
 
 use crate::PluginHostError;
-use crate::limits::{LimitTrap, PluginStoreState, arm_call_deadline, classify_trap};
+use crate::limits::{
+    LiftedSize, LimitTrap, PluginStoreState, classify_trap, enforce_lifted_budget, slice_budget,
+};
 use crate::wasm::{
-    ContractSpec, InstancePool, VerifiedComponent, instantiate_sandboxed_component,
+    ContractSpec, SandboxedComponent, VerifiedComponent, instantiate_sandboxed_component,
     prepare_sandboxed_component,
 };
 
@@ -56,7 +58,7 @@ pub struct WasmMetricPlugin {
     description: String,
     version: u32,
     declared_name_is_blank: bool,
-    instances: InstancePool<bindings::MetricPluginPre<PluginStoreState>, bindings::MetricPlugin>,
+    component: SandboxedComponent<bindings::MetricPluginPre<PluginStoreState>>,
 }
 
 impl WasmMetricPlugin {
@@ -87,12 +89,12 @@ impl WasmMetricPlugin {
             description,
             version,
             declared_name_is_blank,
-            instances: InstancePool::from_component(component, limits),
+            component: SandboxedComponent::from_init(component, limits),
         })
     }
 
     pub fn peak_memory_bytes(&self) -> usize {
-        self.instances.peak_memory_bytes()
+        self.component.peak_memory_bytes()
     }
 
     pub fn declared_name_is_blank(&self) -> bool {
@@ -120,30 +122,52 @@ impl WasmMetricPlugin {
         model: &CodeModel,
     ) -> Result<ExternalMetricMeasurement, MetricPluginError> {
         let guest_model = to_guest_code_model(model);
-        let limits = self.instances.limits();
-        let mut instance = self.instances.checkout(
+        let limits = self.component.limits();
+        let measurement = self.component.call_fresh(
             |pre, store| pre.instantiate(store),
+            |bindings, store| {
+                bindings
+                    .codeint_plugin_metric()
+                    .call_measure(store, &guest_model)
+            },
+            |store, error| map_metric_trap(&self.plugin_name, limits, store, error),
             |store, error| map_metric_trap(&self.plugin_name, limits, store, error),
         )?;
-        arm_call_deadline(&mut instance.store, limits);
-        let result = instance
-            .bindings
-            .codeint_plugin_metric()
-            .call_measure(&mut instance.store, &guest_model);
-        self.instances.record_peak_memory(&instance.store);
-        match result {
-            Ok(measurement) => {
-                self.instances.checkin(instance);
-                convert_measurement(&self.plugin_name, measurement)
-            }
-            Err(error) => Err(map_metric_trap(
-                &self.plugin_name,
-                limits,
-                &instance.store,
-                error,
-            )),
-        }
+        enforce_metric_lifted_budget(&self.plugin_name, limits, &measurement)?;
+        convert_measurement(&self.plugin_name, measurement)
     }
+}
+
+impl LiftedSize for guest_metric::Measurement {
+    fn lifted_budget(&self) -> (usize, usize) {
+        slice_budget(&self.findings, |finding| {
+            finding
+                .id
+                .len()
+                .saturating_add(finding.path.len())
+                .saturating_add(finding.message.len())
+        })
+    }
+}
+
+pub(crate) fn enforce_metric_lifted_budget(
+    plugin_name: &str,
+    limits: PluginLimits,
+    measurement: &guest_metric::Measurement,
+) -> Result<(), MetricPluginError> {
+    let (elements, bytes) = measurement.lifted_budget();
+    enforce_lifted_budget(plugin_name, limits, elements, bytes).map_err(|error| match error {
+        PluginHostError::MemoryLimitExceeded { name, memory_mb } => {
+            MetricPluginError::MemoryLimitExceeded {
+                plugin: name,
+                memory_mb,
+            }
+        }
+        other => MetricPluginError::Call {
+            plugin: plugin_name.to_owned(),
+            reason: other.to_string(),
+        },
+    })
 }
 
 fn read_metric_metadata(
@@ -156,10 +180,10 @@ fn read_metric_metadata(
     limits: PluginLimits,
 ) -> Result<(String, String, String, u32, bool), PluginHostError> {
     let mut init = component.init_session(plugin_name, path, limits);
-    let key = init.call("key", |b, s| b.codeint_plugin_metric().call_key(s))?;
+    let key = init.call_lifted("key", |b, s| b.codeint_plugin_metric().call_key(s))?;
     validate_metric_key(plugin_name, &key)?;
-    let raw_name = init.call("name", |b, s| b.codeint_plugin_metric().call_name(s))?;
-    let description = init.call("description", |b, s| {
+    let raw_name = init.call_lifted("name", |b, s| b.codeint_plugin_metric().call_name(s))?;
+    let description = init.call_lifted("description", |b, s| {
         b.codeint_plugin_metric().call_description(s)
     })?;
     let version = init.call("version", |b, s| b.codeint_plugin_metric().call_version(s))?;

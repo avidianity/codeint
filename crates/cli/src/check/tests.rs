@@ -9,9 +9,7 @@ use codeint_model::language::{
     DeclaredDep, FileModel, FlaggedLine, Guest, ImportRequest, LowerError, Manifest,
     ReferenceRange, Resolution, SourceSet, WorkspaceError,
 };
-use codeint_model::{
-    InvalidReferenceRange, LanguageFacts, LanguagePlugin, Package, ReferenceRanges, RepoPath,
-};
+use codeint_model::{LanguageFacts, LanguagePlugin, Package, ReferenceRanges, RepoPath};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -789,8 +787,11 @@ impl LanguagePlugin for ParallelProofPlugin {
         Ok(model)
     }
 
-    fn manifest_paths(&self, _repository_paths: &[RepoPath]) -> Vec<String> {
-        Vec::new()
+    fn manifest_paths(
+        &self,
+        _repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, codeint_model::LanguagePluginError> {
+        Ok(Vec::new())
     }
 
     fn workspace_packages(
@@ -833,7 +834,7 @@ impl LanguagePlugin for ParallelProofPlugin {
         Ok(Vec::new())
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, codeint_model::LanguagePluginError> {
         Ok(ReferenceRanges::default())
     }
 

@@ -556,7 +556,10 @@ func main() {
         "vendor/github.com/acme/lib/go.mod",
     ]);
 
-    assert_eq!(Go.manifest_paths(&repo), ["go.mod", "services/sub/go.mod"]);
+    assert_eq!(
+        Go.manifest_paths(&repo).expect("manifest paths"),
+        ["go.mod", "services/sub/go.mod"]
+    );
 
     let root_mod = r#"module example.com/root
 go 1.24

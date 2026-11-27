@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use codeint_config::{Configuration, SourceSetOverrides, display_package_key};
+use codeint_config::{ConfigFileKind, Configuration, SourceSetOverrides, display_package_key};
 use codeint_git::Snapshot;
 use codeint_model::{
-    CodeModel, FrameworkProfileResult, FrameworkProfileSelection, Manifest, Package,
-    ReferenceRange, ReferenceRanges, RepoPath, SourceSet, Workspace,
+    CodeModel, FrameworkProfileResult, FrameworkProfileSelection, LanguagePluginError, Manifest,
+    Package, ReferenceRange, ReferenceRanges, RepoPath, SourceSet, Workspace,
 };
 use codeint_plugin_host::NamedLanguagePlugin;
 
@@ -72,10 +72,11 @@ impl ResolvedLanguageProfiles {
         &self,
         named: &NamedLanguagePlugin<'_>,
         package_root: Option<&str>,
+        config_file: ConfigFileKind,
     ) -> Result<(ReferenceRanges, Option<String>), CheckError> {
         match package_root {
-            Some(root) => self.reference_ranges_for_package(named, root),
-            None => self.reference_ranges_for_repository(named),
+            Some(root) => self.reference_ranges_for_package(named, root, config_file),
+            None => self.reference_ranges_for_repository(named, config_file),
         }
     }
 
@@ -83,21 +84,23 @@ impl ResolvedLanguageProfiles {
         &self,
         named: &NamedLanguagePlugin<'_>,
         root: &str,
+        config_file: ConfigFileKind,
     ) -> Result<(ReferenceRanges, Option<String>), CheckError> {
         let Some(result) = self.by_package.get(root) else {
-            return Ok((base_reference_ranges(named)?, None));
+            return Ok((base_reference_ranges(named, config_file)?, None));
         };
-        let ranges = profile_or_base_ranges(named, &result.reference_ranges)?;
+        let ranges = profile_or_base_ranges(named, &result.reference_ranges, config_file)?;
         Ok((ranges, result.reference_range_note.clone()))
     }
 
     fn reference_ranges_for_repository(
         &self,
         named: &NamedLanguagePlugin<'_>,
+        config_file: ConfigFileKind,
     ) -> Result<(ReferenceRanges, Option<String>), CheckError> {
         let mut entries = self.by_package.values();
         let Some(first) = entries.next() else {
-            return Ok((base_reference_ranges(named)?, None));
+            return Ok((base_reference_ranges(named, config_file)?, None));
         };
         let uniform = !first.reference_ranges.is_empty()
             && entries.all(|other| {
@@ -107,7 +110,7 @@ impl ResolvedLanguageProfiles {
             ReferenceRanges::new(first.reference_ranges.clone())
                 .map_err(CheckError::ReferenceRange)?
         } else {
-            base_reference_ranges(named)?
+            base_reference_ranges(named, config_file)?
         };
         Ok((ranges, self.combined_reference_range_note()))
     }
@@ -121,19 +124,28 @@ impl ResolvedLanguageProfiles {
     }
 }
 
-fn base_reference_ranges(named: &NamedLanguagePlugin<'_>) -> Result<ReferenceRanges, CheckError> {
+fn base_reference_ranges(
+    named: &NamedLanguagePlugin<'_>,
+    config_file: ConfigFileKind,
+) -> Result<ReferenceRanges, CheckError> {
     named
         .plugin
         .reference_ranges()
-        .map_err(CheckError::ReferenceRange)
+        .map_err(|error| match error {
+            LanguagePluginError::InvalidReferenceRange(invalid) => {
+                CheckError::ReferenceRange(invalid)
+            }
+            other => CheckError::language_plugin(config_file, other),
+        })
 }
 
 fn profile_or_base_ranges(
     named: &NamedLanguagePlugin<'_>,
     ranges: &[ReferenceRange],
+    config_file: ConfigFileKind,
 ) -> Result<ReferenceRanges, CheckError> {
     if ranges.is_empty() {
-        base_reference_ranges(named)
+        base_reference_ranges(named, config_file)
     } else {
         ReferenceRanges::new(ranges.to_vec()).map_err(CheckError::ReferenceRange)
     }

@@ -9,6 +9,7 @@ use crate::coupling::CouplingSettings;
 use crate::resolved::ConfigOverrides;
 
 pub(crate) const DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
+pub const DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
 pub(crate) const WORST_FINDINGS_PER_METRIC: usize = 20;
 pub const DEFAULT_MAX_TRACE_PATHS: usize = 10;
 const LATEST_COMMITS_OF_A_TREND: usize = 20;
@@ -18,6 +19,7 @@ pub struct PluginHostConfig {
     pub cache_dir: Option<PathBuf>,
     pub ca_cert: Option<PathBuf>,
     pub download_timeout_seconds: u64,
+    pub max_download_bytes: u64,
 }
 
 impl Default for PluginHostConfig {
@@ -26,6 +28,7 @@ impl Default for PluginHostConfig {
             cache_dir: None,
             ca_cert: None,
             download_timeout_seconds: DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
+            max_download_bytes: DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES,
         }
     }
 }

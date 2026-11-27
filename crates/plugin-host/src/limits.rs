@@ -207,6 +207,30 @@ pub(crate) fn classify_trap(store: &Store<PluginStoreState>, error: &wasmtime::E
     }
 }
 
+pub(crate) trait LiftedSize {
+    fn lifted_budget(&self) -> (usize, usize);
+}
+
+pub(crate) fn slice_budget<T>(items: &[T], extra_bytes: fn(&T) -> usize) -> (usize, usize) {
+    let base = items.len().saturating_mul(size_of::<T>());
+    let bytes = items
+        .iter()
+        .fold(base, |acc, item| acc.saturating_add(extra_bytes(item)));
+    (items.len(), bytes)
+}
+
+impl LiftedSize for String {
+    fn lifted_budget(&self) -> (usize, usize) {
+        (1, self.len())
+    }
+}
+
+impl LiftedSize for Vec<String> {
+    fn lifted_budget(&self) -> (usize, usize) {
+        slice_budget(self, String::len)
+    }
+}
+
 pub(crate) fn enforce_lifted_budget(
     name: &str,
     limits: PluginLimits,

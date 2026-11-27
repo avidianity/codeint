@@ -8,9 +8,9 @@ use crate::calendar_day::CalendarDay;
 use crate::churn::{ChurnSince, ChurnWindow};
 use crate::command::{
     AgentCommand, BaselineCommand, Command, ConfigError, ConfigFormat,
-    DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS, FindingsShown, Invocation, PluginCommand,
-    PluginHostConfig, RatchetCommand, ReportDestination, ReportInput, ReportRenderFormat,
-    SchemaFormat, TrendFormat, TrendRange, WORST_FINDINGS_PER_METRIC,
+    DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS, DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES, FindingsShown,
+    Invocation, PluginCommand, PluginHostConfig, RatchetCommand, ReportDestination, ReportInput,
+    ReportRenderFormat, SchemaFormat, TrendFormat, TrendRange, WORST_FINDINGS_PER_METRIC,
 };
 use crate::coupling::{CouplingRatio, CouplingSettings};
 use crate::resolved::ConfigOverrides;
@@ -490,6 +490,7 @@ fn plugin_host_config_of_this_process(current_folder: &Path) -> PluginHostConfig
         cache_dir,
         ca_cert,
         download_timeout_seconds: DEFAULT_PLUGIN_DOWNLOAD_TIMEOUT_SECONDS,
+        max_download_bytes: DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES,
     }
 }
 

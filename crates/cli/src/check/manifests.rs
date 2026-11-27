@@ -133,7 +133,7 @@ pub(super) fn finalize_language_model(
     config_file: ConfigFileKind,
 ) -> Result<MeasuredLanguage, CheckError> {
     let (reference_ranges, reference_range_note) =
-        profiles.reference_ranges_for_scope(named, None)?;
+        profiles.reference_ranges_for_scope(named, None, config_file)?;
     let has_imports = named.plugin.has_imports();
     if has_imports {
         let declared_dependencies = named
@@ -329,6 +329,7 @@ pub(super) fn refresh_profiles_for_package(
     plugins: &[NamedLanguagePlugin<'_>],
     profiles_by_language: &BTreeMap<String, ResolvedLanguageProfiles>,
     selected: &SelectedPackage,
+    config_file: ConfigFileKind,
 ) -> Result<(), CheckError> {
     let selected_root = match selected {
         SelectedPackage::Root => "",
@@ -343,7 +344,7 @@ pub(super) fn refresh_profiles_for_package(
             continue;
         };
         let (reference_ranges, reference_range_note) =
-            profiles.reference_ranges_for_scope(named, Some(selected_root))?;
+            profiles.reference_ranges_for_scope(named, Some(selected_root), config_file)?;
         language.reference_ranges = reference_ranges;
         language.reference_range_note = reference_range_note;
         let active = profiles.active_profiles_for_package(selected_root);

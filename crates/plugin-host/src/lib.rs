@@ -6,9 +6,8 @@ use std::path::{Path, PathBuf};
 use codeint_config::{PluginDeclaration, PluginHostConfig, PluginKind, PluginLimits, PluginSource};
 use codeint_model::{
     CodeModel, DeclaredDep, ExternalMetricMeasurement, FileModel, FrameworkProfileResult,
-    FrameworkProfileSelection, InvalidReferenceRange, LanguagePlugin, LanguagePluginError,
-    LowerError, Manifest, MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath,
-    WorkspaceError, language,
+    FrameworkProfileSelection, LanguagePlugin, LanguagePluginError, LowerError, Manifest,
+    MetricPlugin, MetricPluginError, ReferenceRanges, RepoPath, WorkspaceError, language,
 };
 
 mod builtins;
@@ -122,6 +121,14 @@ pub enum PluginHostError {
         name: String,
         url: String,
         reason: String,
+    },
+    #[error(
+        "Plugin {name:?} downloaded from {url} exceeds the maximum download size of {max_bytes} bytes"
+    )]
+    DownloadTooLarge {
+        name: String,
+        url: String,
+        max_bytes: u64,
     },
     #[error(
         "SHA-256 hash mismatch for Plugin {name:?} downloaded from {url}: expected {expected}, found {actual}"
@@ -295,7 +302,10 @@ impl LanguagePlugin for WasmLanguagePlugin {
         self.lower_impl(path, text)
     }
 
-    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+    fn manifest_paths(
+        &self,
+        repository_paths: &[RepoPath],
+    ) -> Result<Vec<String>, LanguagePluginError> {
         self.manifest_paths_impl(repository_paths)
     }
 
@@ -331,7 +341,7 @@ impl LanguagePlugin for WasmLanguagePlugin {
         self.entry_points_impl(repository_paths, manifests)
     }
 
-    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, LanguagePluginError> {
         self.reference_ranges_impl()
     }
 

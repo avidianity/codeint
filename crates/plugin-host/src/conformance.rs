@@ -1060,7 +1060,7 @@ fn check_repository_queries(
             report.skip(id, "has-imports is false, so codeint never calls it");
         }
     }
-    check_reference_ranges(report, plugin);
+    check_reference_ranges(report, plugin, watch);
 }
 
 const PROBE_MANIFESTS: [(&str, &str); 6] = [
@@ -1345,10 +1345,15 @@ fn check_workspace_roots(
     true
 }
 
-fn check_reference_ranges(report: &mut ConformanceReport, plugin: &WasmLanguagePlugin) {
+fn check_reference_ranges(
+    report: &mut ConformanceReport,
+    plugin: &WasmLanguagePlugin,
+    watch: &mut LimitWatch,
+) {
     let ranges = match plugin.reference_ranges() {
         Ok(ranges) => ranges,
         Err(error) => {
+            watch.note_language(&error);
             report.fail(
                 "reference-ranges",
                 error.to_string(),

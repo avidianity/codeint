@@ -52,10 +52,11 @@ pub use codeint_json::{
 pub use codeowners::{Codeowners, CodeownersError, OwnerFilter};
 pub use command::{
     AgentClient, AgentCommand, AgentFormat, BaselineCommand, BaselineFormat, Command, ConfigError,
-    ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DoctorFormat, FindingsShown, GuardFormat, ImpactFormat,
-    InitFormat, Invocation, PluginCommand, PluginHostConfig, PluginTestFormat, RatchetCommand,
-    RatchetFormat, ReportDestination, ReportFormat, ReportInput, ReportRenderFormat, SchemaFormat,
-    TraceFormat, TrendFormat, TrendRange,
+    ConfigFormat, DEFAULT_MAX_TRACE_PATHS, DEFAULT_PLUGIN_MAX_DOWNLOAD_BYTES, DoctorFormat,
+    FindingsShown, GuardFormat, ImpactFormat, InitFormat, Invocation, PluginCommand,
+    PluginHostConfig, PluginTestFormat, RatchetCommand, RatchetFormat, ReportDestination,
+    ReportFormat, ReportInput, ReportRenderFormat, SchemaFormat, TraceFormat, TrendFormat,
+    TrendRange,
 };
 pub use config_error::{
     ConfigFileKind, ConfigSyntax, ConfigurationFileError, JsonType, JsoncError, KeyPath, KeySegment,
