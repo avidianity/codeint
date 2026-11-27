@@ -1784,16 +1784,18 @@ if "mcp" in features:
         guard_json_res = mg[5].get("result", {})
         guard_json_text = guard_json_res.get("content", [{}])[0].get("text", "")
         guard_json_obj = None
+        guard_json_err = None
         try:
             guard_json_obj = json.loads(guard_json_text)
-        except Exception:
-            guard_json_obj = None
+        except Exception as exc:
+            guard_json_err = str(exc)
         check("mcp.session_golden.initialize", init_res.get("serverInfo", {}).get("name") == "codeint" and "tools" in init_res.get("capabilities", {}), str(init_res))
         check("mcp.session_golden.ping", ping_res == {}, str(ping_res))
         check("mcp.session_golden.tools_list", tool_names == {"check", "diff", "trend", "guard", "impact", "trace", "churn", "coupling"} and all_have_format, str(tool_names))
         check("mcp.session_golden.check_call", check_res.get("isError") is not True and not check_text.lstrip().startswith("{") and "source_sets" in check_text, check_text[:200])
         check("mcp.session_golden.guard_call", guard_res.get("isError") is not True and not guard_text.lstrip().startswith("{") and "src/sign.ts" in guard_text, guard_text[:200])
-        check("mcp.session_golden.guard_json_call", guard_json_res.get("isError") is not True and isinstance(guard_json_obj, dict) and guard_json_obj.get("path") == "src/sign.ts", guard_json_text[:200])
+        guard_json_detail = f"json_err={guard_json_err}; text={guard_json_text[:200]}" if guard_json_err else guard_json_text[:200]
+        check("mcp.session_golden.guard_json_call", guard_json_res.get("isError") is not True and isinstance(guard_json_obj, dict) and guard_json_obj.get("path") == "src/sign.ts", guard_json_detail)
 
     check("mcp.check_ignore_baseline.exit", read_exit("mcp/check_ignore_baseline") == 0, str(read_exit("mcp/check_ignore_baseline")))
     mb = read_jsonl("mcp/check_ignore_baseline.stdout")

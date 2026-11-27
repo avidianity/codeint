@@ -314,22 +314,27 @@ fn dispatch_tool(
     args: Option<&Value>,
     ctx: &ServerContext<'_>,
 ) -> Result<Value, (i64, String)> {
-    let result = match name {
-        "check" => call_check(args, ctx),
-        "diff" => call_diff(args, ctx),
-        "trend" => call_trend(args, ctx),
-        "guard" => call_guard(args, ctx),
-        "impact" => call_impact(args, ctx),
-        "trace" => call_trace(args, ctx),
-        "churn" => call_churn(args, ctx),
-        "coupling" => call_coupling(args, ctx),
-        other => return Err((-32602, format!("Unknown tool: {other}"))),
-    };
+    let handler: fn(Option<&Value>, &ServerContext<'_>, McpFormat) -> Result<Value, Value> =
+        match name {
+            "check" => call_check,
+            "diff" => call_diff,
+            "trend" => call_trend,
+            "guard" => call_guard,
+            "impact" => call_impact,
+            "trace" => call_trace,
+            "churn" => call_churn,
+            "coupling" => call_coupling,
+            other => return Err((-32602, format!("Unknown tool: {other}"))),
+        };
+    let result = parse_format(args).and_then(|format| handler(args, ctx, format));
     Ok(result.unwrap_or_else(|err| err))
 }
 
-fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_check(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let coverage_reports: Vec<PathBuf> = parse_string_array(args, "coverage_reports")?
         .into_iter()
@@ -352,8 +357,11 @@ fn call_check(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
     })
 }
 
-fn call_diff(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_diff(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let base_ref = required_str_arg(args, "base_ref")?;
     let folder = resolve_folder(args, ctx.default_folder)?;
     let options = DiffOptions {
@@ -414,15 +422,21 @@ fn required_str_arg<'a>(args: Option<&'a Value>, name: &str) -> Result<&'a str, 
         .ok_or_else(|| tool_err(&format!("Missing required argument: {name}")))
 }
 
-fn call_guard(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_guard(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let file = required_str_arg(args, "file")?;
     let folder = resolve_folder(args, ctx.default_folder)?;
     render_mcp_tool(guard(&folder, Path::new(file)), format)
 }
 
-fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_trend(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let range = match args.and_then(|a| a.get("since")).and_then(Value::as_str) {
         Some(day_str) => match CalendarDay::from_str(day_str) {
@@ -439,8 +453,11 @@ fn call_trend(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
     render_mcp_tool(trend(&folder, &options), format)
 }
 
-fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_impact(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let folder = resolve_folder(args, ctx.default_folder)?;
     let paths = parse_string_array(args, "paths")?;
     let changed = args
@@ -469,8 +486,11 @@ fn call_impact(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, V
     render_mcp_tool(impact(&folder, &options), format)
 }
 
-fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_trace(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let from = required_str_arg(args, "from")?;
     let to = required_str_arg(args, "to")?;
     let max_paths = parse_optional_arg(
@@ -492,8 +512,11 @@ fn call_trace(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
     render_mcp_tool(trace(&folder, from, to, &options), format)
 }
 
-fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_churn(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let options = ChurnOptions {
         window: parse_churn_window(args)?,
         findings: parse_findings(args)?,
@@ -503,8 +526,11 @@ fn call_churn(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Va
     render_mcp_tool(churn(&folder, &options), format)
 }
 
-fn call_coupling(args: Option<&Value>, ctx: &ServerContext<'_>) -> Result<Value, Value> {
-    let format = parse_format(args)?;
+fn call_coupling(
+    args: Option<&Value>,
+    ctx: &ServerContext<'_>,
+    format: McpFormat,
+) -> Result<Value, Value> {
     let options = CouplingOptions {
         settings: parse_coupling_settings(args)?,
         findings: parse_findings(args)?,

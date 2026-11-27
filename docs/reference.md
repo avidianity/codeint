@@ -1069,6 +1069,7 @@ Base-versus-head Finding classification, Regressions, per-file checks, new-file 
 | `-h, --help` | Print the help of `codeint churn` |
 
 `codeint churn` walks main-line Git history natively via `gix` to count per-file commit touches over the configured window, then ranks eroded and duplicated files independently per Metric without any blended score.
+When filtering by `--since`, codeint compares the committer date and scans up to 14 days earlier than the cutoff before stopping so out-of-order commit timestamps do not truncate newer commits.
 In a shallow clone, `codeint churn` stops at the shallow boundary and includes a structured warning in the report.
 
 ```sh exit=0
@@ -1095,6 +1096,7 @@ codeint churn --format markdown
 | `-h, --help` | Print the help of `codeint coupling` |
 
 `codeint coupling` walks main-line Git history natively via `gix` to find pairs of files that repeatedly change together in the same commits, excludes bulk commits above `--max-commit-files`, and flags whether each coupled pair has a direct runtime import edge.
+When filtering by `--since`, codeint compares the committer date and scans up to 14 days earlier than the cutoff before stopping so out-of-order commit timestamps do not truncate newer commits.
 By default it measures Production files only; pass `--include-tests` to include Test files as well.
 
 ```sh exit=0

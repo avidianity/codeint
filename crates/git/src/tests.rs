@@ -6,12 +6,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use codeint_model::RepoPath;
 
+use crate::history::SECONDS_PER_DAY;
 use crate::{ChurnRange, CommitId, CommitRange, Repository};
 
 static NEXT_REPO_ID: AtomicU64 = AtomicU64::new(0);
 
 const MAY_10_UTC: i64 = 1_778_371_200;
-const SECONDS_PER_DAY: i64 = 86_400;
 
 struct TempRepo {
     path: PathBuf,

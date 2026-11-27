@@ -56,6 +56,11 @@ fn mcp_specific_remedy(error: &CliError) -> Option<Cow<'static, str>> {
         CliError::Impact(ImpactCommandError::MissingTargets) => Some(Cow::Borrowed(
             "Pass one or more repository file paths in paths, or pass changed with a base Git ref to analyze changed files.",
         )),
+        CliError::Impact(ImpactCommandError::Check(CheckError::Git(GitError::NoMergeBase {
+            ..
+        }))) => Some(Cow::Borrowed(
+            "Pass a Git ref in changed that shares history with HEAD; in a shallow clone, fetch more history: git fetch --unshallow",
+        )),
         CliError::Impact(ImpactCommandError::Check(error)) => mcp_check_remedy(error),
         CliError::Trace(TraceCommandError::Check(error)) => mcp_check_remedy(error),
         CliError::Trace(TraceCommandError::Trace(TraceError::InvalidMaxPaths)) => Some(
@@ -94,6 +99,9 @@ fn mcp_git_remedy(error: &GitError) -> Option<Cow<'static, str>> {
     match error {
         GitError::NotInRepository { .. } => Some(Cow::Borrowed(
             "Run the MCP server inside a Git repository, or pass a folder inside one in path.",
+        )),
+        GitError::NoHeadCommit { .. } => Some(Cow::Borrowed(
+            "Commit once, then run the MCP tool again; comparing against a base ref requires a HEAD commit to find a merge-base.",
         )),
         GitError::NoMergeBase { .. } => Some(Cow::Borrowed(
             "Pass a base_ref that shares history with the head, which is HEAD unless you pass head_ref; in a shallow clone, fetch more history: git fetch --unshallow",

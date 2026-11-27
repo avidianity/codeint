@@ -685,3 +685,77 @@ fn mcp_trace_rejects_zero_max_paths_at_argument_validation() {
         );
     }
 }
+
+#[test]
+fn mcp_git_remedies_cover_impact_no_merge_base_and_unborn_head() {
+    let repo = init_git_repo(&[("app.ts", "export const x = 1;\n")]);
+    let run_git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo.path())
+            .envs([
+                ("GIT_CONFIG_GLOBAL", "/dev/null"),
+                ("GIT_CONFIG_NOSYSTEM", "1"),
+                ("GIT_AUTHOR_NAME", "Test"),
+                ("GIT_AUTHOR_EMAIL", "test@example.invalid"),
+                ("GIT_COMMITTER_NAME", "Test"),
+                ("GIT_COMMITTER_EMAIL", "test@example.invalid"),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run_git(&["checkout", "--orphan", "unborn"]);
+    run_git(&["rm", "-rf", "."]);
+
+    let unborn_responses = send_mcp_requests(
+        repo.path(),
+        &[
+            mcp_tool_call(1, "diff", json!({"base_ref": "main"})),
+            mcp_tool_call(2, "impact", json!({"changed": "main"})),
+        ],
+    );
+    assert_eq!(unborn_responses.len(), 2);
+    for (idx, resp) in unborn_responses.iter().enumerate() {
+        assert_eq!(
+            resp["result"]["isError"], true,
+            "unborn case {idx} must error"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("MCP tool"),
+            "unborn case {idx} must return MCP guidance: {text}"
+        );
+        assert!(
+            !text.contains("codeint diff"),
+            "unborn case {idx} must not leak CLI command: {text}"
+        );
+    }
+
+    std::fs::write(repo.path().join("other.ts"), "export const y = 2;\n").unwrap();
+    run_git(&["add", "other.ts"]);
+    run_git(&["commit", "-m", "unrelated root"]);
+
+    let no_merge_base_responses = send_mcp_requests(
+        repo.path(),
+        &[mcp_tool_call(3, "impact", json!({"changed": "main"}))],
+    );
+    assert_eq!(no_merge_base_responses.len(), 1);
+    let impact_resp = &no_merge_base_responses[0];
+    assert_eq!(impact_resp["result"]["isError"], true);
+    let impact_text = impact_resp["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        impact_text.contains("changed"),
+        "impact no-merge-base remedy must name changed: {impact_text}"
+    );
+    assert!(
+        !impact_text.contains("base_ref") && !impact_text.contains("head_ref"),
+        "impact no-merge-base remedy must not name diff arguments: {impact_text}"
+    );
+}
