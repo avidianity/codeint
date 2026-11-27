@@ -111,6 +111,10 @@ _Avoid_: benchmark, target, threshold
 One of four groups a source file belongs to: Production, Test, Generated, or Vendored.
 _Avoid_: file kind, file category
 
+**Tooling file**:
+A Production source file that builds, tests, lints, or configures the repository rather than shipping as application or library runtime code.
+_Avoid_: build script, config file, helper script, non-runtime file
+
 **Budget**:
 The highest value a Metric may reach in one Source set before codeint reports a failure.
 _Avoid_: limit, threshold, quota
@@ -176,6 +180,7 @@ _Avoid_: analyzer, detector, rule
 - A **Ratchet** stores one ceiling and **Metric version** per measured **Metric** and applies to whole-repository runs only.
 - A **Baseline** stores the **Finding** identifiers and **Metric version** of each measured **Metric**; a **Budget** applies to the **Findings** that the **Baseline** does not hide.
 - Every source file belongs to exactly one **Source set**.
+- A **Tooling file** stays in the Production **Source set** for code-shape **Metrics** and **Hazards**, and is excluded from **Orphan files** and **Dependency hygiene** dev-in-production checks unless explicitly listed as an entry point.
 
 ## Flagged ambiguities
 

@@ -56,3 +56,11 @@ Issue #533 asks for a repository-level default output format setting and real co
 - Repositories without a `format` key keep exact existing TOON output on every command.
 - Developers who prefer human-readable terminal summaries can set `"format": "text"` once in `codeint.jsonc` while CI workflows and agents continue passing explicit `--format json`, `--format toon`, or `--format sarif`.
 - `codeint report --format text` now renders real monochrome text matching `codeint check --format text` and `codeint diff --format text` byte for byte.
+
+## Amendment (2026-11-28)
+
+The Owner amended MCP tool output defaults on 2026-11-28:
+
+- MCP tools continue to ignore the repository-configured `format` key, keeping their own machine contract independent of terminal preferences.
+- Each MCP tool accepts an optional `format` parameter (`"toon"` or `"json"`), defaulting to `"toon"` so coding agents save context tokens while callers that require strict JSON can pass `"format": "json"`.
+- All eight MCP tools return MCP-tailored error remedies consistently rather than CLI flag remedies.
