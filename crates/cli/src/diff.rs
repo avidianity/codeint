@@ -29,6 +29,7 @@ struct MeasuredHead {
     measurement: CommitMeasurement,
     new_files: Option<CommitMeasurement>,
     changed_files: BTreeSet<String>,
+    base_snapshot: Option<Snapshot>,
 }
 
 pub(crate) fn diff(
@@ -53,6 +54,7 @@ pub(crate) fn diff(
         measurement: head_measurement,
         new_files: new_files_measurement,
         changed_files,
+        base_snapshot,
     } = measure_head(
         &run.context,
         merge_base,
@@ -69,7 +71,11 @@ pub(crate) fn diff(
         result_cache,
         selected.as_ref().map(|pkg| pkg.as_str()),
     );
-    let base_measurement = base_measurer.measure_selected_package(merge_base, selected.as_ref())?;
+    let base_measurement = base_measurer.measure_selected_package_with_snapshot(
+        merge_base,
+        selected.as_ref(),
+        base_snapshot.as_ref(),
+    )?;
     let baseline = Baseline::load_optional(run.context.repository.root())?;
     let mut report = DiffReport::compare_with_options(
         BaseCommit {
@@ -111,6 +117,12 @@ pub(crate) fn diff(
     Ok(report)
 }
 
+struct NewFilesHeadMeasurement {
+    selected: Option<SelectedPackage>,
+    measurement: CommitMeasurement,
+    new_files: Option<CommitMeasurement>,
+}
+
 fn measure_head(
     context: &WorkspaceContext,
     merge_base: CommitId,
@@ -122,12 +134,13 @@ fn measure_head(
 ) -> Result<MeasuredHead, CheckError> {
     if !check_new_file_budgets && !check_per_file {
         let (selected, measurement) =
-            measure_head_without_new_files(context, head_commit, package, result_cache)?;
+            measure_head_without_new_files(context, head_commit, None, package, result_cache)?;
         return Ok(MeasuredHead {
             selected,
             measurement,
             new_files: None,
             changed_files: BTreeSet::new(),
+            base_snapshot: None,
         });
     }
     let head_snapshot = open_head_snapshot(&context.repository, head_commit)?;
@@ -139,17 +152,28 @@ fn measure_head(
         &head_snapshot,
         package,
         check_new_file_budgets,
-        &changed_files,
     )? {
-        return Ok(measured);
+        return Ok(MeasuredHead {
+            selected: measured.selected,
+            measurement: measured.measurement,
+            new_files: measured.new_files,
+            changed_files,
+            base_snapshot: Some(base_snapshot),
+        });
     }
-    let (selected, measurement) =
-        measure_head_without_new_files(context, head_commit, package, result_cache)?;
+    let (selected, measurement) = measure_head_without_new_files(
+        context,
+        head_commit,
+        Some(&head_snapshot),
+        package,
+        result_cache,
+    )?;
     Ok(MeasuredHead {
         selected,
         measurement,
         new_files: None,
         changed_files,
+        base_snapshot: Some(base_snapshot),
     })
 }
 
@@ -174,8 +198,7 @@ fn measure_head_if_new_files(
     head_snapshot: &Snapshot,
     package: Option<&str>,
     enabled: bool,
-    changed_files: &BTreeSet<String>,
-) -> Result<Option<MeasuredHead>, CheckError> {
+) -> Result<Option<NewFilesHeadMeasurement>, CheckError> {
     if !enabled {
         return Ok(None);
     }
@@ -190,11 +213,10 @@ fn measure_head_if_new_files(
         &context.configuration,
         package,
     )?;
-    Ok(Some(MeasuredHead {
+    Ok(Some(NewFilesHeadMeasurement {
         selected,
         measurement,
         new_files,
-        changed_files: changed_files.clone(),
     }))
 }
 
@@ -221,20 +243,37 @@ fn newly_added_files(base_snapshot: &Snapshot, head_snapshot: &Snapshot) -> Hash
 fn measure_head_without_new_files(
     context: &WorkspaceContext,
     head_commit: Option<CommitId>,
+    head_snapshot: Option<&Snapshot>,
     package: Option<&str>,
     result_cache: Option<&ResultCache>,
 ) -> Result<(Option<SelectedPackage>, CommitMeasurement), CheckError> {
     let Some(commit) = head_commit else {
+        let owned_snapshot;
+        let tree = match head_snapshot {
+            Some(opened) => opened,
+            None => {
+                owned_snapshot = context.repository.working_tree()?;
+                &owned_snapshot
+            }
+        };
         return measure_all_languages_for_package(
-            &context.repository.working_tree()?,
+            tree,
             &context.plugins,
             &context.configuration,
             package,
         );
     };
     if let Some(requested) = package {
+        let owned_snapshot;
+        let tree = match head_snapshot {
+            Some(opened) => opened,
+            None => {
+                owned_snapshot = context.repository.commit(commit)?;
+                &owned_snapshot
+            }
+        };
         measure_all_languages_for_package(
-            &context.repository.commit(commit)?,
+            tree,
             &context.plugins,
             &context.configuration,
             Some(requested),
@@ -246,7 +285,7 @@ fn measure_head_without_new_files(
             &context.plugins,
             result_cache,
         );
-        Ok((None, measurer.measure(commit)?))
+        Ok((None, measurer.measure_with_snapshot(commit, head_snapshot)?))
     }
 }
 

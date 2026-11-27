@@ -334,3 +334,48 @@ fn per_file_true_respects_never_rule_on_source_set_metric() {
     ws.put("src/gen/out.ts", &branching_ts("generated", 12));
     ws.assert_passing_diff();
 }
+
+#[test]
+fn per_file_and_new_file_budgets_work_together_on_working_tree_and_head_ref() {
+    let ws = PerFileWorkspace::from_base(&[
+        ("src/legacy.ts", &branching_ts("legacy", 18)),
+        ("src/service.ts", &simple_ts("service")),
+        (
+            "codeint.json",
+            &json!({
+                "regression_limits": { "per_file": true },
+                "new_file_budgets": { "production": { "erosion": 0.0 } }
+            })
+            .to_string(),
+        ),
+    ]);
+
+    ws.put("src/legacy.ts", &simple_ts("legacy"));
+    ws.put("src/service.ts", &branching_ts("service", 12));
+    let (edit_only_stdout, _) = ws.diff_expect(&["main", "--format", "json"], 1);
+    let edit_only: Value = serde_json::from_str(&edit_only_stdout).expect("valid json");
+    let edit_entry = per_file_entry(&edit_only, "src/service.ts", "erosion");
+    assert_eq!(edit_entry["base"].as_f64(), Some(0.0));
+    assert_eq!(edit_only.get("over_new_file_budget"), None);
+
+    ws.put("src/brand_new.ts", &branching_ts("brandNew", 12));
+    let (working_stdout, _) = ws.diff_expect(&["main", "--format", "json"], 1);
+    let working_report: Value = serde_json::from_str(&working_stdout).expect("valid json");
+    let working_entry = per_file_entry(&working_report, "src/service.ts", "erosion");
+    assert_eq!(working_entry["head"], edit_entry["head"]);
+    let working_new_budgets = working_report["over_new_file_budget"]
+        .as_array()
+        .expect("over_new_file_budget array");
+    assert_eq!(working_new_budgets.len(), 1);
+    assert_eq!(working_new_budgets[0]["metric"], json!("erosion"));
+
+    git_exec(ws.worktree.path(), &["checkout", "-q", "-b", "feature"]);
+    ws.commit_all("worsen service and add complex new file");
+    let (head_stdout, _) = ws.diff_expect(&["main", "--head", "HEAD", "--format", "json"], 1);
+    let head_report: Value = serde_json::from_str(&head_stdout).expect("valid json");
+    assert_eq!(head_report["regressions"], working_report["regressions"]);
+    assert_eq!(
+        head_report["over_new_file_budget"],
+        working_report["over_new_file_budget"]
+    );
+}

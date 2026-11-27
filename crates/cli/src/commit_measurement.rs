@@ -100,21 +100,31 @@ impl<'run> CommitMeasurer<'run> {
     }
 
     pub(crate) fn measure(&self, commit: CommitId) -> Result<CommitMeasurement, CheckError> {
-        self.measure_with_package(commit, None)
+        self.measure_with_package(commit, None, None)
     }
 
-    pub(crate) fn measure_selected_package(
+    pub(crate) fn measure_with_snapshot(
+        &self,
+        commit: CommitId,
+        snapshot: Option<&Snapshot>,
+    ) -> Result<CommitMeasurement, CheckError> {
+        self.measure_with_package(commit, None, snapshot)
+    }
+
+    pub(crate) fn measure_selected_package_with_snapshot(
         &self,
         commit: CommitId,
         selected: Option<&SelectedPackage>,
+        snapshot: Option<&Snapshot>,
     ) -> Result<CommitMeasurement, CheckError> {
-        self.measure_with_package(commit, selected)
+        self.measure_with_package(commit, selected, snapshot)
     }
 
     fn measure_with_package(
         &self,
         commit: CommitId,
         selected: Option<&SelectedPackage>,
+        snapshot: Option<&Snapshot>,
     ) -> Result<CommitMeasurement, CheckError> {
         if let Some(cached) = self
             .result_cache
@@ -122,12 +132,16 @@ impl<'run> CommitMeasurer<'run> {
         {
             return Ok(cached);
         }
-        let measurement = measure_all_languages_selected(
-            &self.repository.commit(commit)?,
-            self.plugins,
-            self.configuration,
-            selected,
-        )?;
+        let owned_snapshot;
+        let tree = match snapshot {
+            Some(opened) => opened,
+            None => {
+                owned_snapshot = self.repository.commit(commit)?;
+                &owned_snapshot
+            }
+        };
+        let measurement =
+            measure_all_languages_selected(tree, self.plugins, self.configuration, selected)?;
         if let Some(cache) = self.result_cache
             && let Err(error) = cache.write(commit, &self.settings, &measurement)
         {
