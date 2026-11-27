@@ -9,6 +9,7 @@ publish.workspace = true
 codeint-config = { workspace = true }
 codeint-metrics = { workspace = true }
 codeint-model = { workspace = true }
+rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

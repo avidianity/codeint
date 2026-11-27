@@ -886,3 +886,54 @@ fn prepending_top_level_statement_preserves_downstream_near_clone_id_in_large_ga
     let after_ids: Vec<_> = after.clone_groups.iter().map(|g| g.id).collect();
     assert_eq!(before_ids, after_ids);
 }
+
+#[test]
+fn parallel_duplication_and_compact_clone_lines_are_deterministic_across_repeated_runs() {
+    let base = near_clone_lines();
+    let mut edited = base.clone();
+    edited.insert(5, "$audit ( $x ) ;");
+    let mut files = Vec::new();
+    for idx in 0..8usize {
+        files.push(file_with_functions(
+            &format!("src/exact_{idx:02}.ts"),
+            &base,
+            whole_function(base.len()),
+        ));
+        files.push(file_with_functions(
+            &format!("src/near_{idx:02}.ts"),
+            &edited,
+            whole_function(edited.len()),
+        ));
+    }
+    let test_model = model(files);
+    let config = NearCloneConfig::new(0.85).expect("valid threshold");
+
+    let baseline = Duplication::measure_with_near_clones(
+        &test_model,
+        minimum(55),
+        MinimumDistinctTokens::new(10),
+        Some(config),
+    );
+    assert!(!baseline.clone_groups.is_empty());
+    assert!(!baseline.clone_families.is_empty());
+    assert!(
+        baseline
+            .clone_lines
+            .contains(&RepoPath::new("src/exact_00.ts").expect("path"), 1)
+    );
+    assert!(
+        !baseline
+            .clone_lines
+            .contains(&RepoPath::new("src/exact_00.ts").expect("path"), 999)
+    );
+
+    for _ in 0..8 {
+        let repeated = Duplication::measure_with_near_clones(
+            &test_model,
+            minimum(55),
+            MinimumDistinctTokens::new(10),
+            Some(config),
+        );
+        assert_eq!(repeated, baseline);
+    }
+}
