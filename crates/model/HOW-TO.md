@@ -4,22 +4,26 @@
 
 ```rust
 use codeint_model::language::{
-    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
-    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind,
-    WorkspaceError,
+    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, ImportRequest,
+    Manifest, ReferenceRange, Resolution, SourceSet, Token, TokenKind,
 };
-use codeint_model::{empty_framework_profile_result, token_text_hash};
+use codeint_model::scan::find_manifests;
+use codeint_model::{
+    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, LowerError, ReferenceRanges,
+    RepoPath, WorkspaceError, empty_framework_profile_result, token_text_hash,
+    validate_workspace_packages,
+};
 
 pub struct Plain;
 
-impl Guest for Plain {
-    fn extensions() -> Vec<String> {
+impl LanguagePlugin for Plain {
+    fn extensions(&self) -> Vec<String> {
         vec!["txt".to_owned()]
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
+    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, LowerError> {
         let source_lines = u32::try_from(text.lines().count()).map_err(|_| LowerError::TooLarge)?;
-        let source_set = if path.starts_with("drafts/") {
+        let source_set = if path.as_str().starts_with("drafts/") {
             SourceSet::Test
         } else {
             SourceSet::Production
@@ -47,69 +51,78 @@ impl Guest for Plain {
         })
     }
 
-    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        repository_paths
-            .into_iter()
-            .filter(|path| path.ends_with("/plain.toml") || path == "plain.toml")
-            .collect()
+    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+        find_manifests(repository_paths, "plain.toml")
     }
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        Ok(Vec::new())
+    fn workspace_packages(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        validate_workspace_packages(Vec::new())
     }
 
     fn resolve_imports(
-        _repository_paths: Vec<String>,
+        &self,
+        _repository_paths: &[RepoPath],
         _manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        _active_profiles: Vec<String>,
-    ) -> Vec<Resolution> {
-        requests
+        _active_profiles: &[String],
+    ) -> Result<Vec<Resolution>, LanguagePluginError> {
+        Ok(requests
             .iter()
             .map(|request| Resolution::External(request.specifier.clone()))
-            .collect()
+            .collect())
     }
 
-    fn declared_dependencies(_manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        Vec::new()
+    fn declared_dependencies(
+        &self,
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 
-    fn entry_points(_repository_paths: Vec<String>, _manifests: Vec<Manifest>) -> Vec<String> {
-        Vec::new()
+    fn entry_points(
+        &self,
+        _repository_paths: &[RepoPath],
+        _manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        Ok(Vec::new())
     }
 
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        vec![ReferenceRange {
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        ReferenceRanges::new(vec![ReferenceRange {
             metric: "erosion".to_owned(),
             metric_version: 1,
             low: 0.12,
             high: 0.56,
             source: "Plain text panel of 40 repositories, Table 3".to_owned(),
-        }]
+        }])
     }
 
-    fn known_framework_profiles() -> Vec<String> {
+    fn known_framework_profiles(&self) -> Vec<String> {
         Vec::new()
     }
 
     fn resolve_framework_profiles(
-        _package_root: String,
-        _files: Vec<String>,
+        &self,
+        _package_root: &str,
+        _files: &[RepoPath],
         _manifests: Vec<Manifest>,
         _selection: FrameworkProfileSelection,
-    ) -> Result<FrameworkProfileResult, String> {
+    ) -> Result<FrameworkProfileResult, LanguagePluginError> {
         Ok(empty_framework_profile_result())
     }
 
-    fn has_hazard_rules() -> bool {
+    fn has_hazard_rules(&self) -> bool {
         false
     }
 
-    fn hazard_rules() -> Vec<String> {
+    fn hazard_rules(&self) -> Vec<String> {
         Vec::new()
     }
 
-    fn has_imports() -> bool {
+    fn has_imports(&self) -> bool {
         true
     }
 }
@@ -118,7 +131,13 @@ impl Guest for Plain {
 - The interface is defined once, in [wit/language.wit](../../wit/language.wit), as the versioned package `codeint:plugin@0.4.0`.
 - `codeint_model::language` holds the Rust types that wit-bindgen generates from that file.
   Never write a second Rust copy of a WIT type.
-- A built-in Language plugin implements the generated `Guest` trait, so it compiles against the same interface as an external WebAssembly Plugin.
+- A built-in Language plugin implements `LanguagePlugin` directly and borrows `&RepoPath`, `&str`, and `&[RepoPath]` to avoid per-file clones.
+- External WebAssembly Plugins implement the generated `Guest` trait, which bridges into `LanguagePlugin` through a blanket implementation.
+- `RepoPath` implements `AsRef<str>`, so shared path helpers accept `&[RepoPath]` and `&[String]` without cloning paths.
+- Call `codeint_model::scan::find_manifests<P: AsRef<str>>` to match a manifest filename across any `&[P]` slice.
+- Call `validate_workspace_packages` inside `LanguagePlugin::workspace_packages` to convert raw package root strings into validated `Vec<RepoPath>` values.
+- Use `delegate_framework_profile_plugin_methods!` to forward `known_framework_profiles` and `resolve_framework_profiles` to a plugin's framework module and validate the result.
+- Use `empty_framework_profile_plugin_methods!` for built-in Language plugins that define no Framework profiles.
 - `extensions` returns each file extension without its leading dot.
 - `lower` receives a repository-relative path with forward slashes and the whole file as text.
 - Return `LowerError::UnsupportedFile` for a file that no rule of the Language plugin covers.

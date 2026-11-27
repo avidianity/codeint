@@ -6,7 +6,10 @@ use codeint_model::language::Manifest;
 use crate::go_mod::{is_go_mod_path, manifest_dir, parse};
 use crate::source_set::{is_test_path, is_vendored_path};
 
-pub(crate) fn discover(repository_paths: &[String], manifests: &[Manifest]) -> Vec<String> {
+pub(crate) fn discover<P: AsRef<str>>(
+    repository_paths: &[P],
+    manifests: &[Manifest],
+) -> Vec<String> {
     let mut module_roots: Vec<&str> = manifests
         .iter()
         .filter(|m| is_go_mod_path(&m.path) && parse(&m.path, &m.text).is_ok())
@@ -17,12 +20,13 @@ pub(crate) fn discover(repository_paths: &[String], manifests: &[Manifest]) -> V
 
     let mut entries = BTreeSet::new();
     for path in repository_paths {
+        let path = path.as_ref();
         if !path.ends_with(".go") || is_test_path(path) || is_vendored_path(path) {
             continue;
         }
         let mod_root = owning_module_root(path, &module_roots);
         if !has_internal_segment_from_root(path, mod_root) {
-            entries.insert(path.clone());
+            entries.insert(path.to_owned());
         }
     }
     entries.into_iter().collect()

@@ -42,8 +42,12 @@ pub struct OrphanFiles {
 
 struct ImportGraphs {
     forward: Vec<Vec<usize>>,
-    reverse_non_test: Vec<Vec<usize>>,
     direct_test_importers: Vec<BTreeSet<usize>>,
+}
+
+struct ReachingTestImporters {
+    scc_of: Vec<usize>,
+    scc_importers: Vec<BTreeSet<usize>>,
 }
 
 struct PendingOrphan {
@@ -88,6 +92,11 @@ impl OrphanFiles {
             &live,
             &source_sets,
         );
+        let reaching = compute_reaching_test_importers(
+            &graphs.direct_test_importers,
+            &graphs.forward,
+            &reached_by_test,
+        );
 
         let mut evaluated_files = 0usize;
         let mut pending = Vec::new();
@@ -110,8 +119,8 @@ impl OrphanFiles {
                 index,
                 &file.path,
                 reached_by_test[index],
-                &graphs,
-                &live,
+                &graphs.direct_test_importers,
+                &reaching,
                 model,
             ));
         }
@@ -218,7 +227,6 @@ fn build_import_graphs(
 ) -> ImportGraphs {
     let count = model.files.len();
     let mut forward = vec![Vec::new(); count];
-    let mut reverse_non_test = vec![Vec::new(); count];
     let mut direct_test_importers = vec![BTreeSet::new(); count];
     for runtime_import in &model.runtime_imports {
         let ImportResolution::Resolved(targets) = &runtime_import.resolution else {
@@ -237,15 +245,11 @@ fn build_import_graphs(
                 }
             } else {
                 forward[from].push(to);
-                if source_sets[to] != SourceSet::Test {
-                    reverse_non_test[to].push(from);
-                }
             }
         }
     }
     ImportGraphs {
         forward,
-        reverse_non_test,
         direct_test_importers,
     }
 }
@@ -313,37 +317,127 @@ fn traverse_test_reachable(
     reached
 }
 
-fn collect_reaching_test_importers(
-    start: usize,
+fn compute_reaching_test_importers(
     direct_test_importers: &[BTreeSet<usize>],
-    reverse_non_test: &[Vec<usize>],
-    live: &[bool],
-    model: &CodeModel,
-) -> Vec<RepoPath> {
-    if !direct_test_importers[start].is_empty() {
-        let mut paths: Vec<RepoPath> = direct_test_importers[start]
-            .iter()
-            .map(|&index| model.files[index].path.clone())
-            .collect();
-        paths.sort();
-        return paths;
-    }
-    let mut visited = HashSet::new();
-    let mut queue = VecDeque::new();
-    let mut test_indices = BTreeSet::new();
-    visited.insert(start);
-    queue.push_back(start);
-    while let Some(node) = queue.pop_front() {
-        test_indices.extend(direct_test_importers[node].iter().copied());
-        for &importer in &reverse_non_test[node] {
-            if !live[importer] && visited.insert(importer) {
-                queue.push_back(importer);
+    forward: &[Vec<usize>],
+    reached_by_test: &[bool],
+) -> ReachingTestImporters {
+    let count = forward.len();
+    let (scc_of, sccs) = tarjan_test_reachable_sccs(forward, reached_by_test, count);
+    let mut scc_importers: Vec<BTreeSet<usize>> = sccs
+        .iter()
+        .map(|members| {
+            let mut importers = BTreeSet::new();
+            for &member in members {
+                importers.extend(direct_test_importers[member].iter().copied());
+            }
+            importers
+        })
+        .collect();
+    let mut seen_target_scc = vec![usize::MAX; sccs.len()];
+    for scc_id in (0..sccs.len()).rev() {
+        if scc_importers[scc_id].is_empty() {
+            continue;
+        }
+        let (lower, upper) = scc_importers.split_at_mut(scc_id);
+        let source_importers = &upper[0];
+        for &member in &sccs[scc_id] {
+            for &target in &forward[member] {
+                if !reached_by_test[target] {
+                    continue;
+                }
+                let target_scc = scc_of[target];
+                if target_scc != scc_id && seen_target_scc[target_scc] != scc_id {
+                    seen_target_scc[target_scc] = scc_id;
+                    lower[target_scc].extend(source_importers.iter().copied());
+                }
             }
         }
     }
-    let mut paths: Vec<RepoPath> = test_indices
-        .into_iter()
-        .map(|index| model.files[index].path.clone())
+    ReachingTestImporters {
+        scc_of,
+        scc_importers,
+    }
+}
+
+fn tarjan_test_reachable_sccs(
+    forward: &[Vec<usize>],
+    reached_by_test: &[bool],
+    count: usize,
+) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let mut next_index = 0usize;
+    let mut index = vec![None; count];
+    let mut lowlink = vec![0usize; count];
+    let mut on_stack = vec![false; count];
+    let mut tarjan_stack = Vec::new();
+    let mut call_stack = Vec::new();
+    let mut scc_of = vec![0usize; count];
+    let mut sccs = Vec::new();
+
+    for start in 0..count {
+        if !reached_by_test[start] || index[start].is_some() {
+            continue;
+        }
+        index[start] = Some(next_index);
+        lowlink[start] = next_index;
+        next_index += 1;
+        tarjan_stack.push(start);
+        on_stack[start] = true;
+        call_stack.push((start, 0usize));
+
+        while let Some((node, edge_idx)) = call_stack.last_mut() {
+            let current = *node;
+            let mut descended = false;
+            while *edge_idx < forward[current].len() {
+                let target = forward[current][*edge_idx];
+                *edge_idx += 1;
+                if !reached_by_test[target] {
+                    continue;
+                }
+                if let Some(target_index) = index[target] {
+                    if on_stack[target] {
+                        lowlink[current] = lowlink[current].min(target_index);
+                    }
+                } else {
+                    index[target] = Some(next_index);
+                    lowlink[target] = next_index;
+                    next_index += 1;
+                    tarjan_stack.push(target);
+                    on_stack[target] = true;
+                    call_stack.push((target, 0));
+                    descended = true;
+                    break;
+                }
+            }
+            if descended {
+                continue;
+            }
+            call_stack.pop();
+            if Some(lowlink[current]) == index[current] {
+                let scc_id = sccs.len();
+                let mut members = Vec::new();
+                while let Some(member) = tarjan_stack.pop() {
+                    on_stack[member] = false;
+                    scc_of[member] = scc_id;
+                    members.push(member);
+                    if member == current {
+                        break;
+                    }
+                }
+                sccs.push(members);
+            }
+            if let Some(&(parent, _)) = call_stack.last() {
+                lowlink[parent] = lowlink[parent].min(lowlink[current]);
+            }
+        }
+    }
+    (scc_of, sccs)
+}
+
+fn sorted_importer_paths(indices: &BTreeSet<usize>, model: &CodeModel) -> Vec<RepoPath> {
+    let mut paths: Vec<RepoPath> = indices
+        .iter()
+        .map(|&index| model.files[index].path.clone())
         .collect();
     paths.sort();
     paths
@@ -372,18 +466,17 @@ fn build_pending_orphan(
     index: usize,
     path: &RepoPath,
     reached_by_test: bool,
-    graphs: &ImportGraphs,
-    live: &[bool],
+    direct_test_importers: &[BTreeSet<usize>],
+    reaching: &ReachingTestImporters,
     model: &CodeModel,
 ) -> PendingOrphan {
     let (kind, test_importers, message) = if reached_by_test {
-        let importers = collect_reaching_test_importers(
-            index,
-            &graphs.direct_test_importers,
-            &graphs.reverse_non_test,
-            live,
-            model,
-        );
+        let importer_indices = if !direct_test_importers[index].is_empty() {
+            &direct_test_importers[index]
+        } else {
+            &reaching.scc_importers[reaching.scc_of[index]]
+        };
+        let importers = sorted_importer_paths(importer_indices, model);
         let message = format!(
             "Production file {path} is unreachable from Production entry points (only imported by tests)"
         );

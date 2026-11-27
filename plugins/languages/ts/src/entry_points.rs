@@ -13,8 +13,8 @@ const OUTPUT_TO_SOURCE_ALIASES: [(&str, &[&str]); 4] = [
     (".cjs", &[".cts"]),
 ];
 
-pub(crate) fn entry_points(
-    repository_paths: &[String],
+pub(crate) fn entry_points<P: AsRef<str>>(
+    repository_paths: &[P],
     manifests: &[Manifest],
     extensions: &[&str],
 ) -> Vec<String> {
@@ -25,19 +25,19 @@ pub(crate) fn entry_points(
     finder.entries.into_iter().collect()
 }
 
-struct TsEntryFinder<'a> {
-    paths: &'a [String],
+struct TsEntryFinder<'a, P> {
+    paths: &'a [P],
     extensions: &'a [&'a str],
     file_set: HashSet<&'a str>,
     entries: BTreeSet<String>,
 }
 
-impl<'a> TsEntryFinder<'a> {
-    fn new(paths: &'a [String], extensions: &'a [&'a str]) -> TsEntryFinder<'a> {
+impl<'a, P: AsRef<str>> TsEntryFinder<'a, P> {
+    fn new(paths: &'a [P], extensions: &'a [&'a str]) -> TsEntryFinder<'a, P> {
         TsEntryFinder {
             paths,
             extensions,
-            file_set: paths.iter().map(String::as_str).collect(),
+            file_set: paths.iter().map(AsRef::as_ref).collect(),
             entries: BTreeSet::new(),
         }
     }
@@ -214,13 +214,14 @@ impl<'a> TsEntryFinder<'a> {
         };
         let key_parts = export_key.and_then(split_single_wildcard);
         for path in self.paths {
+            let path = path.as_ref();
             if is_within_base_dir(base_dir, path)
                 && let Some(matched_suffix) = wildcard_suffix_match(path, &prefix, suffix)
                 && path.len() > prefix.len() + matched_suffix.len()
                 && is_ts_source_file(path, self.extensions)
                 && !is_excluded_export(path, &prefix, matched_suffix, key_parts, exclusions)
             {
-                self.entries.insert(path.clone());
+                self.entries.insert(path.to_owned());
             }
         }
     }

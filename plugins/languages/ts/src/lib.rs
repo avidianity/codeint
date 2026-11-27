@@ -16,8 +16,12 @@ mod workspaces;
 use std::collections::BTreeSet;
 
 use codeint_model::language::{
-    DeclaredDep, FileModel, FrameworkProfileResult, FrameworkProfileSelection, Guest,
-    ImportRequest, LowerError, Manifest, ReferenceRange, Resolution, WorkspaceError,
+    DeclaredDep, FileModel, ImportRequest, LowerError, Manifest, Resolution,
+};
+use codeint_model::{
+    InvalidReferenceRange, LanguagePlugin, LanguagePluginError, ReferenceRanges, RepoPath,
+    WorkspaceError, validate_declared_dependencies, validate_entry_points,
+    validate_workspace_packages,
 };
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -41,84 +45,90 @@ const REFERENCE_RANGE_SOURCE: &str = "codeint stratified panel of 100 TypeScript
 
 pub struct TypeScriptAndJavaScript;
 
-impl Guest for TypeScriptAndJavaScript {
-    fn extensions() -> Vec<String> {
+impl LanguagePlugin for TypeScriptAndJavaScript {
+    fn extensions(&self) -> Vec<String> {
         EXTENSIONS.iter().map(ToString::to_string).collect()
     }
 
-    fn lower(path: String, text: String) -> Result<FileModel, LowerError> {
-        if sfc::is_sfc(&path) {
-            return lower_sfc(&path, &text);
+    fn lower(&self, path: &RepoPath, text: &str) -> Result<FileModel, codeint_model::LowerError> {
+        let path = path.as_str();
+        if sfc::is_sfc(path) {
+            return lower_sfc(path, text).map_err(codeint_model::LowerError::from);
         }
-        let source_type = source_type(&path)?;
+        let source_type = source_type(path).map_err(codeint_model::LowerError::from)?;
         if source_type.is_typescript_definition() {
-            return Err(LowerError::DeclarationOnly);
+            return Err(codeint_model::LowerError::DeclarationOnly);
         }
-        lower_script(&path, &text, source_type)
+        lower_script(path, text, source_type).map_err(codeint_model::LowerError::from)
     }
 
-    fn manifest_paths(repository_paths: Vec<String>) -> Vec<String> {
-        manifest_paths(&repository_paths)
+    fn manifest_paths(&self, repository_paths: &[RepoPath]) -> Vec<String> {
+        manifest_paths(repository_paths)
     }
 
-    fn workspace_packages(manifests: Vec<Manifest>) -> Result<Vec<String>, WorkspaceError> {
-        workspaces::workspace_packages(&manifests)
+    fn workspace_packages(
+        &self,
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, WorkspaceError> {
+        validate_workspace_packages(workspaces::workspace_packages(&manifests)?)
     }
 
     fn resolve_imports(
-        repository_paths: Vec<String>,
+        &self,
+        repository_paths: &[RepoPath],
         manifests: Vec<Manifest>,
         requests: Vec<ImportRequest>,
-        active_profiles: Vec<String>,
-    ) -> Vec<Resolution> {
-        let resolver = ProjectResolver::new(&repository_paths, manifests, &active_profiles);
-        requests
+        active_profiles: &[String],
+    ) -> Result<Vec<Resolution>, LanguagePluginError> {
+        let resolver = ProjectResolver::new(repository_paths, manifests, active_profiles);
+        Ok(requests
             .iter()
             .map(|request| resolver.resolve(request))
-            .collect()
+            .collect())
     }
 
-    fn declared_dependencies(manifests: Vec<Manifest>) -> Vec<DeclaredDep> {
-        extract_declared(&manifests)
-    }
-
-    fn entry_points(repository_paths: Vec<String>, manifests: Vec<Manifest>) -> Vec<String> {
-        discover_entry_points(&repository_paths, &manifests, &EXTENSIONS)
-    }
-
-    fn reference_ranges() -> Vec<ReferenceRange> {
-        codeint_model::scan::CoreReferenceRanges {
-            erosion: (0.187, 0.671),
-            cognitive_complexity: (0.121, 0.532),
-            verbosity: (0.000, 0.002),
-            duplication: (0.018, 0.252),
-            import_cycles: Some((0.000, 0.182)),
-        }
-        .build(REFERENCE_RANGE_SOURCE)
-    }
-
-    fn known_framework_profiles() -> Vec<String> {
-        frameworks::known_profiles()
-    }
-
-    fn resolve_framework_profiles(
-        package_root: String,
-        files: Vec<String>,
+    fn declared_dependencies(
+        &self,
         manifests: Vec<Manifest>,
-        selection: FrameworkProfileSelection,
-    ) -> Result<FrameworkProfileResult, String> {
-        frameworks::resolve_framework_profiles(package_root, files, manifests, selection)
+    ) -> Result<Vec<DeclaredDep>, LanguagePluginError> {
+        validate_declared_dependencies(extract_declared(&manifests))
     }
 
-    fn has_hazard_rules() -> bool {
+    fn entry_points(
+        &self,
+        repository_paths: &[RepoPath],
+        manifests: Vec<Manifest>,
+    ) -> Result<Vec<RepoPath>, LanguagePluginError> {
+        validate_entry_points(
+            repository_paths,
+            discover_entry_points(repository_paths, &manifests, &EXTENSIONS),
+        )
+    }
+
+    fn reference_ranges(&self) -> Result<ReferenceRanges, InvalidReferenceRange> {
+        ReferenceRanges::new(
+            codeint_model::scan::CoreReferenceRanges {
+                erosion: (0.187, 0.671),
+                cognitive_complexity: (0.121, 0.532),
+                verbosity: (0.000, 0.002),
+                duplication: (0.018, 0.252),
+                import_cycles: Some((0.000, 0.182)),
+            }
+            .build(REFERENCE_RANGE_SOURCE),
+        )
+    }
+
+    codeint_model::delegate_framework_profile_plugin_methods!(frameworks);
+
+    fn has_hazard_rules(&self) -> bool {
         false
     }
 
-    fn hazard_rules() -> Vec<String> {
+    fn hazard_rules(&self) -> Vec<String> {
         Vec::new()
     }
 
-    fn has_imports() -> bool {
+    fn has_imports(&self) -> bool {
         true
     }
 }

@@ -432,6 +432,7 @@ name = "codeint-metrics"
 version = "0.8.0"
 dependencies = [
  "codeint-model",
+ "rayon",
  "thiserror",
 ]
 
@@ -479,6 +480,7 @@ dependencies = [
  "codeint-config",
  "codeint-metrics",
  "codeint-model",
+ "rayon",
  "serde",
  "serde_json",
  "thiserror",

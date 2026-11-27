@@ -35,10 +35,13 @@ struct TargetSpec {
     path: Option<String>,
 }
 
-pub(crate) fn entry_points(repository_paths: &[String], manifests: &[Manifest]) -> Vec<String> {
+pub(crate) fn entry_points<P: AsRef<str>>(
+    repository_paths: &[P],
+    manifests: &[Manifest],
+) -> Vec<String> {
     let index = CrateTargetIndex {
         all_paths: repository_paths,
-        present: repository_paths.iter().map(String::as_str).collect(),
+        present: repository_paths.iter().map(AsRef::as_ref).collect(),
     };
     let mut targets = BTreeSet::new();
     let suffix = format!("/{CARGO_MANIFEST}");
@@ -57,12 +60,12 @@ pub(crate) fn entry_points(repository_paths: &[String], manifests: &[Manifest]) 
     targets.into_iter().collect()
 }
 
-struct CrateTargetIndex<'a> {
-    all_paths: &'a [String],
+struct CrateTargetIndex<'a, P> {
+    all_paths: &'a [P],
     present: HashSet<&'a str>,
 }
 
-impl CrateTargetIndex<'_> {
+impl<P: AsRef<str>> CrateTargetIndex<'_, P> {
     fn record(&self, base_dir: &str, rel: &str, out: &mut BTreeSet<String>) -> bool {
         let trimmed = rel.trim();
         if trimmed.is_empty()
@@ -90,6 +93,7 @@ impl CrateTargetIndex<'_> {
             format!("{base_dir}/src/bin/")
         };
         for path in self.all_paths {
+            let path = path.as_ref();
             let Some(rest) = path.strip_prefix(&prefix) else {
                 continue;
             };
@@ -98,16 +102,16 @@ impl CrateTargetIndex<'_> {
                 .strip_suffix("/main.rs")
                 .is_some_and(|dir| !dir.is_empty() && !dir.contains('/'));
             if is_top_level || is_subdir_main {
-                out.insert(path.clone());
+                out.insert(path.to_owned());
             }
         }
     }
 }
 
 impl CargoTargets {
-    fn collect_into(
+    fn collect_into<P: AsRef<str>>(
         &self,
-        index: &CrateTargetIndex<'_>,
+        index: &CrateTargetIndex<'_, P>,
         base_dir: &str,
         out: &mut BTreeSet<String>,
     ) {
@@ -134,8 +138,8 @@ impl CargoTargets {
     }
 }
 
-fn record_build_script(
-    index: &CrateTargetIndex<'_>,
+fn record_build_script<P: AsRef<str>>(
+    index: &CrateTargetIndex<'_, P>,
     base_dir: &str,
     build: Option<&BuildScript>,
     out: &mut BTreeSet<String>,
@@ -151,8 +155,8 @@ fn record_build_script(
     }
 }
 
-fn record_named_bin(
-    index: &CrateTargetIndex<'_>,
+fn record_named_bin<P: AsRef<str>>(
+    index: &CrateTargetIndex<'_, P>,
     base_dir: &str,
     package_name: Option<&str>,
     bin_name: &str,

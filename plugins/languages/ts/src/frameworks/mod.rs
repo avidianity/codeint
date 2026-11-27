@@ -10,6 +10,7 @@ mod vue3;
 
 use std::collections::BTreeSet;
 
+use codeint_model::RepoPath;
 use codeint_model::language::{
     FrameworkProfileResult, FrameworkProfileSelection, Manifest, ReferenceRange,
 };
@@ -53,12 +54,12 @@ pub(crate) struct ProfileDefinition {
 
 pub(crate) struct PackageContext<'a> {
     package_root: &'a str,
-    files: &'a [String],
+    files: &'a [RepoPath],
     package_json: Option<Value>,
 }
 
 impl<'a> PackageContext<'a> {
-    fn new(package_root: &'a str, files: &'a [String], manifests: &[Manifest]) -> Self {
+    fn new(package_root: &'a str, files: &'a [RepoPath], manifests: &[Manifest]) -> Self {
         let expected_manifest = if package_root.is_empty() {
             "package.json".to_owned()
         } else {
@@ -93,21 +94,22 @@ impl<'a> PackageContext<'a> {
     pub(crate) fn matching_files(&self, predicate: impl Fn(&str) -> bool) -> Vec<String> {
         self.files
             .iter()
+            .map(RepoPath::as_str)
             .filter(|full| self.rel_path(full).is_some_and(&predicate))
-            .cloned()
+            .map(str::to_owned)
             .collect()
     }
 
     pub(crate) fn has_matching_file(&self, predicate: impl Fn(&str) -> bool) -> bool {
         self.files
             .iter()
-            .any(|full| self.rel_path(full).is_some_and(&predicate))
+            .any(|full| self.rel_path(full.as_str()).is_some_and(&predicate))
     }
 
     pub(crate) fn has_file(&self, rel: &str) -> bool {
         self.files
             .iter()
-            .any(|full| self.rel_path(full) == Some(rel))
+            .any(|full| self.rel_path(full.as_str()) == Some(rel))
     }
 
     pub(crate) fn has_any_file(&self, candidates: &[&str]) -> bool {
@@ -355,12 +357,12 @@ pub(crate) fn known_profiles() -> Vec<String> {
 }
 
 pub(crate) fn resolve_framework_profiles(
-    package_root: String,
-    files: Vec<String>,
-    manifests: Vec<Manifest>,
+    package_root: &str,
+    files: &[RepoPath],
+    manifests: &[Manifest],
     selection: FrameworkProfileSelection,
 ) -> Result<FrameworkProfileResult, String> {
-    let ctx = PackageContext::new(&package_root, &files, &manifests);
+    let ctx = PackageContext::new(package_root, files, manifests);
     let active_defs = select_active_profiles(&ctx, selection)?;
     let mut active_profiles: Vec<String> = active_defs
         .iter()
@@ -539,7 +541,10 @@ mod tests {
 
     #[test]
     fn child_profile_overrides_parent_reference_ranges_in_any_order() {
-        let files = vec!["package.json".to_owned(), "src/App.tsx".to_owned()];
+        let files = vec![
+            RepoPath::new("package.json").expect("valid path"),
+            RepoPath::new("src/App.tsx").expect("valid path"),
+        ];
         let manifests = vec![Manifest {
             path: "package.json".to_owned(),
             text: r#"{"dependencies":{"react":"^18.3.1","react-dom":"^18.3.1"}}"#.to_owned(),
@@ -559,7 +564,10 @@ mod tests {
 
     #[test]
     fn child_without_reference_ranges_inherits_parent_reference_ranges() {
-        let files = vec!["package.json".to_owned(), "src/app/page.tsx".to_owned()];
+        let files = vec![
+            RepoPath::new("package.json").expect("valid path"),
+            RepoPath::new("src/app/page.tsx").expect("valid path"),
+        ];
         let manifests = vec![Manifest {
             path: "package.json".to_owned(),
             text: r#"{"dependencies":{"next":"^15.0.0","react":"^19.0.0","react-dom":"^19.0.0"}}"#

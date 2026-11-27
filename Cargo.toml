@@ -69,3 +69,8 @@ cranelift-codegen.opt-level = 1
 cranelift-frontend.opt-level = 1
 regalloc2.opt-level = 1
 wasmtime-internal-cranelift.opt-level = 1
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
