@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0035
 ---
 
 # Rust Reference ranges come from a panel of 20 public repositories

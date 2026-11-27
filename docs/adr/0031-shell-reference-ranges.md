@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0035
 ---
 
 # Shell Reference ranges come from a stratified panel of 50 public repositories

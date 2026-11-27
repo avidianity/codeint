@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0035
 ---
 
 # Stratified 50-repository current-codebase Reference panels
