@@ -123,6 +123,17 @@ pub fn resolve_runtime_imports(
         .collect()
 }
 
+pub fn is_valid_external_package_name(package: &str) -> bool {
+    !package.chars().any(char::is_control)
+        && package
+            .chars()
+            .any(|ch| !ch.is_whitespace() && !is_zero_width(ch))
+}
+
+fn is_zero_width(ch: char) -> bool {
+    matches!(ch, '\u{200B}'..='\u{200D}' | '\u{FEFF}')
+}
+
 fn validate_resolution(
     importer: &RepoPath,
     specifier: &str,
@@ -135,7 +146,7 @@ fn validate_resolution(
                 .map(ImportResolution::Resolved)
         }
         language::Resolution::External(package) => {
-            if package.trim().is_empty() {
+            if !is_valid_external_package_name(&package) {
                 Err(ResolveError::EmptyExternalPackage {
                     importer: importer.clone(),
                     specifier: specifier.to_owned(),

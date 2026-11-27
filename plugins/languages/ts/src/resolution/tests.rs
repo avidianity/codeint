@@ -54,6 +54,20 @@ fn empty_and_query_only_specifiers_are_unresolved() {
 }
 
 #[test]
+fn blank_invisible_and_control_specifiers_are_unresolved() {
+    for specifier in [
+        " ", "\u{00a0}", " /x", "@ /x", "\u{200B}", "\u{FEFF}", "\0", "npm: ",
+    ] {
+        assert_eq!(package_name(specifier), "", "{specifier:?}");
+        assert!(
+            matches!(resolve_specifier(specifier), Resolution::Unresolved(_)),
+            "{specifier:?} must resolve to Unresolved, got {:?}",
+            resolve_specifier(specifier)
+        );
+    }
+}
+
+#[test]
 fn deno_npm_and_jsr_specifiers_strip_prefix_and_version_before_normalizing() {
     assert_eq!(package_name("npm:@medley/router"), "@medley/router");
     assert_eq!(

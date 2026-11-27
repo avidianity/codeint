@@ -366,3 +366,30 @@ fn a_plugin_that_resolves_to_an_empty_external_package_is_an_error() {
         );
     }
 }
+
+#[test]
+fn a_plugin_that_resolves_to_a_blank_invisible_or_control_external_package_is_an_error() {
+    for invalid_package in [
+        "",
+        "   ",
+        "\u{00a0}",
+        "\u{200B}",
+        "\u{FEFF}",
+        "\0",
+        "pkg\0name",
+    ] {
+        let plugin = Answering::of(vec![Resolution::External(invalid_package.to_owned())]);
+        let a = importer("a.ts", &["mystery"]);
+
+        let result = resolve_runtime_imports(&plugin, &[path("a.ts")], Vec::new(), &[&a], &[]);
+
+        assert!(
+            matches!(
+                &result,
+                Err(ResolveError::EmptyExternalPackage { importer, specifier })
+                    if importer.as_str() == "a.ts" && specifier == "mystery"
+            ),
+            "invalid external package {invalid_package:?} must be rejected, got {result:?}"
+        );
+    }
+}

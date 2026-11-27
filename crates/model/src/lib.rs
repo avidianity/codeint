@@ -33,7 +33,8 @@ pub use metric::{
     STRUCTURAL_REPORT_KEYS, is_reserved_report_key,
 };
 pub use runtime_imports::{
-    ImportResolution, ResolveError, RuntimeImport, choose_manifests, resolve_runtime_imports,
+    ImportResolution, ResolveError, RuntimeImport, choose_manifests,
+    is_valid_external_package_name, resolve_runtime_imports,
 };
 pub use source_set::{
     STANDARD_GENERATED_MARKERS, contains_ascii_ignore_case, has_any_ascii_marker, has_folder_named,

@@ -6020,3 +6020,32 @@ fn sql_check_displays_calibrated_reference_ranges_next_to_sql_values() {
         None
     );
 }
+
+#[test]
+fn typescript_blank_and_invisible_import_specifiers_report_unresolved_without_aborting() {
+    let repository = Repository::new();
+    repository.write("package.json", r#"{"name":"demo","private":true}"#);
+    repository.write(
+        "src/ws.ts",
+        concat!(
+            "import a from \" \";\n",
+            "import b from \"\u{00a0}\";\n",
+            "import c from \"\u{200B}\";\n",
+            "require(\" /x\");\n",
+            "export const used = [a, b, c];\n",
+        ),
+    );
+    repository.commit_all();
+
+    let output = repository.codeint(&["check", "--format", "json"]);
+    assert_success(&output);
+    let report: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("parse check JSON report");
+    let unresolved = &report["source_sets"]["production"]["import_cycles"]["unresolved_imports"];
+    assert_eq!(unresolved["count"], 4, "report: {report}");
+    assert_eq!(
+        report.get("dependencies"),
+        None,
+        "blank and invisible specifiers must not emit unlisted dependencies: {report}"
+    );
+}

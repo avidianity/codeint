@@ -102,7 +102,7 @@ fn resolve_package_uri(
         None => (pkg_rest, None),
     };
     let pkg_name = normalize_pub_name(raw_pkg);
-    if pkg_name.is_empty() {
+    if !codeint_model::is_valid_external_package_name(&pkg_name) {
         return Resolution::Unresolved(format!("malformed Dart package URI package:{pkg_rest:?}"));
     }
     let Some(pkg_dir) = packages.get(&pkg_name) else {
